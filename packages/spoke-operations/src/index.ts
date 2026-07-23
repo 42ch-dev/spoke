@@ -15,32 +15,32 @@ export {
 
 export {
   buildAssemblePacket,
-  keyblockToAssembleEntry,
+  knowledgeEntryToAssembleEntry,
   type BuildAssemblePacketInput,
 } from "./assemble/builder.js";
 
 export { assertRevisionMatch } from "./occ/assert-revision.js";
 
 export {
-  isValidKeyblockStatusTransition,
-  transitionKeyblockStatus,
-} from "./keyblock/transition.js";
+  isValidKnowledgeEntryStatusTransition,
+  transitionKnowledgeEntryStatus,
+} from "./knowledge-entry/transition.js";
 
 export {
-  assertUniqueActiveKeyblock,
-  type AssertUniqueActiveKeyblockInput,
-} from "./keyblock/uniqueness.js";
+  assertUniqueActiveKnowledgeEntry,
+  type AssertUniqueActiveKnowledgeEntryInput,
+} from "./knowledge-entry/uniqueness.js";
 
 export {
-  keyblockMatchesScope,
-  filterKeyblocksByScope,
-  eventMatchesScope,
-  filterEventsByScope,
+  knowledgeEntryMatchesScope,
+  filterKnowledgeEntriesByScope,
+  timelineEventMatchesScope,
+  filterTimelineEventsByScope,
 } from "./scope/match.js";
 
 export {
-  validateUpsertKeyblock,
-  type ValidateUpsertKeyblockContext,
+  validateUpsertKnowledgeEntry,
+  type ValidateUpsertKnowledgeEntryContext,
 } from "./upsert/validate.js";
 
 export { validateRelateRequest } from "./relate/validate.js";

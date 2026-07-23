@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "keyblock_id": "kb_tw_harbor",
+  "knowledge_entry_id": "kb_tw_harbor",
   "block_type": "location",
   "canonical_name": "Harbor Town",
   "status": "confirmed",

@@ -1,4 +1,4 @@
-import type { Keyblock, PromoteRequest } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 
 import { SpokeRejectCode } from "../result.js";
@@ -7,10 +7,10 @@ import {
   validatePromoteRequest,
 } from "./acceptance.js";
 
-function makeCandidate(overrides: Partial<Keyblock> = {}): Keyblock {
+function makeCandidate(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
   return {
     schema_version: 1,
-    keyblock_id: "kb_1",
+    knowledge_entry_id: "kb_1",
     block_type: "character",
     canonical_name: "Mira Vale",
     status: "provisional",
@@ -67,7 +67,7 @@ describe("validatePromoteRequest", () => {
 
   it("rejects merge target equal to candidate id", () => {
     const result = validatePromoteRequest(
-      makeRequest({ target_keyblock_id: "kb_1" }),
+      makeRequest({ target_knowledge_entry_id: "kb_1" }),
     );
 
     expect(result.ok).toBe(false);

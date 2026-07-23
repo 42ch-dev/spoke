@@ -20,7 +20,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 | **2. Ops wire** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
 
-**Invariant:** generated `@42ch/spoke-schema` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
+**Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
 **Deferred data object:** `Rule` — see [`spoke-data-model.md` §Rule deferral](spoke-data-model.md#rule-deferral-v01-decision). No `rule.schema.json` in v0.1.
 
@@ -49,8 +49,8 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 
 | Language | Package | Generator | Output path |
 |----------|---------|-----------|-------------|
-| TypeScript | `@42ch/spoke-schema` | `json-schema-to-typescript` | `packages/spoke-schema/src/generated/` |
-| Rust | `spoke-schema` | `typify` | `crates/spoke-schema/src/generated/` |
+| TypeScript | `@42ch/spoke-schemas` | `json-schema-to-typescript` | `packages/spoke-schemas/src/generated/` |
+| Rust | `spoke-schemas` | `typify` | `crates/spoke-schemas/src/generated/` |
 | TypeScript (hand-written) | `@42ch/spoke-operations` | — (not codegen) | `packages/spoke-operations/src/` |
 
 `schemas/` is the only hand-authored wire truth. Generated output is committed; drift fails `verify-codegen`.
@@ -61,10 +61,10 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 spoke/
 ├── package.json                 # scripts: codegen, verify-codegen
 ├── pnpm-workspace.yaml          # packages: ["packages/*", "tooling/*"]
-├── Cargo.toml                   # workspace; members = ["crates/spoke-schema"]
+├── Cargo.toml                   # workspace; members = ["crates/spoke-schemas"]
 ├── schemas/                     # SSOT (hand-authored)
 ├── tooling/codegen/             # orchestrates jstt + typify (private package)
-├── packages/spoke-schema/       # @42ch/spoke-schema (published path TBD)
+├── packages/spoke-schemas/       # @42ch/spoke-schemas (published path TBD)
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── src/
@@ -73,7 +73,7 @@ spoke/
 │           ├── common/
 │           ├── data/
 │           └── ops/
-└── crates/spoke-schema/
+└── crates/spoke-schemas/
     ├── Cargo.toml
     └── src/
         ├── lib.rs               # pub mod generated; flat re-exports
@@ -104,10 +104,10 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `.mstar/specs/` | Normative protocol docs (this file + data + ops + operations detail) |
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
-| `packages/spoke-schema/` | Generated TypeScript |
+| `packages/spoke-schemas/` | Generated TypeScript |
 | `packages/spoke-operations/` | Hand-written operations library (delivered v0-iter002) |
-| `crates/spoke-schema/` | Generated Rust |
-| `adapters/nexus/`, `adapters/creader/` | Empty placeholders (`.gitkeep` only) |
+| `crates/spoke-schemas/` | Generated Rust |
+| `adapters/` | README purpose note only; product adapter packages deferred |
 
 ## v0.1 acceptance (umbrella)
 
@@ -116,12 +116,12 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
-   - `typescript` — `pnpm -F @42ch/spoke-schema typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
-   - `rust` — `cargo check -p spoke-schema`
-3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schema`)
+   - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
+   - `rust` — `cargo check -p spoke-schemas`
+3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`)
 4. Extensions contract enforced in data schemas
 5. `Rule` deferral documented; no orphan `rule.schema.json`
-6. Adapter dirs placeholder-only; no `fixtures/`
+6. No adapter packages or `fixtures/` yet (`adapters/README.md` only)
 
 ## Non-goals (v0.1)
 
@@ -138,7 +138,7 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 
 | Phase | Deliverable |
 |-------|-------------|
-| **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schema` / `spoke-schema`, empty adapter dirs, CI gate |
+| **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **v0-iter002 (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE), optional `Rule` schema, conformance fixtures |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |

@@ -19,4 +19,4 @@ Protocol repos often mix maintainer process docs with integrator onboarding. Dua
 ## Related
 
 - Specs: `.mstar/specs/spoke-protocol.md`, `spoke-operations.md`
-- Packages: `@42ch/spoke-schema`, `@42ch/spoke-operations`
+- Packages: `@42ch/spoke-schemas`, `@42ch/spoke-operations`

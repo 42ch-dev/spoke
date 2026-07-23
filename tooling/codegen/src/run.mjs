@@ -15,7 +15,7 @@ const REPO_ROOT = path.resolve(__dirname, "../../..");
 const SCHEMAS_DIR = path.join(REPO_ROOT, "schemas");
 const LOCAL_SCHEMAS_DIR = path.join(REPO_ROOT, "tooling/codegen/.schemas-localized");
 const DEREF_SCHEMAS_DIR = path.join(REPO_ROOT, "tooling/codegen/.schemas-dereferenced");
-const TS_OUT = path.join(REPO_ROOT, "packages/spoke-schema/src/generated");
+const TS_OUT = path.join(REPO_ROOT, "packages/spoke-schemas/src/generated");
 
 const BANNER = `/**
  * AUTO-GENERATED FROM JSON SCHEMA - DO NOT MODIFY

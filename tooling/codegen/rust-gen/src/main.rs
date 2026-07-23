@@ -171,7 +171,7 @@ fn main() {
     let root = repo_root();
     let schemas_dir = schemas_dir(&root);
     let source_schemas_dir = source_schemas_dir(&root);
-    let out_root = root.join("crates/spoke-schema/src/generated");
+    let out_root = root.join("crates/spoke-schemas/src/generated");
 
     fs::remove_dir_all(&out_root).ok();
     fs::create_dir_all(&out_root).expect("mkdir out");

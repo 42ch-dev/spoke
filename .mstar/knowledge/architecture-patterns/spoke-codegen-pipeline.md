@@ -6,7 +6,7 @@
 
 ## Problem
 
-Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schema`) and Rust (`spoke-schema`) without drift. Two generators (jstt + typify) have different `$ref` / naming constraints; a soft-fail Rust path can exit 0 with a partial tree.
+Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) without drift. Two generators (jstt + typify) have different `$ref` / naming constraints; a soft-fail Rust path can exit 0 with a partial tree.
 
 ## Decision
 

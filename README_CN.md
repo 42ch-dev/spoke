@@ -4,15 +4,15 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — 叙事 **Keyblock** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。Nexus、Creader 等产品用这些形状交换一致性检查与上下文组装的 I/O。
 
-**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schema`）与 Rust（`spoke-schema`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）。
+**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）。
 
 ## 软件包
 
 | 软件包 | 职责 |
 |--------|------|
-| [`@42ch/spoke-schema`](packages/spoke-schema/) | 由 JSON Schema 生成的 TypeScript 类型 — 描述**线上传输什么** |
+| [`@42ch/spoke-schemas`](packages/spoke-schemas/) | 由 JSON Schema 生成的 TypeScript 类型 — 描述**线上传输什么** |
 | [`@42ch/spoke-operations`](packages/spoke-operations/) | 手写纯函数辅助 — 晋升门控、Finding 状态迁移、扩展合并、AssemblePacket 构建 |
-| `spoke-schema`（Rust crate） | [`crates/spoke-schema/`](crates/spoke-schema/) 中的生成 Rust 类型 |
+| `spoke-schemas`（Rust crate） | [`crates/spoke-schemas/`](crates/spoke-schemas/) 中的生成 Rust 类型 |
 
 产品专属载荷放在 `extensions.<namespace>` 下（例如 `extensions.nexus`、`extensions.creader`）。
 
@@ -23,7 +23,7 @@
 ```json
 {
   "dependencies": {
-    "@42ch/spoke-schema": "workspace:*",
+    "@42ch/spoke-schemas": "workspace:*",
     "@42ch/spoke-operations": "workspace:*"
   }
 }
@@ -34,13 +34,13 @@
 ```json
 {
   "dependencies": {
-    "@42ch/spoke-schema": "file:../spoke/packages/spoke-schema",
+    "@42ch/spoke-schemas": "file:../spoke/packages/spoke-schemas",
     "@42ch/spoke-operations": "file:../spoke/packages/spoke-operations"
   }
 }
 ```
 
-然后在 SPOKE 根目录执行 `pnpm install`，并构建（`pnpm --filter @42ch/spoke-schema build` 与 `pnpm --filter @42ch/spoke-operations build`）。
+然后在 SPOKE 根目录执行 `pnpm install`，并构建（`pnpm --filter @42ch/spoke-schemas build` 与 `pnpm --filter @42ch/spoke-operations build`）。
 
 ## 核心概念
 
@@ -58,7 +58,7 @@
 ## 快速开始
 
 ```typescript
-import type { Keyblock, PromoteRequest } from "@42ch/spoke-schema";
+import type { Keyblock, PromoteRequest } from "@42ch/spoke-schemas";
 import { validatePromoteRequest } from "@42ch/spoke-operations";
 
 const candidate: Keyblock = {

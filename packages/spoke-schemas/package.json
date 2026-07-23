@@ -1,5 +1,5 @@
 {
-  "name": "@42ch/spoke-schema",
+  "name": "@42ch/spoke-schemas",
   "version": "0.1.0",
   "private": true,
   "description": "SPOKE wire types — TypeScript generated from JSON Schema",

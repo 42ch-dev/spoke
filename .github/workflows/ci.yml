@@ -69,11 +69,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck @42ch/spoke-schema
-        run: pnpm -F @42ch/spoke-schema typecheck
+      - name: Typecheck @42ch/spoke-schemas
+        run: pnpm -F @42ch/spoke-schemas typecheck
 
-      - name: Build @42ch/spoke-schema
-        run: pnpm -F @42ch/spoke-schema build
+      - name: Build @42ch/spoke-schemas
+        run: pnpm -F @42ch/spoke-schemas build
 
       - name: Typecheck @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations typecheck
@@ -100,5 +100,5 @@ jobs:
           shared-key: spoke-rust
           workspaces: .
 
-      - name: Check spoke-schema crate
-        run: cargo check -p spoke-schema
+      - name: Check spoke-schemas crate
+        run: cargo check -p spoke-schemas

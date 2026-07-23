@@ -2,9 +2,9 @@
 
 [中文](README_CN.md)
 
-**Standardized Programmable Ontology Keyblock Engine** — a protocol repository of JSON Schema wire contracts for narrative **Keyblock** data and **ops**. Products such as Nexus and Creader use these shapes for consistency-check and context-assembly I/O across independent stacks.
+**Standardized Programmable Ontology Knowledge Engine** — a protocol repository of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Products such as Nexus and Creader use these shapes for consistency-check and context-assembly I/O across independent stacks.
 
-**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, Rule, Event); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`); protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/)).
+**Includes:** data-layer schemas (KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`); protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/)).
 
 ## Packages
 
@@ -46,12 +46,12 @@ Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-sc
 
 | Term | In SPOKE |
 |------|----------|
-| **Keyblock** | Atomic narrative knowledge unit on the wire (`keyblock_id`, `block_type`, `status`, `body`, `extensions`) |
-| **Relation** | Directed edge between Keyblocks (or Keyblock ↔ source) |
+| **KnowledgeEntry** | Atomic narrative knowledge unit on the wire (`knowledge_entry_id`, `block_type`, `status`, `body`, `extensions`) |
+| **Relation** | Directed edge between KnowledgeEntries (or KnowledgeEntry ↔ source) |
 | **SourceAnchor** | Provenance pointer to a manuscript span or external locator |
 | **Finding** | Checker output for consistency, style, or analysis |
 | **Rule** | Declarative constraint input to `check` (L6) |
-| **Event** | First-class temporal object on the when-axis (L5) |
+| **TimelineEvent** | First-class temporal object on the when-axis (L5) |
 | **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
 
@@ -60,12 +60,12 @@ Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATE
 ## Quick start
 
 ```typescript
-import type { Keyblock, PromoteRequest } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
 import { validatePromoteRequest } from "@42ch/spoke-operations";
 
-const candidate: Keyblock = {
+const candidate: KnowledgeEntry = {
   schema_version: 1,
-  keyblock_id: "kb_01",
+  knowledge_entry_id: "kb_01",
   block_type: "character",
   canonical_name: "Aria",
   status: "provisional",
@@ -92,7 +92,7 @@ Other exports include `buildAssemblePacket`, `transitionFindingStatus`, and `mer
 - Extension map merge and round-trip preservation
 - Finding `status` transition validation and apply
 - Promote acceptance checks (gate before persist)
-- AssemblePacket builders from Keyblocks
+- AssemblePacket builders from KnowledgeEntries
 - Unified `SpokeResult` / `SpokeRejectCode` on reject paths
 
 Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md).

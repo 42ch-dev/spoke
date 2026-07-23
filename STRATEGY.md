@@ -4,7 +4,7 @@
 
 **SPOKE is a protocol repository, not a runtime.**
 
-It defines JSON Schema wire contracts for narrative Keyblock **data** and **ops** so products (Nexus, Creader, others) can exchange consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
+It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and **ops** so products (Nexus, Creader, others) can exchange consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
 
 ## What we build
 
@@ -30,7 +30,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Artifact |
 |--------|----------------|----------|
-| **1. Data wire** | Durable objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket; protocol layers deepen adds Rule, Event | `schemas/data/` → `@42ch/spoke-schemas` |
+| **1. Data wire** | Durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket; protocol layers deepen adds Rule, TimelineEvent | `schemas/data/` → `@42ch/spoke-schemas` |
 | **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schemas` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | `@42ch/spoke-operations` |
 
@@ -49,10 +49,10 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 |-------|-------|
 | **v0.1 (delivered 2026-07-23)** | Spec trio + schemas + codegen + CI verify gate |
 | **Operations library first slice (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
-| **Protocol layers + Rule/Event (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
-| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, Keyblock status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
+| **Protocol layers + Rule/TimelineEvent (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
+| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, KnowledgeEntry status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
 | **Next** | Adapter packages (`adapters/nexus`, `adapters/creader`) |
-| **North star** | Cross-product Keyblock dialect for checker and context-assembly I/O |
+| **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 
 ## See also
 

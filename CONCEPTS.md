@@ -12,7 +12,7 @@ Core terms for the SPOKE protocol repository. Each entry defines what the term m
 
 The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`knowledge_entry_id`), open-string `block_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — cross-product transitions enforced by `@42ch/spoke-operations` (operations library deepen); `deprecated` → `merged` is excluded (restore to `confirmed` before absorb). Products map their local KB entities to KnowledgeEntries via adapters (adapter work next iteration).
 
-**Former wire name:** `Keyblock` (pre-1.0 rename; no dual aliases).
+**Pre-1.0 wire rename:** retired legacy wire name; no dual aliases.
 
 ### Relation
 
@@ -34,7 +34,7 @@ Declarative constraint **input** to `check` (L6). First-class wire object — `s
 
 First-class **when-axis** temporal object (L5) — `schemas/data/timeline-event.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Optional `timeline_scale` tags the L5 projection tier (`brief`, `narrative`, `moment`). **Distinct from** KnowledgeEntry `block_type: "event"` (ontology label on a KB entry body).
 
-**Former wire name:** `Event` (pre-1.0 rename; no dual aliases).
+**Pre-1.0 wire rename:** retired legacy wire name; no dual aliases.
 
 ### TimelineScale
 

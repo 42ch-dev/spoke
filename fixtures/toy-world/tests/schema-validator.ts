@@ -68,21 +68,22 @@ export function compileSchemaValidator(
 }
 
 export const SCHEMA_IDS = {
-  keyblock: "https://spoke42.invalid/schemas/data/keyblock.schema.json",
+  knowledgeEntry: "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json",
   relation: "https://spoke42.invalid/schemas/data/relation.schema.json",
   sourceAnchor: "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
-  event: "https://spoke42.invalid/schemas/data/event.schema.json",
+  timelineEvent: "https://spoke42.invalid/schemas/data/timeline-event.schema.json",
   rule: "https://spoke42.invalid/schemas/data/rule.schema.json",
   finding: "https://spoke42.invalid/schemas/data/finding.schema.json",
   assemblePacket: "https://spoke42.invalid/schemas/data/assemble-packet.schema.json",
 } as const;
 
 export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
-  "kb_tw_mira.json": SCHEMA_IDS.keyblock,
-  "kb_tw_harbor.json": SCHEMA_IDS.keyblock,
+  "kb_tw_mira.json": SCHEMA_IDS.knowledgeEntry,
+  "kb_tw_harbor.json": SCHEMA_IDS.knowledgeEntry,
+  "kb_tw_harbor_dawn_event.json": SCHEMA_IDS.knowledgeEntry,
   "anchor_tw_manuscript.json": SCHEMA_IDS.sourceAnchor,
   "rel_tw_mira_harbor.json": SCHEMA_IDS.relation,
-  "evt_tw_harbor_dawn.json": SCHEMA_IDS.event,
+  "evt_tw_harbor_dawn.json": SCHEMA_IDS.timelineEvent,
   "rule_tw_consistency.json": SCHEMA_IDS.rule,
   "fnd_tw_open.json": SCHEMA_IDS.finding,
   "pkt_tw_scope.json": SCHEMA_IDS.assemblePacket,

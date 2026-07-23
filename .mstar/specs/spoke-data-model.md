@@ -77,7 +77,15 @@ Declarative constraint **input** to `check` — never checker output.
 }
 ```
 
-**Rule vs Finding:** `Rule` is checker **input**; `Finding` is checker **output**. Never interchange types or embed Findings in `check` requests as rules.
+### Open vocabulary (`kind`, `status`)
+
+| Field | JSON type | Core vocabulary (documented, not `enum`) |
+|-------|-----------|------------------------------------------|
+| `kind` | open string | `rule`, `prohibition`, `style` |
+| `status` | open string | `draft`, `active`, `deprecated` |
+| `severity_hint` | open string | `info`, `warning`, `error` |
+
+Products MAY emit values outside the core lists; adapters MUST round-trip unknown values verbatim.
 
 ---
 
@@ -150,16 +158,28 @@ Products MAY emit values outside the core trio; adapters MUST round-trip unknown
 
 ---
 
-## Rule deferral (v0.1 decision — superseded)
+## Rule vs Finding (boundary)
 
-**Historical v0.1 decision:** `Rule` was out of scope; `check` carried opaque `rule_refs: string[]` only.
+`Rule` and `Finding` are **never interchangeable**. Collapsing them breaks `check` I/O semantics.
 
-**v0-iter003 position (architect-locked):** Portable `Rule` and `Event` wire objects ship in `schemas/data/`. Field tables above are normative for implementers — do not re-decide in plan execute.
+| Concern | Rule (L6) | Finding (L7) |
+|---------|-----------|--------------|
+| **Role** | Declarative checker **input** | Checker **output** |
+| **Wire schema** | `schemas/data/rule.schema.json` | `schemas/data/finding.schema.json` |
+| **Stable id** | `rule_id` | `finding_id` |
+| **`check` direction** | Request: `rule_refs[]` and/or embedded `rules[]` | Response: `findings[]` |
+| **Severity** | Optional `severity_hint` (checker hint) | Required `severity` |
+| **Status vocabulary** | `draft`, `active`, `deprecated` (open string) | `open`, `resolved`, `dismissed` (open string) |
+| **Constraint text** | Optional `statement` / `description` | Required `title` + `description` |
+| **Remediation** | Not on Rule wire | Optional `suggested_fix`, `text_position` |
+| **MUST NOT** | Appear in `findings[]` | Appear in `check` request as rules |
 
-| Concern | Product rule |
-|---------|--------------|
-| Rule vs Finding | `Rule` = checker **input**; `Finding` = checker **output** — never interchangeable |
+**Historical note:** v0.1 deferred the `Rule` wire object; `check` accepted opaque `rule_refs: string[]` only. v0-iter003 ships portable `Rule` and `Event` shapes — field tables above are normative.
+
+| Related concern | Product rule |
+|-----------------|--------------|
 | Adapter mapping | Creader `KnowledgeEntryType: "rule"` and Nexus overlays map in **future adapter specs** — not blockers for wire shapes |
+| Keyblock `block_type: "rule"` | Valid open ontology label on a Keyblock — distinct from L6 `Rule` wire object |
 | Fork | Optional L5 capability — not required with `Event` |
 
 ---

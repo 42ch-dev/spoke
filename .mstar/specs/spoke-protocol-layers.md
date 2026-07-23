@@ -125,7 +125,7 @@ Baseline compliance MUST NOT require either flag.
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |
 
-Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Event, TimelineScale) and [`spoke-ops.md`](spoke-ops.md) (Scope, error envelope, check/assemble).
+Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Event, TimelineScale, §Rule vs Finding) and [`spoke-ops.md`](spoke-ops.md) (Scope, error envelope, check `rule_refs` + `rules[]`, assemble).
 
 ## Acceptance (layers spec)
 

@@ -114,7 +114,7 @@ Pure promote gates and revision bump before persist: [`spoke-operations.md` §Pr
 | `rules[]` | Portable interchange — full declarative `Rule` objects inline |
 | Both present | For each `rule_id`, embedded object in `rules[]` **wins** over the matching ref; refs without a matching embed are resolved by the receiver |
 
-No separate “slim embed” type — `Rule` schema is intentionally lean (no checker runtime fields). Do not embed `Finding` shapes in `check` requests.
+No separate “slim embed” type — `Rule` schema is intentionally lean (no checker runtime fields). Do not embed `Finding` shapes in `check` requests. See [`spoke-data-model.md` §Rule vs Finding](spoke-data-model.md#rule-vs-finding-boundary).
 
 **Product rule:** `check` MUST NOT return `AssemblePacket`. Checker execution engines remain product-local; the wire carries inputs/outputs only.
 

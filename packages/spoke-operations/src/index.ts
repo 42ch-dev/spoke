@@ -32,6 +32,22 @@ export {
 } from "./keyblock/uniqueness.js";
 
 export {
+  keyblockMatchesScope,
+  filterKeyblocksByScope,
+  eventMatchesScope,
+  filterEventsByScope,
+} from "./scope/match.js";
+
+export {
+  validateUpsertKeyblock,
+  type ValidateUpsertKeyblockContext,
+} from "./upsert/validate.js";
+
+export { validateRelateRequest } from "./relate/validate.js";
+
+export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
+
+export {
   SpokeRejectCode,
   spokeOk,
   spokeReject,

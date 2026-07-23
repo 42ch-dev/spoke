@@ -27,6 +27,19 @@ export function assertUniqueActiveKeyblock({
   candidate,
   existing,
 }: AssertUniqueActiveKeyblockInput): SpokeResult<void> {
+  if (candidate.block_type !== block_type || candidate.canonical_name !== canonical_name) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "block_type and canonical_name must match candidate wire fields",
+      {
+        block_type,
+        canonical_name,
+        candidate_block_type: candidate.block_type,
+        candidate_canonical_name: candidate.canonical_name,
+      },
+    );
+  }
+
   if (!isActiveKeyblockStatus(candidate.status)) {
     return spokeOk();
   }

@@ -10,12 +10,17 @@ Story-AI products each invent local shapes for knowledge units, checker I/O, and
 
 **v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters or conformance tests.
 
-## Two layers
+## Three columns (Thrust A)
 
-| Layer | Responsibility | Normative doc | Schema home |
-|-------|----------------|---------------|-------------|
-| **Data** | Five required objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
-| **Ops** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
+SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md). v0.1 delivered columns 1–2; column 3 lands in v0-iter002.
+
+| Column | Responsibility | Normative doc | Artifact home |
+|--------|----------------|---------------|---------------|
+| **1. Data** | Five required objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
+| **2. Ops wire** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
+| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
+
+**Invariant:** generated `@42ch/spoke-schema` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
 **Deferred data object:** `Rule` — see [`spoke-data-model.md` §Rule deferral](spoke-data-model.md#rule-deferral-v01-decision). No `rule.schema.json` in v0.1.
 
@@ -46,6 +51,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 |----------|---------|-----------|-------------|
 | TypeScript | `@42ch/spoke-schema` | `json-schema-to-typescript` | `packages/spoke-schema/src/generated/` |
 | Rust | `spoke-schema` | `typify` | `crates/spoke-schema/src/generated/` |
+| TypeScript (hand-written) | `@42ch/spoke-operations` | — (not codegen) | `packages/spoke-operations/src/` |
 
 `schemas/` is the only hand-authored wire truth. Generated output is committed; drift fails `verify-codegen`.
 
@@ -95,21 +101,22 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 | Path | v0.1 expectation |
 |------|------------------|
-| `.mstar/specs/` | Normative protocol docs (this file + data + ops detail) |
+| `.mstar/specs/` | Normative protocol docs (this file + data + ops + operations detail) |
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schema/` | Generated TypeScript |
+| `packages/spoke-operations/` | Hand-written operations library (v0-iter002+) |
 | `crates/spoke-schema/` | Generated Rust |
 | `adapters/nexus/`, `adapters/creader/` | Empty placeholders (`.gitkeep` only) |
 
 ## v0.1 acceptance (umbrella)
 
-Executable checks for iteration close — detail in [delivery compass](../iterations/v0.1/delivery-compass.md):
+Historical v0.1 close criteria (wire bootstrap). v0-iter002 adds column 3 — see [`spoke-operations.md`](spoke-operations.md) acceptance section.
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
-   - `typescript` — `pnpm -F @42ch/spoke-schema typecheck` + `build`
+   - `typescript` — `pnpm -F @42ch/spoke-schema typecheck` + `build` (v0-iter002 adds `@42ch/spoke-operations` typecheck + test)
    - `rust` — `cargo check -p spoke-schema`
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schema`)
 4. Extensions contract enforced in data schemas
@@ -129,9 +136,12 @@ Executable checks for iteration close — detail in [delivery compass](../iterat
 
 ## Roadmap pointer
 
-- **v0.1 (now):** Protocol bootstrap — schemas, codegen, language packages, empty adapter dirs, **CI gate**
-- **Next iteration:** Implementable adapter packages (product object ↔ SPOKE), optional `Rule` schema, conformance fixtures
-- **North star:** Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O
+| Phase | Deliverable |
+|-------|-------------|
+| **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schema` / `spoke-schema`, empty adapter dirs, CI gate |
+| **v0-iter002 (active)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
+| **Next after v0-iter002** | Implementable adapter packages (product DTO ↔ SPOKE), optional `Rule` schema, conformance fixtures |
+| **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 
 ## See also
 
@@ -139,7 +149,8 @@ Executable checks for iteration close — detail in [delivery compass](../iterat
 |-----|-------|
 | [`spoke-data-model.md`](spoke-data-model.md) | Five data objects, extensions, open vocabulary, `Rule` deferral |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, `assemble` wire-only boundary |
+| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, four helper families, hard In/Out |
 | [`schemas/README.md`](../../schemas/README.md) | 17-file schema tree and authoring rules |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Keyblock vocabulary; Keyblock ≠ World KB ≠ Author Memory |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |
-| [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 acceptance criteria (harness-local) |
+| [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 iteration close checklist (process artifact; optional) |

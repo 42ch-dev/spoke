@@ -159,6 +159,8 @@ Checker output — **not** a Keyblock body.
 
 Optional: `kind`, `target_keyblock_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
 
+**Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §Finding lifecycle](spoke-operations.md#2-finding-lifecycle--finding). Wire schema keeps `status` as open string; library enforces the core transition table.
+
 ---
 
 ## AssemblePacket
@@ -202,6 +204,7 @@ Optional: `kind`, `target_keyblock_id`, `source_anchor`, `suggested_fix`, `text_
 | Values | Opaque JSON objects (`additionalProperties: true` per namespace value) |
 | Unknown namespaces | Adapters MUST preserve on round-trip |
 | Unknown keys inside a namespace | Adapters MUST preserve on round-trip |
+| Merge / preserve semantics | [`spoke-operations.md`](spoke-operations.md) (`mergeExtensionMaps`, `preserveExtensionMaps`) |
 | Core fields | MUST NOT use open `additionalProperties` on the protocol object as a substitute for `extensions` |
 | Empty | `extensions: {}` is valid |
 
@@ -290,5 +293,6 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing, extensions, codegen layout |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
+| [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Vocabulary boundaries (Keyblock vs product stores) |

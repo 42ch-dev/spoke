@@ -21,7 +21,7 @@ It defines JSON Schema wire contracts for narrative Keyblock **data** and **ops*
 
 - Shared runtime, daemon, or MCP server
 - Nexus ↔ SPOKE or Creader ↔ SPOKE conversion (adapter packages deferred)
-- Conformance fixtures or golden round-trips
+- Golden product DTO round-trips (protocol `fixtures/toy-world/` — v0-iter004)
 - npm/crates.io publish (workspace-local packages; CI must not publish)
 
 ## Architecture (three columns)
@@ -49,8 +49,9 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 |-------|-------|
 | **v0.1 (delivered 2026-07-23)** | Spec trio + schemas + codegen + CI verify gate |
 | **v0-iter002 (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
-| **v0-iter003 (in progress)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
-| **Next** | Adapter packages, conformance fixtures |
+| **v0-iter003 (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
+| **v0-iter004 (in progress)** | Deepen `@42ch/spoke-operations` (OCC, Keyblock status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph |
+| **Next** | Adapter packages (`adapters/nexus`, `adapters/creader`) |
 | **North star** | Cross-product Keyblock dialect for checker and context-assembly I/O |
 
 ## See also

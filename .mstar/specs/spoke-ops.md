@@ -15,7 +15,7 @@ Define transport-agnostic **request/response** wire shapes for core Keyblock ope
 | Principle | Meaning |
 |-----------|---------|
 | **Check ≠ Assemble** | `check` runs checkers and returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op, no ranking fields in assemble wire. |
-| **Scope neutrality** | Shared `Scope` def in `common.schema.json` (architect-locked target wire — **`ops-harden` plan**); required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. |
+| **Scope neutrality** | Shared `Scope` def in `common.schema.json` (committed v0-iter003 — **`ops-harden`**); required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. Pure Scope match helpers ship in v0-iter004 — see [`spoke-operations.md`](spoke-operations.md) §Scope match. |
 | **One failure dialect** | All ops responses use `oneOf` success branch **or** `{ "error": ErrorEnvelope }` — same attachment as v0.1 `assemble-response` (R3 closed). |
 
 **Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.
@@ -199,7 +199,7 @@ All five ops response schemas MUST use the same discriminated union:
 
 **Invariant:** `error` and success payload fields MUST NOT co-exist on the same response object.
 
-HTTP mapping (4xx/5xx) is adapter concern.
+HTTP mapping (4xx/5xx) is adapter concern. **`@42ch/spoke-operations`** provides `toErrorEnvelope` / `fromErrorEnvelope` for `code` string alignment only — see [`spoke-operations.md` §Error envelope map](spoke-operations.md#11-error-envelope-map--error).
 
 ---
 

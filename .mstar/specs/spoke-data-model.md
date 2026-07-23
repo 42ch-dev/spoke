@@ -1,6 +1,6 @@
 # SPOKE Data Model
 
-> **Status:** Normative (v0.1 baseline; v0-iter003 deepen)  
+> **Status:** Normative (v0.1 baseline; v0-iter003 deepen; v0-iter004 Keyblock lifecycle)  
 > **Document class:** Detail — data layer  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/data/`, `schemas/common/`
@@ -391,6 +391,10 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 | `merged` | Absorbed into another Keyblock |
 | `deleted` | Tombstone / soft delete |
 
+**Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §Keyblock lifecycle](spoke-operations.md#6-keyblock-lifecycle--keyblock). Wire schema keeps `status` as open string; library enforces the core transition table. **Active** statuses for uniqueness: `provisional`, `confirmed` only.
+
+**`deprecated` → `merged` excluded:** merge absorbs an active canonical Keyblock into a target; a deprecated row is already superseded — restore to `confirmed` (or merge from `provisional`/`confirmed`) before absorb.
+
 ### Core `relation_type` vocabulary (starter set)
 
 `related_to`, `parent_of`, `member_of`, `located_in`, `participates_in`, `causes`, `foreshadows`
@@ -432,7 +436,7 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - Closed enums for all block types
 - Required Fork / world-history fields in baseline compliance
 - Required WASM or computable Keyblock bodies (optional `l2-computable` capability only)
-- Conformance fixtures / golden round-trips
+- Golden product DTO round-trips (protocol `fixtures/toy-world/` — v0-iter004; see [`spoke-protocol-layers.md`](spoke-protocol-layers.md) non-goals)
 
 ## See also
 

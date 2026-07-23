@@ -7,7 +7,7 @@ Core terms for the SPOKE protocol repository. Each entry defines what the term m
 ## Protocol layer
 
 ### Keyblock
-The atomic narrative knowledge unit on the SPOKE wire. A Keyblock has stable identity (`keyblock_id`), open-string `block_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Products map their local entities to Keyblocks via adapters (next iteration).
+The atomic narrative knowledge unit on the SPOKE wire. A Keyblock has stable identity (`keyblock_id`), open-string `block_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — cross-product transitions enforced by `@42ch/spoke-operations` (v0-iter004); `deprecated` → `merged` is excluded (restore to `confirmed` before absorb). Products map their local entities to Keyblocks via adapters (next iteration).
 
 ### Relation
 A directed edge between two Keyblocks (or Keyblock ↔ source) identified by `relation_id` and open-string `relation_type`.

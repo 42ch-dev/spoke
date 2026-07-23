@@ -1,6 +1,6 @@
 # SPOKE Operations Library
 
-> **Status:** Normative (v0-iter002)  
+> **Status:** Normative (v0-iter002; v0-iter004 deepen — architect-locked 2026-07-23)  
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Package:** `@42ch/spoke-operations` under `packages/spoke-operations/`
@@ -27,12 +27,15 @@ Without a shared operations library, every product (Nexus, Creader, future adapt
 
 | **In (library MUST provide)** | **Out (library MUST NOT)** |
 |---------------------------------|----------------------------|
-| Extension map merge + round-trip preserve | Storage read/write |
-| Finding `status` transition validation + apply | HTTP routes, MCP tools, message queues |
+| Extension map merge + round-trip preserve | Storage read/write; fetch stored Keyblock inside library |
+| Finding `status` transition validation + apply | HTTP routes, MCP tools, message queues, HTTP status code tables |
 | Promote acceptance checks (pure gate before persist) | LLM calls, checker engines, Guardian logic |
 | AssemblePacket builders from Keyblocks (structure only) | Ranking, scoring, vector retrieval, token budgeting |
 | Unified `SpokeResult` / `SpokeRejectCode` on every reject path | Silent auto-promote bypassing human review semantics |
-| Revision bump on promote apply (see §Promote acceptance) | OCC against stored revision (deferred — codes reserved only) |
+| Revision bump on promote apply (see §Promote acceptance) | — |
+| OCC revision compare (`assertRevisionMatch`) — v0-iter004 | — |
+| Keyblock status transitions + active uniqueness — v0-iter004 | Product `world_id` / `book_id` as required core fields |
+| Scope match, upsert/relate gates, error-envelope map — v0-iter004 | `scope_id` parsing; retrieval engines |
 
 ### Per-family In / Out
 
@@ -40,8 +43,13 @@ Without a shared operations library, every product (Nexus, Creader, future adapt
 |--------|--------|---------|
 | **Extensions** | Deep merge; overlay wins scalars; preserve unknown namespaces/keys | Dropping empty `{}` namespaces; mutating inputs |
 | **Finding** | Transition table enforcement; no-op same-status; structured reject | Product-specific workflow beyond cross-product minimum |
-| **Promote** | Provisional gate; terminal-status reject; revision bump; merge-target id guard | Persist; fetch stored Keyblock; OCC compare (deferred) |
+| **Promote** | Provisional gate; terminal-status reject; revision bump; merge-target id guard; OCC via caller-supplied revisions | Persist; fetch stored Keyblock |
 | **Assemble** | Wire-valid `AssemblePacket`; `snippet` from `body.summary` rule; order-preserving `maxEntries` truncate | Sort, rank, dedupe, token count, embedding search |
+| **OCC** | `assertRevisionMatch` on caller-supplied integers | Storage fetch |
+| **Keyblock** | Status transition table; active uniqueness over caller set | Product `world_id` / `book_id` required fields |
+| **Scope** | Keyblock + Event refinement filters | `scope_id` parsing; retrieval |
+| **Upsert / Relate** | Create/update revision rules; self-edge reject | Persist |
+| **Error map** | `SpokeReject` ↔ `ErrorEnvelope` code stability | HTTP/MCP status mapping |
 
 ---
 
@@ -71,25 +79,31 @@ type SpokeResult<T = void> = SpokeOk<T> | SpokeReject;
 | `details` | Optional structured context (e.g. `{ from, to }` on transition reject) — not a second error channel |
 | Throwing | Unexpected programmer errors only; lifecycle rejects are **never** thrown |
 
-### `SpokeRejectCode` (v0-iter002)
+### `SpokeRejectCode` (v0-iter002 + v0-iter004)
 
 Stable string literals exported from `@42ch/spoke-operations` (e.g. `as const` object + union type). Implementers MUST NOT invent parallel code strings.
 
-| Code | Family | Emitted in v0-iter002 | Meaning |
-|------|--------|----------------------|---------|
-| `INVALID_INPUT` | shared | yes | Argument fails shape/null checks before domain rules |
-| `INVALID_STATUS` | finding | yes | `to` (or current `finding.status`) not in core vocabulary |
-| `INVALID_STATUS_TRANSITION` | finding | yes | Disallowed `from` → `to` (see transition table) |
-| `CANDIDATE_NOT_PROVISIONAL` | promote | yes | `candidate.status` ≠ `provisional` (default gate) |
-| `CANDIDATE_TERMINAL_STATUS` | promote | yes | `candidate.status` is `merged` or `deleted` |
-| `EMPTY_CANONICAL_NAME` | promote | yes | `canonical_name` missing or whitespace-only |
-| `MERGE_TARGET_SELF` | promote | yes | `target_keyblock_id` equals `candidate.keyblock_id` |
-| `MISSING_REQUIRED_FIELD` | promote | yes | Required Keyblock field absent (schema-aligned check) |
-| `INVALID_PACKET_INPUT` | assemble | yes | e.g. empty `packetId`, negative `maxEntries` |
-| `REVISION_CONFLICT` | promote (OCC) | **no** — reserved | Stored revision ≠ expected (full OCC deferred) |
-| `STORED_REVISION_STALE` | promote (OCC) | **no** — reserved | Caller-supplied base revision behind store (deferred) |
-
-**OCC deferral (v0-iter002):** export `REVISION_CONFLICT` and `STORED_REVISION_STALE` in the public code enum for forward compatibility; **no helper emits them** until a later slice adds stored-state compare.
+| Code | Family | Emitted in v0-iter002 | Emitted in v0-iter004 | Meaning |
+|------|--------|----------------------|----------------------|---------|
+| `INVALID_INPUT` | shared | yes | yes | Argument fails shape/null checks before domain rules |
+| `INVALID_STATUS` | finding | yes | yes | `to` (or current `finding.status`) not in core vocabulary |
+| `INVALID_STATUS_TRANSITION` | finding | yes | yes | Disallowed `from` → `to` (see transition table) |
+| `CANDIDATE_NOT_PROVISIONAL` | promote | yes | yes | `candidate.status` ≠ `provisional` (default gate) |
+| `CANDIDATE_TERMINAL_STATUS` | promote | yes | yes | `candidate.status` is `merged` or `deleted` |
+| `EMPTY_CANONICAL_NAME` | promote | yes | yes | `canonical_name` missing or whitespace-only |
+| `MERGE_TARGET_SELF` | promote | yes | yes | `target_keyblock_id` equals `candidate.keyblock_id` |
+| `MISSING_REQUIRED_FIELD` | promote / upsert | yes | yes | Required Keyblock field absent (schema-aligned check) |
+| `INVALID_PACKET_INPUT` | assemble | yes | yes | e.g. empty `packetId`, negative `maxEntries` |
+| `REVISION_CONFLICT` | occ | reserved | **yes** | `actualRevision < expectedRevision` (caller ahead of store) |
+| `STORED_REVISION_STALE` | occ | reserved | **yes** | `actualRevision > expectedRevision` (caller behind store) |
+| `INVALID_KEYBLOCK_STATUS` | keyblock | — | **yes** | Proposed Keyblock `status` not in core vocabulary |
+| `INVALID_KEYBLOCK_STATUS_TRANSITION` | keyblock | — | **yes** | Disallowed Keyblock `from` → `to` |
+| `DUPLICATE_ACTIVE_KEYBLOCK` | uniqueness | — | **yes** | Second active Keyblock for same `(scope_key, block_type, canonical_name)` |
+| `KEYBLOCK_NOT_FOUND` | upsert | — | **yes** | Update path but no `stored` Keyblock supplied |
+| `KEYBLOCK_ALREADY_EXISTS` | upsert | — | **yes** | Create path but `stored` Keyblock already present |
+| `KEYBLOCK_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
+| `RELATION_SELF_EDGE` | relate | — | **yes** | `from_id === to_id` |
+| `RELATION_MISSING_ENDPOINT` | relate | — | **yes** | `from_id` or `to_id` missing or whitespace-only |
 
 ---
 
@@ -169,7 +183,7 @@ Returned Keyblock also sets `status: "confirmed"`. Other fields are shallow-copi
 
 **Tests must cover:** happy path provisional→confirmed, reject deleted/merged candidate, reject empty name, merge-target id collision, revision `undefined`→`1`, revision `2`→`3`.
 
-**Deferred to later slice (not v0-iter002):** full OCC conflict resolution against stored revision — `REVISION_CONFLICT` / `STORED_REVISION_STALE` reserved in enum only (§Result / reject envelope).
+**OCC before persist (v0-iter004):** upsert update and promote paths SHOULD call `assertRevisionMatch` (§5) with caller-supplied `expectedRevision` and `actualRevision` — library never fetches storage.
 
 ---
 
@@ -205,6 +219,198 @@ Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet:
 
 ---
 
+## v0-iter004 helper families
+
+Five new families (plus error map). Export names are **normative** for v0-iter004; `src/index.ts` MUST expose them alongside v0-iter002 symbols.
+
+### 5. OCC — `occ/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `assertRevisionMatch(expectedRevision, actualRevision)` | Compare caller-supplied revisions before persist | Pure |
+
+**Rules (normative):**
+
+| Input | Result |
+|-------|--------|
+| Both integers ≥ 0 and equal | `ok: true` |
+| `actualRevision > expectedRevision` | `STORED_REVISION_STALE` — caller read stale base |
+| `actualRevision < expectedRevision` | `REVISION_CONFLICT` — caller expected impossible future revision |
+| Non-integer, negative, or `NaN` | `INVALID_INPUT` |
+
+**Caller contract:** integrator fetches `actualRevision` from its store and passes `expectedRevision` from the mutation payload. Library performs **no** storage I/O.
+
+**Tests must cover:** match, stale (actual > expected), conflict (actual < expected), invalid inputs.
+
+---
+
+### 6. Keyblock lifecycle — `keyblock/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `isValidKeyblockStatusTransition(from, to)` | Boolean guard for allowed transitions | Pure |
+| `transitionKeyblockStatus(keyblock, to)` | Return `SpokeResult<Keyblock>` with updated `status` on success | Pure, non-mutating input |
+
+**Core vocabulary** (aligned with `keyblock.schema.json` `description` and [`spoke-data-model.md` §Core Keyblock status](spoke-data-model.md#core-keyblock-status-vocabulary-documented-not-enforced)): `provisional`, `confirmed`, `deprecated`, `merged`, `deleted`.
+
+**Terminal statuses:** `merged`, `deleted` — no outbound transitions (except same→same no-op).
+
+**Active statuses (uniqueness gate):** `provisional`, `confirmed` only.
+
+**Allowed transitions (v0-iter004):**
+
+| From | To | Notes |
+|------|-----|-------|
+| `provisional` | `confirmed` | Also via promote acceptance |
+| `provisional` | `deprecated` | Discard / park candidate |
+| `provisional` | `merged` | Absorb before confirm |
+| `provisional` | `deleted` | Drop candidate |
+| `confirmed` | `deprecated` | Supersede canonical |
+| `confirmed` | `merged` | Absorb into target |
+| `confirmed` | `deleted` | Tombstone |
+| `deprecated` | `confirmed` | Restore |
+| `deprecated` | `deleted` | Tombstone |
+| same | same | No-op accept |
+
+**Rejected:** all other pairs (e.g. `merged` → `confirmed`, `deleted` → `provisional`, `deprecated` → `merged`). **`deprecated` → `merged` excluded** — merge requires an active canonical source; restore to `confirmed` first.
+
+**Reject codes:** `INVALID_KEYBLOCK_STATUS`, `INVALID_KEYBLOCK_STATUS_TRANSITION` with optional `details: { from, to }`.
+
+**Tests must cover:** each allowed edge, terminal outbound rejects, no-op same-status, invalid vocabulary.
+
+---
+
+### 7. Active uniqueness — `keyblock/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `assertUniqueActiveKeyblock({ scope_key, block_type, canonical_name, candidate, existing })` | Reject duplicate active triple among caller-supplied set | Pure |
+
+**Rules:**
+
+- `scope_key` is an **opaque string** supplied by the caller (typically mapped from `Scope.scope_id` or product World/Book ids). It is **not** a Keyblock protocol field.
+- `existing` is `Keyblock[]` the caller already holds for that `scope_key`.
+- Consider only Keyblocks whose `status` is **active** (`provisional` or `confirmed`).
+- Match triple `(scope_key, block_type, canonical_name)` — `block_type` and `canonical_name` from Keyblock wire fields.
+- `candidate` is the Keyblock about to be created or reactivated; reject if another **different** `keyblock_id` in `existing` already occupies the triple.
+- Same `keyblock_id` updating in place is allowed (no duplicate).
+
+**Reject code:** `DUPLICATE_ACTIVE_KEYBLOCK` with `details: { scope_key, block_type, canonical_name, conflicting_keyblock_id }`.
+
+**Tests must cover:** unique accept, duplicate reject, inactive statuses ignored, same-id update allowed.
+
+---
+
+### 8. Scope match — `scope/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `keyblockMatchesScope(keyblock, scope)` | Keyblock passes optional `Scope` refinements | Pure |
+| `filterKeyblocksByScope(keyblocks, scope)` | Filter list by `keyblockMatchesScope` | Pure |
+| `eventMatchesScope(event, scope)` | Event passes optional `Scope` refinements | Pure |
+| `filterEventsByScope(events, scope)` | Filter list by `eventMatchesScope` | Pure |
+
+**`Scope` wire shape:** [`spoke-ops.md` §Scope](spoke-ops.md#scope-shared--check--assemble). `scope_id` is required on wire but **not interpreted** by these helpers — caller pre-scopes collections by product binding.
+
+**Keyblock refinements (AND when present on `scope`):**
+
+| Refinement | Match rule |
+|------------|------------|
+| `keyblock_ids` | `keyblock.keyblock_id` ∈ array |
+| `block_types` | `keyblock.block_type` ∈ array |
+| `source_id` | `keyblock.source_anchor?.source_id === scope.source_id` |
+
+Ignored on Keyblock: `event_ids`, `timeline_scale`.
+
+**Event refinements (AND when present on `scope`):**
+
+| Refinement | Match rule |
+|------------|------------|
+| `event_ids` | `event.event_id` ∈ array |
+| `timeline_scale` | `event.timeline_scale === scope.timeline_scale` |
+
+Ignored on Event: `keyblock_ids`, `block_types`, `source_id`.
+
+**Tests must cover:** each refinement on its carrier type, empty refinement pass-through, combined AND.
+
+---
+
+### 9. Upsert gate — `upsert/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateUpsertKeyblock(candidate, context)` | Create vs update rules before persist | Pure |
+
+`context: { stored?: Keyblock }` — caller supplies stored view when updating.
+
+**Create** (`stored` absent):
+
+| Rule | Reject |
+|------|--------|
+| All `keyblock.schema.json` required fields present | `MISSING_REQUIRED_FIELD` |
+| `revision` absent, `undefined`, or `0` | accept |
+| `revision` ≥ 1 on create | `INVALID_INPUT` |
+| Caller passes `stored` by mistake on create path | N/A — use update path |
+
+**Update** (`stored` present):
+
+| Rule | Reject |
+|------|--------|
+| `candidate.keyblock_id === stored.keyblock_id` | `INVALID_INPUT` on mismatch |
+| `candidate.revision` present, integer ≥ 0 | `MISSING_REQUIRED_FIELD` if absent |
+| `assertRevisionMatch(candidate.revision, stored.revision ?? 0)` | OCC codes |
+| `stored.status` is `merged` or `deleted` | `KEYBLOCK_TERMINAL_STATUS` |
+
+**Implicit path errors (caller wiring):**
+
+| Situation | Code |
+|-----------|------|
+| Update path with no `stored` | `KEYBLOCK_NOT_FOUND` |
+| Create path when `stored` provided | `KEYBLOCK_ALREADY_EXISTS` |
+
+Integrator SHOULD run Keyblock status transition validation separately when `candidate.status !== stored.status`.
+
+**Tests must cover:** valid create, valid update with OCC, create with revision ≥ 1 reject, update without revision, terminal stored reject.
+
+---
+
+### 10. Relate gate — `relate/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateRelateRequest(relation)` | Shape + lifecycle rules before persist | Pure |
+
+**Rules:**
+
+- `from_id` and `to_id` MUST be non-empty trimmed strings → else `RELATION_MISSING_ENDPOINT`.
+- `from_id === to_id` → `RELATION_SELF_EDGE`.
+- `relation_type` remains open string (no closed enum in library).
+
+**Tests must cover:** happy path, self-edge, missing endpoint.
+
+---
+
+### 11. Error envelope map — `error/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `toErrorEnvelope(reject)` | Map `SpokeReject` → ops `ErrorEnvelope` | Pure |
+| `fromErrorEnvelope(error)` | Map `ErrorEnvelope` → `SpokeReject` | Pure |
+
+**Rules:**
+
+- `code` MUST round-trip unchanged (same string as `SpokeRejectCode`).
+- `message` copies verbatim.
+- `details` copies when present; omitted when absent.
+- `extensions` on `ErrorEnvelope` MUST be `{}` when converting from `SpokeReject` unless a later slice adds namespace passthrough.
+- **Out of scope:** HTTP status codes, MCP error types, gRPC codes, retry hints.
+
+Wire shape: [`spoke-ops.md` §Error envelope](spoke-ops.md#error-envelope).
+
+**Tests must cover:** round-trip for every code used in v0-iter002 + v0-iter004 tests; `extensions: {}` on outbound map.
+
+---
+
 ## Package contract
 
 | Field | Value |
@@ -214,11 +420,13 @@ Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet:
 | Publish | Private workspace package; no npm publish job in CI |
 | Rust | Deferred (`spoke-operations` crate not in v0-iter002) |
 
-Public entry: `src/index.ts` re-exporting the four families above plus `SpokeResult`, `SpokeReject`, `SpokeRejectCode` types/constants.
+Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`, `SpokeReject`, `SpokeRejectCode` types/constants.
 
 ---
 
 ## Acceptance (operations layer — iteration)
+
+### v0-iter002 (delivered)
 
 - [x] This spec + [`spoke-protocol.md`](spoke-protocol.md) cross-link (umbrella column 3)
 - [x] Package exists with four helper families and unit tests per table above
@@ -226,7 +434,16 @@ Public entry: `src/index.ts` re-exporting the four families above plus `SpokeRes
 - [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
 - [x] CI typecheck + test + build includes `packages/spoke-operations/`
 
-## Non-goals (operations layer — v0-iter002)
+### v0-iter004 (target)
+
+- [ ] OCC, Keyblock status, uniqueness, Scope, upsert, relate, error-map families implemented per §v0-iter004 helper families
+- [ ] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
+- [ ] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
+- [ ] v0-iter002 export behavior unchanged except additive OCC emit on new call sites
+
+## Non-goals (operations layer)
+
+### v0-iter002
 
 - Adapter conversion code
 - Rust operations crate
@@ -234,6 +451,14 @@ Public entry: `src/index.ts` re-exporting the four families above plus `SpokeRes
 - `Rule` evaluation, checker engines, Guardian detectors
 - HTTP/MCP binding or daemon routes
 - Ranking / retrieval / token-budget helpers
+
+### v0-iter004 (unchanged)
+
+- Adapter packages and product DTO field maps
+- Storage fetch inside library
+- HTTP/MCP status code tables
+- Checker Rule evaluation engines
+- Fork wire / `project` op / Rust ops crate
 
 ---
 

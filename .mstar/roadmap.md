@@ -50,16 +50,24 @@ This is how research’s “standardize I/O **and lifecycle** — not a third ru
 | Ops library | `@42ch/spoke-operations` first slice: promote gate, Finding transitions, extension preserve, AssemblePacket builders | Rust crate deferred; full OCC deferred; no adapter code |
 | Integrator docs | Consumer README EN/CN | Maintainer/harness process not in README body |
 
-### Current slice (v0-iter003 — in progress)
+### Current slice (v0-iter003 — delivered 2026-07-23)
 
 | Surface | v0-iter003 intent | Explicit gaps (by design) |
 |---------|-------------------|---------------------------|
-| Data | + `Rule` (L6) + `Event` (L5); `TimelineScale` in `common.schema.json` | Fork optional; schemas land in `rule-event` plan |
+| Data | + `Rule` (L6) + `Event` (L5); `TimelineScale` in `common.schema.json` | Fork optional; no fixtures yet |
 | Ops wire | Scope neutrality; universal `error-envelope`; Rule-aware `check` | No transport binding; no new op families |
 | Normative layers | [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) — L0–L8 + capability levels | Adapter packages excluded per user lock |
-| Ops library | No default growth unless pure invariant emerges | Full OCC still deferred |
+| Ops library | No default growth unless pure invariant emerges | OCC emit, Keyblock status, Scope/upsert/relate gates deferred to v0-iter004 |
 
-Later iterations deepen adapters, fixtures, and optional capabilities (Fork, L2 computable) — still not a shared runtime.
+### Current slice (v0-iter004 — in progress)
+
+| Surface | v0-iter004 intent | Explicit gaps (by design) |
+|---------|-------------------|---------------------------|
+| Ops library | OCC compare (emit reserved codes), Keyblock status transitions, active uniqueness; Scope match; upsert/relate gates; `SpokeReject`↔`error-envelope` map | Rust crate deferred; no storage fetch |
+| Conformance | `fixtures/toy-world/` protocol JSON + CI schema validation | No product DTO round-trip; no adapter packages |
+| Integrator path | Callable actions + golden graph **before** adapters | Adapters, Fork, `project` op remain next |
+
+Later iterations deepen adapters and optional capabilities (Fork, L2 computable) — still not a shared runtime.
 
 ---
 
@@ -87,7 +95,7 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 
 - Layers L0–L8 are the **conceptual map** of what the **data** surface must eventually express (and what **ops wire** must carry in and out).
 - Thrust A is the **delivery cut**: every layer that is normative must appear as schemas + ops I/O, and cross-product **lifecycle rules** belong in `spoke-operations` when they cannot be expressed as schema alone.
-- v0.1 **partially** covered L0–L4 (via Keyblock/Relation/SourceAnchor), L7, L8; v0-iter002 delivered the operations behavior library (column 3); v0-iter003 normative layers spec covers L0–L8 semantics + Domain Profile + L5 Timeline tiers — `Rule`/`Event` wire schemas land in sibling `rule-event` plan.
+- v0.1 **partially** covered L0–L4 (via Keyblock/Relation/SourceAnchor), L7, L8; v0-iter002 delivered the operations behavior library (column 3); v0-iter003 normative layers spec covers L0–L8 semantics + Domain Profile + L5 Timeline tiers — `Rule`/`Event` wire schemas delivered in **`rule-event`**.
 
 ---
 
@@ -97,9 +105,10 @@ Order is guidance for future compasses — adjust when grill locks say otherwise
 
 1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schemas` packages, empty adapters, CI. Nine-layer model referenced here (normative L0–L8 chapter delivered in v0-iter003). **No** `spoke-operations` yet.
 2. **v0-iter002 (delivered 2026-07-23)** — `@42ch/spoke-operations` on generated types: lifecycle helpers and protocol invariants only (see Package cut). Integrator README EN/CN. Spec detail in [`spoke-operations.md`](specs/spoke-operations.md).
-3. **v0-iter003 (in progress)** — Normative L0–L8 + capability levels; `Rule` + `Event` data deepen (schemas in **`rule-event`**); ops wire harden (Scope, Check≠Assemble, error-envelope — committed wire in **`ops-harden`**). See [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md). **No** adapters.
-4. **Next — Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional conformance fixtures.
-5. **North star** — Cross-product Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime.
+3. **v0-iter003 (delivered 2026-07-23)** — Normative L0–L8 + capability levels; `Rule` + `Event` data deepen (schemas in **`rule-event`**); ops wire harden (Scope, Check≠Assemble, error-envelope — committed wire in **`ops-harden`**). See [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md). **No** adapters.
+4. **v0-iter004 (in progress)** — Deepen `@42ch/spoke-operations` with OCC emit, Keyblock status, uniqueness, Scope/upsert/relate gates, error-map helpers; ship research **`fixtures/toy-world`** conformance graph. **No** adapters — integrator value before product DTO maps.
+5. **Next — Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional product conformance round-trips atop fixtures.
+6. **North star** — Cross-product Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime.
 
 ---
 

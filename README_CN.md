@@ -4,7 +4,7 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — 叙事 **Keyblock** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。Nexus、Creader 等产品用这些形状交换一致性检查与上下文组装的 I/O。
 
-**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）。
+**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket、Rule、Event）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）。
 
 ## 软件包
 
@@ -50,6 +50,8 @@
 | **Relation** | Keyblock 之间（或 Keyblock ↔ 来源）的有向边 |
 | **SourceAnchor** | 指向手稿片段或外部定位器的溯源指针 |
 | **Finding** | 一致性、风格或分析类检查器输出 |
+| **Rule** | `check` 的声明式约束输入（L6） |
+| **Event** | when 轴上的第一类时间对象（L5） |
 | **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
 

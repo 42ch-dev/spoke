@@ -12,7 +12,7 @@ Story-AI products each invent local shapes for knowledge units, checker I/O, and
 
 ## Three columns (Thrust A)
 
-SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md). v0.1 delivered columns 1–2; column 3 lands in v0-iter002.
+SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md). v0.1 delivered columns 1–2; v0-iter002 delivered column 3.
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
@@ -105,18 +105,18 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schema/` | Generated TypeScript |
-| `packages/spoke-operations/` | Hand-written operations library (v0-iter002+) |
+| `packages/spoke-operations/` | Hand-written operations library (delivered v0-iter002) |
 | `crates/spoke-schema/` | Generated Rust |
 | `adapters/nexus/`, `adapters/creader/` | Empty placeholders (`.gitkeep` only) |
 
 ## v0.1 acceptance (umbrella)
 
-Historical v0.1 close criteria (wire bootstrap). v0-iter002 adds column 3 — see [`spoke-operations.md`](spoke-operations.md) acceptance section.
+Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 — see [`spoke-operations.md`](spoke-operations.md) acceptance section.
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
-   - `typescript` — `pnpm -F @42ch/spoke-schema typecheck` + `build` (v0-iter002 adds `@42ch/spoke-operations` typecheck + test)
+   - `typescript` — `pnpm -F @42ch/spoke-schema typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
    - `rust` — `cargo check -p spoke-schema`
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schema`)
 4. Extensions contract enforced in data schemas
@@ -139,8 +139,8 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 adds column 3 — se
 | Phase | Deliverable |
 |-------|-------------|
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schema` / `spoke-schema`, empty adapter dirs, CI gate |
-| **v0-iter002 (active)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
-| **Next after v0-iter002** | Implementable adapter packages (product DTO ↔ SPOKE), optional `Rule` schema, conformance fixtures |
+| **v0-iter002 (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
+| **Next** | Implementable adapter packages (product DTO ↔ SPOKE), optional `Rule` schema, conformance fixtures |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 
 ## See also

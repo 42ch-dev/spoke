@@ -113,7 +113,7 @@ Baseline compliance MUST NOT require either flag.
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | — |
 | **L5 Temporal** | `data/event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.event_ids` / `Scope.timeline_scale` refinements; Event upsert via product binding or future op — **no new op in v0-iter003** | — |
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no helper this iteration) |
-| **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `validateFindingTransition`, `applyFindingTransition` |
+| **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
 | **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `keyblockToAssembleEntry` |
 
 ### Shared cross-layer defs (`schemas/common/common.schema.json`)

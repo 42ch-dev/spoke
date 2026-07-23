@@ -22,7 +22,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**v0-iter003 data deepen (architect-locked):** `Rule` (L6) and `Event` (L5) ship in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` defs live in `common.schema.json` — ops `$ref` wiring lands in sibling plan **`ops-harden`**. **Committed today:** 19 schema files.
+**v0-iter003 deepen (architect-locked):** `Rule` (L6) and `Event` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
 
 ## Nine-layer model (L0–L8)
 
@@ -32,8 +32,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-it
 
 | Slice | Hand-authored files | Breakdown |
 |-------|---------------------|-----------|
-| **Committed (today)** | **19** | 2 common + 7 data + 10 ops — v0-iter003 `rule-event` landed |
-| **`ops-harden` follow-on** | **19** (same count) | `check-request` / `assemble-request` `$ref` shared `Scope`; `check-request` gains `rules[]` — no new schema files |
+| **v0-iter003 (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 

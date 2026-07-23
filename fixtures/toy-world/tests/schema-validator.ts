@@ -9,7 +9,7 @@ type RegisterFormats = (ajv: Ajv) => Ajv;
 
 const addFormats = ajvFormatsModule.default as unknown as RegisterFormats;
 
-const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../..");
+const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../..");
 const SCHEMAS_ROOT = join(REPO_ROOT, "schemas");
 
 function collectSchemaFiles(dir: string): string[] {

@@ -8,7 +8,7 @@
 
 Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange Keyblock data and ops without sharing a runtime, database, or daemon.
 
-**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. **Operations library deepen + fixtures** adds protocol conformance fixtures (`fixtures/toy-world/`) and deepens `@42ch/spoke-operations` lifecycle helpers.
+**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. **Operations library deepen + fixtures** delivered deepen helpers and protocol JSON at `fixtures/toy-world/`; harness ownership moves to `fixtures/toy-world/tests/` (boundary correction, 2026-07-23).
 
 ## Three columns (Thrust A)
 
@@ -33,7 +33,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 | Slice | Hand-authored files | Breakdown |
 |-------|---------------------|-----------|
 | **Protocol layers + Rule/Event (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
-| **Operations library deepen + fixtures (in progress)** | **19** (unchanged) | No new schema files — deepen `@42ch/spoke-operations` + `fixtures/toy-world/` conformance graph |
+| **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON on `main`; harness relocates to `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 
@@ -71,7 +71,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 ```text
 spoke/
 ├── package.json                 # scripts: codegen, verify-codegen
-├── pnpm-workspace.yaml          # packages: ["packages/*", "tooling/*"]
+├── pnpm-workspace.yaml          # packages: ["packages/*", "tooling/*", "fixtures/*"]
 ├── Cargo.toml                   # workspace; members = ["crates/spoke-schemas"]
 ├── schemas/                     # SSOT (hand-authored)
 ├── tooling/codegen/             # orchestrates jstt + typify (private package)
@@ -116,8 +116,9 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schemas/` | Generated TypeScript |
-| `packages/spoke-operations/` | Hand-written operations library (delivered operations library first slice) |
+| `packages/spoke-operations/` | Hand-written operations library — pure helpers only; no fixture harness or AJV |
 | `crates/spoke-schemas/` | Generated Rust |
+| `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`) — harness MUST NOT live under `packages/spoke-operations/` |
 | `adapters/` | README purpose note only; product adapter packages deferred |
 
 ## v0.1 acceptance (umbrella)
@@ -152,7 +153,7 @@ Historical v0.1 close criteria (wire bootstrap). Operations library first slice 
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **Operations library first slice (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
 | **Protocol layers + Rule/Event (delivered)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
-| **Operations library deepen + fixtures (in progress)** | Expand `@42ch/spoke-operations` (OCC, Keyblock status, uniqueness, Scope/upsert/relate gates, error map) + **`fixtures/toy-world/`** protocol conformance graph (delivered) — **no adapters** |
+| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 

@@ -10,14 +10,14 @@
   },
   "scripts": {
     "codegen": "pnpm -F @42ch/spoke-codegen codegen",
-    "verify-codegen": "pnpm run codegen && git diff --exit-code -- packages/spoke-schemas/src/generated crates/spoke-schemas/src/generated",
+    "verify-codegen": "pnpm run codegen && node tooling/codegen/assert-schema-count.mjs && git diff --exit-code -- packages/spoke-schemas/src/generated crates/spoke-schemas/src/generated",
     "typecheck": "pnpm -F @42ch/spoke-schemas typecheck && pnpm -F @42ch/spoke-operations typecheck",
     "build:schema": "pnpm -F @42ch/spoke-schemas build",
     "build:operations": "pnpm -F @42ch/spoke-operations build",
     "test": "pnpm -F @42ch/spoke-operations test",
-    "test:fixtures": "pnpm -F @42ch/spoke-operations test:fixtures",
+    "test:fixtures": "pnpm -F @42ch/spoke-fixture-toy-world test",
     "test:operations": "pnpm -F @42ch/spoke-operations test",
-    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run build:operations"
+    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run test:fixtures && pnpm run build:operations"
   },
   "pnpm": {
     "overrides": {

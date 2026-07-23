@@ -1,28 +1,52 @@
 # Fixture AJV harness outside package dist
 
 > **Category:** architecture-patterns  
-> **Source:** compound 2026-07-23 (fixtures-conformance)  
-> **Context:** `fixtures/toy-world` + `@42ch/spoke-operations` Vitest
+> **Source:** compound 2026-07-23 (fixtures-conformance); boundary correction 2026-07-23  
+> **Context:** `fixtures/toy-world/` protocol JSON + `@42ch/spoke-fixture-toy-world` workspace package
 
 ## Problem
 
-Protocol conformance fixtures need AJV validation in CI. Putting the validator under `packages/spoke-operations/src/` made Vitest green but broke `tsc`/`build` (missing Node types, AJV ESM imports) and risked shipping test I/O into `dist/`.
+Protocol conformance fixtures need AJV validation in CI. Colocating the harness under `packages/spoke-operations/src/` made Vitest pass locally but broke `tsc`/`build` (missing Node types, AJV ESM imports) and risked shipping test I/O into `dist/`.
 
 ## Pattern
 
-1. Keep protocol JSON at repo-root `fixtures/toy-world/`.
-2. Colocate AJV harness under `src/fixtures/**` for Vitest convenience.
-3. **Exclude** `src/fixtures/**` from `tsconfig.build.json` so dist stays pure library.
-4. Add `@types/node` when using `node:fs` in the harness.
-5. Use Ajv v8 ESM imports (`import { Ajv } from "ajv"`) with `ajv-formats` interop.
-6. Wire `pnpm run ci:typescript` to run the package tests (already includes fixture suite); optional `test:fixtures` script that points at the single conformance file.
+1. Keep protocol JSON at repo-root `fixtures/toy-world/` (committed graph only — no product DTO maps).
+2. Own the AJV/Vitest harness in `fixtures/toy-world/tests/` as workspace package **`@42ch/spoke-fixture-toy-world`** (`fixtures/toy-world/package.json`).
+3. **`@42ch/spoke-operations` stays pure library** — no `src/fixtures/**`, no AJV, no `node:fs` in the operations package graph.
+4. Wire root `pnpm run test:fixtures` (or `pnpm -F @42ch/spoke-fixture-toy-world test`) into CI `typescript` job **before** `@42ch/spoke-operations` build.
+5. Use Ajv v8 named ESM imports (`import { Ajv } from "ajv"`) with `ajv-formats` default interop; resolve schemas from repo-root `schemas/` via shared `schema-validator.ts`.
+6. Fixtures package MAY import `@42ch/spoke-operations` for optional helper smoke tests; operations MUST NOT import fixtures or host fixture validation I/O.
 
-## What failed
+## Layout
 
-- Relying on `pnpm test` alone without `ci:typescript` — typecheck/build still failed in GitHub `typescript` job.
-- Shipping harness modules in the published package graph.
+```text
+fixtures/toy-world/
+├── *.json                 # protocol conformance graph
+├── package.json           # @42ch/spoke-fixture-toy-world
+├── vitest.config.ts
+├── README.md
+└── tests/                 # AJV harness (not under packages/spoke-operations/)
+    ├── schema-validator.ts           # AJV setup + schema registry
+    ├── toy-world-conformance.test.ts # JSON graph validates against schemas
+    └── toy-world-ops-exercise.test.ts # optional @42ch/spoke-operations smoke
+```
+
+**Ajv import (matches `schema-validator.ts`):**
+
+```typescript
+import { Ajv } from "ajv";
+import * as ajvFormatsModule from "ajv-formats";
+
+const addFormats = ajvFormatsModule.default as (ajv: Ajv) => Ajv;
+```
+
+## What failed (pre-boundary)
+
+- Relying on `pnpm test` inside `spoke-operations` without excluding harness from `tsconfig.build.json` — typecheck/build still failed in GitHub `typescript` job.
+- Treating `packages/spoke-operations/src/fixtures/` as canonical — wrong ownership; harness belongs with fixture JSON.
 
 ## See also
 
-- `packages/spoke-operations/src/fixtures/`
-- `fixtures/toy-world/README.md`
+- `fixtures/toy-world/README.md` — validate locally (`pnpm run test:fixtures`)
+- [`spoke-protocol.md`](../../specs/spoke-protocol.md) — repository layout row (harness MUST NOT live under `packages/spoke-operations/`)
+- [`architecture-patterns/spoke-operations-pure-actions.md`](spoke-operations-pure-actions.md) — pure helpers over wire types

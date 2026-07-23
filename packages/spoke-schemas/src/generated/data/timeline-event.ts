@@ -35,7 +35,7 @@ export interface TimelineEvent {
   /**
    * Related KnowledgeEntry ids (characters, locations, etc.).
    */
-  participant_knowledge_entry_ids?: string[];
+  participant_entry_ids?: string[];
   source_anchor?: SourceAnchor;
   /**
    * Opaque ordering hint within a timeline (products define grammar).

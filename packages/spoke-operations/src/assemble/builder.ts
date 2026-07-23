@@ -39,7 +39,7 @@ function validateAssembleKnowledgeEntry(
     return spokeReject(
       SpokeRejectCode.INVALID_PACKET_INPUT,
       "KnowledgeEntry body must be an object",
-      { knowledge_entry_id: knowledgeEntry.knowledge_entry_id, field: "body" },
+      { entry_id: knowledgeEntry.entry_id, field: "body" },
     );
   }
 
@@ -48,7 +48,7 @@ function validateAssembleKnowledgeEntry(
       SpokeRejectCode.INVALID_PACKET_INPUT,
       "KnowledgeEntry canonical_name must be a string",
       {
-        knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+        entry_id: knowledgeEntry.entry_id,
         field: "canonical_name",
       },
     );
@@ -59,7 +59,7 @@ function validateAssembleKnowledgeEntry(
       SpokeRejectCode.INVALID_PACKET_INPUT,
       "KnowledgeEntry canonical_name must be non-empty",
       {
-        knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+        entry_id: knowledgeEntry.entry_id,
         field: "canonical_name",
       },
     );
@@ -75,7 +75,7 @@ export function knowledgeEntryToAssembleEntry(
   knowledgeEntry: KnowledgeEntry,
 ): AssembleEntry {
   const entry: AssembleEntry = {
-    knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+    entry_id: knowledgeEntry.entry_id,
     entry_type: knowledgeEntry.entry_type,
     canonical_name: knowledgeEntry.canonical_name,
   };

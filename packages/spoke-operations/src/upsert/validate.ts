@@ -8,7 +8,7 @@ const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 
 const REQUIRED_KNOWLEDGE_ENTRY_FIELDS = [
   "schema_version",
-  "knowledge_entry_id",
+  "entry_id",
   "entry_type",
   "canonical_name",
   "status",
@@ -49,13 +49,13 @@ function validateRequiredKnowledgeEntryFields(
   }
 
   if (
-    typeof candidate.knowledge_entry_id !== "string" ||
-    candidate.knowledge_entry_id.length === 0
+    typeof candidate.entry_id !== "string" ||
+    candidate.entry_id.length === 0
   ) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "KnowledgeEntry knowledge_entry_id must be a non-empty string",
-      { field: "knowledge_entry_id" },
+      "KnowledgeEntry entry_id must be a non-empty string",
+      { field: "entry_id" },
     );
   }
 
@@ -151,13 +151,13 @@ function validateUpdatePath(
     return required;
   }
 
-  if (candidate.knowledge_entry_id !== stored.knowledge_entry_id) {
+  if (candidate.entry_id !== stored.entry_id) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Candidate knowledge_entry_id must match stored knowledge_entry_id on update",
+      "Candidate entry_id must match stored entry_id on update",
       {
-        candidate_knowledge_entry_id: candidate.knowledge_entry_id,
-        stored_knowledge_entry_id: stored.knowledge_entry_id,
+        candidate_entry_id: candidate.entry_id,
+        stored_entry_id: stored.entry_id,
       },
     );
   }
@@ -206,7 +206,7 @@ export function validateUpsertKnowledgeEntry(
     return spokeReject(
       SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND,
       "Update path requires a stored KnowledgeEntry",
-      { knowledge_entry_id: candidate.knowledge_entry_id },
+      { entry_id: candidate.entry_id },
     );
   }
 
@@ -214,7 +214,7 @@ export function validateUpsertKnowledgeEntry(
     return spokeReject(
       SpokeRejectCode.KNOWLEDGE_ENTRY_ALREADY_EXISTS,
       "Create path must not include a stored KnowledgeEntry",
-      { knowledge_entry_id: stored.knowledge_entry_id },
+      { entry_id: stored.entry_id },
     );
   }
 

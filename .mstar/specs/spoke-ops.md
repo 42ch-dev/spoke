@@ -68,7 +68,7 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
 | `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op `extensions` — **not** as required `Scope` siblings. |
-| `knowledge_entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
+| `entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
 | `entry_types` | no | string[] | Filter by open `entry_type` vocabulary |
 | `timeline_event_ids` | no | string[] | Narrow to explicit L5 `TimelineEvent` ids |
 | `source_id` | no | string | Provenance / manuscript locator scope |
@@ -88,14 +88,14 @@ Core ops schemas MUST NOT add `world_id`, `book_id`, `manuscript_id`, or product
 | Direction | Core payload |
 |-----------|--------------|
 | Request | `knowledge_entries: KnowledgeEntry[]` (1..n); optional `idempotency_key: string` (opaque; no server semantics in v0.1) |
-| Response (success) | `knowledge_entries: KnowledgeEntry[]` (persisted view); optional `rejected: { knowledge_entry_id, code, message }[]` |
+| Response (success) | `knowledge_entries: KnowledgeEntry[]` (persisted view); optional `rejected: { entry_id, code, message }[]` |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 #### extract→promote (`promote-*`)
 
 | Direction | Core payload |
 |-----------|--------------|
-| Request | `candidate: KnowledgeEntry` (typically `status: provisional`); optional `target_knowledge_entry_id` for merge |
+| Request | `candidate: KnowledgeEntry` (typically `status: provisional`); optional `target_entry_id` for merge |
 | Response (success) | `knowledge_entry: KnowledgeEntry` (promoted); optional `superseded_id` when merging |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 

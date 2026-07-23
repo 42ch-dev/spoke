@@ -71,7 +71,7 @@ export interface Scope {
   /**
    * Optional narrow scope to explicit KnowledgeEntries.
    */
-  knowledge_entry_ids?: string[];
+  entry_ids?: string[];
   /**
    * Optional filter by open entry_type vocabulary.
    */

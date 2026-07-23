@@ -10,7 +10,7 @@ Core terms for the SPOKE protocol repository. Each entry defines what the term m
 
 ### KnowledgeEntry
 
-The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`knowledge_entry_id`), open-string `entry_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — transitions enforced by `@42ch/spoke-operations`; `deprecated` → `merged` is excluded (restore to `confirmed` before absorb).
+The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`entry_id`), open-string `entry_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — transitions enforced by `@42ch/spoke-operations`; `deprecated` → `merged` is excluded (restore to `confirmed` before absorb).
 
 ### Relation
 
@@ -38,7 +38,7 @@ L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrat
 
 ### Scope
 
-Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`knowledge_entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`). Product-local scope ids map via op `extensions` or adapters — not required `Scope` fields.
+Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`). Product-local scope ids map via op `extensions` or adapters — not required `Scope` fields.
 
 ### Domain Profile
 
@@ -50,7 +50,7 @@ Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics
 
 ### AssemblePacket
 
-Wire-only context-assembly payload: a list of slim entries (`knowledge_entry_id`, `entry_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
+Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
 
 ### Extensions (`extensions.<namespace>`)
 

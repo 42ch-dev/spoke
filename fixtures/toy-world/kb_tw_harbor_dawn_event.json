@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "knowledge_entry_id": "kb_tw_harbor_dawn_event",
+  "entry_id": "kb_tw_harbor_dawn_event",
   "entry_type": "event",
   "canonical_name": "Dawn at Harbor",
   "status": "confirmed",

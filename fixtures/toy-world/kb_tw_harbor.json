@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "knowledge_entry_id": "kb_tw_harbor",
+  "entry_id": "kb_tw_harbor",
   "entry_type": "location",
   "canonical_name": "Harbor Town",
   "status": "confirmed",

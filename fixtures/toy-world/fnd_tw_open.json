@@ -6,7 +6,7 @@
   "title": "Unverified harbor berth",
   "description": "Mira's mooring point is not yet confirmed against the harbor map.",
   "kind": "consistency",
-  "target_knowledge_entry_id": "kb_tw_mira",
+  "target_entry_id": "kb_tw_mira",
   "source_anchor": {
     "schema_version": 1,
     "source_id": "manuscript:tw-ch1",

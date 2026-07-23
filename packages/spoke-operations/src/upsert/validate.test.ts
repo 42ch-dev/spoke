@@ -5,7 +5,7 @@ import { SpokeRejectCode } from "../result.js";
 import { validateUpsertKnowledgeEntry } from "./validate.js";
 
 function makeKnowledgeEntry(
-  overrides: Partial<KnowledgeEntry> & Pick<KnowledgeEntry, "knowledge_entry_id">,
+  overrides: Partial<KnowledgeEntry> & Pick<KnowledgeEntry, "entry_id">,
 ): KnowledgeEntry {
   return {
     schema_version: 1,
@@ -20,17 +20,17 @@ function makeKnowledgeEntry(
 
 describe("validateUpsertKnowledgeEntry", () => {
   it("accepts valid create without revision", () => {
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_new" });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_new" });
     expect(validateUpsertKnowledgeEntry(candidate).ok).toBe(true);
   });
 
   it("accepts valid create with revision 0", () => {
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_new", revision: 0 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_new", revision: 0 });
     expect(validateUpsertKnowledgeEntry(candidate).ok).toBe(true);
   });
 
   it("rejects create with revision >= 1", () => {
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_new", revision: 1 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_new", revision: 1 });
     const result = validateUpsertKnowledgeEntry(candidate);
 
     expect(result.ok).toBe(false);
@@ -40,7 +40,7 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects create with empty canonical_name", () => {
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_new", canonical_name: "" });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_new", canonical_name: "" });
     const result = validateUpsertKnowledgeEntry(candidate);
 
     expect(result.ok).toBe(false);
@@ -50,7 +50,7 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects create with whitespace-only canonical_name", () => {
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_new", canonical_name: "   " });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_new", canonical_name: "   " });
     const result = validateUpsertKnowledgeEntry(candidate);
 
     expect(result.ok).toBe(false);
@@ -61,12 +61,12 @@ describe("validateUpsertKnowledgeEntry", () => {
 
   it("accepts valid update with matching revision", () => {
     const stored = makeKnowledgeEntry({
-      knowledge_entry_id: "kb_1",
+      entry_id: "kb_1",
       revision: 2,
       status: "confirmed",
     });
     const candidate = makeKnowledgeEntry({
-      knowledge_entry_id: "kb_1",
+      entry_id: "kb_1",
       revision: 2,
       status: "confirmed",
     });
@@ -75,8 +75,8 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects update without revision", () => {
-    const stored = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 1 });
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_1" });
+    const stored = makeKnowledgeEntry({ entry_id: "kb_1", revision: 1 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_1" });
 
     const result = validateUpsertKnowledgeEntry(candidate, { stored });
 
@@ -87,8 +87,8 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects update when stored revision is stale", () => {
-    const stored = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 3 });
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 2 });
+    const stored = makeKnowledgeEntry({ entry_id: "kb_1", revision: 3 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_1", revision: 2 });
 
     const result = validateUpsertKnowledgeEntry(candidate, { stored });
 
@@ -100,12 +100,12 @@ describe("validateUpsertKnowledgeEntry", () => {
 
   it("rejects update when stored has terminal status", () => {
     const stored = makeKnowledgeEntry({
-      knowledge_entry_id: "kb_1",
+      entry_id: "kb_1",
       revision: 1,
       status: "merged",
     });
     const candidate = makeKnowledgeEntry({
-      knowledge_entry_id: "kb_1",
+      entry_id: "kb_1",
       revision: 1,
       status: "merged",
     });
@@ -119,7 +119,7 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects update path without stored via explicit mode", () => {
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 1 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_1", revision: 1 });
     const result = validateUpsertKnowledgeEntry(candidate, { mode: "update" });
 
     expect(result.ok).toBe(false);
@@ -129,8 +129,8 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects create path when stored is provided via explicit mode", () => {
-    const stored = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 0 });
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_1" });
+    const stored = makeKnowledgeEntry({ entry_id: "kb_1", revision: 0 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_1" });
     const result = validateUpsertKnowledgeEntry(candidate, { stored, mode: "create" });
 
     expect(result.ok).toBe(false);
@@ -139,9 +139,9 @@ describe("validateUpsertKnowledgeEntry", () => {
     }
   });
 
-  it("rejects knowledge_entry_id mismatch on update", () => {
-    const stored = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 1 });
-    const candidate = makeKnowledgeEntry({ knowledge_entry_id: "kb_2", revision: 1 });
+  it("rejects entry_id mismatch on update", () => {
+    const stored = makeKnowledgeEntry({ entry_id: "kb_1", revision: 1 });
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_2", revision: 1 });
 
     const result = validateUpsertKnowledgeEntry(candidate, { stored });
 
@@ -152,9 +152,9 @@ describe("validateUpsertKnowledgeEntry", () => {
   });
 
   it("rejects update when candidate is missing required fields", () => {
-    const stored = makeKnowledgeEntry({ knowledge_entry_id: "kb_1", revision: 1 });
+    const stored = makeKnowledgeEntry({ entry_id: "kb_1", revision: 1 });
     const candidate = {
-      knowledge_entry_id: "kb_1",
+      entry_id: "kb_1",
       revision: 1,
     } as KnowledgeEntry;
 

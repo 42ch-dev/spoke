@@ -54,7 +54,7 @@ export function assertUniqueActiveKnowledgeEntry({
     if (knowledgeEntry.canonical_name !== canonical_name) {
       continue;
     }
-    if (knowledgeEntry.knowledge_entry_id === candidate.knowledge_entry_id) {
+    if (knowledgeEntry.entry_id === candidate.entry_id) {
       continue;
     }
 
@@ -65,7 +65,7 @@ export function assertUniqueActiveKnowledgeEntry({
         scope_key,
         entry_type,
         canonical_name,
-        conflicting_knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+        conflicting_entry_id: knowledgeEntry.entry_id,
       },
     );
   }

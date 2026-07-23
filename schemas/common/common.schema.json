@@ -52,7 +52,7 @@
           "type": "string",
           "description": "Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions."
         },
-        "knowledge_entry_ids": {
+        "entry_ids": {
           "type": "array",
           "items": {
             "type": "string"

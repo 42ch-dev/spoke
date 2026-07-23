@@ -7,7 +7,7 @@
 
 | Concern | Wire name | Identity field |
 |---------|-----------|----------------|
-| L0–L1 atomic Knowledge Base entry | `KnowledgeEntry` | `knowledge_entry_id` |
+| L0–L1 atomic Knowledge Base entry | `KnowledgeEntry` | `entry_id` |
 | L5 Timeline when-axis | `TimelineEvent` | `timeline_event_id` |
 
 Product expand string: **Standardized Programmable Ontology Knowledge Engine** (acronym **SPOKE**). Package ids stay `@42ch/spoke-*` / `spoke-schemas`.
@@ -28,7 +28,7 @@ Core documented `entry_type` values live in `.mstar/specs/spoke-data-model.md` (
 - **TimelineEvent** is a Timeline when-axis object (optional `timeline_scale`).
 - `entry_type: "rule"` on a **KnowledgeEntry** is an ontology label — distinct from the L6 **`Rule`** wire object.
 - One story beat MAY map to KnowledgeEntry and/or TimelineEvent; protocol keeps the names separate.
-- Toy-world pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` (`extensions.spoke.timeline_knowledge_entry_id`).
+- Toy-world pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` (`extensions.spoke.timeline_entry_id`).
 
 ## Pointers
 

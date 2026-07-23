@@ -6,7 +6,7 @@
   "type": "object",
   "required": [
     "schema_version",
-    "knowledge_entry_id",
+    "entry_id",
     "entry_type",
     "canonical_name",
     "status",
@@ -17,7 +17,7 @@
     "schema_version": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
     },
-    "knowledge_entry_id": {
+    "entry_id": {
       "type": "string",
       "description": "Stable KnowledgeEntry id (opaque to protocol)."
     },
@@ -62,7 +62,7 @@
   "examples": [
     {
       "schema_version": 1,
-      "knowledge_entry_id": "kb_01HXYZ",
+      "entry_id": "kb_01HXYZ",
       "entry_type": "character",
       "canonical_name": "Mira Vale",
       "status": "confirmed",

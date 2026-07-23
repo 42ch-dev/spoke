@@ -109,7 +109,7 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
 | `timeline_scale` | `TimelineScale` | L5 projection tier — see §TimelineScale |
 | `occurred_at` | string | When the event happened — RFC 3339 **or** opaque fuzzy label (e.g. `"Third Age"`) |
 | `description` | string | Longer narrative summary |
-| `participant_knowledge_entry_ids` | string[] | Related KnowledgeEntry ids (characters, locations, …) |
+| `participant_entry_ids` | string[] | Related KnowledgeEntry ids (characters, locations, …) |
 | `source_anchor` | `SourceAnchor` | Manuscript / scene anchor |
 | `sort_key` | string | Opaque ordering hint within a timeline (products define grammar) |
 | `created_at` | string (RFC 3339) | Creation timestamp |
@@ -126,7 +126,7 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
   "canonical_name": "Treaty of Ashford",
   "timeline_scale": "narrative",
   "occurred_at": "1421-06-03T00:00:00Z",
-  "participant_knowledge_entry_ids": ["kb_mira", "kb_ashford"],
+  "participant_entry_ids": ["kb_mira", "kb_ashford"],
   "extensions": {
     "nexus": { "world_id": "wld_abc" }
   }
@@ -214,7 +214,7 @@ Every durable data object schema MUST:
 | Field | Type | Semantics |
 |-------|------|-----------|
 | `schema_version` | integer | Wire version; align with `common.SchemaVersion` |
-| `knowledge_entry_id` | string | Stable id (opaque to protocol; products choose prefix/format) |
+| `entry_id` | string | Stable id (opaque to protocol; products choose prefix/format) |
 | `entry_type` | string | Open string; core vocabulary in §Open vocabulary |
 | `canonical_name` | string | Human-stable name (min length 1) |
 | `status` | string | Open string; core vocabulary in §Open vocabulary |
@@ -241,7 +241,7 @@ Every durable data object schema MUST:
 ```json
 {
   "schema_version": 1,
-  "knowledge_entry_id": "kb_01HXYZ",
+  "entry_id": "kb_01HXYZ",
   "entry_type": "character",
   "canonical_name": "Mira Vale",
   "status": "confirmed",
@@ -311,7 +311,7 @@ Checker output — **not** a KnowledgeEntry body.
 | `description` | yes | string |
 | `extensions` | yes | object |
 
-Optional: `kind`, `target_knowledge_entry_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
+Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
 
 **Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §Finding lifecycle](spoke-operations.md#2-finding-lifecycle--finding). Wire schema keeps `status` as open string; library enforces the core transition table.
 
@@ -332,7 +332,7 @@ Optional: `kind`, `target_knowledge_entry_id`, `source_anchor`, `suggested_fix`,
 
 | Field | Required | Type |
 |-------|----------|------|
-| `knowledge_entry_id` | yes | string |
+| `entry_id` | yes | string |
 | `entry_type` | yes | string |
 | `canonical_name` | yes | string |
 | `snippet` | no | string (trimmed text for context window) |

@@ -48,9 +48,9 @@
   "definitions": {
     "UpsertRejected": {
       "type": "object",
-      "required": ["knowledge_entry_id", "code", "message"],
+      "required": ["entry_id", "code", "message"],
       "properties": {
-        "knowledge_entry_id": {
+        "entry_id": {
           "type": "string",
           "description": "Rejected KnowledgeEntry id."
         },

@@ -21,4 +21,4 @@ pub use promote_response::PromoteResponse;
 pub use relate_request::RelateRequest;
 pub use relate_response::RelateResponse;
 pub use upsert_request::UpsertRequest;
-pub use upsert_response::*;
+pub use upsert_response::UpsertResponse;

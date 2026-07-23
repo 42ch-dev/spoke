@@ -48,6 +48,16 @@ fn export_mode_for_schema(schema_path: &Path) -> (bool, Option<String>) {
     let content = fs::read_to_string(schema_path).expect("read source schema");
     let raw: Value = serde_json::from_str(&content).expect("parse source schema");
 
+    let title = raw.get("title").and_then(Value::as_str);
+
+    // Mirror TS buildTypeScriptBarrelExport: single-word title wins over definitions-only
+    // (oneOf/anyOf + definitions schemas like upsert-response export the title type only).
+    if let Some(t) = title {
+        if !t.contains(' ') {
+            return (false, Some(t.to_string()));
+        }
+    }
+
     let has_definitions = raw.get("definitions").is_some() || raw.get("$defs").is_some();
     let has_object_body = raw.get("type") == Some(&Value::String("object".into()))
         || raw.get("properties").is_some();
@@ -56,16 +66,7 @@ fn export_mode_for_schema(schema_path: &Path) -> (bool, Option<String>) {
         return (true, None);
     }
 
-    let title = raw
-        .get("title")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    match title {
-        Some(t) if t.contains(' ') => (true, None),
-        Some(t) => (false, Some(t)),
-        None => (true, None),
-    }
+    (true, None)
 }
 
 fn write_mod_rs(dir: &Path, child_modules: &[String], generated: &[&GeneratedModule]) {

@@ -15,6 +15,7 @@
     "build:schema": "pnpm -F @42ch/spoke-schema build",
     "build:operations": "pnpm -F @42ch/spoke-operations build",
     "test": "pnpm -F @42ch/spoke-operations test",
-    "test:operations": "pnpm -F @42ch/spoke-operations test"
+    "test:operations": "pnpm -F @42ch/spoke-operations test",
+    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test"
   }
 }

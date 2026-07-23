@@ -24,7 +24,9 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **v0-iter003 data deepen (architect-locked):** `Rule` (L6) and `Event` (L5) wire schemas — see [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` defs live in `common.schema.json` (no extra common files).
 
-**Nine-layer model:** Normative chapter in [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-iter003). Integrators declare **baseline** vs optional **`l2-computable`** / **`l5-fork`** capability flags.
+## Nine-layer model (L0–L8)
+
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-iter003). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 Moment Context Assembly.
 
 **Schema file count:**
 

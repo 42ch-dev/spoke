@@ -65,11 +65,11 @@ Later iterations deepen adapters, fixtures, and optional capabilities (Fork, L2 
 
 ## Thrust B — Nine protocol layers (realize on the wire)
 
-Research framed SPOKE as **nine conceptual layers** (L0–L8). That model is interesting and **should become protocol reality** — not remain canvas-only vocabulary.
+Research framed SPOKE as **nine conceptual layers** (L0–L8). **v0-iter003** promotes that model to normative protocol text in [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) — integrators declare **baseline** vs optional **`l2-computable`** / **`l5-fork`** capability flags.
 
 Read top-down: identity → ontology → body → provenance → graph → time → constraints → findings → AI packet.
 
-Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and still claim SPOKE compliance at a **declared capability level** — once that capability model is specified.
+Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and still claim SPOKE compliance at a **declared capability level** — see capability levels in the layers spec.
 
 | Layer | Concept | Protocol direction |
 |-------|---------|--------------------|
@@ -87,7 +87,7 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 
 - Layers L0–L8 are the **conceptual map** of what the **data** surface must eventually express (and what **ops wire** must carry in and out).
 - Thrust A is the **delivery cut**: every layer that is normative must appear as schemas + ops I/O, and cross-product **lifecycle rules** belong in `spoke-operations` when they cannot be expressed as schema alone.
-- v0.1 **partially** covers L0–L4 (via Keyblock/Relation/SourceAnchor), L7, L8; L5–L6 and full L1 (Domain Profile) remain roadmap work; v0-iter002 delivered the operations behavior library (column 3).
+- v0.1 **partially** covered L0–L4 (via Keyblock/Relation/SourceAnchor), L7, L8; v0-iter002 delivered the operations behavior library (column 3); v0-iter003 normative layers spec covers L0–L8 semantics + Domain Profile + L5 Timeline tiers — `Rule`/`Event` wire schemas land in sibling `rule-event` plan.
 
 ---
 
@@ -95,7 +95,7 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 
 Order is guidance for future compasses — adjust when grill locks say otherwise.
 
-1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schemas` packages, empty adapters, CI. Nine-layer model referenced here; not yet a normative L0–L8 spec section. **No** `spoke-operations` yet.
+1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schemas` packages, empty adapters, CI. Nine-layer model referenced here (normative L0–L8 chapter delivered in v0-iter003). **No** `spoke-operations` yet.
 2. **v0-iter002 (delivered 2026-07-23)** — `@42ch/spoke-operations` on generated types: lifecycle helpers and protocol invariants only (see Package cut). Integrator README EN/CN. Spec detail in [`spoke-operations.md`](specs/spoke-operations.md).
 3. **v0-iter003 (in progress)** — Normative L0–L8 + capability levels; `Rule` + `Event` data deepen; ops wire harden (Scope, Check≠Assemble, error-envelope). See [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md). **No** adapters.
 4. **Next — Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional conformance fixtures.

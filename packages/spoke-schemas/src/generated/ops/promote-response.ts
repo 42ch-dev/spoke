@@ -5,13 +5,13 @@
  */
 
 /**
- * Promoted Keyblock or wire error. Use keyblock OR error — not both.
+ * Promoted KnowledgeEntry or wire error. Use knowledge_entry OR error — not both.
  */
 export type PromoteResponse =
   | {
-      keyblock: Keyblock;
+      knowledge_entry: KnowledgeEntry;
       /**
-       * Optional id of Keyblock superseded during merge.
+       * Optional id of KnowledgeEntry superseded during merge.
        */
       superseded_id?: string;
       extensions?: ExtensionMap1;
@@ -22,17 +22,17 @@ export type PromoteResponse =
     };
 
 /**
- * Success: promoted Keyblock.
+ * Success: promoted KnowledgeEntry.
  */
-export interface Keyblock {
+export interface KnowledgeEntry {
   /**
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
   /**
-   * Stable Keyblock id (opaque to protocol).
+   * Stable KnowledgeEntry id (opaque to protocol).
    */
-  keyblock_id: string;
+  knowledge_entry_id: string;
   /**
    * Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list.
    */

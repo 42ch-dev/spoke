@@ -69,17 +69,17 @@ export interface Scope {
    */
   scope_id: string;
   /**
-   * Optional narrow scope to explicit Keyblocks.
+   * Optional narrow scope to explicit KnowledgeEntries.
    */
-  keyblock_ids?: string[];
+  knowledge_entry_ids?: string[];
   /**
    * Optional filter by open block_type vocabulary.
    */
   block_types?: string[];
   /**
-   * Optional narrow scope to explicit L5 Event ids.
+   * Optional narrow scope to explicit L5 TimelineEvent ids.
    */
-  event_ids?: string[];
+  timeline_event_ids?: string[];
   /**
    * Optional provenance or manuscript locator scope.
    */

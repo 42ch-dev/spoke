@@ -98,4 +98,30 @@ describe("assertUniqueActiveKeyblock", () => {
 
     expect(result.ok).toBe(true);
   });
+
+  it("rejects when block_type or canonical_name do not match candidate wire fields (R1)", () => {
+    const candidate = makeKeyblock({ keyblock_id: "kb_new", status: "provisional" });
+
+    const blockTypeMismatch = assertUniqueActiveKeyblock({
+      ...baseInput,
+      block_type: "location",
+      candidate,
+      existing: [],
+    });
+    expect(blockTypeMismatch.ok).toBe(false);
+    if (!blockTypeMismatch.ok) {
+      expect(blockTypeMismatch.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+
+    const nameMismatch = assertUniqueActiveKeyblock({
+      ...baseInput,
+      canonical_name: "Other Name",
+      candidate,
+      existing: [],
+    });
+    expect(nameMismatch.ok).toBe(false);
+    if (!nameMismatch.ok) {
+      expect(nameMismatch.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
 });

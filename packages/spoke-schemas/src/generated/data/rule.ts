@@ -33,9 +33,9 @@ export interface Rule {
    */
   description?: string;
   /**
-   * Optional ontology filter — open strings matching KnowledgeEntry block_type vocabulary.
+   * Optional ontology filter — open strings matching KnowledgeEntry entry_type vocabulary.
    */
-  target_block_types?: string[];
+  target_entry_types?: string[];
   /**
    * Optional checker hint. Core vocabulary (documented, not enforced): info, warning, error.
    */

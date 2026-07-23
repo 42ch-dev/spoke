@@ -9,7 +9,7 @@ const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 const REQUIRED_KNOWLEDGE_ENTRY_FIELDS = [
   "schema_version",
   "knowledge_entry_id",
-  "block_type",
+  "entry_type",
   "canonical_name",
   "status",
   "body",
@@ -59,11 +59,11 @@ function validateRequiredKnowledgeEntryFields(
     );
   }
 
-  if (typeof candidate.block_type !== "string" || candidate.block_type.length === 0) {
+  if (typeof candidate.entry_type !== "string" || candidate.entry_type.length === 0) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "KnowledgeEntry block_type must be a non-empty string",
-      { field: "block_type" },
+      "KnowledgeEntry entry_type must be a non-empty string",
+      { field: "entry_type" },
     );
   }
 

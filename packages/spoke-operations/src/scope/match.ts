@@ -14,7 +14,7 @@ export function knowledgeEntryMatchesScope(
     return false;
   }
 
-  if (scope.block_types !== undefined && !scope.block_types.includes(knowledgeEntry.block_type)) {
+  if (scope.entry_types !== undefined && !scope.entry_types.includes(knowledgeEntry.entry_type)) {
     return false;
   }
 

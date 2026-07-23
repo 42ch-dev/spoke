@@ -5,7 +5,7 @@
   "kind": "rule",
   "statement": "A character participating in a moment-scale event must have a located_in relation to the scene location.",
   "description": "Toy consistency rule for the Harbor dawn scene.",
-  "target_block_types": ["character", "location", "event"],
+  "target_entry_types": ["character", "location", "event"],
   "severity_hint": "error",
   "status": "active",
   "created_at": "2026-07-23T06:00:00Z",

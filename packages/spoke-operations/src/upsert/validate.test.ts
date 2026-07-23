@@ -9,7 +9,7 @@ function makeKnowledgeEntry(
 ): KnowledgeEntry {
   return {
     schema_version: 1,
-    block_type: "character",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status: "provisional",
     body: { summary: "Protagonist" },

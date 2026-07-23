@@ -5,7 +5,7 @@
  */
 
 /**
- * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry block_type event labels.
+ * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry ontology labels such as entry_type: "event" (KB fact node, not this wire type).
  */
 export interface TimelineEvent {
   /**

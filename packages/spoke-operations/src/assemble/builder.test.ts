@@ -11,7 +11,7 @@ function makeKnowledgeEntry(overrides: Partial<KnowledgeEntry> = {}): KnowledgeE
   return {
     schema_version: 1,
     knowledge_entry_id: "kb_1",
-    block_type: "character",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status: "confirmed",
     body: {},
@@ -28,7 +28,7 @@ describe("knowledgeEntryToAssembleEntry", () => {
 
     expect(entry).toEqual({
       knowledge_entry_id: "kb_1",
-      block_type: "character",
+      entry_type: "character",
       canonical_name: "Mira Vale",
       snippet: "Hero",
     });

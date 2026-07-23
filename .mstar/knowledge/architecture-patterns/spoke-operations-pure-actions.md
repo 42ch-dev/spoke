@@ -18,7 +18,7 @@ JSON Schema defines shapes; integrators still copy-paste lifecycle gates (OCC, s
 
 ## Gotchas
 
-- Uniqueness helpers that take `block_type`/`canonical_name` **params** (renaming to `entry_type` in the entry-type wire slice) must cross-check against `candidate` wire fields (`INVALID_INPUT`) — otherwise callers can bypass the gate.
+- Uniqueness helpers that take `entry_type`/`canonical_name` **params** must cross-check against `candidate` wire fields (`INVALID_INPUT`) — otherwise callers can bypass the gate.
 - Relate self-edge checks must use **trimmed** ids after emptiness validation.
 - Create-path `canonical_name` must reject whitespace-only (`EMPTY_CANONICAL_NAME`), matching promote.
 

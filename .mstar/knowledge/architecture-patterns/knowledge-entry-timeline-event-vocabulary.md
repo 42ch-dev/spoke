@@ -5,7 +5,7 @@
 
 ## Problem
 
-Early SPOKE drafts used **Keyblock** as the atomic wire unit. That name invited “KB = Key Blocks,” while product language (especially Creader) already treats **KB = Knowledge Base** and the atom as **KnowledgeEntry**. L5’s first-class when-axis object was named **Event**, which collided with ontology `block_type: "event"` and with DOM/`Event` in TypeScript ecosystems.
+Early SPOKE drafts used **Keyblock** as the atomic wire unit. That name invited “KB = Key Blocks,” while product language (especially Creader) already treats **KB = Knowledge Base** and the atom as **KnowledgeEntry**. L5’s first-class when-axis object was named **Event**, which collided with ontology `entry_type: "event"` and with DOM/`Event` in TypeScript ecosystems.
 
 ## Decision
 
@@ -20,7 +20,7 @@ Product expand string: **Standardized Programmable Ontology Knowledge Engine** �
 
 ## Dual-concern rule
 
-- Ontology label `block_type: "event"` on a **KnowledgeEntry** is a KB fact node. (Active slice renames this wire field to `entry_type`; values unchanged — see entry-type wire rename plan.)
+- Ontology label `entry_type: "event"` on a **KnowledgeEntry** is a KB fact node — distinct from the L5 **TimelineEvent** wire object.
 - **TimelineEvent** is a Timeline when-axis placement (optional `timeline_scale`).
 - One story beat MAY map to either or both; protocol keeps the names separate.
 - Toy-world exercises this with `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` (`extensions.spoke.timeline_knowledge_entry_id`).

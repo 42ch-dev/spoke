@@ -9,7 +9,7 @@ function makeKnowledgeEntry(
 ): KnowledgeEntry {
   return {
     schema_version: 1,
-    block_type: "character",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status: "confirmed",
     body: { summary: "Protagonist" },
@@ -20,7 +20,7 @@ function makeKnowledgeEntry(
 
 const baseInput = {
   scope_key: "world_1",
-  block_type: "character",
+  entry_type: "character",
   canonical_name: "Mira Vale",
 };
 
@@ -36,7 +36,7 @@ describe("assertUniqueActiveKnowledgeEntry", () => {
       existing: [
         makeKnowledgeEntry({
           knowledge_entry_id: "kb_other",
-          block_type: "location",
+          entry_type: "location",
           canonical_name: "Harbor",
         }),
       ],
@@ -63,7 +63,7 @@ describe("assertUniqueActiveKnowledgeEntry", () => {
       expect(result.code).toBe(SpokeRejectCode.DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY);
       expect(result.details).toEqual({
         scope_key: "world_1",
-        block_type: "character",
+        entry_type: "character",
         canonical_name: "Mira Vale",
         conflicting_knowledge_entry_id: "kb_existing",
       });
@@ -118,7 +118,7 @@ describe("assertUniqueActiveKnowledgeEntry", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects when block_type or canonical_name do not match candidate wire fields (R1)", () => {
+  it("rejects when entry_type or canonical_name do not match candidate wire fields (R1)", () => {
     const candidate = makeKnowledgeEntry({
       knowledge_entry_id: "kb_new",
       status: "provisional",
@@ -126,7 +126,7 @@ describe("assertUniqueActiveKnowledgeEntry", () => {
 
     const blockTypeMismatch = assertUniqueActiveKnowledgeEntry({
       ...baseInput,
-      block_type: "location",
+      entry_type: "location",
       candidate,
       existing: [],
     });

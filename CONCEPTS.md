@@ -10,7 +10,7 @@ Core terms for the SPOKE protocol repository. Each entry defines what the term m
 
 ### KnowledgeEntry
 
-The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`knowledge_entry_id`), open-string `block_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — cross-product transitions enforced by `@42ch/spoke-operations` (operations library deepen); `deprecated` → `merged` is excluded (restore to `confirmed` before absorb). Products map their local KB entities to KnowledgeEntries via adapters (adapter work next iteration).
+The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`knowledge_entry_id`), open-string `entry_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — cross-product transitions enforced by `@42ch/spoke-operations` (operations library deepen); `deprecated` → `merged` is excluded (restore to `confirmed` before absorb). Products map their local KB entities to KnowledgeEntries via adapters (adapter work next iteration).
 
 **Pre-1.0 wire rename:** retired legacy wire name; no dual aliases.
 
@@ -28,11 +28,11 @@ Checker **output** — consistency, style, structure, or other analysis results.
 
 ### Rule
 
-Declarative constraint **input** to `check` (L6). First-class wire object — `schemas/data/rule.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Distinct from Finding (checker output) and from KnowledgeEntry `block_type` strings products may use for ontology labels.
+Declarative constraint **input** to `check` (L6). First-class wire object — `schemas/data/rule.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Distinct from Finding (checker output) and from KnowledgeEntry `entry_type` strings products may use for ontology labels.
 
 ### TimelineEvent
 
-First-class **when-axis** temporal object (L5) — `schemas/data/timeline-event.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Optional `timeline_scale` tags the L5 projection tier (`brief`, `narrative`, `moment`). **Distinct from** KnowledgeEntry `block_type: "event"` (ontology label on a KB entry body).
+First-class **when-axis** temporal object (L5) — `schemas/data/timeline-event.schema.json` + field tables in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md). Optional `timeline_scale` tags the L5 projection tier (`brief`, `narrative`, `moment`). **Distinct from** KnowledgeEntry `entry_type: "event"` (ontology label on a KB entry body).
 
 **Pre-1.0 wire rename:** retired legacy wire name; no dual aliases.
 
@@ -42,11 +42,11 @@ L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrat
 
 ### Scope
 
-Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`knowledge_entry_ids`, `block_types`, `timeline_event_ids`, `source_id`, `timeline_scale`). World/Book/product ids map via op `extensions` or adapters — not required `Scope` fields.
+Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`knowledge_entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`). World/Book/product ids map via op `extensions` or adapters — not required `Scope` fields.
 
 ### Domain Profile
 
-How a product publishes its ontology mapping without closing core protocol enums. Open `block_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md).
+How a product publishes its ontology mapping without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md).
 
 ### spoke-baseline
 
@@ -54,7 +54,7 @@ Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics
 
 ### AssemblePacket
 
-Wire-only context-assembly payload: a list of slim entries (`knowledge_entry_id`, `block_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
+Wire-only context-assembly payload: a list of slim entries (`knowledge_entry_id`, `entry_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
 
 ### Extensions (`extensions.<namespace>`)
 
@@ -66,7 +66,7 @@ The sole product-specific bag on every data object. Namespace keys are product i
 
 | Concern | Wire artifact | Example |
 |---------|---------------|---------|
-| **Ontology / KB fact** | `KnowledgeEntry` with `block_type: "event"` | “The Battle of Five Armies” as a typed KB node |
+| **Ontology / KB fact** | `KnowledgeEntry` with `entry_type: "event"` | “The Battle of Five Armies” as a typed KB node |
 | **Timeline / when-axis** | `TimelineEvent` with `timeline_event_id` | Same story beat placed on the Timeline with `timeline_scale: "narrative"` |
 
 Products may map one local concept to one or both wire shapes. SPOKE keeps the names separate so check/assemble selectors and adapters stay unambiguous.
@@ -97,7 +97,7 @@ Products may map one local concept to one or both wire shapes. SPOKE keeps the n
 | Creader Knowledge Base | **KnowledgeEntry** (same name on wire after terminology iteration) |
 | TimelineScale wire values (`timeline_scale` field) | **`brief`**, **`narrative`**, **`moment`** (lowercase) |
 | Nexus Timeline surfaces (product UI) | Brief, Narrative, Moment — map to wire values in adapters |
-| Ontology label on a KB entry | `block_type: "event"` (string value — **not** the `TimelineEvent` type) |
+| Ontology label on a KB entry | `entry_type: "event"` (string value — **not** the `TimelineEvent` type) |
 
 ---
 

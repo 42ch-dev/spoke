@@ -36,9 +36,9 @@ export interface Scope {
    */
   knowledge_entry_ids?: string[];
   /**
-   * Optional filter by open block_type vocabulary.
+   * Optional filter by open entry_type vocabulary.
    */
-  block_types?: string[];
+  entry_types?: string[];
   /**
    * Optional narrow scope to explicit L5 TimelineEvent ids.
    */
@@ -81,9 +81,9 @@ export interface Rule {
    */
   description?: string;
   /**
-   * Optional ontology filter — open strings matching KnowledgeEntry block_type vocabulary.
+   * Optional ontology filter — open strings matching KnowledgeEntry entry_type vocabulary.
    */
-  target_block_types?: string[];
+  target_entry_types?: string[];
   /**
    * Optional checker hint. Core vocabulary (documented, not enforced): info, warning, error.
    */

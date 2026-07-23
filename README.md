@@ -46,7 +46,7 @@ Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-sc
 
 | Term | In SPOKE |
 |------|----------|
-| **KnowledgeEntry** | Atomic narrative knowledge unit on the wire (`knowledge_entry_id`, `block_type`, `status`, `body`, `extensions`) |
+| **KnowledgeEntry** | Atomic narrative knowledge unit on the wire (`knowledge_entry_id`, `entry_type`, `status`, `body`, `extensions`) |
 | **Relation** | Directed edge between KnowledgeEntries (or KnowledgeEntry ↔ source) |
 | **SourceAnchor** | Provenance pointer to a manuscript span or external locator |
 | **Finding** | Checker output for consistency, style, or analysis |
@@ -66,7 +66,7 @@ import { validatePromoteRequest } from "@42ch/spoke-operations";
 const candidate: KnowledgeEntry = {
   schema_version: 1,
   knowledge_entry_id: "kb_01",
-  block_type: "character",
+  entry_type: "character",
   canonical_name: "Aria",
   status: "provisional",
   body: { summary: "A reluctant scout." },

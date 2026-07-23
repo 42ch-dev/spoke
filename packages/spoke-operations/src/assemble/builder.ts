@@ -76,7 +76,7 @@ export function knowledgeEntryToAssembleEntry(
 ): AssembleEntry {
   const entry: AssembleEntry = {
     knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
-    block_type: knowledgeEntry.block_type,
+    entry_type: knowledgeEntry.entry_type,
     canonical_name: knowledgeEntry.canonical_name,
   };
 

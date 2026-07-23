@@ -39,7 +39,7 @@ export interface KnowledgeEntry {
   /**
    * Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list.
    */
-  block_type: string;
+  entry_type: string;
   /**
    * Human-stable name.
    */

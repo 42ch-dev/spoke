@@ -75,7 +75,7 @@ describe("fixtures/toy-world schema conformance", () => {
     const ontologyEvent = loadFixture<KnowledgeEntry>("kb_tw_harbor_dawn_event.json");
     const timelineEvent = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
 
-    expect(ontologyEvent.block_type).toBe("event");
+    expect(ontologyEvent.entry_type).toBe("event");
     expect(ontologyEvent.canonical_name).toBe(timelineEvent.canonical_name);
     expect(timelineEvent.extensions?.spoke).toEqual({
       timeline_knowledge_entry_id: ontologyEvent.knowledge_entry_id,

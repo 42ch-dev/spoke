@@ -13,7 +13,7 @@ function makeKnowledgeEntry(
 ): KnowledgeEntry {
   return {
     schema_version: 1,
-    block_type: "character",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status: "confirmed",
     body: { summary: "Protagonist" },
@@ -38,7 +38,7 @@ const baseScope: Scope = { scope_id: "world_1" };
 describe("knowledgeEntryMatchesScope", () => {
   const knowledgeEntry = makeKnowledgeEntry({
     knowledge_entry_id: "kb_1",
-    block_type: "character",
+    entry_type: "character",
     source_anchor: {
       schema_version: 1,
       source_id: "manuscript_1",
@@ -65,17 +65,17 @@ describe("knowledgeEntryMatchesScope", () => {
     ).toBe(false);
   });
 
-  it("matches block_types refinement", () => {
+  it("matches entry_types refinement", () => {
     expect(
       knowledgeEntryMatchesScope(knowledgeEntry, {
         ...baseScope,
-        block_types: ["character"],
+        entry_types: ["character"],
       }),
     ).toBe(true);
     expect(
       knowledgeEntryMatchesScope(knowledgeEntry, {
         ...baseScope,
-        block_types: ["location"],
+        entry_types: ["location"],
       }),
     ).toBe(false);
   });
@@ -107,7 +107,7 @@ describe("knowledgeEntryMatchesScope", () => {
       knowledgeEntryMatchesScope(knowledgeEntry, {
         ...baseScope,
         knowledge_entry_ids: ["kb_1"],
-        block_types: ["location"],
+        entry_types: ["location"],
       }),
     ).toBe(false);
   });
@@ -116,13 +116,13 @@ describe("knowledgeEntryMatchesScope", () => {
 describe("filterKnowledgeEntriesByScope", () => {
   it("filters by combined refinements", () => {
     const knowledgeEntries = [
-      makeKnowledgeEntry({ knowledge_entry_id: "kb_1", block_type: "character" }),
-      makeKnowledgeEntry({ knowledge_entry_id: "kb_2", block_type: "location" }),
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_1", entry_type: "character" }),
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_2", entry_type: "location" }),
     ];
 
     const filtered = filterKnowledgeEntriesByScope(knowledgeEntries, {
       ...baseScope,
-      block_types: ["character"],
+      entry_types: ["character"],
     });
 
     expect(filtered).toHaveLength(1);
@@ -172,7 +172,7 @@ describe("timelineEventMatchesScope", () => {
       timelineEventMatchesScope(timelineEvent, {
         ...baseScope,
         knowledge_entry_ids: ["kb_missing"],
-        block_types: ["character"],
+        entry_types: ["character"],
         source_id: "manuscript_1",
       }),
     ).toBe(true);

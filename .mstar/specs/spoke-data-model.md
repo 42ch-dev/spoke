@@ -444,7 +444,7 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 ## Non-goals (data layer)
 
 - Nexus/Creader object mapping implementations (adapter iteration)
-- Closed enums for all block types
+- Closed enums for all entry types
 - Required Fork / world-history fields in baseline compliance
 - Required WASM or computable KnowledgeEntry bodies (optional `l2-computable` capability only)
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` delivered fixtures conformance slice — see [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md); product DTO maps remain adapter work)

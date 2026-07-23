@@ -39,7 +39,7 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 ## Guiding principles
 
 1. **Wire contracts are truth.** `schemas/` is the only hand-authored source; TypeScript and Rust are generated.
-2. **Open vocabulary, closed envelopes.** `block_type` and related fields are strings with documented core lists — not `enum` until adapter specs prove stability.
+2. **Open vocabulary, closed envelopes.** `entry_type` and related fields are strings with documented core lists — not `enum` until adapter specs prove stability.
 3. **Preserve on round-trip.** Adapters MUST not drop unknown extension namespaces or keys.
 4. **Simplicity over premature abstraction.** v0.1 ships schemas and packages; cross-product lifecycle behavior lives in `@42ch/spoke-operations`.
 

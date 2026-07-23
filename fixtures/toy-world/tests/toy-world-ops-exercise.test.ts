@@ -46,7 +46,7 @@ describe("fixtures/toy-world ops exercise", () => {
     const scope: Scope = {
       scope_id: "toy-scope-001",
       knowledge_entry_ids: ["kb_tw_mira", "kb_tw_harbor"],
-      block_types: ["character", "location"],
+      entry_types: ["character", "location"],
     };
 
     expect(knowledgeEntryMatchesScope(mira(), scope)).toBe(true);

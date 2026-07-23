@@ -51,6 +51,20 @@ describe("mergeExtensionMaps", () => {
     expect(base).toEqual(baseCopy);
     expect(overlay).toEqual(overlayCopy);
   });
+
+  it("does not alias nested objects from inputs", () => {
+    const base = { nexus: { nested: { count: 1 } } };
+    const overlay = { nexus: { tags: ["draft"] } };
+
+    const result = mergeExtensionMaps(base, overlay);
+
+    result.nexus.nested.count = 99;
+    (result.nexus.tags as string[]).push("published");
+
+    expect(base.nexus.nested.count).toBe(1);
+    expect(base.nexus).not.toHaveProperty("tags");
+    expect(overlay.nexus.tags).toEqual(["draft"]);
+  });
 });
 
 describe("preserveExtensionMaps", () => {
@@ -82,5 +96,18 @@ describe("preserveExtensionMaps", () => {
 
     expect(result.nexus).toEqual({ a: 1, c: 3 });
     expect(result.creader).toEqual({ b: 2 });
+  });
+
+  it("does not alias nested objects from inputs", () => {
+    const source = { nexus: { meta: { legacy: true } } };
+    const target = { nexus: { meta: { mode: "new" } } };
+
+    const result = preserveExtensionMaps(source, target);
+
+    result.nexus.meta.legacy = false;
+    result.nexus.meta.mode = "edited";
+
+    expect(source.nexus.meta).toEqual({ legacy: true });
+    expect(target.nexus.meta).toEqual({ mode: "new" });
   });
 });

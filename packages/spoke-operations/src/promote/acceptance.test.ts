@@ -125,6 +125,32 @@ describe("validatePromoteRequest", () => {
       expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
     }
   });
+
+  it("rejects empty block_type", () => {
+    const result = validatePromoteRequest(
+      makeRequest({ candidate: makeCandidate({ block_type: "" }) }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.MISSING_REQUIRED_FIELD);
+    }
+  });
+
+  it("rejects non-string block_type", () => {
+    const result = validatePromoteRequest(
+      makeRequest({
+        candidate: makeCandidate({
+          block_type: 42 as unknown as string,
+        }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.MISSING_REQUIRED_FIELD);
+    }
+  });
 });
 
 describe("applyPromoteAcceptance", () => {

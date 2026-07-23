@@ -68,6 +68,14 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
     );
   }
 
+  if (typeof candidate.block_type !== "string" || candidate.block_type.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.MISSING_REQUIRED_FIELD,
+      "Keyblock block_type must be a non-empty string",
+      { field: "block_type" },
+    );
+  }
+
   if (typeof candidate.body !== "object" || candidate.body === null || Array.isArray(candidate.body)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,

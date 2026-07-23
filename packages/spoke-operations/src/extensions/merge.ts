@@ -4,10 +4,32 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function cloneValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneValue(item));
+  }
+
+  if (isPlainObject(value)) {
+    const cloned: Record<string, unknown> = {};
+
+    for (const [key, nested] of Object.entries(value)) {
+      cloned[key] = cloneValue(nested);
+    }
+
+    return cloned;
+  }
+
+  return value;
+}
+
 function cloneNamespace(
   namespace: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  return namespace ? { ...namespace } : {};
+  if (!namespace) {
+    return {};
+  }
+
+  return cloneValue(namespace) as Record<string, unknown>;
 }
 
 function deepMergeRecords(
@@ -28,7 +50,7 @@ function deepMergeRecords(
       continue;
     }
 
-    result[key] = overlayValue;
+    result[key] = cloneValue(overlayValue);
   }
 
   return result;

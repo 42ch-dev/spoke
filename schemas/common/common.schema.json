@@ -52,12 +52,12 @@
           "type": "string",
           "description": "Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions."
         },
-        "keyblock_ids": {
+        "knowledge_entry_ids": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Optional narrow scope to explicit Keyblocks."
+          "description": "Optional narrow scope to explicit KnowledgeEntries."
         },
         "block_types": {
           "type": "array",
@@ -66,12 +66,12 @@
           },
           "description": "Optional filter by open block_type vocabulary."
         },
-        "event_ids": {
+        "timeline_event_ids": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Optional narrow scope to explicit L5 Event ids."
+          "description": "Optional narrow scope to explicit L5 TimelineEvent ids."
         },
         "source_id": {
           "type": "string",

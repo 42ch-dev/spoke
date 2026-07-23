@@ -51,7 +51,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Operations library first slice (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
 | **Protocol layers + Rule/TimelineEvent (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
 | **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, KnowledgeEntry status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
-| **Next** | Adapter packages (`adapters/nexus`, `adapters/creader`) |
+| **KnowledgeEntry / TimelineEvent terminology (delivered 2026-07-23)** | Wire + ops + fixtures + docs rename; product expand Standardized Programmable Ontology Knowledge Engine |
+| **Next (when scheduled)** | Adapter packages (`adapters/nexus`, `adapters/creader`) — deferred on living roadmap until a product binding sprint |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 
 ## See also

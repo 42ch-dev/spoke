@@ -2,14 +2,14 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-23  
+**Updated:** 2026-07-24  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
 
 ---
 
 ## Now (in progress)
 
-_Nothing scheduled._ Baseline protocol surfaces (data wire, ops wire, ops library, fixtures) are delivered. Pick the next item from **Up next** when starting a new delivery slice.
+_Nothing scheduled._ **KnowledgeEntry / TimelineEvent terminology** is on `main` (PR #8, 2026-07-23). Baseline wire, ops library, and fixtures use the new vocabulary. Pick the next item from **Up next** when starting a delivery slice.
 
 ---
 
@@ -25,7 +25,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 | 4 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 | 5 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (19) in sync when adding schemas | See open residuals in local harness status when present |
 
-**Explicitly not on this roadmap right now:** product adapter packages (`adapters/nexus`, `adapters/creader`). The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
+**Explicitly not on this roadmap right now:** product adapter packages (`adapters/nexus`, `adapters/creader`). The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled. (Wire names now match Creader `KnowledgeEntry` 1:1, which unblocks that sprint when scheduled.)
 
 ---
 
@@ -35,7 +35,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
-| 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire rename Keyblock→KnowledgeEntry, Event→TimelineEvent; ops API + error codes; fixtures dual-concern pair; product expand Standardized Programmable Ontology Knowledge Engine |
+| 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire rename Keyblock→KnowledgeEntry, Event→TimelineEvent; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |
 | 2026-07-23 | Fixture harness ownership + CI harden | AJV/Vitest under `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`); removed from `@42ch/spoke-operations`; `AGENTS.md` boundary; CI `test:fixtures`; `verify-codegen` schema-count assert (19) |
 | 2026-07-23 | Operations library deepen + fixtures | OCC compare, KnowledgeEntry status, uniqueness, Scope/upsert/relate gates, error-envelope map; `fixtures/toy-world/` protocol JSON graph |
 | 2026-07-23 | Protocol layers + Rule/TimelineEvent | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` schemas; Scope / error-envelope / Rule-aware `check` |
@@ -48,9 +48,9 @@ Newest first. Dates are delivery dates on `main`.
 |------|--------|
 | Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions` |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope) |
-| Ops library | Pure TS helpers over wire types (no I/O, no fixture harness) |
-| Fixtures | `fixtures/toy-world/` samples + conformance package |
-| Specs | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/` |
+| Ops library | Pure TS helpers over wire types (KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
+| Fixtures | `fixtures/toy-world/` samples + conformance package (incl. dual-concern ontology `"event"` + TimelineEvent pair) |
+| Specs / vocabulary | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/`; CONCEPTS + knowledge vocabulary pattern |
 
 ---
 
@@ -72,8 +72,10 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | Doc / path | Use for |
 |------------|---------|
 | [`STRATEGY.md`](../STRATEGY.md) | Why / principles / three-column architecture |
+| [`CONCEPTS.md`](../CONCEPTS.md) | KnowledgeEntry / TimelineEvent spelling + dual-concern |
 | [`.mstar/specs/spoke-protocol.md`](specs/spoke-protocol.md) | Normative umbrella |
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
+| [`knowledge/architecture-patterns/knowledge-entry-timeline-event-vocabulary.md`](knowledge/architecture-patterns/knowledge-entry-timeline-event-vocabulary.md) | Compound note on the terminology lock |
 | [`schemas/`](../schemas/) | Wire SSOT |
 | [`packages/spoke-operations/`](../packages/spoke-operations/) | Pure behavior library |
 | [`fixtures/toy-world/`](../fixtures/toy-world/) | Protocol samples + harness |

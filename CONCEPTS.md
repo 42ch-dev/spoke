@@ -19,10 +19,10 @@ A pointer to a source artifact span (manuscript, scene, external locator). Ties 
 Checker **output** — consistency, style, structure, or other analysis results. Not a Keyblock body and not a declarative rule definition.
 
 ### Rule
-Declarative constraint **input** to `check` (L6). First-class wire object in v0-iter003 (`rule.schema.json`). Distinct from Finding (checker output) and from Keyblock `block_type` strings products may use for ontology labels.
+Declarative constraint **input** to `check` (L6). First-class wire object in v0-iter003 — field-level schema in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md); committed `rule.schema.json` lands in sibling plan `rule-event`. Distinct from Finding (checker output) and from Keyblock `block_type` strings products may use for ontology labels.
 
 ### Event
-First-class **when-axis** temporal object (L5) in v0-iter003 (`event.schema.json`). Optional `timeline_scale` tags the L5 projection tier. Distinct from Keyblock `block_type: "event"` ontology labels.
+First-class **when-axis** temporal object (L5) in v0-iter003 — field-level schema in [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md); committed `event.schema.json` lands in sibling plan `rule-event`. Optional `timeline_scale` tags the L5 projection tier (`brief`, `narrative`, `moment`). Distinct from Keyblock `block_type: "event"` ontology labels.
 
 ### TimelineScale
 L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrative`, `moment` (open string). Field name **`timeline_scale`** on `Event` and optional `Scope` filters. Standardizes Timeline-dimension semantics — not product canvas surface names.

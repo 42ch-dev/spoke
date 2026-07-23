@@ -81,7 +81,7 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 | **L5 Temporal** | Event + Timeline tiers + optional Fork | when-axis `Event`; projection vocabulary `brief`/`narrative`/`moment`; Fork optional capability |
 | **L6 Constraint** | Rule / Prohibition | First-class `Rule` wire object (v0-iter003) |
 | **L7 Finding** | Check output lifecycle + evidence | Findings are not Keyblock bodies; status lifecycle on the wire |
-| **L8 Context** | AssemblePacket | Shared packet shape for check / inference I/O; trim policy product-local |
+| **L8 Context** | AssemblePacket | Shared context-assembly packet shape (`assemble` op); trim/rank policy product-local — distinct from `check` |
 
 **How Thrust B relates to Thrust A**
 
@@ -97,7 +97,7 @@ Order is guidance for future compasses — adjust when grill locks say otherwise
 
 1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schemas` packages, empty adapters, CI. Nine-layer model referenced here (normative L0–L8 chapter delivered in v0-iter003). **No** `spoke-operations` yet.
 2. **v0-iter002 (delivered 2026-07-23)** — `@42ch/spoke-operations` on generated types: lifecycle helpers and protocol invariants only (see Package cut). Integrator README EN/CN. Spec detail in [`spoke-operations.md`](specs/spoke-operations.md).
-3. **v0-iter003 (in progress)** — Normative L0–L8 + capability levels; `Rule` + `Event` data deepen; ops wire harden (Scope, Check≠Assemble, error-envelope). See [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md). **No** adapters.
+3. **v0-iter003 (in progress)** — Normative L0–L8 + capability levels; `Rule` + `Event` data deepen (schemas in **`rule-event`**); ops wire harden (Scope, Check≠Assemble, error-envelope — committed wire in **`ops-harden`**). See [`spoke-protocol-layers.md`](specs/spoke-protocol-layers.md). **No** adapters.
 4. **Next — Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional conformance fixtures.
 5. **North star** — Cross-product Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime.
 

@@ -33,6 +33,9 @@ Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-ne
 ### Domain Profile
 How a product publishes its ontology mapping without closing core protocol enums. Open `block_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md).
 
+### spoke-baseline
+Declared capability level for v0-iter003 SPOKE compliance: L0–L8 semantics per [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Baseline — excludes required Fork (`l5-fork`) and L2 computable state (`l2-computable`).
+
 ### AssemblePacket
 Wire-only context-assembly payload: a list of slim entries (`keyblock_id`, `block_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
 

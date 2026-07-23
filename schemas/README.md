@@ -33,7 +33,7 @@ schemas/
 
 **Explicitly absent in v0.1:** `schemas/data/rule.schema.json`, `schemas/data/event.schema.json` (see [data model §Rule deferral (superseded)](../.mstar/specs/spoke-data-model.md#rule-deferral-v01-decision--superseded)).
 
-**v0-iter003 target:** + `rule.schema.json`, `event.schema.json`; `common.schema.json` gains `Scope` + `TimelineScale` definitions (19 files total — see [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md)).
+**Post–`rule-event` + `ops-harden` target (not yet committed):** + `rule.schema.json`, `event.schema.json` (`rule-event` plan); `common.schema.json` gains `Scope` + `TimelineScale` definitions (`ops-harden` plan). **19 files total** after both sibling plans land — see [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md). **Committed today:** 17 files (v0.1 baseline).
 
 ## Naming conventions
 

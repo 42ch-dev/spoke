@@ -22,18 +22,18 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**v0-iter003 data deepen (architect-locked):** `Rule` (L6) and `Event` (L5) wire schemas — see [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` defs live in `common.schema.json` (no extra common files).
+**v0-iter003 data deepen (architect-locked target wire):** `Rule` (L6) and `Event` (L5) field tables are normative in [`spoke-data-model.md`](spoke-data-model.md); committed `rule.schema.json` / `event.schema.json` land in sibling plan **`rule-event`**. Shared `Scope` + `TimelineScale` defs are architect-locked in `common.schema.json` (no extra common files) — committed wire lands in sibling plan **`ops-harden`**. **Committed today:** 17 schema files (v0.1 baseline).
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-iter003). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 Moment Context Assembly.
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-iter003). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
 
 **Schema file count:**
 
 | Slice | Hand-authored files | Breakdown |
 |-------|---------------------|-----------|
-| v0.1 baseline | **17** | 2 common + 5 data + 10 ops |
-| v0-iter003 target | **19** | + `data/rule.schema.json`, `data/event.schema.json`; `common.schema.json` gains `Scope` + `TimelineScale` defs (still 2 common files) |
+| **Committed (today)** | **17** | 2 common + 5 data + 10 ops — v0.1 baseline |
+| **Post–`rule-event` + `ops-harden` target** | **19** | + `data/rule.schema.json`, `data/event.schema.json` (`rule-event` plan); `common.schema.json` gains `Scope` + `TimelineScale` defs (`ops-harden` plan; still 2 common files) |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 
@@ -151,7 +151,7 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 |-------|-------------|
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **v0-iter002 (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
-| **v0-iter003 (in progress)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) — **no adapters** |
+| **v0-iter003 (in progress)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden spec (Scope neutrality, Check≠Assemble, error-envelope R3). Committed schemas: sibling plans **`rule-event`** + **`ops-harden`** — **no adapters** |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE), conformance fixtures |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 
@@ -163,7 +163,7 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/Event (v0-iter003) |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, four helper families, hard In/Out |
-| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (v0.1 baseline 17; v0-iter003 target 19) |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (committed 17; post–`rule-event` + `ops-harden` target 19) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Keyblock vocabulary; Keyblock ≠ World KB ≠ Author Memory |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |
 | [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 iteration close checklist (process artifact; optional) |

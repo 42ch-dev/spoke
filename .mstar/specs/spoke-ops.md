@@ -15,7 +15,7 @@ Define transport-agnostic **request/response** wire shapes for core Keyblock ope
 | Principle | Meaning |
 |-----------|---------|
 | **Check ≠ Assemble** | `check` runs checkers and returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op, no ranking fields in assemble wire. |
-| **Scope neutrality** | Shared `Scope` def in `common.schema.json`; required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. |
+| **Scope neutrality** | Shared `Scope` def in `common.schema.json` (architect-locked target wire — **`ops-harden` plan**); required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. |
 | **One failure dialect** | All ops responses use `oneOf` success branch **or** `{ "error": ErrorEnvelope }` — same attachment as v0.1 `assemble-response` (R3 closed). |
 
 **Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.
@@ -49,6 +49,8 @@ File basename `promote-*` is the schema id for **extract→promote** (shorter th
 - **Error path (architect-locked):** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `keyblocks`, …). Optional top-level `extensions` allowed on both branches.
 
 ### Scope (shared — `check` + `assemble`)
+
+> **Target wire (`ops-harden` plan):** Field table below is architect-locked normative text. Committed `schemas/` today uses inline `CheckScope` / `AssembleScope` without `scope_id`, `event_ids`, or `timeline_scale`. Shared `Scope` + `TimelineScale` defs land in `common.schema.json` and `check-request` / `assemble-request` `$ref` updates ship in sibling plan **`ops-harden`** — not yet in tree (17 files committed).
 
 Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def.
 

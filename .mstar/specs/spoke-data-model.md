@@ -23,12 +23,12 @@ Five required wire objects in v0.1:
 | **Finding** | Checker output (consistency, style, structure, …) | `schemas/data/finding.schema.json` |
 | **AssemblePacket** | Context-assembly payload (structure only) | `schemas/data/assemble-packet.schema.json` |
 
-### v0-iter003 deepen (architect-locked)
+### v0-iter003 deepen (architect-locked target wire)
 
 | Object | Layer | Role | Schema file |
 |--------|-------|------|-------------|
-| **Rule** | L6 | Declarative constraint **input** to checkers (not Finding output) | `schemas/data/rule.schema.json` |
-| **Event** | L5 | Temporal when-axis object | `schemas/data/event.schema.json` |
+| **Rule** | L6 | Declarative constraint **input** to checkers (not Finding output) | `schemas/data/rule.schema.json` — committed in sibling plan **`rule-event`** |
+| **Event** | L5 | Temporal when-axis object | `schemas/data/event.schema.json` — committed in sibling plan **`rule-event`** |
 
 Product invariant: each durable object participates in the `extensions` round-trip contract (§Extensions). See [`spoke-protocol-layers.md`](spoke-protocol-layers.md) for capability levels and Rule vs Finding boundaries.
 

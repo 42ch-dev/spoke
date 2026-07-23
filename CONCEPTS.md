@@ -114,8 +114,8 @@ Products may map one local concept to one or both wire shapes. SPOKE keeps the n
 | Context | Spelling |
 |---------|----------|
 | SPOKE protocol / schemas / packages | **KnowledgeEntry**, **TimelineEvent** |
-| Nexus product code / UI | **KeyBlock** (product spelling — maps to wire `KnowledgeEntry`) |
-| Creader Knowledge Base | **KnowledgeEntry** (same name on wire after terminology iteration) |
+| Nexus product code / UI | **KeyBlock** (Nexus-local product spelling; adapters map to wire `KnowledgeEntry`) |
+| Creader Knowledge Base | **KnowledgeEntry** (same name on wire) |
 | TimelineScale wire values (`timeline_scale` field) | **`brief`**, **`narrative`**, **`moment`** (lowercase) |
 | Nexus Timeline surfaces (product UI) | Brief, Narrative, Moment — map to wire values in adapters |
 | Ontology label on a KB entry | `entry_type: "event"` (string value — **not** the `TimelineEvent` type) |

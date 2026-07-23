@@ -63,7 +63,7 @@ Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrativ
 2. A product MAY implement a subset of tiers and still claim baseline if it ships **`TimelineEvent`** for the when-axis; declaring which tiers it exposes is part of capability / profile docs.
 3. Tier ≠ Fork. Fork remains optional capability `l5-fork`.
 4. Tier ≠ AssemblePacket. **L8 context assembly** consumes temporal scope; it does not redefine Timeline tiers (including the `moment` tier).
-5. Research canvas historically listed Timeline Brief/Narrative/Moment (product carriers) under “keep local” — **superseded for SPOKE wire vocabulary** by the TimelineScale wire lock (protocol layers + Rule/TimelineEvent deepen, 2026-07-23); carrier mapping details stay adapter/product concerns.
+5. Product Timeline Brief / Narrative / Moment **carriers** stay adapter/UI concerns. SPOKE wire vocabulary for those tiers is **`brief` / `narrative` / `moment`** via optional `timeline_scale` on `TimelineEvent` and Scope.
 
 ## Capability levels
 

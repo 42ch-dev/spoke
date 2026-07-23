@@ -50,7 +50,7 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **v0.1 (delivered 2026-07-23)** | Spec trio + schemas + codegen + CI verify gate |
 | **Operations library first slice (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
 | **Protocol layers + Rule/Event (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
-| **Operations library deepen + fixtures (in progress)** | Deepen `@42ch/spoke-operations` (OCC, Keyblock status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph |
+| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, Keyblock status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
 | **Next** | Adapter packages (`adapters/nexus`, `adapters/creader`) |
 | **North star** | Cross-product Keyblock dialect for checker and context-assembly I/O |
 

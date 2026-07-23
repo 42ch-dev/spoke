@@ -153,7 +153,7 @@ Historical v0.1 close criteria (wire bootstrap). Operations library first slice 
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **Operations library first slice (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
 | **Protocol layers + Rule/Event (delivered)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
-| **Operations library deepen + fixtures** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; harness at fixture tree (not operations package). Tracked status sync in flight (2026-07-23) — **no adapters** |
+| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 

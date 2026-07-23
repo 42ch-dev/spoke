@@ -1,6 +1,6 @@
 # SPOKE Operations Library
 
-> **Status:** Normative (operations library first slice; deepen — architect-locked 2026-07-23)  
+> **Status:** Normative (operations library first slice + deepen — delivered 2026-07-23)  
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Package:** `@42ch/spoke-operations` under `packages/spoke-operations/`
@@ -434,12 +434,12 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
 - [x] CI typecheck + test + build includes `packages/spoke-operations/`
 
-### Deepen slice (target)
+### Deepen slice (delivered 2026-07-23)
 
-- [ ] OCC, Keyblock status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
-- [ ] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
-- [ ] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
-- [ ] First-slice export behavior unchanged except additive OCC emit on new call sites
+- [x] OCC, Keyblock status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
+- [x] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
+- [x] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
+- [x] First-slice export behavior unchanged except additive OCC emit on new call sites
 
 ## Non-goals (operations layer)
 
@@ -470,4 +470,4 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
-| `packages/spoke-operations/` | Implementation (operations library first slice) |
+| `packages/spoke-operations/` | Implementation (first slice + deepen delivered 2026-07-23) |

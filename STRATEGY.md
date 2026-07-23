@@ -49,8 +49,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | Phase | Focus |
 |-------|-------|
 | **v0.1 (delivered 2026-07-23)** | Spec trio + schemas + codegen + CI verify gate |
-| **Next (v0-iter002)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
-| **Later** | Adapter packages, optional `Rule` schema, conformance fixtures |
+| **v0-iter002 (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
+| **Next** | Adapter packages, optional `Rule` schema, conformance fixtures |
 | **North star** | Cross-product Keyblock dialect for checker and context-assembly I/O |
 
 ## See also

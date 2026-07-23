@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-_Nothing scheduled._ **KnowledgeEntry / TimelineEvent terminology** is on `main` (PR #8, 2026-07-23). Baseline wire, ops library, and fixtures use the new vocabulary. Pick the next item from **Up next** when starting a delivery slice.
+_Nothing scheduled._ **EntryType field rename + canvas coverage sync** is on integration (`iteration/v0-iter007`); merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
 
 ---
 

@@ -1,7 +1,7 @@
 # Protocol vocabulary: KnowledgeEntry and TimelineEvent
 
 > Category: architecture-patterns  
-> Updated: 2026-07-23
+> Updated: 2026-07-24
 
 ## Problem
 
@@ -24,6 +24,13 @@ Product expand string: **Standardized Programmable Ontology Knowledge Engine** â
 - **TimelineEvent** is a Timeline when-axis placement (optional `timeline_scale`).
 - One story beat MAY map to either or both; protocol keeps the names separate.
 - Toy-world exercises this with `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` (`extensions.spoke.timeline_knowledge_entry_id`).
+
+
+## Ontology field: `entry_type`
+
+After the KnowledgeEntry type rename, residual wire fields still said `block_type` / `block_types` / `target_block_types`. Pre-1.0 follow-up renamed them to **`entry_type` / `entry_types` / `target_entry_types`** (no dual aliases). Values are unchanged open strings; core documented vocabulary lives in `.mstar/specs/spoke-data-model.md`.
+
+Also: ontology `entry_type: "rule"` is **not** the L6 `Rule` wire object.
 
 ## What not to do
 

@@ -1,0 +1,16 @@
+{
+  "name": "@42ch/spoke-codegen",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "SPOKE schema-to-code generation pipeline (TypeScript + Rust)",
+  "type": "module",
+  "scripts": {
+    "codegen": "node src/run.mjs"
+  },
+  "dependencies": {
+    "@apidevtools/json-schema-ref-parser": "^11.9.3",
+    "glob": "^11.0.0",
+    "json-schema-to-typescript": "^15.0.4"
+  }
+}

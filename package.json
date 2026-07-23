@@ -1,0 +1,17 @@
+{
+  "name": "spoke",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SPOKE protocol monorepo — JSON Schema SSOT with generated TypeScript and Rust types",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "scripts": {
+    "codegen": "pnpm -F @42ch/spoke-codegen codegen",
+    "verify-codegen": "pnpm run codegen && git diff --exit-code -- packages/spoke-schema/src/generated crates/spoke-schema/src/generated",
+    "typecheck": "pnpm -F @42ch/spoke-schema typecheck",
+    "build:schema": "pnpm -F @42ch/spoke-schema build"
+  }
+}

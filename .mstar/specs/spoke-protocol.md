@@ -16,15 +16,24 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
-| **1. Data** | Five required objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
+| **1. Data** | Seven required objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **Event** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
 | **2. Ops wire** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**Deferred data object:** `Rule` — see [`spoke-data-model.md` §Rule deferral](spoke-data-model.md#rule-deferral-v01-decision). No `rule.schema.json` in v0.1.
+**v0-iter003 data deepen (architect-locked):** `Rule` (L6) and `Event` (L5) wire schemas — see [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` defs live in `common.schema.json` (no extra common files).
 
-**Schema file count (v0.1):** 17 hand-authored files (2 common + 5 data + 10 ops) — checklist in [`schemas/README.md`](../../schemas/README.md).
+**Nine-layer model:** Normative chapter in [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-iter003). Integrators declare **baseline** vs optional **`l2-computable`** / **`l5-fork`** capability flags.
+
+**Schema file count:**
+
+| Slice | Hand-authored files | Breakdown |
+|-------|---------------------|-----------|
+| v0.1 baseline | **17** | 2 common + 5 data + 10 ops |
+| v0-iter003 target | **19** | + `data/rule.schema.json`, `data/event.schema.json`; `common.schema.json` gains `Scope` + `TimelineScale` defs (still 2 common files) |
+
+Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 
 ## Extensions
 
@@ -129,7 +138,7 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 |--------------|-----------|
 | Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred to next iteration |
 | Conformance fixtures / golden toy-world round-trips | No `fixtures/` this iteration |
-| `Rule` wire schema | Deferred — see data model §Rule deferral |
+| `Rule` wire schema | Deferred in v0.1 — superseded by v0-iter003 (see data model) |
 | WASM / Computable Keyblock / Fork semantics | Not required protocol surface yet |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
@@ -140,17 +149,19 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 |-------|-------------|
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **v0-iter002 (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
-| **Next** | Implementable adapter packages (product DTO ↔ SPOKE), optional `Rule` schema, conformance fixtures |
+| **v0-iter003 (in progress)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) — **no adapters** |
+| **Next** | Implementable adapter packages (product DTO ↔ SPOKE), conformance fixtures |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 
 ## See also
 
 | Doc | Topic |
 |-----|-------|
-| [`spoke-data-model.md`](spoke-data-model.md) | Five data objects, extensions, open vocabulary, `Rule` deferral |
-| [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, `assemble` wire-only boundary |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/Event (v0-iter003) |
+| [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, four helper families, hard In/Out |
-| [`schemas/README.md`](../../schemas/README.md) | 17-file schema tree and authoring rules |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (v0.1 baseline 17; v0-iter003 target 19) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Keyblock vocabulary; Keyblock ≠ World KB ≠ Author Memory |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |
 | [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 iteration close checklist (process artifact; optional) |

@@ -2,7 +2,7 @@
 
 SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are generated into `packages/spoke-schemas/` and `crates/spoke-schemas/`.
 
-Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
+Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-protocol-layers.md`](../.mstar/specs/spoke-protocol-layers.md) (L0–L8), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
 
 ## Layout (v0.1)
 
@@ -31,7 +31,9 @@ schemas/
     └── assemble-response.schema.json
 ```
 
-**Explicitly absent in v0.1:** `schemas/data/rule.schema.json` (deferred — see [data model §Rule deferral](../.mstar/specs/spoke-data-model.md#rule-deferral-v01-decision)).
+**Explicitly absent in v0.1:** `schemas/data/rule.schema.json`, `schemas/data/event.schema.json` (see [data model §Rule deferral (superseded)](../.mstar/specs/spoke-data-model.md#rule-deferral-v01-decision--superseded)).
+
+**v0-iter003 target:** + `rule.schema.json`, `event.schema.json`; `common.schema.json` gains `Scope` + `TimelineScale` definitions (19 files total — see [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md)).
 
 ## Naming conventions
 

@@ -6,23 +6,22 @@
 
 It defines JSON Schema wire contracts for narrative Keyblock **data** and **ops** so products (Nexus, Creader, others) can exchange consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
 
-## What we build (v0.1)
+## What we build
 
 | Deliverable | Role |
 |-------------|------|
-| **Normative specs** | `.mstar/specs/` — data model, ops, extensions rules |
-| **`schemas/`** | Draft-07 SSOT (17 files: 2 common + 5 data + 10 ops) |
+| **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
+| **`schemas/`** | Draft-07 SSOT (v0.1: 17 files; v0-iter003 target: 19 — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (v0-iter002+) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types |
 | **`adapters/`** | README purpose note only (implementation deferred) |
 
-## What we do not build (v0.1)
+## What we do not build
 
 - Shared runtime, daemon, or MCP server
 - Nexus ↔ SPOKE or Creader ↔ SPOKE conversion (adapter packages deferred)
 - Conformance fixtures or golden round-trips
-- `Rule` wire schema (deferred — see data model §Rule deferral)
 - npm/crates.io publish (workspace-local packages; CI must not publish)
 
 ## Architecture (three columns)
@@ -31,7 +30,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Artifact |
 |--------|----------------|----------|
-| **1. Data wire** | Durable objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket | `schemas/data/` → `@42ch/spoke-schemas` |
+| **1. Data wire** | Durable objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket; v0-iter003 adds Rule, Event | `schemas/data/` → `@42ch/spoke-schemas` |
 | **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schemas` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | `@42ch/spoke-operations` |
 
@@ -50,7 +49,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 |-------|-------|
 | **v0.1 (delivered 2026-07-23)** | Spec trio + schemas + codegen + CI verify gate |
 | **v0-iter002 (delivered 2026-07-23)** | `@42ch/spoke-operations` first slice + consumer README EN/CN |
-| **Next** | Adapter packages, optional `Rule` schema, conformance fixtures |
+| **v0-iter003 (in progress)** | Normative L0–L8 + capability levels; `Rule` + `Event` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
+| **Next** | Adapter packages, conformance fixtures |
 | **North star** | Cross-product Keyblock dialect for checker and context-assembly I/O |
 
 ## See also
@@ -59,3 +59,4 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 |-----|-------|
 | [`CONCEPTS.md`](CONCEPTS.md) | Domain vocabulary and boundaries |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec and acceptance criteria |
+| [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, TimelineScale vocabulary |

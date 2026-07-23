@@ -242,6 +242,7 @@ Public entry: `src/index.ts` re-exporting the four families above plus `SpokeRes
 | Path | Role |
 |------|------|
 | [`spoke-ops.md`](spoke-ops.md) | Ops **wire** request/response (column 2) |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
 | `packages/spoke-operations/` | Implementation (v0-iter002) |

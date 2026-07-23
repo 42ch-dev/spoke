@@ -1,6 +1,6 @@
 # SPOKE Operations
 
-> **Status:** Normative (v0.1)  
+> **Status:** Normative (v0.1 baseline; v0-iter003 harden)  
 > **Document class:** Detail — ops **wire** layer (column 2)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/ops/`, `schemas/common/`  
@@ -10,7 +10,15 @@
 
 Define transport-agnostic **request/response** wire shapes for core Keyblock operations. Ops schemas are separate families from data envelopes in `schemas/data/`.
 
-**Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools in v0.1. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.
+**Integrator framing (v0-iter003):**
+
+| Principle | Meaning |
+|-----------|---------|
+| **Check ≠ Assemble** | `check` runs checkers and returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op, no ranking fields in assemble wire. |
+| **Scope neutrality** | Shared `Scope` def in `common.schema.json`; required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. |
+| **One failure dialect** | All ops responses use `oneOf` success branch **or** `{ "error": ErrorEnvelope }` — same attachment as v0.1 `assemble-response` (R3 closed). |
+
+**Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.
 
 ---
 
@@ -38,7 +46,27 @@ File basename `promote-*` is the schema id for **extract→promote** (shorter th
 - Ops MUST `$ref` data-layer types (`Keyblock`, `Relation`, `Finding`, `AssemblePacket`) — no duplicated inline copies of those objects.
 - Ops MAY include an optional top-level `extensions` object (same `ExtensionMap` as data layer) for transport metadata products choose to standardize later.
 - Ops MUST NOT embed product-specific payloads as protocol siblings on nested data objects; use `extensions` on those objects.
-- **Error path:** failures use `schemas/common/error-envelope.schema.json` (shared across ops). Success responses do not embed error fields.
+- **Error path (architect-locked):** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `keyblocks`, …). Optional top-level `extensions` allowed on both branches.
+
+### Scope (shared — `check` + `assemble`)
+
+Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def.
+
+| Field | Required | Type | Semantics |
+|-------|----------|------|-----------|
+| `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op `extensions` — **not** as required `Scope` siblings. |
+| `keyblock_ids` | no | string[] | Narrow scope to explicit Keyblocks |
+| `block_types` | no | string[] | Filter by open `block_type` vocabulary |
+| `event_ids` | no | string[] | Narrow to explicit L5 `Event` ids |
+| `source_id` | no | string | Provenance / manuscript locator scope |
+| `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
+
+**Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use either:
+
+1. `request.extensions.<namespace>.world_id` (or equivalent), or  
+2. Adapter-side resolution from `scope_id` to product stores.
+
+Core ops schemas MUST NOT add `world_id`, `book_id`, `manuscript_id`, or product-prefixed ids as required `Scope` fields.
 
 ### Per-operation contract (field-level intent)
 
@@ -47,14 +75,16 @@ File basename `promote-*` is the schema id for **extract→promote** (shorter th
 | Direction | Core payload |
 |-----------|--------------|
 | Request | `keyblocks: Keyblock[]` (1..n); optional `idempotency_key: string` (opaque; no server semantics in v0.1) |
-| Response | `keyblocks: Keyblock[]` (persisted view); optional `rejected: { keyblock_id, code, message }[]` |
+| Response (success) | `keyblocks: Keyblock[]` (persisted view); optional `rejected: { keyblock_id, code, message }[]` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 #### extract→promote (`promote-*`)
 
 | Direction | Core payload |
 |-----------|--------------|
 | Request | `candidate: Keyblock` (typically `status: provisional`); optional `target_keyblock_id` for merge |
-| Response | `keyblock: Keyblock` (promoted); optional `superseded_id` when merging |
+| Response (success) | `keyblock: Keyblock` (promoted); optional `superseded_id` when merging |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 Pure promote gates and revision bump before persist: [`spoke-operations.md` §Promote acceptance](spoke-operations.md#3-promote-acceptance--promote).
 
@@ -63,21 +93,38 @@ Pure promote gates and revision bump before persist: [`spoke-operations.md` §Pr
 | Direction | Core payload |
 |-----------|--------------|
 | Request | `relation: Relation` |
-| Response | `relation: Relation` |
+| Response (success) | `relation: Relation` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 #### check
 
 | Direction | Core payload |
 |-----------|--------------|
-| Request | `scope: { keyblock_ids?: string[], source_id?: string }`; optional `rule_refs: string[]` (opaque ids; **no `Rule` object** in v0.1 — see [data model §Rule deferral](spoke-data-model.md#rule-deferral-v01-decision)); optional `checker_kinds: string[]` |
-| Response | `findings: Finding[]` |
+| Request | `scope: Scope` (required); optional `rule_refs: string[]`; optional `rules: Rule[]` (full `$ref` to `rule.schema.json`); optional `checker_kinds: string[]`; optional `extensions` |
+| Response (success) | `findings: Finding[]`; optional `extensions` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
+
+**Rule input pattern (architect-locked):** support **both** `rule_refs` and embedded `rules[]`.
+
+| Mechanism | When to use |
+|-----------|-------------|
+| `rule_refs` | Receiver already stores Rules by id; ids are opaque strings or URIs |
+| `rules[]` | Portable interchange — full declarative `Rule` objects inline |
+| Both present | For each `rule_id`, embedded object in `rules[]` **wins** over the matching ref; refs without a matching embed are resolved by the receiver |
+
+No separate “slim embed” type — `Rule` schema is intentionally lean (no checker runtime fields). Do not embed `Finding` shapes in `check` requests.
+
+**Product rule:** `check` MUST NOT return `AssemblePacket`. Checker execution engines remain product-local; the wire carries inputs/outputs only.
 
 #### assemble
 
 | Direction | Core payload |
 |-----------|--------------|
-| Request | `scope: { keyblock_ids?: string[], block_types?: string[], source_id?: string }`; optional `max_entries: integer` (hint only) |
-| Response | `packet: AssemblePacket` (see [data model §AssemblePacket](spoke-data-model.md#assemblepacket)) **or** `error: ErrorEnvelope` when a product chooses to signal failure on the wire |
+| Request | `scope: Scope` (required); optional `max_entries: integer` (hint only); optional `extensions` |
+| Response (success) | `packet: AssemblePacket` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
+
+**Product rule:** `assemble` MUST NOT return `Finding[]` or imply ranking/retrieval in required protocol fields.
 
 ---
 
@@ -122,7 +169,37 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 | `details` | no | object (open) |
 | `extensions` | yes | object |
 
-Ops responses use **either** the success shape **or** wrap `error: ErrorEnvelope` at the top level — not both. HTTP mapping (4xx/5xx) is adapter concern.
+### Attachment pattern (architect-locked — R3)
+
+All five ops response schemas MUST use the same discriminated union:
+
+```json
+{
+  "oneOf": [
+    { "required": ["<success-payload>"], "properties": { "...": "..." }, "additionalProperties": false },
+    {
+      "required": ["error"],
+      "properties": {
+        "error": { "$ref": "error-envelope.schema.json" },
+        "extensions": { "$ref": "ExtensionMap" }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+| Op | Success branch required field(s) | Notes |
+|----|----------------------------------|-------|
+| `upsert` | `keyblocks` | `rejected[]` stays on **success** branch (partial business reject, not transport failure) |
+| `promote` | `keyblock` | — |
+| `relate` | `relation` | — |
+| `check` | `findings` | Empty array is valid success |
+| `assemble` | `packet` | v0.1 reference implementation |
+
+**Invariant:** `error` and success payload fields MUST NOT co-exist on the same response object.
+
+HTTP mapping (4xx/5xx) is adapter concern.
 
 ---
 
@@ -139,23 +216,27 @@ Mapping Nexus daemon routes or Creader API handlers to these wire payloads remai
 - [ ] Each operation above has request + response schemas under `schemas/ops/`
 - [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 ops, 10 schema files)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
-- [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by ops schemas
+- [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)
+- [ ] `check-request` / `assemble-request` `$ref` shared `Scope` from `common.schema.json`
+- [ ] `check-request` supports `rule_refs` and `rules[]` per architect lock
 - [ ] No transport-specific fields (HTTP method, URL path, gRPC service name) in ops schemas
 
-## Non-goals (ops layer, v0.1)
+## Non-goals (ops layer)
 
 - HTTP/gRPC/MCP transport bindings
 - Server or daemon implementation
 - Checker execution engine
 - Assemble ranking / retrieval algorithms
 - Conformance fixtures or golden round-trips
+- Adapter route mapping (post–v0-iter003)
 
 ## See also
 
 | Doc | Topic |
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`Keyblock`, `AssemblePacket`, …) |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`Keyblock`, `AssemblePacket`, `Rule`, `Event`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers on top of wire types (column 3) |
 | [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

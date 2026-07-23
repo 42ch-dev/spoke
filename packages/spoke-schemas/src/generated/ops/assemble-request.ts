@@ -8,7 +8,7 @@
  * Selector hints for context assembly. Wire-only — no compute semantics.
  */
 export interface AssembleRequest {
-  scope: AssembleScope;
+  scope: Scope;
   /**
    * Optional entry limit hint (not enforced by protocol).
    */
@@ -18,19 +18,31 @@ export interface AssembleRequest {
 /**
  * Assembly scope selector.
  */
-export interface AssembleScope {
+export interface Scope {
   /**
-   * Optional Keyblock ids to include.
+   * Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions.
+   */
+  scope_id: string;
+  /**
+   * Optional narrow scope to explicit Keyblocks.
    */
   keyblock_ids?: string[];
   /**
-   * Optional block_type filters.
+   * Optional filter by open block_type vocabulary.
    */
   block_types?: string[];
   /**
-   * Optional source locator scope.
+   * Optional narrow scope to explicit L5 Event ids.
+   */
+  event_ids?: string[];
+  /**
+   * Optional provenance or manuscript locator scope.
    */
   source_id?: string;
+  /**
+   * Optional L5 tier filter (brief, narrative, moment).
+   */
+  timeline_scale?: string;
 }
 /**
  * Optional transport metadata.
@@ -41,22 +53,4 @@ export interface ExtensionMap {
         [k: string]: unknown | undefined;
       }
     | undefined;
-}
-/**
- * This interface was referenced by `AssembleRequest`'s JSON-Schema
- * via the `definition` "AssembleScope".
- */
-export interface AssembleScope1 {
-  /**
-   * Optional Keyblock ids to include.
-   */
-  keyblock_ids?: string[];
-  /**
-   * Optional block_type filters.
-   */
-  block_types?: string[];
-  /**
-   * Optional source locator scope.
-   */
-  source_id?: string;
 }

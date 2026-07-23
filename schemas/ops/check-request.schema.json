@@ -7,7 +7,7 @@
   "required": ["scope"],
   "properties": {
     "scope": {
-      "$ref": "#/definitions/CheckScope",
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Scope",
       "description": "Checker scope selector."
     },
     "rule_refs": {
@@ -15,7 +15,14 @@
       "items": {
         "type": "string"
       },
-      "description": "Opaque rule ids or URIs. No Rule wire object in v0.1."
+      "description": "Opaque rule ids or URIs. Resolved by receiver when not overridden by rules[]."
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/rule.schema.json"
+      },
+      "description": "Optional embedded Rule objects for portable interchange."
     },
     "checker_kinds": {
       "type": "array",
@@ -29,24 +36,5 @@
       "description": "Optional transport metadata."
     }
   },
-  "additionalProperties": false,
-  "definitions": {
-    "CheckScope": {
-      "type": "object",
-      "properties": {
-        "keyblock_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Optional Keyblock ids to check."
-        },
-        "source_id": {
-          "type": "string",
-          "description": "Optional source locator to check."
-        }
-      },
-      "additionalProperties": false
-    }
-  }
+  "additionalProperties": false
 }

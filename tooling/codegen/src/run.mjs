@@ -43,14 +43,14 @@ function isDefinitionsOnlySchema(relSchema) {
 }
 
 function buildTypeScriptBarrelExport(relSchema, baseName) {
+  const title = readSchemaTitle(relSchema);
+  if (title && !/\s/.test(title)) {
+    return `export type { ${title} } from './${baseName}';`;
+  }
   if (isDefinitionsOnlySchema(relSchema)) {
     return `export * from './${baseName}';`;
   }
-  const title = readSchemaTitle(relSchema);
-  if (!title || /\s/.test(title)) {
-    return `export * from './${baseName}';`;
-  }
-  return `export type { ${title} } from './${baseName}';`;
+  return `export * from './${baseName}';`;
 }
 
 function localizeSchemaRefs(schemaObj, relSchemaPath) {

@@ -7,7 +7,7 @@
   "required": ["scope"],
   "properties": {
     "scope": {
-      "$ref": "#/definitions/AssembleScope",
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Scope",
       "description": "Assembly scope selector."
     },
     "max_entries": {
@@ -20,31 +20,5 @@
       "description": "Optional transport metadata."
     }
   },
-  "additionalProperties": false,
-  "definitions": {
-    "AssembleScope": {
-      "type": "object",
-      "properties": {
-        "keyblock_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Optional Keyblock ids to include."
-        },
-        "block_types": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Optional block_type filters."
-        },
-        "source_id": {
-          "type": "string",
-          "description": "Optional source locator scope."
-        }
-      },
-      "additionalProperties": false
-    }
-  }
+  "additionalProperties": false
 }

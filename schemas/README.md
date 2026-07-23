@@ -33,9 +33,7 @@ schemas/
     └── assemble-response.schema.json
 ```
 
-**`ops-harden` follow-on (not yet in ops schemas):** `check-request` / `assemble-request` still use inline `CheckScope` / `AssembleScope` — shared `Scope` def is committed in `common.schema.json`; ops `$ref` wiring lands in sibling plan **`ops-harden`**.
-
-**Total:** **19** hand-authored schema files (2 common + 7 data + 10 ops). See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **19** hand-authored schema files (2 common + 7 data + 10 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -103,4 +101,4 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 18 | `ops/assemble-request.schema.json` | done |
 | 19 | `ops/assemble-response.schema.json` | done |
 
-**Total:** 19 schema files (v0-iter003 `rule-event` landed).
+**Total:** 19 schema files (v0-iter003 `rule-event` + `ops-harden` landed).

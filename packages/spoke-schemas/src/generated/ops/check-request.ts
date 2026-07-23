@@ -8,32 +8,139 @@
  * Run checker(s) over a scope; returns Finding(s).
  */
 export interface CheckRequest {
-  scope: CheckScope;
+  scope: Scope;
   /**
-   * Opaque rule ids or URIs. No Rule wire object in v0.1.
+   * Opaque rule ids or URIs. Resolved by receiver when not overridden by rules[].
    */
   rule_refs?: string[];
+  /**
+   * Optional embedded Rule objects for portable interchange.
+   */
+  rules?: Rule[];
   /**
    * Optional checker kind filters.
    */
   checker_kinds?: string[];
-  extensions?: ExtensionMap;
+  extensions?: ExtensionMap1;
 }
 /**
  * Checker scope selector.
  */
-export interface CheckScope {
+export interface Scope {
   /**
-   * Optional Keyblock ids to check.
+   * Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions.
+   */
+  scope_id: string;
+  /**
+   * Optional narrow scope to explicit Keyblocks.
    */
   keyblock_ids?: string[];
   /**
-   * Optional source locator to check.
+   * Optional filter by open block_type vocabulary.
+   */
+  block_types?: string[];
+  /**
+   * Optional narrow scope to explicit L5 Event ids.
+   */
+  event_ids?: string[];
+  /**
+   * Optional provenance or manuscript locator scope.
    */
   source_id?: string;
+  /**
+   * Optional L5 tier filter (brief, narrative, moment).
+   */
+  timeline_scale?: string;
 }
 /**
- * Optional transport metadata.
+ * Declarative constraint input to check — never checker output.
+ */
+export interface Rule {
+  /**
+   * Wire schema version (integer >= 1).
+   */
+  schema_version: number;
+  /**
+   * Stable rule id (opaque to protocol).
+   */
+  rule_id: string;
+  /**
+   * Human-stable name.
+   */
+  canonical_name: string;
+  /**
+   * Open string. Core vocabulary (documented, not enforced): rule, prohibition, style.
+   */
+  kind: string;
+  /**
+   * Declarative constraint text (human- or machine-readable; products choose grammar).
+   */
+  statement?: string;
+  /**
+   * Longer explanation for integrators or authors.
+   */
+  description?: string;
+  /**
+   * Optional ontology filter — open strings matching Keyblock block_type vocabulary.
+   */
+  target_block_types?: string[];
+  /**
+   * Optional checker hint. Core vocabulary (documented, not enforced): info, warning, error.
+   */
+  severity_hint?: string;
+  source_anchor?: SourceAnchor;
+  /**
+   * Open string. Core vocabulary (documented, not enforced): draft, active, deprecated.
+   */
+  status?: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  created_at?: string;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  updated_at?: string;
+  extensions: ExtensionMap;
+}
+/**
+ * Optional provenance pointer when rule is anchored to manuscript.
+ */
+export interface SourceAnchor {
+  /**
+   * Wire schema version (integer >= 1).
+   */
+  schema_version: number;
+  /**
+   * Opaque source locator; products define grammar.
+   */
+  source_id: string;
+  span?: SourceSpan;
+  /**
+   * Optional human label for the anchor.
+   */
+  label?: string;
+  /**
+   * Optional MIME type of the referenced source.
+   */
+  mime_type?: string;
+  extensions: ExtensionMap;
+}
+/**
+ * Optional byte or character span within the source.
+ */
+export interface SourceSpan {
+  /**
+   * Start offset (inclusive).
+   */
+  start: number;
+  /**
+   * End offset (exclusive).
+   */
+  end: number;
+}
+/**
+ * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap {
   [k: string]:
@@ -43,16 +150,12 @@ export interface ExtensionMap {
     | undefined;
 }
 /**
- * This interface was referenced by `CheckRequest`'s JSON-Schema
- * via the `definition` "CheckScope".
+ * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
-export interface CheckScope1 {
-  /**
-   * Optional Keyblock ids to check.
-   */
-  keyblock_ids?: string[];
-  /**
-   * Optional source locator to check.
-   */
-  source_id?: string;
+export interface ExtensionMap1 {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
 }

@@ -24,7 +24,7 @@ SPOKE is **not** a runtime. It is a shared wire dialect with **data + ops** prot
 
 | Package | Authored how | Role |
 |---------|--------------|------|
-| `@42ch/spoke-schema` / crate `spoke-schema` | **Generated** from `schemas/` | Types only — wire truth |
+| `@42ch/spoke-schemas` / crate `spoke-schemas` | **Generated** from `schemas/` | Types only — wire truth |
 | `@42ch/spoke-operations` (TS first; Rust optional later) | **Hand-written** (not codegen) | Pure behavior on schema types — lifecycle & invariants |
 | `adapters/nexus`, `adapters/creader` | Hand-written product maps | Product DTO ↔ SPOKE; may **call** `spoke-operations`, must not reimplement its invariants |
 
@@ -86,7 +86,7 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 
 Order is guidance for future compasses — adjust when grill locks say otherwise.
 
-1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schema` packages, empty adapters, CI. Nine-layer model referenced here; not yet a normative L0–L8 spec section. **No** `spoke-operations` yet.
+1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schemas` packages, empty adapters, CI. Nine-layer model referenced here; not yet a normative L0–L8 spec section. **No** `spoke-operations` yet.
 2. **v0-iter002 (delivered 2026-07-23)** — `@42ch/spoke-operations` on generated types: lifecycle helpers and protocol invariants only (see Package cut). Integrator README EN/CN. Spec detail in [`spoke-operations.md`](specs/spoke-operations.md).
 3. **Next — Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional conformance fixtures.
 4. **Deepen surfaces** — Complete deferred data (`Rule`, temporal objects as needed); harden ops wire (`check`/`assemble` contracts); grow `spoke-operations` only for cross-product invariants; document capability levels for optional layers.

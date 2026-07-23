@@ -2,7 +2,7 @@
 
 **SPOKE** = Standardized Programmable Ontology Keyblock Engine.
 
-Greenfield protocol repository: JSON Schema SSOT for narrative Keyblock **data** and **ops** wire shapes, with generated TypeScript (`@42ch/spoke-schema`) and Rust (`spoke-schema`) packages.
+Greenfield protocol repository: JSON Schema SSOT for narrative Keyblock **data** and **ops** wire shapes, with generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) packages.
 
 Normative entry: [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md).
 
@@ -29,7 +29,7 @@ Root `README.md` / `README_CN.md` are **for humans** (protocol consumers / integ
 ### Boundaries agents must enforce (not README copy)
 
 - SPOKE is a **protocol repo**, not a product runtime, daemon, or shared database.
-- Adapters under `adapters/*` are **empty placeholders** until a later iteration; no adapter packages ship yet.
+- `adapters/` holds **README purpose text only** for now — no product subdirs, packages, or mapping code until an iteration schedules them.
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
 - Packages are workspace-private (not published to npm); consume via workspace or `file:` path.
@@ -39,8 +39,10 @@ Root `README.md` / `README_CN.md` are **for humans** (protocol consumers / integ
 
 - **SSOT:** `schemas/`
 - **Codegen:** `json-schema-to-typescript` + `typify`
+- **TS package:** `@42ch/spoke-schemas` → `packages/spoke-schemas/`
+- **Rust crate:** `spoke-schemas` → `crates/spoke-schemas/`
 - **Extensions:** `extensions.<namespace>` only; core fields closed
-- **Adapters:** `adapters/*` empty placeholders until a later iteration
+- **Adapters:** deferred — `adapters/README.md` only until scheduled
 
 ## Conflict priority
 

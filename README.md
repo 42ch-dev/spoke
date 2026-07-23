@@ -4,15 +4,15 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — a protocol repository of JSON Schema wire contracts for narrative **Keyblock** data and **ops**. Products such as Nexus and Creader use these shapes for consistency-check and context-assembly I/O across independent stacks.
 
-**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schema`) and Rust (`spoke-schema`); pure lifecycle helpers (`@42ch/spoke-operations`).
+**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`).
 
 ## Packages
 
 | Package | Role |
 |---------|------|
-| [`@42ch/spoke-schema`](packages/spoke-schema/) | Generated TypeScript types from JSON Schema — **what** crosses the wire |
+| [`@42ch/spoke-schemas`](packages/spoke-schemas/) | Generated TypeScript types from JSON Schema — **what** crosses the wire |
 | [`@42ch/spoke-operations`](packages/spoke-operations/) | Hand-written pure helpers — promote gates, Finding transitions, extension merge, AssemblePacket construction |
-| `spoke-schema` (Rust crate) | Generated Rust types in [`crates/spoke-schema/`](crates/spoke-schema/) |
+| `spoke-schemas` (Rust crate) | Generated Rust types in [`crates/spoke-schemas/`](crates/spoke-schemas/) |
 
 Product-specific payloads live under `extensions.<namespace>` (e.g. `extensions.nexus`, `extensions.creader`).
 
@@ -23,7 +23,7 @@ Packages are **workspace-local** (private). In a pnpm monorepo:
 ```json
 {
   "dependencies": {
-    "@42ch/spoke-schema": "workspace:*",
+    "@42ch/spoke-schemas": "workspace:*",
     "@42ch/spoke-operations": "workspace:*"
   }
 }
@@ -34,13 +34,13 @@ From another repo, depend on a local checkout:
 ```json
 {
   "dependencies": {
-    "@42ch/spoke-schema": "file:../spoke/packages/spoke-schema",
+    "@42ch/spoke-schemas": "file:../spoke/packages/spoke-schemas",
     "@42ch/spoke-operations": "file:../spoke/packages/spoke-operations"
   }
 }
 ```
 
-Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-schema build` and `pnpm --filter @42ch/spoke-operations build`).
+Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-schemas build` and `pnpm --filter @42ch/spoke-operations build`).
 
 ## Core concepts
 
@@ -58,7 +58,7 @@ Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATE
 ## Quick start
 
 ```typescript
-import type { Keyblock, PromoteRequest } from "@42ch/spoke-schema";
+import type { Keyblock, PromoteRequest } from "@42ch/spoke-schemas";
 import { validatePromoteRequest } from "@42ch/spoke-operations";
 
 const candidate: Keyblock = {

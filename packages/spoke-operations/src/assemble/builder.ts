@@ -2,7 +2,7 @@ import type {
   AssemblePacket,
   ExtensionMap,
   Keyblock,
-} from "@42ch/spoke-schema";
+} from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";

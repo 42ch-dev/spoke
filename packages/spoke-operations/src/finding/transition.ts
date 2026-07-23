@@ -1,4 +1,4 @@
-import type { Finding } from "@42ch/spoke-schema";
+import type { Finding } from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";

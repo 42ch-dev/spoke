@@ -12,10 +12,10 @@ It defines JSON Schema wire contracts for narrative Keyblock **data** and **ops*
 |-------------|------|
 | **Normative specs** | `.mstar/specs/` — data model, ops, extensions rules |
 | **`schemas/`** | Draft-07 SSOT (17 files: 2 common + 5 data + 10 ops) |
-| **`@42ch/spoke-schema`** | Generated TypeScript types |
+| **`@42ch/spoke-schemas`** | Generated TypeScript types |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (v0-iter002+) |
-| **`spoke-schema`** (Rust crate) | Generated Rust types |
-| **`adapters/*`** | Empty placeholders only |
+| **`spoke-schemas`** (Rust crate) | Generated Rust types |
+| **`adapters/`** | README purpose note only (implementation deferred) |
 
 ## What we do not build (v0.1)
 
@@ -31,8 +31,8 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Artifact |
 |--------|----------------|----------|
-| **1. Data wire** | Durable objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket | `schemas/data/` → `@42ch/spoke-schema` |
-| **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schema` |
+| **1. Data wire** | Durable objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket | `schemas/data/` → `@42ch/spoke-schemas` |
+| **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schemas` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | `@42ch/spoke-operations` |
 
 Product-specific fields live only in `extensions.<namespace>`. Core protocol objects use `additionalProperties: false`. Adapters map product DTOs to wire types and **call** `@42ch/spoke-operations` for shared lifecycle rules — they must not reimplement those invariants.

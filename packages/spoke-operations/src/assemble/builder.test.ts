@@ -1,4 +1,4 @@
-import type { Keyblock } from "@42ch/spoke-schema";
+import type { Keyblock } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 
 import { SpokeRejectCode } from "../result.js";

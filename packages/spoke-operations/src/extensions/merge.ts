@@ -1,4 +1,4 @@
-import type { ExtensionMap } from "@42ch/spoke-schema";
+import type { ExtensionMap } from "@42ch/spoke-schemas";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

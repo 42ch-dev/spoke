@@ -7,11 +7,11 @@
 
 ## Problem & user value
 
-Wire schemas (`@42ch/spoke-schema`) tell integrators **what** crosses the boundary. They do not encode cross-product **lifecycle invariants** — promote gates, Finding status rules, extension round-trip preservation, or wire-valid `AssemblePacket` construction.
+Wire schemas (`@42ch/spoke-schemas`) tell integrators **what** crosses the boundary. They do not encode cross-product **lifecycle invariants** — promote gates, Finding status rules, extension round-trip preservation, or wire-valid `AssemblePacket` construction.
 
 Without a shared operations library, every product (Nexus, Creader, future adapters) reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** is the single hand-written place for those invariants: callable from adapters and product code, with **no** I/O, storage, LLM, ranking, or retrieval.
 
-**Integrator outcome:** import types from `@42ch/spoke-schema`, import lifecycle helpers from `@42ch/spoke-operations`, bind transport locally — no shared daemon required.
+**Integrator outcome:** import types from `@42ch/spoke-schemas`, import lifecycle helpers from `@42ch/spoke-operations`, bind transport locally — no shared daemon required.
 
 ---
 
@@ -19,7 +19,7 @@ Without a shared operations library, every product (Nexus, Creader, future adapt
 
 | Layer | Authored how | Owns | Does not own |
 |-------|--------------|------|--------------|
-| **Wire schemas** | Hand-written JSON Schema in `schemas/` → generated `@42ch/spoke-schema` | Object shapes, ops request/response envelopes, `extensions` bag presence | Lifecycle transitions, merge semantics, promote gates |
+| **Wire schemas** | Hand-written JSON Schema in `schemas/` → generated `@42ch/spoke-schemas` | Object shapes, ops request/response envelopes, `extensions` bag presence | Lifecycle transitions, merge semantics, promote gates |
 | **Operations library** | Hand-written TypeScript in `packages/spoke-operations/` | Pure functions / small state machines over generated types | HTTP/MCP, persistence, LLM, ranking, retrieval, product-specific detectors |
 | **Adapters** | Hand-written per product in `adapters/*` | Product DTO ↔ SPOKE mapping, transport binding | Reimplementing operations invariants (MUST call library instead) |
 
@@ -210,7 +210,7 @@ Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet:
 | Field | Value |
 |-------|-------|
 | Name | `@42ch/spoke-operations` |
-| Dependency | `@42ch/spoke-schema` (workspace) only |
+| Dependency | `@42ch/spoke-schemas` (workspace) only |
 | Publish | Private workspace package; no npm publish job in CI |
 | Rust | Deferred (`spoke-operations` crate not in v0-iter002) |
 

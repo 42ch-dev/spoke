@@ -10,9 +10,9 @@
   },
   "scripts": {
     "codegen": "pnpm -F @42ch/spoke-codegen codegen",
-    "verify-codegen": "pnpm run codegen && git diff --exit-code -- packages/spoke-schema/src/generated crates/spoke-schema/src/generated",
-    "typecheck": "pnpm -F @42ch/spoke-schema typecheck && pnpm -F @42ch/spoke-operations typecheck",
-    "build:schema": "pnpm -F @42ch/spoke-schema build",
+    "verify-codegen": "pnpm run codegen && git diff --exit-code -- packages/spoke-schemas/src/generated crates/spoke-schemas/src/generated",
+    "typecheck": "pnpm -F @42ch/spoke-schemas typecheck && pnpm -F @42ch/spoke-operations typecheck",
+    "build:schema": "pnpm -F @42ch/spoke-schemas build",
     "build:operations": "pnpm -F @42ch/spoke-operations build",
     "test": "pnpm -F @42ch/spoke-operations test",
     "test:operations": "pnpm -F @42ch/spoke-operations test",

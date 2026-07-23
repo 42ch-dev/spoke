@@ -1,5 +1,5 @@
 [package]
-name = "spoke-schema"
+name = "spoke-schemas"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

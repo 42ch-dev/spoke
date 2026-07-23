@@ -10,9 +10,9 @@ importers:
 
   packages/spoke-operations:
     dependencies:
-      '@42ch/spoke-schema':
+      '@42ch/spoke-schemas':
         specifier: workspace:*
-        version: link:../spoke-schema
+        version: link:../spoke-schemas
     devDependencies:
       typescript:
         specifier: ^5.3.0
@@ -21,7 +21,7 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7
 
-  packages/spoke-schema:
+  packages/spoke-schemas:
     devDependencies:
       tsup:
         specifier: ^8.0.0

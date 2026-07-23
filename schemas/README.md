@@ -1,6 +1,6 @@
 # `schemas/` — JSON Schema SSOT
 
-SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are generated into `packages/spoke-schema/` and `crates/spoke-schema/`.
+SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are generated into `packages/spoke-schemas/` and `crates/spoke-schemas/`.
 
 Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
 
@@ -62,7 +62,7 @@ schemas/
 
 | Input | TypeScript output | Rust output |
 |-------|-------------------|-------------|
-| `schemas/common/*.schema.json` | `packages/spoke-schema/src/generated/common/` | `crates/spoke-schema/src/generated/common/` |
+| `schemas/common/*.schema.json` | `packages/spoke-schemas/src/generated/common/` | `crates/spoke-schemas/src/generated/common/` |
 | `schemas/data/*.schema.json` | `.../generated/data/` | `.../generated/data/` |
 | `schemas/ops/*.schema.json` | `.../generated/ops/` | `.../generated/ops/` |
 

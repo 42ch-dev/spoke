@@ -130,7 +130,7 @@ Ops responses use **either** the success shape **or** wrap `error: ErrorEnvelope
 
 v0.1 delivers **ops wire** shapes only. Cross-product lifecycle rules (promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders) live in [`spoke-operations.md`](spoke-operations.md) — adapters and product code MUST call `@42ch/spoke-operations` instead of reimplementing those invariants.
 
-Mapping Nexus daemon routes or Creader API handlers to these wire payloads remains a **follow-on** adapter concern (after v0-iter002 operations library ships).
+Mapping Nexus daemon routes or Creader API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in v0-iter002).
 
 ---
 

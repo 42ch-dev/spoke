@@ -4,7 +4,11 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — 这是一个**协议仓库**，不是运行时。SPOKE 用 JSON Schema 定义叙事 **Keyblock** 数据层与 **ops** 操作层的线上契约，使 Nexus、Creader 等产品能在不共享数据库、守护进程或部署的前提下，交换一致性检查与上下文组装的 I/O。
 
-**v0.1 交付：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schema`）与 Rust（`spoke-schema`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）。适配器实现**尚未包含** — `adapters/nexus/` 与 `adapters/creader/` 目前为空占位目录。
+**v0.1 交付：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schema`）与 Rust（`spoke-schema`）。
+
+**v0-iter002 新增：** 纯函数生命周期辅助库（`@42ch/spoke-operations`）与集成方 README 中英文版。
+
+适配器实现**尚未包含** — `adapters/nexus/` 与 `adapters/creader/` 目前为空占位目录。
 
 ## 软件包
 

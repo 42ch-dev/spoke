@@ -4,7 +4,11 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — a **protocol repository**, not a runtime. SPOKE defines JSON Schema wire contracts for narrative **Keyblock** data and **ops** so products (Nexus, Creader, and others) can share consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
 
-**v0.1 ships:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schema`) and Rust (`spoke-schema`); pure lifecycle helpers (`@42ch/spoke-operations`). Adapter implementations are **not** included yet — `adapters/nexus/` and `adapters/creader/` are empty placeholders.
+**v0.1 ships:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schema`) and Rust (`spoke-schema`).
+
+**v0-iter002 adds:** pure lifecycle helpers (`@42ch/spoke-operations`) and integrator README EN/CN.
+
+Adapter implementations are **not** included yet — `adapters/nexus/` and `adapters/creader/` are empty placeholders.
 
 ## Packages
 

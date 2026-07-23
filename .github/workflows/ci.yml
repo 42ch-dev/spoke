@@ -75,6 +75,15 @@ jobs:
       - name: Build @42ch/spoke-schema
         run: pnpm -F @42ch/spoke-schema build
 
+      - name: Typecheck @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations typecheck
+
+      - name: Test @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations test
+
+      - name: Build @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations build
+
   rust:
     name: rust
     runs-on: ubuntu-latest

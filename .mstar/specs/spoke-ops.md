@@ -1,9 +1,10 @@
 # SPOKE Operations
 
 > **Status:** Normative (v0.1)  
-> **Document class:** Detail — ops / behavioral layer  
+> **Document class:** Detail — ops **wire** layer (column 2)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
-> **Schema home:** `schemas/ops/`, `schemas/common/`
+> **Schema home:** `schemas/ops/`, `schemas/common/`  
+> **Lifecycle behavior:** [`spoke-operations.md`](spoke-operations.md) (column 3 — hand-written library, not wire)
 
 ## Purpose
 
@@ -54,6 +55,8 @@ File basename `promote-*` is the schema id for **extract→promote** (shorter th
 |-----------|--------------|
 | Request | `candidate: Keyblock` (typically `status: provisional`); optional `target_keyblock_id` for merge |
 | Response | `keyblock: Keyblock` (promoted); optional `superseded_id` when merging |
+
+Pure promote gates and revision bump before persist: [`spoke-operations.md` §Promote acceptance](spoke-operations.md#3-promote-acceptance--promote).
 
 #### relate
 
@@ -123,9 +126,11 @@ Ops responses use **either** the success shape **or** wrap `error: ErrorEnvelope
 
 ---
 
-## Relationship to adapters
+## Relationship to adapters and operations library
 
-v0.1 delivers schema shapes only. Mapping Nexus daemon routes or Creader API handlers to these ops is a **next-iteration** adapter concern.
+v0.1 delivers **ops wire** shapes only. Cross-product lifecycle rules (promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders) live in [`spoke-operations.md`](spoke-operations.md) — adapters and product code MUST call `@42ch/spoke-operations` instead of reimplementing those invariants.
+
+Mapping Nexus daemon routes or Creader API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in v0-iter002).
 
 ---
 
@@ -151,5 +156,6 @@ v0.1 delivers schema shapes only. Mapping Nexus daemon routes or Creader API han
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`Keyblock`, `AssemblePacket`, …) |
+| [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers on top of wire types (column 3) |
 | [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

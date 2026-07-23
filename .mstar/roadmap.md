@@ -41,9 +41,16 @@ This is how research’s “standardize I/O **and lifecycle** — not a third ru
 |---------|-------------|---------------------------|
 | Data | Five required objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket + `extensions` | `Rule` deferred; Event/Fork not required fields; no fixtures |
 | Ops wire | Five ops × request/response (10 schemas); `assemble` **wire-only** | No compute/ranking in protocol; no HTTP/MCP binding; adapters empty |
-| Ops library | **Out of v0.1** — schemas + generated types only | `spoke-operations` deferred to a dedicated follow-on slice (see Sequencing) |
+| Ops library | **Out of v0.1** — schemas + generated types only | `spoke-operations` deferred to v0-iter002 (see Sequencing) |
 
-Later iterations deepen **all three** surfaces (e.g. Rule schema, richer check I/O, assemble profiles as *documented* product-local policy, and the hand-written operations library — still not a shared runtime).
+### Current slice (v0-iter002 — delivered 2026-07-23)
+
+| Surface | v0-iter002 intent | Explicit gaps (by design) |
+|---------|-------------------|---------------------------|
+| Ops library | `@42ch/spoke-operations` first slice: promote gate, Finding transitions, extension preserve, AssemblePacket builders | Rust crate deferred; full OCC deferred; no adapter code |
+| Integrator docs | Consumer README EN/CN | Maintainer/harness process not in README body |
+
+Later iterations deepen **all three** surfaces (e.g. Rule schema, richer check I/O, assemble profiles as *documented* product-local policy, and further operations helpers — still not a shared runtime).
 
 ---
 
@@ -71,7 +78,7 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 
 - Layers L0–L8 are the **conceptual map** of what the **data** surface must eventually express (and what **ops wire** must carry in and out).
 - Thrust A is the **delivery cut**: every layer that is normative must appear as schemas + ops I/O, and cross-product **lifecycle rules** belong in `spoke-operations` when they cannot be expressed as schema alone.
-- v0.1 **partially** covers L0–L4 (via Keyblock/Relation/SourceAnchor), L7, L8; L5–L6 and full L1 (Domain Profile) remain roadmap work; the behavior library is a follow-on slice.
+- v0.1 **partially** covers L0–L4 (via Keyblock/Relation/SourceAnchor), L7, L8; L5–L6 and full L1 (Domain Profile) remain roadmap work; v0-iter002 delivered the operations behavior library (column 3).
 
 ---
 
@@ -80,8 +87,8 @@ Products may omit optional capabilities (e.g. L5 Fork, L2 computable state) and 
 Order is guidance for future compasses — adjust when grill locks say otherwise.
 
 1. **v0.1 (delivered 2026-07-23)** — Bootstrap: data + ops **wire** schema SSOT, codegen `spoke-schema` packages, empty adapters, CI. Nine-layer model referenced here; not yet a normative L0–L8 spec section. **No** `spoke-operations` yet.
-2. **Next — `spoke-operations` (hand-written)** — Stand up `@42ch/spoke-operations` on top of generated types: lifecycle helpers and protocol invariants only (see Package cut). Spec note / thin ADR in `{SPECS_DIR}` describing what is library vs wire vs adapter. Prefer this **before or tightly coupled with** first adapter code so Nexus/Creader do not fork promote/Finding rules.
-3. **Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional conformance fixtures.
+2. **v0-iter002 (delivered 2026-07-23)** — `@42ch/spoke-operations` on generated types: lifecycle helpers and protocol invariants only (see Package cut). Integrator README EN/CN. Spec detail in [`spoke-operations.md`](specs/spoke-operations.md).
+3. **Next — Adapters** — Implementable `adapters/nexus` + `adapters/creader` mapping product objects ↔ SPOKE; call `spoke-operations` for shared gates; optional conformance fixtures.
 4. **Deepen surfaces** — Complete deferred data (`Rule`, temporal objects as needed); harden ops wire (`check`/`assemble` contracts); grow `spoke-operations` only for cross-product invariants; document capability levels for optional layers.
 5. **Normative nine-layer chapter** — Promote L0–L8 into `{SPECS_DIR}` so compliance claims map layer ↔ schema ↔ op ↔ library helper (where applicable).
 6. **North star** — Cross-product Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime.
@@ -108,5 +115,5 @@ These stay out of SPOKE itself unless a future grill explicitly reverses them:
 | [`.mstar/specs/spoke-data-model.md`](specs/spoke-data-model.md) | Data surface detail |
 | [`.mstar/specs/spoke-ops.md`](specs/spoke-ops.md) | Ops **wire** surface detail |
 | [`schemas/`](../schemas/) | Wire SSOT |
-| Future `packages/spoke-operations/` | Hand-written behavior library (roadmap item; not in v0.1) |
+| [`packages/spoke-operations/`](../packages/spoke-operations/) | Hand-written behavior library (delivered v0-iter002) |
 | Iteration `delivery-compass.md` | Per-iteration scope (process; local) |

@@ -5,19 +5,25 @@
  */
 
 /**
- * Persisted Keyblock view after upsert.
+ * Persisted Keyblock view or wire error. Use keyblocks OR error — not both.
  */
-export interface UpsertResponse {
-  /**
-   * Persisted Keyblocks.
-   */
-  keyblocks: Keyblock[];
-  /**
-   * Optional per-Keyblock rejections.
-   */
-  rejected?: UpsertRejected[];
-  extensions?: ExtensionMap1;
-}
+export type UpsertResponse =
+  | {
+      /**
+       * Success: persisted Keyblocks.
+       */
+      keyblocks: Keyblock[];
+      /**
+       * Optional per-Keyblock rejections (success branch only).
+       */
+      rejected?: UpsertRejected[];
+      extensions?: ExtensionMap1;
+    }
+  | {
+      error: ErrorEnvelope;
+      extensions?: ExtensionMap2;
+    };
+
 /**
  * Atomic narrative knowledge unit: identity, typed body, provenance envelope.
  */
@@ -109,10 +115,6 @@ export interface ExtensionMap {
       }
     | undefined;
 }
-/**
- * This interface was referenced by `UpsertResponse`'s JSON-Schema
- * via the `definition` "UpsertRejected".
- */
 export interface UpsertRejected {
   /**
    * Rejected Keyblock id.
@@ -131,6 +133,36 @@ export interface UpsertRejected {
  * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap1 {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
+}
+/**
+ * Failure: shared error envelope.
+ */
+export interface ErrorEnvelope {
+  /**
+   * Machine-readable error code.
+   */
+  code: string;
+  /**
+   * Human-readable error message.
+   */
+  message: string;
+  /**
+   * Optional structured error context.
+   */
+  details?: {
+    [k: string]: unknown | undefined;
+  };
+  extensions: ExtensionMap;
+}
+/**
+ * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ */
+export interface ExtensionMap2 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

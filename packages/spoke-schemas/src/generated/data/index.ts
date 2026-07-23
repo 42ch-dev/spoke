@@ -5,7 +5,9 @@
  */
 
 export type { AssemblePacket } from './assemble-packet';
+export type { Event } from './event';
 export type { Finding } from './finding';
 export type { Keyblock } from './keyblock';
 export type { Relation } from './relation';
+export type { Rule } from './rule';
 export type { SourceAnchor } from './source-anchor';

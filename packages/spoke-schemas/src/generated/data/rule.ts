@@ -5,54 +5,6 @@
  */
 
 /**
- * Run checker(s) over a scope; returns Finding(s).
- */
-export interface CheckRequest {
-  scope: Scope;
-  /**
-   * Opaque rule ids or URIs. Resolved by receiver when not overridden by rules[].
-   */
-  rule_refs?: string[];
-  /**
-   * Optional embedded Rule objects for portable interchange.
-   */
-  rules?: Rule[];
-  /**
-   * Optional checker kind filters.
-   */
-  checker_kinds?: string[];
-  extensions?: ExtensionMap1;
-}
-/**
- * Checker scope selector.
- */
-export interface Scope {
-  /**
-   * Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions.
-   */
-  scope_id: string;
-  /**
-   * Optional narrow scope to explicit Keyblocks.
-   */
-  keyblock_ids?: string[];
-  /**
-   * Optional filter by open block_type vocabulary.
-   */
-  block_types?: string[];
-  /**
-   * Optional narrow scope to explicit L5 Event ids.
-   */
-  event_ids?: string[];
-  /**
-   * Optional provenance or manuscript locator scope.
-   */
-  source_id?: string;
-  /**
-   * Optional L5 tier filter (brief, narrative, moment).
-   */
-  timeline_scale?: string;
-}
-/**
  * Declarative constraint input to check — never checker output.
  */
 export interface Rule {
@@ -143,16 +95,6 @@ export interface SourceSpan {
  * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
-}
-/**
- * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
- */
-export interface ExtensionMap1 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

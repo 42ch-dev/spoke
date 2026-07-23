@@ -5,15 +5,21 @@
  */
 
 /**
- * Checker findings for a check request.
+ * Checker findings or wire error. Use findings OR error — not both.
  */
-export interface CheckResponse {
-  /**
-   * Checker output findings.
-   */
-  findings: Finding[];
-  extensions?: ExtensionMap1;
-}
+export type CheckResponse =
+  | {
+      /**
+       * Success: checker output findings.
+       */
+      findings: Finding[];
+      extensions?: ExtensionMap1;
+    }
+  | {
+      error: ErrorEnvelope;
+      extensions?: ExtensionMap2;
+    };
+
 /**
  * Checker output — not a Keyblock body.
  */
@@ -121,6 +127,36 @@ export interface ExtensionMap {
  * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap1 {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
+}
+/**
+ * Failure: shared error envelope.
+ */
+export interface ErrorEnvelope {
+  /**
+   * Machine-readable error code.
+   */
+  code: string;
+  /**
+   * Human-readable error message.
+   */
+  message: string;
+  /**
+   * Optional structured error context.
+   */
+  details?: {
+    [k: string]: unknown | undefined;
+  };
+  extensions: ExtensionMap;
+}
+/**
+ * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ */
+export interface ExtensionMap2 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

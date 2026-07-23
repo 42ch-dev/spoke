@@ -101,6 +101,7 @@ if (result.ok) {
 |------|------|
 | [`schemas/`](schemas/) | JSON Schema 单一事实来源（Draft-07）— codegen 输入 |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | 协议总览规范 |
+| [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | 九层模型（L0–L8）、能力等级、Timeline 层级 |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | 数据对象与开放词汇 |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Ops 线上请求/响应信封 |
 | [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md) | 操作库行为 |

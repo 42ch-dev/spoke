@@ -5,18 +5,24 @@
  */
 
 /**
- * Promoted Keyblock after extract-to-promote.
+ * Promoted Keyblock or wire error. Use keyblock OR error — not both.
  */
-export interface PromoteResponse {
-  keyblock: Keyblock;
-  /**
-   * Optional id of Keyblock superseded during merge.
-   */
-  superseded_id?: string;
-  extensions?: ExtensionMap1;
-}
+export type PromoteResponse =
+  | {
+      keyblock: Keyblock;
+      /**
+       * Optional id of Keyblock superseded during merge.
+       */
+      superseded_id?: string;
+      extensions?: ExtensionMap1;
+    }
+  | {
+      error: ErrorEnvelope;
+      extensions?: ExtensionMap2;
+    };
+
 /**
- * Promoted Keyblock.
+ * Success: promoted Keyblock.
  */
 export interface Keyblock {
   /**
@@ -110,6 +116,36 @@ export interface ExtensionMap {
  * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap1 {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
+}
+/**
+ * Failure: shared error envelope.
+ */
+export interface ErrorEnvelope {
+  /**
+   * Machine-readable error code.
+   */
+  code: string;
+  /**
+   * Human-readable error message.
+   */
+  message: string;
+  /**
+   * Optional structured error context.
+   */
+  details?: {
+    [k: string]: unknown | undefined;
+  };
+  extensions: ExtensionMap;
+}
+/**
+ * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ */
+export interface ExtensionMap2 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

@@ -2,18 +2,37 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/ops/relate-response.schema.json",
   "title": "RelateResponse",
-  "description": "Persisted Relation after relate.",
-  "type": "object",
-  "required": ["relation"],
-  "properties": {
-    "relation": {
-      "$ref": "https://spoke42.invalid/schemas/data/relation.schema.json",
-      "description": "Persisted Relation."
+  "description": "Persisted Relation or wire error. Use relation OR error — not both.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["relation"],
+      "properties": {
+        "relation": {
+          "$ref": "https://spoke42.invalid/schemas/data/relation.schema.json",
+          "description": "Success: persisted Relation."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
     },
-    "extensions": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
-      "description": "Optional transport metadata."
+    {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
     }
-  },
-  "additionalProperties": false
+  ]
 }

@@ -39,6 +39,50 @@
         }
       },
       "additionalProperties": false
+    },
+    "TimelineScale": {
+      "type": "string",
+      "description": "L5 Timeline projection tier (open string). Core vocabulary (documented, not enforced): brief, narrative, moment. Wire field name timeline_scale — not tier or projection."
+    },
+    "Scope": {
+      "type": "object",
+      "required": ["scope_id"],
+      "properties": {
+        "scope_id": {
+          "type": "string",
+          "description": "Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions."
+        },
+        "keyblock_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional narrow scope to explicit Keyblocks."
+        },
+        "block_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional filter by open block_type vocabulary."
+        },
+        "event_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional narrow scope to explicit L5 Event ids."
+        },
+        "source_id": {
+          "type": "string",
+          "description": "Optional provenance or manuscript locator scope."
+        },
+        "timeline_scale": {
+          "$ref": "#/definitions/TimelineScale",
+          "description": "Optional L5 tier filter (brief, narrative, moment)."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

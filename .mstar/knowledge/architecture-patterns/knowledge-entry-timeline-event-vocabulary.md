@@ -20,7 +20,7 @@ Product expand string: **Standardized Programmable Ontology Knowledge Engine** â
 
 ## Dual-concern rule
 
-- Ontology label `block_type: "event"` on a **KnowledgeEntry** is a KB fact node.
+- Ontology label `block_type: "event"` on a **KnowledgeEntry** is a KB fact node. (Active slice renames this wire field to `entry_type`; values unchanged â€” see entry-type wire rename plan.)
 - **TimelineEvent** is a Timeline when-axis placement (optional `timeline_scale`).
 - One story beat MAY map to either or both; protocol keeps the names separate.
 - Toy-world exercises this with `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` (`extensions.spoke.timeline_knowledge_entry_id`).

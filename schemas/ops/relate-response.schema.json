@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/relate-response.schema.json",
+  "title": "RelateResponse",
+  "description": "Persisted Relation after relate.",
+  "type": "object",
+  "required": ["relation"],
+  "properties": {
+    "relation": {
+      "$ref": "https://spoke42.invalid/schemas/data/relation.schema.json",
+      "description": "Persisted Relation."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

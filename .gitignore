@@ -141,3 +141,23 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Codegen cache (localized schemas for jstt/typify)
+tooling/codegen/.schemas-localized/
+tooling/codegen/.schemas-dereferenced/
+
+# Rust build artifacts
+target/
+**/target/
+
+# Morning Star harness (.mstar/)
+# Principle: process stays local; results are shared with the team.
+# Ignored (process / coordination):
+.mstar/archived/
+.mstar/iterations/
+.mstar/plans/
+.mstar/sdd/
+.mstar/notes.json
+.mstar/status.json
+.worktrees/
+# Tracked (results): .mstar/AGENTS.md, .mstar/roadmap.md, .mstar/knowledge/, .mstar/specs/

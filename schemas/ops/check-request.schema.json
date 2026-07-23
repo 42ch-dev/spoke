@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/check-request.schema.json",
+  "title": "CheckRequest",
+  "description": "Run checker(s) over a scope; returns Finding(s).",
+  "type": "object",
+  "required": ["scope"],
+  "properties": {
+    "scope": {
+      "$ref": "#/definitions/CheckScope",
+      "description": "Checker scope selector."
+    },
+    "rule_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Opaque rule ids or URIs. No Rule wire object in v0.1."
+    },
+    "checker_kinds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional checker kind filters."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "CheckScope": {
+      "type": "object",
+      "properties": {
+        "keyblock_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional Keyblock ids to check."
+        },
+        "source_id": {
+          "type": "string",
+          "description": "Optional source locator to check."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
+  "title": "SourceAnchor",
+  "description": "Pointer to a source artifact span (manuscript, scene, external URI).",
+  "type": "object",
+  "required": ["schema_version", "source_id", "extensions"],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "source_id": {
+      "type": "string",
+      "description": "Opaque source locator; products define grammar."
+    },
+    "span": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SourceSpan",
+      "description": "Optional byte or character span within the source."
+    },
+    "label": {
+      "type": "string",
+      "description": "Optional human label for the anchor."
+    },
+    "mime_type": {
+      "type": "string",
+      "description": "Optional MIME type of the referenced source."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false
+}

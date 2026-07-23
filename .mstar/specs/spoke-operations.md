@@ -221,10 +221,10 @@ Public entry: `src/index.ts` re-exporting the four families above plus `SpokeRes
 ## Acceptance (operations layer — iteration)
 
 - [x] This spec + [`spoke-protocol.md`](spoke-protocol.md) cross-link (umbrella column 3)
-- [ ] Package exists with four helper families and unit tests per table above
-- [ ] `SpokeResult` / `SpokeRejectCode` exported and used on all reject paths
-- [ ] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
-- [ ] CI typecheck + test includes `packages/spoke-operations/`
+- [x] Package exists with four helper families and unit tests per table above
+- [x] `SpokeResult` / `SpokeRejectCode` exported and used on all reject paths
+- [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
+- [x] CI typecheck + test + build includes `packages/spoke-operations/`
 
 ## Non-goals (operations layer — v0-iter002)
 

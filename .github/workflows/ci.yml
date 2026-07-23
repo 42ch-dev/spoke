@@ -81,6 +81,9 @@ jobs:
       - name: Test @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations test
 
+      - name: Build @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations build
+
   rust:
     name: rust
     runs-on: ubuntu-latest

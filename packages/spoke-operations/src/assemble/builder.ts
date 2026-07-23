@@ -12,7 +12,13 @@ type AssembleEntry = AssemblePacket["entries"][number];
 const DEFAULT_SCHEMA_VERSION = 1;
 
 function extractSnippet(keyblock: Keyblock): string | undefined {
-  const summary = keyblock.body.summary;
+  const { body } = keyblock;
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return undefined;
+  }
+
+  const summary = body.summary;
 
   if (typeof summary !== "string") {
     return undefined;
@@ -20,6 +26,34 @@ function extractSnippet(keyblock: Keyblock): string | undefined {
 
   const trimmed = summary.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function validateAssembleKeyblock(keyblock: Keyblock): SpokeResult<void> {
+  if (typeof keyblock.body !== "object" || keyblock.body === null || Array.isArray(keyblock.body)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_PACKET_INPUT,
+      "Keyblock body must be an object",
+      { keyblock_id: keyblock.keyblock_id, field: "body" },
+    );
+  }
+
+  if (typeof keyblock.canonical_name !== "string") {
+    return spokeReject(
+      SpokeRejectCode.INVALID_PACKET_INPUT,
+      "Keyblock canonical_name must be a string",
+      { keyblock_id: keyblock.keyblock_id, field: "canonical_name" },
+    );
+  }
+
+  if (keyblock.canonical_name.trim().length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_PACKET_INPUT,
+      "Keyblock canonical_name must be non-empty",
+      { keyblock_id: keyblock.keyblock_id, field: "canonical_name" },
+    );
+  }
+
+  return spokeOk();
 }
 
 /**
@@ -70,6 +104,13 @@ export function buildAssemblePacket(
         "maxEntries must be a non-negative integer",
         { maxEntries },
       );
+    }
+  }
+
+  for (const keyblock of keyblocks) {
+    const keyblockResult = validateAssembleKeyblock(keyblock);
+    if (!keyblockResult.ok) {
+      return keyblockResult;
     }
   }
 

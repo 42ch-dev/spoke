@@ -15,6 +15,26 @@ const REQUIRED_KEYBLOCK_FIELDS = [
   "extensions",
 ] as const satisfies ReadonlyArray<keyof Keyblock>;
 
+function validateRevision(candidate: Keyblock): SpokeResult<void> {
+  if (candidate.revision === undefined) {
+    return spokeOk();
+  }
+
+  if (
+    typeof candidate.revision !== "number" ||
+    !Number.isInteger(candidate.revision) ||
+    candidate.revision < 0
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "Keyblock revision must be a non-negative integer or omitted",
+      { revision: candidate.revision },
+    );
+  }
+
+  return spokeOk();
+}
+
 function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   for (const field of REQUIRED_KEYBLOCK_FIELDS) {
     const value = candidate[field];
@@ -68,11 +88,24 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
     );
   }
 
+  if (typeof candidate.canonical_name !== "string") {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "Keyblock canonical_name must be a string",
+      { field: "canonical_name" },
+    );
+  }
+
   if (candidate.canonical_name.trim().length === 0) {
     return spokeReject(
       SpokeRejectCode.EMPTY_CANONICAL_NAME,
       "Keyblock canonical_name must be non-empty",
     );
+  }
+
+  const revisionResult = validateRevision(candidate);
+  if (!revisionResult.ok) {
+    return revisionResult;
   }
 
   if (TERMINAL_KEYBLOCK_STATUSES.has(candidate.status)) {

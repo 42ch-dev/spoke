@@ -123,4 +123,30 @@ describe("buildAssemblePacket", () => {
       expect(result.code).toBe(SpokeRejectCode.INVALID_PACKET_INPUT);
     }
   });
+
+  it("rejects keyblock with null body (F-002)", () => {
+    const result = buildAssemblePacket({
+      packetId: "pkt_5",
+      keyblocks: [makeKeyblock({ body: null as unknown as Keyblock["body"] })],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_PACKET_INPUT);
+    }
+  });
+
+  it("rejects non-string canonical_name (F-004)", () => {
+    const result = buildAssemblePacket({
+      packetId: "pkt_6",
+      keyblocks: [
+        makeKeyblock({ canonical_name: 99 as unknown as string }),
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_PACKET_INPUT);
+    }
+  });
 });

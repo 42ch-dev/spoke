@@ -86,6 +86,45 @@ describe("validatePromoteRequest", () => {
       expect(result.code).toBe(SpokeRejectCode.CANDIDATE_NOT_PROVISIONAL);
     }
   });
+
+  it("rejects string revision (F-001 — no string concat)", () => {
+    const result = validatePromoteRequest(
+      makeRequest({
+        candidate: makeCandidate({ revision: "2" as unknown as number }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("rejects negative revision (F-003)", () => {
+    const result = validatePromoteRequest(
+      makeRequest({ candidate: makeCandidate({ revision: -1 }) }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("rejects non-string canonical_name (F-004)", () => {
+    const result = validatePromoteRequest(
+      makeRequest({
+        candidate: makeCandidate({
+          canonical_name: 42 as unknown as string,
+        }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
 });
 
 describe("applyPromoteAcceptance", () => {
@@ -118,6 +157,19 @@ describe("applyPromoteAcceptance", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.revision).toBe(3);
+    }
+  });
+
+  it("does not stringify-concat revision on apply (F-001)", () => {
+    const result = applyPromoteAcceptance(
+      makeRequest({
+        candidate: makeCandidate({ revision: "2" as unknown as number }),
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
     }
   });
 

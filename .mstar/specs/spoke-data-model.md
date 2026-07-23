@@ -1,13 +1,13 @@
 # SPOKE Data Model
 
-> **Status:** Normative (v0.1 baseline; protocol layers deepen; operations library deepen Keyblock lifecycle)  
+> **Status:** Normative (v0.1 baseline; protocol layers deepen; KnowledgeEntry/TimelineEvent terminology, 2026-07-23)  
 > **Document class:** Detail — data layer  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/data/`, `schemas/common/`
 
 ## Purpose
 
-Define durable **data** wire shapes for narrative Keyblocks and related objects. This layer is transport-agnostic and runtime-agnostic.
+Define durable **data** wire shapes for narrative KnowledgeEntries and related objects. This layer is transport-agnostic and runtime-agnostic.
 
 ## Core objects
 
@@ -17,18 +17,18 @@ Five required wire objects in v0.1:
 
 | Object | Role | Schema file |
 |--------|------|-------------|
-| **Keyblock** | Identity + typed body + provenance envelope | `schemas/data/keyblock.schema.json` |
-| **Relation** | Directed link between Keyblocks (or anchors) | `schemas/data/relation.schema.json` |
+| **KnowledgeEntry** | Identity + typed body + provenance envelope | `schemas/data/knowledge-entry.schema.json` |
+| **Relation** | Directed link between KnowledgeEntries (or anchors) | `schemas/data/relation.schema.json` |
 | **SourceAnchor** | Pointer to manuscript/source span | `schemas/data/source-anchor.schema.json` |
 | **Finding** | Checker output (consistency, style, structure, …) | `schemas/data/finding.schema.json` |
 | **AssemblePacket** | Context-assembly payload (structure only) | `schemas/data/assemble-packet.schema.json` |
 
-### Protocol layers + Rule/Event deepen (architect-locked target wire)
+### Protocol layers + Rule/TimelineEvent deepen (committed wire)
 
 | Object | Layer | Role | Schema file |
 |--------|-------|------|-------------|
 | **Rule** | L6 | Declarative constraint **input** to checkers (not Finding output) | `schemas/data/rule.schema.json` |
-| **Event** | L5 | Temporal when-axis object | `schemas/data/event.schema.json` |
+| **TimelineEvent** | L5 | Temporal when-axis object | `schemas/data/timeline-event.schema.json` |
 
 Product invariant: each durable object participates in the `extensions` round-trip contract (§Extensions). See [`spoke-protocol-layers.md`](spoke-protocol-layers.md) for capability levels and Rule vs Finding boundaries.
 
@@ -54,7 +54,7 @@ Declarative constraint **input** to `check` — never checker output.
 |-------|------|-----------|
 | `statement` | string | Declarative constraint text (human- or machine-readable; products choose grammar) |
 | `description` | string | Longer explanation for integrators / authors |
-| `target_block_types` | string[] | Optional ontology filter — open strings matching Keyblock `block_type` vocabulary |
+| `target_block_types` | string[] | Optional ontology filter — open strings matching KnowledgeEntry `block_type` vocabulary |
 | `severity_hint` | string | Optional checker hint (`info`, `warning`, `error` — open string) |
 | `source_anchor` | `SourceAnchor` | Provenance pointer when rule is anchored to manuscript |
 | `status` | string | Open string; core: `draft`, `active`, `deprecated` |
@@ -69,7 +69,7 @@ Declarative constraint **input** to `check` — never checker output.
   "rule_id": "rule_01HXYZ",
   "canonical_name": "No resurrection without foreshadowing",
   "kind": "rule",
-  "statement": "Character death reversals require a prior foreshadowing Keyblock.",
+  "statement": "Character death reversals require a prior foreshadowing KnowledgeEntry.",
   "target_block_types": ["character", "event"],
   "severity_hint": "error",
   "status": "active",
@@ -89,16 +89,16 @@ Products MAY emit values outside the core lists; adapters MUST round-trip unknow
 
 ---
 
-## Event (L5)
+## TimelineEvent (L5)
 
-First-class **when-axis** object. Distinct from Keyblock `block_type: "event"` (ontology label on a Keyblock body).
+First-class **when-axis** object. Distinct from KnowledgeEntry `block_type: "event"` (ontology label on a KnowledgeEntry body).
 
 ### Required fields
 
 | Field | Type | Semantics |
 |-------|------|-----------|
 | `schema_version` | integer | Wire version |
-| `event_id` | string | Stable id (opaque to protocol) |
+| `timeline_event_id` | string | Stable id (opaque to protocol) |
 | `canonical_name` | string | Human-stable label (min length 1) |
 | `extensions` | object | Namespace map (§Extensions) |
 
@@ -109,31 +109,42 @@ First-class **when-axis** object. Distinct from Keyblock `block_type: "event"` (
 | `timeline_scale` | `TimelineScale` | L5 projection tier — see §TimelineScale |
 | `occurred_at` | string | When the event happened — RFC 3339 **or** opaque fuzzy label (e.g. `"Third Age"`) |
 | `description` | string | Longer narrative summary |
-| `participant_keyblock_ids` | string[] | Related Keyblock ids (characters, locations, …) |
+| `participant_knowledge_entry_ids` | string[] | Related KnowledgeEntry ids (characters, locations, …) |
 | `source_anchor` | `SourceAnchor` | Manuscript / scene anchor |
 | `sort_key` | string | Opaque ordering hint within a timeline (products define grammar) |
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
 
-**Fork (explicitly optional):** baseline `Event` MUST NOT require `fork_id` or branch metadata. Fork semantics remain optional capability `l5-fork` — future wire fields, not spoke-baseline.
+**Fork (explicitly optional):** baseline `TimelineEvent` MUST NOT require `fork_id` or branch metadata. Fork semantics remain optional capability `l5-fork` — future wire fields, not spoke-baseline.
 
 ### Illustrative instance
 
 ```json
 {
   "schema_version": 1,
-  "event_id": "evt_01HXYZ",
+  "timeline_event_id": "evt_01HXYZ",
   "canonical_name": "Treaty of Ashford",
   "timeline_scale": "narrative",
   "occurred_at": "1421-06-03T00:00:00Z",
-  "participant_keyblock_ids": ["kb_mira", "kb_ashford"],
+  "participant_knowledge_entry_ids": ["kb_mira", "kb_ashford"],
   "extensions": {
     "nexus": { "world_id": "wld_abc" }
   }
 }
 ```
 
-Product world/book ids belong in `extensions.<namespace>` — not protocol siblings on `Event`.
+Product world/book ids belong in `extensions.<namespace>` — not protocol siblings on `TimelineEvent`.
+
+### Dual-concern example (ontology `"event"` vs TimelineEvent)
+
+The same story beat may appear as **both** wire shapes — products choose mapping; protocol keeps names distinct:
+
+| Wire artifact | Example |
+|---------------|---------|
+| KnowledgeEntry (`block_type: "event"`) | KB fact node “Treaty of Ashford” with structured `body` |
+| TimelineEvent | When-axis placement with `timeline_scale: "narrative"` and `timeline_event_id` |
+
+Toy-world dual-concern fixture pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` — see [`fixtures/toy-world/`](../../fixtures/toy-world/).
 
 ---
 
@@ -146,7 +157,7 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/TimelineScale`.
 | JSON type | `string` (open — no `enum` in schema) |
 | Core vocabulary | `brief`, `narrative`, `moment` (lowercase) |
 | Wire field name | **`timeline_scale`** (not `tier`, `projection`, or product UI strings) |
-| Appears on | `Event.timeline_scale` (optional); `Scope.timeline_scale` refinement (optional) |
+| Appears on | `TimelineEvent.timeline_scale` (optional); `Scope.timeline_scale` refinement (optional) |
 
 | Value | Semantics on the when-axis |
 |-------|----------------------------|
@@ -174,13 +185,13 @@ Products MAY emit values outside the core trio; adapters MUST round-trip unknown
 | **Remediation** | Not on Rule wire | Optional `suggested_fix`, `text_position` |
 | **MUST NOT** | Appear in `findings[]` | Appear in `check` request as rules |
 
-**Historical note:** v0.1 deferred the `Rule` wire object; `check` accepted opaque `rule_refs: string[]` only. Protocol layers deepen ships portable `Rule` and `Event` shapes — field tables above are normative.
+**Historical note:** v0.1 deferred the `Rule` wire object; `check` accepted opaque `rule_refs: string[]` only. Protocol layers deepen ships portable `Rule` and `TimelineEvent` shapes — field tables above are normative.
 
 | Related concern | Product rule |
 |-----------------|--------------|
 | Adapter mapping | Creader `KnowledgeEntryType: "rule"` and Nexus overlays map in **future adapter specs** — not blockers for wire shapes |
-| Keyblock `block_type: "rule"` | Valid open ontology label on a Keyblock — distinct from L6 `Rule` wire object |
-| Fork | Optional L5 capability — not required with `Event` |
+| KnowledgeEntry `block_type: "rule"` | Valid open ontology label on a KnowledgeEntry — distinct from L6 `Rule` wire object |
+| Fork | Optional L5 capability — not required with `TimelineEvent` |
 
 ---
 
@@ -196,14 +207,14 @@ Every durable data object schema MUST:
 
 ---
 
-## Keyblock envelope
+## KnowledgeEntry envelope
 
 ### Required fields
 
 | Field | Type | Semantics |
 |-------|------|-----------|
 | `schema_version` | integer | Wire version; align with `common.SchemaVersion` |
-| `keyblock_id` | string | Stable id (opaque to protocol; products choose prefix/format) |
+| `knowledge_entry_id` | string | Stable id (opaque to protocol; products choose prefix/format) |
 | `block_type` | string | Open string; core vocabulary in §Open vocabulary |
 | `canonical_name` | string | Human-stable name (min length 1) |
 | `status` | string | Open string; core vocabulary in §Open vocabulary |
@@ -230,7 +241,7 @@ Every durable data object schema MUST:
 ```json
 {
   "schema_version": 1,
-  "keyblock_id": "kb_01HXYZ",
+  "knowledge_entry_id": "kb_01HXYZ",
   "block_type": "character",
   "canonical_name": "Mira Vale",
   "status": "confirmed",
@@ -257,7 +268,7 @@ Every durable data object schema MUST:
 
 ## Relation
 
-Directed edge between two Keyblocks (or Keyblock ↔ SourceAnchor when products need anchor linkage).
+Directed edge between two KnowledgeEntries (or KnowledgeEntry ↔ SourceAnchor when products need anchor linkage).
 
 | Field | Required | Type |
 |-------|----------|------|
@@ -288,7 +299,7 @@ Optional: `span` (`{ "start": number, "end": number }`), `label`, `mime_type`.
 
 ## Finding
 
-Checker output — **not** a Keyblock body.
+Checker output — **not** a KnowledgeEntry body.
 
 | Field | Required | Type |
 |-------|----------|------|
@@ -300,7 +311,7 @@ Checker output — **not** a Keyblock body.
 | `description` | yes | string |
 | `extensions` | yes | object |
 
-Optional: `kind`, `target_keyblock_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
+Optional: `kind`, `target_knowledge_entry_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
 
 **Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §Finding lifecycle](spoke-operations.md#2-finding-lifecycle--finding). Wire schema keeps `status` as open string; library enforces the core transition table.
 
@@ -321,12 +332,12 @@ Optional: `kind`, `target_keyblock_id`, `source_anchor`, `suggested_fix`, `text_
 
 | Field | Required | Type |
 |-------|----------|------|
-| `keyblock_id` | yes | string |
+| `knowledge_entry_id` | yes | string |
 | `block_type` | yes | string |
 | `canonical_name` | yes | string |
 | `snippet` | no | string (trimmed text for context window) |
 
-`entries` MAY embed full `Keyblock` objects only when an op response schema explicitly `$ref`s `keyblock.schema.json` instead of `AssembleEntry` — default is the slim entry shape above.
+`entries` MAY embed full `KnowledgeEntry` objects only when an op response schema explicitly `$ref`s `knowledge-entry.schema.json` instead of `AssembleEntry` — default is the slim entry shape above.
 
 **Out of scope in v0.1 data schema:** ranking scores, retrieval provenance, token budgets, model routing hints — products place those under `extensions.<namespace>` if needed.
 
@@ -357,7 +368,7 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
 ## Open vocabulary
 
-`block_type`, Keyblock `status`, `relation_type`, and Finding `severity`/`status` are **open strings** in v0.1 schemas (`type: string` with no `enum`). Schemas document the core vocabulary in `description` fields; closure to `enum` waits until adapter specs prove stability.
+`block_type`, KnowledgeEntry `status`, `relation_type`, and Finding `severity`/`status` are **open strings** in v0.1 schemas (`type: string` with no `enum`). Schemas document the core vocabulary in `description` fields; closure to `enum` waits until adapter specs prove stability.
 
 ### Core `block_type` vocabulary (documented, not enforced)
 
@@ -381,19 +392,19 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 
 **Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. When a product needs profile-specific types (e.g. Nexus `species`, `dialogue`, `beat`), document them in the adapter spec; do not expand the core list until a cross-product agreement exists.
 
-### Core Keyblock `status` vocabulary (documented, not enforced)
+### Core KnowledgeEntry `status` vocabulary (documented, not enforced)
 
 | Value | Semantics |
 |-------|-----------|
 | `provisional` | Candidate / unreviewed |
 | `confirmed` | Accepted canonical |
 | `deprecated` | Superseded but retained |
-| `merged` | Absorbed into another Keyblock |
+| `merged` | Absorbed into another KnowledgeEntry |
 | `deleted` | Tombstone / soft delete |
 
-**Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §Keyblock lifecycle](spoke-operations.md#6-keyblock-lifecycle--keyblock). Wire schema keeps `status` as open string; library enforces the core transition table. **Active** statuses for uniqueness: `provisional`, `confirmed` only.
+**Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §KnowledgeEntry lifecycle](spoke-operations.md#6-knowledgeentry-lifecycle--knowledgeentry). Wire schema keeps `status` as open string; library enforces the core transition table. **Active** statuses for uniqueness: `provisional`, `confirmed` only.
 
-**`deprecated` → `merged` excluded:** merge absorbs an active canonical Keyblock into a target; a deprecated row is already superseded — restore to `confirmed` (or merge from `provisional`/`confirmed`) before absorb.
+**`deprecated` → `merged` excluded:** merge absorbs an active canonical KnowledgeEntry into a target; a deprecated row is already superseded — restore to `confirmed` (or merge from `provisional`/`confirmed`) before absorb.
 
 ### Core `relation_type` vocabulary (starter set)
 
@@ -412,13 +423,13 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 
 ## Vocabulary boundaries (CONCEPTS alignment)
 
-- **Keyblock** — atomic narrative knowledge unit in SPOKE wire form
+- **KnowledgeEntry** — atomic Knowledge Base entry in SPOKE wire form
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; World/Book ids in `extensions` or adapters — see [`spoke-ops.md`](spoke-ops.md) §Scope
-- **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `Event` and optional `Scope` filter — see §TimelineScale
+- **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **Domain Profile** — published ontology vocabulary per product/integration; core `block_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md)
-- **Event** — L5 temporal wire object (when-axis); distinct from Keyblock `block_type: "event"` labels
+- **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `block_type: "event"` labels
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
-- **Finding** — checker output, not a Keyblock body
+- **Finding** — checker output, not a KnowledgeEntry body
 - **Rule** — L6 declarative wire object (protocol layers deepen); not synonymous with `block_type: "rule"` which remains a valid open string if products use it
 
 ---
@@ -426,8 +437,8 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 ## Acceptance (data layer)
 
 - [x] Each **baseline + protocol layers deepen** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
-- [x] Umbrella + this doc list the same object set; Rule/Event shipped in `rule-event`
-- [ ] Sample valid Keyblock instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
+- [x] Umbrella + this doc list the same object set; Rule/TimelineEvent shipped in `rule-event`
+- [ ] Sample valid KnowledgeEntry instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
 - [ ] `block_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 
 ## Non-goals (data layer)
@@ -435,7 +446,7 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - Nexus/Creader object mapping implementations (adapter iteration)
 - Closed enums for all block types
 - Required Fork / world-history fields in baseline compliance
-- Required WASM or computable Keyblock bodies (optional `l2-computable` capability only)
+- Required WASM or computable KnowledgeEntry bodies (optional `l2-computable` capability only)
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` delivered fixtures conformance slice — see [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md); product DTO maps remain adapter work)
 
 ## See also
@@ -447,4 +458,4 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |
-| [`CONCEPTS.md`](../../CONCEPTS.md) | Vocabulary boundaries (Keyblock vs product stores) |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Vocabulary boundaries (KnowledgeEntry vs product stores) |

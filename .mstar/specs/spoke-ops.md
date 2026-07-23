@@ -8,7 +8,7 @@
 
 ## Purpose
 
-Define transport-agnostic **request/response** wire shapes for core Keyblock operations. Ops schemas are separate families from data envelopes in `schemas/data/`.
+Define transport-agnostic **request/response** wire shapes for core KnowledgeEntry operations. Ops schemas are separate families from data envelopes in `schemas/data/`.
 
 **Integrator framing (ops wire harden):**
 
@@ -28,8 +28,8 @@ Five ops, ten schema files under `schemas/ops/` (request + response each).
 
 | Operation | Intent | Request schema | Response schema |
 |-----------|--------|----------------|-----------------|
-| **upsert** | Create or update Keyblock(s) by stable id | `upsert-request.schema.json` | `upsert-response.schema.json` |
-| **extract→promote** | Promote extracted candidate → durable Keyblock | `promote-request.schema.json` | `promote-response.schema.json` |
+| **upsert** | Create or update KnowledgeEntry(s) by stable id | `upsert-request.schema.json` | `upsert-response.schema.json` |
+| **extract→promote** | Promote extracted candidate → durable KnowledgeEntry | `promote-request.schema.json` | `promote-response.schema.json` |
 | **relate** | Create or update Relation | `relate-request.schema.json` | `relate-response.schema.json` |
 | **check** | Run checker(s); return Finding(s) | `check-request.schema.json` | `check-response.schema.json` |
 | **assemble** | Return `AssemblePacket` shape | `assemble-request.schema.json` | `assemble-response.schema.json` |
@@ -43,10 +43,10 @@ File basename `promote-*` is the schema id for **extract→promote** (shorter th
 ### Shared rules
 
 - Every op defines paired **request** and **response** schemas.
-- Ops MUST `$ref` data-layer types (`Keyblock`, `Relation`, `Finding`, `AssemblePacket`) — no duplicated inline copies of those objects.
+- Ops MUST `$ref` data-layer types (`KnowledgeEntry`, `Relation`, `Finding`, `AssemblePacket`, `TimelineEvent`, `Rule`) — no duplicated inline copies of those objects.
 - Ops MAY include an optional top-level `extensions` object (same `ExtensionMap` as data layer) for transport metadata products choose to standardize later.
 - Ops MUST NOT embed product-specific payloads as protocol siblings on nested data objects; use `extensions` on those objects.
-- **Error path (architect-locked):** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `keyblocks`, …). Optional top-level `extensions` allowed on both branches.
+- **Error path (architect-locked):** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `knowledge_entries`, …). Optional top-level `extensions` allowed on both branches.
 
 ### Scope (shared — `check` + `assemble`)
 
@@ -55,9 +55,9 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
 | `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op `extensions` — **not** as required `Scope` siblings. |
-| `keyblock_ids` | no | string[] | Narrow scope to explicit Keyblocks |
+| `knowledge_entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
 | `block_types` | no | string[] | Filter by open `block_type` vocabulary |
-| `event_ids` | no | string[] | Narrow to explicit L5 `Event` ids |
+| `timeline_event_ids` | no | string[] | Narrow to explicit L5 `TimelineEvent` ids |
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
 
@@ -74,16 +74,16 @@ Core ops schemas MUST NOT add `world_id`, `book_id`, `manuscript_id`, or product
 
 | Direction | Core payload |
 |-----------|--------------|
-| Request | `keyblocks: Keyblock[]` (1..n); optional `idempotency_key: string` (opaque; no server semantics in v0.1) |
-| Response (success) | `keyblocks: Keyblock[]` (persisted view); optional `rejected: { keyblock_id, code, message }[]` |
+| Request | `knowledge_entries: KnowledgeEntry[]` (1..n); optional `idempotency_key: string` (opaque; no server semantics in v0.1) |
+| Response (success) | `knowledge_entries: KnowledgeEntry[]` (persisted view); optional `rejected: { knowledge_entry_id, code, message }[]` |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 #### extract→promote (`promote-*`)
 
 | Direction | Core payload |
 |-----------|--------------|
-| Request | `candidate: Keyblock` (typically `status: provisional`); optional `target_keyblock_id` for merge |
-| Response (success) | `keyblock: Keyblock` (promoted); optional `superseded_id` when merging |
+| Request | `candidate: KnowledgeEntry` (typically `status: provisional`); optional `target_knowledge_entry_id` for merge |
+| Response (success) | `knowledge_entry: KnowledgeEntry` (promoted); optional `superseded_id` when merging |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 Pure promote gates and revision bump before persist: [`spoke-operations.md` §Promote acceptance](spoke-operations.md#3-promote-acceptance--promote).
@@ -136,7 +136,7 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 
 - `assemble-request.schema.json` — selector hints (`scope`, optional limits)
 - `assemble-response.schema.json` — `{ "packet": AssemblePacket }` success shape
-- `assemble-packet.schema.json` (data layer) — `entries[]` slim shape or explicit `$ref` to full Keyblock
+- `assemble-packet.schema.json` (data layer) — `entries[]` slim shape or explicit `$ref` to full KnowledgeEntry
 
 ### Out of scope (MUST NOT appear in v0.1 protocol schemas)
 
@@ -191,8 +191,8 @@ All five ops response schemas MUST use the same discriminated union:
 
 | Op | Success branch required field(s) | Notes |
 |----|----------------------------------|-------|
-| `upsert` | `keyblocks` | `rejected[]` stays on **success** branch (partial business reject, not transport failure) |
-| `promote` | `keyblock` | — |
+| `upsert` | `knowledge_entries` | `rejected[]` stays on **success** branch (partial business reject, not transport failure) |
+| `promote` | `knowledge_entry` | — |
 | `relate` | `relation` | — |
 | `check` | `findings` | Empty array is valid success |
 | `assemble` | `packet` | v0.1 reference implementation |
@@ -236,7 +236,7 @@ Mapping Nexus daemon routes or Creader API handlers to these wire payloads remai
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`Keyblock`, `AssemblePacket`, `Rule`, `Event`, …) |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `Rule`, `TimelineEvent`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers on top of wire types (column 3) |
 | [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

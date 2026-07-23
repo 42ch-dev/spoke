@@ -26,11 +26,11 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 | Layer | Concept | Baseline (protocol layers target) | Optional capability | Primary wire artifacts |
 |-------|---------|------------------------------|---------------------|------------------------|
 | **L0 Envelope** | Identity + `schema_version` | Required on all durable objects | — | All `schemas/data/*`; `schema_version` in `common.schema.json` |
-| **L1 Ontology** | `block_type` + Domain Profile | Open `block_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `keyblock.schema.json`; `CONCEPTS.md`; future adapter specs |
-| **L2 Body** | summary / attributes / tags | Structured `body` (`additionalProperties: true` subtree) | Computable / WASM `state` in body | `keyblock.schema.json` `body` |
-| **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on Keyblock |
+| **L1 Ontology** | `block_type` + Domain Profile | Open `block_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `knowledge-entry.schema.json`; `CONCEPTS.md`; future adapter specs |
+| **L2 Body** | summary / attributes / tags | Structured `body` (`additionalProperties: true` subtree) | Computable / WASM `state` in body | `knowledge-entry.schema.json` `body` |
+| **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on KnowledgeEntry |
 | **L4 Graph** | Relation | Typed directed edges | OCC / revision as product concern | `relation.schema.json`; `relate` op |
-| **L5 Temporal** | Timeline dimension + Event + optional Fork | **`Event` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (world-history branch) — not required for baseline | `event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary in this spec + data-model; Fork deferred optional |
+| **L5 Temporal** | Timeline dimension + TimelineEvent + optional Fork | **`TimelineEvent` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (world-history branch) — not required for baseline | `timeline-event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary in this spec + data-model; Fork deferred optional |
 | **L6 Constraint** | Rule / Prohibition | **`Rule` wire object** | Prohibition variants as open vocabulary | `rule.schema.json`; `check` op |
 | **L7 Finding** | Checker output lifecycle | `Finding` + status vocabulary | Richer product overlays in `extensions` | `finding.schema.json`; `check` op; `spoke-operations` transitions |
 | **L8 Context** | AssemblePacket | Shared packet shape | Trim/rank policy — product-local | `assemble-packet.schema.json`; `assemble` op (wire-only) |
@@ -41,7 +41,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 |------|------|
 | **Rule vs Finding** | `Rule` = declarative **input** to checkers; `Finding` = checker **output**. Never interchange types. |
 | **Check vs Assemble** | `check` returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op. |
-| **Event vs Keyblock `block_type: event`** | `Event` is a first-class temporal object (L5). Keyblock `block_type` may still use `"event"` as an ontology label — different concerns. |
+| **TimelineEvent vs KnowledgeEntry `block_type: event`** | `TimelineEvent` is a first-class temporal object (L5). KnowledgeEntry `block_type` may still use `"event"` as an ontology label — different concerns. |
 | **Timeline tiers vs product canvas** | `brief` / `narrative` / `moment` are **protocol Timeline-dimension labels** (semantic zoom of the same when-axis). They are **not** a requirement to ship Nexus World/Work Canvas surfaces or Creader UI. |
 | **Scope** | Ops selectors use shared `Scope` with required **`scope_id`** (protocol-neutral opaque string). World/Book/product ids belong in op **`extensions`** or adapters — not `Scope` required fields. |
 
@@ -51,19 +51,19 @@ Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrativ
 
 | Tier | Role on the when-axis | Typical carrier (informative — architect locks wire) |
 |------|----------------------|------------------------------------------------------|
-| **`brief`** | Coarse shape / era / age-at-a-glance | Often era-scale markers (e.g. Keyblock `block_type` vocabulary such as `era`) |
-| **`narrative`** | Ordered story events on the Timeline | First-class `Event` objects and/or event-shaped Keyblocks |
+| **`brief`** | Coarse shape / era / age-at-a-glance | Often era-scale markers (e.g. KnowledgeEntry `block_type` vocabulary such as `era`) |
+| **`narrative`** | Ordered story events on the Timeline | First-class `TimelineEvent` objects and/or event-shaped KnowledgeEntries |
 | **`moment`** | Fine grain (scene / beat / beat-local) | Finer temporal units; product may keep some carriers local until wire exists |
 
-**Wire field (architect-locked):** optional `timeline_scale` on `Event` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed in protocol layers deepen; `check-request` / `assemble-request` `$ref` shared `Scope` (delivered **`ops-harden`**).
+**Wire field (architect-locked):** optional `timeline_scale` on `TimelineEvent` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed in protocol layers deepen; `check-request` / `assemble-request` `$ref` shared `Scope` (delivered **`ops-harden`**).
 
 **Rules:**
 
 1. Tier names on the wire (when present) MUST use the open vocabulary **`brief` | `narrative` | `moment`** (lowercase) — not product UI strings.
-2. A product MAY implement a subset of tiers and still claim baseline if it ships **`Event`** for the when-axis; declaring which tiers it exposes is part of capability / profile docs.
+2. A product MAY implement a subset of tiers and still claim baseline if it ships **`TimelineEvent`** for the when-axis; declaring which tiers it exposes is part of capability / profile docs.
 3. Tier ≠ Fork. Fork remains optional capability `l5-fork`.
 4. Tier ≠ AssemblePacket. **L8 context assembly** consumes temporal scope; it does not redefine Timeline tiers (including the `moment` tier).
-5. Research canvas historically listed Timeline Brief/Narrative/Moment (product carriers) under “keep local” — **superseded for SPOKE wire vocabulary** by the TimelineScale wire lock (protocol layers + Rule/Event deepen, 2026-07-23); carrier mapping details stay adapter/product concerns.
+5. Research canvas historically listed Timeline Brief/Narrative/Moment (product carriers) under “keep local” — **superseded for SPOKE wire vocabulary** by the TimelineScale wire lock (protocol layers + Rule/TimelineEvent deepen, 2026-07-23); carrier mapping details stay adapter/product concerns.
 
 ## Capability levels
 
@@ -75,8 +75,8 @@ Required for “SPOKE baseline” claims since protocol layers deepen:
 
 | Includes | Excludes |
 |----------|----------|
-| L0–L4 via Keyblock, Relation, SourceAnchor | Required Fork |
-| L5 `Event` wire object | Required WASM / computable body state |
+| L0–L4 via KnowledgeEntry, Relation, SourceAnchor | Required Fork |
+| L5 `TimelineEvent` wire object | Required WASM / computable body state |
 | L6 `Rule` wire object | Adapter packages |
 | L7 Finding + core status vocabulary | Shared runtime / daemon |
 | L8 AssemblePacket wire shape | Ranking/retrieval in assemble protocol fields |
@@ -86,7 +86,7 @@ Required for “SPOKE baseline” claims since protocol layers deepen:
 
 | Flag | Layer | Meaning |
 |------|-------|---------|
-| `l2-computable` | L2 | Keyblock `body` may carry computable/WASM `state` per architect-locked schema optional fields |
+| `l2-computable` | L2 | KnowledgeEntry `body` may carry computable/WASM `state` per architect-locked schema optional fields |
 | `l5-fork` | L5 | Product implements Fork semantics (immutable world history branches) — wire shape TBD in a future iteration |
 
 Baseline compliance MUST NOT require either flag.
@@ -99,7 +99,7 @@ Baseline compliance MUST NOT require either flag.
 |-----------|--------|
 | Core stays open | `block_type`, statuses, relation types remain open strings in schemas |
 | Profile documents vocabulary | Published tables (e.g. Nexus world KB types, Creader knowledge entry types) live in **adapter specs** or product docs — not closed `enum` in core |
-| Profile is not a fork | Products MUST NOT fork `keyblock.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
+| Profile is not a fork | Products MUST NOT fork `knowledge-entry.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
 | Adapter role (future) | `adapters/*` maps product DTOs ↔ SPOKE; calls `@42ch/spoke-operations` for shared gates |
 
 ## Layer ↔ artifact map
@@ -107,25 +107,25 @@ Baseline compliance MUST NOT require either flag.
 | Layer | Data schema (`schemas/data/` or `common/`) | Op wire (`schemas/ops/`) | Library (`@42ch/spoke-operations`) |
 |-------|--------------------------------------------|--------------------------|-------------------------------------|
 | **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | `assertRevisionMatch`; `toErrorEnvelope` / `fromErrorEnvelope` |
-| **L1 Ontology** | `data/keyblock.schema.json` (`block_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKeyblockStatusTransition`, `transitionKeyblockStatus`; `assertUniqueActiveKeyblock`; `validateUpsertKeyblock` |
-| **L2 Body** | `keyblock.schema.json` → `body` subtree (`additionalProperties: true`) | `upsert-*` | `validateUpsertKeyblock` (required-field gate) |
-| **L3 Provenance** | `data/source-anchor.schema.json`; optional on Keyblock / Finding / Event / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `keyblockMatchesScope`, `filterKeyblocksByScope` (`source_id` refinement) |
+| **L1 Ontology** | `data/knowledge-entry.schema.json` (`block_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKnowledgeEntryStatusTransition`, `transitionKnowledgeEntryStatus`; `assertUniqueActiveKnowledgeEntry`; `validateUpsertKnowledgeEntry` |
+| **L2 Body** | `knowledge-entry.schema.json` → `body` subtree (`additionalProperties: true`) | `upsert-*` | `validateUpsertKnowledgeEntry` (required-field gate) |
+| **L3 Provenance** | `data/source-anchor.schema.json`; optional on KnowledgeEntry / Finding / TimelineEvent / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `knowledgeEntryMatchesScope`, `filterKnowledgeEntriesByScope` (`source_id` refinement) |
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | `validateRelateRequest` |
-| **L5 Temporal** | `data/event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.event_ids` / `Scope.timeline_scale` refinements; Event upsert via product binding or future op — **no new op in protocol layers deepen** | `eventMatchesScope`, `filterEventsByScope` |
+| **L5 Temporal** | `data/timeline-event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.timeline_event_ids` / `Scope.timeline_scale` refinements; TimelineEvent upsert via product binding or future op — **no new op in protocol layers deepen** | `timelineEventMatchesScope`, `filterTimelineEventsByScope` |
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
-| **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `keyblockToAssembleEntry` |
+| **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `knowledgeEntryToAssembleEntry` |
 
 ### Shared cross-layer defs (`schemas/common/common.schema.json`)
 
 | Definition | Used by | Role |
 |------------|---------|------|
 | `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — committed in protocol layers deepen (`ops-harden`) |
-| `TimelineScale` | `Event.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) — committed in `common.schema.json` |
+| `TimelineScale` | `TimelineEvent.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) — committed in `common.schema.json` |
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |
 
-Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Event, TimelineScale, §Rule vs Finding) and [`spoke-ops.md`](spoke-ops.md) (Scope, error envelope, check `rule_refs` + `rules[]`, assemble).
+Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, TimelineEvent, TimelineScale, §Rule vs Finding) and [`spoke-ops.md`](spoke-ops.md) (Scope, error envelope, check `rule_refs` + `rules[]`, assemble).
 
 ## Acceptance (layers spec)
 
@@ -153,4 +153,4 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Event, T
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + Scope + error envelope |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust B — nine layers on the wire |
-| [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, Event, Rule vocabulary |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule vocabulary |

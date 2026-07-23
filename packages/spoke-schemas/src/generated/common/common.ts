@@ -18,6 +18,13 @@ export type SchemaVersion = number;
  * via the `definition` "Timestamp".
  */
 export type Timestamp = string;
+/**
+ * L5 Timeline projection tier (open string). Core vocabulary (documented, not enforced): brief, narrative, moment. Wire field name timeline_scale — not tier or projection.
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "TimelineScale".
+ */
+export type TimelineScale = string;
 
 /**
  * Shared type definitions for SPOKE wire schemas.
@@ -51,4 +58,34 @@ export interface SourceSpan {
    * End offset (exclusive).
    */
   end: number;
+}
+/**
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "Scope".
+ */
+export interface Scope {
+  /**
+   * Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op extensions.
+   */
+  scope_id: string;
+  /**
+   * Optional narrow scope to explicit Keyblocks.
+   */
+  keyblock_ids?: string[];
+  /**
+   * Optional filter by open block_type vocabulary.
+   */
+  block_types?: string[];
+  /**
+   * Optional narrow scope to explicit L5 Event ids.
+   */
+  event_ids?: string[];
+  /**
+   * Optional provenance or manuscript locator scope.
+   */
+  source_id?: string;
+  /**
+   * Optional L5 tier filter (brief, narrative, moment).
+   */
+  timeline_scale?: string;
 }

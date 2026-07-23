@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/rule.schema.json",
+  "title": "Rule",
+  "description": "Declarative constraint input to check — never checker output.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "rule_id",
+    "canonical_name",
+    "kind",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "rule_id": {
+      "type": "string",
+      "description": "Stable rule id (opaque to protocol)."
+    },
+    "canonical_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-stable name."
+    },
+    "kind": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): rule, prohibition, style."
+    },
+    "statement": {
+      "type": "string",
+      "description": "Declarative constraint text (human- or machine-readable; products choose grammar)."
+    },
+    "description": {
+      "type": "string",
+      "description": "Longer explanation for integrators or authors."
+    },
+    "target_block_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional ontology filter — open strings matching Keyblock block_type vocabulary."
+    },
+    "severity_hint": {
+      "type": "string",
+      "description": "Optional checker hint. Core vocabulary (documented, not enforced): info, warning, error."
+    },
+    "source_anchor": {
+      "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
+      "description": "Optional provenance pointer when rule is anchored to manuscript."
+    },
+    "status": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): draft, active, deprecated."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "updated_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": 1,
+      "rule_id": "rule_01HXYZ",
+      "canonical_name": "No resurrection without foreshadowing",
+      "kind": "rule",
+      "statement": "Character death reversals require a prior foreshadowing Keyblock.",
+      "target_block_types": ["character", "event"],
+      "severity_hint": "error",
+      "status": "active",
+      "extensions": {}
+    }
+  ]
+}

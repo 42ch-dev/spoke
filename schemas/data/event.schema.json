@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/event.schema.json",
+  "title": "Event",
+  "description": "First-class when-axis temporal object (L5). Distinct from Keyblock block_type event labels.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "canonical_name",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Stable event id (opaque to protocol)."
+    },
+    "canonical_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-stable label."
+    },
+    "timeline_scale": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/TimelineScale",
+      "description": "Optional L5 projection tier (brief, narrative, moment)."
+    },
+    "occurred_at": {
+      "type": "string",
+      "description": "When the event happened — RFC 3339 or opaque fuzzy label (e.g. Third Age)."
+    },
+    "description": {
+      "type": "string",
+      "description": "Longer narrative summary."
+    },
+    "participant_keyblock_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Related Keyblock ids (characters, locations, etc.)."
+    },
+    "source_anchor": {
+      "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
+      "description": "Optional manuscript or scene anchor."
+    },
+    "sort_key": {
+      "type": "string",
+      "description": "Opaque ordering hint within a timeline (products define grammar)."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "updated_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": 1,
+      "event_id": "evt_01HXYZ",
+      "canonical_name": "Treaty of Ashford",
+      "timeline_scale": "narrative",
+      "occurred_at": "1421-06-03T00:00:00Z",
+      "participant_keyblock_ids": ["kb_mira", "kb_ashford"],
+      "extensions": {
+        "nexus": { "world_id": "wld_abc" }
+      }
+    }
+  ]
+}

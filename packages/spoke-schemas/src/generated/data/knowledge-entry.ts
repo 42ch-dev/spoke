@@ -7,15 +7,15 @@
 /**
  * Atomic narrative knowledge unit: identity, typed body, provenance envelope.
  */
-export interface Keyblock {
+export interface KnowledgeEntry {
   /**
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
   /**
-   * Stable Keyblock id (opaque to protocol).
+   * Stable KnowledgeEntry id (opaque to protocol).
    */
-  keyblock_id: string;
+  knowledge_entry_id: string;
   /**
    * Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list.
    */

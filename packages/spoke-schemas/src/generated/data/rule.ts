@@ -33,7 +33,7 @@ export interface Rule {
    */
   description?: string;
   /**
-   * Optional ontology filter — open strings matching Keyblock block_type vocabulary.
+   * Optional ontology filter — open strings matching KnowledgeEntry block_type vocabulary.
    */
   target_block_types?: string[];
   /**

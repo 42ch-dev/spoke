@@ -5,7 +5,7 @@
  */
 
 /**
- * Directed edge between two Keyblocks (or Keyblock and source anchor).
+ * Directed edge between two KnowledgeEntries (or KnowledgeEntry and source anchor).
  */
 export interface Relation {
   /**
@@ -21,11 +21,11 @@ export interface Relation {
    */
   relation_type: string;
   /**
-   * Source endpoint id (Keyblock or anchor id).
+   * Source endpoint id (KnowledgeEntry or anchor id).
    */
   from_id: string;
   /**
-   * Target endpoint id (Keyblock or anchor id).
+   * Target endpoint id (KnowledgeEntry or anchor id).
    */
   to_id: string;
   /**

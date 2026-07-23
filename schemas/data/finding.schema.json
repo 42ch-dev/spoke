@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/finding.schema.json",
   "title": "Finding",
-  "description": "Checker output — not a Keyblock body.",
+  "description": "Checker output — not a KnowledgeEntry body.",
   "type": "object",
   "required": [
     "schema_version",
@@ -41,9 +41,9 @@
       "type": "string",
       "description": "Optional checker kind or category."
     },
-    "target_keyblock_id": {
+    "target_knowledge_entry_id": {
       "type": "string",
-      "description": "Optional Keyblock the finding targets."
+      "description": "Optional KnowledgeEntry the finding targets."
     },
     "source_anchor": {
       "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",

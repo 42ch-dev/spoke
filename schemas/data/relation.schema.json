@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/relation.schema.json",
   "title": "Relation",
-  "description": "Directed edge between two Keyblocks (or Keyblock and source anchor).",
+  "description": "Directed edge between two KnowledgeEntries (or KnowledgeEntry and source anchor).",
   "type": "object",
   "required": [
     "schema_version",
@@ -26,11 +26,11 @@
     },
     "from_id": {
       "type": "string",
-      "description": "Source endpoint id (Keyblock or anchor id)."
+      "description": "Source endpoint id (KnowledgeEntry or anchor id)."
     },
     "to_id": {
       "type": "string",
-      "description": "Target endpoint id (Keyblock or anchor id)."
+      "description": "Target endpoint id (KnowledgeEntry or anchor id)."
     },
     "label": {
       "type": "string",

@@ -5,15 +5,15 @@
  */
 
 /**
- * Create or update one or more Keyblocks by stable id.
+ * Create or update one or more KnowledgeEntries by stable id.
  */
 export interface UpsertRequest {
   /**
-   * Keyblocks to create or update.
+   * KnowledgeEntries to create or update.
    *
    * @minItems 1
    */
-  keyblocks: [Keyblock, ...Keyblock[]];
+  knowledge_entries: [KnowledgeEntry, ...KnowledgeEntry[]];
   /**
    * Opaque idempotency hint (no server semantics in v0.1).
    */
@@ -23,15 +23,15 @@ export interface UpsertRequest {
 /**
  * Atomic narrative knowledge unit: identity, typed body, provenance envelope.
  */
-export interface Keyblock {
+export interface KnowledgeEntry {
   /**
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
   /**
-   * Stable Keyblock id (opaque to protocol).
+   * Stable KnowledgeEntry id (opaque to protocol).
    */
-  keyblock_id: string;
+  knowledge_entry_id: string;
   /**
    * Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list.
    */

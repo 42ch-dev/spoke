@@ -18,7 +18,7 @@
       "items": {
         "$ref": "#/definitions/AssembleEntry"
       },
-      "description": "Slim context entries (default). Full Keyblock embedding is op-specific."
+      "description": "Slim context entries (default). Full KnowledgeEntry embedding is op-specific."
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
@@ -28,15 +28,15 @@
   "definitions": {
     "AssembleEntry": {
       "type": "object",
-      "required": ["keyblock_id", "block_type", "canonical_name"],
+      "required": ["knowledge_entry_id", "block_type", "canonical_name"],
       "properties": {
-        "keyblock_id": {
+        "knowledge_entry_id": {
           "type": "string",
-          "description": "Referenced Keyblock id."
+          "description": "Referenced KnowledgeEntry id."
         },
         "block_type": {
           "type": "string",
-          "description": "Open string. Same core vocabulary as Keyblock.block_type."
+          "description": "Open string. Same core vocabulary as KnowledgeEntry.block_type."
         },
         "canonical_name": {
           "type": "string",

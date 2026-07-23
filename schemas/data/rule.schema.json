@@ -41,7 +41,7 @@
       "items": {
         "type": "string"
       },
-      "description": "Optional ontology filter — open strings matching Keyblock block_type vocabulary."
+      "description": "Optional ontology filter — open strings matching KnowledgeEntry block_type vocabulary."
     },
     "severity_hint": {
       "type": "string",
@@ -72,7 +72,7 @@
       "rule_id": "rule_01HXYZ",
       "canonical_name": "No resurrection without foreshadowing",
       "kind": "rule",
-      "statement": "Character death reversals require a prior foreshadowing Keyblock.",
+      "statement": "Character death reversals require a prior foreshadowing KnowledgeEntry.",
       "target_block_types": ["character", "event"],
       "severity_hint": "error",
       "status": "active",

@@ -5,28 +5,28 @@
  */
 
 /**
- * Extract-to-promote: promote a candidate Keyblock to durable storage.
+ * Extract-to-promote: promote a candidate KnowledgeEntry to durable storage.
  */
 export interface PromoteRequest {
-  candidate: Keyblock;
+  candidate: KnowledgeEntry;
   /**
-   * Optional merge target Keyblock id.
+   * Optional merge target KnowledgeEntry id.
    */
-  target_keyblock_id?: string;
+  target_knowledge_entry_id?: string;
   extensions?: ExtensionMap1;
 }
 /**
- * Candidate Keyblock (typically status provisional).
+ * Candidate KnowledgeEntry (typically status provisional).
  */
-export interface Keyblock {
+export interface KnowledgeEntry {
   /**
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
   /**
-   * Stable Keyblock id (opaque to protocol).
+   * Stable KnowledgeEntry id (opaque to protocol).
    */
-  keyblock_id: string;
+  knowledge_entry_id: string;
   /**
    * Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list.
    */

@@ -2,25 +2,25 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/ops/upsert-response.schema.json",
   "title": "UpsertResponse",
-  "description": "Persisted Keyblock view or wire error. Use keyblocks OR error — not both.",
+  "description": "Persisted KnowledgeEntry view or wire error. Use knowledge_entries OR error — not both.",
   "oneOf": [
     {
       "type": "object",
-      "required": ["keyblocks"],
+      "required": ["knowledge_entries"],
       "properties": {
-        "keyblocks": {
+        "knowledge_entries": {
           "type": "array",
           "items": {
-            "$ref": "https://spoke42.invalid/schemas/data/keyblock.schema.json"
+            "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json"
           },
-          "description": "Success: persisted Keyblocks."
+          "description": "Success: persisted KnowledgeEntries."
         },
         "rejected": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/UpsertRejected"
           },
-          "description": "Optional per-Keyblock rejections (success branch only)."
+          "description": "Optional per-KnowledgeEntry rejections (success branch only)."
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
@@ -48,11 +48,11 @@
   "definitions": {
     "UpsertRejected": {
       "type": "object",
-      "required": ["keyblock_id", "code", "message"],
+      "required": ["knowledge_entry_id", "code", "message"],
       "properties": {
-        "keyblock_id": {
+        "knowledge_entry_id": {
           "type": "string",
-          "description": "Rejected Keyblock id."
+          "description": "Rejected KnowledgeEntry id."
         },
         "code": {
           "type": "string",

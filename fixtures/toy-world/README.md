@@ -22,7 +22,13 @@ Minimal **protocol-owned** JSON graph for integrators to validate parsers and co
 ## Validate locally
 
 ```bash
+pnpm run test:fixtures
+```
+
+Or from this directory:
+
+```bash
 pnpm test
 ```
 
-CI runs schema validation via `packages/spoke-operations` Vitest suite.
+CI runs the AJV/Vitest harness via `@42ch/spoke-fixture-toy-world` (`fixtures/toy-world/tests/`).

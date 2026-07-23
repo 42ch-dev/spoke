@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/keyblock.schema.json",
+  "title": "Keyblock",
+  "description": "Atomic narrative knowledge unit: identity, typed body, provenance envelope.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "keyblock_id",
+    "block_type",
+    "canonical_name",
+    "status",
+    "body",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "keyblock_id": {
+      "type": "string",
+      "description": "Stable Keyblock id (opaque to protocol)."
+    },
+    "block_type": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list."
+    },
+    "canonical_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-stable name."
+    },
+    "status": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): provisional, confirmed, deprecated, merged, deleted."
+    },
+    "body": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings."
+    },
+    "source_anchor": {
+      "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
+      "description": "Optional provenance pointer."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optimistic concurrency revision."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "updated_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": 1,
+      "keyblock_id": "kb_01HXYZ",
+      "block_type": "character",
+      "canonical_name": "Mira Vale",
+      "status": "confirmed",
+      "body": {
+        "summary": "Protagonist; reluctant cartographer.",
+        "tags": ["pov"]
+      },
+      "source_anchor": {
+        "schema_version": 1,
+        "source_id": "manuscript:book-1:ch-3",
+        "span": { "start": 120, "end": 480 },
+        "extensions": {}
+      },
+      "revision": 2,
+      "created_at": "2026-07-23T08:00:00Z",
+      "updated_at": "2026-07-23T09:15:00Z",
+      "extensions": {
+        "nexus": { "world_id": "wld_abc" }
+      }
+    }
+  ]
+}

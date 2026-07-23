@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/promote-response.schema.json",
+  "title": "PromoteResponse",
+  "description": "Promoted Keyblock after extract-to-promote.",
+  "type": "object",
+  "required": ["keyblock"],
+  "properties": {
+    "keyblock": {
+      "$ref": "https://spoke42.invalid/schemas/data/keyblock.schema.json",
+      "description": "Promoted Keyblock."
+    },
+    "superseded_id": {
+      "type": "string",
+      "description": "Optional id of Keyblock superseded during merge."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

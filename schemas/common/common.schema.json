@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/common/common.schema.json",
+  "title": "SPOKE Common Types",
+  "description": "Shared type definitions for SPOKE wire schemas.",
+  "definitions": {
+    "SchemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Wire schema version (integer >= 1)."
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC datetime string."
+    },
+    "ExtensionMap": {
+      "type": "object",
+      "description": "Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      }
+    },
+    "SourceSpan": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "number",
+          "description": "Start offset (inclusive)."
+        },
+        "end": {
+          "type": "number",
+          "description": "End offset (exclusive)."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

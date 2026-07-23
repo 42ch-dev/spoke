@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/finding.schema.json",
+  "title": "Finding",
+  "description": "Checker output — not a Keyblock body.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "finding_id",
+    "severity",
+    "status",
+    "title",
+    "description",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "finding_id": {
+      "type": "string",
+      "description": "Stable finding id."
+    },
+    "severity": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): info, warning, error."
+    },
+    "status": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): open, resolved, dismissed."
+    },
+    "title": {
+      "type": "string",
+      "description": "Short finding title."
+    },
+    "description": {
+      "type": "string",
+      "description": "Finding detail text."
+    },
+    "kind": {
+      "type": "string",
+      "description": "Optional checker kind or category."
+    },
+    "target_keyblock_id": {
+      "type": "string",
+      "description": "Optional Keyblock the finding targets."
+    },
+    "source_anchor": {
+      "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
+      "description": "Optional provenance pointer."
+    },
+    "suggested_fix": {
+      "type": "string",
+      "description": "Optional suggested remediation text."
+    },
+    "text_position": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional position hint within source text."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "updated_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false
+}

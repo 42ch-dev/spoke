@@ -77,13 +77,22 @@ pnpm run verify-codegen   # exit 1 on drift
 
 | # | Path | Status |
 |---|------|--------|
-| 1 | `common/common.schema.json` | pending |
-| 2 | `common/error-envelope.schema.json` | pending |
-| 3 | `data/keyblock.schema.json` | pending |
-| 4 | `data/relation.schema.json` | pending |
-| 5 | `data/source-anchor.schema.json` | pending |
-| 6 | `data/finding.schema.json` | pending |
-| 7 | `data/assemble-packet.schema.json` | pending |
-| 8–17 | `ops/*` (10 files) | pending |
+| 1 | `common/common.schema.json` | done |
+| 2 | `common/error-envelope.schema.json` | done |
+| 3 | `data/keyblock.schema.json` | done |
+| 4 | `data/relation.schema.json` | done |
+| 5 | `data/source-anchor.schema.json` | done |
+| 6 | `data/finding.schema.json` | done |
+| 7 | `data/assemble-packet.schema.json` | done |
+| 8 | `ops/upsert-request.schema.json` | done |
+| 9 | `ops/upsert-response.schema.json` | done |
+| 10 | `ops/promote-request.schema.json` | done |
+| 11 | `ops/promote-response.schema.json` | done |
+| 12 | `ops/relate-request.schema.json` | done |
+| 13 | `ops/relate-response.schema.json` | done |
+| 14 | `ops/check-request.schema.json` | done |
+| 15 | `ops/check-response.schema.json` | done |
+| 16 | `ops/assemble-request.schema.json` | done |
+| 17 | `ops/assemble-response.schema.json` | done |
 
 **Total:** 17 schema files for v0.1.

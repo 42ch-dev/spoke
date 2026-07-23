@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/relation.schema.json",
+  "title": "Relation",
+  "description": "Directed edge between two Keyblocks (or Keyblock and source anchor).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "relation_id",
+    "relation_type",
+    "from_id",
+    "to_id",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "relation_id": {
+      "type": "string",
+      "description": "Stable relation id."
+    },
+    "relation_type": {
+      "type": "string",
+      "description": "Open string. Core vocabulary (documented, not enforced): related_to, parent_of, member_of, located_in, participates_in, causes, foreshadows."
+    },
+    "from_id": {
+      "type": "string",
+      "description": "Source endpoint id (Keyblock or anchor id)."
+    },
+    "to_id": {
+      "type": "string",
+      "description": "Target endpoint id (Keyblock or anchor id)."
+    },
+    "label": {
+      "type": "string",
+      "description": "Optional human label."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Optional open metadata bag."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "updated_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false
+}

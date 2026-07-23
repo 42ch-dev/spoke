@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/upsert-response.schema.json",
+  "title": "UpsertResponse",
+  "description": "Persisted Keyblock view after upsert.",
+  "type": "object",
+  "required": ["keyblocks"],
+  "properties": {
+    "keyblocks": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/keyblock.schema.json"
+      },
+      "description": "Persisted Keyblocks."
+    },
+    "rejected": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/UpsertRejected"
+      },
+      "description": "Optional per-Keyblock rejections."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "UpsertRejected": {
+      "type": "object",
+      "required": ["keyblock_id", "code", "message"],
+      "properties": {
+        "keyblock_id": {
+          "type": "string",
+          "description": "Rejected Keyblock id."
+        },
+        "code": {
+          "type": "string",
+          "description": "Machine-readable rejection code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable rejection message."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

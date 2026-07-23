@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/assemble-packet.schema.json",
+  "title": "AssemblePacket",
+  "description": "Wire-only context-assembly payload. No ranking, retrieval, or token-budget fields in v0.1.",
+  "type": "object",
+  "required": ["schema_version", "packet_id", "entries", "extensions"],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "packet_id": {
+      "type": "string",
+      "description": "Stable packet id."
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/AssembleEntry"
+      },
+      "description": "Slim context entries (default). Full Keyblock embedding is op-specific."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "AssembleEntry": {
+      "type": "object",
+      "required": ["keyblock_id", "block_type", "canonical_name"],
+      "properties": {
+        "keyblock_id": {
+          "type": "string",
+          "description": "Referenced Keyblock id."
+        },
+        "block_type": {
+          "type": "string",
+          "description": "Open string. Same core vocabulary as Keyblock.block_type."
+        },
+        "canonical_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name for context window."
+        },
+        "snippet": {
+          "type": "string",
+          "description": "Optional trimmed text for context window."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

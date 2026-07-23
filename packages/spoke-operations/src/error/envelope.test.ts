@@ -52,4 +52,19 @@ describe("toErrorEnvelope / fromErrorEnvelope", () => {
     expect(envelope.details).toBeUndefined();
     expect(fromErrorEnvelope(envelope)).toEqual(reject);
   });
+
+  it("rejects unknown wire error codes with INVALID_INPUT", () => {
+    const result = fromErrorEnvelope({
+      code: "NOT_A_SPOKE_CODE",
+      message: "upstream error",
+      extensions: {},
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: SpokeRejectCode.INVALID_INPUT,
+      message: "Unknown error code: NOT_A_SPOKE_CODE",
+      details: { wire_code: "NOT_A_SPOKE_CODE" },
+    });
+  });
 });

@@ -27,7 +27,10 @@ export function validateRelateRequest(relation: Relation): SpokeResult<void> {
     );
   }
 
-  if (relation.from_id === relation.to_id) {
+  const fromId = relation.from_id.trim();
+  const toId = relation.to_id.trim();
+
+  if (fromId === toId) {
     return spokeReject(
       SpokeRejectCode.RELATION_SELF_EDGE,
       "Relation from_id must not equal to_id",

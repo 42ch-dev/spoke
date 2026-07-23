@@ -32,6 +32,17 @@ describe("validateRelateRequest", () => {
     }
   });
 
+  it("rejects self-edge when ids differ only by surrounding whitespace", () => {
+    const result = validateRelateRequest(
+      makeRelation({ from_id: "kb_1", to_id: "kb_1 " }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.RELATION_SELF_EDGE);
+    }
+  });
+
   it("rejects missing from_id", () => {
     const result = validateRelateRequest(makeRelation({ from_id: "   " }));
 

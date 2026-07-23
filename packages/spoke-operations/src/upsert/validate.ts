@@ -62,6 +62,21 @@ function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> 
     );
   }
 
+  if (typeof candidate.canonical_name !== "string") {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "Keyblock canonical_name must be a string",
+      { field: "canonical_name" },
+    );
+  }
+
+  if (candidate.canonical_name.trim().length === 0) {
+    return spokeReject(
+      SpokeRejectCode.EMPTY_CANONICAL_NAME,
+      "Keyblock canonical_name must be non-empty",
+    );
+  }
+
   if (typeof candidate.body !== "object" || candidate.body === null || Array.isArray(candidate.body)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
@@ -123,6 +138,11 @@ function validateCreatePath(candidate: Keyblock): SpokeResult<void> {
 }
 
 function validateUpdatePath(candidate: Keyblock, stored: Keyblock): SpokeResult<void> {
+  const required = validateRequiredKeyblockFields(candidate);
+  if (!required.ok) {
+    return required;
+  }
+
   if (candidate.keyblock_id !== stored.keyblock_id) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,

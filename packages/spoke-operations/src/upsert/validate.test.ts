@@ -39,6 +39,26 @@ describe("validateUpsertKeyblock", () => {
     }
   });
 
+  it("rejects create with empty canonical_name", () => {
+    const candidate = makeKeyblock({ keyblock_id: "kb_new", canonical_name: "" });
+    const result = validateUpsertKeyblock(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.EMPTY_CANONICAL_NAME);
+    }
+  });
+
+  it("rejects create with whitespace-only canonical_name", () => {
+    const candidate = makeKeyblock({ keyblock_id: "kb_new", canonical_name: "   " });
+    const result = validateUpsertKeyblock(candidate);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.EMPTY_CANONICAL_NAME);
+    }
+  });
+
   it("accepts valid update with matching revision", () => {
     const stored = makeKeyblock({ keyblock_id: "kb_1", revision: 2, status: "confirmed" });
     const candidate = makeKeyblock({ keyblock_id: "kb_1", revision: 2, status: "confirmed" });
@@ -112,6 +132,21 @@ describe("validateUpsertKeyblock", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("rejects update when candidate is missing required fields", () => {
+    const stored = makeKeyblock({ keyblock_id: "kb_1", revision: 1 });
+    const candidate = {
+      keyblock_id: "kb_1",
+      revision: 1,
+    } as Keyblock;
+
+    const result = validateUpsertKeyblock(candidate, { stored });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.MISSING_REQUIRED_FIELD);
     }
   });
 });

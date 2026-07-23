@@ -1,6 +1,12 @@
 import type { ErrorEnvelope } from "@42ch/spoke-schemas";
 
-import type { SpokeReject, SpokeRejectCode } from "../result.js";
+import { spokeReject, type SpokeReject, SpokeRejectCode } from "../result.js";
+
+const SPOKE_REJECT_CODE_VALUES = new Set<string>(Object.values(SpokeRejectCode));
+
+function isSpokeRejectCode(code: string): code is SpokeRejectCode {
+  return SPOKE_REJECT_CODE_VALUES.has(code);
+}
 
 /**
  * Map SpokeReject to ops ErrorEnvelope wire shape.
@@ -18,9 +24,17 @@ export function toErrorEnvelope(reject: SpokeReject): ErrorEnvelope {
  * Map ErrorEnvelope back to SpokeReject.
  */
 export function fromErrorEnvelope(error: ErrorEnvelope): SpokeReject {
+  if (!isSpokeRejectCode(error.code)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      `Unknown error code: ${error.code}`,
+      { wire_code: error.code },
+    );
+  }
+
   return {
     ok: false,
-    code: error.code as SpokeRejectCode,
+    code: error.code,
     message: error.message,
     ...(error.details !== undefined ? { details: error.details } : {}),
   };

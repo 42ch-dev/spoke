@@ -8,6 +8,7 @@ const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../..");
 export default defineConfig({
   resolve: {
     alias: {
+      // Alias to src/ so fixtures run before build:operations (see ci:typescript order).
       "@42ch/spoke-operations": join(
         REPO_ROOT,
         "packages/spoke-operations/src/index.ts",

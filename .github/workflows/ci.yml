@@ -85,6 +85,9 @@ jobs:
       - name: Test @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations test
 
+      - name: Test toy-world fixtures
+        run: pnpm run test:fixtures
+
       - name: Build @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations build
 

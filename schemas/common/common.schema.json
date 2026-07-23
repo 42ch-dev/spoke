@@ -59,12 +59,12 @@
           },
           "description": "Optional narrow scope to explicit KnowledgeEntries."
         },
-        "block_types": {
+        "entry_types": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Optional filter by open block_type vocabulary."
+          "description": "Optional filter by open entry_type vocabulary."
         },
         "timeline_event_ids": {
           "type": "array",

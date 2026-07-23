@@ -56,7 +56,7 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 |-------|----------|------|-----------|
 | `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op `extensions` — **not** as required `Scope` siblings. |
 | `knowledge_entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
-| `block_types` | no | string[] | Filter by open `block_type` vocabulary |
+| `entry_types` | no | string[] | Filter by open `entry_type` vocabulary |
 | `timeline_event_ids` | no | string[] | Narrow to explicit L5 `TimelineEvent` ids |
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |

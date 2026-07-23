@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/timeline-event.schema.json",
   "title": "TimelineEvent",
-  "description": "First-class when-axis temporal object (L5). Distinct from KnowledgeEntry block_type event labels.",
+  "description": "First-class when-axis temporal object (L5). Distinct from KnowledgeEntry entry_type event labels.",
   "type": "object",
   "required": [
     "schema_version",

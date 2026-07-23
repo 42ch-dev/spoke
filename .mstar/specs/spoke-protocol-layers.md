@@ -26,7 +26,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 | Layer | Concept | Baseline (protocol layers target) | Optional capability | Primary wire artifacts |
 |-------|---------|------------------------------|---------------------|------------------------|
 | **L0 Envelope** | Identity + `schema_version` | Required on all durable objects | — | All `schemas/data/*`; `schema_version` in `common.schema.json` |
-| **L1 Ontology** | `block_type` + Domain Profile | Open `block_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `knowledge-entry.schema.json`; `CONCEPTS.md`; future adapter specs |
+| **L1 Ontology** | `entry_type` + Domain Profile | Open `entry_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `knowledge-entry.schema.json`; `CONCEPTS.md`; future adapter specs |
 | **L2 Body** | summary / attributes / tags | Structured `body` (`additionalProperties: true` subtree) | Computable / WASM `state` in body | `knowledge-entry.schema.json` `body` |
 | **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on KnowledgeEntry |
 | **L4 Graph** | Relation | Typed directed edges | OCC / revision as product concern | `relation.schema.json`; `relate` op |
@@ -41,7 +41,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 |------|------|
 | **Rule vs Finding** | `Rule` = declarative **input** to checkers; `Finding` = checker **output**. Never interchange types. |
 | **Check vs Assemble** | `check` returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op. |
-| **TimelineEvent vs KnowledgeEntry `block_type: event`** | `TimelineEvent` is a first-class temporal object (L5). KnowledgeEntry `block_type` may still use `"event"` as an ontology label — different concerns. |
+| **TimelineEvent vs KnowledgeEntry `entry_type: event`** | `TimelineEvent` is a first-class temporal object (L5). KnowledgeEntry `entry_type` may still use `"event"` as an ontology label — different concerns. |
 | **Timeline tiers vs product canvas** | `brief` / `narrative` / `moment` are **protocol Timeline-dimension labels** (semantic zoom of the same when-axis). They are **not** a requirement to ship Nexus World/Work Canvas surfaces or Creader UI. |
 | **Scope** | Ops selectors use shared `Scope` with required **`scope_id`** (protocol-neutral opaque string). World/Book/product ids belong in op **`extensions`** or adapters — not `Scope` required fields. |
 
@@ -51,7 +51,7 @@ Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrativ
 
 | Tier | Role on the when-axis | Typical carrier (informative — architect locks wire) |
 |------|----------------------|------------------------------------------------------|
-| **`brief`** | Coarse shape / era / age-at-a-glance | Often era-scale markers (e.g. KnowledgeEntry `block_type` vocabulary such as `era`) |
+| **`brief`** | Coarse shape / era / age-at-a-glance | Often era-scale markers (e.g. KnowledgeEntry `entry_type` vocabulary such as `era`) |
 | **`narrative`** | Ordered story events on the Timeline | First-class `TimelineEvent` objects and/or event-shaped KnowledgeEntries |
 | **`moment`** | Fine grain (scene / beat / beat-local) | Finer temporal units; product may keep some carriers local until wire exists |
 
@@ -97,7 +97,7 @@ Baseline compliance MUST NOT require either flag.
 
 | Principle | Detail |
 |-----------|--------|
-| Core stays open | `block_type`, statuses, relation types remain open strings in schemas |
+| Core stays open | `entry_type`, statuses, relation types remain open strings in schemas |
 | Profile documents vocabulary | Published tables (e.g. Nexus world KB types, Creader knowledge entry types) live in **adapter specs** or product docs — not closed `enum` in core |
 | Profile is not a fork | Products MUST NOT fork `knowledge-entry.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
 | Adapter role (future) | `adapters/*` maps product DTOs ↔ SPOKE; calls `@42ch/spoke-operations` for shared gates |
@@ -107,7 +107,7 @@ Baseline compliance MUST NOT require either flag.
 | Layer | Data schema (`schemas/data/` or `common/`) | Op wire (`schemas/ops/`) | Library (`@42ch/spoke-operations`) |
 |-------|--------------------------------------------|--------------------------|-------------------------------------|
 | **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | `assertRevisionMatch`; `toErrorEnvelope` / `fromErrorEnvelope` |
-| **L1 Ontology** | `data/knowledge-entry.schema.json` (`block_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKnowledgeEntryStatusTransition`, `transitionKnowledgeEntryStatus`; `assertUniqueActiveKnowledgeEntry`; `validateUpsertKnowledgeEntry` |
+| **L1 Ontology** | `data/knowledge-entry.schema.json` (`entry_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKnowledgeEntryStatusTransition`, `transitionKnowledgeEntryStatus`; `assertUniqueActiveKnowledgeEntry`; `validateUpsertKnowledgeEntry` |
 | **L2 Body** | `knowledge-entry.schema.json` → `body` subtree (`additionalProperties: true`) | `upsert-*` | `validateUpsertKnowledgeEntry` (required-field gate) |
 | **L3 Provenance** | `data/source-anchor.schema.json`; optional on KnowledgeEntry / Finding / TimelineEvent / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `knowledgeEntryMatchesScope`, `filterKnowledgeEntriesByScope` (`source_id` refinement) |
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | `validateRelateRequest` |

@@ -1,6 +1,6 @@
 # SPOKE Operations
 
-> **Status:** Normative (v0.1 baseline; v0-iter003 harden)  
+> **Status:** Normative (v0.1 baseline; ops wire harden)  
 > **Document class:** Detail — ops **wire** layer (column 2)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/ops/`, `schemas/common/`  
@@ -10,12 +10,12 @@
 
 Define transport-agnostic **request/response** wire shapes for core Keyblock operations. Ops schemas are separate families from data envelopes in `schemas/data/`.
 
-**Integrator framing (v0-iter003):**
+**Integrator framing (ops wire harden):**
 
 | Principle | Meaning |
 |-----------|---------|
 | **Check ≠ Assemble** | `check` runs checkers and returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op, no ranking fields in assemble wire. |
-| **Scope neutrality** | Shared `Scope` def in `common.schema.json` (committed v0-iter003 — **`ops-harden`**); required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. Pure Scope match helpers ship in v0-iter004 — see [`spoke-operations.md`](spoke-operations.md) §Scope match. |
+| **Scope neutrality** | Shared `Scope` def in `common.schema.json` (committed protocol layers deepen — **`ops-harden`**); required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. Pure Scope match helpers ship in operations library deepen — see [`spoke-operations.md`](spoke-operations.md) §Scope match. |
 | **One failure dialect** | All ops responses use `oneOf` success branch **or** `{ "error": ErrorEnvelope }` — same attachment as v0.1 `assemble-response` (R3 closed). |
 
 **Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.
@@ -207,7 +207,7 @@ HTTP mapping (4xx/5xx) is adapter concern. **`@42ch/spoke-operations`** provides
 
 v0.1 delivers **ops wire** shapes only. Cross-product lifecycle rules (promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders) live in [`spoke-operations.md`](spoke-operations.md) — adapters and product code MUST call `@42ch/spoke-operations` instead of reimplementing those invariants.
 
-Mapping Nexus daemon routes or Creader API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in v0-iter002).
+Mapping Nexus daemon routes or Creader API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in operations library first slice).
 
 ---
 
@@ -228,7 +228,7 @@ Mapping Nexus daemon routes or Creader API handlers to these wire payloads remai
 - Checker execution engine
 - Assemble ranking / retrieval algorithms
 - Conformance fixtures or golden round-trips
-- Adapter route mapping (post–v0-iter003)
+- Adapter route mapping (post–ops wire harden)
 
 ## See also
 

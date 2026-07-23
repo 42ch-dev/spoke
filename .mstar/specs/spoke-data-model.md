@@ -1,6 +1,6 @@
 # SPOKE Data Model
 
-> **Status:** Normative (v0.1 baseline; v0-iter003 deepen; v0-iter004 Keyblock lifecycle)  
+> **Status:** Normative (v0.1 baseline; protocol layers deepen; operations library deepen Keyblock lifecycle)  
 > **Document class:** Detail — data layer  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/data/`, `schemas/common/`
@@ -23,7 +23,7 @@ Five required wire objects in v0.1:
 | **Finding** | Checker output (consistency, style, structure, …) | `schemas/data/finding.schema.json` |
 | **AssemblePacket** | Context-assembly payload (structure only) | `schemas/data/assemble-packet.schema.json` |
 
-### v0-iter003 deepen (architect-locked target wire)
+### Protocol layers + Rule/Event deepen (architect-locked target wire)
 
 | Object | Layer | Role | Schema file |
 |--------|-------|------|-------------|
@@ -115,7 +115,7 @@ First-class **when-axis** object. Distinct from Keyblock `block_type: "event"` (
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
 
-**Fork (explicitly optional):** baseline `Event` MUST NOT require `fork_id` or branch metadata. Fork semantics remain optional capability `l5-fork` — future wire fields, not v0-iter003 baseline.
+**Fork (explicitly optional):** baseline `Event` MUST NOT require `fork_id` or branch metadata. Fork semantics remain optional capability `l5-fork` — future wire fields, not spoke-baseline.
 
 ### Illustrative instance
 
@@ -174,7 +174,7 @@ Products MAY emit values outside the core trio; adapters MUST round-trip unknown
 | **Remediation** | Not on Rule wire | Optional `suggested_fix`, `text_position` |
 | **MUST NOT** | Appear in `findings[]` | Appear in `check` request as rules |
 
-**Historical note:** v0.1 deferred the `Rule` wire object; `check` accepted opaque `rule_refs: string[]` only. v0-iter003 ships portable `Rule` and `Event` shapes — field tables above are normative.
+**Historical note:** v0.1 deferred the `Rule` wire object; `check` accepted opaque `rule_refs: string[]` only. Protocol layers deepen ships portable `Rule` and `Event` shapes — field tables above are normative.
 
 | Related concern | Product rule |
 |-----------------|--------------|
@@ -419,14 +419,14 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - **Event** — L5 temporal wire object (when-axis); distinct from Keyblock `block_type: "event"` labels
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
 - **Finding** — checker output, not a Keyblock body
-- **Rule** — L6 declarative wire object (v0-iter003); not synonymous with `block_type: "rule"` which remains a valid open string if products use it
+- **Rule** — L6 declarative wire object (protocol layers deepen); not synonymous with `block_type: "rule"` which remains a valid open string if products use it
 
 ---
 
 ## Acceptance (data layer)
 
-- [x] Each **baseline + v0-iter003** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
-- [x] Umbrella + this doc list the same object set; Rule/Event shipped in v0-iter003 plan `rule-event`
+- [x] Each **baseline + protocol layers deepen** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
+- [x] Umbrella + this doc list the same object set; Rule/Event shipped in `rule-event`
 - [ ] Sample valid Keyblock instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
 - [ ] `block_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 
@@ -436,7 +436,7 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - Closed enums for all block types
 - Required Fork / world-history fields in baseline compliance
 - Required WASM or computable Keyblock bodies (optional `l2-computable` capability only)
-- Golden product DTO round-trips (protocol `fixtures/toy-world/` delivered v0-iter004 — see [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md); product DTO maps remain adapter work)
+- Golden product DTO round-trips (protocol `fixtures/toy-world/` delivered fixtures conformance slice — see [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md); product DTO maps remain adapter work)
 
 ## See also
 

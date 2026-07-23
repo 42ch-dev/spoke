@@ -1,7 +1,7 @@
 # SPOKE codegen pipeline (v0.1)
 
 **Category:** architecture-patterns  
-**Source:** iteration:v0.1 (core-bootstrap + QC fix wave)  
+**Source:** compound 2026-07-23 (bootstrap)  
 **Status:** durable
 
 ## Problem

@@ -1,6 +1,6 @@
 # SPOKE Operations Library
 
-> **Status:** Normative (v0-iter002; v0-iter004 deepen — architect-locked 2026-07-23)  
+> **Status:** Normative (operations library first slice; deepen — architect-locked 2026-07-23)  
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Package:** `@42ch/spoke-operations` under `packages/spoke-operations/`
@@ -33,9 +33,9 @@ Without a shared operations library, every product (Nexus, Creader, future adapt
 | AssemblePacket builders from Keyblocks (structure only) | Ranking, scoring, vector retrieval, token budgeting |
 | Unified `SpokeResult` / `SpokeRejectCode` on every reject path | Silent auto-promote bypassing human review semantics |
 | Revision bump on promote apply (see §Promote acceptance) | — |
-| OCC revision compare (`assertRevisionMatch`) — v0-iter004 | — |
-| Keyblock status transitions + active uniqueness — v0-iter004 | Product `world_id` / `book_id` as required core fields |
-| Scope match, upsert/relate gates, error-envelope map — v0-iter004 | `scope_id` parsing; retrieval engines |
+| OCC revision compare (`assertRevisionMatch`) — operations library deepen | — |
+| Keyblock status transitions + active uniqueness — operations library deepen | Product `world_id` / `book_id` as required core fields |
+| Scope match, upsert/relate gates, error-envelope map — operations library deepen | `scope_id` parsing; retrieval engines |
 
 ### Per-family In / Out
 
@@ -79,11 +79,11 @@ type SpokeResult<T = void> = SpokeOk<T> | SpokeReject;
 | `details` | Optional structured context (e.g. `{ from, to }` on transition reject) — not a second error channel |
 | Throwing | Unexpected programmer errors only; lifecycle rejects are **never** thrown |
 
-### `SpokeRejectCode` (v0-iter002 + v0-iter004)
+### `SpokeRejectCode` (first slice + deepen)
 
 Stable string literals exported from `@42ch/spoke-operations` (e.g. `as const` object + union type). Implementers MUST NOT invent parallel code strings.
 
-| Code | Family | Emitted in v0-iter002 | Emitted in v0-iter004 | Meaning |
+| Code | Family | Emitted in first slice | Emitted in deepen slice | Meaning |
 |------|--------|----------------------|----------------------|---------|
 | `INVALID_INPUT` | shared | yes | yes | Argument fails shape/null checks before domain rules |
 | `INVALID_STATUS` | finding | yes | yes | `to` (or current `finding.status`) not in core vocabulary |
@@ -107,9 +107,9 @@ Stable string literals exported from `@42ch/spoke-operations` (e.g. `as const` o
 
 ---
 
-## First-slice helper inventory (v0-iter002)
+## First-slice helper inventory
 
-Four families. Export names below are **normative** for v0-iter002; module layout under `src/` may group them, but public `src/index.ts` MUST expose these symbols.
+Four families. Export names below are **normative** for the first slice; module layout under `src/` may group them, but public `src/index.ts` MUST expose these symbols.
 
 ### 1. Extensions — `extensions/*`
 
@@ -136,7 +136,7 @@ Four families. Export names below are **normative** for v0-iter002; module layou
 
 **Core vocabulary** (documented in schema, enforced here): `open`, `resolved`, `dismissed`.
 
-**Allowed transitions (v0-iter002):**
+**Allowed transitions (first slice):**
 
 | From | To | Notes |
 |------|-----|-------|
@@ -177,13 +177,13 @@ Four families. Export names below are **normative** for v0-iter002; module layou
 | absent / `undefined` | `1` |
 | integer ≥ 0 | `candidate.revision + 1` |
 
-Returned Keyblock also sets `status: "confirmed"`. Other fields are shallow-copied from `candidate` unless promote rules explicitly transform them. Library does **not** set `updated_at` unless a later slice adds an optional clock parameter — v0-iter002 leaves timestamps to the caller/adapter.
+Returned Keyblock also sets `status: "confirmed"`. Other fields are shallow-copied from `candidate` unless promote rules explicitly transform them. Library does **not** set `updated_at` unless a later slice adds an optional clock parameter — operations library first slice leaves timestamps to the caller/adapter.
 
 **Reject codes:** `CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, `EMPTY_CANONICAL_NAME`, `MERGE_TARGET_SELF`, `MISSING_REQUIRED_FIELD`, `INVALID_INPUT`.
 
 **Tests must cover:** happy path provisional→confirmed, reject deleted/merged candidate, reject empty name, merge-target id collision, revision `undefined`→`1`, revision `2`→`3`.
 
-**OCC before persist (v0-iter004):** upsert update and promote paths SHOULD call `assertRevisionMatch` (§5) with caller-supplied `expectedRevision` and `actualRevision` — library never fetches storage.
+**OCC before persist (operations library deepen):** upsert update and promote paths SHOULD call `assertRevisionMatch` (§5) with caller-supplied `expectedRevision` and `actualRevision` — library never fetches storage.
 
 ---
 
@@ -219,9 +219,9 @@ Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet:
 
 ---
 
-## v0-iter004 helper families
+## Helper families (operations deepen)
 
-Five new families (plus error map). Export names are **normative** for v0-iter004; `src/index.ts` MUST expose them alongside v0-iter002 symbols.
+Five new families (plus error map). Export names are **normative** for the deepen slice; `src/index.ts` MUST expose them alongside first-slice symbols.
 
 ### 5. OCC — `occ/*`
 
@@ -257,7 +257,7 @@ Five new families (plus error map). Export names are **normative** for v0-iter00
 
 **Active statuses (uniqueness gate):** `provisional`, `confirmed` only.
 
-**Allowed transitions (v0-iter004):**
+**Allowed transitions (deepen slice):**
 
 | From | To | Notes |
 |------|-----|-------|
@@ -407,7 +407,7 @@ Integrator SHOULD run Keyblock status transition validation separately when `can
 
 Wire shape: [`spoke-ops.md` §Error envelope](spoke-ops.md#error-envelope).
 
-**Tests must cover:** round-trip for every code used in v0-iter002 + v0-iter004 tests; `extensions: {}` on outbound map.
+**Tests must cover:** round-trip for every code used in first-slice + deepen tests; `extensions: {}` on outbound map.
 
 ---
 
@@ -418,15 +418,15 @@ Wire shape: [`spoke-ops.md` §Error envelope](spoke-ops.md#error-envelope).
 | Name | `@42ch/spoke-operations` |
 | Dependency | `@42ch/spoke-schemas` (workspace) only |
 | Publish | Private workspace package; no npm publish job in CI |
-| Rust | Deferred (`spoke-operations` crate not in v0-iter002) |
+| Rust | Deferred (`spoke-operations` crate not in first slice) |
 
 Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`, `SpokeReject`, `SpokeRejectCode` types/constants.
 
 ---
 
-## Acceptance (operations layer — iteration)
+## Acceptance (operations layer)
 
-### v0-iter002 (delivered)
+### First slice (delivered)
 
 - [x] This spec + [`spoke-protocol.md`](spoke-protocol.md) cross-link (umbrella column 3)
 - [x] Package exists with four helper families and unit tests per table above
@@ -434,16 +434,16 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
 - [x] CI typecheck + test + build includes `packages/spoke-operations/`
 
-### v0-iter004 (target)
+### Deepen slice (target)
 
-- [ ] OCC, Keyblock status, uniqueness, Scope, upsert, relate, error-map families implemented per §v0-iter004 helper families
+- [ ] OCC, Keyblock status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
 - [ ] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
 - [ ] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
-- [ ] v0-iter002 export behavior unchanged except additive OCC emit on new call sites
+- [ ] First-slice export behavior unchanged except additive OCC emit on new call sites
 
 ## Non-goals (operations layer)
 
-### v0-iter002
+### First slice
 
 - Adapter conversion code
 - Rust operations crate
@@ -452,7 +452,7 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - HTTP/MCP binding or daemon routes
 - Ranking / retrieval / token-budget helpers
 
-### v0-iter004 (unchanged)
+### Deepen slice (unchanged)
 
 - Adapter packages and product DTO field maps
 - Storage fetch inside library
@@ -470,4 +470,4 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
-| `packages/spoke-operations/` | Implementation (v0-iter002) |
+| `packages/spoke-operations/` | Implementation (operations library first slice) |

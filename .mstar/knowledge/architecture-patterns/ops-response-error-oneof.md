@@ -1,7 +1,7 @@
 # Ops response error-envelope oneOf
 
 **Category:** architecture-patterns  
-**Source:** iteration:v0-iter003 (ops-harden)  
+**Source:** compound 2026-07-23 (ops-harden)  
 **Status:** durable
 
 ## Problem

@@ -1,7 +1,7 @@
 # Pure operations actions over wire types
 
 > **Category:** architecture-patterns  
-> **Source:** iteration:v0-iter004  
+> **Source:** compound 2026-07-23 (operations-deepen)  
 > **Package:** `@42ch/spoke-operations`
 
 ## Problem
@@ -25,4 +25,4 @@ JSON Schema defines shapes; integrators still copy-paste lifecycle gates (OCC, s
 ## See also
 
 - `.mstar/specs/spoke-operations.md` §5–11
-- Residual R1 (v0-iter004) — uniqueness param alignment
+- Residual R1 (operations deepen) — uniqueness param alignment

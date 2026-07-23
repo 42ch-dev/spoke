@@ -1,7 +1,7 @@
 # Consumer README twin pattern (EN/CN)
 
 **Category:** architecture-patterns  
-**Source:** iteration:v0-iter002 (dev-docs)  
+**Source:** compound 2026-07-23 (dev-docs)  
 **Status:** durable
 
 ## Problem

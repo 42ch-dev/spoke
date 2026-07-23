@@ -1,7 +1,7 @@
 # Fixture AJV harness outside package dist
 
 > **Category:** architecture-patterns  
-> **Source:** iteration:v0-iter004  
+> **Source:** compound 2026-07-23 (fixtures-conformance)  
 > **Context:** `fixtures/toy-world` + `@42ch/spoke-operations` Vitest
 
 ## Problem

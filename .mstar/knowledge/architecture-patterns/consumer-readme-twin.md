@@ -10,10 +10,11 @@ Protocol repos often mix maintainer process docs with integrator onboarding. Dua
 
 ## Decision
 
-1. **Audience:** Root `README.md` / `README_CN.md` target **protocol consumers**, not harness maintainers.
+1. **Audience:** Root `README.md` / `README_CN.md` are **for humans** (protocol consumers), not agent steering docs.
 2. **Twin structure:** Same section outline and tables; cross-link at the top.
-3. **Version labels:** Separate bootstrap wire (v0.1) from later slices (e.g. `v0-iter002` operations) — do not bundle newer packages under older ship banners.
-4. **Spelling:** Protocol token **Keyblock** stays English in CN docs.
+3. **No iteration delivery in README:** Affirmative product state only — no iteration IDs or ship banners (root `AGENTS.md` § README audience).
+4. **No anti-pattern rhetoric in README:** Avoid “not a…”, “does not include…”, “out of scope…” exclusion prose; put boundaries in root `AGENTS.md` (or normative specs).
+5. **Spelling:** Protocol token **Keyblock** stays English in CN docs.
 
 ## Related
 

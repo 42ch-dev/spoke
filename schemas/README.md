@@ -66,12 +66,14 @@ schemas/
 | `schemas/data/*.schema.json` | `.../generated/data/` | `.../generated/data/` |
 | `schemas/ops/*.schema.json` | `.../generated/ops/` | `.../generated/ops/` |
 
-Commands (from repo root, after Task 3 wiring):
+Commands (from repo root):
 
 ```bash
 pnpm run codegen          # regenerate TS + Rust
 pnpm run verify-codegen   # exit 1 on drift
 ```
+
+CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-codegen` (plus `typescript` and `rust` package checks) on every pull request.
 
 ## File checklist (Task 2)
 

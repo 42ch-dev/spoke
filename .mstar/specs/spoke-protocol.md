@@ -107,8 +107,11 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 Executable checks for iteration close — detail in [delivery compass](../iterations/v0.1/delivery-compass.md):
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
-2. Codegen + `verify-codegen` green locally and on **GitHub Actions** (`.github/workflows/ci.yml`)
-3. CI also typechecks / `cargo check`s `@42ch/spoke-schema` and `spoke-schema` (no publish jobs)
+2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
+   - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
+   - `typescript` — `pnpm -F @42ch/spoke-schema typecheck` + `build`
+   - `rust` — `cargo check -p spoke-schema`
+3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schema`)
 4. Extensions contract enforced in data schemas
 5. `Rule` deferral documented; no orphan `rule.schema.json`
 6. Adapter dirs placeholder-only; no `fixtures/`

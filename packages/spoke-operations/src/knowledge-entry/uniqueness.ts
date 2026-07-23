@@ -11,7 +11,7 @@ function isActiveKnowledgeEntryStatus(status: string): boolean {
 
 export type AssertUniqueActiveKnowledgeEntryInput = {
   scope_key: string;
-  block_type: string;
+  entry_type: string;
   canonical_name: string;
   candidate: KnowledgeEntry;
   existing: KnowledgeEntry[];
@@ -22,19 +22,19 @@ export type AssertUniqueActiveKnowledgeEntryInput = {
  */
 export function assertUniqueActiveKnowledgeEntry({
   scope_key,
-  block_type,
+  entry_type,
   canonical_name,
   candidate,
   existing,
 }: AssertUniqueActiveKnowledgeEntryInput): SpokeResult<void> {
-  if (candidate.block_type !== block_type || candidate.canonical_name !== canonical_name) {
+  if (candidate.entry_type !== entry_type || candidate.canonical_name !== canonical_name) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "block_type and canonical_name must match candidate wire fields",
+      "entry_type and canonical_name must match candidate wire fields",
       {
-        block_type,
+        entry_type,
         canonical_name,
-        candidate_block_type: candidate.block_type,
+        candidate_entry_type: candidate.entry_type,
         candidate_canonical_name: candidate.canonical_name,
       },
     );
@@ -48,24 +48,24 @@ export function assertUniqueActiveKnowledgeEntry({
     if (!isActiveKnowledgeEntryStatus(knowledgeEntry.status)) {
       continue;
     }
-    if (knowledgeEntry.block_type !== block_type) {
+    if (knowledgeEntry.entry_type !== entry_type) {
       continue;
     }
     if (knowledgeEntry.canonical_name !== canonical_name) {
       continue;
     }
-    if (knowledgeEntry.knowledge_entry_id === candidate.knowledge_entry_id) {
+    if (knowledgeEntry.entry_id === candidate.entry_id) {
       continue;
     }
 
     return spokeReject(
       SpokeRejectCode.DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY,
-      `Duplicate active knowledge entry for (${scope_key}, ${block_type}, ${canonical_name})`,
+      `Duplicate active knowledge entry for (${scope_key}, ${entry_type}, ${canonical_name})`,
       {
         scope_key,
-        block_type,
+        entry_type,
         canonical_name,
-        conflicting_knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+        conflicting_entry_id: knowledgeEntry.entry_id,
       },
     );
   }

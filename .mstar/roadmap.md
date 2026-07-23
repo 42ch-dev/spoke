@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-_Nothing scheduled._ **KnowledgeEntry / TimelineEvent terminology** is on `main` (PR #8, 2026-07-23). Baseline wire, ops library, and fixtures use the new vocabulary. Pick the next item from **Up next** when starting a delivery slice.
+_Nothing scheduled._ **EntryType field rename + canvas coverage sync** is on integration (`iteration/v0-iter007`); merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
 
 ---
 
@@ -20,7 +20,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
 | 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Optional capability — not baseline |
-| 2 | Optional **`project` / compute** op family | Transport-agnostic I/O for programmable body state (Nexus-class) | Optional; Creader-class products omit |
+| 2 | Optional **`project` / compute** op family | Transport-agnostic I/O for programmable body state (Nexus-class) | Optional; Creader-class products omit. Canvas `project` / `compute`* rows are **deferred here** — not a baseline wire omission; five core ops (upsert, promote, relate, check, assemble) are canvas-covered per [`spoke-ops.md`](specs/spoke-ops.md) |
 | 3 | Optional **`l2-computable`** body fields | Documented optional `body.state` / computable shape on KnowledgeEntry | Capability flag already named in layers spec |
 | 4 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 | 5 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (19) in sync when adding schemas | See open residuals in local harness status when present |
@@ -35,7 +35,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
-| 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire rename Keyblock→KnowledgeEntry, Event→TimelineEvent; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |
+| 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire locks `KnowledgeEntry` / `TimelineEvent`; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |
 | 2026-07-23 | Fixture harness ownership + CI harden | AJV/Vitest under `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`); removed from `@42ch/spoke-operations`; `AGENTS.md` boundary; CI `test:fixtures`; `verify-codegen` schema-count assert (19) |
 | 2026-07-23 | Operations library deepen + fixtures | OCC compare, KnowledgeEntry status, uniqueness, Scope/upsert/relate gates, error-envelope map; `fixtures/toy-world/` protocol JSON graph |
 | 2026-07-23 | Protocol layers + Rule/TimelineEvent | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` schemas; Scope / error-envelope / Rule-aware `check` |

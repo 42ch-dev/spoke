@@ -56,7 +56,7 @@ schemas/
 1. **Draft-07** — `"$schema": "http://json-schema.org/draft-07/schema#"`
 2. **Closed protocol objects** — `additionalProperties: false` on data envelopes and ops top-level objects
 3. **Extensions required** — every data object includes `extensions` in `required`; use `ExtensionMap` from common
-4. **Open vocabulary** — `block_type`, KnowledgeEntry `status`, etc. are `type: string` without `enum`; document core vocabulary in `description`
+4. **Open vocabulary** — `entry_type`, KnowledgeEntry `status`, etc. are `type: string` without `enum`; document core vocabulary in `description`
 5. **No transport fields** — no HTTP paths, methods, or auth headers in schemas
 6. **`$ref` over duplication** — ops reference `schemas/data/*`; do not inline KnowledgeEntry copies
 

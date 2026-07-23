@@ -30,11 +30,11 @@ export interface AssembleEntry {
   /**
    * Referenced KnowledgeEntry id.
    */
-  knowledge_entry_id: string;
+  entry_id: string;
   /**
-   * Open string. Same core vocabulary as KnowledgeEntry.block_type.
+   * Open string. Same core vocabulary as KnowledgeEntry.entry_type.
    */
-  block_type: string;
+  entry_type: string;
   /**
    * Display name for context window.
    */

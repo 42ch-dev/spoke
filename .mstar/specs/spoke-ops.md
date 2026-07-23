@@ -36,6 +36,19 @@ Five ops, ten schema files under `schemas/ops/` (request + response each).
 
 File basename `promote-*` is the schema id for **extract→promote** (shorter than `extract-promote-*`).
 
+### Research canvas coverage (operations)
+
+Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five baseline ops below are **canvas-covered** — integrators need not infer missing wire from the canvas.
+
+| Canvas op | Decision | Integrator note |
+|-----------|----------|-----------------|
+| `upsert` | **Covered** | Baseline wire + ops |
+| `extract` → `promote` | **Covered** | `promote-*` schema family |
+| `relate` | **Covered** | Baseline wire + ops |
+| `check` | **Covered** | Baseline wire + ops |
+| `assemble` | **Covered** | Baseline wire + ops |
+| `project` / `compute`* | **Deferred** | Optional capability — see [`.mstar/roadmap.md`](../roadmap.md) Up next #2; **not** a baseline omission; do not add wire schemas without a scheduled slice |
+
 ---
 
 ## Request/response families
@@ -55,8 +68,8 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
 | `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op `extensions` — **not** as required `Scope` siblings. |
-| `knowledge_entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
-| `block_types` | no | string[] | Filter by open `block_type` vocabulary |
+| `entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
+| `entry_types` | no | string[] | Filter by open `entry_type` vocabulary |
 | `timeline_event_ids` | no | string[] | Narrow to explicit L5 `TimelineEvent` ids |
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
@@ -75,14 +88,14 @@ Core ops schemas MUST NOT add `world_id`, `book_id`, `manuscript_id`, or product
 | Direction | Core payload |
 |-----------|--------------|
 | Request | `knowledge_entries: KnowledgeEntry[]` (1..n); optional `idempotency_key: string` (opaque; no server semantics in v0.1) |
-| Response (success) | `knowledge_entries: KnowledgeEntry[]` (persisted view); optional `rejected: { knowledge_entry_id, code, message }[]` |
+| Response (success) | `knowledge_entries: KnowledgeEntry[]` (persisted view); optional `rejected: { entry_id, code, message }[]` |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
 #### extract→promote (`promote-*`)
 
 | Direction | Core payload |
 |-----------|--------------|
-| Request | `candidate: KnowledgeEntry` (typically `status: provisional`); optional `target_knowledge_entry_id` for merge |
+| Request | `candidate: KnowledgeEntry` (typically `status: provisional`); optional `target_entry_id` for merge |
 | Response (success) | `knowledge_entry: KnowledgeEntry` (promoted); optional `superseded_id` when merging |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 

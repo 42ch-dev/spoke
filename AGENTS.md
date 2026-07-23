@@ -14,6 +14,18 @@ Morning Star consumer. Harness SSOT: [`.mstar/AGENTS.md`](.mstar/AGENTS.md).
 
 **Git-shared records (HARD):** tracked specs, knowledge, roadmap, and root docs MUST NOT contain Morning Star iteration ids (e.g. the `v0-iterNNN` family), `iteration:v0-iterNNN` source tags, or links into `.mstar/iterations/`. Use capability, feature, or date naming instead. Iteration ids belong only in local process artifacts (`plans/`, `iterations/`, `sdd/`, `status.json`). Commit messages, PR titles/bodies, and other git-visible prose follow the same ban (branch names used for local orchestration may keep harness prefixes).
 
+### Long-term precipitation — facts only (HARD)
+
+Tracked **results** that agents and humans reuse as protocol SSOT must state **current facts**, not delivery archaeology:
+
+| In (facts) | Out (do not deposit) |
+|------------|----------------------|
+| Current wire names, fields, vocabularies, dual-concern rules, capability levels | Deprecated / retired names (e.g. draft Keyblock), rename history, “formerly / superseded / early drafts” |
+| Normative invariants and positive capability | Iteration ship banners, plan ids, “in this slice we renamed…” |
+| Protocol-neutral examples | Named external product runtimes as concept owners inside `CONCEPTS.md` (no Nexus / Creader / … product binding tables here — adapters own mappings) |
+
+**Applies to:** `.mstar/specs/`, `.mstar/knowledge/`, `.mstar/roadmap.md` (durable rows), root `CONCEPTS.md`, and other tracked result docs. Process paths (`plans/`, `iterations/`, `sdd/`) may record history locally; do not promote that narrative into results without rewriting as present-tense facts.
+
 Do not put plan progress or residual detail in this file.
 
 ## README audience (HARD)

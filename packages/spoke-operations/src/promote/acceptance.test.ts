@@ -10,8 +10,8 @@ import {
 function makeCandidate(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
   return {
     schema_version: 1,
-    knowledge_entry_id: "kb_1",
-    block_type: "character",
+    entry_id: "kb_1",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status: "provisional",
     body: { summary: "Protagonist" },
@@ -67,7 +67,7 @@ describe("validatePromoteRequest", () => {
 
   it("rejects merge target equal to candidate id", () => {
     const result = validatePromoteRequest(
-      makeRequest({ target_knowledge_entry_id: "kb_1" }),
+      makeRequest({ target_entry_id: "kb_1" }),
     );
 
     expect(result.ok).toBe(false);
@@ -126,9 +126,9 @@ describe("validatePromoteRequest", () => {
     }
   });
 
-  it("rejects empty block_type", () => {
+  it("rejects empty entry_type", () => {
     const result = validatePromoteRequest(
-      makeRequest({ candidate: makeCandidate({ block_type: "" }) }),
+      makeRequest({ candidate: makeCandidate({ entry_type: "" }) }),
     );
 
     expect(result.ok).toBe(false);
@@ -137,11 +137,11 @@ describe("validatePromoteRequest", () => {
     }
   });
 
-  it("rejects non-string block_type", () => {
+  it("rejects non-string entry_type", () => {
     const result = validatePromoteRequest(
       makeRequest({
         candidate: makeCandidate({
-          block_type: 42 as unknown as string,
+          entry_type: 42 as unknown as string,
         }),
       }),
     );

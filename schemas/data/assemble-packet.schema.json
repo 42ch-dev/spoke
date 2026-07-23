@@ -28,15 +28,15 @@
   "definitions": {
     "AssembleEntry": {
       "type": "object",
-      "required": ["knowledge_entry_id", "block_type", "canonical_name"],
+      "required": ["entry_id", "entry_type", "canonical_name"],
       "properties": {
-        "knowledge_entry_id": {
+        "entry_id": {
           "type": "string",
           "description": "Referenced KnowledgeEntry id."
         },
-        "block_type": {
+        "entry_type": {
           "type": "string",
-          "description": "Open string. Same core vocabulary as KnowledgeEntry.block_type."
+          "description": "Open string. Same core vocabulary as KnowledgeEntry.entry_type."
         },
         "canonical_name": {
           "type": "string",

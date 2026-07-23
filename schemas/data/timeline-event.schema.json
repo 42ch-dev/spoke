@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/timeline-event.schema.json",
   "title": "TimelineEvent",
-  "description": "First-class when-axis temporal object (L5). Distinct from KnowledgeEntry block_type event labels.",
+  "description": "First-class when-axis temporal object (L5). Distinct from KnowledgeEntry ontology labels such as entry_type: \"event\" (KB fact node, not this wire type).",
   "type": "object",
   "required": [
     "schema_version",
@@ -35,7 +35,7 @@
       "type": "string",
       "description": "Longer narrative summary."
     },
-    "participant_knowledge_entry_ids": {
+    "participant_entry_ids": {
       "type": "array",
       "items": {
         "type": "string"
@@ -68,7 +68,7 @@
       "canonical_name": "Treaty of Ashford",
       "timeline_scale": "narrative",
       "occurred_at": "1421-06-03T00:00:00Z",
-      "participant_knowledge_entry_ids": ["kb_mira", "kb_ashford"],
+      "participant_entry_ids": ["kb_mira", "kb_ashford"],
       "extensions": {
         "nexus": { "world_id": "wld_abc" }
       }

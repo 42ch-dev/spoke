@@ -59,15 +59,15 @@ describe("fixtures/toy-world schema conformance", () => {
     const finding = loadFixture<Finding>("fnd_tw_open.json");
     const packet = loadFixture<AssemblePacket>("pkt_tw_scope.json");
 
-    expect(relation.from_id).toBe(mira.knowledge_entry_id);
-    expect(relation.to_id).toBe(harbor.knowledge_entry_id);
-    expect(timelineEvent.participant_knowledge_entry_ids).toEqual(
-      expect.arrayContaining([mira.knowledge_entry_id, harbor.knowledge_entry_id]),
+    expect(relation.from_id).toBe(mira.entry_id);
+    expect(relation.to_id).toBe(harbor.entry_id);
+    expect(timelineEvent.participant_entry_ids).toEqual(
+      expect.arrayContaining([mira.entry_id, harbor.entry_id]),
     );
-    expect(finding.target_knowledge_entry_id).toBe(mira.knowledge_entry_id);
-    expect(packet.entries.map((entry) => entry.knowledge_entry_id)).toEqual([
-      mira.knowledge_entry_id,
-      harbor.knowledge_entry_id,
+    expect(finding.target_entry_id).toBe(mira.entry_id);
+    expect(packet.entries.map((entry) => entry.entry_id)).toEqual([
+      mira.entry_id,
+      harbor.entry_id,
     ]);
   });
 
@@ -75,10 +75,10 @@ describe("fixtures/toy-world schema conformance", () => {
     const ontologyEvent = loadFixture<KnowledgeEntry>("kb_tw_harbor_dawn_event.json");
     const timelineEvent = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
 
-    expect(ontologyEvent.block_type).toBe("event");
+    expect(ontologyEvent.entry_type).toBe("event");
     expect(ontologyEvent.canonical_name).toBe(timelineEvent.canonical_name);
     expect(timelineEvent.extensions?.spoke).toEqual({
-      timeline_knowledge_entry_id: ontologyEvent.knowledge_entry_id,
+      timeline_entry_id: ontologyEvent.entry_id,
     });
   });
 

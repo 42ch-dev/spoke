@@ -54,7 +54,7 @@ Declarative constraint **input** to `check` — never checker output.
 |-------|------|-----------|
 | `statement` | string | Declarative constraint text (human- or machine-readable; products choose grammar) |
 | `description` | string | Longer explanation for integrators / authors |
-| `target_block_types` | string[] | Optional ontology filter — open strings matching KnowledgeEntry `block_type` vocabulary |
+| `target_entry_types` | string[] | Optional ontology filter — open strings matching KnowledgeEntry `entry_type` vocabulary |
 | `severity_hint` | string | Optional checker hint (`info`, `warning`, `error` — open string) |
 | `source_anchor` | `SourceAnchor` | Provenance pointer when rule is anchored to manuscript |
 | `status` | string | Open string; core: `draft`, `active`, `deprecated` |
@@ -70,7 +70,7 @@ Declarative constraint **input** to `check` — never checker output.
   "canonical_name": "No resurrection without foreshadowing",
   "kind": "rule",
   "statement": "Character death reversals require a prior foreshadowing KnowledgeEntry.",
-  "target_block_types": ["character", "event"],
+  "target_entry_types": ["character", "event"],
   "severity_hint": "error",
   "status": "active",
   "extensions": {}
@@ -91,7 +91,7 @@ Products MAY emit values outside the core lists; adapters MUST round-trip unknow
 
 ## TimelineEvent (L5)
 
-First-class **when-axis** object. Distinct from KnowledgeEntry `block_type: "event"` (ontology label on a KnowledgeEntry body).
+First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "event"` (ontology label on a KnowledgeEntry body).
 
 ### Required fields
 
@@ -109,7 +109,7 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `block_type: "eve
 | `timeline_scale` | `TimelineScale` | L5 projection tier — see §TimelineScale |
 | `occurred_at` | string | When the event happened — RFC 3339 **or** opaque fuzzy label (e.g. `"Third Age"`) |
 | `description` | string | Longer narrative summary |
-| `participant_knowledge_entry_ids` | string[] | Related KnowledgeEntry ids (characters, locations, …) |
+| `participant_entry_ids` | string[] | Related KnowledgeEntry ids (characters, locations, …) |
 | `source_anchor` | `SourceAnchor` | Manuscript / scene anchor |
 | `sort_key` | string | Opaque ordering hint within a timeline (products define grammar) |
 | `created_at` | string (RFC 3339) | Creation timestamp |
@@ -126,7 +126,7 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `block_type: "eve
   "canonical_name": "Treaty of Ashford",
   "timeline_scale": "narrative",
   "occurred_at": "1421-06-03T00:00:00Z",
-  "participant_knowledge_entry_ids": ["kb_mira", "kb_ashford"],
+  "participant_entry_ids": ["kb_mira", "kb_ashford"],
   "extensions": {
     "nexus": { "world_id": "wld_abc" }
   }
@@ -141,7 +141,7 @@ The same story beat may appear as **both** wire shapes — products choose mappi
 
 | Wire artifact | Example |
 |---------------|---------|
-| KnowledgeEntry (`block_type: "event"`) | KB fact node “Treaty of Ashford” with structured `body` |
+| KnowledgeEntry (`entry_type: "event"`) | KB fact node “Treaty of Ashford” with structured `body` |
 | TimelineEvent | When-axis placement with `timeline_scale: "narrative"` and `timeline_event_id` |
 
 Toy-world dual-concern fixture pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` — see [`fixtures/toy-world/`](../../fixtures/toy-world/).
@@ -190,7 +190,7 @@ Products MAY emit values outside the core trio; adapters MUST round-trip unknown
 | Related concern | Product rule |
 |-----------------|--------------|
 | Adapter mapping | Creader `KnowledgeEntryType: "rule"` and Nexus overlays map in **future adapter specs** — not blockers for wire shapes |
-| KnowledgeEntry `block_type: "rule"` | Valid open ontology label on a KnowledgeEntry — distinct from L6 `Rule` wire object |
+| KnowledgeEntry `entry_type: "rule"` | Valid open ontology label on a KnowledgeEntry — distinct from L6 `Rule` wire object |
 | Fork | Optional L5 capability — not required with `TimelineEvent` |
 
 ---
@@ -214,8 +214,8 @@ Every durable data object schema MUST:
 | Field | Type | Semantics |
 |-------|------|-----------|
 | `schema_version` | integer | Wire version; align with `common.SchemaVersion` |
-| `knowledge_entry_id` | string | Stable id (opaque to protocol; products choose prefix/format) |
-| `block_type` | string | Open string; core vocabulary in §Open vocabulary |
+| `entry_id` | string | Stable id (opaque to protocol; products choose prefix/format) |
+| `entry_type` | string | Open string; core vocabulary in §Open vocabulary |
 | `canonical_name` | string | Human-stable name (min length 1) |
 | `status` | string | Open string; core vocabulary in §Open vocabulary |
 | `body` | object | Structured payload; `additionalProperties: true` on `body` only |
@@ -241,8 +241,8 @@ Every durable data object schema MUST:
 ```json
 {
   "schema_version": 1,
-  "knowledge_entry_id": "kb_01HXYZ",
-  "block_type": "character",
+  "entry_id": "kb_01HXYZ",
+  "entry_type": "character",
   "canonical_name": "Mira Vale",
   "status": "confirmed",
   "body": {
@@ -311,7 +311,7 @@ Checker output — **not** a KnowledgeEntry body.
 | `description` | yes | string |
 | `extensions` | yes | object |
 
-Optional: `kind`, `target_knowledge_entry_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
+Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_position` (object), `created_at`, `updated_at`.
 
 **Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §Finding lifecycle](spoke-operations.md#2-finding-lifecycle--finding). Wire schema keeps `status` as open string; library enforces the core transition table.
 
@@ -332,8 +332,8 @@ Optional: `kind`, `target_knowledge_entry_id`, `source_anchor`, `suggested_fix`,
 
 | Field | Required | Type |
 |-------|----------|------|
-| `knowledge_entry_id` | yes | string |
-| `block_type` | yes | string |
+| `entry_id` | yes | string |
+| `entry_type` | yes | string |
 | `canonical_name` | yes | string |
 | `snippet` | no | string (trimmed text for context window) |
 
@@ -368,29 +368,64 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
 ## Open vocabulary
 
-`block_type`, KnowledgeEntry `status`, `relation_type`, and Finding `severity`/`status` are **open strings** in v0.1 schemas (`type: string` with no `enum`). Schemas document the core vocabulary in `description` fields; closure to `enum` waits until adapter specs prove stability.
+`entry_type`, KnowledgeEntry `status`, `relation_type`, and Finding `severity`/`status` are **open strings** in v0.1 schemas (`type: string` with no `enum`). Schemas document the core vocabulary in `description` fields; closure to `enum` waits until adapter specs prove stability.
 
-### Core `block_type` vocabulary (documented, not enforced)
+### Core `entry_type` vocabulary (documented, not enforced)
 
-Cross-product narrative set (union of Nexus + Creader research inputs):
+Cross-product narrative set (union of Nexus + Creader research inputs). Order: baseline narrative set, Creader extras, then canvas-sync additions.
 
 | Value | Typical use |
 |-------|-------------|
 | `character` | Person / agent |
 | `location` | Place |
-| `event` | Timeline / plot event |
+| `event` | Ontology label for plot / story-beat facts; **≠** L5 `TimelineEvent` wire object |
 | `scene` | Scene unit |
+| `act` | Structural act (script / Creader) |
 | `organization` | Group / faction (Nexus) |
 | `item` | Object / artifact |
 | `conflict` | Dramatic conflict unit |
 | `info_point` | Foreshadowing / revelation hook |
 | `era` | World-timeline era / brief marker |
-| `note` | Free-form author note (Creader) |
 | `worldbuilding` | Encyclopedia / lore entry (Creader) |
+| `note` | Free-form author note (Creader) |
 | `research` | External research note (Creader) |
-| `act` | Structural act (script / Creader) |
+| `ability` | Skill / power / capability KnowledgeEntry (canvas baseline) |
+| `rule` | World rule / constraint **ontology label** on a KnowledgeEntry; **≠** L6 `Rule` wire object (`rule_id`, `kind`, `statement`, `target_entry_types`) |
 
-**Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. When a product needs profile-specific types (e.g. Nexus `species`, `dialogue`, `beat`), document them in the adapter spec; do not expand the core list until a cross-product agreement exists.
+**Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. Profile-specific types (`dialogue`, `beat`, `species`, `magic_system`, …) belong in **Domain Profile** / adapter specs — not in this core table or in schema `description` core lists.
+
+### Research canvas coverage (ontology)
+
+Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators cite this table — not the canvas alone — for baseline vs profile vs deferred decisions.
+
+| Canvas `spoke` | Decision | Integrator note |
+|----------------|----------|-----------------|
+| `character` | **Keep** (core) | Baseline |
+| `location`* | **Keep** (core) | Open string; `*` = adapter profile annotation in canvas |
+| `event` | **Keep** (core) | Ontology label; ≠ `TimelineEvent` wire object |
+| `scene` | **Keep** (core) | Baseline |
+| `act` | **Keep** (core) | Baseline |
+| `organization` | **Keep** (core) | Baseline |
+| `item` | **Keep** (core) | Baseline |
+| `ability` | **Add** (core) | Skill / power / capability KnowledgeEntry |
+| `conflict` | **Keep** (core) | Baseline |
+| `info_point` | **Keep** (core) | Foreshadowing / revelation hook |
+| `era` | **Keep** (core) | Brief-scale timeline marker |
+| `worldbuilding`* | **Keep** (core) | Lore / encyclopedia; `*` = profile variants |
+| `rule`* | **Add** (core) | Ontology label `entry_type: "rule"`; **≠** L6 `Rule` object |
+| `note`, `research` | **Keep** (core) | Creader baseline; not shown on canvas `TYPE_MAP` |
+| `dialogue` | **Profile-only** | Domain Profile / adapter spec (Nexus-class) |
+| `beat` | **Profile-only** | Domain Profile / adapter spec (Nexus-class) |
+| `species`, `magic_system` | **Profile-only** | Typically under worldbuilding profile (Nexus) |
+
+**Dual-concern quick reference:**
+
+| Integrator question | Answer |
+|---------------------|--------|
+| `entry_type: "rule"` on a KnowledgeEntry — is that the L6 `Rule` object? | **No.** KB ontology label only. L6 rules use `rule.schema.json` + `rule_id`. |
+| `target_entry_types` on a `Rule` — what does it filter? | KnowledgeEntry **`entry_type`** strings (e.g. `character`, `event`), not `Rule` object kinds. |
+| `entry_type: "event"` vs `TimelineEvent`? | KB fact node vs L5 when-axis object. `Scope` uses `entry_types` vs `timeline_event_ids` separately. |
+| Should `dialogue` / `beat` be in the core table? | **No.** Profile-only per baseline lock. |
 
 ### Core KnowledgeEntry `status` vocabulary (documented, not enforced)
 
@@ -416,7 +451,7 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 |---------|------|
 | Unknown values | Round-trip verbatim |
 | Closed enums | Deferred until adapter iteration |
-| Product-only types | `extensions.<namespace>` or open `block_type` string |
+| Product-only types | `extensions.<namespace>` or open `entry_type` string |
 | Documentation | Adapter specs (next iteration) own per-product tables |
 
 ---
@@ -426,11 +461,11 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - **KnowledgeEntry** — atomic Knowledge Base entry in SPOKE wire form
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; World/Book ids in `extensions` or adapters — see [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
-- **Domain Profile** — published ontology vocabulary per product/integration; core `block_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md)
-- **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `block_type: "event"` labels
+- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md)
+- **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
 - **Finding** — checker output, not a KnowledgeEntry body
-- **Rule** — L6 declarative wire object (protocol layers deepen); not synonymous with `block_type: "rule"` which remains a valid open string if products use it
+- **Rule** — L6 declarative wire object (protocol layers deepen); not synonymous with `entry_type: "rule"` which remains a valid open string if products use it
 
 ---
 
@@ -439,12 +474,12 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - [x] Each **baseline + protocol layers deepen** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
 - [x] Umbrella + this doc list the same object set; Rule/TimelineEvent shipped in `rule-event`
 - [ ] Sample valid KnowledgeEntry instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
-- [ ] `block_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
+- [ ] `entry_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 
 ## Non-goals (data layer)
 
 - Nexus/Creader object mapping implementations (adapter iteration)
-- Closed enums for all block types
+- Closed enums for all entry types
 - Required Fork / world-history fields in baseline compliance
 - Required WASM or computable KnowledgeEntry bodies (optional `l2-computable` capability only)
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` delivered fixtures conformance slice — see [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md); product DTO maps remain adapter work)

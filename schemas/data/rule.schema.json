@@ -36,12 +36,12 @@
       "type": "string",
       "description": "Longer explanation for integrators or authors."
     },
-    "target_block_types": {
+    "target_entry_types": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Optional ontology filter — open strings matching KnowledgeEntry block_type vocabulary."
+      "description": "Optional ontology filter — open strings matching KnowledgeEntry entry_type vocabulary."
     },
     "severity_hint": {
       "type": "string",
@@ -73,7 +73,7 @@
       "canonical_name": "No resurrection without foreshadowing",
       "kind": "rule",
       "statement": "Character death reversals require a prior foreshadowing KnowledgeEntry.",
-      "target_block_types": ["character", "event"],
+      "target_entry_types": ["character", "event"],
       "severity_hint": "error",
       "status": "active",
       "extensions": {}

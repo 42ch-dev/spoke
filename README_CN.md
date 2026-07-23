@@ -46,7 +46,7 @@
 
 | 术语 | 在 SPOKE 中的含义 |
 |------|-------------------|
-| **KnowledgeEntry** | 线上的原子叙事知识单元（`knowledge_entry_id`、`block_type`、`status`、`body`、`extensions`） |
+| **KnowledgeEntry** | 线上的原子叙事知识单元（`entry_id`、`entry_type`、`status`、`body`、`extensions`） |
 | **Relation** | KnowledgeEntry 之间（或 KnowledgeEntry ↔ 来源）的有向边 |
 | **SourceAnchor** | 指向手稿片段或外部定位器的溯源指针 |
 | **Finding** | 一致性、风格或分析类检查器输出 |
@@ -65,8 +65,8 @@ import { validatePromoteRequest } from "@42ch/spoke-operations";
 
 const candidate: KnowledgeEntry = {
   schema_version: 1,
-  knowledge_entry_id: "kb_01",
-  block_type: "character",
+  entry_id: "kb_01",
+  entry_type: "character",
   canonical_name: "Aria",
   status: "provisional",
   body: { summary: "A reluctant scout." },

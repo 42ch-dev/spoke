@@ -10,8 +10,8 @@ import {
 function makeKnowledgeEntry(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
   return {
     schema_version: 1,
-    knowledge_entry_id: "kb_1",
-    block_type: "character",
+    entry_id: "kb_1",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status: "confirmed",
     body: {},
@@ -27,8 +27,8 @@ describe("knowledgeEntryToAssembleEntry", () => {
     );
 
     expect(entry).toEqual({
-      knowledge_entry_id: "kb_1",
-      block_type: "character",
+      entry_id: "kb_1",
+      entry_type: "character",
       canonical_name: "Mira Vale",
       snippet: "Hero",
     });
@@ -68,9 +68,9 @@ describe("buildAssemblePacket", () => {
 
   it("truncates entries in input order with maxEntries", () => {
     const knowledgeEntries = [
-      makeKnowledgeEntry({ knowledge_entry_id: "kb_a", canonical_name: "A" }),
-      makeKnowledgeEntry({ knowledge_entry_id: "kb_b", canonical_name: "B" }),
-      makeKnowledgeEntry({ knowledge_entry_id: "kb_c", canonical_name: "C" }),
+      makeKnowledgeEntry({ entry_id: "kb_a", canonical_name: "A" }),
+      makeKnowledgeEntry({ entry_id: "kb_b", canonical_name: "B" }),
+      makeKnowledgeEntry({ entry_id: "kb_c", canonical_name: "C" }),
     ];
 
     const result = buildAssemblePacket({
@@ -81,7 +81,7 @@ describe("buildAssemblePacket", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.entries.map((entry) => entry.knowledge_entry_id)).toEqual([
+      expect(result.value.entries.map((entry) => entry.entry_id)).toEqual([
         "kb_a",
         "kb_b",
       ]);

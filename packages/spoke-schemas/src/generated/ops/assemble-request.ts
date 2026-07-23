@@ -26,11 +26,11 @@ export interface Scope {
   /**
    * Optional narrow scope to explicit KnowledgeEntries.
    */
-  knowledge_entry_ids?: string[];
+  entry_ids?: string[];
   /**
-   * Optional filter by open block_type vocabulary.
+   * Optional filter by open entry_type vocabulary.
    */
-  block_types?: string[];
+  entry_types?: string[];
   /**
    * Optional narrow scope to explicit L5 TimelineEvent ids.
    */

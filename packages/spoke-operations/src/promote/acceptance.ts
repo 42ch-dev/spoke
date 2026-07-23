@@ -7,8 +7,8 @@ const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 
 const REQUIRED_KNOWLEDGE_ENTRY_FIELDS = [
   "schema_version",
-  "knowledge_entry_id",
-  "block_type",
+  "entry_id",
+  "entry_type",
   "canonical_name",
   "status",
   "body",
@@ -61,21 +61,21 @@ function validateKnowledgeEntryShape(candidate: KnowledgeEntry): SpokeResult<voi
   }
 
   if (
-    typeof candidate.knowledge_entry_id !== "string" ||
-    candidate.knowledge_entry_id.length === 0
+    typeof candidate.entry_id !== "string" ||
+    candidate.entry_id.length === 0
   ) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "KnowledgeEntry knowledge_entry_id must be a non-empty string",
-      { field: "knowledge_entry_id" },
+      "KnowledgeEntry entry_id must be a non-empty string",
+      { field: "entry_id" },
     );
   }
 
-  if (typeof candidate.block_type !== "string" || candidate.block_type.length === 0) {
+  if (typeof candidate.entry_type !== "string" || candidate.entry_type.length === 0) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "KnowledgeEntry block_type must be a non-empty string",
-      { field: "block_type" },
+      "KnowledgeEntry entry_type must be a non-empty string",
+      { field: "entry_type" },
     );
   }
 
@@ -142,7 +142,7 @@ function requestTargetEqualsCandidate(
   candidate: KnowledgeEntry,
   targetId: string | undefined,
 ): boolean {
-  return targetId !== undefined && targetId === candidate.knowledge_entry_id;
+  return targetId !== undefined && targetId === candidate.entry_id;
 }
 
 function validatePromoteLifecycle(
@@ -160,15 +160,15 @@ function validatePromoteLifecycle(
     return shapeResult;
   }
 
-  const { candidate, target_knowledge_entry_id: targetKnowledgeEntryId } = request;
+  const { candidate, target_entry_id: targetKnowledgeEntryId } = request;
 
   if (requestTargetEqualsCandidate(candidate, targetKnowledgeEntryId)) {
     return spokeReject(
       SpokeRejectCode.MERGE_TARGET_SELF,
-      "target_knowledge_entry_id must not equal candidate.knowledge_entry_id",
+      "target_entry_id must not equal candidate.entry_id",
       {
-        knowledge_entry_id: candidate.knowledge_entry_id,
-        target_knowledge_entry_id: targetKnowledgeEntryId,
+        entry_id: candidate.entry_id,
+        target_entry_id: targetKnowledgeEntryId,
       },
     );
   }

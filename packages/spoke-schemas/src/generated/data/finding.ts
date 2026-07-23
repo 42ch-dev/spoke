@@ -39,7 +39,7 @@ export interface Finding {
   /**
    * Optional KnowledgeEntry the finding targets.
    */
-  target_knowledge_entry_id?: string;
+  target_entry_id?: string;
   source_anchor?: SourceAnchor;
   /**
    * Optional suggested remediation text.

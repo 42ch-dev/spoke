@@ -13,8 +13,8 @@ function makeKnowledgeEntry(
 ): KnowledgeEntry {
   return {
     schema_version: 1,
-    knowledge_entry_id: "kb_1",
-    block_type: "character",
+    entry_id: "kb_1",
+    entry_type: "character",
     canonical_name: "Mira Vale",
     status,
     body: { summary: "Protagonist" },

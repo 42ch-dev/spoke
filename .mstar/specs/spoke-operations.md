@@ -91,14 +91,14 @@ Stable string literals exported from `@42ch/spoke-operations` (e.g. `as const` o
 | `CANDIDATE_NOT_PROVISIONAL` | promote | yes | yes | `candidate.status` ≠ `provisional` (default gate) |
 | `CANDIDATE_TERMINAL_STATUS` | promote | yes | yes | `candidate.status` is `merged` or `deleted` |
 | `EMPTY_CANONICAL_NAME` | promote | yes | yes | `canonical_name` missing or whitespace-only |
-| `MERGE_TARGET_SELF` | promote | yes | yes | `target_knowledge_entry_id` equals `candidate.knowledge_entry_id` |
+| `MERGE_TARGET_SELF` | promote | yes | yes | `target_entry_id` equals `candidate.entry_id` |
 | `MISSING_REQUIRED_FIELD` | promote / upsert | yes | yes | Required KnowledgeEntry field absent (schema-aligned check) |
 | `INVALID_PACKET_INPUT` | assemble | yes | yes | e.g. empty `packetId`, negative `maxEntries` |
 | `REVISION_CONFLICT` | occ | reserved | **yes** | `actualRevision < expectedRevision` (caller ahead of store) |
 | `STORED_REVISION_STALE` | occ | reserved | **yes** | `actualRevision > expectedRevision` (caller behind store) |
 | `INVALID_KNOWLEDGE_ENTRY_STATUS` | knowledge-entry | — | **yes** | Proposed KnowledgeEntry `status` not in core vocabulary |
 | `INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION` | knowledge-entry | — | **yes** | Disallowed KnowledgeEntry `from` → `to` |
-| `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` | uniqueness | — | **yes** | Second active KnowledgeEntry for same `(scope_key, block_type, canonical_name)` |
+| `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` | uniqueness | — | **yes** | Second active KnowledgeEntry for same `(scope_key, entry_type, canonical_name)` |
 | `KNOWLEDGE_ENTRY_NOT_FOUND` | upsert | — | **yes** | Update path but no `stored` KnowledgeEntry supplied |
 | `KNOWLEDGE_ENTRY_ALREADY_EXISTS` | upsert | — | **yes** | Create path but `stored` KnowledgeEntry already present |
 | `KNOWLEDGE_ENTRY_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
@@ -166,7 +166,7 @@ Four families. Export names below are **normative** for the first slice; module 
 - `candidate` MUST satisfy KnowledgeEntry required fields (delegate to schema-shaped checks, not a parallel DTO).
 - `candidate.status` MUST be `provisional` unless product documents an explicit override path (default: reject non-provisional → `CANDIDATE_NOT_PROVISIONAL`).
 - `candidate.canonical_name` MUST be non-empty (`minLength` semantics → `EMPTY_CANONICAL_NAME`).
-- If `target_knowledge_entry_id` present: MUST NOT equal `candidate.knowledge_entry_id` → `MERGE_TARGET_SELF`; merge semantics are structural only (no storage fetch).
+- If `target_entry_id` present: MUST NOT equal `candidate.entry_id` → `MERGE_TARGET_SELF`; merge semantics are structural only (no storage fetch).
 - Reject `candidate` in terminal KnowledgeEntry statuses (`merged`, `deleted`) → `CANDIDATE_TERMINAL_STATUS`.
 - **Human-in-loop invariant:** library never silently upgrades provisional → confirmed without caller explicitly invoking promote acceptance (no hidden side effects).
 
@@ -198,8 +198,8 @@ Returned KnowledgeEntry also sets `status: "confirmed"`. Other fields are shallo
 
 | Output field | Source |
 |--------------|--------|
-| `knowledge_entry_id` | `knowledgeEntry.knowledge_entry_id` |
-| `block_type` | `knowledgeEntry.block_type` |
+| `entry_id` | `knowledgeEntry.entry_id` |
+| `entry_type` | `knowledgeEntry.entry_type` |
 | `canonical_name` | `knowledgeEntry.canonical_name` |
 | `snippet` | See rule below — **omit key** when rule does not apply |
 
@@ -284,18 +284,18 @@ Five new families (plus error map). Export names are **normative** for the deepe
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `assertUniqueActiveKnowledgeEntry({ scope_key, block_type, canonical_name, candidate, existing })` | Reject duplicate active triple among caller-supplied set | Pure |
+| `assertUniqueActiveKnowledgeEntry({ scope_key, entry_type, canonical_name, candidate, existing })` | Reject duplicate active triple among caller-supplied set | Pure |
 
 **Rules:**
 
 - `scope_key` is an **opaque string** supplied by the caller (typically mapped from `Scope.scope_id` or product World/Book ids). It is **not** a KnowledgeEntry protocol field.
 - `existing` is `KnowledgeEntry[]` the caller already holds for that `scope_key`.
 - Consider only KnowledgeEntries whose `status` is **active** (`provisional` or `confirmed`).
-- Match triple `(scope_key, block_type, canonical_name)` — `block_type` and `canonical_name` from KnowledgeEntry wire fields.
-- `candidate` is the KnowledgeEntry about to be created or reactivated; reject if another **different** `knowledge_entry_id` in `existing` already occupies the triple.
-- Same `knowledge_entry_id` updating in place is allowed (no duplicate).
+- Match triple `(scope_key, entry_type, canonical_name)` — `entry_type` and `canonical_name` from KnowledgeEntry wire fields.
+- `candidate` is the KnowledgeEntry about to be created or reactivated; reject if another **different** `entry_id` in `existing` already occupies the triple.
+- Same `entry_id` updating in place is allowed (no duplicate).
 
-**Reject code:** `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` with `details: { scope_key, block_type, canonical_name, conflicting_knowledge_entry_id }`.
+**Reject code:** `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` with `details: { scope_key, entry_type, canonical_name, conflicting_entry_id }`.
 
 **Tests must cover:** unique accept, duplicate reject, inactive statuses ignored, same-id update allowed.
 
@@ -316,8 +316,8 @@ Five new families (plus error map). Export names are **normative** for the deepe
 
 | Refinement | Match rule |
 |------------|------------|
-| `knowledge_entry_ids` | `knowledgeEntry.knowledge_entry_id` ∈ array |
-| `block_types` | `knowledgeEntry.block_type` ∈ array |
+| `entry_ids` | `knowledgeEntry.entry_id` ∈ array |
+| `entry_types` | `knowledgeEntry.entry_type` ∈ array |
 | `source_id` | `knowledgeEntry.source_anchor?.source_id === scope.source_id` |
 
 Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
@@ -329,7 +329,7 @@ Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 | `timeline_event_ids` | `timelineEvent.timeline_event_id` ∈ array |
 | `timeline_scale` | `timelineEvent.timeline_scale === scope.timeline_scale` |
 
-Ignored on TimelineEvent: `knowledge_entry_ids`, `block_types`, `source_id`.
+Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`.
 
 **Tests must cover:** each refinement on its carrier type, empty refinement pass-through, combined AND.
 
@@ -356,7 +356,7 @@ Ignored on TimelineEvent: `knowledge_entry_ids`, `block_types`, `source_id`.
 
 | Rule | Reject |
 |------|--------|
-| `candidate.knowledge_entry_id === stored.knowledge_entry_id` | `INVALID_INPUT` on mismatch |
+| `candidate.entry_id === stored.entry_id` | `INVALID_INPUT` on mismatch |
 | `candidate.revision` present, integer ≥ 0 | `MISSING_REQUIRED_FIELD` if absent |
 | `assertRevisionMatch(candidate.revision, stored.revision ?? 0)` | OCC codes |
 | `stored.status` is `merged` or `deleted` | `KNOWLEDGE_ENTRY_TERMINAL_STATUS` |

@@ -10,7 +10,7 @@
       "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json",
       "description": "Candidate KnowledgeEntry (typically status provisional)."
     },
-    "target_knowledge_entry_id": {
+    "target_entry_id": {
       "type": "string",
       "description": "Optional merge target KnowledgeEntry id."
     },

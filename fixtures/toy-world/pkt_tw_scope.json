@@ -3,14 +3,14 @@
   "packet_id": "pkt_tw_scope",
   "entries": [
     {
-      "knowledge_entry_id": "kb_tw_mira",
-      "block_type": "character",
+      "entry_id": "kb_tw_mira",
+      "entry_type": "character",
       "canonical_name": "Mira Vale",
       "snippet": "Reluctant cartographer who charts coastal towns."
     },
     {
-      "knowledge_entry_id": "kb_tw_harbor",
-      "block_type": "location",
+      "entry_id": "kb_tw_harbor",
+      "entry_type": "location",
       "canonical_name": "Harbor Town",
       "snippet": "A sheltered port where dawn fog lifts over the quay."
     }

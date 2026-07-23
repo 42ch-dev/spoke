@@ -15,11 +15,11 @@ export interface KnowledgeEntry {
   /**
    * Stable KnowledgeEntry id (opaque to protocol).
    */
-  knowledge_entry_id: string;
+  entry_id: string;
   /**
-   * Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list.
+   * Open string. Core vocabulary (documented, not enforced): character, location, event (ontology label; ≠ TimelineEvent wire object), scene, act, organization, item, conflict, info_point, era, worldbuilding, note, research, ability, rule (ontology label; ≠ L6 Rule wire object). Products MAY emit values outside this list.
    */
-  block_type: string;
+  entry_type: string;
   /**
    * Human-stable name.
    */

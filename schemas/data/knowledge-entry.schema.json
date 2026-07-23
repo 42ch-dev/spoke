@@ -6,8 +6,8 @@
   "type": "object",
   "required": [
     "schema_version",
-    "knowledge_entry_id",
-    "block_type",
+    "entry_id",
+    "entry_type",
     "canonical_name",
     "status",
     "body",
@@ -17,13 +17,13 @@
     "schema_version": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
     },
-    "knowledge_entry_id": {
+    "entry_id": {
       "type": "string",
       "description": "Stable KnowledgeEntry id (opaque to protocol)."
     },
-    "block_type": {
+    "entry_type": {
       "type": "string",
-      "description": "Open string. Core vocabulary (documented, not enforced): character, location, event, scene, organization, item, conflict, info_point, era, note, worldbuilding, research, act. Products MAY emit values outside this list."
+      "description": "Open string. Core vocabulary (documented, not enforced): character, location, event (ontology label; ≠ TimelineEvent wire object), scene, act, organization, item, conflict, info_point, era, worldbuilding, note, research, ability, rule (ontology label; ≠ L6 Rule wire object). Products MAY emit values outside this list."
     },
     "canonical_name": {
       "type": "string",
@@ -62,8 +62,8 @@
   "examples": [
     {
       "schema_version": 1,
-      "knowledge_entry_id": "kb_01HXYZ",
-      "block_type": "character",
+      "entry_id": "kb_01HXYZ",
+      "entry_type": "character",
       "canonical_name": "Mira Vale",
       "status": "confirmed",
       "body": {

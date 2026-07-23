@@ -8,13 +8,13 @@ export function knowledgeEntryMatchesScope(
   scope: Scope,
 ): boolean {
   if (
-    scope.knowledge_entry_ids !== undefined &&
-    !scope.knowledge_entry_ids.includes(knowledgeEntry.knowledge_entry_id)
+    scope.entry_ids !== undefined &&
+    !scope.entry_ids.includes(knowledgeEntry.entry_id)
   ) {
     return false;
   }
 
-  if (scope.block_types !== undefined && !scope.block_types.includes(knowledgeEntry.block_type)) {
+  if (scope.entry_types !== undefined && !scope.entry_types.includes(knowledgeEntry.entry_type)) {
     return false;
   }
 

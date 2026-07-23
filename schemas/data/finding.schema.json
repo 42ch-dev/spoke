@@ -41,7 +41,7 @@
       "type": "string",
       "description": "Optional checker kind or category."
     },
-    "target_knowledge_entry_id": {
+    "target_entry_id": {
       "type": "string",
       "description": "Optional KnowledgeEntry the finding targets."
     },

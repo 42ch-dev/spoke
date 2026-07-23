@@ -123,11 +123,11 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Historical bootstrap close criteria (wire + codegen + CI). Later slices extended inventory without changing the bootstrap bar: protocol layers deepen added `Rule` + `TimelineEvent` (seven data objects, **19** schema files); terminology alignment (2026-07-23) locks `KnowledgeEntry` / `TimelineEvent` vocabulary in normative specs and [`CONCEPTS.md`](../../CONCEPTS.md) — wire schema file renames land in the wire-terminology delivery slice.
+Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five ops, **19** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md).
 
-**Bootstrap (delivered 2026-07-23):**
+**CI + inventory (required):**
 
-1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree for baseline five data objects + five ops
+1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree for baseline data objects + five ops
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
    - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
@@ -136,20 +136,19 @@ Historical bootstrap close criteria (wire + codegen + CI). Later slices extended
 4. Extensions contract enforced in data schemas
 5. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
 
-**Superseded bootstrap notes (do not treat as current blockers):**
+**Current data inventory (normative):**
 
-| Former v0.1 note | Current state |
-|------------------|---------------|
-| Five data objects only; `Rule` excluded | Seven data objects — `Rule` + `TimelineEvent` committed in protocol layers deepen |
-| `Rule` deferral; no `rule.schema.json` | `schemas/data/rule.schema.json` committed — see [`spoke-data-model.md`](spoke-data-model.md) |
+| Object | Schema |
+|--------|--------|
+| KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket | `schemas/data/*.schema.json` |
+| Rule | `schemas/data/rule.schema.json` — see [`spoke-data-model.md`](spoke-data-model.md) |
+| TimelineEvent | `schemas/data/timeline-event.schema.json` — see [`spoke-data-model.md`](spoke-data-model.md) |
 
 ## Non-goals (v0.1)
 
 | Out of scope | Rationale |
 |--------------|-----------|
-| Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred to next iteration |
-| Conformance fixtures / golden toy-world round-trips | **Delivered in fixtures conformance slice** — `fixtures/toy-world/` (protocol JSON only; CI schema-validated) |
-| `Rule` wire schema | Deferred in v0.1 bootstrap — **superseded** by protocol layers + Rule/TimelineEvent deepen (see data model) |
+| Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred |
 | WASM / Computable KnowledgeEntry / Fork semantics | Not required protocol surface yet |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |

@@ -42,6 +42,7 @@ On conflicts (unless the user overrides):
 
 - Agents **may** read/write process paths locally for orchestration.
 - **Git-shared results** (`specs/`, `knowledge/`, `roadmap.md`, root `AGENTS.md`, etc.) MUST NOT contain Morning Star iteration ids (e.g. the `v0-iterNNN` family) — use capability or date naming; iteration ids stay in gitignored process paths only. Commit messages and PR titles/bodies follow the same ban (orchestration branch names may keep harness prefixes).
+- **Facts only in results (HARD):** `{SPECS_DIR}`, `{KNOWLEDGE_DIR}`, `roadmap.md`, and root `CONCEPTS.md` deposit **current protocol facts** — not deprecated names, rename archaeology, or iteration delivery narrative. Full rule: root [`AGENTS.md`](../AGENTS.md) § Long-term precipitation. `CONCEPTS.md` stays protocol-vocabulary only (no named external product binding tables).
 - Do **not** `git add -f` ignored paths unless the user explicitly overrides for a one-off handoff.
 - Root [`.gitignore`](../.gitignore) encodes the ignore list — keep it in sync with this table.
 - Fresh clone: recreate process files from `mstar-plan-conventions` / `mstar-plan-artifacts` templates as needed. Process paths are **not** clone-shared SSOT.

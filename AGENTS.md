@@ -33,6 +33,7 @@ Root `README.md` / `README_CN.md` are **for humans** (protocol consumers / integ
 - SPOKE is a **protocol repo**, not a product runtime, daemon, or shared database.
 - `adapters/` holds **README purpose text only** for now — no product subdirs, packages, or mapping code until an iteration schedules them.
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
+- `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
 - Packages are workspace-private (not published to npm); consume via workspace or `file:` path.
 - Finding is checker output, not Keyblock `body`.

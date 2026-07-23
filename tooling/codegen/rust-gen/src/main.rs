@@ -7,7 +7,10 @@ use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process;
 use typify::{TypeSpace, TypeSpaceSettings};
+
+const EXPECTED_SCHEMA_COUNT: usize = 17;
 
 struct GeneratedModule {
     rust_mod: String,
@@ -95,19 +98,19 @@ fn write_mod_rs(dir: &Path, child_modules: &[String], generated: &[&GeneratedMod
     fs::write(dir.join("mod.rs"), lines.join("\n")).expect("write mod.rs");
 }
 
-fn generate_schema_rust(schema_path: &Path, schemas_dir: &Path, out_path: &Path) -> bool {
-    let content = fs::read_to_string(schema_path).expect("read schema");
-    let schema: RootSchema = match serde_json::from_str(&content) {
-        Ok(schema) => schema,
-        Err(err) => {
-            eprintln!(
-                "warn: skipping {} (invalid JSON Schema): {}",
-                schema_path.display(),
-                err
-            );
-            return false;
-        }
-    };
+fn generate_schema_rust(
+    schema_path: &Path,
+    schemas_dir: &Path,
+    out_path: &Path,
+) -> Result<(), String> {
+    let content = fs::read_to_string(schema_path)
+        .map_err(|err| format!("failed to read {}: {err}", schema_path.display()))?;
+    let schema: RootSchema = serde_json::from_str(&content).map_err(|err| {
+        format!(
+            "invalid JSON Schema in {}: {err}",
+            schema_path.display()
+        )
+    })?;
 
     let mut settings = TypeSpaceSettings::default();
     settings.with_struct_builder(true);
@@ -124,22 +127,28 @@ fn generate_schema_rust(schema_path: &Path, schemas_dir: &Path, out_path: &Path)
         let _ = env::set_current_dir(prev);
     }
 
-    if let Err(err) = add_result {
-        eprintln!(
-            "warn: skipping {}: {}",
-            schema_path.display(),
-            err
-        );
-        return false;
-    }
+    add_result.map_err(|err| {
+        format!(
+            "typify failed for {}: {err}",
+            schema_path.display()
+        )
+    })?;
 
     let rust = type_space.to_stream().to_string();
     if rust.trim().is_empty() {
-        return false;
+        return Err(format!(
+            "typify produced empty output for {}",
+            schema_path.display()
+        ));
     }
 
     if let Some(parent) = out_path.parent() {
-        fs::create_dir_all(parent).expect("mkdir");
+        fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "failed to create output directory {}: {err}",
+                parent.display()
+            )
+        })?;
     }
 
     let header = format!(
@@ -149,8 +158,13 @@ fn generate_schema_rust(schema_path: &Path, schemas_dir: &Path, out_path: &Path)
             .unwrap_or(schema_path)
             .display()
     );
-    fs::write(out_path, format!("{header}{rust}")).expect("write rust");
-    true
+    fs::write(out_path, format!("{header}{rust}")).map_err(|err| {
+        format!(
+            "failed to write {}: {err}",
+            out_path.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn main() {
@@ -171,6 +185,7 @@ fn main() {
 
     let mut generated_files: BTreeSet<PathBuf> = BTreeSet::new();
     let mut generated_modules: Vec<GeneratedModule> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
 
     for schema_path in &schema_paths {
         let rel = schema_path.strip_prefix(&schemas_dir).expect("under schemas");
@@ -187,19 +202,37 @@ fn main() {
         let source_schema = source_schemas_dir.join(rel);
         let (export_all, export_type) = export_mode_for_schema(&source_schema);
 
-        if generate_schema_rust(schema_path, &schemas_dir, &out_path) {
-            generated_files.insert(out_path.clone());
-            generated_modules.push(GeneratedModule {
-                rust_mod: rust_mod.clone(),
-                rel_parent,
-                export_all,
-                export_type,
-            });
-            println!(
-                "wrote {}",
-                out_path.strip_prefix(&root).unwrap().display()
-            );
+        match generate_schema_rust(schema_path, &schemas_dir, &out_path) {
+            Ok(()) => {
+                generated_files.insert(out_path.clone());
+                generated_modules.push(GeneratedModule {
+                    rust_mod: rust_mod.clone(),
+                    rel_parent,
+                    export_all,
+                    export_type,
+                });
+                println!(
+                    "wrote {}",
+                    out_path.strip_prefix(&root).unwrap().display()
+                );
+            }
+            Err(err) => failures.push(err),
         }
+    }
+
+    if !failures.is_empty() {
+        for err in &failures {
+            eprintln!("error: {err}");
+        }
+        process::exit(1);
+    }
+
+    if generated_files.len() != EXPECTED_SCHEMA_COUNT {
+        eprintln!(
+            "error: expected {EXPECTED_SCHEMA_COUNT} Rust schema file(s), generated {}",
+            generated_files.len()
+        );
+        process::exit(1);
     }
 
     for sub in ["", "common", "data", "ops"] {

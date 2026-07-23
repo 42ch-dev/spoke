@@ -7,11 +7,16 @@
 /**
  * Assemble success packet or wire error. Use packet OR error — not both.
  */
-export interface AssembleResponse {
-  packet?: AssemblePacket;
-  error?: ErrorEnvelope;
-  extensions?: ExtensionMap1;
-}
+export type AssembleResponse =
+  | {
+      packet: AssemblePacket;
+      extensions?: ExtensionMap1;
+    }
+  | {
+      error: ErrorEnvelope;
+      extensions?: ExtensionMap2;
+    };
+
 /**
  * Success: assembled context packet.
  */
@@ -63,6 +68,16 @@ export interface ExtensionMap {
     | undefined;
 }
 /**
+ * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ */
+export interface ExtensionMap1 {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
+}
+/**
  * Failure: shared error envelope.
  */
 export interface ErrorEnvelope {
@@ -85,7 +100,7 @@ export interface ErrorEnvelope {
 /**
  * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
-export interface ExtensionMap1 {
+export interface ExtensionMap2 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

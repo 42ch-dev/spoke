@@ -132,14 +132,14 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`)
 4. Extensions contract enforced in data schemas
 5. `Rule` deferral documented; no orphan `rule.schema.json`
-6. No adapter packages or `fixtures/` yet (`adapters/README.md` only)
+6. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
 
 ## Non-goals (v0.1)
 
 | Out of scope | Rationale |
 |--------------|-----------|
 | Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred to next iteration |
-| Conformance fixtures / golden toy-world round-trips | Deferred in v0.1 — `fixtures/toy-world/` ships in v0-iter004 (protocol JSON only) |
+| Conformance fixtures / golden toy-world round-trips | **Delivered in v0-iter004** — `fixtures/toy-world/` (protocol JSON only; CI schema-validated) |
 | `Rule` wire schema | Deferred in v0.1 — superseded by v0-iter003 (see data model) |
 | WASM / Computable Keyblock / Fork semantics | Not required protocol surface yet |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
@@ -152,7 +152,7 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **v0-iter002 (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
 | **v0-iter003 (delivered)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
-| **v0-iter004 (in progress)** | Expand `@42ch/spoke-operations` (OCC, Keyblock status, uniqueness, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph — **no adapters** |
+| **v0-iter004 (in progress)** | Expand `@42ch/spoke-operations` (OCC, Keyblock status, uniqueness, Scope/upsert/relate gates, error map) + **`fixtures/toy-world/`** protocol conformance graph (delivered) — **no adapters** |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 

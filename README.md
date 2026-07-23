@@ -4,7 +4,7 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — a protocol repository of JSON Schema wire contracts for narrative **Keyblock** data and **ops**. Products such as Nexus and Creader use these shapes for consistency-check and context-assembly I/O across independent stacks.
 
-**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, Rule, Event); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`).
+**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, Rule, Event); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`); protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/)).
 
 ## Packages
 
@@ -102,6 +102,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operat
 | Path | Topic |
 |------|-------|
 | [`schemas/`](schemas/) | JSON Schema SSOT (Draft-07) — source for codegen |
+| [`fixtures/toy-world/`](fixtures/toy-world/) | Protocol conformance JSON graph ("Mira at Harbor") — CI schema-validated |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella protocol spec |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | Nine layers (L0–L8), capability levels, Timeline tiers |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects and open vocabulary |

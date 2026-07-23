@@ -436,7 +436,7 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 - Closed enums for all block types
 - Required Fork / world-history fields in baseline compliance
 - Required WASM or computable Keyblock bodies (optional `l2-computable` capability only)
-- Golden product DTO round-trips (protocol `fixtures/toy-world/` — v0-iter004; see [`spoke-protocol-layers.md`](spoke-protocol-layers.md) non-goals)
+- Golden product DTO round-trips (protocol `fixtures/toy-world/` delivered v0-iter004 — see [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md); product DTO maps remain adapter work)
 
 ## See also
 

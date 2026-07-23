@@ -4,7 +4,7 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — 叙事 **Keyblock** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。Nexus、Creader 等产品用这些形状交换一致性检查与上下文组装的 I/O。
 
-**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket、Rule、Event）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）。
+**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket、Rule、Event）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）；协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）。
 
 ## 软件包
 
@@ -102,6 +102,7 @@ if (result.ok) {
 | 路径 | 主题 |
 |------|------|
 | [`schemas/`](schemas/) | JSON Schema 单一事实来源（Draft-07）— codegen 输入 |
+| [`fixtures/toy-world/`](fixtures/toy-world/) | 协议一致性 JSON 图（「Mira at Harbor」）— CI schema 校验 |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | 协议总览规范 |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | 九层模型（L0–L8）、能力等级、Timeline 层级 |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | 数据对象与开放词汇 |

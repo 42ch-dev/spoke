@@ -28,6 +28,7 @@ On conflicts (unless the user overrides):
 | Path (under `.mstar/`) | Class | Purpose |
 |------------------------|-------|---------|
 | `AGENTS.md` | Result | This harness contract |
+| `roadmap.md` | Result | Durable product roadmap (dual surfaces + nine layers) |
 | `specs/` | Result | Frozen normative protocol specs / ADRs |
 | `knowledge/` | Result | Compounded cross-iteration knowledge |
 | `plans/` | Process | Main plans, checkboxes, gate summaries |

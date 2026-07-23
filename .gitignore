@@ -151,4 +151,5 @@ vite.config.ts.timestamp-*
 .mstar/sdd/
 .mstar/notes.json
 .mstar/status.json
-# Tracked (results): .mstar/AGENTS.md, .mstar/knowledge/, .mstar/specs/
+.worktrees/
+# Tracked (results): .mstar/AGENTS.md, .mstar/roadmap.md, .mstar/knowledge/, .mstar/specs/

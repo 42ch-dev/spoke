@@ -1,20 +1,26 @@
-import type { Event, Keyblock, Scope } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, Scope, TimelineEvent } from "@42ch/spoke-schemas";
 
 /**
- * Keyblock passes optional Scope refinements (AND when present).
+ * KnowledgeEntry passes optional Scope refinements (AND when present).
  */
-export function keyblockMatchesScope(keyblock: Keyblock, scope: Scope): boolean {
-  if (scope.keyblock_ids !== undefined && !scope.keyblock_ids.includes(keyblock.keyblock_id)) {
+export function knowledgeEntryMatchesScope(
+  knowledgeEntry: KnowledgeEntry,
+  scope: Scope,
+): boolean {
+  if (
+    scope.knowledge_entry_ids !== undefined &&
+    !scope.knowledge_entry_ids.includes(knowledgeEntry.knowledge_entry_id)
+  ) {
     return false;
   }
 
-  if (scope.block_types !== undefined && !scope.block_types.includes(keyblock.block_type)) {
+  if (scope.block_types !== undefined && !scope.block_types.includes(knowledgeEntry.block_type)) {
     return false;
   }
 
   if (
     scope.source_id !== undefined &&
-    keyblock.source_anchor?.source_id !== scope.source_id
+    knowledgeEntry.source_anchor?.source_id !== scope.source_id
   ) {
     return false;
   }
@@ -23,21 +29,32 @@ export function keyblockMatchesScope(keyblock: Keyblock, scope: Scope): boolean 
 }
 
 /**
- * Filter Keyblocks by optional Scope refinements.
+ * Filter KnowledgeEntries by optional Scope refinements.
  */
-export function filterKeyblocksByScope(keyblocks: Keyblock[], scope: Scope): Keyblock[] {
-  return keyblocks.filter((keyblock) => keyblockMatchesScope(keyblock, scope));
+export function filterKnowledgeEntriesByScope(
+  knowledgeEntries: KnowledgeEntry[],
+  scope: Scope,
+): KnowledgeEntry[] {
+  return knowledgeEntries.filter((knowledgeEntry) =>
+    knowledgeEntryMatchesScope(knowledgeEntry, scope),
+  );
 }
 
 /**
- * Event passes optional Scope refinements (AND when present).
+ * TimelineEvent passes optional Scope refinements (AND when present).
  */
-export function eventMatchesScope(event: Event, scope: Scope): boolean {
-  if (scope.event_ids !== undefined && !scope.event_ids.includes(event.event_id)) {
+export function timelineEventMatchesScope(
+  timelineEvent: TimelineEvent,
+  scope: Scope,
+): boolean {
+  if (
+    scope.timeline_event_ids !== undefined &&
+    !scope.timeline_event_ids.includes(timelineEvent.timeline_event_id)
+  ) {
     return false;
   }
 
-  if (scope.timeline_scale !== undefined && event.timeline_scale !== scope.timeline_scale) {
+  if (scope.timeline_scale !== undefined && timelineEvent.timeline_scale !== scope.timeline_scale) {
     return false;
   }
 
@@ -45,8 +62,13 @@ export function eventMatchesScope(event: Event, scope: Scope): boolean {
 }
 
 /**
- * Filter Events by optional Scope refinements.
+ * Filter TimelineEvents by optional Scope refinements.
  */
-export function filterEventsByScope(events: Event[], scope: Scope): Event[] {
-  return events.filter((event) => eventMatchesScope(event, scope));
+export function filterTimelineEventsByScope(
+  timelineEvents: TimelineEvent[],
+  scope: Scope,
+): TimelineEvent[] {
+  return timelineEvents.filter((timelineEvent) =>
+    timelineEventMatchesScope(timelineEvent, scope),
+  );
 }

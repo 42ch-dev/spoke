@@ -1,8 +1,8 @@
 # SPOKE — AGENTS.md
 
-**SPOKE** = Standardized Programmable Ontology Keyblock Engine.
+**SPOKE** = Standardized Programmable Ontology Knowledge Engine.
 
-Greenfield protocol repository: JSON Schema SSOT for narrative Keyblock **data** and **ops** wire shapes, with generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) packages.
+Greenfield protocol repository: JSON Schema SSOT for narrative KnowledgeEntry **data** and **ops** wire shapes, with generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) packages.
 
 Normative entry: [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md).
 
@@ -36,7 +36,7 @@ Root `README.md` / `README_CN.md` are **for humans** (protocol consumers / integ
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
 - Packages are workspace-private (not published to npm); consume via workspace or `file:` path.
-- Finding is checker output, not Keyblock `body`.
+- Finding is checker output, not KnowledgeEntry `body`.
 
 ## Tech direction (v0.1)
 

@@ -1,16 +1,19 @@
-import type { Keyblock } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 
 import { SpokeRejectCode } from "../result.js";
 import {
-  isValidKeyblockStatusTransition,
-  transitionKeyblockStatus,
+  isValidKnowledgeEntryStatusTransition,
+  transitionKnowledgeEntryStatus,
 } from "./transition.js";
 
-function makeKeyblock(status: string, overrides: Partial<Keyblock> = {}): Keyblock {
+function makeKnowledgeEntry(
+  status: string,
+  overrides: Partial<KnowledgeEntry> = {},
+): KnowledgeEntry {
   return {
     schema_version: 1,
-    keyblock_id: "kb_1",
+    knowledge_entry_id: "kb_1",
     block_type: "character",
     canonical_name: "Mira Vale",
     status,
@@ -20,7 +23,7 @@ function makeKeyblock(status: string, overrides: Partial<Keyblock> = {}): Keyblo
   };
 }
 
-describe("isValidKeyblockStatusTransition", () => {
+describe("isValidKnowledgeEntryStatusTransition", () => {
   it.each([
     ["provisional", "confirmed"],
     ["provisional", "deprecated"],
@@ -37,7 +40,7 @@ describe("isValidKeyblockStatusTransition", () => {
     ["merged", "merged"],
     ["deleted", "deleted"],
   ] as const)("allows %s -> %s", (from, to) => {
-    expect(isValidKeyblockStatusTransition(from, to)).toBe(true);
+    expect(isValidKnowledgeEntryStatusTransition(from, to)).toBe(true);
   });
 
   it.each([
@@ -50,25 +53,25 @@ describe("isValidKeyblockStatusTransition", () => {
     ["provisional", "bogus"],
     ["bogus", "confirmed"],
   ] as const)("rejects %s -> %s", (from, to) => {
-    expect(isValidKeyblockStatusTransition(from, to)).toBe(false);
+    expect(isValidKnowledgeEntryStatusTransition(from, to)).toBe(false);
   });
 });
 
-describe("transitionKeyblockStatus", () => {
+describe("transitionKnowledgeEntryStatus", () => {
   it("updates status on allowed transition without mutating input", () => {
-    const keyblock = makeKeyblock("provisional");
-    const result = transitionKeyblockStatus(keyblock, "confirmed");
+    const knowledgeEntry = makeKnowledgeEntry("provisional");
+    const result = transitionKnowledgeEntryStatus(knowledgeEntry, "confirmed");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.status).toBe("confirmed");
-      expect(keyblock.status).toBe("provisional");
+      expect(knowledgeEntry.status).toBe("provisional");
     }
   });
 
   it("accepts no-op same-status transition", () => {
-    const keyblock = makeKeyblock("merged");
-    const result = transitionKeyblockStatus(keyblock, "merged");
+    const knowledgeEntry = makeKnowledgeEntry("merged");
+    const result = transitionKnowledgeEntryStatus(knowledgeEntry, "merged");
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -77,41 +80,41 @@ describe("transitionKeyblockStatus", () => {
   });
 
   it("rejects invalid target status", () => {
-    const result = transitionKeyblockStatus(makeKeyblock("provisional"), "bogus");
+    const result = transitionKnowledgeEntryStatus(makeKnowledgeEntry("provisional"), "bogus");
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe(SpokeRejectCode.INVALID_KEYBLOCK_STATUS);
+      expect(result.code).toBe(SpokeRejectCode.INVALID_KNOWLEDGE_ENTRY_STATUS);
       expect(result.details).toEqual({ status: "bogus" });
     }
   });
 
   it("rejects invalid current status", () => {
-    const result = transitionKeyblockStatus(makeKeyblock("bogus"), "confirmed");
+    const result = transitionKnowledgeEntryStatus(makeKnowledgeEntry("bogus"), "confirmed");
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe(SpokeRejectCode.INVALID_KEYBLOCK_STATUS);
+      expect(result.code).toBe(SpokeRejectCode.INVALID_KNOWLEDGE_ENTRY_STATUS);
       expect(result.details).toEqual({ status: "bogus" });
     }
   });
 
   it("rejects disallowed transition with from/to details", () => {
-    const result = transitionKeyblockStatus(makeKeyblock("deprecated"), "merged");
+    const result = transitionKnowledgeEntryStatus(makeKnowledgeEntry("deprecated"), "merged");
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe(SpokeRejectCode.INVALID_KEYBLOCK_STATUS_TRANSITION);
+      expect(result.code).toBe(SpokeRejectCode.INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION);
       expect(result.details).toEqual({ from: "deprecated", to: "merged" });
     }
   });
 
   it("rejects terminal outbound transition", () => {
-    const result = transitionKeyblockStatus(makeKeyblock("deleted"), "provisional");
+    const result = transitionKnowledgeEntryStatus(makeKnowledgeEntry("deleted"), "provisional");
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.code).toBe(SpokeRejectCode.INVALID_KEYBLOCK_STATUS_TRANSITION);
+      expect(result.code).toBe(SpokeRejectCode.INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION);
       expect(result.details).toEqual({ from: "deleted", to: "provisional" });
     }
   });

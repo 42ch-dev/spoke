@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://spoke42.invalid/schemas/data/keyblock.schema.json",
-  "title": "Keyblock",
+  "$id": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json",
+  "title": "KnowledgeEntry",
   "description": "Atomic narrative knowledge unit: identity, typed body, provenance envelope.",
   "type": "object",
   "required": [
     "schema_version",
-    "keyblock_id",
+    "knowledge_entry_id",
     "block_type",
     "canonical_name",
     "status",
@@ -17,9 +17,9 @@
     "schema_version": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
     },
-    "keyblock_id": {
+    "knowledge_entry_id": {
       "type": "string",
-      "description": "Stable Keyblock id (opaque to protocol)."
+      "description": "Stable KnowledgeEntry id (opaque to protocol)."
     },
     "block_type": {
       "type": "string",
@@ -62,7 +62,7 @@
   "examples": [
     {
       "schema_version": 1,
-      "keyblock_id": "kb_01HXYZ",
+      "knowledge_entry_id": "kb_01HXYZ",
       "block_type": "character",
       "canonical_name": "Mira Vale",
       "status": "confirmed",

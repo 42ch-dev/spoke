@@ -6,7 +6,7 @@
 
 ## Problem & user value
 
-Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange Keyblock data and ops without sharing a runtime, database, or daemon.
+Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange KnowledgeEntry data and ops without sharing a runtime, database, or daemon.
 
 **v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. **Operations library deepen + fixtures** delivered deepen helpers and protocol JSON at `fixtures/toy-world/`; harness ownership moves to `fixtures/toy-world/tests/` (boundary correction, 2026-07-23).
 
@@ -16,13 +16,13 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
-| **1. Data** | Seven required objects: Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **Event** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
+| **1. Data** | Seven required objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **TimelineEvent** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
 | **2. Ops wire** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**Protocol layers + Rule/Event deepen (architect-locked):** `Rule` (L6) and `Event` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
+**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
 
 ## Nine-layer model (L0–L8)
 
@@ -32,7 +32,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 
 | Slice | Hand-authored files | Breakdown |
 |-------|---------------------|-----------|
-| **Protocol layers + Rule/Event (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
+| **Protocol layers + Rule/TimelineEvent (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
 | **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON on `main`; harness relocates to `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
@@ -123,17 +123,25 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Historical v0.1 close criteria (wire bootstrap). Operations library first slice delivered column 3 — see [`spoke-operations.md`](spoke-operations.md) acceptance section.
+Historical bootstrap close criteria (wire + codegen + CI). Later slices extended inventory without changing the bootstrap bar: protocol layers deepen added `Rule` + `TimelineEvent` (seven data objects, **19** schema files); terminology alignment (2026-07-23) locks `KnowledgeEntry` / `TimelineEvent` vocabulary in normative specs and [`CONCEPTS.md`](../../CONCEPTS.md) — wire schema file renames land in the wire-terminology delivery slice.
 
-1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
+**Bootstrap (delivered 2026-07-23):**
+
+1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree for baseline five data objects + five ops
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
    - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
    - `rust` — `cargo check -p spoke-schemas`
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`)
 4. Extensions contract enforced in data schemas
-5. `Rule` deferral documented; no orphan `rule.schema.json`
-6. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
+5. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
+
+**Superseded bootstrap notes (do not treat as current blockers):**
+
+| Former v0.1 note | Current state |
+|------------------|---------------|
+| Five data objects only; `Rule` excluded | Seven data objects — `Rule` + `TimelineEvent` committed in protocol layers deepen |
+| `Rule` deferral; no `rule.schema.json` | `schemas/data/rule.schema.json` committed — see [`spoke-data-model.md`](spoke-data-model.md) |
 
 ## Non-goals (v0.1)
 
@@ -141,8 +149,8 @@ Historical v0.1 close criteria (wire bootstrap). Operations library first slice 
 |--------------|-----------|
 | Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred to next iteration |
 | Conformance fixtures / golden toy-world round-trips | **Delivered in fixtures conformance slice** — `fixtures/toy-world/` (protocol JSON only; CI schema-validated) |
-| `Rule` wire schema | Deferred in v0.1 — superseded by protocol layers + Rule/Event deepen (see data model) |
-| WASM / Computable Keyblock / Fork semantics | Not required protocol surface yet |
+| `Rule` wire schema | Deferred in v0.1 bootstrap — **superseded** by protocol layers + Rule/TimelineEvent deepen (see data model) |
+| WASM / Computable KnowledgeEntry / Fork semantics | Not required protocol surface yet |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
 
@@ -152,19 +160,19 @@ Historical v0.1 close criteria (wire bootstrap). Operations library first slice 
 |-------|-------------|
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
 | **Operations library first slice (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
-| **Protocol layers + Rule/Event (delivered)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
+| **Protocol layers + Rule/TimelineEvent (delivered)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
 | **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
-| **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
+| **North star** | Cross-product narrative **KnowledgeEntry** dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 
 ## See also
 
 | Doc | Topic |
 |-----|-------|
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/Event (protocol layers deepen) |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent (protocol layers deepen) |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, helper families (first slice + deepen), hard In/Out |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (19 files committed) |
-| [`CONCEPTS.md`](../../CONCEPTS.md) | Keyblock vocabulary; Keyblock ≠ World KB ≠ Author Memory |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

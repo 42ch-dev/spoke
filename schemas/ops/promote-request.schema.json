@@ -2,17 +2,17 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/ops/promote-request.schema.json",
   "title": "PromoteRequest",
-  "description": "Extract-to-promote: promote a candidate Keyblock to durable storage.",
+  "description": "Extract-to-promote: promote a candidate KnowledgeEntry to durable storage.",
   "type": "object",
   "required": ["candidate"],
   "properties": {
     "candidate": {
-      "$ref": "https://spoke42.invalid/schemas/data/keyblock.schema.json",
-      "description": "Candidate Keyblock (typically status provisional)."
+      "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json",
+      "description": "Candidate KnowledgeEntry (typically status provisional)."
     },
-    "target_keyblock_id": {
+    "target_knowledge_entry_id": {
       "type": "string",
-      "description": "Optional merge target Keyblock id."
+      "description": "Optional merge target KnowledgeEntry id."
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

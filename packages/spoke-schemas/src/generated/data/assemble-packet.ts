@@ -17,7 +17,7 @@ export interface AssemblePacket {
    */
   packet_id: string;
   /**
-   * Slim context entries (default). Full Keyblock embedding is op-specific.
+   * Slim context entries (default). Full KnowledgeEntry embedding is op-specific.
    */
   entries: AssembleEntry[];
   extensions: ExtensionMap;
@@ -28,11 +28,11 @@ export interface AssemblePacket {
  */
 export interface AssembleEntry {
   /**
-   * Referenced Keyblock id.
+   * Referenced KnowledgeEntry id.
    */
-  keyblock_id: string;
+  knowledge_entry_id: string;
   /**
-   * Open string. Same core vocabulary as Keyblock.block_type.
+   * Open string. Same core vocabulary as KnowledgeEntry.block_type.
    */
   block_type: string;
   /**

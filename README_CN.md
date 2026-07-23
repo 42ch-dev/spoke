@@ -2,9 +2,9 @@
 
 [English](README.md)
 
-**Standardized Programmable Ontology Keyblock Engine** — 叙事 **Keyblock** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。Nexus、Creader 等产品用这些形状交换一致性检查与上下文组装的 I/O。
+**Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。Nexus、Creader 等产品用这些形状交换一致性检查与上下文组装的 I/O。
 
-**包含：** 数据层 schema（Keyblock、Relation、SourceAnchor、Finding、AssemblePacket、Rule、Event）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）；协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）。
+**包含：** 数据层 schema（KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、Rule、TimelineEvent）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）；协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）。
 
 ## 软件包
 
@@ -46,12 +46,12 @@
 
 | 术语 | 在 SPOKE 中的含义 |
 |------|-------------------|
-| **Keyblock** | 线上的原子叙事知识单元（`keyblock_id`、`block_type`、`status`、`body`、`extensions`） |
-| **Relation** | Keyblock 之间（或 Keyblock ↔ 来源）的有向边 |
+| **KnowledgeEntry** | 线上的原子叙事知识单元（`knowledge_entry_id`、`block_type`、`status`、`body`、`extensions`） |
+| **Relation** | KnowledgeEntry 之间（或 KnowledgeEntry ↔ 来源）的有向边 |
 | **SourceAnchor** | 指向手稿片段或外部定位器的溯源指针 |
 | **Finding** | 一致性、风格或分析类检查器输出 |
 | **Rule** | `check` 的声明式约束输入（L6） |
-| **Event** | when 轴上的第一类时间对象（L5） |
+| **TimelineEvent** | when 轴上的第一类时间对象（L5） |
 | **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
 
@@ -60,12 +60,12 @@
 ## 快速开始
 
 ```typescript
-import type { Keyblock, PromoteRequest } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
 import { validatePromoteRequest } from "@42ch/spoke-operations";
 
-const candidate: Keyblock = {
+const candidate: KnowledgeEntry = {
   schema_version: 1,
-  keyblock_id: "kb_01",
+  knowledge_entry_id: "kb_01",
   block_type: "character",
   canonical_name: "Aria",
   status: "provisional",
@@ -92,7 +92,7 @@ if (result.ok) {
 - 扩展映射合并与往返保留
 - Finding `status` 迁移校验与应用
 - 晋升接受检查（持久化前门控）
-- 由 Keyblock 构建 AssemblePacket
+- 由 KnowledgeEntry 构建 AssemblePacket
 - 拒绝路径上统一的 `SpokeResult` / `SpokeRejectCode`
 
 规范细节：[`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md)。

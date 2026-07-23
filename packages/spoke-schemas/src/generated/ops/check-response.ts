@@ -21,7 +21,7 @@ export type CheckResponse =
     };
 
 /**
- * Checker output — not a Keyblock body.
+ * Checker output — not a KnowledgeEntry body.
  */
 export interface Finding {
   /**
@@ -53,9 +53,9 @@ export interface Finding {
    */
   kind?: string;
   /**
-   * Optional Keyblock the finding targets.
+   * Optional KnowledgeEntry the finding targets.
    */
-  target_keyblock_id?: string;
+  target_knowledge_entry_id?: string;
   source_anchor?: SourceAnchor;
   /**
    * Optional suggested remediation text.

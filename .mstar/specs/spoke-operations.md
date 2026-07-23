@@ -27,14 +27,14 @@ Without a shared operations library, every product (Nexus, Creader, future adapt
 
 | **In (library MUST provide)** | **Out (library MUST NOT)** |
 |---------------------------------|----------------------------|
-| Extension map merge + round-trip preserve | Storage read/write; fetch stored Keyblock inside library |
+| Extension map merge + round-trip preserve | Storage read/write; fetch stored KnowledgeEntry inside library |
 | Finding `status` transition validation + apply | HTTP routes, MCP tools, message queues, HTTP status code tables |
 | Promote acceptance checks (pure gate before persist) | LLM calls, checker engines, Guardian logic |
-| AssemblePacket builders from Keyblocks (structure only) | Ranking, scoring, vector retrieval, token budgeting |
+| AssemblePacket builders from KnowledgeEntries (structure only) | Ranking, scoring, vector retrieval, token budgeting |
 | Unified `SpokeResult` / `SpokeRejectCode` on every reject path | Silent auto-promote bypassing human review semantics |
 | Revision bump on promote apply (see §Promote acceptance) | — |
 | OCC revision compare (`assertRevisionMatch`) — operations library deepen | — |
-| Keyblock status transitions + active uniqueness — operations library deepen | Product `world_id` / `book_id` as required core fields |
+| KnowledgeEntry status transitions + active uniqueness — operations library deepen | Product `world_id` / `book_id` as required core fields |
 | Scope match, upsert/relate gates, error-envelope map — operations library deepen | `scope_id` parsing; retrieval engines |
 
 ### Per-family In / Out
@@ -43,11 +43,11 @@ Without a shared operations library, every product (Nexus, Creader, future adapt
 |--------|--------|---------|
 | **Extensions** | Deep merge; overlay wins scalars; preserve unknown namespaces/keys | Dropping empty `{}` namespaces; mutating inputs |
 | **Finding** | Transition table enforcement; no-op same-status; structured reject | Product-specific workflow beyond cross-product minimum |
-| **Promote** | Provisional gate; terminal-status reject; revision bump; merge-target id guard; OCC via caller-supplied revisions | Persist; fetch stored Keyblock |
+| **Promote** | Provisional gate; terminal-status reject; revision bump; merge-target id guard; OCC via caller-supplied revisions | Persist; fetch stored KnowledgeEntry |
 | **Assemble** | Wire-valid `AssemblePacket`; `snippet` from `body.summary` rule; order-preserving `maxEntries` truncate | Sort, rank, dedupe, token count, embedding search |
 | **OCC** | `assertRevisionMatch` on caller-supplied integers | Storage fetch |
-| **Keyblock** | Status transition table; active uniqueness over caller set | Product `world_id` / `book_id` required fields |
-| **Scope** | Keyblock + Event refinement filters | `scope_id` parsing; retrieval |
+| **KnowledgeEntry** | Status transition table; active uniqueness over caller set | Product `world_id` / `book_id` required fields |
+| **Scope** | KnowledgeEntry + TimelineEvent refinement filters | `scope_id` parsing; retrieval |
 | **Upsert / Relate** | Create/update revision rules; self-edge reject | Persist |
 | **Error map** | `SpokeReject` ↔ `ErrorEnvelope` code stability | HTTP/MCP status mapping |
 
@@ -91,17 +91,17 @@ Stable string literals exported from `@42ch/spoke-operations` (e.g. `as const` o
 | `CANDIDATE_NOT_PROVISIONAL` | promote | yes | yes | `candidate.status` ≠ `provisional` (default gate) |
 | `CANDIDATE_TERMINAL_STATUS` | promote | yes | yes | `candidate.status` is `merged` or `deleted` |
 | `EMPTY_CANONICAL_NAME` | promote | yes | yes | `canonical_name` missing or whitespace-only |
-| `MERGE_TARGET_SELF` | promote | yes | yes | `target_keyblock_id` equals `candidate.keyblock_id` |
-| `MISSING_REQUIRED_FIELD` | promote / upsert | yes | yes | Required Keyblock field absent (schema-aligned check) |
+| `MERGE_TARGET_SELF` | promote | yes | yes | `target_knowledge_entry_id` equals `candidate.knowledge_entry_id` |
+| `MISSING_REQUIRED_FIELD` | promote / upsert | yes | yes | Required KnowledgeEntry field absent (schema-aligned check) |
 | `INVALID_PACKET_INPUT` | assemble | yes | yes | e.g. empty `packetId`, negative `maxEntries` |
 | `REVISION_CONFLICT` | occ | reserved | **yes** | `actualRevision < expectedRevision` (caller ahead of store) |
 | `STORED_REVISION_STALE` | occ | reserved | **yes** | `actualRevision > expectedRevision` (caller behind store) |
-| `INVALID_KEYBLOCK_STATUS` | keyblock | — | **yes** | Proposed Keyblock `status` not in core vocabulary |
-| `INVALID_KEYBLOCK_STATUS_TRANSITION` | keyblock | — | **yes** | Disallowed Keyblock `from` → `to` |
-| `DUPLICATE_ACTIVE_KEYBLOCK` | uniqueness | — | **yes** | Second active Keyblock for same `(scope_key, block_type, canonical_name)` |
-| `KEYBLOCK_NOT_FOUND` | upsert | — | **yes** | Update path but no `stored` Keyblock supplied |
-| `KEYBLOCK_ALREADY_EXISTS` | upsert | — | **yes** | Create path but `stored` Keyblock already present |
-| `KEYBLOCK_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
+| `INVALID_KNOWLEDGE_ENTRY_STATUS` | knowledge-entry | — | **yes** | Proposed KnowledgeEntry `status` not in core vocabulary |
+| `INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION` | knowledge-entry | — | **yes** | Disallowed KnowledgeEntry `from` → `to` |
+| `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` | uniqueness | — | **yes** | Second active KnowledgeEntry for same `(scope_key, block_type, canonical_name)` |
+| `KNOWLEDGE_ENTRY_NOT_FOUND` | upsert | — | **yes** | Update path but no `stored` KnowledgeEntry supplied |
+| `KNOWLEDGE_ENTRY_ALREADY_EXISTS` | upsert | — | **yes** | Create path but `stored` KnowledgeEntry already present |
+| `KNOWLEDGE_ENTRY_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
 | `RELATION_SELF_EDGE` | relate | — | **yes** | `from_id === to_id` |
 | `RELATION_MISSING_ENDPOINT` | relate | — | **yes** | `from_id` or `to_id` missing or whitespace-only |
 
@@ -159,25 +159,25 @@ Four families. Export names below are **normative** for the first slice; module 
 | Export | Purpose | Purity |
 |-------------------|---------|--------|
 | `validatePromoteRequest(request)` | Validate `PromoteRequest` shape + lifecycle rules; return `SpokeResult<void>` | Pure |
-| `applyPromoteAcceptance(request)` | On success, return `SpokeResult<Keyblock>` — promoted view (`status: confirmed`, revision bump per below); does **not** persist | Pure |
+| `applyPromoteAcceptance(request)` | On success, return `SpokeResult<KnowledgeEntry>` — promoted view (`status: confirmed`, revision bump per below); does **not** persist | Pure |
 
 **Rules encoded (minimum):**
 
-- `candidate` MUST satisfy Keyblock required fields (delegate to schema-shaped checks, not a parallel DTO).
+- `candidate` MUST satisfy KnowledgeEntry required fields (delegate to schema-shaped checks, not a parallel DTO).
 - `candidate.status` MUST be `provisional` unless product documents an explicit override path (default: reject non-provisional → `CANDIDATE_NOT_PROVISIONAL`).
 - `candidate.canonical_name` MUST be non-empty (`minLength` semantics → `EMPTY_CANONICAL_NAME`).
-- If `target_keyblock_id` present: MUST NOT equal `candidate.keyblock_id` → `MERGE_TARGET_SELF`; merge semantics are structural only (no storage fetch).
-- Reject `candidate` in terminal Keyblock statuses (`merged`, `deleted`) → `CANDIDATE_TERMINAL_STATUS`.
+- If `target_knowledge_entry_id` present: MUST NOT equal `candidate.knowledge_entry_id` → `MERGE_TARGET_SELF`; merge semantics are structural only (no storage fetch).
+- Reject `candidate` in terminal KnowledgeEntry statuses (`merged`, `deleted`) → `CANDIDATE_TERMINAL_STATUS`.
 - **Human-in-loop invariant:** library never silently upgrades provisional → confirmed without caller explicitly invoking promote acceptance (no hidden side effects).
 
 **Revision bump on apply (normative):**
 
-| `candidate.revision` before apply | `revision` on returned Keyblock |
+| `candidate.revision` before apply | `revision` on returned KnowledgeEntry |
 |-----------------------------------|---------------------------------|
 | absent / `undefined` | `1` |
 | integer ≥ 0 | `candidate.revision + 1` |
 
-Returned Keyblock also sets `status: "confirmed"`. Other fields are shallow-copied from `candidate` unless promote rules explicitly transform them. Library does **not** set `updated_at` unless a later slice adds an optional clock parameter — operations library first slice leaves timestamps to the caller/adapter.
+Returned KnowledgeEntry also sets `status: "confirmed"`. Other fields are shallow-copied from `candidate` unless promote rules explicitly transform them. Library does **not** set `updated_at` unless a later slice adds an optional clock parameter — operations library first slice leaves timestamps to the caller/adapter.
 
 **Reject codes:** `CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, `EMPTY_CANONICAL_NAME`, `MERGE_TARGET_SELF`, `MISSING_REQUIRED_FIELD`, `INVALID_INPUT`.
 
@@ -191,31 +191,31 @@ Returned Keyblock also sets `status: "confirmed"`. Other fields are shallow-copi
 
 | Export | Purpose | Purity |
 |-------------------|---------|--------|
-| `keyblockToAssembleEntry(keyblock)` | Map `Keyblock` → slim `AssembleEntry` per rules below | Pure |
-| `buildAssemblePacket({ packetId, keyblocks, extensions?, maxEntries? })` | Build valid `AssemblePacket`; `maxEntries` truncates **input order** only (no sort/rank) | Pure |
+| `knowledgeEntryToAssembleEntry(knowledgeEntry)` | Map `KnowledgeEntry` → slim `AssembleEntry` per rules below | Pure |
+| `buildAssemblePacket({ packetId, knowledgeEntries, extensions?, maxEntries? })` | Build valid `AssemblePacket`; `maxEntries` truncates **input order** only (no sort/rank) | Pure |
 
-**`keyblockToAssembleEntry` mapping (normative):**
+**`knowledgeEntryToAssembleEntry` mapping (normative):**
 
 | Output field | Source |
 |--------------|--------|
-| `keyblock_id` | `keyblock.keyblock_id` |
-| `block_type` | `keyblock.block_type` |
-| `canonical_name` | `keyblock.canonical_name` |
+| `knowledge_entry_id` | `knowledgeEntry.knowledge_entry_id` |
+| `block_type` | `knowledgeEntry.block_type` |
+| `canonical_name` | `knowledgeEntry.canonical_name` |
 | `snippet` | See rule below — **omit key** when rule does not apply |
 
 **`snippet` from `body.summary`:**
 
-1. Read `keyblock.body` as a record; if `body.summary` is **not** a string, omit `snippet`.
+1. Read `knowledgeEntry.body` as a record; if `body.summary` is **not** a string, omit `snippet`.
 2. If it is a string, `trim()` it; if trimmed length is `0`, omit `snippet`.
 3. Otherwise set `snippet` to the trimmed string.
 
 Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet: ""`.
 
-**`buildAssemblePacket`:** maps each input Keyblock via `keyblockToAssembleEntry`; when `maxEntries` is a positive integer, keep the first *n* entries in input order; when omitted, include all. Reject invalid args via `INVALID_PACKET_INPUT`.
+**`buildAssemblePacket`:** maps each input KnowledgeEntry via `knowledgeEntryToAssembleEntry`; when `maxEntries` is a positive integer, keep the first *n* entries in input order; when omitted, include all. Reject invalid args via `INVALID_PACKET_INPUT`.
 
 **Explicitly out:** scoring, embedding search, deduplication by relevance, token counting.
 
-**Tests must cover:** empty keyblock list, snippet present/absent/whitespace-only, non-string `body.summary`, `maxEntries` truncation preserves order, `extensions` passthrough.
+**Tests must cover:** empty knowledge entry list, snippet present/absent/whitespace-only, non-string `body.summary`, `maxEntries` truncation preserves order, `extensions` passthrough.
 
 ---
 
@@ -244,14 +244,14 @@ Five new families (plus error map). Export names are **normative** for the deepe
 
 ---
 
-### 6. Keyblock lifecycle — `keyblock/*`
+### 6. KnowledgeEntry lifecycle — `knowledge-entry/*`
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `isValidKeyblockStatusTransition(from, to)` | Boolean guard for allowed transitions | Pure |
-| `transitionKeyblockStatus(keyblock, to)` | Return `SpokeResult<Keyblock>` with updated `status` on success | Pure, non-mutating input |
+| `isValidKnowledgeEntryStatusTransition(from, to)` | Boolean guard for allowed transitions | Pure |
+| `transitionKnowledgeEntryStatus(knowledgeEntry, to)` | Return `SpokeResult<KnowledgeEntry>` with updated `status` on success | Pure, non-mutating input |
 
-**Core vocabulary** (aligned with `keyblock.schema.json` `description` and [`spoke-data-model.md` §Core Keyblock status](spoke-data-model.md#core-keyblock-status-vocabulary-documented-not-enforced)): `provisional`, `confirmed`, `deprecated`, `merged`, `deleted`.
+**Core vocabulary** (aligned with `knowledge-entry.schema.json` `description` and [`spoke-data-model.md` §Core KnowledgeEntry status](spoke-data-model.md#core-knowledgeentry-status-vocabulary-documented-not-enforced)): `provisional`, `confirmed`, `deprecated`, `merged`, `deleted`.
 
 **Terminal statuses:** `merged`, `deleted` — no outbound transitions (except same→same no-op).
 
@@ -274,28 +274,28 @@ Five new families (plus error map). Export names are **normative** for the deepe
 
 **Rejected:** all other pairs (e.g. `merged` → `confirmed`, `deleted` → `provisional`, `deprecated` → `merged`). **`deprecated` → `merged` excluded** — merge requires an active canonical source; restore to `confirmed` first.
 
-**Reject codes:** `INVALID_KEYBLOCK_STATUS`, `INVALID_KEYBLOCK_STATUS_TRANSITION` with optional `details: { from, to }`.
+**Reject codes:** `INVALID_KNOWLEDGE_ENTRY_STATUS`, `INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION` with optional `details: { from, to }`.
 
 **Tests must cover:** each allowed edge, terminal outbound rejects, no-op same-status, invalid vocabulary.
 
 ---
 
-### 7. Active uniqueness — `keyblock/*`
+### 7. Active uniqueness — `knowledge-entry/*`
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `assertUniqueActiveKeyblock({ scope_key, block_type, canonical_name, candidate, existing })` | Reject duplicate active triple among caller-supplied set | Pure |
+| `assertUniqueActiveKnowledgeEntry({ scope_key, block_type, canonical_name, candidate, existing })` | Reject duplicate active triple among caller-supplied set | Pure |
 
 **Rules:**
 
-- `scope_key` is an **opaque string** supplied by the caller (typically mapped from `Scope.scope_id` or product World/Book ids). It is **not** a Keyblock protocol field.
-- `existing` is `Keyblock[]` the caller already holds for that `scope_key`.
-- Consider only Keyblocks whose `status` is **active** (`provisional` or `confirmed`).
-- Match triple `(scope_key, block_type, canonical_name)` — `block_type` and `canonical_name` from Keyblock wire fields.
-- `candidate` is the Keyblock about to be created or reactivated; reject if another **different** `keyblock_id` in `existing` already occupies the triple.
-- Same `keyblock_id` updating in place is allowed (no duplicate).
+- `scope_key` is an **opaque string** supplied by the caller (typically mapped from `Scope.scope_id` or product World/Book ids). It is **not** a KnowledgeEntry protocol field.
+- `existing` is `KnowledgeEntry[]` the caller already holds for that `scope_key`.
+- Consider only KnowledgeEntries whose `status` is **active** (`provisional` or `confirmed`).
+- Match triple `(scope_key, block_type, canonical_name)` — `block_type` and `canonical_name` from KnowledgeEntry wire fields.
+- `candidate` is the KnowledgeEntry about to be created or reactivated; reject if another **different** `knowledge_entry_id` in `existing` already occupies the triple.
+- Same `knowledge_entry_id` updating in place is allowed (no duplicate).
 
-**Reject code:** `DUPLICATE_ACTIVE_KEYBLOCK` with `details: { scope_key, block_type, canonical_name, conflicting_keyblock_id }`.
+**Reject code:** `DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY` with `details: { scope_key, block_type, canonical_name, conflicting_knowledge_entry_id }`.
 
 **Tests must cover:** unique accept, duplicate reject, inactive statuses ignored, same-id update allowed.
 
@@ -305,31 +305,31 @@ Five new families (plus error map). Export names are **normative** for the deepe
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `keyblockMatchesScope(keyblock, scope)` | Keyblock passes optional `Scope` refinements | Pure |
-| `filterKeyblocksByScope(keyblocks, scope)` | Filter list by `keyblockMatchesScope` | Pure |
-| `eventMatchesScope(event, scope)` | Event passes optional `Scope` refinements | Pure |
-| `filterEventsByScope(events, scope)` | Filter list by `eventMatchesScope` | Pure |
+| `knowledgeEntryMatchesScope(knowledgeEntry, scope)` | KnowledgeEntry passes optional `Scope` refinements | Pure |
+| `filterKnowledgeEntriesByScope(knowledgeEntries, scope)` | Filter list by `knowledgeEntryMatchesScope` | Pure |
+| `timelineEventMatchesScope(timelineEvent, scope)` | TimelineEvent passes optional `Scope` refinements | Pure |
+| `filterTimelineEventsByScope(timelineEvents, scope)` | Filter list by `timelineEventMatchesScope` | Pure |
 
 **`Scope` wire shape:** [`spoke-ops.md` §Scope](spoke-ops.md#scope-shared--check--assemble). `scope_id` is required on wire but **not interpreted** by these helpers — caller pre-scopes collections by product binding.
 
-**Keyblock refinements (AND when present on `scope`):**
+**KnowledgeEntry refinements (AND when present on `scope`):**
 
 | Refinement | Match rule |
 |------------|------------|
-| `keyblock_ids` | `keyblock.keyblock_id` ∈ array |
-| `block_types` | `keyblock.block_type` ∈ array |
-| `source_id` | `keyblock.source_anchor?.source_id === scope.source_id` |
+| `knowledge_entry_ids` | `knowledgeEntry.knowledge_entry_id` ∈ array |
+| `block_types` | `knowledgeEntry.block_type` ∈ array |
+| `source_id` | `knowledgeEntry.source_anchor?.source_id === scope.source_id` |
 
-Ignored on Keyblock: `event_ids`, `timeline_scale`.
+Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 
-**Event refinements (AND when present on `scope`):**
+**TimelineEvent refinements (AND when present on `scope`):**
 
 | Refinement | Match rule |
 |------------|------------|
-| `event_ids` | `event.event_id` ∈ array |
-| `timeline_scale` | `event.timeline_scale === scope.timeline_scale` |
+| `timeline_event_ids` | `timelineEvent.timeline_event_id` ∈ array |
+| `timeline_scale` | `timelineEvent.timeline_scale === scope.timeline_scale` |
 
-Ignored on Event: `keyblock_ids`, `block_types`, `source_id`.
+Ignored on TimelineEvent: `knowledge_entry_ids`, `block_types`, `source_id`.
 
 **Tests must cover:** each refinement on its carrier type, empty refinement pass-through, combined AND.
 
@@ -339,15 +339,15 @@ Ignored on Event: `keyblock_ids`, `block_types`, `source_id`.
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `validateUpsertKeyblock(candidate, context)` | Create vs update rules before persist | Pure |
+| `validateUpsertKnowledgeEntry(candidate, context)` | Create vs update rules before persist | Pure |
 
-`context: { stored?: Keyblock }` — caller supplies stored view when updating.
+`context: { stored?: KnowledgeEntry }` — caller supplies stored view when updating.
 
 **Create** (`stored` absent):
 
 | Rule | Reject |
 |------|--------|
-| All `keyblock.schema.json` required fields present | `MISSING_REQUIRED_FIELD` |
+| All `knowledge-entry.schema.json` required fields present | `MISSING_REQUIRED_FIELD` |
 | `revision` absent, `undefined`, or `0` | accept |
 | `revision` ≥ 1 on create | `INVALID_INPUT` |
 | Caller passes `stored` by mistake on create path | N/A — use update path |
@@ -356,19 +356,19 @@ Ignored on Event: `keyblock_ids`, `block_types`, `source_id`.
 
 | Rule | Reject |
 |------|--------|
-| `candidate.keyblock_id === stored.keyblock_id` | `INVALID_INPUT` on mismatch |
+| `candidate.knowledge_entry_id === stored.knowledge_entry_id` | `INVALID_INPUT` on mismatch |
 | `candidate.revision` present, integer ≥ 0 | `MISSING_REQUIRED_FIELD` if absent |
 | `assertRevisionMatch(candidate.revision, stored.revision ?? 0)` | OCC codes |
-| `stored.status` is `merged` or `deleted` | `KEYBLOCK_TERMINAL_STATUS` |
+| `stored.status` is `merged` or `deleted` | `KNOWLEDGE_ENTRY_TERMINAL_STATUS` |
 
 **Implicit path errors (caller wiring):**
 
 | Situation | Code |
 |-----------|------|
-| Update path with no `stored` | `KEYBLOCK_NOT_FOUND` |
-| Create path when `stored` provided | `KEYBLOCK_ALREADY_EXISTS` |
+| Update path with no `stored` | `KNOWLEDGE_ENTRY_NOT_FOUND` |
+| Create path when `stored` provided | `KNOWLEDGE_ENTRY_ALREADY_EXISTS` |
 
-Integrator SHOULD run Keyblock status transition validation separately when `candidate.status !== stored.status`.
+Integrator SHOULD run KnowledgeEntry status transition validation separately when `candidate.status !== stored.status`.
 
 **Tests must cover:** valid create, valid update with OCC, create with revision ≥ 1 reject, update without revision, terminal stored reject.
 
@@ -436,7 +436,7 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 
 ### Deepen slice (delivered 2026-07-23)
 
-- [x] OCC, Keyblock status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
+- [x] OCC, KnowledgeEntry status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
 - [x] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
 - [x] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
 - [x] First-slice export behavior unchanged except additive OCC emit on new call sites

@@ -3,7 +3,7 @@
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
 **Updated:** 2026-07-23  
-**North star:** Cross-product Keyblock dialect for check + assemble I/O — **without** a shared runtime.
+**North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
 
 ---
 
@@ -21,7 +21,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 |----------|------|---------|-------|
 | 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Optional capability — not baseline |
 | 2 | Optional **`project` / compute** op family | Transport-agnostic I/O for programmable body state (Nexus-class) | Optional; Creader-class products omit |
-| 3 | Optional **`l2-computable`** body fields | Documented optional `body.state` / computable shape on Keyblock | Capability flag already named in layers spec |
+| 3 | Optional **`l2-computable`** body fields | Documented optional `body.state` / computable shape on KnowledgeEntry | Capability flag already named in layers spec |
 | 4 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 | 5 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (19) in sync when adding schemas | See open residuals in local harness status when present |
 
@@ -35,9 +35,10 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire rename Keyblock→KnowledgeEntry, Event→TimelineEvent; ops API + error codes; fixtures dual-concern pair; product expand Standardized Programmable Ontology Knowledge Engine |
 | 2026-07-23 | Fixture harness ownership + CI harden | AJV/Vitest under `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`); removed from `@42ch/spoke-operations`; `AGENTS.md` boundary; CI `test:fixtures`; `verify-codegen` schema-count assert (19) |
-| 2026-07-23 | Operations library deepen + fixtures | OCC compare, Keyblock status, uniqueness, Scope/upsert/relate gates, error-envelope map; `fixtures/toy-world/` protocol JSON graph |
-| 2026-07-23 | Protocol layers + Rule/Event | Normative L0–L8 + capability levels; `Rule` + `Event` schemas; Scope / error-envelope / Rule-aware `check` |
+| 2026-07-23 | Operations library deepen + fixtures | OCC compare, KnowledgeEntry status, uniqueness, Scope/upsert/relate gates, error-envelope map; `fixtures/toy-world/` protocol JSON graph |
+| 2026-07-23 | Protocol layers + Rule/TimelineEvent | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` schemas; Scope / error-envelope / Rule-aware `check` |
 | 2026-07-23 | Operations library first slice | `@42ch/spoke-operations`: promote, Finding transitions, extensions preserve, AssemblePacket builders; consumer README EN/CN |
 | 2026-07-23 | v0.1 bootstrap | `schemas/` SSOT, codegen `@42ch/spoke-schemas` + Rust `spoke-schemas`, CI verify gate |
 
@@ -45,7 +46,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | Area | Status |
 |------|--------|
-| Data wire | Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, Rule, Event + `extensions` |
+| Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions` |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope) |
 | Ops library | Pure TS helpers over wire types (no I/O, no fixture harness) |
 | Fixtures | `fixtures/toy-world/` samples + conformance package |
@@ -62,7 +63,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 - Protocol-fixture AJV/fs harness inside `@42ch/spoke-operations` (belongs under `fixtures/`)
 - Default full manuscript text on the wire
 - Closed forever enums that freeze product ontology growth
-- Creator Memory / unpromoted chat as Keyblock graph canon
+- Creator Memory / unpromoted chat as KnowledgeEntry graph canon
 
 ---
 

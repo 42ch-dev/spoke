@@ -5,17 +5,17 @@
  */
 
 /**
- * First-class when-axis temporal object (L5). Distinct from Keyblock block_type event labels.
+ * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry block_type event labels.
  */
-export interface Event {
+export interface TimelineEvent {
   /**
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
   /**
-   * Stable event id (opaque to protocol).
+   * Stable TimelineEvent id (opaque to protocol).
    */
-  event_id: string;
+  timeline_event_id: string;
   /**
    * Human-stable label.
    */
@@ -33,9 +33,9 @@ export interface Event {
    */
   description?: string;
   /**
-   * Related Keyblock ids (characters, locations, etc.).
+   * Related KnowledgeEntry ids (characters, locations, etc.).
    */
-  participant_keyblock_ids?: string[];
+  participant_knowledge_entry_ids?: string[];
   source_anchor?: SourceAnchor;
   /**
    * Opaque ordering hint within a timeline (products define grammar).

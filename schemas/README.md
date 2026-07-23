@@ -13,13 +13,13 @@ schemas/
 │   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, shared ids
 │   └── error-envelope.schema.json      # shared ops error shape
 ├── data/
-│   ├── keyblock.schema.json
+│   ├── knowledge-entry.schema.json
 │   ├── relation.schema.json
 │   ├── source-anchor.schema.json
 │   ├── finding.schema.json
 │   ├── assemble-packet.schema.json
 │   ├── rule.schema.json                # L6 declarative constraint input
-│   └── event.schema.json               # L5 when-axis temporal object
+│   └── timeline-event.schema.json      # L5 when-axis temporal object
 └── ops/
     ├── upsert-request.schema.json
     ├── upsert-response.schema.json
@@ -48,7 +48,7 @@ schemas/
 ## `$id` / `$ref`
 
 - Base URI: `https://spoke42.invalid/schemas/`
-- Example: `"$id": "https://spoke42.invalid/schemas/data/keyblock.schema.json"`
+- Example: `"$id": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json"`
 - Cross-file refs use absolute spoke42.invalid URIs (codegen resolves consistently)
 
 ## Authoring rules
@@ -56,9 +56,9 @@ schemas/
 1. **Draft-07** — `"$schema": "http://json-schema.org/draft-07/schema#"`
 2. **Closed protocol objects** — `additionalProperties: false` on data envelopes and ops top-level objects
 3. **Extensions required** — every data object includes `extensions` in `required`; use `ExtensionMap` from common
-4. **Open vocabulary** — `block_type`, Keyblock `status`, etc. are `type: string` without `enum`; document core vocabulary in `description`
+4. **Open vocabulary** — `block_type`, KnowledgeEntry `status`, etc. are `type: string` without `enum`; document core vocabulary in `description`
 5. **No transport fields** — no HTTP paths, methods, or auth headers in schemas
-6. **`$ref` over duplication** — ops reference `schemas/data/*`; do not inline Keyblock copies
+6. **`$ref` over duplication** — ops reference `schemas/data/*`; do not inline KnowledgeEntry copies
 
 ## Codegen mapping
 
@@ -83,13 +83,13 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 |---|------|--------|
 | 1 | `common/common.schema.json` | done |
 | 2 | `common/error-envelope.schema.json` | done |
-| 3 | `data/keyblock.schema.json` | done |
+| 3 | `data/knowledge-entry.schema.json` | done |
 | 4 | `data/relation.schema.json` | done |
 | 5 | `data/source-anchor.schema.json` | done |
 | 6 | `data/finding.schema.json` | done |
 | 7 | `data/assemble-packet.schema.json` | done |
 | 8 | `data/rule.schema.json` | done |
-| 9 | `data/event.schema.json` | done |
+| 9 | `data/timeline-event.schema.json` | done |
 | 10 | `ops/upsert-request.schema.json` | done |
 | 11 | `ops/upsert-response.schema.json` | done |
 | 12 | `ops/promote-request.schema.json` | done |

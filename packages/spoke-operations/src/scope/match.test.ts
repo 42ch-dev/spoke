@@ -1,16 +1,16 @@
-import type { Event, Keyblock, Scope } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, Scope, TimelineEvent } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 
 import {
-  eventMatchesScope,
-  filterEventsByScope,
-  filterKeyblocksByScope,
-  keyblockMatchesScope,
+  filterKnowledgeEntriesByScope,
+  filterTimelineEventsByScope,
+  knowledgeEntryMatchesScope,
+  timelineEventMatchesScope,
 } from "./match.js";
 
-function makeKeyblock(
-  overrides: Partial<Keyblock> & Pick<Keyblock, "keyblock_id">,
-): Keyblock {
+function makeKnowledgeEntry(
+  overrides: Partial<KnowledgeEntry> & Pick<KnowledgeEntry, "knowledge_entry_id">,
+): KnowledgeEntry {
   return {
     schema_version: 1,
     block_type: "character",
@@ -22,7 +22,9 @@ function makeKeyblock(
   };
 }
 
-function makeEvent(overrides: Partial<Event> & Pick<Event, "event_id">): Event {
+function makeTimelineEvent(
+  overrides: Partial<TimelineEvent> & Pick<TimelineEvent, "timeline_event_id">,
+): TimelineEvent {
   return {
     schema_version: 1,
     canonical_name: "Battle of Harbor",
@@ -33,9 +35,9 @@ function makeEvent(overrides: Partial<Event> & Pick<Event, "event_id">): Event {
 
 const baseScope: Scope = { scope_id: "world_1" };
 
-describe("keyblockMatchesScope", () => {
-  const keyblock = makeKeyblock({
-    keyblock_id: "kb_1",
+describe("knowledgeEntryMatchesScope", () => {
+  const knowledgeEntry = makeKnowledgeEntry({
+    knowledge_entry_id: "kb_1",
     block_type: "character",
     source_anchor: {
       schema_version: 1,
@@ -45,39 +47,56 @@ describe("keyblockMatchesScope", () => {
   });
 
   it("passes when only scope_id is set", () => {
-    expect(keyblockMatchesScope(keyblock, baseScope)).toBe(true);
+    expect(knowledgeEntryMatchesScope(knowledgeEntry, baseScope)).toBe(true);
   });
 
-  it("matches keyblock_ids refinement", () => {
+  it("matches knowledge_entry_ids refinement", () => {
     expect(
-      keyblockMatchesScope(keyblock, { ...baseScope, keyblock_ids: ["kb_1", "kb_2"] }),
+      knowledgeEntryMatchesScope(knowledgeEntry, {
+        ...baseScope,
+        knowledge_entry_ids: ["kb_1", "kb_2"],
+      }),
     ).toBe(true);
-    expect(keyblockMatchesScope(keyblock, { ...baseScope, keyblock_ids: ["kb_2"] })).toBe(
-      false,
-    );
+    expect(
+      knowledgeEntryMatchesScope(knowledgeEntry, {
+        ...baseScope,
+        knowledge_entry_ids: ["kb_2"],
+      }),
+    ).toBe(false);
   });
 
   it("matches block_types refinement", () => {
-    expect(keyblockMatchesScope(keyblock, { ...baseScope, block_types: ["character"] })).toBe(
-      true,
-    );
-    expect(keyblockMatchesScope(keyblock, { ...baseScope, block_types: ["location"] })).toBe(
-      false,
-    );
+    expect(
+      knowledgeEntryMatchesScope(knowledgeEntry, {
+        ...baseScope,
+        block_types: ["character"],
+      }),
+    ).toBe(true);
+    expect(
+      knowledgeEntryMatchesScope(knowledgeEntry, {
+        ...baseScope,
+        block_types: ["location"],
+      }),
+    ).toBe(false);
   });
 
   it("matches source_id refinement", () => {
-    expect(keyblockMatchesScope(keyblock, { ...baseScope, source_id: "manuscript_1" })).toBe(
-      true,
-    );
-    expect(keyblockMatchesScope(keyblock, { ...baseScope, source_id: "other" })).toBe(false);
+    expect(
+      knowledgeEntryMatchesScope(knowledgeEntry, {
+        ...baseScope,
+        source_id: "manuscript_1",
+      }),
+    ).toBe(true);
+    expect(
+      knowledgeEntryMatchesScope(knowledgeEntry, { ...baseScope, source_id: "other" }),
+    ).toBe(false);
   });
 
-  it("ignores event refinements on Keyblock", () => {
+  it("ignores timeline event refinements on KnowledgeEntry", () => {
     expect(
-      keyblockMatchesScope(keyblock, {
+      knowledgeEntryMatchesScope(knowledgeEntry, {
         ...baseScope,
-        event_ids: ["evt_missing"],
+        timeline_event_ids: ["evt_missing"],
         timeline_scale: "brief",
       }),
     ).toBe(true);
@@ -85,59 +104,74 @@ describe("keyblockMatchesScope", () => {
 
   it("requires all present refinements (AND)", () => {
     expect(
-      keyblockMatchesScope(keyblock, {
+      knowledgeEntryMatchesScope(knowledgeEntry, {
         ...baseScope,
-        keyblock_ids: ["kb_1"],
+        knowledge_entry_ids: ["kb_1"],
         block_types: ["location"],
       }),
     ).toBe(false);
   });
 });
 
-describe("filterKeyblocksByScope", () => {
+describe("filterKnowledgeEntriesByScope", () => {
   it("filters by combined refinements", () => {
-    const keyblocks = [
-      makeKeyblock({ keyblock_id: "kb_1", block_type: "character" }),
-      makeKeyblock({ keyblock_id: "kb_2", block_type: "location" }),
+    const knowledgeEntries = [
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_1", block_type: "character" }),
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_2", block_type: "location" }),
     ];
 
-    const filtered = filterKeyblocksByScope(keyblocks, {
+    const filtered = filterKnowledgeEntriesByScope(knowledgeEntries, {
       ...baseScope,
       block_types: ["character"],
     });
 
     expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.keyblock_id).toBe("kb_1");
+    expect(filtered[0]?.knowledge_entry_id).toBe("kb_1");
   });
 });
 
-describe("eventMatchesScope", () => {
-  const event = makeEvent({
-    event_id: "evt_1",
+describe("timelineEventMatchesScope", () => {
+  const timelineEvent = makeTimelineEvent({
+    timeline_event_id: "evt_1",
     timeline_scale: "narrative",
   });
 
   it("passes when only scope_id is set", () => {
-    expect(eventMatchesScope(event, baseScope)).toBe(true);
+    expect(timelineEventMatchesScope(timelineEvent, baseScope)).toBe(true);
   });
 
-  it("matches event_ids refinement", () => {
-    expect(eventMatchesScope(event, { ...baseScope, event_ids: ["evt_1"] })).toBe(true);
-    expect(eventMatchesScope(event, { ...baseScope, event_ids: ["evt_2"] })).toBe(false);
+  it("matches timeline_event_ids refinement", () => {
+    expect(
+      timelineEventMatchesScope(timelineEvent, {
+        ...baseScope,
+        timeline_event_ids: ["evt_1"],
+      }),
+    ).toBe(true);
+    expect(
+      timelineEventMatchesScope(timelineEvent, {
+        ...baseScope,
+        timeline_event_ids: ["evt_2"],
+      }),
+    ).toBe(false);
   });
 
   it("matches timeline_scale refinement", () => {
-    expect(eventMatchesScope(event, { ...baseScope, timeline_scale: "narrative" })).toBe(
-      true,
-    );
-    expect(eventMatchesScope(event, { ...baseScope, timeline_scale: "brief" })).toBe(false);
+    expect(
+      timelineEventMatchesScope(timelineEvent, {
+        ...baseScope,
+        timeline_scale: "narrative",
+      }),
+    ).toBe(true);
+    expect(
+      timelineEventMatchesScope(timelineEvent, { ...baseScope, timeline_scale: "brief" }),
+    ).toBe(false);
   });
 
-  it("ignores keyblock refinements on Event", () => {
+  it("ignores knowledge entry refinements on TimelineEvent", () => {
     expect(
-      eventMatchesScope(event, {
+      timelineEventMatchesScope(timelineEvent, {
         ...baseScope,
-        keyblock_ids: ["kb_missing"],
+        knowledge_entry_ids: ["kb_missing"],
         block_types: ["character"],
         source_id: "manuscript_1",
       }),
@@ -145,19 +179,19 @@ describe("eventMatchesScope", () => {
   });
 });
 
-describe("filterEventsByScope", () => {
+describe("filterTimelineEventsByScope", () => {
   it("filters by timeline_scale", () => {
-    const events = [
-      makeEvent({ event_id: "evt_1", timeline_scale: "brief" }),
-      makeEvent({ event_id: "evt_2", timeline_scale: "narrative" }),
+    const timelineEvents = [
+      makeTimelineEvent({ timeline_event_id: "evt_1", timeline_scale: "brief" }),
+      makeTimelineEvent({ timeline_event_id: "evt_2", timeline_scale: "narrative" }),
     ];
 
-    const filtered = filterEventsByScope(events, {
+    const filtered = filterTimelineEventsByScope(timelineEvents, {
       ...baseScope,
       timeline_scale: "narrative",
     });
 
     expect(filtered).toHaveLength(1);
-    expect(filtered[0]?.event_id).toBe("evt_2");
+    expect(filtered[0]?.timeline_event_id).toBe("evt_2");
   });
 });

@@ -2,17 +2,17 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/ops/upsert-request.schema.json",
   "title": "UpsertRequest",
-  "description": "Create or update one or more Keyblocks by stable id.",
+  "description": "Create or update one or more KnowledgeEntries by stable id.",
   "type": "object",
-  "required": ["keyblocks"],
+  "required": ["knowledge_entries"],
   "properties": {
-    "keyblocks": {
+    "knowledge_entries": {
       "type": "array",
       "minItems": 1,
       "items": {
-        "$ref": "https://spoke42.invalid/schemas/data/keyblock.schema.json"
+        "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json"
       },
-      "description": "Keyblocks to create or update."
+      "description": "KnowledgeEntries to create or update."
     },
     "idempotency_key": {
       "type": "string",

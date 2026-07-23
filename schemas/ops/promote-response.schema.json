@@ -2,19 +2,19 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/ops/promote-response.schema.json",
   "title": "PromoteResponse",
-  "description": "Promoted Keyblock or wire error. Use keyblock OR error — not both.",
+  "description": "Promoted KnowledgeEntry or wire error. Use knowledge_entry OR error — not both.",
   "oneOf": [
     {
       "type": "object",
-      "required": ["keyblock"],
+      "required": ["knowledge_entry"],
       "properties": {
-        "keyblock": {
-          "$ref": "https://spoke42.invalid/schemas/data/keyblock.schema.json",
-          "description": "Success: promoted Keyblock."
+        "knowledge_entry": {
+          "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json",
+          "description": "Success: promoted KnowledgeEntry."
         },
         "superseded_id": {
           "type": "string",
-          "description": "Optional id of Keyblock superseded during merge."
+          "description": "Optional id of KnowledgeEntry superseded during merge."
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

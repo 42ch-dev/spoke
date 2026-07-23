@@ -35,6 +35,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire rename Keyblock→KnowledgeEntry, Event→TimelineEvent; ops API + error codes; fixtures dual-concern pair; product expand Standardized Programmable Ontology Knowledge Engine |
 | 2026-07-23 | Fixture harness ownership + CI harden | AJV/Vitest under `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`); removed from `@42ch/spoke-operations`; `AGENTS.md` boundary; CI `test:fixtures`; `verify-codegen` schema-count assert (19) |
 | 2026-07-23 | Operations library deepen + fixtures | OCC compare, KnowledgeEntry status, uniqueness, Scope/upsert/relate gates, error-envelope map; `fixtures/toy-world/` protocol JSON graph |
 | 2026-07-23 | Protocol layers + Rule/TimelineEvent | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` schemas; Scope / error-envelope / Rule-aware `check` |

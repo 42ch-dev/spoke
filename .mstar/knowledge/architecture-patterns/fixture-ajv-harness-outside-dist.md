@@ -2,7 +2,8 @@
 
 > **Category:** architecture-patterns  
 > **Source:** compound 2026-07-23 (fixtures-conformance)  
-> **Context:** `fixtures/toy-world` + `@42ch/spoke-operations` Vitest
+> **Context:** `fixtures/toy-world` + `@42ch/spoke-operations` Vitest  
+> **Rewrite pending (2026-07-23):** Protocol status sync plan will update this pattern for `fixtures/toy-world/tests/` + workspace package `@42ch/spoke-fixture-toy-world`. Content below reflects the **pre-boundary-correction** layout.
 
 ## Problem
 
@@ -24,5 +25,6 @@ Protocol conformance fixtures need AJV validation in CI. Putting the validator u
 
 ## See also
 
-- `packages/spoke-operations/src/fixtures/`
+- Target harness (post-move): `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`)
+- Legacy harness (pre-move): `packages/spoke-operations/src/fixtures/`
 - `fixtures/toy-world/README.md`

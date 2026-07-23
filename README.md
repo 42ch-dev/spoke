@@ -7,3 +7,5 @@
 Adapter implementations and conformance fixtures are **out of scope** — `adapters/nexus/` and `adapters/creader/` are empty placeholders.
 
 Normative specs: [`.mstar/specs/`](.mstar/specs/) (start at [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)). Vocabulary: [`CONCEPTS.md`](CONCEPTS.md). Strategy: [`STRATEGY.md`](STRATEGY.md). Schema SSOT: [`schemas/`](schemas/).
+
+**CI:** Pull requests must pass GitHub Actions jobs `verify-codegen`, `typescript`, and `rust` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).

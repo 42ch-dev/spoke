@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "evt_tw_harbor_dawn",
+  "canonical_name": "Dawn at Harbor",
+  "timeline_scale": "moment",
+  "occurred_at": "2026-07-23T05:45:00Z",
+  "description": "Fog lifts as Mira's skiff ties up at the quay.",
+  "participant_keyblock_ids": ["kb_tw_mira", "kb_tw_harbor"],
+  "source_anchor": {
+    "schema_version": 1,
+    "source_id": "manuscript:tw-ch1",
+    "span": { "start": 48, "end": 120 },
+    "extensions": {}
+  },
+  "sort_key": "ch1-001",
+  "created_at": "2026-07-23T06:00:00Z",
+  "updated_at": "2026-07-23T06:00:00Z",
+  "extensions": {
+    "nexus": {
+      "world_id": "wld_toy_nexus_001"
+    }
+  }
+}

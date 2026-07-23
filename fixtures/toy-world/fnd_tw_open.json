@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "finding_id": "fnd_tw_open",
+  "severity": "warning",
+  "status": "open",
+  "title": "Unverified harbor berth",
+  "description": "Mira's mooring point is not yet confirmed against the harbor map.",
+  "kind": "consistency",
+  "target_keyblock_id": "kb_tw_mira",
+  "source_anchor": {
+    "schema_version": 1,
+    "source_id": "manuscript:tw-ch1",
+    "span": { "start": 90, "end": 140 },
+    "extensions": {}
+  },
+  "suggested_fix": "Add a located_in relation from kb_tw_mira to the specific quay berth Keyblock.",
+  "created_at": "2026-07-23T06:20:00Z",
+  "updated_at": "2026-07-23T06:20:00Z",
+  "extensions": {}
+}

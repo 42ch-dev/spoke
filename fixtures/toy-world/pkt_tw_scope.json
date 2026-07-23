@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "packet_id": "pkt_tw_scope",
+  "entries": [
+    {
+      "keyblock_id": "kb_tw_mira",
+      "block_type": "character",
+      "canonical_name": "Mira Vale",
+      "snippet": "Reluctant cartographer who charts coastal towns."
+    },
+    {
+      "keyblock_id": "kb_tw_harbor",
+      "block_type": "location",
+      "canonical_name": "Harbor Town",
+      "snippet": "A sheltered port where dawn fog lifts over the quay."
+    }
+  ],
+  "extensions": {
+    "nexus": {
+      "scope_id": "toy-scope-001"
+    }
+  }
+}

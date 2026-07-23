@@ -1,21 +1,21 @@
-import type { Keyblock, PromoteRequest } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 
-const TERMINAL_KEYBLOCK_STATUSES = new Set(["merged", "deleted"]);
+const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 
-const REQUIRED_KEYBLOCK_FIELDS = [
+const REQUIRED_KNOWLEDGE_ENTRY_FIELDS = [
   "schema_version",
-  "keyblock_id",
+  "knowledge_entry_id",
   "block_type",
   "canonical_name",
   "status",
   "body",
   "extensions",
-] as const satisfies ReadonlyArray<keyof Keyblock>;
+] as const satisfies ReadonlyArray<keyof KnowledgeEntry>;
 
-function validateRevision(candidate: Keyblock): SpokeResult<void> {
+function validateRevision(candidate: KnowledgeEntry): SpokeResult<void> {
   if (candidate.revision === undefined) {
     return spokeOk();
   }
@@ -27,7 +27,7 @@ function validateRevision(candidate: Keyblock): SpokeResult<void> {
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock revision must be a non-negative integer or omitted",
+      "KnowledgeEntry revision must be a non-negative integer or omitted",
       { revision: candidate.revision },
     );
   }
@@ -35,14 +35,14 @@ function validateRevision(candidate: Keyblock): SpokeResult<void> {
   return spokeOk();
 }
 
-function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
-  for (const field of REQUIRED_KEYBLOCK_FIELDS) {
+function validateKnowledgeEntryShape(candidate: KnowledgeEntry): SpokeResult<void> {
+  for (const field of REQUIRED_KNOWLEDGE_ENTRY_FIELDS) {
     const value = candidate[field];
 
     if (value === undefined || value === null) {
       return spokeReject(
         SpokeRejectCode.MISSING_REQUIRED_FIELD,
-        `Missing required Keyblock field: ${field}`,
+        `Missing required KnowledgeEntry field: ${field}`,
         { field },
       );
     }
@@ -55,23 +55,26 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock schema_version must be an integer >= 1",
+      "KnowledgeEntry schema_version must be an integer >= 1",
       { schema_version: candidate.schema_version },
     );
   }
 
-  if (typeof candidate.keyblock_id !== "string" || candidate.keyblock_id.length === 0) {
+  if (
+    typeof candidate.knowledge_entry_id !== "string" ||
+    candidate.knowledge_entry_id.length === 0
+  ) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "Keyblock keyblock_id must be a non-empty string",
-      { field: "keyblock_id" },
+      "KnowledgeEntry knowledge_entry_id must be a non-empty string",
+      { field: "knowledge_entry_id" },
     );
   }
 
   if (typeof candidate.block_type !== "string" || candidate.block_type.length === 0) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "Keyblock block_type must be a non-empty string",
+      "KnowledgeEntry block_type must be a non-empty string",
       { field: "block_type" },
     );
   }
@@ -79,7 +82,7 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   if (typeof candidate.body !== "object" || candidate.body === null || Array.isArray(candidate.body)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock body must be an object",
+      "KnowledgeEntry body must be an object",
       { field: "body" },
     );
   }
@@ -91,7 +94,7 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock extensions must be an object",
+      "KnowledgeEntry extensions must be an object",
       { field: "extensions" },
     );
   }
@@ -99,7 +102,7 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   if (typeof candidate.canonical_name !== "string") {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock canonical_name must be a string",
+      "KnowledgeEntry canonical_name must be a string",
       { field: "canonical_name" },
     );
   }
@@ -107,7 +110,7 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   if (candidate.canonical_name.trim().length === 0) {
     return spokeReject(
       SpokeRejectCode.EMPTY_CANONICAL_NAME,
-      "Keyblock canonical_name must be non-empty",
+      "KnowledgeEntry canonical_name must be non-empty",
     );
   }
 
@@ -116,10 +119,10 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
     return revisionResult;
   }
 
-  if (TERMINAL_KEYBLOCK_STATUSES.has(candidate.status)) {
+  if (TERMINAL_KNOWLEDGE_ENTRY_STATUSES.has(candidate.status)) {
     return spokeReject(
       SpokeRejectCode.CANDIDATE_TERMINAL_STATUS,
-      `Candidate Keyblock has terminal status: ${candidate.status}`,
+      `Candidate KnowledgeEntry has terminal status: ${candidate.status}`,
       { status: candidate.status },
     );
   }
@@ -127,7 +130,7 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
   if (candidate.status !== "provisional") {
     return spokeReject(
       SpokeRejectCode.CANDIDATE_NOT_PROVISIONAL,
-      `Candidate Keyblock status must be provisional (got ${candidate.status})`,
+      `Candidate KnowledgeEntry status must be provisional (got ${candidate.status})`,
       { status: candidate.status },
     );
   }
@@ -136,10 +139,10 @@ function validateKeyblockShape(candidate: Keyblock): SpokeResult<void> {
 }
 
 function requestTargetEqualsCandidate(
-  candidate: Keyblock,
+  candidate: KnowledgeEntry,
   targetId: string | undefined,
 ): boolean {
-  return targetId !== undefined && targetId === candidate.keyblock_id;
+  return targetId !== undefined && targetId === candidate.knowledge_entry_id;
 }
 
 function validatePromoteLifecycle(
@@ -152,20 +155,20 @@ function validatePromoteLifecycle(
     );
   }
 
-  const shapeResult = validateKeyblockShape(request.candidate);
+  const shapeResult = validateKnowledgeEntryShape(request.candidate);
   if (!shapeResult.ok) {
     return shapeResult;
   }
 
-  const { candidate, target_keyblock_id: targetKeyblockId } = request;
+  const { candidate, target_knowledge_entry_id: targetKnowledgeEntryId } = request;
 
-  if (requestTargetEqualsCandidate(candidate, targetKeyblockId)) {
+  if (requestTargetEqualsCandidate(candidate, targetKnowledgeEntryId)) {
     return spokeReject(
       SpokeRejectCode.MERGE_TARGET_SELF,
-      "target_keyblock_id must not equal candidate.keyblock_id",
+      "target_knowledge_entry_id must not equal candidate.knowledge_entry_id",
       {
-        keyblock_id: candidate.keyblock_id,
-        target_keyblock_id: targetKeyblockId,
+        knowledge_entry_id: candidate.knowledge_entry_id,
+        target_knowledge_entry_id: targetKnowledgeEntryId,
       },
     );
   }
@@ -173,7 +176,7 @@ function validatePromoteLifecycle(
   return spokeOk();
 }
 
-function nextRevision(candidate: Keyblock): number {
+function nextRevision(candidate: KnowledgeEntry): number {
   if (candidate.revision === undefined) {
     return 1;
   }
@@ -191,11 +194,11 @@ export function validatePromoteRequest(
 }
 
 /**
- * Return promoted Keyblock view (status confirmed, revision bumped); does not persist.
+ * Return promoted KnowledgeEntry view (status confirmed, revision bumped); does not persist.
  */
 export function applyPromoteAcceptance(
   request: PromoteRequest,
-): SpokeResult<Keyblock> {
+): SpokeResult<KnowledgeEntry> {
   const validation = validatePromoteLifecycle(request);
   if (!validation.ok) {
     return validation;

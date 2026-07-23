@@ -1,7 +1,7 @@
 import type {
   AssemblePacket,
   ExtensionMap,
-  Keyblock,
+  KnowledgeEntry,
 } from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
@@ -11,8 +11,8 @@ type AssembleEntry = AssemblePacket["entries"][number];
 
 const DEFAULT_SCHEMA_VERSION = 1;
 
-function extractSnippet(keyblock: Keyblock): string | undefined {
-  const { body } = keyblock;
+function extractSnippet(knowledgeEntry: KnowledgeEntry): string | undefined {
+  const { body } = knowledgeEntry;
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return undefined;
@@ -28,28 +28,40 @@ function extractSnippet(keyblock: Keyblock): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function validateAssembleKeyblock(keyblock: Keyblock): SpokeResult<void> {
-  if (typeof keyblock.body !== "object" || keyblock.body === null || Array.isArray(keyblock.body)) {
+function validateAssembleKnowledgeEntry(
+  knowledgeEntry: KnowledgeEntry,
+): SpokeResult<void> {
+  if (
+    typeof knowledgeEntry.body !== "object" ||
+    knowledgeEntry.body === null ||
+    Array.isArray(knowledgeEntry.body)
+  ) {
     return spokeReject(
       SpokeRejectCode.INVALID_PACKET_INPUT,
-      "Keyblock body must be an object",
-      { keyblock_id: keyblock.keyblock_id, field: "body" },
+      "KnowledgeEntry body must be an object",
+      { knowledge_entry_id: knowledgeEntry.knowledge_entry_id, field: "body" },
     );
   }
 
-  if (typeof keyblock.canonical_name !== "string") {
+  if (typeof knowledgeEntry.canonical_name !== "string") {
     return spokeReject(
       SpokeRejectCode.INVALID_PACKET_INPUT,
-      "Keyblock canonical_name must be a string",
-      { keyblock_id: keyblock.keyblock_id, field: "canonical_name" },
+      "KnowledgeEntry canonical_name must be a string",
+      {
+        knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+        field: "canonical_name",
+      },
     );
   }
 
-  if (keyblock.canonical_name.trim().length === 0) {
+  if (knowledgeEntry.canonical_name.trim().length === 0) {
     return spokeReject(
       SpokeRejectCode.INVALID_PACKET_INPUT,
-      "Keyblock canonical_name must be non-empty",
-      { keyblock_id: keyblock.keyblock_id, field: "canonical_name" },
+      "KnowledgeEntry canonical_name must be non-empty",
+      {
+        knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+        field: "canonical_name",
+      },
     );
   }
 
@@ -57,16 +69,18 @@ function validateAssembleKeyblock(keyblock: Keyblock): SpokeResult<void> {
 }
 
 /**
- * Map a Keyblock to a slim AssembleEntry per wire rules.
+ * Map a KnowledgeEntry to a slim AssembleEntry per wire rules.
  */
-export function keyblockToAssembleEntry(keyblock: Keyblock): AssembleEntry {
+export function knowledgeEntryToAssembleEntry(
+  knowledgeEntry: KnowledgeEntry,
+): AssembleEntry {
   const entry: AssembleEntry = {
-    keyblock_id: keyblock.keyblock_id,
-    block_type: keyblock.block_type,
-    canonical_name: keyblock.canonical_name,
+    knowledge_entry_id: knowledgeEntry.knowledge_entry_id,
+    block_type: knowledgeEntry.block_type,
+    canonical_name: knowledgeEntry.canonical_name,
   };
 
-  const snippet = extractSnippet(keyblock);
+  const snippet = extractSnippet(knowledgeEntry);
   if (snippet !== undefined) {
     entry.snippet = snippet;
   }
@@ -76,18 +90,18 @@ export function keyblockToAssembleEntry(keyblock: Keyblock): AssembleEntry {
 
 export type BuildAssemblePacketInput = {
   packetId: string;
-  keyblocks: Keyblock[];
+  knowledgeEntries: KnowledgeEntry[];
   extensions?: ExtensionMap;
   maxEntries?: number;
 };
 
 /**
- * Build a wire-valid AssemblePacket from Keyblocks (order-preserving truncate only).
+ * Build a wire-valid AssemblePacket from KnowledgeEntries (order-preserving truncate only).
  */
 export function buildAssemblePacket(
   input: BuildAssemblePacketInput,
 ): SpokeResult<AssemblePacket> {
-  const { packetId, keyblocks, extensions, maxEntries } = input;
+  const { packetId, knowledgeEntries, extensions, maxEntries } = input;
 
   if (typeof packetId !== "string" || packetId.trim().length === 0) {
     return spokeReject(
@@ -107,14 +121,14 @@ export function buildAssemblePacket(
     }
   }
 
-  for (const keyblock of keyblocks) {
-    const keyblockResult = validateAssembleKeyblock(keyblock);
-    if (!keyblockResult.ok) {
-      return keyblockResult;
+  for (const knowledgeEntry of knowledgeEntries) {
+    const knowledgeEntryResult = validateAssembleKnowledgeEntry(knowledgeEntry);
+    if (!knowledgeEntryResult.ok) {
+      return knowledgeEntryResult;
     }
   }
 
-  const entries = keyblocks.map(keyblockToAssembleEntry);
+  const entries = knowledgeEntries.map(knowledgeEntryToAssembleEntry);
   const truncatedEntries =
     maxEntries === undefined ? entries : entries.slice(0, maxEntries);
 

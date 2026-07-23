@@ -1,34 +1,36 @@
-import type { Keyblock } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry } from "@42ch/spoke-schemas";
 
 import { assertRevisionMatch } from "../occ/assert-revision.js";
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 
-const TERMINAL_KEYBLOCK_STATUSES = new Set(["merged", "deleted"]);
+const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 
-const REQUIRED_KEYBLOCK_FIELDS = [
+const REQUIRED_KNOWLEDGE_ENTRY_FIELDS = [
   "schema_version",
-  "keyblock_id",
+  "knowledge_entry_id",
   "block_type",
   "canonical_name",
   "status",
   "body",
   "extensions",
-] as const satisfies ReadonlyArray<keyof Keyblock>;
+] as const satisfies ReadonlyArray<keyof KnowledgeEntry>;
 
-export type ValidateUpsertKeyblockContext = {
-  stored?: Keyblock;
+export type ValidateUpsertKnowledgeEntryContext = {
+  stored?: KnowledgeEntry;
   mode?: "create" | "update";
 };
 
-function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> {
-  for (const field of REQUIRED_KEYBLOCK_FIELDS) {
+function validateRequiredKnowledgeEntryFields(
+  candidate: KnowledgeEntry,
+): SpokeResult<void> {
+  for (const field of REQUIRED_KNOWLEDGE_ENTRY_FIELDS) {
     const value = candidate[field];
 
     if (value === undefined || value === null) {
       return spokeReject(
         SpokeRejectCode.MISSING_REQUIRED_FIELD,
-        `Missing required Keyblock field: ${field}`,
+        `Missing required KnowledgeEntry field: ${field}`,
         { field },
       );
     }
@@ -41,23 +43,26 @@ function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> 
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock schema_version must be an integer >= 1",
+      "KnowledgeEntry schema_version must be an integer >= 1",
       { schema_version: candidate.schema_version },
     );
   }
 
-  if (typeof candidate.keyblock_id !== "string" || candidate.keyblock_id.length === 0) {
+  if (
+    typeof candidate.knowledge_entry_id !== "string" ||
+    candidate.knowledge_entry_id.length === 0
+  ) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "Keyblock keyblock_id must be a non-empty string",
-      { field: "keyblock_id" },
+      "KnowledgeEntry knowledge_entry_id must be a non-empty string",
+      { field: "knowledge_entry_id" },
     );
   }
 
   if (typeof candidate.block_type !== "string" || candidate.block_type.length === 0) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,
-      "Keyblock block_type must be a non-empty string",
+      "KnowledgeEntry block_type must be a non-empty string",
       { field: "block_type" },
     );
   }
@@ -65,7 +70,7 @@ function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> 
   if (typeof candidate.canonical_name !== "string") {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock canonical_name must be a string",
+      "KnowledgeEntry canonical_name must be a string",
       { field: "canonical_name" },
     );
   }
@@ -73,14 +78,14 @@ function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> 
   if (candidate.canonical_name.trim().length === 0) {
     return spokeReject(
       SpokeRejectCode.EMPTY_CANONICAL_NAME,
-      "Keyblock canonical_name must be non-empty",
+      "KnowledgeEntry canonical_name must be non-empty",
     );
   }
 
   if (typeof candidate.body !== "object" || candidate.body === null || Array.isArray(candidate.body)) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock body must be an object",
+      "KnowledgeEntry body must be an object",
       { field: "body" },
     );
   }
@@ -92,7 +97,7 @@ function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> 
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock extensions must be an object",
+      "KnowledgeEntry extensions must be an object",
       { field: "extensions" },
     );
   }
@@ -100,7 +105,7 @@ function validateRequiredKeyblockFields(candidate: Keyblock): SpokeResult<void> 
   return spokeOk();
 }
 
-function validateCreateRevision(candidate: Keyblock): SpokeResult<void> {
+function validateCreateRevision(candidate: KnowledgeEntry): SpokeResult<void> {
   if (candidate.revision === undefined || candidate.revision === 0) {
     return spokeOk();
   }
@@ -112,7 +117,7 @@ function validateCreateRevision(candidate: Keyblock): SpokeResult<void> {
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock revision must be a non-negative integer, 0, or omitted on create",
+      "KnowledgeEntry revision must be a non-negative integer, 0, or omitted on create",
       { revision: candidate.revision },
     );
   }
@@ -120,7 +125,7 @@ function validateCreateRevision(candidate: Keyblock): SpokeResult<void> {
   if (candidate.revision >= 1) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Keyblock revision must be absent, undefined, or 0 on create",
+      "KnowledgeEntry revision must be absent, undefined, or 0 on create",
       { revision: candidate.revision },
     );
   }
@@ -128,8 +133,8 @@ function validateCreateRevision(candidate: Keyblock): SpokeResult<void> {
   return spokeOk();
 }
 
-function validateCreatePath(candidate: Keyblock): SpokeResult<void> {
-  const required = validateRequiredKeyblockFields(candidate);
+function validateCreatePath(candidate: KnowledgeEntry): SpokeResult<void> {
+  const required = validateRequiredKnowledgeEntryFields(candidate);
   if (!required.ok) {
     return required;
   }
@@ -137,27 +142,30 @@ function validateCreatePath(candidate: Keyblock): SpokeResult<void> {
   return validateCreateRevision(candidate);
 }
 
-function validateUpdatePath(candidate: Keyblock, stored: Keyblock): SpokeResult<void> {
-  const required = validateRequiredKeyblockFields(candidate);
+function validateUpdatePath(
+  candidate: KnowledgeEntry,
+  stored: KnowledgeEntry,
+): SpokeResult<void> {
+  const required = validateRequiredKnowledgeEntryFields(candidate);
   if (!required.ok) {
     return required;
   }
 
-  if (candidate.keyblock_id !== stored.keyblock_id) {
+  if (candidate.knowledge_entry_id !== stored.knowledge_entry_id) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "Candidate keyblock_id must match stored keyblock_id on update",
+      "Candidate knowledge_entry_id must match stored knowledge_entry_id on update",
       {
-        candidate_keyblock_id: candidate.keyblock_id,
-        stored_keyblock_id: stored.keyblock_id,
+        candidate_knowledge_entry_id: candidate.knowledge_entry_id,
+        stored_knowledge_entry_id: stored.knowledge_entry_id,
       },
     );
   }
 
-  if (TERMINAL_KEYBLOCK_STATUSES.has(stored.status)) {
+  if (TERMINAL_KNOWLEDGE_ENTRY_STATUSES.has(stored.status)) {
     return spokeReject(
-      SpokeRejectCode.KEYBLOCK_TERMINAL_STATUS,
-      `Stored Keyblock has terminal status: ${stored.status}`,
+      SpokeRejectCode.KNOWLEDGE_ENTRY_TERMINAL_STATUS,
+      `Stored KnowledgeEntry has terminal status: ${stored.status}`,
       { status: stored.status },
     );
   }
@@ -186,27 +194,27 @@ function validateUpdatePath(candidate: Keyblock, stored: Keyblock): SpokeResult<
 }
 
 /**
- * Validate Keyblock upsert before persist; create vs update inferred from stored presence.
+ * Validate KnowledgeEntry upsert before persist; create vs update inferred from stored presence.
  */
-export function validateUpsertKeyblock(
-  candidate: Keyblock,
-  context: ValidateUpsertKeyblockContext = {},
+export function validateUpsertKnowledgeEntry(
+  candidate: KnowledgeEntry,
+  context: ValidateUpsertKnowledgeEntryContext = {},
 ): SpokeResult<void> {
   const { stored, mode } = context;
 
   if (mode === "update" && stored === undefined) {
     return spokeReject(
-      SpokeRejectCode.KEYBLOCK_NOT_FOUND,
-      "Update path requires a stored Keyblock",
-      { keyblock_id: candidate.keyblock_id },
+      SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND,
+      "Update path requires a stored KnowledgeEntry",
+      { knowledge_entry_id: candidate.knowledge_entry_id },
     );
   }
 
   if (mode === "create" && stored !== undefined) {
     return spokeReject(
-      SpokeRejectCode.KEYBLOCK_ALREADY_EXISTS,
-      "Create path must not include a stored Keyblock",
-      { keyblock_id: stored.keyblock_id },
+      SpokeRejectCode.KNOWLEDGE_ENTRY_ALREADY_EXISTS,
+      "Create path must not include a stored KnowledgeEntry",
+      { knowledge_entry_id: stored.knowledge_entry_id },
     );
   }
 

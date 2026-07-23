@@ -1,16 +1,16 @@
-import type { Keyblock } from "@42ch/spoke-schemas";
+import type { KnowledgeEntry } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 
 import { SpokeRejectCode } from "../result.js";
 import {
   buildAssemblePacket,
-  keyblockToAssembleEntry,
+  knowledgeEntryToAssembleEntry,
 } from "./builder.js";
 
-function makeKeyblock(overrides: Partial<Keyblock> = {}): Keyblock {
+function makeKnowledgeEntry(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
   return {
     schema_version: 1,
-    keyblock_id: "kb_1",
+    knowledge_entry_id: "kb_1",
     block_type: "character",
     canonical_name: "Mira Vale",
     status: "confirmed",
@@ -20,14 +20,14 @@ function makeKeyblock(overrides: Partial<Keyblock> = {}): Keyblock {
   };
 }
 
-describe("keyblockToAssembleEntry", () => {
+describe("knowledgeEntryToAssembleEntry", () => {
   it("maps core fields", () => {
-    const entry = keyblockToAssembleEntry(
-      makeKeyblock({ body: { summary: "  Hero  " } }),
+    const entry = knowledgeEntryToAssembleEntry(
+      makeKnowledgeEntry({ body: { summary: "  Hero  " } }),
     );
 
     expect(entry).toEqual({
-      keyblock_id: "kb_1",
+      knowledge_entry_id: "kb_1",
       block_type: "character",
       canonical_name: "Mira Vale",
       snippet: "Hero",
@@ -35,16 +35,16 @@ describe("keyblockToAssembleEntry", () => {
   });
 
   it("omits snippet for non-string body.summary", () => {
-    const entry = keyblockToAssembleEntry(
-      makeKeyblock({ body: { summary: 42 } }),
+    const entry = knowledgeEntryToAssembleEntry(
+      makeKnowledgeEntry({ body: { summary: 42 } }),
     );
 
     expect(entry).not.toHaveProperty("snippet");
   });
 
   it("omits snippet for whitespace-only summary", () => {
-    const entry = keyblockToAssembleEntry(
-      makeKeyblock({ body: { summary: "   " } }),
+    const entry = knowledgeEntryToAssembleEntry(
+      makeKnowledgeEntry({ body: { summary: "   " } }),
     );
 
     expect(entry).not.toHaveProperty("snippet");
@@ -52,8 +52,8 @@ describe("keyblockToAssembleEntry", () => {
 });
 
 describe("buildAssemblePacket", () => {
-  it("builds packet with empty keyblock list", () => {
-    const result = buildAssemblePacket({ packetId: "pkt_1", keyblocks: [] });
+  it("builds packet with empty knowledge entry list", () => {
+    const result = buildAssemblePacket({ packetId: "pkt_1", knowledgeEntries: [] });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -67,21 +67,21 @@ describe("buildAssemblePacket", () => {
   });
 
   it("truncates entries in input order with maxEntries", () => {
-    const keyblocks = [
-      makeKeyblock({ keyblock_id: "kb_a", canonical_name: "A" }),
-      makeKeyblock({ keyblock_id: "kb_b", canonical_name: "B" }),
-      makeKeyblock({ keyblock_id: "kb_c", canonical_name: "C" }),
+    const knowledgeEntries = [
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_a", canonical_name: "A" }),
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_b", canonical_name: "B" }),
+      makeKnowledgeEntry({ knowledge_entry_id: "kb_c", canonical_name: "C" }),
     ];
 
     const result = buildAssemblePacket({
       packetId: "pkt_2",
-      keyblocks,
+      knowledgeEntries,
       maxEntries: 2,
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.entries.map((entry) => entry.keyblock_id)).toEqual([
+      expect(result.value.entries.map((entry) => entry.knowledge_entry_id)).toEqual([
         "kb_a",
         "kb_b",
       ]);
@@ -92,7 +92,7 @@ describe("buildAssemblePacket", () => {
     const extensions = { nexus: { profile: "chat" } };
     const result = buildAssemblePacket({
       packetId: "pkt_3",
-      keyblocks: [],
+      knowledgeEntries: [],
       extensions,
     });
 
@@ -103,7 +103,7 @@ describe("buildAssemblePacket", () => {
   });
 
   it("rejects empty packetId", () => {
-    const result = buildAssemblePacket({ packetId: "  ", keyblocks: [] });
+    const result = buildAssemblePacket({ packetId: "  ", knowledgeEntries: [] });
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -114,7 +114,7 @@ describe("buildAssemblePacket", () => {
   it("rejects negative maxEntries", () => {
     const result = buildAssemblePacket({
       packetId: "pkt_4",
-      keyblocks: [],
+      knowledgeEntries: [],
       maxEntries: -1,
     });
 
@@ -124,10 +124,12 @@ describe("buildAssemblePacket", () => {
     }
   });
 
-  it("rejects keyblock with null body (F-002)", () => {
+  it("rejects knowledge entry with null body (F-002)", () => {
     const result = buildAssemblePacket({
       packetId: "pkt_5",
-      keyblocks: [makeKeyblock({ body: null as unknown as Keyblock["body"] })],
+      knowledgeEntries: [
+        makeKnowledgeEntry({ body: null as unknown as KnowledgeEntry["body"] }),
+      ],
     });
 
     expect(result.ok).toBe(false);
@@ -139,8 +141,8 @@ describe("buildAssemblePacket", () => {
   it("rejects non-string canonical_name (F-004)", () => {
     const result = buildAssemblePacket({
       packetId: "pkt_6",
-      keyblocks: [
-        makeKeyblock({ canonical_name: 99 as unknown as string }),
+      knowledgeEntries: [
+        makeKnowledgeEntry({ canonical_name: 99 as unknown as string }),
       ],
     });
 

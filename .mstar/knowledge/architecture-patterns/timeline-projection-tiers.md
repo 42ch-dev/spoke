@@ -1,7 +1,7 @@
 # Timeline projection tiers (Brief / Narrative / Moment)
 
 **Category:** architecture-patterns  
-**Source:** iteration:v0-iter003  
+**Source:** compound 2026-07-23 (rule-event)  
 **Status:** durable
 
 ## Problem

@@ -1,6 +1,6 @@
 # SPOKE Protocol Layers (L0–L8)
 
-> **Status:** Normative (v0-iter003) — architect-locked 2026-07-23  
+> **Status:** Normative (protocol layers deepen) — architect-locked 2026-07-23; library column operations library deepen  
 > **Document class:** Normative — layer model + capability levels  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Research source:** Spoke Protocol Research canvas (nine layers)
@@ -23,7 +23,7 @@ This document is the integrator-facing map from research vocabulary to wire arti
 
 Read top-down: identity → ontology → body → provenance → graph → time → constraints → findings → context packet.
 
-| Layer | Concept | Baseline (v0-iter003 target) | Optional capability | Primary wire artifacts |
+| Layer | Concept | Baseline (protocol layers target) | Optional capability | Primary wire artifacts |
 |-------|---------|------------------------------|---------------------|------------------------|
 | **L0 Envelope** | Identity + `schema_version` | Required on all durable objects | — | All `schemas/data/*`; `schema_version` in `common.schema.json` |
 | **L1 Ontology** | `block_type` + Domain Profile | Open `block_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `keyblock.schema.json`; `CONCEPTS.md`; future adapter specs |
@@ -47,7 +47,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 
 ## L5 — Timeline projection tiers (normative vocabulary)
 
-Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrative / Moment** — UI labels) onto L5 Temporal. **v0-iter003 product lock:** those three names are **standardizable** on the wire as lowercase **`brief` / `narrative` / `moment`** — structured expression of the **Timeline dimension**, not product-local forever.
+Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrative / Moment** — UI labels) onto L5 Temporal. **Protocol layers product lock:** those three names are **standardizable** on the wire as lowercase **`brief` / `narrative` / `moment`** — structured expression of the **Timeline dimension**, not product-local forever.
 
 | Tier | Role on the when-axis | Typical carrier (informative — architect locks wire) |
 |------|----------------------|------------------------------------------------------|
@@ -55,7 +55,7 @@ Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrativ
 | **`narrative`** | Ordered story events on the Timeline | First-class `Event` objects and/or event-shaped Keyblocks |
 | **`moment`** | Fine grain (scene / beat / beat-local) | Finer temporal units; product may keep some carriers local until wire exists |
 
-**Wire field (architect-locked):** optional `timeline_scale` on `Event` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed; ops `Scope` `$ref` wiring in sibling plan **`ops-harden`**.
+**Wire field (architect-locked):** optional `timeline_scale` on `Event` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed in protocol layers deepen; `check-request` / `assemble-request` `$ref` shared `Scope` (delivered **`ops-harden`**).
 
 **Rules:**
 
@@ -71,7 +71,7 @@ Products MUST declare which level they implement when claiming SPOKE compliance.
 
 ### Baseline (`spoke-baseline`)
 
-Required for “SPOKE baseline” claims in v0-iter003:
+Required for “SPOKE baseline” claims since protocol layers deepen:
 
 | Includes | Excludes |
 |----------|----------|
@@ -106,13 +106,13 @@ Baseline compliance MUST NOT require either flag.
 
 | Layer | Data schema (`schemas/data/` or `common/`) | Op wire (`schemas/ops/`) | Library (`@42ch/spoke-operations`) |
 |-------|--------------------------------------------|--------------------------|-------------------------------------|
-| **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | — |
-| **L1 Ontology** | `data/keyblock.schema.json` (`block_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest` |
-| **L2 Body** | `keyblock.schema.json` → `body` subtree (`additionalProperties: true`) | `upsert-*` | — |
-| **L3 Provenance** | `data/source-anchor.schema.json`; optional on Keyblock / Finding / Event / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | — |
-| **L4 Graph** | `data/relation.schema.json` | `relate-*` | — |
-| **L5 Temporal** | `data/event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.event_ids` / `Scope.timeline_scale` refinements (**`ops-harden` plan**); Event upsert via product binding or future op — **no new op in v0-iter003** | — |
-| **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]` — **`ops-harden` plan** for `rules[]` wire) | — (no helper this iteration) |
+| **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | `assertRevisionMatch`; `toErrorEnvelope` / `fromErrorEnvelope` |
+| **L1 Ontology** | `data/keyblock.schema.json` (`block_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKeyblockStatusTransition`, `transitionKeyblockStatus`; `assertUniqueActiveKeyblock`; `validateUpsertKeyblock` |
+| **L2 Body** | `keyblock.schema.json` → `body` subtree (`additionalProperties: true`) | `upsert-*` | `validateUpsertKeyblock` (required-field gate) |
+| **L3 Provenance** | `data/source-anchor.schema.json`; optional on Keyblock / Finding / Event / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `keyblockMatchesScope`, `filterKeyblocksByScope` (`source_id` refinement) |
+| **L4 Graph** | `data/relation.schema.json` | `relate-*` | `validateRelateRequest` |
+| **L5 Temporal** | `data/event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.event_ids` / `Scope.timeline_scale` refinements; Event upsert via product binding or future op — **no new op in protocol layers deepen** | `eventMatchesScope`, `filterEventsByScope` |
+| **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
 | **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `keyblockToAssembleEntry` |
 
@@ -120,7 +120,7 @@ Baseline compliance MUST NOT require either flag.
 
 | Definition | Used by | Role |
 |------------|---------|------|
-| `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — def committed; ops `$ref` in **`ops-harden` plan** |
+| `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — committed in protocol layers deepen (`ops-harden`) |
 | `TimelineScale` | `Event.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) — committed in `common.schema.json` |
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |
@@ -131,15 +131,15 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Event, T
 
 - [x] Integrator can name baseline vs optional flags without reading research canvas
 - [x] Every baseline layer row maps to normative semantics (field tables + layer rules in this doc, data-model, ops)
-- [x] Every baseline layer row maps to at least one **committed** schema or op family — L5/L6 data schemas landed (`rule-event`); shared `Scope` def committed; ops `$ref` wiring pending **`ops-harden`**
+- [x] Every baseline layer row maps to at least one **committed** schema or op family — L5/L6 data schemas + shared `Scope` / `TimelineScale` / error-envelope landed in protocol layers deepen (`rule-event`, `ops-harden`)
 - [x] Rule vs Finding and Check vs Assemble boundaries appear in this doc and cross-link data/ops specs
 - [x] Domain Profile section prevents “closed enum in core” misread
-- [x] Layer ↔ artifact matrix is complete (schema / op / library helper per layer; pending commits tagged with sibling plan)
+- [x] Layer ↔ artifact matrix is complete (schema / op / library helper per layer); operations library deepen extends library column per [`spoke-operations.md`](spoke-operations.md)
 
 ## Non-goals (this spec)
 
 - Adapter package implementations or field-map tables
-- Conformance fixtures / golden toy-world
+- Conformance fixtures / golden toy-world — **fixtures conformance slice:** `fixtures/toy-world/` per fixtures-conformance plan
 - Fork wire schema (optional flag only)
 - HTTP/gRPC/MCP route tables
 - Closed forever enums for ontology

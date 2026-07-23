@@ -12,6 +12,8 @@ Morning Star consumer. Harness SSOT: [`.mstar/AGENTS.md`](.mstar/AGENTS.md).
 
 **Process vs results:** process paths under `.mstar/` (plans, iterations, status, notes, sdd, archived) are gitignored; shared results are `.mstar/specs/` and `.mstar/knowledge/`. See harness AGENTS for the full table.
 
+**Git-shared records (HARD):** tracked specs, knowledge, roadmap, and root docs MUST NOT contain Morning Star iteration ids (e.g. the `v0-iterNNN` family), `iteration:v0-iterNNN` source tags, or links into `.mstar/iterations/`. Use capability, feature, or date naming instead. Iteration ids belong only in local process artifacts (`plans/`, `iterations/`, `sdd/`, `status.json`). Commit messages, PR titles/bodies, and other git-visible prose follow the same ban (branch names used for local orchestration may keep harness prefixes).
+
 Do not put plan progress or residual detail in this file.
 
 ## README audience (HARD)

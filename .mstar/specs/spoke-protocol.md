@@ -8,11 +8,11 @@
 
 Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange Keyblock data and ops without sharing a runtime, database, or daemon.
 
-**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters or conformance tests.
+**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. **Operations library deepen + fixtures** adds protocol conformance fixtures (`fixtures/toy-world/`) and deepens `@42ch/spoke-operations` lifecycle helpers.
 
 ## Three columns (Thrust A)
 
-SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md). v0.1 delivered columns 1–2; v0-iter002 delivered column 3.
+SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md). v0.1 delivered columns 1–2; operations library first slice delivered column 3.
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
@@ -22,17 +22,18 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**v0-iter003 deepen (architect-locked):** `Rule` (L6) and `Event` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
+**Protocol layers + Rule/Event deepen (architect-locked):** `Rule` (L6) and `Event` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (v0-iter003). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
 
 **Schema file count:**
 
 | Slice | Hand-authored files | Breakdown |
 |-------|---------------------|-----------|
-| **v0-iter003 (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
+| **Protocol layers + Rule/Event (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
+| **Operations library deepen + fixtures (in progress)** | **19** (unchanged) | No new schema files — deepen `@42ch/spoke-operations` + `fixtures/toy-world/` conformance graph |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 
@@ -115,13 +116,13 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schemas/` | Generated TypeScript |
-| `packages/spoke-operations/` | Hand-written operations library (delivered v0-iter002) |
+| `packages/spoke-operations/` | Hand-written operations library (delivered operations library first slice) |
 | `crates/spoke-schemas/` | Generated Rust |
 | `adapters/` | README purpose note only; product adapter packages deferred |
 
 ## v0.1 acceptance (umbrella)
 
-Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 — see [`spoke-operations.md`](spoke-operations.md) acceptance section.
+Historical v0.1 close criteria (wire bootstrap). Operations library first slice delivered column 3 — see [`spoke-operations.md`](spoke-operations.md) acceptance section.
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
@@ -131,15 +132,15 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`)
 4. Extensions contract enforced in data schemas
 5. `Rule` deferral documented; no orphan `rule.schema.json`
-6. No adapter packages or `fixtures/` yet (`adapters/README.md` only)
+6. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
 
 ## Non-goals (v0.1)
 
 | Out of scope | Rationale |
 |--------------|-----------|
 | Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred to next iteration |
-| Conformance fixtures / golden toy-world round-trips | No `fixtures/` this iteration |
-| `Rule` wire schema | Deferred in v0.1 — superseded by v0-iter003 (see data model) |
+| Conformance fixtures / golden toy-world round-trips | **Delivered in fixtures conformance slice** — `fixtures/toy-world/` (protocol JSON only; CI schema-validated) |
+| `Rule` wire schema | Deferred in v0.1 — superseded by protocol layers + Rule/Event deepen (see data model) |
 | WASM / Computable Keyblock / Fork semantics | Not required protocol surface yet |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
@@ -149,9 +150,10 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 | Phase | Deliverable |
 |-------|-------------|
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
-| **v0-iter002 (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
-| **v0-iter003 (in progress)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden spec (Scope neutrality, Check≠Assemble, error-envelope R3). Committed schemas: sibling plans **`rule-event`** + **`ops-harden`** — **no adapters** |
-| **Next** | Implementable adapter packages (product DTO ↔ SPOKE), conformance fixtures |
+| **Operations library first slice (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
+| **Protocol layers + Rule/Event (delivered)** | Normative L0–L8 + capability levels; `Rule` + `Event` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
+| **Operations library deepen + fixtures (in progress)** | Expand `@42ch/spoke-operations` (OCC, Keyblock status, uniqueness, Scope/upsert/relate gates, error map) + **`fixtures/toy-world/`** protocol conformance graph (delivered) — **no adapters** |
+| **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
 | **North star** | Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 
 ## See also
@@ -159,10 +161,9 @@ Historical v0.1 close criteria (wire bootstrap). v0-iter002 delivered column 3 �
 | Doc | Topic |
 |-----|-------|
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/Event (v0-iter003) |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/Event (protocol layers deepen) |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
-| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, four helper families, hard In/Out |
+| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, helper families (first slice + deepen), hard In/Out |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (19 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Keyblock vocabulary; Keyblock ≠ World KB ≠ Author Memory |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |
-| [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 iteration close checklist (process artifact; optional) |

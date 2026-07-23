@@ -4,7 +4,7 @@ SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are g
 
 Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-protocol-layers.md`](../.mstar/specs/spoke-protocol-layers.md) (L0–L8), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
 
-## Layout (v0-iter003)
+## Layout (protocol layers deepen)
 
 ```text
 schemas/
@@ -101,4 +101,4 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 18 | `ops/assemble-request.schema.json` | done |
 | 19 | `ops/assemble-response.schema.json` | done |
 
-**Total:** 19 schema files (v0-iter003 `rule-event` + `ops-harden` landed).
+**Total:** 19 schema files (`rule-event` + `ops-harden` landed).

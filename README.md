@@ -4,7 +4,7 @@
 
 **Standardized Programmable Ontology Keyblock Engine** — a protocol repository of JSON Schema wire contracts for narrative **Keyblock** data and **ops**. Products such as Nexus and Creader use these shapes for consistency-check and context-assembly I/O across independent stacks.
 
-**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`).
+**Includes:** data-layer schemas (Keyblock, Relation, SourceAnchor, Finding, AssemblePacket, Rule, Event); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`); protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/)).
 
 ## Packages
 
@@ -50,6 +50,8 @@ Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-sc
 | **Relation** | Directed edge between Keyblocks (or Keyblock ↔ source) |
 | **SourceAnchor** | Provenance pointer to a manuscript span or external locator |
 | **Finding** | Checker output for consistency, style, or analysis |
+| **Rule** | Declarative constraint input to `check` (L6) |
+| **Event** | First-class temporal object on the when-axis (L5) |
 | **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
 
@@ -100,6 +102,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operat
 | Path | Topic |
 |------|-------|
 | [`schemas/`](schemas/) | JSON Schema SSOT (Draft-07) — source for codegen |
+| [`fixtures/toy-world/`](fixtures/toy-world/) | Protocol conformance JSON graph ("Mira at Harbor") — CI schema-validated |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella protocol spec |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | Nine layers (L0–L8), capability levels, Timeline tiers |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects and open vocabulary |

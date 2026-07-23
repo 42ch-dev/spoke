@@ -19,6 +19,34 @@ export {
   type BuildAssemblePacketInput,
 } from "./assemble/builder.js";
 
+export { assertRevisionMatch } from "./occ/assert-revision.js";
+
+export {
+  isValidKeyblockStatusTransition,
+  transitionKeyblockStatus,
+} from "./keyblock/transition.js";
+
+export {
+  assertUniqueActiveKeyblock,
+  type AssertUniqueActiveKeyblockInput,
+} from "./keyblock/uniqueness.js";
+
+export {
+  keyblockMatchesScope,
+  filterKeyblocksByScope,
+  eventMatchesScope,
+  filterEventsByScope,
+} from "./scope/match.js";
+
+export {
+  validateUpsertKeyblock,
+  type ValidateUpsertKeyblockContext,
+} from "./upsert/validate.js";
+
+export { validateRelateRequest } from "./relate/validate.js";
+
+export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
+
 export {
   SpokeRejectCode,
   spokeOk,

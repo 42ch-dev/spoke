@@ -62,6 +62,16 @@ The sole product-specific bag on every data object. Namespace keys are product i
 
 ---
 
+## Core `entry_type` vocabulary (documented, not enforced)
+
+Open string on `KnowledgeEntry.entry_type`. Full table with typical-use rows: [`spoke-data-model.md` §Open vocabulary](.mstar/specs/spoke-data-model.md#open-vocabulary). Schema `description` core list in `knowledge-entry.schema.json` MUST match that table.
+
+**Baseline additions (canvas sync):** `ability` (skill / power / capability), `rule` (world-rule ontology label — see dual-concern below).
+
+**Profile-only (not in core table or schema description list):** `dialogue`, `beat`, `species`, `magic_system`, … — publish via Domain Profile / adapter specs.
+
+---
+
 ## Dual-concern: ontology `"event"` vs TimelineEvent
 
 | Concern | Wire artifact | Example |
@@ -70,6 +80,17 @@ The sole product-specific bag on every data object. Namespace keys are product i
 | **Timeline / when-axis** | `TimelineEvent` with `timeline_event_id` | Same story beat placed on the Timeline with `timeline_scale: "narrative"` |
 
 Products may map one local concept to one or both wire shapes. SPOKE keeps the names separate so check/assemble selectors and adapters stay unambiguous.
+
+---
+
+## Dual-concern: ontology `"rule"` vs L6 `Rule`
+
+| Concern | Wire artifact | Example |
+|---------|---------------|---------|
+| **Ontology / KB label** | `KnowledgeEntry` with `entry_type: "rule"` | “No resurrection without foreshadowing” as a typed KB node |
+| **Declarative checker input** | L6 `Rule` with `rule_id`, `kind`, `statement`, `target_entry_types` | Same constraint as portable `check` input via `rules[]` |
+
+`Rule.target_entry_types` filters KnowledgeEntry **`entry_type`** strings (e.g. `character`, `event`) — not kinds of `Rule` objects. `Scope.entry_types` filters KnowledgeEntry labels; `Scope.timeline_event_ids` filters `TimelineEvent` ids — do not cross-wire.
 
 ---
 

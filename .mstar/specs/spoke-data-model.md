@@ -372,25 +372,60 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
 ### Core `entry_type` vocabulary (documented, not enforced)
 
-Cross-product narrative set (union of Nexus + Creader research inputs):
+Cross-product narrative set (union of Nexus + Creader research inputs). Order: baseline narrative set, Creader extras, then canvas-sync additions.
 
 | Value | Typical use |
 |-------|-------------|
 | `character` | Person / agent |
 | `location` | Place |
-| `event` | Timeline / plot event |
+| `event` | Ontology label for plot / story-beat facts; **≠** L5 `TimelineEvent` wire object |
 | `scene` | Scene unit |
+| `act` | Structural act (script / Creader) |
 | `organization` | Group / faction (Nexus) |
 | `item` | Object / artifact |
 | `conflict` | Dramatic conflict unit |
 | `info_point` | Foreshadowing / revelation hook |
 | `era` | World-timeline era / brief marker |
-| `note` | Free-form author note (Creader) |
 | `worldbuilding` | Encyclopedia / lore entry (Creader) |
+| `note` | Free-form author note (Creader) |
 | `research` | External research note (Creader) |
-| `act` | Structural act (script / Creader) |
+| `ability` | Skill / power / capability KnowledgeEntry (canvas baseline) |
+| `rule` | World rule / constraint **ontology label** on a KnowledgeEntry; **≠** L6 `Rule` wire object (`rule_id`, `kind`, `statement`, `target_entry_types`) |
 
-**Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. When a product needs profile-specific types (e.g. Nexus `species`, `dialogue`, `beat`), document them in the adapter spec; do not expand the core list until a cross-product agreement exists.
+**Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. Profile-specific types (`dialogue`, `beat`, `species`, `magic_system`, …) belong in **Domain Profile** / adapter specs — not in this core table or in schema `description` core lists.
+
+### Research canvas coverage (ontology)
+
+Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators cite this table — not the canvas alone — for baseline vs profile vs deferred decisions.
+
+| Canvas `spoke` | Decision | Integrator note |
+|----------------|----------|-----------------|
+| `character` | **Keep** (core) | Baseline |
+| `location`* | **Keep** (core) | Open string; `*` = adapter profile annotation in canvas |
+| `event` | **Keep** (core) | Ontology label; ≠ `TimelineEvent` wire object |
+| `scene` | **Keep** (core) | Baseline |
+| `act` | **Keep** (core) | Baseline |
+| `organization` | **Keep** (core) | Baseline |
+| `item` | **Keep** (core) | Baseline |
+| `ability` | **Add** (core) | Skill / power / capability KnowledgeEntry |
+| `conflict` | **Keep** (core) | Baseline |
+| `info_point` | **Keep** (core) | Foreshadowing / revelation hook |
+| `era` | **Keep** (core) | Brief-scale timeline marker |
+| `worldbuilding`* | **Keep** (core) | Lore / encyclopedia; `*` = profile variants |
+| `rule`* | **Add** (core) | Ontology label `entry_type: "rule"`; **≠** L6 `Rule` object |
+| `note`, `research` | **Keep** (core) | Creader baseline; not shown on canvas `TYPE_MAP` |
+| `dialogue` | **Profile-only** | Domain Profile / adapter spec (Nexus-class) |
+| `beat` | **Profile-only** | Domain Profile / adapter spec (Nexus-class) |
+| `species`, `magic_system` | **Profile-only** | Typically under worldbuilding profile (Nexus) |
+
+**Dual-concern quick reference:**
+
+| Integrator question | Answer |
+|---------------------|--------|
+| `entry_type: "rule"` on a KnowledgeEntry — is that the L6 `Rule` object? | **No.** KB ontology label only. L6 rules use `rule.schema.json` + `rule_id`. |
+| `target_entry_types` on a `Rule` — what does it filter? | KnowledgeEntry **`entry_type`** strings (e.g. `character`, `event`), not `Rule` object kinds. |
+| `entry_type: "event"` vs `TimelineEvent`? | KB fact node vs L5 when-axis object. `Scope` uses `entry_types` vs `timeline_event_ids` separately. |
+| Should `dialogue` / `beat` be in the core table? | **No.** Profile-only per baseline lock. |
 
 ### Core KnowledgeEntry `status` vocabulary (documented, not enforced)
 

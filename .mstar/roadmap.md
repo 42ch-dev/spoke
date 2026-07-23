@@ -20,7 +20,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
 | 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Optional capability — not baseline |
-| 2 | Optional **`project` / compute** op family | Transport-agnostic I/O for programmable body state (Nexus-class) | Optional; Creader-class products omit |
+| 2 | Optional **`project` / compute** op family | Transport-agnostic I/O for programmable body state (Nexus-class) | Optional; Creader-class products omit. Canvas `project` / `compute`* rows are **deferred here** — not a baseline wire omission; five core ops (upsert, promote, relate, check, assemble) are canvas-covered per [`spoke-ops.md`](specs/spoke-ops.md) |
 | 3 | Optional **`l2-computable`** body fields | Documented optional `body.state` / computable shape on KnowledgeEntry | Capability flag already named in layers spec |
 | 4 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 | 5 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (19) in sync when adding schemas | See open residuals in local harness status when present |

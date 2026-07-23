@@ -36,6 +36,19 @@ Five ops, ten schema files under `schemas/ops/` (request + response each).
 
 File basename `promote-*` is the schema id for **extract→promote** (shorter than `extract-promote-*`).
 
+### Research canvas coverage (operations)
+
+Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five baseline ops below are **canvas-covered** — integrators need not infer missing wire from the canvas.
+
+| Canvas op | Decision | Integrator note |
+|-----------|----------|-----------------|
+| `upsert` | **Covered** | Baseline wire + ops |
+| `extract` → `promote` | **Covered** | `promote-*` schema family |
+| `relate` | **Covered** | Baseline wire + ops |
+| `check` | **Covered** | Baseline wire + ops |
+| `assemble` | **Covered** | Baseline wire + ops |
+| `project` / `compute`* | **Deferred** | Optional capability — see [`.mstar/roadmap.md`](../roadmap.md) Up next #2; **not** a baseline omission; do not add wire schemas without a scheduled slice |
+
 ---
 
 ## Request/response families

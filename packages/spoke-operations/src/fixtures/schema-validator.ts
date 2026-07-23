@@ -2,8 +2,12 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import Ajv, { type ValidateFunction } from "ajv";
-import addFormats from "ajv-formats";
+import { Ajv, type ValidateFunction } from "ajv";
+import * as ajvFormatsModule from "ajv-formats";
+
+type RegisterFormats = (ajv: Ajv) => Ajv;
+
+const addFormats = ajvFormatsModule.default as unknown as RegisterFormats;
 
 const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "../../../..");
 const SCHEMAS_ROOT = join(REPO_ROOT, "schemas");

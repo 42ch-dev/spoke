@@ -19,6 +19,18 @@ export {
   type BuildAssemblePacketInput,
 } from "./assemble/builder.js";
 
+export { assertRevisionMatch } from "./occ/assert-revision.js";
+
+export {
+  isValidKeyblockStatusTransition,
+  transitionKeyblockStatus,
+} from "./keyblock/transition.js";
+
+export {
+  assertUniqueActiveKeyblock,
+  type AssertUniqueActiveKeyblockInput,
+} from "./keyblock/uniqueness.js";
+
 export {
   SpokeRejectCode,
   spokeOk,

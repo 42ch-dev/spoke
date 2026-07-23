@@ -11,7 +11,7 @@ It defines JSON Schema wire contracts for narrative Keyblock **data** and **ops*
 | Deliverable | Role |
 |-------------|------|
 | **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
-| **`schemas/`** | Draft-07 SSOT (v0.1: 17 files; v0-iter003 target: 19 — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
+| **`schemas/`** | Draft-07 SSOT (19 files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (v0-iter002+) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types |

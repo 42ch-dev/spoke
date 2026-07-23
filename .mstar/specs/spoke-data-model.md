@@ -27,8 +27,8 @@ Five required wire objects in v0.1:
 
 | Object | Layer | Role | Schema file |
 |--------|-------|------|-------------|
-| **Rule** | L6 | Declarative constraint **input** to checkers (not Finding output) | `schemas/data/rule.schema.json` — committed in sibling plan **`rule-event`** |
-| **Event** | L5 | Temporal when-axis object | `schemas/data/event.schema.json` — committed in sibling plan **`rule-event`** |
+| **Rule** | L6 | Declarative constraint **input** to checkers (not Finding output) | `schemas/data/rule.schema.json` |
+| **Event** | L5 | Temporal when-axis object | `schemas/data/event.schema.json` |
 
 Product invariant: each durable object participates in the `extensions` round-trip contract (§Extensions). See [`spoke-protocol-layers.md`](spoke-protocol-layers.md) for capability levels and Rule vs Finding boundaries.
 
@@ -421,8 +421,8 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 
 ## Acceptance (data layer)
 
-- [ ] Each **baseline + v0-iter003** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
-- [ ] Umbrella + this doc list the same object set; Rule/Event tracked in v0-iter003 plan `rule-event`
+- [x] Each **baseline + v0-iter003** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
+- [x] Umbrella + this doc list the same object set; Rule/Event shipped in v0-iter003 plan `rule-event`
 - [ ] Sample valid Keyblock instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
 - [ ] `block_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 

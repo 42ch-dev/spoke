@@ -4,20 +4,22 @@ SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are g
 
 Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-protocol-layers.md`](../.mstar/specs/spoke-protocol-layers.md) (L0–L8), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
 
-## Layout (v0.1)
+## Layout (v0-iter003)
 
 ```text
 schemas/
 ├── README.md                           # this file
 ├── common/
-│   ├── common.schema.json              # SchemaVersion, ExtensionMap, shared ids
+│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, shared ids
 │   └── error-envelope.schema.json      # shared ops error shape
 ├── data/
 │   ├── keyblock.schema.json
 │   ├── relation.schema.json
 │   ├── source-anchor.schema.json
 │   ├── finding.schema.json
-│   └── assemble-packet.schema.json
+│   ├── assemble-packet.schema.json
+│   ├── rule.schema.json                # L6 declarative constraint input
+│   └── event.schema.json               # L5 when-axis temporal object
 └── ops/
     ├── upsert-request.schema.json
     ├── upsert-response.schema.json
@@ -31,9 +33,9 @@ schemas/
     └── assemble-response.schema.json
 ```
 
-**Explicitly absent in v0.1:** `schemas/data/rule.schema.json`, `schemas/data/event.schema.json` (see [data model §Rule deferral (superseded)](../.mstar/specs/spoke-data-model.md#rule-deferral-v01-decision--superseded)).
+**`ops-harden` follow-on (not yet in ops schemas):** `check-request` / `assemble-request` still use inline `CheckScope` / `AssembleScope` — shared `Scope` def is committed in `common.schema.json`; ops `$ref` wiring lands in sibling plan **`ops-harden`**.
 
-**Post–`rule-event` + `ops-harden` target (not yet committed):** + `rule.schema.json`, `event.schema.json` (`rule-event` plan); `common.schema.json` gains `Scope` + `TimelineScale` definitions (`ops-harden` plan). **19 files total** after both sibling plans land — see [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md). **Committed today:** 17 files (v0.1 baseline).
+**Total:** **19** hand-authored schema files (2 common + 7 data + 10 ops). See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -77,7 +79,7 @@ pnpm run verify-codegen   # exit 1 on drift
 
 CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-codegen` (plus `typescript` and `rust` package checks) on every pull request.
 
-## File checklist (Task 2)
+## File checklist
 
 | # | Path | Status |
 |---|------|--------|
@@ -88,15 +90,17 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 5 | `data/source-anchor.schema.json` | done |
 | 6 | `data/finding.schema.json` | done |
 | 7 | `data/assemble-packet.schema.json` | done |
-| 8 | `ops/upsert-request.schema.json` | done |
-| 9 | `ops/upsert-response.schema.json` | done |
-| 10 | `ops/promote-request.schema.json` | done |
-| 11 | `ops/promote-response.schema.json` | done |
-| 12 | `ops/relate-request.schema.json` | done |
-| 13 | `ops/relate-response.schema.json` | done |
-| 14 | `ops/check-request.schema.json` | done |
-| 15 | `ops/check-response.schema.json` | done |
-| 16 | `ops/assemble-request.schema.json` | done |
-| 17 | `ops/assemble-response.schema.json` | done |
+| 8 | `data/rule.schema.json` | done |
+| 9 | `data/event.schema.json` | done |
+| 10 | `ops/upsert-request.schema.json` | done |
+| 11 | `ops/upsert-response.schema.json` | done |
+| 12 | `ops/promote-request.schema.json` | done |
+| 13 | `ops/promote-response.schema.json` | done |
+| 14 | `ops/relate-request.schema.json` | done |
+| 15 | `ops/relate-response.schema.json` | done |
+| 16 | `ops/check-request.schema.json` | done |
+| 17 | `ops/check-response.schema.json` | done |
+| 18 | `ops/assemble-request.schema.json` | done |
+| 19 | `ops/assemble-response.schema.json` | done |
 
-**Total:** 17 schema files for v0.1.
+**Total:** 19 schema files (v0-iter003 `rule-event` landed).

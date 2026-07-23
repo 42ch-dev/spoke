@@ -50,7 +50,7 @@ File basename `promote-*` is the schema id for **extract→promote** (shorter th
 
 ### Scope (shared — `check` + `assemble`)
 
-> **Target wire (`ops-harden` plan):** Field table below is architect-locked normative text. Committed `schemas/` today uses inline `CheckScope` / `AssembleScope` without `scope_id`, `event_ids`, or `timeline_scale`. Shared `Scope` + `TimelineScale` defs land in `common.schema.json` and `check-request` / `assemble-request` `$ref` updates ship in sibling plan **`ops-harden`** — not yet in tree (17 files committed).
+> **Ops wiring (`ops-harden` plan):** Field table below is architect-locked normative text. Committed `schemas/` today uses inline `CheckScope` / `AssembleScope` without `scope_id`, `event_ids`, or `timeline_scale`. Shared `Scope` + `TimelineScale` defs are committed in `common.schema.json`; `check-request` / `assemble-request` `$ref` updates ship in sibling plan **`ops-harden`**.
 
 Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def.
 

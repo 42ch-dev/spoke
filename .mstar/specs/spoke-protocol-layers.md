@@ -30,8 +30,8 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 | **L2 Body** | summary / attributes / tags | Structured `body` (`additionalProperties: true` subtree) | Computable / WASM `state` in body | `keyblock.schema.json` `body` |
 | **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on Keyblock |
 | **L4 Graph** | Relation | Typed directed edges | OCC / revision as product concern | `relation.schema.json`; `relate` op |
-| **L5 Temporal** | Timeline dimension + Event + optional Fork | **`Event` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (world-history branch) — not required for baseline | `event.schema.json` (**`rule-event` plan** — architect-locked target wire, not yet committed); tier vocabulary in this spec + data-model; Fork deferred optional |
-| **L6 Constraint** | Rule / Prohibition | **`Rule` wire object** | Prohibition variants as open vocabulary | `rule.schema.json` (**`rule-event` plan** — architect-locked target wire, not yet committed); `check` op |
+| **L5 Temporal** | Timeline dimension + Event + optional Fork | **`Event` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (world-history branch) — not required for baseline | `event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary in this spec + data-model; Fork deferred optional |
+| **L6 Constraint** | Rule / Prohibition | **`Rule` wire object** | Prohibition variants as open vocabulary | `rule.schema.json`; `check` op |
 | **L7 Finding** | Checker output lifecycle | `Finding` + status vocabulary | Richer product overlays in `extensions` | `finding.schema.json`; `check` op; `spoke-operations` transitions |
 | **L8 Context** | AssemblePacket | Shared packet shape | Trim/rank policy — product-local | `assemble-packet.schema.json`; `assemble` op (wire-only) |
 
@@ -55,7 +55,7 @@ Spoke Protocol Research maps Nexus product Timeline surfaces (**Brief / Narrativ
 | **`narrative`** | Ordered story events on the Timeline | First-class `Event` objects and/or event-shaped Keyblocks |
 | **`moment`** | Fine grain (scene / beat / beat-local) | Finer temporal units; product may keep some carriers local until wire exists |
 
-**Wire field (architect-locked target wire):** optional `timeline_scale` on `Event` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed in sibling plan **`ops-harden`** (not yet in tree).
+**Wire field (architect-locked):** optional `timeline_scale` on `Event` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed; ops `Scope` `$ref` wiring in sibling plan **`ops-harden`**.
 
 **Rules:**
 
@@ -111,8 +111,8 @@ Baseline compliance MUST NOT require either flag.
 | **L2 Body** | `keyblock.schema.json` → `body` subtree (`additionalProperties: true`) | `upsert-*` | — |
 | **L3 Provenance** | `data/source-anchor.schema.json`; optional on Keyblock / Finding / Event / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | — |
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | — |
-| **L5 Temporal** | `data/event.schema.json` (**`rule-event` plan**); `common/…#/definitions/TimelineScale` (**`ops-harden` plan**); tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.event_ids` / `Scope.timeline_scale` refinements (**`ops-harden` plan**); Event upsert via product binding or future op — **no new op in v0-iter003** | — |
-| **L6 Constraint** | `data/rule.schema.json` (**`rule-event` plan**) | `check-*` (`rule_refs` + embedded `rules[]`) | — (no helper this iteration) |
+| **L5 Temporal** | `data/event.schema.json`; `common/…#/definitions/TimelineScale`; tier vocabulary §L5 | `check-*`, `assemble-*` via `Scope.event_ids` / `Scope.timeline_scale` refinements (**`ops-harden` plan**); Event upsert via product binding or future op — **no new op in v0-iter003** | — |
+| **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]` — **`ops-harden` plan** for `rules[]` wire) | — (no helper this iteration) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
 | **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `keyblockToAssembleEntry` |
 
@@ -120,8 +120,8 @@ Baseline compliance MUST NOT require either flag.
 
 | Definition | Used by | Role |
 |------------|---------|------|
-| `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — **`ops-harden` plan** (architect-locked target wire) |
-| `TimelineScale` | `Event.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) — **`ops-harden` plan** (architect-locked target wire) |
+| `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — def committed; ops `$ref` in **`ops-harden` plan** |
+| `TimelineScale` | `Event.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) — committed in `common.schema.json` |
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |
 
@@ -131,7 +131,7 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Event, T
 
 - [x] Integrator can name baseline vs optional flags without reading research canvas
 - [x] Every baseline layer row maps to normative semantics (field tables + layer rules in this doc, data-model, ops)
-- [ ] Every baseline layer row maps to at least one **committed** schema or op family — **L5/L6** (`event.schema.json`, `rule.schema.json`) and **shared `Scope` / `TimelineScale`** defs pending sibling plans **`rule-event`** and **`ops-harden`**; L5 Event consumers may use product binding until `rule-event` lands
+- [x] Every baseline layer row maps to at least one **committed** schema or op family — L5/L6 data schemas landed (`rule-event`); shared `Scope` def committed; ops `$ref` wiring pending **`ops-harden`**
 - [x] Rule vs Finding and Check vs Assemble boundaries appear in this doc and cross-link data/ops specs
 - [x] Domain Profile section prevents “closed enum in core” misread
 - [x] Layer ↔ artifact matrix is complete (schema / op / library helper per layer; pending commits tagged with sibling plan)

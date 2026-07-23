@@ -107,10 +107,11 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 Executable checks for iteration close — detail in [delivery compass](../iterations/v0.1/delivery-compass.md):
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
-2. Codegen + verify-codegen green on CI
-3. Extensions contract enforced in data schemas
-4. `Rule` deferral documented; no orphan `rule.schema.json`
-5. Adapter dirs placeholder-only; no `fixtures/`
+2. Codegen + `verify-codegen` green locally and on **GitHub Actions** (`.github/workflows/ci.yml`)
+3. CI also typechecks / `cargo check`s `@42ch/spoke-schema` and `spoke-schema` (no publish jobs)
+4. Extensions contract enforced in data schemas
+5. `Rule` deferral documented; no orphan `rule.schema.json`
+6. Adapter dirs placeholder-only; no `fixtures/`
 
 ## Non-goals (v0.1)
 
@@ -121,11 +122,11 @@ Executable checks for iteration close — detail in [delivery compass](../iterat
 | `Rule` wire schema | Deferred — see data model §Rule deferral |
 | WASM / Computable Keyblock / Fork semantics | Not required protocol surface yet |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
-| npm/crates.io publish | Workspace-local packages suffice for v0.1 |
+| npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
 
 ## Roadmap pointer
 
-- **v0.1 (now):** Protocol bootstrap — schemas, codegen, language packages, empty adapter dirs
+- **v0.1 (now):** Protocol bootstrap — schemas, codegen, language packages, empty adapter dirs, **CI gate**
 - **Next iteration:** Implementable adapter packages (product object ↔ SPOKE), optional `Rule` schema, conformance fixtures
 - **North star:** Cross-product narrative Keyblock dialect for consistency-check and context-assembly I/O
 

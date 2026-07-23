@@ -2,7 +2,7 @@
 
 SPOKE wire contracts. **Hand-authored only** — TypeScript and Rust types are generated into `packages/spoke-schema/` and `crates/spoke-schema/`.
 
-Normative docs: [`specs/spoke-protocol.md`](../specs/spoke-protocol.md) (umbrella), [`specs/spoke-data-model.md`](../specs/spoke-data-model.md) (data layer), [`specs/spoke-ops.md`](../specs/spoke-ops.md) (ops layer).
+Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrella), [`spoke-data-model.md`](../.mstar/specs/spoke-data-model.md) (data layer), [`spoke-ops.md`](../.mstar/specs/spoke-ops.md) (ops layer).
 
 ## Layout (v0.1)
 
@@ -31,7 +31,7 @@ schemas/
     └── assemble-response.schema.json
 ```
 
-**Explicitly absent in v0.1:** `schemas/data/rule.schema.json` (deferred — see [data model §Rule deferral](../specs/spoke-data-model.md#rule-deferral-v01-decision)).
+**Explicitly absent in v0.1:** `schemas/data/rule.schema.json` (deferred — see [data model §Rule deferral](../.mstar/specs/spoke-data-model.md#rule-deferral-v01-decision)).
 
 ## Naming conventions
 

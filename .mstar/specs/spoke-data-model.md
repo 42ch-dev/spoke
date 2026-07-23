@@ -290,4 +290,4 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing, extensions, codegen layout |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
-| [`schemas/README.md`](../schemas/README.md) | Schema file checklist |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |

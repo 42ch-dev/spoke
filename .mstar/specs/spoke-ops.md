@@ -132,7 +132,7 @@ v0.1 delivers schema shapes only. Mapping Nexus daemon routes or Creader API han
 ## Acceptance (ops layer)
 
 - [ ] Each operation above has request + response schemas under `schemas/ops/`
-- [ ] `specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 ops, 10 schema files)
+- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 ops, 10 schema files)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by ops schemas
 - [ ] No transport-specific fields (HTTP method, URL path, gRPC service name) in ops schemas
@@ -151,4 +151,4 @@ v0.1 delivers schema shapes only. Mapping Nexus daemon routes or Creader API han
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`Keyblock`, `AssemblePacket`, …) |
-| [`schemas/README.md`](../schemas/README.md) | Ten op schema files under `schemas/ops/` |
+| [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |

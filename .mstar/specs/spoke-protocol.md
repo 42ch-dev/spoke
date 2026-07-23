@@ -19,7 +19,7 @@ Story-AI products each invent local shapes for knowledge units, checker I/O, and
 
 **Deferred data object:** `Rule` — see [`spoke-data-model.md` §Rule deferral](spoke-data-model.md#rule-deferral-v01-decision). No `rule.schema.json` in v0.1.
 
-**Schema file count (v0.1):** 17 hand-authored files (2 common + 5 data + 10 ops) — checklist in [`schemas/README.md`](../schemas/README.md).
+**Schema file count (v0.1):** 17 hand-authored files (2 common + 5 data + 10 ops) — checklist in [`schemas/README.md`](../../schemas/README.md).
 
 ## Extensions
 
@@ -89,13 +89,13 @@ spoke/
 | Module mirror | Generated folder names mirror `schemas/{common,data,ops}` |
 | Public API | Both packages re-export all leaf types from `index.ts` / `lib.rs` |
 
-Detail: [`schemas/README.md`](../schemas/README.md).
+Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## Repository layout (v0.1)
 
 | Path | v0.1 expectation |
 |------|------------------|
-| `specs/` | Normative protocol docs (this file + data + ops detail) |
+| `.mstar/specs/` | Normative protocol docs (this file + data + ops detail) |
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schema/` | Generated TypeScript |
@@ -104,7 +104,7 @@ Detail: [`schemas/README.md`](../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Executable checks for iteration close — detail in [delivery compass](../.mstar/iterations/v0.1/delivery-compass.md):
+Executable checks for iteration close — detail in [delivery compass](../iterations/v0.1/delivery-compass.md):
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree (5 data objects + 5 ops; `Rule` excluded)
 2. Codegen + verify-codegen green on CI
@@ -135,5 +135,5 @@ Executable checks for iteration close — detail in [delivery compass](../.mstar
 |-----|-------|
 | [`spoke-data-model.md`](spoke-data-model.md) | Five data objects, extensions, open vocabulary, `Rule` deferral |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, `assemble` wire-only boundary |
-| [`schemas/README.md`](../schemas/README.md) | 17-file schema tree and authoring rules |
-| [`delivery-compass.md`](../.mstar/iterations/v0.1/delivery-compass.md) | v0.1 acceptance criteria |
+| [`schemas/README.md`](../../schemas/README.md) | 17-file schema tree and authoring rules |
+| [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 acceptance criteria |

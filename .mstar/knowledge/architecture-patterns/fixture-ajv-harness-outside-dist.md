@@ -14,7 +14,7 @@ Protocol conformance fixtures need AJV validation in CI. Colocating the harness 
 2. Own the AJV/Vitest harness in `fixtures/toy-world/tests/` as workspace package **`@42ch/spoke-fixture-toy-world`** (`fixtures/toy-world/package.json`).
 3. **`@42ch/spoke-operations` stays pure library** — no `src/fixtures/**`, no AJV, no `node:fs` in the operations package graph.
 4. Wire root `pnpm run test:fixtures` (or `pnpm -F @42ch/spoke-fixture-toy-world test`) into CI `typescript` job **before** `@42ch/spoke-operations` build.
-5. Use Ajv v8 ESM imports (`import Ajv from "ajv"`) with `ajv-formats` interop; resolve schemas from repo-root `schemas/`.
+5. Use Ajv v8 named ESM imports (`import { Ajv } from "ajv"`) with `ajv-formats` default interop; resolve schemas from repo-root `schemas/` via shared `schema-validator.ts`.
 6. Fixtures package MAY import `@42ch/spoke-operations` for optional helper smoke tests; operations MUST NOT import fixtures or host fixture validation I/O.
 
 ## Layout
@@ -26,7 +26,18 @@ fixtures/toy-world/
 ├── vitest.config.ts
 ├── README.md
 └── tests/                 # AJV harness (not under packages/spoke-operations/)
-    └── validate-fixtures.test.ts
+    ├── schema-validator.ts           # AJV setup + schema registry
+    ├── toy-world-conformance.test.ts # JSON graph validates against schemas
+    └── toy-world-ops-exercise.test.ts # optional @42ch/spoke-operations smoke
+```
+
+**Ajv import (matches `schema-validator.ts`):**
+
+```typescript
+import { Ajv } from "ajv";
+import * as ajvFormatsModule from "ajv-formats";
+
+const addFormats = ajvFormatsModule.default as (ajv: Ajv) => Ajv;
 ```
 
 ## What failed (pre-boundary)

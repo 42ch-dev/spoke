@@ -1,6 +1,6 @@
 # SPOKE Protocol (umbrella)
 
-> **Status:** Draft (iteration v0.1)  
+> **Status:** Normative (v0.1)  
 > **Document class:** Master  
 > **Owns:** Cross-cutting protocol framing for data + ops layers
 
@@ -137,4 +137,6 @@ Executable checks for iteration close — detail in [delivery compass](../iterat
 | [`spoke-data-model.md`](spoke-data-model.md) | Five data objects, extensions, open vocabulary, `Rule` deferral |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, `assemble` wire-only boundary |
 | [`schemas/README.md`](../../schemas/README.md) | 17-file schema tree and authoring rules |
-| [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 acceptance criteria |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Keyblock vocabulary; Keyblock ≠ World KB ≠ Author Memory |
+| [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |
+| [`delivery-compass.md`](../iterations/v0.1/delivery-compass.md) | v0.1 acceptance criteria (harness-local) |

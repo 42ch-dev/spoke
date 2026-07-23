@@ -1,6 +1,6 @@
 # SPOKE Operations
 
-> **Status:** Draft (iteration v0.1)  
+> **Status:** Normative (v0.1)  
 > **Document class:** Detail — ops / behavioral layer  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/ops/`, `schemas/common/`
@@ -152,3 +152,4 @@ v0.1 delivers schema shapes only. Mapping Nexus daemon routes or Creader API han
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`Keyblock`, `AssemblePacket`, …) |
 | [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |
+| [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

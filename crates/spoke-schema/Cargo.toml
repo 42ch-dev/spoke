@@ -1,0 +1,14 @@
+[package]
+name = "spoke-schema"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SPOKE wire types — Rust generated from JSON Schema"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+regress.workspace = true

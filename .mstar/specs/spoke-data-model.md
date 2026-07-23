@@ -1,6 +1,6 @@
 # SPOKE Data Model
 
-> **Status:** Draft (iteration v0.1)  
+> **Status:** Normative (v0.1)  
 > **Document class:** Detail — data layer  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/data/`, `schemas/common/`
@@ -291,3 +291,4 @@ Cross-product narrative set (union of Nexus + Creader research inputs):
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing, extensions, codegen layout |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Vocabulary boundaries (Keyblock vs product stores) |

@@ -1,0 +1,40 @@
+{
+  "name": "@42ch/spoke-operations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SPOKE lifecycle operations — pure helpers over wire types",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@42ch/spoke-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "spoke",
+    "keyblock",
+    "operations"
+  ]
+}

@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-codegen:
+    name: verify-codegen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        # pnpm/action-setup@v4.4.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust
+          workspaces: .
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify codegen output
+        run: pnpm run verify-codegen
+
+  typescript:
+    name: typescript
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        # pnpm/action-setup@v4.4.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck @42ch/spoke-schemas
+        run: pnpm -F @42ch/spoke-schemas typecheck
+
+      - name: Build @42ch/spoke-schemas
+        run: pnpm -F @42ch/spoke-schemas build
+
+      - name: Typecheck @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations typecheck
+
+      - name: Test @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations test
+
+      - name: Test toy-world fixtures
+        run: pnpm run test:fixtures
+
+      - name: Build @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations build
+
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust
+          workspaces: .
+
+      - name: Check spoke-schemas crate
+        run: cargo check -p spoke-schemas
+
+  verify-version:
+    name: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Assert lockstep package versions
+        run: pnpm run verify:version
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    needs:
+      - verify-codegen
+      - typescript
+      - rust
+      - verify-version
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release notes
+        id: notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          BODY=$(git tag -l --format='%(contents)' "$TAG")
+          if [ -z "$BODY" ]; then
+            BODY="Release $TAG"
+          fi
+          {
+            echo "body<<EOF"
+            printf '%s\n' "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        # softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}

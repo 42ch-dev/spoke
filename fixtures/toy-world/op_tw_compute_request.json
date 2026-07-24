@@ -1,0 +1,8 @@
+{
+  "session_id": "sess_tw_dawn_arrival",
+  "entry_id": "kb_tw_harbor",
+  "computable": {
+    "tide_level": 2.5,
+    "cargo_tons": 37
+  }
+}

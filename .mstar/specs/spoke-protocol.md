@@ -22,7 +22,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
+**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
 
 ## Nine-layer model (L0–L8)
 
@@ -34,6 +34,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 |-------|---------------------|-----------|
 | **Protocol layers + Rule/TimelineEvent (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
 | **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON on `main`; harness relocates to `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
+| **Optional `l2-computable` ops (`project` / `compute`)** | **23** | +4 ops schemas; optional capability — baseline integrators unchanged |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 
@@ -123,7 +124,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five ops, **19** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md).
+Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five baseline ops plus optional `project` / `compute`, **23** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md).
 
 **CI + inventory (required):**
 
@@ -173,6 +174,6 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent (protocol layers deepen) |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, helper families (first slice + deepen), hard In/Out |
-| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (19 files committed) |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (23 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

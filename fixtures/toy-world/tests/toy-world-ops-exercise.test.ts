@@ -8,11 +8,16 @@ import {
   knowledgeEntryMatchesScope,
   timelineEventMatchesScope,
   transitionFindingStatus,
+  validateComputableLogEntry,
+  validateComputeRequest,
+  validateProjectRequest,
   validatePromoteRequest,
 } from "@42ch/spoke-operations";
 import type {
+  ComputeRequest,
   Finding,
   KnowledgeEntry,
+  ProjectRequest,
   PromoteRequest,
   Scope,
   TimelineEvent,
@@ -92,5 +97,19 @@ describe("fixtures/toy-world ops exercise", () => {
     if (result.ok) {
       expect(result.value.status).toBe("resolved");
     }
+  });
+
+  it("validates optional project/compute op fixtures", () => {
+    const projectRequest = loadFixture<ProjectRequest>("op_tw_project_request.json");
+    const computeRequest = loadFixture<ComputeRequest>(
+      "op_tw_compute_settle_request.json",
+    );
+    const timelineEvent = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
+
+    expect(validateProjectRequest(projectRequest).ok).toBe(true);
+    expect(validateComputeRequest(computeRequest).ok).toBe(true);
+    expect(
+      validateComputableLogEntry(timelineEvent.computable_logs![0]!).ok,
+    ).toBe(true);
   });
 });

@@ -1,5 +1,7 @@
 # SPOKE
 
+[![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
+
 [中文](README_CN.md)
 
 **Standardized Programmable Ontology Knowledge Engine** — a protocol repository of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products use these shapes for consistency-check and context-assembly I/O without sharing a database or runtime.

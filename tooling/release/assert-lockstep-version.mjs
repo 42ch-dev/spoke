@@ -7,6 +7,11 @@
  *   2. Run `pnpm run verify:version` — expect non-zero exit and expected vs actual output.
  *   3. Revert the change; assert must pass again.
  *
+ * Release tag test (optional SPOKE_RELEASE_TAG):
+ *   SPOKE_RELEASE_TAG=v0.1.0 node tooling/release/assert-lockstep-version.mjs  # pass
+ *   SPOKE_RELEASE_TAG=0.1.0 node tooling/release/assert-lockstep-version.mjs  # fail (missing v)
+ *   SPOKE_RELEASE_TAG=v9.9.9 node tooling/release/assert-lockstep-version.mjs  # fail (mismatch)
+ *
  * Normative: `.mstar/specs/spoke-version-release.md`
  */
 
@@ -23,6 +28,8 @@ import {
 } from "./lockstep-surfaces.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
+
+const RELEASE_TAG_SEMVER_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$/;
 
 /** @type {{ path: string; expected: string; actual: string; detail?: string }[]} */
 const failures = [];
@@ -95,6 +102,30 @@ function assertEqual(relativePath, expected, actual) {
 }
 
 const canonicalVersion = readJsonVersion(CANONICAL_PATH);
+
+const releaseTag = process.env.SPOKE_RELEASE_TAG?.trim();
+if (releaseTag) {
+  if (!releaseTag.startsWith("v")) {
+    recordFailure(
+      "git tag (SPOKE_RELEASE_TAG)",
+      `v${canonicalVersion}`,
+      releaseTag,
+      'Release tag MUST start with "v" (e.g. v0.2.0 or v0.2.0-rc.1).',
+    );
+  } else {
+    const tagVersion = releaseTag.slice(1);
+    if (!RELEASE_TAG_SEMVER_PATTERN.test(tagVersion)) {
+      recordFailure(
+        "git tag (SPOKE_RELEASE_TAG)",
+        canonicalVersion,
+        tagVersion,
+        `Tag version segment must match SemVer (got "${tagVersion}").`,
+      );
+    } else {
+      assertEqual("git tag (SPOKE_RELEASE_TAG)", canonicalVersion, tagVersion);
+    }
+  }
+}
 
 for (const jsonPath of JSON_VERSION_PATHS) {
   const actual = readJsonVersion(jsonPath);

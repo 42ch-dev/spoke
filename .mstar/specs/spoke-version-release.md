@@ -103,6 +103,8 @@ Release workflows MUST NOT publish to npm or crates.io. Third-party Actions MUST
 | CI job | `verify-version` in `ci.yml` — checkout + Node 20 only; runs in parallel with other jobs |
 | On failure | Non-zero exit; prints expected (canonical) vs actual per surface |
 
+On tag push, `release.yml` `verify-version` MUST also assert `github.ref_name` equals `v` + canonical `package.json` version (via `SPOKE_RELEASE_TAG` env on the assert script).
+
 ### Tag release workflow (fail-closed)
 
 | Item | Value |

@@ -34,8 +34,8 @@ export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
 export const README_BADGE_PATHS = ["README.md", "README_CN.md"];
 
 /**
- * Shields.io version badge URL segment matcher.
+ * Shields.io version badge full URL matcher (anchored for CodeQL).
  * Captures the SemVer string after `version-` and before the trailing `-`.
  */
 export const README_BADGE_REGEX =
-  /img\.shields\.io\/badge\/version-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)-/;
+  /https:\/\/img\.shields\.io\/badge\/version-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)-/;

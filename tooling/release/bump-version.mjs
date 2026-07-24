@@ -98,13 +98,13 @@ function replaceWorkspacePackageVersion(contents, version) {
 function replaceReadmeBadgeVersion(contents, oldVersion, newVersion) {
   const escaped = oldVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const badgePattern = new RegExp(
-    `(img\\.shields\\.io\\/badge\\/version-)${escaped}(-)`,
+    `(https:\\/\\/img\\.shields\\.io\\/badge\\/version-)${escaped}(-)`,
     "g",
   );
 
   if (!badgePattern.test(contents)) {
     throw new Error(
-      `README badge for version ${oldVersion} not found (expected shields.io version-${oldVersion}- segment)`,
+      `README badge for version ${oldVersion} not found (expected https://img.shields.io/badge/version-${oldVersion}- URL)`,
     );
   }
 

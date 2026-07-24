@@ -49,7 +49,7 @@ CI **lockstep assert** MUST cover rows 1–9. Drift on any row MUST fail the bui
 | **MINOR** (`0.1.z` → `0.2.0`) | Backward-compatible wire or ops library additions |
 | **MAJOR** (`0.x.y` → `1.0.0`) | Breaking wire or public API change |
 
-Pre-1.0: breaking changes remain allowed per root `AGENTS.md`; still use SemVer strings for packaging identity. Release notes MUST call out wire-impacting changes even when package and `schema_version` move independently.
+Pre-1.0: breaking wire or public API changes remain allowed without a deprecation period; still use SemVer strings for packaging identity. Release notes MUST call out wire-impacting changes even when package and `schema_version` move independently.
 
 ## Tag convention
 
@@ -182,4 +182,4 @@ A package SemVer bump does **not** require a wire `schema_version` bump, and vic
 | [`spoke-protocol.md`](spoke-protocol.md) | Protocol umbrella |
 | [`STRATEGY.md`](../../STRATEGY.md) | No registry publish from CI |
 | [`.mstar/roadmap.md`](../roadmap.md) | Product scheduling |
-| Root `README.md` / `README_CN.md` | Consumer pinning and maintainer release workflow |
+| Root `README.md` / `README_CN.md` | Version badge only today; consumer pinning and maintainer how-to land with operator tooling docs |

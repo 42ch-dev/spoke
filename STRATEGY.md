@@ -4,7 +4,7 @@
 
 **SPOKE is a protocol repository, not a runtime.**
 
-It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and **ops** so products (Nexus, Creader, others) can exchange consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
+It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and **ops** so independent products can exchange consistency-check and context-assembly I/O without sharing a database, daemon, or deployment.
 
 ## What we build
 
@@ -20,7 +20,7 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 ## What we do not build
 
 - Shared runtime, daemon, or MCP server
-- Nexus ↔ SPOKE or Creader ↔ SPOKE conversion (adapter packages deferred)
+- Product ↔ SPOKE conversion packages (adapter packages deferred)
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` — fixtures conformance slice)
 - npm/crates.io publish (workspace-local packages; CI must not publish)
 
@@ -52,7 +52,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Protocol layers + Rule/TimelineEvent (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
 | **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, KnowledgeEntry status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
 | **KnowledgeEntry / TimelineEvent terminology (delivered 2026-07-23)** | Wire + ops + fixtures + docs rename; product expand Standardized Programmable Ontology Knowledge Engine |
-| **Next (when scheduled)** | Adapter packages (`adapters/nexus`, `adapters/creader`) — deferred on living roadmap until a product binding sprint |
+| **Next (when scheduled)** | Optional **`l2-computable`** body (`body.state` / `body.computable`), Session/Moment semantics, **`project` / `compute`** ops — normative specs locked; implementation pending |
+| **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 
 ## See also

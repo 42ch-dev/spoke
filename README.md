@@ -2,9 +2,15 @@
 
 [中文](README_CN.md)
 
-**Standardized Programmable Ontology Knowledge Engine** — a protocol repository of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Products such as Nexus and Creader use these shapes for consistency-check and context-assembly I/O across independent stacks.
+**Standardized Programmable Ontology Knowledge Engine** — a protocol repository of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products use these shapes for consistency-check and context-assembly I/O without sharing a database or runtime.
 
-**Includes:** data-layer schemas (KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent); ops-layer schemas (`upsert`, extract→promote, `relate`, `check`, `assemble`); generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`); pure lifecycle helpers (`@42ch/spoke-operations`); protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/)).
+**Includes:**
+
+- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent
+- Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
+- Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`)
+- Pure lifecycle helpers (`@42ch/spoke-operations`)
+- Protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/))
 
 ## Packages
 
@@ -14,7 +20,7 @@
 | [`@42ch/spoke-operations`](packages/spoke-operations/) | Hand-written pure helpers — promote gates, Finding transitions, extension merge, AssemblePacket construction |
 | `spoke-schemas` (Rust crate) | Generated Rust types in [`crates/spoke-schemas/`](crates/spoke-schemas/) |
 
-Product-specific payloads live under `extensions.<namespace>` (e.g. `extensions.nexus`, `extensions.creader`).
+Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids).
 
 ## Install and consume
 
@@ -56,6 +62,17 @@ Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-sc
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
 
 Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md).
+
+## Optional capabilities
+
+Products that need programmable KnowledgeEntry body state may declare **`l2-computable`**:
+
+- **`body.state`** — static durable computable values
+- **`body.computable`** — dynamic Session-scoped projection
+- **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
+- **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
+
+Baseline integrators omit the entire capability with no breaking change. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
 
 ## Quick start
 

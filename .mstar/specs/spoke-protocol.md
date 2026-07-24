@@ -17,7 +17,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
 | **1. Data** | Seven required objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **TimelineEvent** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
-| **2. Ops wire** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
+| **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas when shipped) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
@@ -26,7 +26,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
 
 **Schema file count:**
 
@@ -47,7 +47,7 @@ Every durable data object MUST include:
 
 | Rule | Requirement |
 |------|-------------|
-| Namespace keys | Product ids (`nexus`, `creader`, …) |
+| Namespace keys | Product-chosen ids matching `^[a-z][a-z0-9_-]*$` |
 | Values | Opaque JSON objects |
 | Round-trip | Adapters MUST preserve unknown namespaces and unknown keys inside a namespace |
 | Core fields | Protocol objects use `additionalProperties: false`; extensions are the sole product-specific bag |
@@ -148,8 +148,9 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 
 | Out of scope | Rationale |
 |--------------|-----------|
-| Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred |
-| WASM / Computable KnowledgeEntry / Fork semantics | Not required protocol surface yet |
+| Product ↔ SPOKE conversion packages | Adapter packages deferred |
+| Required WASM / compute engines in protocol | Optional `l2-computable` shapes I/O only — engines are product-owned |
+| Fork semantics (`l5-fork`) | Optional capability — wire TBD |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
 

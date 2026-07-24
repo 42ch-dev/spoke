@@ -70,7 +70,7 @@
       "occurred_at": "1421-06-03T00:00:00Z",
       "participant_entry_ids": ["kb_mira", "kb_ashford"],
       "extensions": {
-        "nexus": { "world_id": "wld_abc" }
+        "my_product": { "world_id": "wld_abc" }
       }
     }
   ]

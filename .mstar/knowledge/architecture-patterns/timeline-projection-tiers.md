@@ -6,7 +6,7 @@
 
 ## Problem
 
-Nexus ships Timeline as three semantic-zoom layers (Brief / Narrative / Moment). Research originally treated the carriers as product-local. Without a protocol vocabulary, integrators invent parallel labels for the same when-axis scales.
+Integrators often expose Timeline as three semantic-zoom layers (Brief / Narrative / Moment). Research originally treated the carriers as product-local. Without a protocol vocabulary, each stack invents parallel labels for the same when-axis scales.
 
 ## Decision
 

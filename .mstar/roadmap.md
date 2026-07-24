@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-_Nothing scheduled._ **EntryType field rename + canvas coverage sync** is on integration (`iteration/v0-iter007`); merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
+Optional **Computable** capability — normative specs locked for **`l2-computable`** (`body.state` / `body.computable`), Session/Moment semantics, and **`project` / `compute`** op wire. Schema, codegen, pure helpers, and fixtures implementation pending.
 
 ---
 
@@ -20,12 +20,12 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
 | 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Optional capability — not baseline |
-| 2 | Optional **`project` / compute** op family | Transport-agnostic I/O for programmable body state (Nexus-class) | Optional; Creader-class products omit. Canvas `project` / `compute`* rows are **deferred here** — not a baseline wire omission; five core ops (upsert, promote, relate, check, assemble) are canvas-covered per [`spoke-ops.md`](specs/spoke-ops.md) |
-| 3 | Optional **`l2-computable`** body fields | Documented optional `body.state` / computable shape on KnowledgeEntry | Capability flag already named in layers spec |
+| 2 | Optional **`project` / `compute` op family** (`l2-computable`) | Init/projection (`project`) and apply/settle (`compute`) I/O for Session-scoped `body.computable` | Optional — baseline five ops unchanged; products omit both ops when not declaring `l2-computable`. Normative intent in [`spoke-ops.md`](specs/spoke-ops.md) §Optional ops |
+| 3 | Optional **`l2-computable`** body + Moment logs | Optional `body.state` (static) + `body.computable` (dynamic Session projection); optional `computable_logs` on Moment-scale TimelineEvents | Single flag covers body fields, logs, and optional ops; Session lifecycle is normative prose + op `session_id` — not `entry_type` or durable Session wire object |
 | 4 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 | 5 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (19) in sync when adding schemas | See open residuals in local harness status when present |
 
-**Explicitly not on this roadmap right now:** product adapter packages (`adapters/nexus`, `adapters/creader`). The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled. (Wire names now match Creader `KnowledgeEntry` 1:1, which unblocks that sprint when scheduled.)
+**Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
 
 ---
 

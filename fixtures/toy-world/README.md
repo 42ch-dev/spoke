@@ -18,7 +18,7 @@ Minimal **protocol-owned** JSON graph for integrators to validate parsers and co
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |
 | `pkt_tw_scope.json` | AssemblePacket | `pkt_tw_scope` |
 
-`kb_tw_mira` carries `extensions.nexus` and `extensions.creader` with distinct preserve-unknown keys.
+`kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 
 ## Validate locally
 

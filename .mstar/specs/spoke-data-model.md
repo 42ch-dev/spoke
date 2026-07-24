@@ -112,6 +112,7 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
 | `participant_entry_ids` | string[] | Related KnowledgeEntry ids (characters, locations, …) |
 | `source_anchor` | `SourceAnchor` | Manuscript / scene anchor |
 | `sort_key` | string | Opaque ordering hint within a timeline (products define grammar) |
+| `computable_logs` | `ComputableLogEntry[]` | Optional Moment-scale presentation of computable field changes (`l2-computable` only) — see §Computable logs |
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
 
@@ -128,12 +129,42 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
   "occurred_at": "1421-06-03T00:00:00Z",
   "participant_entry_ids": ["kb_mira", "kb_ashford"],
   "extensions": {
-    "nexus": { "world_id": "wld_abc" }
+    "my_product": { "world_id": "wld_abc" }
   }
 }
 ```
 
 Product world/book ids belong in `extensions.<namespace>` — not protocol siblings on `TimelineEvent`.
+
+### Computable logs (`l2-computable` optional)
+
+When a product records dynamic computable field history on the Moment axis, it MAY attach **`computable_logs`** to a `TimelineEvent` with `timeline_scale: "moment"`.
+
+| Rule | Requirement |
+|------|-------------|
+| **Not Finding** | Log entries MUST NOT reuse Finding fields (`finding_id`, `severity`, `title`, `suggested_fix`, …) |
+| **Not Session wire** | Logs are presentation only — Session lifecycle stays op-correlated via `session_id`, not a durable Session object |
+| **Engines** | SPOKE does not define how `previous` / `next` values are computed |
+
+**`ComputableLogEntry`** (`common.schema.json#/definitions/ComputableLogEntry`):
+
+| Field | Required | Type |
+|-------|----------|------|
+| `logged_at` | yes | RFC 3339 timestamp |
+| `entry_id` | yes | KnowledgeEntry id whose computable fields changed |
+| `changes` | yes | `ComputableLogChange[]` |
+| `session_id` | no | Opaque Session correlation (matches op `session_id`) |
+| `message` | no | Human-readable presentation note |
+
+**`ComputableLogChange`:**
+
+| Field | Required | Type |
+|-------|----------|------|
+| `path` | yes | Dot-path or JSON Pointer to changed field within `body.computable` |
+| `previous` | no | Opaque JSON — value before change |
+| `next` | no | Opaque JSON — value after change |
+
+---
 
 ### Dual-concern example (ontology `"event"` vs TimelineEvent)
 
@@ -165,7 +196,7 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/TimelineScale`.
 | `narrative` | Human-paced ordered events (days–years) |
 | `moment` | Scene / beat / sub-scene precision |
 
-Products MAY emit values outside the core trio; adapters MUST round-trip unknown values. Tier names standardize **Timeline dimension semantics** — not Nexus/Creader canvas surface requirements.
+Products MAY emit values outside the core trio; adapters MUST round-trip unknown values. Tier names standardize **Timeline dimension semantics** — not any product’s canvas surface requirements.
 
 ---
 
@@ -185,11 +216,9 @@ Products MAY emit values outside the core trio; adapters MUST round-trip unknown
 | **Remediation** | Not on Rule wire | Optional `suggested_fix`, `text_position` |
 | **MUST NOT** | Appear in `findings[]` | Appear in `check` request as rules |
 
-**Historical note:** v0.1 deferred the `Rule` wire object; `check` accepted opaque `rule_refs: string[]` only. Protocol layers deepen ships portable `Rule` and `TimelineEvent` shapes — field tables above are normative.
-
 | Related concern | Product rule |
 |-----------------|--------------|
-| Adapter mapping | Creader `KnowledgeEntryType: "rule"` and Nexus overlays map in **future adapter specs** — not blockers for wire shapes |
+| Adapter mapping | Product ontology labels map in **future adapter specs** / Showcases — not blockers for wire shapes |
 | KnowledgeEntry `entry_type: "rule"` | Valid open ontology label on a KnowledgeEntry — distinct from L6 `Rule` wire object |
 | Fork | Optional L5 capability — not required with `TimelineEvent` |
 
@@ -236,7 +265,29 @@ Every durable data object schema MUST:
 - Typed attributes (e.g. `summary`, `tags`, `attributes`) live under `body`, not as sibling protocol keys.
 - Product-specific body shapes MUST NOT add protocol siblings; use `extensions.<namespace>` for opaque product fields that must round-trip outside `body`.
 
-### Illustrative instance
+### Computable body (`l2-computable` optional)
+
+Products declaring **`l2-computable`** MAY use two documented optional keys under `body`. Both share **`ComputableFieldMap`** (`common.schema.json#/definitions/ComputableFieldMap`): an open JSON object (`additionalProperties: true`) for product domain values. Protocol does **not** require WASM bytecode or executable artifacts in required fields.
+
+| Key | Role | Lifecycle |
+|-----|------|-----------|
+| **`state`** | Static durable computable state | Authoritative on disk pre-Session and after settle |
+| **`computable`** | Dynamic Session-scoped projection | Absent or inert pre-Session; mutates mid-Session only; merged into `state` at settle |
+
+**Session lifecycle (normative):**
+
+| Phase | `body.state` | `body.computable` |
+|-------|--------------|-------------------|
+| Pre-Session | Present (when capability used) | Absent or inert |
+| Session start | Unchanged | Initialized from `state` (typically via `project` op) |
+| Mid-Session | MUST NOT be silently rewritten | Only subtree that mutates |
+| Session end | Receives merged values from `computable` | Cleared or inert after settle (typically via `compute` op with `settle: true`) |
+
+**Session** is a lifecycle concept — not `entry_type`, not a durable KnowledgeEntry, not a top-level wire object. Correlation uses op-level `session_id` (see [`spoke-ops.md`](spoke-ops.md) §Optional ops).
+
+**Dual-concern:** Moment `computable_logs` on TimelineEvent are presentation for field history — distinct from L7 **Finding** checker output.
+
+---
 
 ```json
 {
@@ -259,10 +310,30 @@ Every durable data object schema MUST:
   "created_at": "2026-07-23T08:00:00Z",
   "updated_at": "2026-07-23T09:15:00Z",
   "extensions": {
-    "nexus": { "world_id": "wld_abc" }
+    "my_product": { "world_id": "wld_abc" }
   }
 }
 ```
+
+### Illustrative instance (`l2-computable` — mid-Session)
+
+```json
+{
+  "schema_version": 1,
+  "entry_id": "kb_sim_01",
+  "entry_type": "item",
+  "canonical_name": "Harbor simulation",
+  "status": "confirmed",
+  "body": {
+    "summary": "Tide and cargo model for Ashford harbor.",
+    "state": { "tide_level": 2.1, "cargo_tons": 40 },
+    "computable": { "tide_level": 2.4, "cargo_tons": 38 }
+  },
+  "extensions": {}
+}
+```
+
+Pre-Session and post-settle: omit `computable` or leave inert; `state` holds durable values.
 
 ---
 
@@ -347,14 +418,14 @@ Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_pos
 
 ```json
 "extensions": {
-  "nexus": { },
-  "creader": { }
+  "my_product": { },
+  "other_product": { }
 }
 ```
 
 | Rule | Requirement |
 |------|-------------|
-| Namespace keys | Product ids (`nexus`, `creader`, …) — `^[a-z][a-z0-9_-]*$` |
+| Namespace keys | Product-chosen ids — `^[a-z][a-z0-9_-]*$` |
 | Values | Opaque JSON objects (`additionalProperties: true` per namespace value) |
 | Unknown namespaces | Adapters MUST preserve on round-trip |
 | Unknown keys inside a namespace | Adapters MUST preserve on round-trip |
@@ -372,7 +443,7 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
 ### Core `entry_type` vocabulary (documented, not enforced)
 
-Cross-product narrative set (union of Nexus + Creader research inputs). Order: baseline narrative set, Creader extras, then canvas-sync additions.
+Cross-product narrative set used by the protocol core list. Order: baseline narrative types, authoring extras, then canvas-sync additions.
 
 | Value | Typical use |
 |-------|-------------|
@@ -380,15 +451,15 @@ Cross-product narrative set (union of Nexus + Creader research inputs). Order: b
 | `location` | Place |
 | `event` | Ontology label for plot / story-beat facts; **≠** L5 `TimelineEvent` wire object |
 | `scene` | Scene unit |
-| `act` | Structural act (script / Creader) |
-| `organization` | Group / faction (Nexus) |
+| `act` | Structural act (script / screenplay) |
+| `organization` | Group / faction |
 | `item` | Object / artifact |
 | `conflict` | Dramatic conflict unit |
 | `info_point` | Foreshadowing / revelation hook |
 | `era` | World-timeline era / brief marker |
-| `worldbuilding` | Encyclopedia / lore entry (Creader) |
-| `note` | Free-form author note (Creader) |
-| `research` | External research note (Creader) |
+| `worldbuilding` | Encyclopedia / lore entry |
+| `note` | Free-form author note |
+| `research` | External research note |
 | `ability` | Skill / power / capability KnowledgeEntry (canvas baseline) |
 | `rule` | World rule / constraint **ontology label** on a KnowledgeEntry; **≠** L6 `Rule` wire object (`rule_id`, `kind`, `statement`, `target_entry_types`) |
 
@@ -413,10 +484,10 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `era` | **Keep** (core) | Brief-scale timeline marker |
 | `worldbuilding`* | **Keep** (core) | Lore / encyclopedia; `*` = profile variants |
 | `rule`* | **Add** (core) | Ontology label `entry_type: "rule"`; **≠** L6 `Rule` object |
-| `note`, `research` | **Keep** (core) | Creader baseline; not shown on canvas `TYPE_MAP` |
-| `dialogue` | **Profile-only** | Domain Profile / adapter spec (Nexus-class) |
-| `beat` | **Profile-only** | Domain Profile / adapter spec (Nexus-class) |
-| `species`, `magic_system` | **Profile-only** | Typically under worldbuilding profile (Nexus) |
+| `note`, `research` | **Keep** (core) | Authoring extras; not shown on canvas `TYPE_MAP` |
+| `dialogue` | **Profile-only** | Domain Profile / adapter spec |
+| `beat` | **Profile-only** | Domain Profile / adapter spec |
+| `species`, `magic_system` | **Profile-only** | Typically under worldbuilding profile |
 
 **Dual-concern quick reference:**
 
@@ -425,6 +496,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `entry_type: "rule"` on a KnowledgeEntry — is that the L6 `Rule` object? | **No.** KB ontology label only. L6 rules use `rule.schema.json` + `rule_id`. |
 | `target_entry_types` on a `Rule` — what does it filter? | KnowledgeEntry **`entry_type`** strings (e.g. `character`, `event`), not `Rule` object kinds. |
 | `entry_type: "event"` vs `TimelineEvent`? | KB fact node vs L5 when-axis object. `Scope` uses `entry_types` vs `timeline_event_ids` separately. |
+| Session vs TimelineEvent vs Finding? | Session = lifecycle (`session_id` on ops); TimelineEvent = when-axis; `computable_logs` = presentation; Finding = checker output. |
 | Should `dialogue` / `beat` be in the core table? | **No.** Profile-only per baseline lock. |
 
 ### Core KnowledgeEntry `status` vocabulary (documented, not enforced)
@@ -463,6 +535,9 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md)
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
+- **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body
+- **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`
+- **ComputableLogEntry** — Moment-scale presentation on `TimelineEvent.computable_logs` (not Finding)
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
 - **Finding** — checker output, not a KnowledgeEntry body
 - **Rule** — L6 declarative wire object (protocol layers deepen); not synonymous with `entry_type: "rule"` which remains a valid open string if products use it
@@ -478,7 +553,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 
 ## Non-goals (data layer)
 
-- Nexus/Creader object mapping implementations (adapter iteration)
+- Product object mapping implementations (adapter iteration)
 - Closed enums for all entry types
 - Required Fork / world-history fields in baseline compliance
 - Required WASM or computable KnowledgeEntry bodies (optional `l2-computable` capability only)

@@ -48,6 +48,26 @@ How an integrator publishes ontology vocabulary without closing core protocol en
 
 Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics per [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Baseline — excludes required Fork (`l5-fork`) and L2 computable state (`l2-computable`).
 
+### l2-computable
+
+Optional capability flag: `body.state` + `body.computable` on KnowledgeEntry, optional `computable_logs` on Moment-scale TimelineEvents, and optional `project` / `compute` op families. Session lifecycle is normative prose + op `session_id` correlation — not a durable Session wire object or `entry_type`.
+
+### Session (computable lifecycle)
+
+Protocol lifecycle binding static `body.state` to temporary `body.computable` projection. Not an ontology label, not a required KnowledgeEntry, not a top-level schema. Products own Session stores; SPOKE documents init → mutate computable only → settle invariants.
+
+### ComputableFieldMap
+
+Open JSON object (`additionalProperties: true`) shared by `body.state` and `body.computable`. Domain field names and values are product-owned; protocol does not embed WASM bytecode as required fields.
+
+### ComputableLogEntry
+
+Presentation-only log item on `TimelineEvent.computable_logs` for Moment-scale computable field history. Distinct from Finding (L7 checker output).
+
+### project / compute (ops)
+
+Optional ops under `l2-computable`. **`project`** = init/projection (static `state` → dynamic `computable`). **`compute`** = apply/settle I/O (`computable` updates; optional `settle: true` returns merged `state`). Products run all engines.
+
 ### AssemblePacket
 
 Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
@@ -98,6 +118,7 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | **World KB / Author Memory** | Product-local stores; mapped via adapters — not redefined as protocol types |
 | **Rule** | L6 declarative wire object + `check` input |
 | **TimelineEvent / TimelineScale** | L5 when-axis object + `brief` / `narrative` / `moment` vocabulary |
+| **Session / Computable** | Optional `l2-computable` lifecycle — `body.state`, `body.computable`, op `session_id`; not `entry_type` |
 | **Fork** | Optional capability `l5-fork` (not baseline) |
 
 **Invariant:** SPOKE standardizes interchange shapes. It does not own world history implementation, daemon routes, or checker engines.

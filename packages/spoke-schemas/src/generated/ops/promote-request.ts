@@ -40,9 +40,11 @@ export interface KnowledgeEntry {
    */
   status: string;
   /**
-   * Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings.
+   * Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings. Under l2-computable: optional state (static durable computable) and computable (dynamic Session-scoped projection).
    */
   body: {
+    state?: ComputableFieldMap;
+    computable?: ComputableFieldMap1;
     [k: string]: unknown | undefined;
   };
   source_anchor?: SourceAnchor;
@@ -59,6 +61,18 @@ export interface KnowledgeEntry {
    */
   updated_at?: string;
   extensions: ExtensionMap;
+}
+/**
+ * Static durable computable state (l2-computable optional). Authoritative pre-Session and after settle.
+ */
+export interface ComputableFieldMap {
+  [k: string]: unknown | undefined;
+}
+/**
+ * Dynamic Session-scoped computable projection (l2-computable optional). Absent or inert pre-Session; mutates mid-Session only.
+ */
+export interface ComputableFieldMap1 {
+  [k: string]: unknown | undefined;
 }
 /**
  * Optional provenance pointer.

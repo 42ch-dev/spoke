@@ -83,6 +83,58 @@
         }
       },
       "additionalProperties": false
+    },
+    "ComputableFieldMap": {
+      "type": "object",
+      "description": "Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.",
+      "additionalProperties": true
+    },
+    "ComputableLogChange": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Dot-path or JSON Pointer to changed field within body.computable."
+        },
+        "previous": {
+          "description": "Opaque JSON — value before change."
+        },
+        "next": {
+          "description": "Opaque JSON — value after change."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ComputableLogEntry": {
+      "type": "object",
+      "required": ["logged_at", "entry_id", "changes"],
+      "properties": {
+        "logged_at": {
+          "$ref": "#/definitions/Timestamp",
+          "description": "When the computable field change was recorded (RFC 3339)."
+        },
+        "entry_id": {
+          "type": "string",
+          "description": "KnowledgeEntry id whose computable fields changed."
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ComputableLogChange"
+          },
+          "description": "Field-level change records within body.computable."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Opaque Session correlation (matches op session_id when omitted on parent context)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable presentation note (presentation only)."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

@@ -50,6 +50,13 @@
       "type": "string",
       "description": "Opaque ordering hint within a timeline (products define grammar)."
     },
+    "computable_logs": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableLogEntry"
+      },
+      "description": "Optional Moment-scale presentation of computable field change history (l2-computable only). Not Finding-shaped."
+    },
     "created_at": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
     },

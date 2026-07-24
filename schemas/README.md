@@ -10,7 +10,7 @@ Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrel
 schemas/
 ├── README.md                           # this file
 ├── common/
-│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, shared ids
+│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, ComputableFieldMap, ComputableLogChange, ComputableLogEntry, shared ids
 │   └── error-envelope.schema.json      # shared ops error shape
 ├── data/
 │   ├── knowledge-entry.schema.json

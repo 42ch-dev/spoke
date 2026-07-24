@@ -111,13 +111,13 @@ Release workflows MUST NOT publish to npm or crates.io. Third-party Actions MUST
 | Trigger | `on.push.tags: ['v*']` |
 | Concurrency | `group: release-${{ github.ref }}`, `cancel-in-progress: true` |
 | Permissions | Workflow default `contents: read`; `release` job sets `contents: write` |
-| Job layout | **Parallel verify** (`verify-codegen`, `typescript`, `rust` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust]` |
+| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` |
 | Fail-closed | If any verify job fails, `release` MUST NOT run and MUST NOT create a GitHub Release |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
 | Notes body | Tag annotation via `git tag -l --format='%(contents)'`; fallback one-liner when empty |
 
-**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`.
+**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
 ### README version badge assert
 

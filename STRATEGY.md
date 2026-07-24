@@ -54,6 +54,7 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **KnowledgeEntry / TimelineEvent terminology (delivered 2026-07-23)** | Wire + ops + fixtures + docs rename; product expand Standardized Programmable Ontology Knowledge Engine |
 | **Optional Computable (`l2-computable`) (delivered 2026-07-24)** | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project` / `compute` ops + pure validators |
 | **Optional Fork (`l5-fork`) (delivered 2026-07-24)** | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` matcher; fixtures |
+| **Unified version release (delivered 2026-07-25)** | Lockstep bump/assert, annotated tags, CI-gated GitHub Release — [spoke-version-release.md](.mstar/specs/spoke-version-release.md) |
 | **Next (when scheduled)** | CI / codegen harden residuals and/or Rust `spoke-operations` crate; adapter packages when a product binding sprint is planned |
 | **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
@@ -65,3 +66,4 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | [`CONCEPTS.md`](CONCEPTS.md) | Domain vocabulary and boundaries |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec and acceptance criteria |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, TimelineScale vocabulary |
+| [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release |

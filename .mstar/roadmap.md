@@ -2,14 +2,14 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-24  
+**Updated:** 2026-07-25  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
 
 ---
 
 ## Now (in progress)
 
-_Nothing scheduled._ Optional **Fork** (`l5-fork`) is on integration; merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
+_No active slice — see Up next._
 
 ---
 
@@ -19,7 +19,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
-| 1 | CI / codegen harden (residuals) | e.g. TS codegen narrowing for ComputableLogChange; Rust generated-type duplication strategy; keep schema-count (**23**) in sync | Open residual: ComputableLogChange previous/next narrowing |
+| 1 | CI / codegen harden (residuals) | e.g. TS codegen narrowing for ComputableLogChange; Rust generated-type duplication strategy; keep schema-count (**23**) in sync | Open: ComputableLogChange previous/next narrowing |
 | 2 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 
 **Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
@@ -32,6 +32,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-25 | Unified version release | Lockstep assert + `release:bump` tooling; CI `verify-version` + tag-gated `release.yml`; README EN/CN pinning + maintainer how-to; [spoke-version-release.md](specs/spoke-version-release.md) |
 | 2026-07-24 | Optional Fork (`l5-fork`) | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` + matcher; fixtures; Moment `computable_logs` schema example; schema-count **23** |
 | 2026-07-24 | Optional Computable (`l2-computable`) | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project`/`compute` ops; pure validators; fixtures; schema-count **23** |
 | 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire locks `KnowledgeEntry` / `TimelineEvent`; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |
@@ -63,6 +64,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 - Default full manuscript text on the wire
 - Closed forever enums that freeze product ontology growth
 - Creator Memory / unpromoted chat as KnowledgeEntry graph canon
+- npm / crates.io publish from CI (workspace-local consumption; see version release spec)
 
 ---
 
@@ -73,6 +75,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`STRATEGY.md`](../STRATEGY.md) | Why / principles / three-column architecture |
 | [`CONCEPTS.md`](../CONCEPTS.md) | KnowledgeEntry / TimelineEvent spelling + dual-concern |
 | [`.mstar/specs/spoke-protocol.md`](specs/spoke-protocol.md) | Normative umbrella |
+| [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) | Lockstep SemVer, tags, CI-gated GitHub Release |
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
 | [`knowledge/architecture-patterns/l5-fork-timeline-event-wire.md`](knowledge/architecture-patterns/l5-fork-timeline-event-wire.md) | Compound note on optional Fork wire |
 | [`schemas/`](../schemas/) | Wire SSOT |

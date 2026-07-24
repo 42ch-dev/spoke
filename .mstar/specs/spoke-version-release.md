@@ -145,7 +145,14 @@ Both `README.md` and `README_CN.md` MUST contain a shields.io Version badge whos
 
 **Bump → assert contract:** `bump-version.mjs` writes all surfaces from `lockstep-surfaces.mjs`, then spawns assert (same entrypoint as CI). Exit non-zero if assert fails; no success message on drift.
 
-**CLI:** `node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]` — `--tag` creates a local annotated tag only (no push).
+**CLI:** `node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]` (root: `pnpm run release:bump -- X.Y.Z [--tag [message]]` — pass `--` before arguments when using pnpm).
+
+| Mode | Behavior |
+|------|----------|
+| Bump (`current ≠ target`) | Writes all lockstep surfaces, runs assert, prints commit + tag next steps. |
+| Already at target (`current = target`) | Re-runs assert only; prints tag push instructions. |
+| `--tag` on clean tree at target | Creates **local annotated tag** `vX.Y.Z` (optional message; default `Release vX.Y.Z`). Script never pushes. |
+| `--tag` during bump or on dirty tree | **Refused** (non-zero exit) with printed commit/tag instructions — commit first, then re-run same version with `--tag`. |
 
 ## Consumer pinning
 
@@ -182,4 +189,4 @@ A package SemVer bump does **not** require a wire `schema_version` bump, and vic
 | [`spoke-protocol.md`](spoke-protocol.md) | Protocol umbrella |
 | [`STRATEGY.md`](../../STRATEGY.md) | No registry publish from CI |
 | [`.mstar/roadmap.md`](../roadmap.md) | Product scheduling |
-| Root `README.md` / `README_CN.md` | Version badge only today; consumer pinning and maintainer how-to land with operator tooling docs |
+| Root `README.md` / `README_CN.md` | Version badge, consumer pinning, and maintainer release how-to |

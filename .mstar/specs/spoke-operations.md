@@ -463,8 +463,8 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 
 ### Computable slice (`l2-computable`)
 
-- [ ] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `src/index.ts`
-- [ ] No compute execution, WASM, or I/O in `packages/spoke-operations/`
+- [x] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `src/index.ts`
+- [x] No compute execution, WASM, or I/O in `packages/spoke-operations/`
 
 ## Non-goals (operations layer)
 

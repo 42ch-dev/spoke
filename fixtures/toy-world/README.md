@@ -17,6 +17,11 @@ Minimal **protocol-owned** JSON graph for integrators to validate parsers and co
 | `rule_tw_consistency.json` | Rule | `rule_tw_consistency` |
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |
 | `pkt_tw_scope.json` | AssemblePacket | `pkt_tw_scope` |
+| `op_tw_project_request.json` | ProjectRequest (optional `l2-computable` op) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `op_tw_project_response.json` | ProjectResponse (success branch) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `op_tw_compute_request.json` | ComputeRequest (mid-Session apply) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `op_tw_compute_settle_request.json` | ComputeRequest (`settle: true`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 

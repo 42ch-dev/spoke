@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/project-response.schema.json",
+  "title": "ProjectResponse",
+  "description": "Projected computable view or wire error. Use session_id, entry_id, and computable OR error — not both.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["session_id", "entry_id", "computable"],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Echo of request Session correlation id."
+        },
+        "entry_id": {
+          "type": "string",
+          "description": "Target KnowledgeEntry id."
+        },
+        "computable": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap",
+          "description": "Success: materialized dynamic computable view (body.computable)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

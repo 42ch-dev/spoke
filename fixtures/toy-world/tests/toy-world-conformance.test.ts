@@ -95,4 +95,36 @@ describe("fixtures/toy-world schema conformance", () => {
       chapter_slug: "harbor-arrival",
     });
   });
+
+  it("illustrates l2-computable body.state and body.computable on Harbor", () => {
+    const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
+
+    expect(harbor.body.state).toEqual({
+      tide_level: 2.1,
+      cargo_tons: 40,
+    });
+    expect(harbor.body.computable).toEqual({
+      tide_level: 2.4,
+      cargo_tons: 38,
+    });
+  });
+
+  it("illustrates moment-scale computable_logs on harbor dawn TimelineEvent", () => {
+    const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
+    const timelineEvent = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
+
+    expect(timelineEvent.timeline_scale).toBe("moment");
+    expect(timelineEvent.computable_logs).toEqual([
+      {
+        logged_at: "2026-07-23T05:50:00Z",
+        entry_id: harbor.entry_id,
+        changes: [
+          { path: "tide_level", previous: 2.1, next: 2.4 },
+          { path: "cargo_tons", previous: 40, next: 38 },
+        ],
+        session_id: "sess_tw_dawn_arrival",
+        message: "Tide and cargo projection updated as Mira docks.",
+      },
+    ]);
+  });
 });

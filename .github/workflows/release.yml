@@ -123,7 +123,7 @@ jobs:
           node-version: 20
 
       - name: Assert lockstep package versions
-        run: pnpm run verify:version
+        run: node tooling/release/assert-lockstep-version.mjs
 
   release:
     name: release

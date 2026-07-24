@@ -2,14 +2,18 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-24  
+**Updated:** 2026-07-25  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
 
 ---
 
 ## Now (in progress)
 
-_Nothing scheduled._ Optional **Fork** (`l5-fork`) is on integration; merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
+| Item | Outcome | Normative doc |
+|------|---------|---------------|
+| **Unified version release** | Lockstep SemVer + annotated `vX.Y.Z` tags + CI-gated GitHub Release (no npm/crates.io) | [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) |
+
+**Remaining for this track:** CI `verify-version` + `release.yml` workflow; bump/assert tooling; README EN/CN release sections (Phase 2 plans).
 
 ---
 
@@ -19,7 +23,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
-| 1 | CI / codegen harden (residuals) | e.g. TS codegen narrowing for ComputableLogChange; Rust generated-type duplication strategy; keep schema-count (**23**) in sync | Open residual: ComputableLogChange previous/next narrowing |
+| 1 | CI / codegen harden (residuals) | e.g. TS codegen narrowing for ComputableLogChange; Rust generated-type duplication strategy; keep schema-count (**23**) in sync | Open: ComputableLogChange previous/next narrowing |
 | 2 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 
 **Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
@@ -63,6 +67,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 - Default full manuscript text on the wire
 - Closed forever enums that freeze product ontology growth
 - Creator Memory / unpromoted chat as KnowledgeEntry graph canon
+- npm / crates.io publish from CI (workspace-local consumption; see version release spec)
 
 ---
 
@@ -73,6 +78,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`STRATEGY.md`](../STRATEGY.md) | Why / principles / three-column architecture |
 | [`CONCEPTS.md`](../CONCEPTS.md) | KnowledgeEntry / TimelineEvent spelling + dual-concern |
 | [`.mstar/specs/spoke-protocol.md`](specs/spoke-protocol.md) | Normative umbrella |
+| [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) | Lockstep SemVer, tags, CI-gated GitHub Release |
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
 | [`knowledge/architecture-patterns/l5-fork-timeline-event-wire.md`](knowledge/architecture-patterns/l5-fork-timeline-event-wire.md) | Compound note on optional Fork wire |
 | [`schemas/`](../schemas/) | Wire SSOT |

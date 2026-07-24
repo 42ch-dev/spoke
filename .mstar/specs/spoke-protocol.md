@@ -170,6 +170,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 
 | Doc | Topic |
 |-----|-------|
+| [`spoke-version-release.md`](spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release (no registry publish) |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent (protocol layers deepen) |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |

@@ -60,6 +60,14 @@ function validateComputableLogChange(
   change: ComputableLogChange,
   index: number,
 ): SpokeResult<void> {
+  if (!isPlainObject(change)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ComputableLogChange must be a non-null plain object",
+      { field: "changes", index },
+    );
+  }
+
   if (!isNonEmptyTrimmedString(change.path)) {
     return spokeReject(
       SpokeRejectCode.MISSING_REQUIRED_FIELD,

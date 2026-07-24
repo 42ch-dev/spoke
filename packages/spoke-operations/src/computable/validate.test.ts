@@ -91,6 +91,32 @@ describe("validateComputableLogEntry", () => {
       expect(result.code).toBe(SpokeRejectCode.MISSING_REQUIRED_FIELD);
     }
   });
+
+  it("rejects null change without throwing", () => {
+    const result = validateComputableLogEntry({
+      ...validEntry,
+      changes: [null as unknown as ComputableLogEntry["changes"][number]],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
+
+  it("rejects undefined change without throwing", () => {
+    const result = validateComputableLogEntry({
+      ...validEntry,
+      changes: [
+        undefined as unknown as ComputableLogEntry["changes"][number],
+      ],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+  });
 });
 
 describe("validateProjectRequest", () => {

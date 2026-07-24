@@ -13,7 +13,7 @@
 |------|---------|---------------|
 | **Unified version release** | Lockstep SemVer + annotated `vX.Y.Z` tags + CI-gated GitHub Release (no npm/crates.io) | [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) |
 
-**Remaining for this track:** CI `verify-version` + `release.yml` workflow; bump/assert tooling; README EN/CN consumer pinning and maintainer how-to (scheduled with operator tooling docs).
+**Remaining for this track:** bump/assert tooling; README EN/CN consumer pinning and maintainer how-to (scheduled with operator tooling docs).
 
 ---
 

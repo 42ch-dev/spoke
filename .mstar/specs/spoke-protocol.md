@@ -129,11 +129,12 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 **CI + inventory (required):**
 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree for baseline data objects + five ops
-2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all three jobs must pass:
+2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all four jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
    - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
    - `rust` — `cargo check -p spoke-schemas`
-3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`)
+   - `verify-version` — `pnpm run verify:version` (lockstep SemVer across manifests and README badges; see [`spoke-version-release.md`](spoke-version-release.md))
+3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `pnpm run verify:version`)
 4. Extensions contract enforced in data schemas
 5. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
 

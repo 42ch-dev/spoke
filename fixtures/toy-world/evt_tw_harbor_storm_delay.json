@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "timeline_event_id": "evt_tw_harbor_storm_delay",
+  "canonical_name": "Storm-Delayed Harbor Arrival",
+  "timeline_scale": "moment",
+  "occurred_at": "2026-07-23T09:15:00Z",
+  "description": "In the storm branch, Mira's skiff reaches the quay hours after dawn once the squall passes.",
+  "participant_entry_ids": ["kb_tw_mira", "kb_tw_harbor"],
+  "source_anchor": {
+    "schema_version": 1,
+    "source_id": "manuscript:tw-ch1-alt",
+    "span": { "start": 48, "end": 140 },
+    "extensions": {}
+  },
+  "sort_key": "ch1-alt-001",
+  "fork_id": "fork_tw_storm_branch",
+  "parent_fork_id": "fork_tw_mainline",
+  "created_at": "2026-07-23T10:00:00Z",
+  "updated_at": "2026-07-23T10:00:00Z",
+  "extensions": {
+    "nexus": {
+      "world_id": "wld_toy_nexus_001"
+    }
+  }
+}

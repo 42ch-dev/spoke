@@ -88,6 +88,7 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "anchor_tw_manuscript.json": SCHEMA_IDS.sourceAnchor,
   "rel_tw_mira_harbor.json": SCHEMA_IDS.relation,
   "evt_tw_harbor_dawn.json": SCHEMA_IDS.timelineEvent,
+  "evt_tw_harbor_storm_delay.json": SCHEMA_IDS.timelineEvent,
   "rule_tw_consistency.json": SCHEMA_IDS.rule,
   "fnd_tw_open.json": SCHEMA_IDS.finding,
   "pkt_tw_scope.json": SCHEMA_IDS.assemblePacket,

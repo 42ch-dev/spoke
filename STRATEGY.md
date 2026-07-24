@@ -53,7 +53,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, KnowledgeEntry status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
 | **KnowledgeEntry / TimelineEvent terminology (delivered 2026-07-23)** | Wire + ops + fixtures + docs rename; product expand Standardized Programmable Ontology Knowledge Engine |
 | **Optional Computable (`l2-computable`) (delivered 2026-07-24)** | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project` / `compute` ops + pure validators |
-| **Next (when scheduled)** | Optional **`l5-fork`** TimelineEvent wire + fixtures; then adapter packages or Rust ops crate per roadmap |
+| **Optional Fork (`l5-fork`) (delivered 2026-07-24)** | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` matcher; fixtures |
+| **Next (when scheduled)** | CI / codegen harden residuals and/or Rust `spoke-operations` crate; adapter packages when a product binding sprint is planned |
 | **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 

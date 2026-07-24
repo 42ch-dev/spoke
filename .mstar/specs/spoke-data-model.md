@@ -113,12 +113,37 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
 | `source_anchor` | `SourceAnchor` | Manuscript / scene anchor |
 | `sort_key` | string | Opaque ordering hint within a timeline (products define grammar) |
 | `computable_logs` | `ComputableLogEntry[]` | Optional Moment-scale presentation of computable field changes (`l2-computable` only) — see §Computable logs |
+| `fork_id` | `ForkId` | Optional world-history branch identity (`l5-fork`) — see §Fork fields |
+| `parent_fork_id` | `ForkId` | Optional parent/base branch reference when product records fork lineage on the event |
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
 
-**Fork (explicitly optional):** baseline `TimelineEvent` MUST NOT require `fork_id` or branch metadata. Fork semantics remain optional capability `l5-fork` — future wire fields, not spoke-baseline.
+**Fork (`l5-fork`, explicitly optional):** baseline `TimelineEvent` MUST NOT require branch metadata. Fork is **world-history branch identity** on the when-axis — optional protocol fields `fork_id` and `parent_fork_id` on `TimelineEvent` (shared type `ForkId` in `common.schema.json`). `spoke-baseline` excludes required Fork.
 
-### Illustrative instance
+| Rule | Requirement |
+|------|-------------|
+| **Optional capability** | Products omit Fork fields unless they declare `l5-fork` |
+| **Wire fields** | `fork_id` — branch this event belongs to; `parent_fork_id` — optional lineage to parent/base branch |
+| **Shared type** | `ForkId` — `schemas/common/common.schema.json#/definitions/ForkId` (opaque string, `minLength: 1`) |
+| **Tier ≠ Fork** | `timeline_scale` is projection tier — not branch identity |
+| **Fork ≠ Profile** | Domain Profile adapts ontology vocabulary — must not fork core schemas |
+| **Fork ≠ Session / Finding** | Independent from `l2-computable` Session lifecycle and L7 checker output |
+| **Engines** | Branch create, merge, rebase, and world-history stores are product-owned |
+| **Extensions folklore** | `extensions.<namespace>` fork hints are adapter convention — not the normative Fork interchange |
+| **Lineage prose** | When `parent_fork_id` is present, `fork_id` SHOULD also be present; `parent_fork_id` MUST NOT equal `fork_id` |
+
+### Fork fields (`l5-fork` optional)
+
+Shared JSON Schema fragment: `common.schema.json#/definitions/ForkId`.
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `fork_id` | `ForkId` | Opaque branch identity for the world-history branch this event belongs to |
+| `parent_fork_id` | `ForkId` | Optional parent/base branch when the product records fork lineage on the event |
+
+Both fields are optional on `TimelineEvent`. Omitting both remains valid. `Scope` MAY refine by `fork_id` only — see [`spoke-ops.md`](spoke-ops.md) §Scope.
+
+### Illustrative instance (baseline — no Fork)
 
 ```json
 {
@@ -135,6 +160,26 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
 ```
 
 Product world/book ids belong in `extensions.<namespace>` — not protocol siblings on `TimelineEvent`.
+
+### Illustrative instance (`l5-fork` optional)
+
+```json
+{
+  "schema_version": 1,
+  "timeline_event_id": "evt_fork_01HXYZ",
+  "canonical_name": "Treaty of Ashford (what-if branch)",
+  "timeline_scale": "narrative",
+  "occurred_at": "1421-06-03T00:00:00Z",
+  "fork_id": "fork_what_if_b",
+  "parent_fork_id": "fork_mainline_a",
+  "participant_entry_ids": ["kb_mira", "kb_ashford"],
+  "extensions": {
+    "my_product": { "world_id": "wld_abc" }
+  }
+}
+```
+
+`fork_id` and `parent_fork_id` are optional; omit both for baseline TimelineEvents. `Scope.fork_id` filters by `fork_id` only — see [`spoke-ops.md`](spoke-ops.md) §Scope.
 
 ### Computable logs (`l2-computable` optional)
 
@@ -497,6 +542,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `target_entry_types` on a `Rule` — what does it filter? | KnowledgeEntry **`entry_type`** strings (e.g. `character`, `event`), not `Rule` object kinds. |
 | `entry_type: "event"` vs `TimelineEvent`? | KB fact node vs L5 when-axis object. `Scope` uses `entry_types` vs `timeline_event_ids` separately. |
 | Session vs TimelineEvent vs Finding? | Session = lifecycle (`session_id` on ops); TimelineEvent = when-axis; `computable_logs` = presentation; Finding = checker output. |
+| Filter TimelineEvents by branch? | Optional `Scope.fork_id` — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match. |
 | Should `dialogue` / `beat` be in the core table? | **No.** Profile-only per baseline lock. |
 
 ### Core KnowledgeEntry `status` vocabulary (documented, not enforced)
@@ -533,6 +579,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **KnowledgeEntry** — atomic Knowledge Base entry in SPOKE wire form
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; World/Book ids in `extensions` or adapters — see [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
+- **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
 - **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md)
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
 - **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body

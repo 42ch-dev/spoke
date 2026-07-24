@@ -328,8 +328,9 @@ Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 |------------|------------|
 | `timeline_event_ids` | `timelineEvent.timeline_event_id` ∈ array |
 | `timeline_scale` | `timelineEvent.timeline_scale === scope.timeline_scale` |
+| `fork_id` | `timelineEvent.fork_id === scope.fork_id` (events without `fork_id` do not match) |
 
-Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`.
+Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`, `parent_fork_id`.
 
 **Tests must cover:** each refinement on its carrier type, empty refinement pass-through, combined AND.
 
@@ -484,7 +485,7 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - HTTP/MCP status code tables
 - Checker Rule evaluation engines
 - Compute engine execution, WASM, Session store I/O
-- Fork wire / Rust ops crate
+- Rust `spoke-operations` crate (TS library remains SSOT)
 
 ---
 

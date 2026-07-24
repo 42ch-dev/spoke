@@ -30,7 +30,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 | **L2 Body** | summary / attributes / tags | Structured `body` (`additionalProperties: true` subtree) | Optional `body.state` + `body.computable` (`l2-computable`); `project` / `compute` ops | `knowledge-entry.schema.json` `body`; optional `project-*` / `compute-*` ops |
 | **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on KnowledgeEntry |
 | **L4 Graph** | Relation | Typed directed edges | OCC / revision as product concern | `relation.schema.json`; `relate` op |
-| **L5 Temporal** | Timeline dimension + TimelineEvent + optional Fork | **`TimelineEvent` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (`l5-fork`); optional `computable_logs` on Moment-scale events (`l2-computable`) | `timeline-event.schema.json`; `common/…#/definitions/TimelineScale`, `ComputableLogEntry`; tier vocabulary in this spec + data-model; Fork deferred optional |
+| **L5 Temporal** | Timeline dimension + TimelineEvent + optional Fork | **`TimelineEvent` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (`l5-fork`); optional `computable_logs` on Moment-scale events (`l2-computable`) | `timeline-event.schema.json`; `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry`; tier + Fork vocabulary in this spec + data-model |
 | **L6 Constraint** | Rule / Prohibition | **`Rule` wire object** | Prohibition variants as open vocabulary | `rule.schema.json`; `check` op |
 | **L7 Finding** | Checker output lifecycle | `Finding` + status vocabulary | Richer product overlays in `extensions` | `finding.schema.json`; `check` op; `spoke-operations` transitions |
 | **L8 Context** | AssemblePacket | Shared packet shape | Trim/rank policy — product-local | `assemble-packet.schema.json`; `assemble` op (wire-only) |
@@ -61,7 +61,7 @@ Product Timeline UIs often expose three semantic-zoom layers (Brief / Narrative 
 
 1. Tier names on the wire (when present) MUST use the open vocabulary **`brief` | `narrative` | `moment`** (lowercase) — not product UI strings.
 2. A product MAY implement a subset of tiers and still claim baseline if it ships **`TimelineEvent`** for the when-axis; declaring which tiers it exposes is part of capability / profile docs.
-3. Tier ≠ Fork. Fork remains optional capability `l5-fork`.
+3. Tier ≠ Fork. Optional `l5-fork` uses `fork_id` / `parent_fork_id` on `TimelineEvent` — not `timeline_scale`.
 4. Tier ≠ AssemblePacket. **L8 context assembly** consumes temporal scope; it does not redefine Timeline tiers (including the `moment` tier).
 5. Product Timeline Brief / Narrative / Moment **carriers** stay adapter/UI concerns. SPOKE wire vocabulary for those tiers is **`brief` / `narrative` / `moment`** via optional `timeline_scale` on `TimelineEvent` and Scope.
 
@@ -87,7 +87,7 @@ Required for “SPOKE baseline” claims since protocol layers deepen:
 | Flag | Layer | Meaning |
 |------|-------|---------|
 | `l2-computable` | L2 + L5 + ops | Optional `body.state` / `body.computable` on KnowledgeEntry; optional `computable_logs` on TimelineEvent; optional `project` / `compute` op families — Session lifecycle is normative prose + op I/O, not a durable Session wire object |
-| `l5-fork` | L5 | Product implements Fork semantics (immutable world history branches) — wire shape TBD in a future iteration |
+| `l5-fork` | L5 | Optional world-history branch metadata on `TimelineEvent` via `fork_id` and `parent_fork_id` (`ForkId` in `common.schema.json`); optional `Scope.fork_id` filter — not `spoke-baseline` |
 
 Baseline compliance MUST NOT require either flag.
 
@@ -111,7 +111,7 @@ Baseline compliance MUST NOT require either flag.
 | **L2 Body** | `knowledge-entry.schema.json` → `body` (`state`, `computable` optional); `common/…#/definitions/ComputableFieldMap` | `project-*`, `compute-*` (optional) | `validateComputableFieldMap`; `validateProjectRequest`; `validateComputeRequest` |
 | **L3 Provenance** | `data/source-anchor.schema.json`; optional on KnowledgeEntry / Finding / TimelineEvent / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `knowledgeEntryMatchesScope`, `filterKnowledgeEntriesByScope` (`source_id` refinement) |
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | `validateRelateRequest` |
-| **L5 Temporal** | `data/timeline-event.schema.json` (`computable_logs` optional); `common/…#/definitions/TimelineScale`, `ComputableLogEntry` | `check-*`, `assemble-*` via `Scope`; `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry` |
+| **L5 Temporal** | `data/timeline-event.schema.json` (`fork_id`, `parent_fork_id`, `computable_logs` optional); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry` | `check-*`, `assemble-*` via `Scope` (`timeline_scale`, `fork_id` refinements); `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry` |
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
 | **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `knowledgeEntryToAssembleEntry` |
@@ -122,6 +122,7 @@ Baseline compliance MUST NOT require either flag.
 |------------|---------|------|
 | `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — committed in protocol layers deepen (`ops-harden`) |
 | `TimelineScale` | `TimelineEvent.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) |
+| `ForkId` | `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, `Scope.fork_id` | Opaque world-history branch identity (`l5-fork`) |
 | `ComputableFieldMap` | `KnowledgeEntry.body.state`, `body.computable`; `project` / `compute` op payloads | Open JSON object for computable domain values (`l2-computable`) |
 | `ComputableLogEntry` | `TimelineEvent.computable_logs[]` | Moment-scale computable change presentation (`l2-computable`) |
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
@@ -142,7 +143,7 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 
 - Adapter package implementations or field-map tables
 - Conformance fixtures / golden toy-world — **fixtures conformance slice:** `fixtures/toy-world/` per fixtures-conformance plan
-- Fork wire schema (optional flag only)
+- Fork merge / rebase engines and world-history stores (protocol documents interchange fields only)
 - HTTP/gRPC/MCP route tables
 - Closed forever enums for ontology
 

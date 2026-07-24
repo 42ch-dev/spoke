@@ -1,7 +1,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { preserveExtensionMaps } from "@42ch/spoke-operations";
+import {
+  filterTimelineEventsByScope,
+  preserveExtensionMaps,
+  timelineEventMatchesScope,
+} from "@42ch/spoke-operations";
 import type {
   AssemblePacket,
   Finding,
@@ -126,5 +130,57 @@ describe("fixtures/toy-world schema conformance", () => {
         message: "Tide and cargo projection updated as Mira docks.",
       },
     ]);
+  });
+
+  it("keeps baseline harbor dawn TimelineEvent without Fork wire fields", () => {
+    const baseline = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
+
+    expect(baseline.fork_id).toBeUndefined();
+    expect(baseline.parent_fork_id).toBeUndefined();
+  });
+
+  it("illustrates l5-fork wire fields on storm-delay TimelineEvent", () => {
+    const forked = loadFixture<TimelineEvent>("evt_tw_harbor_storm_delay.json");
+    const mira = loadFixture<KnowledgeEntry>("kb_tw_mira.json");
+
+    expect(forked.fork_id).toBe("fork_tw_storm_branch");
+    expect(forked.parent_fork_id).toBe("fork_tw_mainline");
+    expect(forked.participant_entry_ids).toEqual(
+      expect.arrayContaining([mira.entry_id, "kb_tw_harbor"]),
+    );
+    expect(forked.extensions?.nexus).toEqual({
+      world_id: "wld_toy_nexus_001",
+    });
+    expect(mira.extensions?.nexus?.fork_hint).toBe("baseline");
+  });
+
+  it("filters TimelineEvents by Scope.fork_id via operations helper", () => {
+    const baseline = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
+    const forked = loadFixture<TimelineEvent>("evt_tw_harbor_storm_delay.json");
+    const events = [baseline, forked];
+
+    expect(
+      timelineEventMatchesScope(forked, {
+        scope_id: "toy-scope-fork",
+        fork_id: "fork_tw_storm_branch",
+      }),
+    ).toBe(true);
+    expect(
+      timelineEventMatchesScope(baseline, {
+        scope_id: "toy-scope-fork",
+        fork_id: "fork_tw_storm_branch",
+      }),
+    ).toBe(false);
+    expect(
+      filterTimelineEventsByScope(events, {
+        scope_id: "toy-scope-fork",
+        fork_id: "fork_tw_storm_branch",
+      }),
+    ).toEqual([forked]);
+    expect(
+      filterTimelineEventsByScope(events, {
+        scope_id: "toy-scope-baseline",
+      }),
+    ).toEqual(events);
   });
 });

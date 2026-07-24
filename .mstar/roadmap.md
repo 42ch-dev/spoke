@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-Optional **Computable** capability — normative specs locked for **`l2-computable`** (`body.state` / `body.computable`), Session/Moment semantics, and **`project` / `compute`** op wire. Schema, codegen, pure helpers, and fixtures implementation pending.
+_Nothing scheduled._ Optional **Computable** (`l2-computable` body + Session/Moment + `project`/`compute`) is on integration; merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
 
 ---
 
@@ -20,10 +20,8 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
 | 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Optional capability — not baseline |
-| 2 | Optional **`project` / `compute` op family** (`l2-computable`) | Init/projection (`project`) and apply/settle (`compute`) I/O for Session-scoped `body.computable` | Optional — baseline five ops unchanged; products omit both ops when not declaring `l2-computable`. Normative intent in [`spoke-ops.md`](specs/spoke-ops.md) §Optional ops |
-| 3 | Optional **`l2-computable`** body + Moment logs | Optional `body.state` (static) + `body.computable` (dynamic Session projection); optional `computable_logs` on Moment-scale TimelineEvents | Single flag covers body fields, logs, and optional ops; Session lifecycle is normative prose + op `session_id` — not `entry_type` or durable Session wire object |
-| 4 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
-| 5 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (19) in sync when adding schemas | See open residuals in local harness status when present |
+| 2 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
+| 3 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (**23**) in sync when adding schemas | See open residuals in local harness status when present |
 
 **Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
 
@@ -35,8 +33,9 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-24 | Optional Computable (`l2-computable`) | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project`/`compute` ops; pure validators; fixtures; schema-count **23** |
 | 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire locks `KnowledgeEntry` / `TimelineEvent`; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |
-| 2026-07-23 | Fixture harness ownership + CI harden | AJV/Vitest under `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`); removed from `@42ch/spoke-operations`; `AGENTS.md` boundary; CI `test:fixtures`; `verify-codegen` schema-count assert (19) |
+| 2026-07-23 | Fixture harness ownership + CI harden | AJV/Vitest under `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`); removed from `@42ch/spoke-operations`; `AGENTS.md` boundary; CI `test:fixtures`; `verify-codegen` schema-count assert |
 | 2026-07-23 | Operations library deepen + fixtures | OCC compare, KnowledgeEntry status, uniqueness, Scope/upsert/relate gates, error-envelope map; `fixtures/toy-world/` protocol JSON graph |
 | 2026-07-23 | Protocol layers + Rule/TimelineEvent | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` schemas; Scope / error-envelope / Rule-aware `check` |
 | 2026-07-23 | Operations library first slice | `@42ch/spoke-operations`: promote, Finding transitions, extensions preserve, AssemblePacket builders; consumer README EN/CN |
@@ -46,8 +45,8 @@ Newest first. Dates are delivery dates on `main`.
 
 | Area | Status |
 |------|--------|
-| Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions` |
-| Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope) |
+| Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `body.state`/`body.computable`, `computable_logs` |
+| Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
 | Ops library | Pure TS helpers over wire types (KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
 | Fixtures | `fixtures/toy-world/` samples + conformance package (incl. dual-concern ontology `"event"` + TimelineEvent pair) |
 | Specs / vocabulary | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/`; CONCEPTS + knowledge vocabulary pattern |

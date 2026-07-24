@@ -42,6 +42,14 @@ export interface TimelineEvent {
    */
   sort_key?: string;
   /**
+   * Optional world-history branch identity (l5-fork).
+   */
+  fork_id?: string;
+  /**
+   * Optional parent/base branch reference when product records fork lineage on the event.
+   */
+  parent_fork_id?: string;
+  /**
    * Optional Moment-scale presentation of computable field change history (l2-computable only). Not Finding-shaped.
    */
   computable_logs?: ComputableLogEntry[];

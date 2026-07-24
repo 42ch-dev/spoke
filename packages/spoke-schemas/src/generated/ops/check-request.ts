@@ -51,6 +51,10 @@ export interface Scope {
    * Optional L5 tier filter (brief, narrative, moment).
    */
   timeline_scale?: string;
+  /**
+   * Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork).
+   */
+  fork_id?: string;
 }
 /**
  * Declarative constraint input to check — never checker output.

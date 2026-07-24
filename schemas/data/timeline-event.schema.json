@@ -50,6 +50,14 @@
       "type": "string",
       "description": "Opaque ordering hint within a timeline (products define grammar)."
     },
+    "fork_id": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ForkId",
+      "description": "Optional world-history branch identity (l5-fork)."
+    },
+    "parent_fork_id": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ForkId",
+      "description": "Optional parent/base branch reference when product records fork lineage on the event."
+    },
     "computable_logs": {
       "type": "array",
       "items": {
@@ -75,6 +83,19 @@
       "canonical_name": "Treaty of Ashford",
       "timeline_scale": "narrative",
       "occurred_at": "1421-06-03T00:00:00Z",
+      "participant_entry_ids": ["kb_mira", "kb_ashford"],
+      "extensions": {
+        "my_product": { "world_id": "wld_abc" }
+      }
+    },
+    {
+      "schema_version": 1,
+      "timeline_event_id": "evt_fork_01HXYZ",
+      "canonical_name": "Treaty of Ashford (what-if branch)",
+      "timeline_scale": "narrative",
+      "occurred_at": "1421-06-03T00:00:00Z",
+      "fork_id": "fork_what_if_b",
+      "parent_fork_id": "fork_mainline_a",
       "participant_entry_ids": ["kb_mira", "kb_ashford"],
       "extensions": {
         "my_product": { "world_id": "wld_abc" }

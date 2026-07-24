@@ -25,6 +25,13 @@ export type Timestamp = string;
  * via the `definition` "TimelineScale".
  */
 export type TimelineScale = string;
+/**
+ * Opaque world-history branch identity (l5-fork).
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "ForkId".
+ */
+export type ForkId = string;
 
 /**
  * Shared type definitions for SPOKE wire schemas.
@@ -88,6 +95,10 @@ export interface Scope {
    * Optional L5 tier filter (brief, narrative, moment).
    */
   timeline_scale?: string;
+  /**
+   * Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork).
+   */
+  fork_id?: string;
 }
 /**
  * Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.

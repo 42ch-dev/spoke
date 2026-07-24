@@ -37,7 +37,17 @@
     "body": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings."
+      "description": "Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings. Under l2-computable: optional state (static durable computable) and computable (dynamic Session-scoped projection).",
+      "properties": {
+        "state": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap",
+          "description": "Static durable computable state (l2-computable optional). Authoritative pre-Session and after settle."
+        },
+        "computable": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap",
+          "description": "Dynamic Session-scoped computable projection (l2-computable optional). Absent or inert pre-Session; mutates mid-Session only."
+        }
+      }
     },
     "source_anchor": {
       "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json",
@@ -82,6 +92,19 @@
       "extensions": {
         "my_product": { "world_id": "wld_abc" }
       }
+    },
+    {
+      "schema_version": 1,
+      "entry_id": "kb_01HARBOR",
+      "entry_type": "location",
+      "canonical_name": "Ashford Harbor",
+      "status": "confirmed",
+      "body": {
+        "summary": "Tide and cargo model for Ashford harbor.",
+        "state": { "tide_level": 2.1, "cargo_tons": 40 },
+        "computable": { "tide_level": 2.4, "cargo_tons": 38 }
+      },
+      "extensions": {}
     }
   ]
 }

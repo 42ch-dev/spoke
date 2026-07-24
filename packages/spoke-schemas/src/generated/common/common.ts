@@ -89,3 +89,60 @@ export interface Scope {
    */
   timeline_scale?: string;
 }
+/**
+ * Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "ComputableFieldMap".
+ */
+export interface ComputableFieldMap {
+  [k: string]: unknown | undefined;
+}
+/**
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "ComputableLogChange".
+ */
+export interface ComputableLogChange {
+  /**
+   * Dot-path or JSON Pointer to changed field within body.computable.
+   */
+  path: string;
+  /**
+   * Opaque JSON — value before change.
+   */
+  previous?: {
+    [k: string]: unknown | undefined;
+  };
+  /**
+   * Opaque JSON — value after change.
+   */
+  next?: {
+    [k: string]: unknown | undefined;
+  };
+}
+/**
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "ComputableLogEntry".
+ */
+export interface ComputableLogEntry {
+  /**
+   * When the computable field change was recorded (RFC 3339).
+   */
+  logged_at: string;
+  /**
+   * KnowledgeEntry id whose computable fields changed.
+   */
+  entry_id: string;
+  /**
+   * Field-level change records within body.computable.
+   */
+  changes: ComputableLogChange[];
+  /**
+   * Opaque Session correlation (matches op session_id when omitted on parent context).
+   */
+  session_id?: string;
+  /**
+   * Human-readable presentation note (presentation only).
+   */
+  message?: string;
+}

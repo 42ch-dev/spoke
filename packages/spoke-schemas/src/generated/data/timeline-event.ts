@@ -42,6 +42,10 @@ export interface TimelineEvent {
    */
   sort_key?: string;
   /**
+   * Optional Moment-scale presentation of computable field change history (l2-computable only). Not Finding-shaped.
+   */
+  computable_logs?: ComputableLogEntry[];
+  /**
    * RFC 3339 UTC datetime string.
    */
   created_at?: string;
@@ -96,4 +100,44 @@ export interface ExtensionMap {
         [k: string]: unknown | undefined;
       }
     | undefined;
+}
+export interface ComputableLogEntry {
+  /**
+   * When the computable field change was recorded (RFC 3339).
+   */
+  logged_at: string;
+  /**
+   * KnowledgeEntry id whose computable fields changed.
+   */
+  entry_id: string;
+  /**
+   * Field-level change records within body.computable.
+   */
+  changes: ComputableLogChange[];
+  /**
+   * Opaque Session correlation (matches op session_id when omitted on parent context).
+   */
+  session_id?: string;
+  /**
+   * Human-readable presentation note (presentation only).
+   */
+  message?: string;
+}
+export interface ComputableLogChange {
+  /**
+   * Dot-path or JSON Pointer to changed field within body.computable.
+   */
+  path: string;
+  /**
+   * Opaque JSON — value before change.
+   */
+  previous?: {
+    [k: string]: unknown | undefined;
+  };
+  /**
+   * Opaque JSON — value after change.
+   */
+  next?: {
+    [k: string]: unknown | undefined;
+  };
 }

@@ -17,7 +17,8 @@
     "test": "pnpm -F @42ch/spoke-operations test",
     "test:fixtures": "pnpm -F @42ch/spoke-fixture-toy-world test",
     "test:operations": "pnpm -F @42ch/spoke-operations test",
-    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run test:fixtures && pnpm run build:operations"
+    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run test:fixtures && pnpm run build:operations",
+    "verify:version": "node tooling/release/assert-lockstep-version.mjs"
   },
   "pnpm": {
     "overrides": {

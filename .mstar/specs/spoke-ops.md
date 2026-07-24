@@ -224,7 +224,7 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 
 ### Attachment pattern (architect-locked — R3)
 
-All five ops response schemas MUST use the same discriminated union:
+All ops response schemas MUST use the same discriminated union:
 
 ```json
 {
@@ -249,6 +249,8 @@ All five ops response schemas MUST use the same discriminated union:
 | `relate` | `relation` | — |
 | `check` | `findings` | Empty array is valid success |
 | `assemble` | `packet` | v0.1 reference implementation |
+| `project` | `session_id`, `entry_id`, `computable` | Optional (`l2-computable`) |
+| `compute` | `session_id`, `entry_id`, `computable` | Optional (`l2-computable`); `state` when request `settle: true` |
 
 **Invariant:** `error` and success payload fields MUST NOT co-exist on the same response object.
 
@@ -292,5 +294,5 @@ Mapping product HTTP/API handlers to these wire payloads remains a **follow-on**
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `Rule`, `TimelineEvent`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers on top of wire types (column 3) |
-| [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |
+| [`schemas/README.md`](../../schemas/README.md) | Fourteen op schema files under `schemas/ops/` (ten baseline + four optional) |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

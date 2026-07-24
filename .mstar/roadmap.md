@@ -9,11 +9,7 @@
 
 ## Now (in progress)
 
-| Item | Outcome | Normative doc |
-|------|---------|---------------|
-| **Unified version release** | Lockstep SemVer + annotated `vX.Y.Z` tags + CI-gated GitHub Release (no npm/crates.io) | [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) |
-
-**Remaining for this track:** bump/assert tooling; README EN/CN consumer pinning and maintainer how-to (scheduled with operator tooling docs).
+_No active slice — see Up next._
 
 ---
 
@@ -36,6 +32,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-25 | Unified version release | Lockstep assert + `release:bump` tooling; CI `verify-version` + tag-gated `release.yml`; README EN/CN pinning + maintainer how-to; [spoke-version-release.md](specs/spoke-version-release.md) |
 | 2026-07-24 | Optional Fork (`l5-fork`) | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` + matcher; fixtures; Moment `computable_logs` schema example; schema-count **23** |
 | 2026-07-24 | Optional Computable (`l2-computable`) | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project`/`compute` ops; pure validators; fixtures; schema-count **23** |
 | 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire locks `KnowledgeEntry` / `TimelineEvent`; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |

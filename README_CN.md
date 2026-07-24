@@ -59,6 +59,38 @@
 
 然后在 SPOKE 根目录执行 `pnpm install`，并构建（`pnpm --filter @42ch/spoke-schemas build` 与 `pnpm --filter @42ch/spoke-operations build`）。
 
+## 版本与固定
+
+SPOKE 以**单一锁步 SemVer**（`X.Y.Z`）发布所有工作区软件包与 Rust `spoke-schemas` crate。在消费方仓库固定到带注释的 git 标签：
+
+```bash
+git checkout vX.Y.Z
+```
+
+或从对应的 [GitHub Release](https://github.com/42ch-dev/spoke/releases) 下载源码归档，再通过 `file:` 路径（上文）或 git 依赖引用：
+
+```json
+{
+  "dependencies": {
+    "@42ch/spoke-schemas": "github:42ch-dev/spoke#vX.Y.Z",
+    "@42ch/spoke-operations": "github:42ch-dev/spoke#vX.Y.Z"
+  }
+}
+```
+
+文首 shields.io **Version** 徽章对应当前检出提交上的规范版本。规范政策：[`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md)。
+
+## 发布（维护者）
+
+当 `main` 上的变更就绪后：
+
+1. Bump 所有锁步表面：`pnpm run release:bump -- X.Y.Z`
+2.  提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
+3.  在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "发布摘要"`，或 `git tag -a vX.Y.Z -m "发布摘要"`
+4.  推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁并依据标签注释创建 GitHub Release。
+
+预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release，不向 npm 或 crates.io 发布。
+
 ## 核心概念
 
 | 术语 | 在 SPOKE 中的含义 |

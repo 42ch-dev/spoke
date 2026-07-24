@@ -59,6 +59,38 @@ From another repo, depend on a local checkout:
 
 Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-schemas build` and `pnpm --filter @42ch/spoke-operations build`).
 
+## Version and pinning
+
+SPOKE publishes a **single lockstep SemVer** (`X.Y.Z`) across all workspace packages and the Rust `spoke-schemas` crate. Pin a consumer repo to an annotated git tag:
+
+```bash
+git checkout vX.Y.Z
+```
+
+Or download the source archive from the matching [GitHub Release](https://github.com/42ch-dev/spoke/releases). Then depend via `file:` path (above) or a git dependency:
+
+```json
+{
+  "dependencies": {
+    "@42ch/spoke-schemas": "github:42ch-dev/spoke#vX.Y.Z",
+    "@42ch/spoke-operations": "github:42ch-dev/spoke#vX.Y.Z"
+  }
+}
+```
+
+The shields.io **Version** badge at the top of this README reflects the canonical version on the checked-out commit. Normative policy: [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md).
+
+## Release (maintainers)
+
+After changes are ready on `main`:
+
+1. Bump all lockstep surfaces: `pnpm run release:bump -- X.Y.Z`
+2. Commit and push: `git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
+3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "Release summary"` or `git tag -a vX.Y.Z -m "Release summary"`
+4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates and creates a GitHub Release from the tag annotation.
+
+Pre-releases use `vX.Y.Z-rc.N` tags (GitHub pre-release). CI creates GitHub Releases only; it does not publish to npm or crates.io.
+
 ## Core concepts
 
 | Term | In SPOKE |

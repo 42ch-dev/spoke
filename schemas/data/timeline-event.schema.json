@@ -100,6 +100,32 @@
       "extensions": {
         "my_product": { "world_id": "wld_abc" }
       }
+    },
+    {
+      "schema_version": 1,
+      "timeline_event_id": "evt_moment_01HXYZ",
+      "canonical_name": "Harbor tide reading",
+      "timeline_scale": "moment",
+      "occurred_at": "2026-07-23T05:45:00Z",
+      "participant_entry_ids": ["kb_harbor"],
+      "computable_logs": [
+        {
+          "logged_at": "2026-07-23T05:50:00Z",
+          "entry_id": "kb_harbor",
+          "changes": [
+            {
+              "path": "tide_level",
+              "previous": 2.1,
+              "next": 2.4
+            }
+          ],
+          "session_id": "sess_dawn_arrival",
+          "message": "Tide projection updated at dock."
+        }
+      ],
+      "extensions": {
+        "my_product": { "world_id": "wld_abc" }
+      }
     }
   ]
 }

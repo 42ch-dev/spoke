@@ -177,6 +177,66 @@ describe("timelineEventMatchesScope", () => {
       }),
     ).toBe(true);
   });
+
+  it("matches fork_id refinement when equal", () => {
+    const forkedEvent = makeTimelineEvent({
+      timeline_event_id: "evt_fork",
+      fork_id: "fork_mainline_a",
+    });
+
+    expect(
+      timelineEventMatchesScope(forkedEvent, {
+        ...baseScope,
+        fork_id: "fork_mainline_a",
+      }),
+    ).toBe(true);
+  });
+
+  it("misses fork_id refinement when unequal", () => {
+    const forkedEvent = makeTimelineEvent({
+      timeline_event_id: "evt_fork",
+      fork_id: "fork_mainline_a",
+    });
+
+    expect(
+      timelineEventMatchesScope(forkedEvent, {
+        ...baseScope,
+        fork_id: "fork_what_if_b",
+      }),
+    ).toBe(false);
+  });
+
+  it("misses fork_id refinement when event lacks fork_id", () => {
+    expect(
+      timelineEventMatchesScope(timelineEvent, {
+        ...baseScope,
+        fork_id: "fork_mainline_a",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not filter on parent_fork_id", () => {
+    const forkedEvent = makeTimelineEvent({
+      timeline_event_id: "evt_fork",
+      parent_fork_id: "fork_mainline_a",
+    });
+
+    expect(
+      timelineEventMatchesScope(forkedEvent, {
+        ...baseScope,
+        fork_id: "fork_mainline_a",
+      }),
+    ).toBe(false);
+  });
+
+  it("passes when scope omits fork_id", () => {
+    const forkedEvent = makeTimelineEvent({
+      timeline_event_id: "evt_fork",
+      fork_id: "fork_mainline_a",
+    });
+
+    expect(timelineEventMatchesScope(forkedEvent, baseScope)).toBe(true);
+  });
 });
 
 describe("filterTimelineEventsByScope", () => {
@@ -193,5 +253,21 @@ describe("filterTimelineEventsByScope", () => {
 
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.timeline_event_id).toBe("evt_2");
+  });
+
+  it("filters by fork_id", () => {
+    const timelineEvents = [
+      makeTimelineEvent({ timeline_event_id: "evt_1", fork_id: "fork_mainline_a" }),
+      makeTimelineEvent({ timeline_event_id: "evt_2", fork_id: "fork_what_if_b" }),
+      makeTimelineEvent({ timeline_event_id: "evt_3" }),
+    ];
+
+    const filtered = filterTimelineEventsByScope(timelineEvents, {
+      ...baseScope,
+      fork_id: "fork_mainline_a",
+    });
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.timeline_event_id).toBe("evt_1");
   });
 });

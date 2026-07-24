@@ -44,6 +44,11 @@
       "type": "string",
       "description": "L5 Timeline projection tier (open string). Core vocabulary (documented, not enforced): brief, narrative, moment. Wire field name timeline_scale — not tier or projection."
     },
+    "ForkId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque world-history branch identity (l5-fork)."
+    },
     "Scope": {
       "type": "object",
       "required": ["scope_id"],
@@ -80,6 +85,10 @@
         "timeline_scale": {
           "$ref": "#/definitions/TimelineScale",
           "description": "Optional L5 tier filter (brief, narrative, moment)."
+        },
+        "fork_id": {
+          "$ref": "#/definitions/ForkId",
+          "description": "Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork)."
         }
       },
       "additionalProperties": false

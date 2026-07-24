@@ -58,6 +58,10 @@ export function timelineEventMatchesScope(
     return false;
   }
 
+  if (scope.fork_id !== undefined && timelineEvent.fork_id !== scope.fork_id) {
+    return false;
+  }
+
   return true;
 }
 

@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-_Nothing scheduled._ Optional **Computable** (`l2-computable` body + Session/Moment + `project`/`compute`) is on integration; merge to `main` via delivery PR. After merge, pick the next item from **Up next**.
+Optional **Fork** (`l5-fork`) — normative spec lock for TimelineEvent `fork_id` / `parent_fork_id` and `Scope.fork_id`; schema + fixtures land in the next delivery slice. See **Up next** #1.
 
 ---
 
@@ -19,7 +19,7 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
-| 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Optional capability — not baseline |
+| 1 | Optional **Fork** wire (`l5-fork` capability) | Schema + normative text for world-history branches when a product needs them | Normative spec locked; JSON Schema + fixtures in delivery slice |
 | 2 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 | 3 | CI / codegen harden (residuals) | e.g. Rust generated-type duplication strategy; keep schema-count (**23**) in sync when adding schemas | See open residuals in local harness status when present |
 
@@ -45,7 +45,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | Area | Status |
 |------|--------|
-| Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `body.state`/`body.computable`, `computable_logs` |
+| Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `body.state`/`body.computable`, `computable_logs` (`l2-computable`); optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`) |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
 | Ops library | Pure TS helpers over wire types (KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
 | Fixtures | `fixtures/toy-world/` samples + conformance package (incl. dual-concern ontology `"event"` + TimelineEvent pair) |

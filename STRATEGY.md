@@ -11,7 +11,7 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 | Deliverable | Role |
 |-------------|------|
 | **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
-| **`schemas/`** | Draft-07 SSOT (19 files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
+| **`schemas/`** | Draft-07 SSOT (**23** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (operations library first slice onward) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types |
@@ -52,7 +52,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Protocol layers + Rule/TimelineEvent (delivered 2026-07-23)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` wire schemas; ops harden — see [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) |
 | **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` (OCC, KnowledgeEntry status, Scope/upsert/relate gates, error map) + `fixtures/toy-world/` protocol conformance graph + AJV harness (`fixtures/toy-world/tests/`; `@42ch/spoke-fixture-toy-world`) |
 | **KnowledgeEntry / TimelineEvent terminology (delivered 2026-07-23)** | Wire + ops + fixtures + docs rename; product expand Standardized Programmable Ontology Knowledge Engine |
-| **Next (when scheduled)** | Optional **`l2-computable`** body (`body.state` / `body.computable`), Session/Moment semantics, **`project` / `compute`** ops — normative specs locked; implementation pending |
+| **Optional Computable (`l2-computable`) (delivered 2026-07-24)** | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project` / `compute` ops + pure validators |
+| **Next (when scheduled)** | Optional **`l5-fork`** TimelineEvent wire + fixtures; then adapter packages or Rust ops crate per roadmap |
 | **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 

@@ -38,7 +38,7 @@ L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrat
 
 ### Scope
 
-Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`). Product-local scope ids map via op `extensions` or adapters — not required `Scope` fields.
+Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`). Product-local scope ids map via op `extensions` or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
 
 ### Domain Profile
 
@@ -67,6 +67,14 @@ Presentation-only log item on `TimelineEvent.computable_logs` for Moment-scale c
 ### project / compute (ops)
 
 Optional ops under `l2-computable`. **`project`** = init/projection (static `state` → dynamic `computable`). **`compute`** = apply/settle I/O (`computable` updates; optional `settle: true` returns merged `state`). Products run all engines.
+
+### l5-fork
+
+Optional capability flag for **world-history branch metadata** on `TimelineEvent`. Not required for `spoke-baseline`. Declaring `l5-fork` means a product implements interoperable Fork fields on the L5 when-axis — branch create/merge/rebase engines and stores remain product-owned.
+
+### Fork (world-history branch)
+
+Optional L5 branch identity on `TimelineEvent` under `l5-fork` via wire fields **`fork_id`** and optional **`parent_fork_id`** (`ForkId` in `common.schema.json`). Distinct from `timeline_scale` (projection tier), Domain Profile (ontology adapter), Session (`l2-computable`), and Finding (checker output). Product `extensions.<namespace>` fork hints are adapter folklore — not the normative Fork interchange. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §TimelineEvent / §Fork fields.
 
 ### AssemblePacket
 
@@ -119,7 +127,7 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | **Rule** | L6 declarative wire object + `check` input |
 | **TimelineEvent / TimelineScale** | L5 when-axis object + `brief` / `narrative` / `moment` vocabulary |
 | **Session / Computable** | Optional `l2-computable` lifecycle — `body.state`, `body.computable`, op `session_id`; not `entry_type` |
-| **Fork** | Optional capability `l5-fork` (not baseline) |
+| **Fork** | Optional `l5-fork` — `fork_id` / `parent_fork_id` on TimelineEvent; `Scope.fork_id` filter (not baseline) |
 
 **Invariant:** SPOKE standardizes interchange shapes. It does not own world history implementation, daemon routes, or checker engines.
 

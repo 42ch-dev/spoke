@@ -63,7 +63,7 @@ Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five basel
 
 ### Scope (shared — `check` + `assemble`)
 
-Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def. `TimelineScale` is defined alongside `Scope` in `common.schema.json`.
+Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def. `TimelineScale` and `ForkId` are defined alongside `Scope` in `common.schema.json`.
 
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
@@ -73,6 +73,7 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | `timeline_event_ids` | no | string[] | Narrow to explicit L5 `TimelineEvent` ids |
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
+| `fork_id` | no | `ForkId` | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match |
 
 **Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use either:
 

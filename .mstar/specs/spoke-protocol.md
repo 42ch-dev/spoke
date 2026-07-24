@@ -22,11 +22,11 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
+**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). **`l5-fork`** covers optional `TimelineEvent.fork_id` / `parent_fork_id` and optional `Scope.fork_id` filter (`ForkId` in `common.schema.json`). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
 
 **Schema file count:**
 
@@ -151,7 +151,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 |--------------|-----------|
 | Product ↔ SPOKE conversion packages | Adapter packages deferred |
 | Required WASM / compute engines in protocol | Optional `l2-computable` shapes I/O only — engines are product-owned |
-| Fork semantics (`l5-fork`) | Optional capability — wire TBD |
+| Fork merge / rebase engines and world-history stores | Product-owned — protocol documents interchange fields only (`fork_id`, `parent_fork_id`, `Scope.fork_id`) |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
 

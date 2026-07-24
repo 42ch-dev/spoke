@@ -24,7 +24,8 @@ import {
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   README_BADGE_PATHS,
-  README_BADGE_REGEX,
+  README_BADGE_PREFIX,
+  parseReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -163,18 +164,18 @@ if (!hasWorkspaceVersionDeclaration(schemaCrateContents)) {
 
 for (const readmePath of README_BADGE_PATHS) {
   const contents = readRepoFile(readmePath);
-  const match = contents.match(README_BADGE_REGEX);
-  if (!match) {
+  const badgeVersion = parseReadmeBadgeVersion(contents);
+  if (badgeVersion === null) {
     recordFailure(
       readmePath,
       canonicalVersion,
       "(badge not found)",
-      `No shields.io version badge matching ${README_BADGE_REGEX}`,
+      `No shields.io version badge at ${README_BADGE_PREFIX}<version>-`,
     );
     continue;
   }
 
-  assertEqual(readmePath, canonicalVersion, match[1]);
+  assertEqual(readmePath, canonicalVersion, badgeVersion);
 }
 
 if (failures.length > 0) {

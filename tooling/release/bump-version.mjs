@@ -16,6 +16,7 @@ import {
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   README_BADGE_PATHS,
+  replaceReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -87,31 +88,6 @@ function replaceWorkspacePackageVersion(contents, version) {
   }
 
   return contents.replace(sectionMatch[1], updatedSection);
-}
-
-/**
- * @param {string} contents
- * @param {string} oldVersion
- * @param {string} newVersion
- * @returns {string}
- */
-function replaceReadmeBadgeVersion(contents, oldVersion, newVersion) {
-  const escaped = oldVersion.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const badgePattern = new RegExp(
-    `(https:\\/\\/img\\.shields\\.io\\/badge\\/version-)${escaped}(-)`,
-    "g",
-  );
-
-  if (!badgePattern.test(contents)) {
-    throw new Error(
-      `README badge for version ${oldVersion} not found (expected https://img.shields.io/badge/version-${oldVersion}- URL)`,
-    );
-  }
-
-  return contents.replace(
-    badgePattern,
-    `$1${newVersion}$2`,
-  );
 }
 
 /**

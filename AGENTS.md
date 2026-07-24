@@ -22,7 +22,7 @@ Tracked **results** that agents and humans reuse as protocol SSOT must state **c
 |------------|----------------------|
 | Current wire names, fields, vocabularies, dual-concern rules, capability levels | Deprecated / retired names (e.g. draft Keyblock), rename history, “formerly / superseded / early drafts” |
 | Normative invariants and positive capability | Iteration ship banners, plan ids, “in this slice we renamed…” |
-| Protocol-neutral examples | Named external product runtimes as concept owners inside `CONCEPTS.md` (no Nexus / Creader / … product binding tables here — adapters own mappings) |
+| Protocol-neutral examples | Named external product runtimes as concept owners inside `CONCEPTS.md` (product binding tables belong in adapters / future Showcases — not here) |
 
 **Applies to:** `.mstar/specs/`, `.mstar/knowledge/`, `.mstar/roadmap.md` (durable rows), root `CONCEPTS.md`, and other tracked result docs. Process paths (`plans/`, `iterations/`, `sdd/`) may record history locally; do not promote that narrative into results without rewriting as present-tense facts.
 

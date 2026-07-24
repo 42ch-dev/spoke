@@ -75,6 +75,10 @@ export const SCHEMA_IDS = {
   rule: "https://spoke42.invalid/schemas/data/rule.schema.json",
   finding: "https://spoke42.invalid/schemas/data/finding.schema.json",
   assemblePacket: "https://spoke42.invalid/schemas/data/assemble-packet.schema.json",
+  projectRequest: "https://spoke42.invalid/schemas/ops/project-request.schema.json",
+  projectResponse: "https://spoke42.invalid/schemas/ops/project-response.schema.json",
+  computeRequest: "https://spoke42.invalid/schemas/ops/compute-request.schema.json",
+  computeResponse: "https://spoke42.invalid/schemas/ops/compute-response.schema.json",
 } as const;
 
 export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
@@ -87,6 +91,11 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "rule_tw_consistency.json": SCHEMA_IDS.rule,
   "fnd_tw_open.json": SCHEMA_IDS.finding,
   "pkt_tw_scope.json": SCHEMA_IDS.assemblePacket,
+  "op_tw_project_request.json": SCHEMA_IDS.projectRequest,
+  "op_tw_project_response.json": SCHEMA_IDS.projectResponse,
+  "op_tw_compute_request.json": SCHEMA_IDS.computeRequest,
+  "op_tw_compute_settle_request.json": SCHEMA_IDS.computeRequest,
+  "op_tw_compute_settle_response.json": SCHEMA_IDS.computeResponse,
 };
 
 export const FIXTURES_ROOT = join(REPO_ROOT, "fixtures/toy-world");

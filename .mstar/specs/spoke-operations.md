@@ -9,7 +9,7 @@
 
 Wire schemas (`@42ch/spoke-schemas`) tell integrators **what** crosses the boundary. They do not encode cross-product **lifecycle invariants** — promote gates, Finding status rules, extension round-trip preservation, or wire-valid `AssemblePacket` construction.
 
-Without a shared operations library, every product (Nexus, Creader, future adapters) reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** is the single hand-written place for those invariants: callable from adapters and product code, with **no** I/O, storage, LLM, ranking, or retrieval.
+Without a shared operations library, every product reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** is the single hand-written place for those invariants: callable from adapters and product code, with **no** I/O, storage, LLM, ranking, or retrieval.
 
 **Integrator outcome:** import types from `@42ch/spoke-schemas`, import lifecycle helpers from `@42ch/spoke-operations`, bind transport locally — no shared daemon required.
 
@@ -123,7 +123,7 @@ Four families. Export names below are **normative** for the first slice; module 
 - Unknown namespace keys MUST survive round-trip (aligns with [`spoke-data-model.md` §Extensions](spoke-data-model.md#extensions-normative)).
 - Empty namespace objects `{}` are valid and MUST NOT be dropped.
 
-**Tests must cover:** unknown `nexus` + `creader` keys preserved; overlay does not delete sibling namespaces.
+**Tests must cover:** unknown keys under two distinct namespaces preserved; overlay does not delete sibling namespaces.
 
 ---
 
@@ -411,6 +411,26 @@ Wire shape: [`spoke-ops.md` §Error envelope](spoke-ops.md#error-envelope).
 
 ---
 
+### 12. Computable (`l2-computable`) — `computable/*`
+
+| Export | Purpose | Purity |
+|--------|---------|--------|
+| `validateComputableFieldMap(value)` | Shape gate for `body.state` / `body.computable` and op payloads | Pure |
+| `validateComputableLogEntry(entry)` | Shape gate for `TimelineEvent.computable_logs[]` items | Pure |
+| `validateProjectRequest(request)` | Required-field gate for `project` op request | Pure |
+| `validateComputeRequest(request)` | Required-field gate; `settle` flag sanity | Pure |
+
+**Rules encoded (minimum):**
+
+- `ComputableFieldMap` MUST be a non-null plain object when present.
+- `validateProjectRequest`: requires `session_id`, `entry_id`, `state`.
+- `validateComputeRequest`: requires `session_id`, `entry_id`, `computable`; `settle` when present MUST be boolean.
+- **Out of scope:** running compute engines, WASM, merge algorithms, Session store I/O.
+
+Wire shapes: [`spoke-data-model.md` §Computable body](spoke-data-model.md#computable-body-l2-computable-optional), [`spoke-ops.md` §Optional ops](spoke-ops.md#optional-ops-l2-computable).
+
+---
+
 ## Package contract
 
 | Field | Value |
@@ -441,6 +461,11 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - [x] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
 - [x] First-slice export behavior unchanged except additive OCC emit on new call sites
 
+### Computable slice (`l2-computable`)
+
+- [x] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `src/index.ts`
+- [x] No compute execution, WASM, or I/O in `packages/spoke-operations/`
+
 ## Non-goals (operations layer)
 
 ### First slice
@@ -458,7 +483,8 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - Storage fetch inside library
 - HTTP/MCP status code tables
 - Checker Rule evaluation engines
-- Fork wire / `project` op / Rust ops crate
+- Compute engine execution, WASM, Session store I/O
+- Fork wire / Rust ops crate
 
 ---
 

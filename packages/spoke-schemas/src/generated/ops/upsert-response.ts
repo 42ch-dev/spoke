@@ -49,9 +49,11 @@ export interface KnowledgeEntry {
    */
   status: string;
   /**
-   * Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings.
+   * Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings. Under l2-computable: optional state (static durable computable) and computable (dynamic Session-scoped projection).
    */
   body: {
+    state?: ComputableFieldMap;
+    computable?: ComputableFieldMap1;
     [k: string]: unknown | undefined;
   };
   source_anchor?: SourceAnchor;
@@ -68,6 +70,18 @@ export interface KnowledgeEntry {
    */
   updated_at?: string;
   extensions: ExtensionMap;
+}
+/**
+ * Static durable computable state (l2-computable optional). Authoritative pre-Session and after settle.
+ */
+export interface ComputableFieldMap {
+  [k: string]: unknown | undefined;
+}
+/**
+ * Dynamic Session-scoped computable projection (l2-computable optional). Absent or inert pre-Session; mutates mid-Session only.
+ */
+export interface ComputableFieldMap1 {
+  [k: string]: unknown | undefined;
 }
 /**
  * Optional provenance pointer.
@@ -106,7 +120,7 @@ export interface SourceSpan {
   end: number;
 }
 /**
- * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap {
   [k: string]:
@@ -130,7 +144,7 @@ export interface UpsertRejected {
   message: string;
 }
 /**
- * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap1 {
   [k: string]:
@@ -160,7 +174,7 @@ export interface ErrorEnvelope {
   extensions: ExtensionMap;
 }
 /**
- * Product namespace bag keyed by product id (nexus, creader, ...). Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
+ * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap2 {
   [k: string]:

@@ -13,6 +13,26 @@
     "extensions": {}
   },
   "sort_key": "ch1-001",
+  "computable_logs": [
+    {
+      "logged_at": "2026-07-23T05:50:00Z",
+      "entry_id": "kb_tw_harbor",
+      "changes": [
+        {
+          "path": "tide_level",
+          "previous": 2.1,
+          "next": 2.4
+        },
+        {
+          "path": "cargo_tons",
+          "previous": 40,
+          "next": 38
+        }
+      ],
+      "session_id": "sess_tw_dawn_arrival",
+      "message": "Tide and cargo projection updated as Mira docks."
+    }
+  ],
   "created_at": "2026-07-23T06:00:00Z",
   "updated_at": "2026-07-23T06:00:00Z",
   "extensions": {

@@ -2,9 +2,15 @@
 
 [English](README.md)
 
-**Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。Nexus、Creader 等产品用这些形状交换一致性检查与上下文组装的 I/O。
+**Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。各独立产品用这些形状交换一致性检查与上下文组装的 I/O，无需共享数据库或运行时。
 
-**包含：** 数据层 schema（KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、Rule、TimelineEvent）；ops 层 schema（`upsert`、extract→promote、`relate`、`check`、`assemble`）；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）；纯函数生命周期辅助库（`@42ch/spoke-operations`）；协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）。
+**包含：**
+
+- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、Rule、TimelineEvent
+- Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
+- 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）
+- 纯函数生命周期辅助库（`@42ch/spoke-operations`）
+- 协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）
 
 ## 软件包
 
@@ -14,7 +20,7 @@
 | [`@42ch/spoke-operations`](packages/spoke-operations/) | 手写纯函数辅助 — 晋升门控、Finding 状态迁移、扩展合并、AssemblePacket 构建 |
 | `spoke-schemas`（Rust crate） | [`crates/spoke-schemas/`](crates/spoke-schemas/) 中的生成 Rust 类型 |
 
-产品专属载荷放在 `extensions.<namespace>` 下（例如 `extensions.nexus`、`extensions.creader`）。
+产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。
 
 ## 安装与消费
 
@@ -56,6 +62,17 @@
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
 
 词汇与定位：[`CONCEPTS.md`](CONCEPTS.md)、[`STRATEGY.md`](STRATEGY.md)。
+
+## 可选能力
+
+需要可编程 KnowledgeEntry 体状态的产品可声明 **`l2-computable`**：
+
+- **`body.state`** — 静态持久可计算值
+- **`body.computable`** — 动态 Session 作用域投影
+- **`TimelineEvent.computable_logs`** — Moment 层级字段变更展示
+- **`project` / `compute` ops** — 初始化/投影与应用/结算 I/O 信封
+
+基线集成方可完整省略该能力，无破坏性变更。规范细节：[`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels。
 
 ## 快速开始
 

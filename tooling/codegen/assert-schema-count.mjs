@@ -13,7 +13,7 @@ import { readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const EXPECTED_SCHEMA_COUNT = 19;
+const EXPECTED_SCHEMA_COUNT = 23;
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCHEMAS_ROOT = join(REPO_ROOT, "schemas");

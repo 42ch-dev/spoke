@@ -24,7 +24,7 @@ Define transport-agnostic **request/response** wire shapes for core KnowledgeEnt
 
 ## Core operations (v0.1)
 
-Five ops, ten schema files under `schemas/ops/` (request + response each).
+Five baseline ops, ten schema files under `schemas/ops/` (request + response each). Two **optional** ops under `l2-computable` add four more schema files — see §Optional ops.
 
 | Operation | Intent | Request schema | Response schema |
 |-----------|--------|----------------|-----------------|
@@ -47,7 +47,7 @@ Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five basel
 | `relate` | **Covered** | Baseline wire + ops |
 | `check` | **Covered** | Baseline wire + ops |
 | `assemble` | **Covered** | Baseline wire + ops |
-| `project` / `compute`* | **Deferred** | Optional capability — see [`.mstar/roadmap.md`](../roadmap.md) Up next #2; **not** a baseline omission; do not add wire schemas without a scheduled slice |
+| `project` / `compute`* | **Optional** (`l2-computable`) | Init/projection and apply/settle I/O — see §Optional ops (`l2-computable`) |
 
 ---
 
@@ -141,6 +141,46 @@ No separate “slim embed” type — `Rule` schema is intentionally lean (no ch
 
 ---
 
+## Optional ops (`l2-computable`)
+
+Two optional op families for Session-scoped computable I/O. **Not** baseline — Creader-class integrators MAY omit entirely.
+
+| Operation | Intent | Request schema | Response schema |
+|-----------|--------|----------------|-----------------|
+| **`project`** | Init / projection — materialize `body.computable` from `body.state` | `project-request.schema.json` | `project-response.schema.json` |
+| **`compute`** | Apply / settle I/O — carry computable updates; merge to `state` when `settle: true` | `compute-request.schema.json` | `compute-response.schema.json` |
+
+**Capability:** single flag **`l2-computable`** covers body fields, `computable_logs`, and both ops.
+
+**Session correlation:** top-level **`session_id`** (required on requests; optional echo on responses). Products own Session stores — SPOKE does not define a durable Session wire object.
+
+### `project` — init / projection
+
+| Direction | Core payload |
+|-----------|--------------|
+| Request | `session_id: string` (required); `entry_id: string` (required); `state: ComputableFieldMap` (required — static source); optional `extensions` |
+| Response (success) | `session_id`, `entry_id`, `computable: ComputableFieldMap` (materialized dynamic view); optional `extensions` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
+
+### `compute` — apply / settle I/O
+
+| Direction | Core payload |
+|-----------|--------------|
+| Request | `session_id`, `entry_id` (required); `computable: ComputableFieldMap` (required); optional `settle: boolean` (default false); optional `extensions` |
+| Response (success) | `session_id`, `entry_id`, `computable` (required); when request `settle: true`, also `state: ComputableFieldMap` (merged static); optional `extensions` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
+
+**Product rules:**
+
+1. Products run all transition engines — SPOKE shapes envelopes only.
+2. Mid-Session: mutate `body.computable` only; do not silently rewrite `body.state`.
+3. Session end: `compute` with `settle: true` returns merged `state`; product persists to KnowledgeEntry.
+4. Moment field history MAY be recorded on `TimelineEvent.computable_logs` — presentation only, not Finding-shaped.
+
+`ComputableFieldMap`: `common.schema.json#/definitions/ComputableFieldMap`. Field-level body semantics: [`spoke-data-model.md` §Computable body](spoke-data-model.md#computable-body-l2-computable-optional).
+
+---
+
 ## `assemble` wire-only boundary (normative)
 
 v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product performs context assembly. The protocol does **not** specify how packets are produced.
@@ -184,7 +224,7 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 
 ### Attachment pattern (architect-locked — R3)
 
-All five ops response schemas MUST use the same discriminated union:
+All ops response schemas MUST use the same discriminated union:
 
 ```json
 {
@@ -209,6 +249,8 @@ All five ops response schemas MUST use the same discriminated union:
 | `relate` | `relation` | — |
 | `check` | `findings` | Empty array is valid success |
 | `assemble` | `packet` | v0.1 reference implementation |
+| `project` | `session_id`, `entry_id`, `computable` | Optional (`l2-computable`) |
+| `compute` | `session_id`, `entry_id`, `computable` | Optional (`l2-computable`); `state` when request `settle: true` |
 
 **Invariant:** `error` and success payload fields MUST NOT co-exist on the same response object.
 
@@ -220,14 +262,15 @@ HTTP mapping (4xx/5xx) is adapter concern. **`@42ch/spoke-operations`** provides
 
 v0.1 delivers **ops wire** shapes only. Cross-product lifecycle rules (promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders) live in [`spoke-operations.md`](spoke-operations.md) — adapters and product code MUST call `@42ch/spoke-operations` instead of reimplementing those invariants.
 
-Mapping Nexus daemon routes or Creader API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in operations library first slice).
+Mapping product HTTP/API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in operations library first slice).
 
 ---
 
 ## Acceptance (ops layer)
 
-- [ ] Each operation above has request + response schemas under `schemas/ops/`
-- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 ops, 10 schema files)
+- [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
+- [x] Optional `project` / `compute` ops documented when `l2-computable` ships (4 additional schema files; total **23**)
+- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 2 optional)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)
 - [ ] `check-request` / `assemble-request` `$ref` shared `Scope` from `common.schema.json`
@@ -251,5 +294,5 @@ Mapping Nexus daemon routes or Creader API handlers to these wire payloads remai
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `Rule`, `TimelineEvent`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers on top of wire types (column 3) |
-| [`schemas/README.md`](../../schemas/README.md) | Ten op schema files under `schemas/ops/` |
+| [`schemas/README.md`](../../schemas/README.md) | Fourteen op schema files under `schemas/ops/` (ten baseline + four optional) |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

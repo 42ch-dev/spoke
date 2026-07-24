@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/project-request.schema.json",
+  "title": "ProjectRequest",
+  "description": "Init / projection — materialize Session dynamic computable view from static state.",
+  "type": "object",
+  "required": ["session_id", "entry_id", "state"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "Opaque Session correlation id. Products own Session stores."
+    },
+    "entry_id": {
+      "type": "string",
+      "description": "Target KnowledgeEntry id."
+    },
+    "state": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap",
+      "description": "Static computable source (body.state)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

@@ -50,6 +50,13 @@
       "type": "string",
       "description": "Opaque ordering hint within a timeline (products define grammar)."
     },
+    "computable_logs": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableLogEntry"
+      },
+      "description": "Optional Moment-scale presentation of computable field change history (l2-computable only). Not Finding-shaped."
+    },
     "created_at": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
     },
@@ -70,7 +77,7 @@
       "occurred_at": "1421-06-03T00:00:00Z",
       "participant_entry_ids": ["kb_mira", "kb_ashford"],
       "extensions": {
-        "nexus": { "world_id": "wld_abc" }
+        "my_product": { "world_id": "wld_abc" }
       }
     }
   ]

@@ -10,7 +10,7 @@ Normative docs: [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md) (umbrel
 schemas/
 ├── README.md                           # this file
 ├── common/
-│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, shared ids
+│   ├── common.schema.json              # SchemaVersion, ExtensionMap, Scope, TimelineScale, ComputableFieldMap, ComputableLogChange, ComputableLogEntry, shared ids
 │   └── error-envelope.schema.json      # shared ops error shape
 ├── data/
 │   ├── knowledge-entry.schema.json
@@ -30,10 +30,14 @@ schemas/
     ├── check-request.schema.json
     ├── check-response.schema.json
     ├── assemble-request.schema.json
-    └── assemble-response.schema.json
+    ├── assemble-response.schema.json
+    ├── project-request.schema.json       # l2-computable — init / projection
+    ├── project-response.schema.json
+    ├── compute-request.schema.json       # l2-computable — apply / settle
+    └── compute-response.schema.json
 ```
 
-**Total:** **19** hand-authored schema files (2 common + 7 data + 10 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **23** hand-authored schema files (2 common + 7 data + 14 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -100,5 +104,9 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 17 | `ops/check-response.schema.json` | done |
 | 18 | `ops/assemble-request.schema.json` | done |
 | 19 | `ops/assemble-response.schema.json` | done |
+| 20 | `ops/project-request.schema.json` | done |
+| 21 | `ops/project-response.schema.json` | done |
+| 22 | `ops/compute-request.schema.json` | done |
+| 23 | `ops/compute-response.schema.json` | done |
 
-**Total:** 19 schema files (`rule-event` + `ops-harden` landed).
+**Total:** 23 schema files (`l2-computable` optional ops landed).

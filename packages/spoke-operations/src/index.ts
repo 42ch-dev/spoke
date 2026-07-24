@@ -45,6 +45,13 @@ export {
 
 export { validateRelateRequest } from "./relate/validate.js";
 
+export {
+  validateComputableFieldMap,
+  validateComputableLogEntry,
+  validateProjectRequest,
+  validateComputeRequest,
+} from "./computable/validate.js";
+
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {

@@ -17,16 +17,16 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
 | **1. Data** | Seven required objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **TimelineEvent** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
-| **2. Ops wire** | Five operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
+| **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas when shipped) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
 
 **Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
 
-**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **19** hand-authored schema files.
+**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope` + `TimelineScale` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
 
 **Schema file count:**
 
@@ -34,6 +34,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 |-------|---------------------|-----------|
 | **Protocol layers + Rule/TimelineEvent (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
 | **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON on `main`; harness relocates to `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
+| **Optional `l2-computable` ops (`project` / `compute`)** | **23** | +4 ops schemas; optional capability — baseline integrators unchanged |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
 
@@ -47,7 +48,7 @@ Every durable data object MUST include:
 
 | Rule | Requirement |
 |------|-------------|
-| Namespace keys | Product ids (`nexus`, `creader`, …) |
+| Namespace keys | Product-chosen ids matching `^[a-z][a-z0-9_-]*$` |
 | Values | Opaque JSON objects |
 | Round-trip | Adapters MUST preserve unknown namespaces and unknown keys inside a namespace |
 | Core fields | Protocol objects use `additionalProperties: false`; extensions are the sole product-specific bag |
@@ -123,7 +124,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five ops, **19** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md).
+Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five baseline ops plus optional `project` / `compute`, **23** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md).
 
 **CI + inventory (required):**
 
@@ -148,8 +149,9 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 
 | Out of scope | Rationale |
 |--------------|-----------|
-| Real Nexus ↔ SPOKE or Creader ↔ SPOKE conversion | Adapter packages deferred |
-| WASM / Computable KnowledgeEntry / Fork semantics | Not required protocol surface yet |
+| Product ↔ SPOKE conversion packages | Adapter packages deferred |
+| Required WASM / compute engines in protocol | Optional `l2-computable` shapes I/O only — engines are product-owned |
+| Fork semantics (`l5-fork`) | Optional capability — wire TBD |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
 | npm/crates.io publish (including from CI) | Workspace-local packages suffice for v0.1 |
 
@@ -172,6 +174,6 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent (protocol layers deepen) |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, helper families (first slice + deepen), hard In/Out |
-| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (19 files committed) |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (23 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

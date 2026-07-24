@@ -9,9 +9,6 @@ import type {
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
 
-const RFC3339_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-
 function isNonEmptyTrimmedString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -35,8 +32,8 @@ function validateExtensionMap(
   return spokeOk();
 }
 
-function isRfc3339Timestamp(value: string): boolean {
-  return RFC3339_PATTERN.test(value);
+function isParseableDateTime(value: string): boolean {
+  return !Number.isNaN(Date.parse(value));
 }
 
 /**
@@ -87,11 +84,11 @@ export function validateComputableLogEntry(
 ): SpokeResult<void> {
   if (
     !isNonEmptyTrimmedString(entry.logged_at) ||
-    !isRfc3339Timestamp(entry.logged_at.trim())
+    !isParseableDateTime(entry.logged_at.trim())
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "ComputableLogEntry logged_at must be a valid RFC 3339 timestamp",
+      "ComputableLogEntry logged_at must be a valid date-time string",
       { field: "logged_at" },
     );
   }

@@ -56,6 +56,15 @@ describe("validateComputableLogEntry", () => {
     expect(validateComputableLogEntry(validEntry).ok).toBe(true);
   });
 
+  it("accepts date-time without explicit timezone suffix", () => {
+    expect(
+      validateComputableLogEntry({
+        ...validEntry,
+        logged_at: "2026-07-23T05:50:00",
+      }).ok,
+    ).toBe(true);
+  });
+
   it("rejects invalid logged_at", () => {
     const result = validateComputableLogEntry({
       ...validEntry,

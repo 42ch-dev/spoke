@@ -123,7 +123,8 @@ function parseArgs() {
     console.log(`Usage: node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]
 
 Bump all lockstep version surfaces to X.Y.Z, run assert-lockstep-version, then exit.
-With --tag, create a local annotated tag vX.Y.Z (no push).`);
+With --tag, create a local annotated tag vX.Y.Z only when the target version is
+already committed (lockstep match on a clean tree). Refused when bumping or dirty.`);
     process.exit(argv.length === 0 ? 1 : 0);
   }
 
@@ -165,12 +166,78 @@ function runAssert(version) {
 }
 
 /**
+ * @returns {boolean}
+ */
+function isWorkingTreeClean() {
+  const result = spawnSync(
+    "git",
+    ["status", "--porcelain", "--ignore-submodules"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    },
+  );
+
+  if (result.status !== 0) {
+    console.error("bump-version: failed to read git status.");
+    process.exit(result.status ?? 1);
+  }
+
+  return result.stdout.trim().length === 0;
+}
+
+/**
+ * @param {string} version
+ * @param {string} [message]
+ * @returns {string}
+ */
+function defaultTagMessage(version, message) {
+  return message ?? `Release v${version}`;
+}
+
+/**
+ * @param {string} version
+ * @param {string} message
+ */
+function printTagInstructions(version, message) {
+  const tagName = `v${version}`;
+  const tagMessage = defaultTagMessage(version, message);
+  console.log(`  git tag -a ${tagName} -m "${tagMessage}"`);
+  console.log(`  git push origin ${tagName}`);
+}
+
+/**
+ * @param {string} version
+ * @param {string} message
+ */
+function printCommitAndTagInstructions(version, message) {
+  console.log("Next steps:");
+  console.log("  git add -A");
+  console.log(`  git commit -m "chore(release): bump version to ${version}"`);
+  console.log("  git push");
+  printTagInstructions(version, message);
+}
+
+/**
+ * @param {string} reason
+ * @param {string} version
+ * @param {string} message
+ */
+function refuseTag(reason, version, message) {
+  console.error(`bump-version: refusing --tag: ${reason}`);
+  console.error("");
+  printCommitAndTagInstructions(version, message);
+  process.exit(1);
+}
+
+/**
  * @param {string} version
  * @param {string} message
  */
 function createAnnotatedTag(version, message) {
   const tagName = `v${version}`;
-  const result = spawnSync("git", ["tag", "-a", tagName, "-m", message], {
+  const tagMessage = defaultTagMessage(version, message);
+  const result = spawnSync("git", ["tag", "-a", tagName, "-m", tagMessage], {
     cwd: REPO_ROOT,
     stdio: "inherit",
   });
@@ -181,6 +248,7 @@ function createAnnotatedTag(version, message) {
   }
 
   console.log(`Created annotated tag ${tagName} (local only; not pushed).`);
+  console.log(`  git push origin ${tagName}`);
 }
 
 const { targetVersion, tag, tagMessage } = parseArgs();
@@ -197,18 +265,23 @@ if (currentVersion === targetVersion) {
   );
   runAssert(targetVersion);
   if (tag) {
-    createAnnotatedTag(targetVersion, tagMessage ?? `Release v${targetVersion}`);
-  }
-  console.log("");
-  console.log("Next steps:");
-  console.log("  git add -A");
-  console.log(`  git commit -m "chore(release): bump version to ${targetVersion}"`);
-  console.log("  git push");
-  if (tag) {
-    console.log(`  git push origin v${targetVersion}`);
+    if (!isWorkingTreeClean()) {
+      refuseTag(
+        "working tree is dirty; tag only after commit on a clean tree.",
+        targetVersion,
+        tagMessage ?? `Release v${targetVersion}`,
+      );
+    }
+    createAnnotatedTag(
+      targetVersion,
+      tagMessage ?? `Release v${targetVersion}`,
+    );
   } else {
-    console.log(`  git tag -a v${targetVersion} -m "Release v${targetVersion}"`);
-    console.log(`  git push origin v${targetVersion}`);
+    console.log("");
+    printTagInstructions(
+      targetVersion,
+      tagMessage ?? `Release v${targetVersion}`,
+    );
   }
   process.exit(0);
 }
@@ -237,14 +310,16 @@ runAssert(targetVersion);
 
 console.log(`Bumped lockstep version ${currentVersion} → ${targetVersion}.`);
 console.log("");
-console.log("Next steps:");
-console.log("  git add -A");
-console.log(`  git commit -m "chore(release): bump version to ${targetVersion}"`);
-console.log("  git push");
+
 if (tag) {
-  createAnnotatedTag(targetVersion, tagMessage ?? `Release v${targetVersion}`);
-  console.log(`  git push origin v${targetVersion}`);
-} else {
-  console.log(`  git tag -a v${targetVersion} -m "Release v${targetVersion}"`);
-  console.log(`  git push origin v${targetVersion}`);
+  refuseTag(
+    "version bump writes uncommitted changes; tag after commit.",
+    targetVersion,
+    tagMessage ?? `Release v${targetVersion}`,
+  );
 }
+
+printCommitAndTagInstructions(
+  targetVersion,
+  tagMessage ?? `Release v${targetVersion}`,
+);

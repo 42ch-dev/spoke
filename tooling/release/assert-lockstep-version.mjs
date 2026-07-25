@@ -36,7 +36,9 @@ import {
   parseOpsSpokeSchemasDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const REPO_ROOT = process.env.SPOKE_REPO_ROOT
+  ? join(process.env.SPOKE_REPO_ROOT)
+  : join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const RELEASE_TAG_SEMVER_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$/;
 const RELEASE_TAG_RC_PATTERN = /^([0-9]+\.[0-9]+\.[0-9]+)-rc\.[0-9]+$/;

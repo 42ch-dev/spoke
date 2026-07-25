@@ -1,6 +1,6 @@
 # SPOKE Protocol Layers (L0–L8)
 
-> **Status:** Normative (protocol layers deepen) — architect-locked 2026-07-23; library column operations library deepen  
+> **Status:** Normative — layer model + capability levels  
 > **Document class:** Normative — layer model + capability levels  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Research source:** Spoke Protocol Research canvas (nine layers)
@@ -23,7 +23,7 @@ This document is the integrator-facing map from research vocabulary to wire arti
 
 Read top-down: identity → ontology → body → provenance → graph → time → constraints → findings → context packet.
 
-| Layer | Concept | Baseline (protocol layers target) | Optional capability | Primary wire artifacts |
+| Layer | Concept | Baseline (`spoke-baseline`) | Optional capability | Primary wire artifacts |
 |-------|---------|------------------------------|---------------------|------------------------|
 | **L0 Envelope** | Identity + `schema_version` | Required on all durable objects | — | All `schemas/data/*`; `schema_version` in `common.schema.json` |
 | **L1 Ontology** | `entry_type` + Domain Profile | Open `entry_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `knowledge-entry.schema.json`; `CONCEPTS.md`; future adapter specs |
@@ -55,7 +55,7 @@ Product Timeline UIs often expose three semantic-zoom layers (Brief / Narrative 
 | **`narrative`** | Ordered story events on the Timeline | First-class `TimelineEvent` objects and/or event-shaped KnowledgeEntries |
 | **`moment`** | Fine grain (scene / beat / beat-local) | Optional `computable_logs` on TimelineEvent under `l2-computable` |
 
-**Wire field (architect-locked):** optional `timeline_scale` on `TimelineEvent` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale` — committed in protocol layers deepen; `check-request` / `assemble-request` `$ref` shared `Scope` (delivered **`ops-harden`**).
+**Wire field:** optional `timeline_scale` on `TimelineEvent` and as an optional `Scope` refinement filter — values `brief` | `narrative` | `moment` (open string; core vocabulary documented, not `enum`). Shared def: `common.schema.json#/definitions/TimelineScale`. `check-request` and `assemble-request` `$ref` shared `Scope`.
 
 **Rules:**
 
@@ -71,7 +71,7 @@ Products MUST declare which level they implement when claiming SPOKE compliance.
 
 ### Baseline (`spoke-baseline`)
 
-Required for “SPOKE baseline” claims since protocol layers deepen:
+Required for “SPOKE baseline” claims:
 
 | Includes | Excludes |
 |----------|----------|
@@ -120,7 +120,7 @@ Baseline compliance MUST NOT require either flag.
 
 | Definition | Used by | Role |
 |------------|---------|------|
-| `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` — committed in protocol layers deepen (`ops-harden`) |
+| `Scope` | `check-request`, `assemble-request` | Protocol-neutral selector; required `scope_id` |
 | `TimelineScale` | `TimelineEvent.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) |
 | `ForkId` | `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, `Scope.fork_id` | Opaque world-history branch identity (`l5-fork`) |
 | `ComputableFieldMap` | `KnowledgeEntry.body.state`, `body.computable`; `project` / `compute` op payloads | Open JSON object for computable domain values (`l2-computable`) |
@@ -134,7 +134,7 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 
 - [x] Integrator can name baseline vs optional flags without reading research canvas
 - [x] Every baseline layer row maps to normative semantics (field tables + layer rules in this doc, data-model, ops)
-- [x] Every baseline layer row maps to at least one **committed** schema or op family — L5/L6 data schemas + shared `Scope` / `TimelineScale` / error-envelope landed in protocol layers deepen (`rule-event`, `ops-harden`)
+- [x] Every baseline layer row maps to at least one committed schema or op family — L5/L6 data schemas plus shared `Scope`, `TimelineScale`, and error-envelope on all ops responses
 - [x] Rule vs Finding and Check vs Assemble boundaries appear in this doc and cross-link data/ops specs
 - [x] Domain Profile section prevents “closed enum in core” misread
 - [x] Layer ↔ artifact matrix is complete (schema / op / library helper per layer); operations library deepen extends library column per [`spoke-operations.md`](spoke-operations.md)

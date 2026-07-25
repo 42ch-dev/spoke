@@ -32,6 +32,11 @@ export type TimelineScale = string;
  * via the `definition` "ForkId".
  */
 export type ForkId = string;
+/**
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "OpaqueJson".
+ */
+export type OpaqueJson = unknown;
 
 /**
  * Shared type definitions for SPOKE wire schemas.
@@ -118,18 +123,8 @@ export interface ComputableLogChange {
    * Dot-path or JSON Pointer to changed field within body.computable.
    */
   path: string;
-  /**
-   * Opaque JSON — value before change.
-   */
-  previous?: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * Opaque JSON — value after change.
-   */
-  next?: {
-    [k: string]: unknown | undefined;
-  };
+  previous?: OpaqueJson;
+  next?: OpaqueJson;
 }
 /**
  * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema

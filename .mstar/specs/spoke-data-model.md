@@ -1,6 +1,6 @@
 # SPOKE Data Model
 
-> **Status:** Normative (v0.1 baseline; protocol layers deepen; KnowledgeEntry/TimelineEvent terminology, 2026-07-23)  
+> **Status:** Normative (v0.1 baseline; Rule + TimelineEvent + open vocabulary)
 > **Document class:** Detail — data layer  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/data/`, `schemas/common/`
@@ -201,13 +201,17 @@ When a product records dynamic computable field history on the Moment axis, it M
 | `session_id` | no | Opaque Session correlation (matches op `session_id`) |
 | `message` | no | Human-readable presentation note |
 
-**`ComputableLogChange`:**
+**`ComputableLogChange`** (`common.schema.json#/definitions/ComputableLogChange`):
 
 | Field | Required | Type |
 |-------|----------|------|
 | `path` | yes | Dot-path or JSON Pointer to changed field within `body.computable` |
-| `previous` | no | Opaque JSON — value before change |
-| `next` | no | Opaque JSON — value after change |
+| `previous` | no | `#/definitions/OpaqueJson` — any JSON value (scalar, array, object, or null) |
+| `next` | no | `#/definitions/OpaqueJson` — any JSON value (scalar, array, object, or null) |
+
+**`OpaqueJson`** (`common.schema.json#/definitions/OpaqueJson`): empty schema `{}` (draft-07 accepts any instance). Used by `ComputableLogChange.previous` / `.next`.
+
+Generated TypeScript and Rust types MUST reflect the same opacity (not object-only maps). TypeScript: `OpaqueJson` / `unknown`. Rust: `serde_json::Value`.
 
 ---
 
@@ -587,14 +591,14 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **ComputableLogEntry** — Moment-scale presentation on `TimelineEvent.computable_logs` (not Finding)
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
 - **Finding** — checker output, not a KnowledgeEntry body
-- **Rule** — L6 declarative wire object (protocol layers deepen); not synonymous with `entry_type: "rule"` which remains a valid open string if products use it
+- **Rule** — L6 declarative wire object; distinct from `entry_type: "rule"` on a KnowledgeEntry
 
 ---
 
 ## Acceptance (data layer)
 
-- [x] Each **baseline + protocol layers deepen** object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
-- [x] Umbrella + this doc list the same object set; Rule/TimelineEvent shipped in `rule-event`
+- [x] Each baseline and optional-capability object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
+- [x] Umbrella + this doc list the same object set; `Rule` and `TimelineEvent` schemas committed
 - [ ] Sample valid KnowledgeEntry instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
 - [ ] `entry_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 

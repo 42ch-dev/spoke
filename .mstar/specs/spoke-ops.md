@@ -1,6 +1,6 @@
 # SPOKE Operations
 
-> **Status:** Normative (v0.1 baseline; ops wire harden)  
+> **Status:** Normative (v0.1 baseline)
 > **Document class:** Detail — ops **wire** layer (column 2)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/ops/`, `schemas/common/`  
@@ -10,12 +10,12 @@
 
 Define transport-agnostic **request/response** wire shapes for core KnowledgeEntry operations. Ops schemas are separate families from data envelopes in `schemas/data/`.
 
-**Integrator framing (ops wire harden):**
+**Integrator framing:**
 
 | Principle | Meaning |
 |-----------|---------|
 | **Check ≠ Assemble** | `check` runs checkers and returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op, no ranking fields in assemble wire. |
-| **Scope neutrality** | Shared `Scope` def in `common.schema.json` (committed protocol layers deepen — **`ops-harden`**); required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters — not `Scope` required fields. Pure Scope match helpers ship in operations library deepen — see [`spoke-operations.md`](spoke-operations.md) §Scope match. |
+| **Scope neutrality** | Shared `Scope` def in `common.schema.json`; required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters. Scope match helpers live in [`spoke-operations.md`](spoke-operations.md) §Scope match. |
 | **One failure dialect** | All ops responses use `oneOf` success branch **or** `{ "error": ErrorEnvelope }` — same attachment as v0.1 `assemble-response` (R3 closed). |
 
 **Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.

@@ -30,13 +30,13 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 
 **Schema file count:**
 
-| Slice | Hand-authored files | Breakdown |
-|-------|---------------------|-----------|
-| **Protocol layers + Rule/TimelineEvent (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
-| **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
-| **Optional `l2-computable` ops (`project` / `compute`)** | **23** | +4 ops schemas; optional capability — baseline integrators unchanged |
+| Inventory | Count | Breakdown |
+|-----------|-------|-----------|
+| **Committed `*.schema.json` files** | **23** | 2 common + 7 data + 14 ops (10 baseline + 4 optional `l2-computable` `project` / `compute`) |
 
-Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
+Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, and `ComputableLogEntry`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first 19 schema files; optional `l2-computable` adds four ops schemas.
+
+Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema changes.
 
 ## Extensions
 
@@ -112,6 +112,10 @@ spoke/
 | Edit policy | Never hand-edit `*/generated/**` |
 | Module mirror | Generated folder names mirror `schemas/{common,data,ops}` |
 | Public API | Both packages re-export all leaf types from `index.ts` / `lib.rs` |
+| Schema inventory | **23** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
+| Opaque JSON fields | Wire shape: `#/definitions/OpaqueJson` (empty schema `{}`) with `$ref` from consuming properties (e.g. `ComputableLogChange.previous` / `.next`). Generators MUST emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust) — not object-index maps |
+| Duplicate generated types | typify and jstt may emit duplicate nominal types across `common/` and `data/` modules after `$ref` dereference. Integrators import canonical types from `generated/common` (TS barrel or `spoke_schemas::generated::common` / crate root re-exports). Duplicates are generator output, not separate wire shapes |
+| Release script tests | `pnpm run test:release` exercises `tooling/release/` assert/bump scripts (pure fixtures; no registry I/O). CI runs it in the `typescript` job |
 
 Detail: [`schemas/README.md`](../../schemas/README.md).
 
@@ -138,7 +142,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 1. Spec trio (`spoke-protocol`, `spoke-data-model`, `spoke-ops`) aligned with `schemas/` tree for baseline data objects + five ops
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all four jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
-   - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
+   - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test; `pnpm run test:fixtures`; `pnpm run test:release`
    - `rust` — `cargo check -p spoke-schemas`; `cargo test -p spoke-operations`
    - `verify-version` — `pnpm run verify:version` (lockstep SemVer across manifests and README badges; see [`spoke-version-release.md`](spoke-version-release.md))
 3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version`)
@@ -181,7 +185,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 |-----|-------|
 | [`spoke-version-release.md`](spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release and registry publish |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent (protocol layers deepen) |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, helper families (first slice + deepen), hard In/Out |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (23 files committed) |

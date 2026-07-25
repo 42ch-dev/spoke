@@ -12,11 +12,13 @@ Protocol repos often mix maintainer process docs with integrator onboarding. Dua
 
 1. **Audience:** Root `README.md` / `README_CN.md` are **for humans** (protocol consumers), not agent steering docs.
 2. **Twin structure:** Same section outline and tables; cross-link at the top.
-3. **No iteration delivery in README:** Affirmative product state only — no iteration IDs or ship banners (root `AGENTS.md` § README audience).
-4. **No anti-pattern rhetoric in README:** Avoid “not a…”, “does not include…”, “out of scope…” exclusion prose; put boundaries in root `AGENTS.md` (or normative specs).
-5. **Spelling:** Protocol token **KnowledgeEntry** stays English in CN docs (do not translate wire type names).
+3. **Maintainer process elsewhere:** Local clone, codegen, CI gates, and release how-to live in root [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) — keep consumer READMEs install/pin/usage focused.
+4. **No iteration delivery in README:** Affirmative product state only — no iteration IDs or ship banners (root `AGENTS.md` § README audience).
+5. **No anti-pattern rhetoric in README:** Avoid “not a…”, “does not include…”, “out of scope…” exclusion prose; put boundaries in root `AGENTS.md` (or normative specs).
+6. **Spelling:** Protocol token **KnowledgeEntry** stays English in CN docs (do not translate wire type names).
 
 ## Related
 
 - Specs: `.mstar/specs/spoke-protocol.md`, `spoke-operations.md`
 - Packages: `@42ch/spoke-schemas`, `@42ch/spoke-operations`
+- Maintainers: root `CONTRIBUTING.md`

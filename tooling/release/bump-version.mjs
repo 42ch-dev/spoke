@@ -24,7 +24,9 @@ import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
 import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const REPO_ROOT = process.env.SPOKE_REPO_ROOT
+  ? join(process.env.SPOKE_REPO_ROOT)
+  : join(dirname(fileURLToPath(import.meta.url)), "../..");
 const CHANGELOG_PATH = "CHANGELOG.md";
 const ASSERT_SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -309,6 +311,7 @@ function updateChangelog(version) {
 function runAssert(version) {
   const result = spawnSync(process.execPath, [ASSERT_SCRIPT], {
     cwd: REPO_ROOT,
+    env: { ...process.env, SPOKE_REPO_ROOT: REPO_ROOT },
     stdio: "inherit",
   });
 

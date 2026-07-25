@@ -20,8 +20,14 @@ Lockstep with `spoke-operations` at the same SemVer when using both.
 
 ## Usage
 
+Import wire types from the crate root — re-exports resolve to the canonical generated module for each schema:
+
 ```rust
-use spoke_schemas::{KnowledgeEntry, PromoteRequest, TimelineEvent, AssemblePacket};
+use spoke_schemas::{
+    AssemblePacket, ComputableLogChange, KnowledgeEntry, PromoteRequest, Scope, TimelineEvent,
+};
 ```
+
+typify may emit duplicate nominal structs when it inlines shared definitions into multiple generated files (for example `SourceAnchor` nested inside `timeline_event.rs`). Those copies serialize the same JSON but are distinct Rust types. Use crate-root or `generated::common` imports for shared defs; convert across duplicates with `serde_json` round-trip when needed.
 
 Protocol docs and the lockstep SemVer release policy live in the [SPOKE repository](https://github.com/42ch-dev/spoke).

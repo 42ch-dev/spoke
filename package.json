@@ -17,7 +17,8 @@
     "test": "pnpm -F @42ch/spoke-operations test",
     "test:fixtures": "pnpm -F @42ch/spoke-fixture-toy-world test",
     "test:operations": "pnpm -F @42ch/spoke-operations test",
-    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run test:fixtures && pnpm run build:operations",
+    "test:release": "node --test tooling/release/assert-lockstep-version.test.mjs tooling/release/bump-version.test.mjs",
+    "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run test:fixtures && pnpm run build:operations && pnpm run test:release",
     "verify:version": "node tooling/release/assert-lockstep-version.mjs",
     "release:bump": "node tooling/release/bump-version.mjs",
     "release:changelog": "node tooling/release/run-git-cliff.mjs"

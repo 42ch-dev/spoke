@@ -69,11 +69,11 @@ Tags SHOULD be annotated. Release notes come from `CHANGELOG.md` first; tag anno
 
 A SPOKE release is:
 
-1. Lockstep manifests, README badges, and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via maintainer PR).
-2. Maintainer creates and pushes annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) pointing at that commit.
-3. CI **release** workflow on tag push re-validates verify-equivalent gates.
-4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply only when the section is missing.
-5. On stable tags (no `-rc.` suffix), CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas`, then crate `spoke-operations` to npm and crates.io.
+1. Lockstep manifests, README badges, and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via **Cut release** PR or equivalent maintainer bump).
+2. Annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) points at that commit (created by **Tag release on merge** after a `release`-labeled PR merges, or by a maintainer).
+3. CI **Release** workflow (`release.yml` on tag push **or** `workflow_dispatch` with `tag=`) re-validates verify-equivalent gates.
+4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply when the section is missing.
+5. When the tag name does not contain `-rc.`, CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas`, then crate `spoke-operations` to npm and crates.io.
 6. Consumers install from registries at `X.Y.Z` or pin the repo at that tag.
 
 **GitHub Release contents (minimum):** tag name, release notes body, automatic source archive (GitHub default). Registry artifacts: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, `spoke-operations` at the same SemVer.
@@ -82,8 +82,9 @@ A SPOKE release is:
 
 | Actor | Rule |
 |-------|------|
-| Maintainers | MAY bump, tag, and push after PR merge to `main` |
-| CI | MUST NOT auto-bump version or auto-push tags on merge |
+| Maintainers | MAY run **Cut release** (`workflow_dispatch`) and merge the labeled PR; MAY still bump/tag manually |
+| CI | **Cut release** MAY open the bump PR; **Tag release on merge** MAY create the annotated tag and dispatch **Release** when a `release`-labeled PR merges to `main` |
+| CI | MUST NOT auto-bump or auto-tag on ordinary (non-release) merges to `main` |
 | Forks | Release workflow MAY no-op or fail without `contents: write`; document in operator guide |
 
 ## CI requirements
@@ -91,7 +92,9 @@ A SPOKE release is:
 | Trigger | Workflow | Requirement |
 |---------|----------|-------------|
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
-| Push of tag matching `v*` | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` on stable tags (fail-closed) |
+| `workflow_dispatch` (version input) | `.github/workflows/cut-release.yml` | Opens lockstep bump PR with label `release` |
+| `pull_request` closed (merged + label `release`) | `.github/workflows/tag-release-on-merge.yml` | Annotated tag `vX.Y.Z` + dispatch `release.yml` |
+| Push of tag matching `v*` **or** `workflow_dispatch` (`tag` input) | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed) |
 
 Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, and `spoke-operations`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
@@ -112,16 +115,17 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Item | Value |
 |------|-------|
 | File | `.github/workflows/release.yml` |
-| Trigger | `on.push.tags: ['v*']` |
-| Concurrency | `group: release-${{ github.ref }}`, `cancel-in-progress: true` |
+| Trigger | `on.push.tags: ['v*']` and `workflow_dispatch` with input `tag` (e.g. from Tag release on merge) |
+| Concurrency | `group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}`, `cancel-in-progress: true` |
 | Permissions | Workflow default `contents: read`; `release` job sets `contents: write`; `publish-npm` sets `id-token: write` for npm Trusted Publishing (OIDC) |
-| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **`publish-npm`** then **`publish-crates`** (`publish-crates` `needs: [publish-npm]`; stable tags only) |
+| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **`publish-npm`** then **`publish-crates`** (`publish-crates` `needs: [publish-npm]`; tags without `-rc.` only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
 | Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1); `publish-crates`: `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
 | Registry auth | npm: Trusted Publisher on each package (GitHub Actions → org `42ch-dev`, repo `spoke`, workflow `release.yml`); crates.io: `CARGO_REGISTRY_TOKEN` repository secret — never committed |
+| Operator cut | `cut-release.yml` (`workflow_dispatch` version) opens labeled PR; `tag-release-on-merge.yml` tags + dispatches this workflow |
 
 **Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 

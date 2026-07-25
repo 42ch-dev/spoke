@@ -1,0 +1,84 @@
+name: Tag release on merge
+
+# After a Cut release PR (label `release`) merges to main, create vX.Y.Z and run Release.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: tag-release-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  tag-and-dispatch:
+    name: tag-and-dispatch
+    if: >
+      github.event.pull_request.merged == true &&
+      contains(join(github.event.pull_request.labels.*.name, ','), 'release')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout merge commit
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Resolve version and ensure annotated tag
+        id: tag
+        env:
+          SUMMARY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force origin
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            TYPE="$(git cat-file -t "refs/tags/${TAG}")"
+            if [ "$TYPE" != "tag" ]; then
+              echo "::error::Tag ${TAG} exists but is not annotated."
+              exit 1
+            fi
+            echo "Tag ${TAG} already exists; will dispatch Release."
+          else
+            MSG="Release ${TAG}"
+            # Prefer first non-empty non-heading line from PR body as annotation
+            BODY_LINE="$(printf '%s\n' "$SUMMARY" | sed -n '/^[^#[:space:]].*/{p;q;}')"
+            if [ -n "$BODY_LINE" ]; then
+              MSG="$BODY_LINE"
+            fi
+            git tag -a "$TAG" -m "$MSG" "${{ github.event.pull_request.merge_commit_sha }}"
+            git push origin "refs/tags/${TAG}"
+            echo "Created and pushed ${TAG}"
+          fi
+
+      - name: Dispatch Release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # GITHUB_TOKEN tag pushes do not start other workflows; dispatch explicitly.
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            -f "tag=${TAG}"
+          echo "Dispatched Release for ${TAG}"
+
+      - name: Summary
+        run: |
+          echo "### Tagged release" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ steps.tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Merge: \`${{ github.event.pull_request.merge_commit_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Next: watch the **Release** workflow run." >> "$GITHUB_STEP_SUMMARY"

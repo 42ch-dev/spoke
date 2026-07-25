@@ -95,18 +95,15 @@ The shields.io **Version** badge at the top of this README reflects the canonica
 
 ## Release (maintainers)
 
-[`CHANGELOG.md`](CHANGELOG.md) is the release-notes source (Keep a Changelog format, generated from Conventional Commits via [git-cliff](https://git-cliff.org)). GitHub Releases use the matching version section.
+Primary path — **Cut release** on GitHub Actions, then merge the PR:
 
-After changes are ready on `main`:
+1. Open [Actions → Cut release](https://github.com/42ch-dev/spoke/actions/workflows/cut-release.yml) → **Run workflow**.
+2. Set **version** to the lockstep SemVer (e.g. `0.1.0-alpha.3`). Optional summary fills the PR body.
+3. Merge the opened PR (keep the `release` label). CI creates annotated tag `vX.Y.Z` and runs [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml): verify gates, GitHub Release from [`CHANGELOG.md`](CHANGELOG.md), and on stable / alpha tags (no `-rc.` suffix) publish npm + crates.io.
 
-1. Bump all lockstep surfaces and refresh the changelog section: `pnpm run release:bump -- X.Y.Z`
-2. Commit and push: `git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
-3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "optional summary"` or `git tag -a vX.Y.Z -m "optional summary"`
-4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and on stable tags publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` and `spoke-operations` to crates.io.
+[`CHANGELOG.md`](CHANGELOG.md) is the release-notes source (Keep a Changelog via [git-cliff](https://git-cliff.org)). Preview locally: `pnpm run release:changelog -- --unreleased`.
 
-Preview or regenerate changelog output: `pnpm run release:changelog -- --unreleased` (flags pass through to git-cliff).
-
-Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Stable tags `vX.Y.Z` publish to npm and crates.io.
+Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Tags without `-rc.` publish to npm and crates.io.
 
 ### Registry auth (maintainers)
 

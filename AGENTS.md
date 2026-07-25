@@ -51,7 +51,8 @@ Do not put plan progress or residual detail in this file.
 - Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm), and `spoke-schemas`, `spoke-operations` (crates.io) publish on stable tagged releases via CI Trusted Publisher (npm OIDC) + `CARGO_REGISTRY_TOKEN` (crates.io); fixture and codegen packages remain workspace-private.
 - Finding is checker output, not KnowledgeEntry `body`.
 - npm auth for CI publish is Trusted Publisher on `@42ch/spoke-schemas` and `@42ch/spoke-operations` (org `42ch-dev`, repo `spoke`, workflow `release.yml`). Do not document “NPM_TOKEN no longer required / revoke old secret” in human READMEs — that negation belongs here only.
-- Stable tags (`vX.Y.Z`) publish to npm and crates.io; pre-release tags (`vX.Y.Z-rc.N`) create GitHub pre-releases. If `publish-crates` fails after npm succeeded, re-run that job or `cargo publish` the missing crate at the tagged version.
+- Stable tags (`vX.Y.Z`) and prerelease SemVer tags without `-rc.` (e.g. `v0.1.0-alpha.3`) publish to npm and crates.io; tags containing `-rc.` create GitHub pre-releases only. If `publish-crates` fails after npm succeeded, re-run that job or `cargo publish` the missing crate at the tagged version.
+- Maintainer cut path: **Cut release** workflow (`workflow_dispatch` → version bump PR with label `release`) → merge → **Tag release on merge** creates annotated `vX.Y.Z` and dispatches **Release** (`workflow_dispatch` with `tag=`). Manual `git tag` + push still works. GITHUB_TOKEN tag pushes do not auto-start other workflows — dispatch is required after bot tags.
 
 ## Tech direction (v0.1)
 

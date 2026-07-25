@@ -95,18 +95,15 @@ git checkout vX.Y.Z
 
 ## 发布（维护者）
 
-[`CHANGELOG.md`](CHANGELOG.md) 是发布说明来源（Keep a Changelog 格式，由 [git-cliff](https://git-cliff.org) 根据 Conventional Commits 生成）。GitHub Release 使用对应版本章节。
+主路径 — GitHub Actions **Cut release**，再合并 PR：
 
-当 `main` 上的变更就绪后：
+1. 打开 [Actions → Cut release](https://github.com/42ch-dev/spoke/actions/workflows/cut-release.yml) → **Run workflow**。
+2. **version** 填锁步 SemVer（例如 `0.1.0-alpha.3`）。可选 summary 写入 PR 正文。
+3. 合并打开的 PR（保留 `release` 标签）。CI 创建带注释标签 `vX.Y.Z` 并运行 [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml)：校验门禁、从 [`CHANGELOG.md`](CHANGELOG.md) 创建 GitHub Release；不含 `-rc.` 后缀的标签发布到 npm 与 crates.io。
 
-1. Bump 所有锁步表面并刷新 changelog 章节：`pnpm run release:bump -- X.Y.Z`
-2. 提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
-3. 在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "可选摘要"`，或 `git tag -a vX.Y.Z -m "可选摘要"`
-4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release；稳定标签向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas` 与 `spoke-operations`。
+[`CHANGELOG.md`](CHANGELOG.md) 是发布说明来源（Keep a Changelog，由 [git-cliff](https://git-cliff.org) 生成）。本地预览：`pnpm run release:changelog -- --unreleased`。
 
-预览或重新生成 changelog：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
-
-预发布标签 `vX.Y.Z-rc.N` 创建 GitHub pre-release。稳定标签 `vX.Y.Z` 发布到 npm 与 crates.io。
+预发布标签 `vX.Y.Z-rc.N` 创建 GitHub pre-release。不含 `-rc.` 的标签发布到 npm 与 crates.io。
 
 ### Registry 认证（维护者）
 

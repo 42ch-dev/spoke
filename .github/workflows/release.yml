@@ -4,13 +4,22 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Annotated tag to release (e.g. v0.1.0-alpha.3)"
+        required: true
+        type: string
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
   verify-codegen:
@@ -20,6 +29,9 @@ jobs:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
@@ -57,6 +69,9 @@ jobs:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
@@ -98,6 +113,9 @@ jobs:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
@@ -124,11 +142,12 @@ jobs:
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Require annotated release tag
         run: |
-          TAG="${{ github.ref_name }}"
+          TAG="${RELEASE_TAG}"
           git fetch --tags --force origin
           TYPE="$(git cat-file -t "refs/tags/${TAG}")"
           if [ "$TYPE" != "tag" ]; then
@@ -144,7 +163,7 @@ jobs:
 
       - name: Assert lockstep package versions
         env:
-          SPOKE_RELEASE_TAG: ${{ github.ref_name }}
+          SPOKE_RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: node tooling/release/assert-lockstep-version.mjs
 
   release:
@@ -161,6 +180,9 @@ jobs:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -170,7 +192,7 @@ jobs:
       - name: Resolve release notes
         id: notes
         run: |
-          TAG="${{ github.ref_name }}"
+          TAG="${RELEASE_TAG}"
           BODY="$(node tooling/release/extract-changelog-notes.mjs "$TAG" || true)"
           if [ -z "$BODY" ]; then
             BODY="$(git tag -l --format='%(contents)' "$TAG" || true)"
@@ -188,9 +210,9 @@ jobs:
         # softprops/action-gh-release@v2
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
           body: ${{ steps.notes.outputs.body }}
-          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-rc.') }}
 
   publish-npm:
     name: publish-npm
@@ -201,7 +223,7 @@ jobs:
       - rust
       - verify-version
       - release
-    if: ${{ !contains(github.ref_name, '-rc.') }}
+    if: ${{ !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-rc.') }}
     permissions:
       contents: read
       id-token: write
@@ -209,6 +231,9 @@ jobs:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
@@ -253,13 +278,16 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - publish-npm
-    if: ${{ !contains(github.ref_name, '-rc.') }}
+    if: ${{ !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-rc.') }}
     permissions:
       contents: read
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
 
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)

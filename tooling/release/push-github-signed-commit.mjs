@@ -313,6 +313,8 @@ async function main() {
   if ("url" in commit && typeof commit.url === "string") {
     console.log(commit.url);
   }
+  // Machine-readable for Actions steps (do not change prefix).
+  console.log(`COMMIT_OID=${commit.oid}`);
 }
 
 main().catch((error) => {

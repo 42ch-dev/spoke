@@ -95,11 +95,11 @@ git checkout vX.Y.Z
 
 ## 发布（维护者）
 
-主路径 — GitHub Actions **New release**，再合并 PR：
+主路径 — GitHub Actions **New release**（一次完成）：
 
 1. 打开 [Actions → New release](https://github.com/42ch-dev/spoke/actions/workflows/new-release.yml) → **Run workflow**。
-2. **version** 填锁步 SemVer（例如 `0.1.0-alpha.3`）。可选 summary 写入 PR 正文。
-3. 合并打开的 PR（保留 `release` 标签）。CI 创建带注释标签 `vX.Y.Z` 并运行 [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml)：校验门禁、从 [`CHANGELOG.md`](CHANGELOG.md) 创建 GitHub Release；不含 `-rc.` 后缀的标签发布到 npm 与 crates.io。
+2. **version** 填锁步 SemVer（例如 `0.1.0-alpha.3`）。可选 summary 作为标签注释。
+3. CI 在 `main` 上写入 GitHub 签名的 bump 提交、创建带注释标签 `vX.Y.Z`，并运行 [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml)：校验门禁、从 [`CHANGELOG.md`](CHANGELOG.md) 创建 GitHub Release；不含 `-rc.` 后缀的标签发布到 npm 与 crates.io。
 
 [`CHANGELOG.md`](CHANGELOG.md) 是发布说明来源（Keep a Changelog，由 [git-cliff](https://git-cliff.org) 生成）。本地预览：`pnpm run release:changelog -- --unreleased`。
 

@@ -1,6 +1,14 @@
 name: New release
 
-# Opens a version-bump PR. Merge it (label `release`) to tag + publish via Release.
+# One-shot lockstep bump on main → annotated tag → Release.
+#
+# Why not open a PR with GITHUB_TOKEN?
+# Org setting "Allow GitHub Actions to create and approve pull requests" is off
+# (GitHub default for new orgs). Repo cannot override; github-actions cannot be
+# added as a ruleset bypass actor. Without that org checkbox (or a PAT),
+# createPullRequest always fails. This workflow therefore lands a GitHub-signed
+# commit on main via createCommitOnBranch (satisfies required_signatures), tags,
+# and calls release.yml.
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +17,7 @@ on:
         required: true
         type: string
       summary:
-        description: "Optional release summary (tag annotation / PR body)"
+        description: "Optional release summary (tag annotation)"
         required: false
         type: string
         default: ""
@@ -20,18 +28,20 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
+  id-token: write
 
 jobs:
-  open-pr:
-    name: open-release-pr
+  cut:
+    name: cut
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      commit: ${{ steps.bump.outputs.commit }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          # Always compare / cut against current main tip, regardless of dispatch branch.
           ref: main
           fetch-depth: 0
 
@@ -48,6 +58,7 @@ jobs:
           cache: pnpm
 
       - name: Validate SemVer is greater than main
+        id: meta
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -63,106 +74,77 @@ jobs:
             echo "::error::Git tag ${TAG} already exists; choose a higher version."
             exit 1
           fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Create release branch and bump
+      - name: Bump on main (GitHub-signed commit)
+        id: bump
         env:
           VERSION: ${{ inputs.version }}
-          GITHUB_TOKEN: ${{ secrets.CUT_RELEASE_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          BRANCH="release/${VERSION}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin main --prune
-          git checkout -B "$BRANCH" origin/main
+          git checkout -B main origin/main
 
-          # Re-check on the release branch tip (main may have moved; assert again).
           node tooling/release/assert-version-greater.mjs "$VERSION"
-
           pnpm run release:bump -- "$VERSION"
           if git diff --quiet origin/main -- && [ -z "$(git ls-files --others --exclude-standard)" ]; then
             echo "::error::Bump produced no changes."
             exit 1
           fi
 
-          # GraphQL createCommitOnBranch → GitHub-signed/verified commit (required_signatures).
-          # Do not `git commit` + `git push`: those commits are unsigned and cannot merge to main.
+          OUT="$(mktemp)"
           node tooling/release/push-github-signed-commit.mjs \
-            --branch "$BRANCH" \
+            --branch main \
             --message "chore(release): bump version to ${VERSION}" \
-            --base-ref main
+            --base-ref main | tee "$OUT"
 
-      # Org policy may block GITHUB_TOKEN from creating PRs. Prefer a maintainer PAT:
-      # repo secret CUT_RELEASE_TOKEN (contents:write + pull_requests:write), or ask an org
-      # admin to allow "Actions can create and approve pull requests".
-      - name: Ensure release label
-        env:
-          GH_TOKEN: ${{ secrets.CUT_RELEASE_TOKEN || github.token }}
-        run: |
-          gh label create release --description "Release bump PR — merge to tag and publish" --color BFD4F2 2>/dev/null || true
+          COMMIT="$(sed -n 's/^COMMIT_OID=//p' "$OUT" | tail -n 1)"
+          if [ -z "$COMMIT" ]; then
+            echo "::error::push-github-signed-commit did not emit COMMIT_OID="
+            exit 1
+          fi
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
 
-      - name: Open or update pull request
+      - name: Create annotated tag
         env:
-          GH_TOKEN: ${{ secrets.CUT_RELEASE_TOKEN || github.token }}
-          VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          COMMIT: ${{ steps.bump.outputs.commit }}
           SUMMARY: ${{ inputs.summary }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          BRANCH="release/${VERSION}"
-          TITLE="chore(release): bump version to ${VERSION}"
-          COMPARE_URL="https://github.com/${REPO}/compare/main...${BRANCH}?expand=1"
-          BODY_FILE="$(mktemp)"
-          {
-            echo "## Release ${VERSION}"
-            echo ""
-            if [ -n "$SUMMARY" ]; then
-              echo "$SUMMARY"
-              echo ""
-            fi
-            echo "Merging this PR (keep the \`release\` label) creates annotated tag \`v${VERSION}\` and runs the **Release** workflow (GitHub Release + registry publish for non-\`-rc.\` tags)."
-            echo ""
-            echo "Generated by **New release** (\`workflow_dispatch\`)."
-          } > "$BODY_FILE"
-
-          EXISTING="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
-          if [ -n "$EXISTING" ]; then
-            gh pr edit "$EXISTING" --title "$TITLE" --body-file "$BODY_FILE" --add-label release
-            echo "Updated PR #${EXISTING}"
-            echo "PR_URL=$(gh pr view "$EXISTING" --json url --jq .url)" >> "$GITHUB_ENV"
-            exit 0
+          MSG="Release ${TAG}"
+          if [ -n "$SUMMARY" ]; then
+            MSG="$SUMMARY"
           fi
-
-          ERR_FILE="$(mktemp)"
-          if URL="$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE" --label release 2>"$ERR_FILE")"; then
-            echo "Opened ${URL}"
-            echo "PR_URL=${URL}" >> "$GITHUB_ENV"
-            exit 0
-          fi
-
-          cat "$ERR_FILE" >&2
-          echo "COMPARE_URL=${COMPARE_URL}" >> "$GITHUB_ENV"
-          if grep -qiE 'not permitted to create|createPullRequest' "$ERR_FILE"; then
-            echo "::error::Cannot create PR with the current token. Org policy blocks GITHUB_TOKEN from creating PRs. Set repo secret CUT_RELEASE_TOKEN (PAT with Contents + Pull requests write), or ask an org admin to enable Actions → create and approve pull requests. Branch is ready: ${COMPARE_URL}"
-          else
-            echo "::error::gh pr create failed. Branch is ready: ${COMPARE_URL}"
-          fi
-          exit 1
+          node tooling/release/create-annotated-tag.mjs \
+            --tag "$TAG" \
+            --commit "$COMMIT" \
+            --message "$MSG"
 
       - name: Summary
-        if: always()
         run: |
-          echo "### New release" >> "$GITHUB_STEP_SUMMARY"
+          echo "### New release cut" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`${{ inputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "${PR_URL:-}" ]; then
-            echo "- PR: ${PR_URL}" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Next: merge the PR to tag and publish." >> "$GITHUB_STEP_SUMMARY"
-          elif [ -n "${COMPARE_URL:-}" ]; then
-            echo "- Branch ready — open PR: ${COMPARE_URL}" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Or set secret \`CUT_RELEASE_TOKEN\` and re-run New release." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "- Commit: \`${{ steps.bump.outputs.commit }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ steps.meta.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Next: **Release** job (workflow_call)." >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: release
+    needs: cut
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.cut.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write

@@ -95,11 +95,11 @@ The shields.io **Version** badge at the top of this README tracks the latest [Gi
 
 ## Release (maintainers)
 
-Primary path — **New release** on GitHub Actions, then merge the PR:
+Primary path — **New release** on GitHub Actions (one shot):
 
 1. Open [Actions → New release](https://github.com/42ch-dev/spoke/actions/workflows/new-release.yml) → **Run workflow**.
-2. Set **version** to the lockstep SemVer (e.g. `0.1.0-alpha.3`). Optional summary fills the PR body.
-3. Merge the opened PR (keep the `release` label). CI creates annotated tag `vX.Y.Z` and runs [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml): verify gates, GitHub Release from [`CHANGELOG.md`](CHANGELOG.md), and on stable / alpha tags (no `-rc.` suffix) publish npm + crates.io.
+2. Set **version** to the lockstep SemVer (e.g. `0.1.0-alpha.3`). Optional summary becomes the tag annotation.
+3. CI lands a GitHub-signed bump commit on `main`, creates annotated tag `vX.Y.Z`, and runs [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml): verify gates, GitHub Release from [`CHANGELOG.md`](CHANGELOG.md), and on stable / alpha tags (no `-rc.` suffix) publish npm + crates.io.
 
 [`CHANGELOG.md`](CHANGELOG.md) is the release-notes source (Keep a Changelog via [git-cliff](https://git-cliff.org)). Preview locally: `pnpm run release:changelog -- --unreleased`.
 

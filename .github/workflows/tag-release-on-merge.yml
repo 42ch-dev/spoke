@@ -1,6 +1,7 @@
 name: Tag release on merge
 
-# After a New release PR (label `release`) merges to main, create vX.Y.Z and run Release.
+# Optional human path: after a `release`-labeled PR merges to main, create vX.Y.Z
+# and run Release. Primary cut path is New release (direct signed bump on main).
 on:
   pull_request:
     types: [closed]

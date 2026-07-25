@@ -117,14 +117,14 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | File | `.github/workflows/release.yml` |
 | Trigger | `on.push.tags: ['v*']` and `workflow_call` with input `tag` (from Tag release on merge). No `workflow_dispatch`. |
 | Concurrency | `group: release-${{ github.event_name == 'workflow_call' && inputs.tag || github.ref }}`, `cancel-in-progress: true` |
-| Permissions | Workflow default `contents: read`; `release` job sets `contents: write`; `publish-npm` sets `id-token: write` for npm Trusted Publishing (OIDC) |
+| Permissions | Workflow default `contents: read`; `release` job sets `contents: write`; `publish-npm` and `publish-crates` set `id-token: write` for Trusted Publishing (OIDC) |
 | Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **`publish-npm`** then **`publish-crates`** (`publish-crates` `needs: [publish-npm]`; tags without `-rc.` only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
-| Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1); `publish-crates`: `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
-| Registry auth | npm: Trusted Publisher on each package (GitHub Actions → org `42ch-dev`, repo `spoke`, workflow `release.yml`); crates.io: `CARGO_REGISTRY_TOKEN` repository secret — never committed |
+| Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1); `publish-crates`: `rust-lang/crates-io-auth-action` then `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
+| Registry auth | npm and crates.io: Trusted Publishing only (GitHub Actions → org `42ch-dev`, repo `spoke`, workflow `release.yml`); crates job exchanges OIDC for a short-lived token via `rust-lang/crates-io-auth-action` — no long-lived registry secrets |
 | Operator cut | `new-release.yml` opens labeled PR with GraphQL-signed bump; `tag-release-on-merge.yml` tags + `workflow_call` this workflow |
 
 **Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).

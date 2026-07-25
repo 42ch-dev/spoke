@@ -284,6 +284,7 @@ jobs:
     if: ${{ !contains(github.event_name == 'workflow_call' && inputs.tag || github.ref_name, '-rc.') }}
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -296,12 +297,18 @@ jobs:
         # dtolnay/rust-toolchain@stable (2026-07-16)
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
+      # Temporary crates.io token via OIDC Trusted Publishing; post step revokes it.
+      - name: Authenticate to crates.io
+        id: crates-io-auth
+        # rust-lang/crates-io-auth-action@v1.0.5
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
+
       - name: Publish spoke-schemas crate
         run: cargo publish -p spoke-schemas
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 
       - name: Publish spoke-operations crate
         run: cargo publish -p spoke-operations
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}

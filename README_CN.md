@@ -110,7 +110,7 @@ git checkout vX.Y.Z
 | 认证 | 用途 |
 |------|------|
 | npm **Trusted Publisher** | 由 `release.yml` → `publish-npm` 经 OIDC 发布（每个包：org `42ch-dev`、repo `spoke`、workflow `release.yml`） |
-| `CARGO_REGISTRY_TOKEN` | `cargo publish` 的 crates.io 认证（GitHub repository secret） |
+| crates.io **Trusted Publishing** | 由 `release.yml` → `publish-crates` 经 `rust-lang/crates-io-auth-action` OIDC 发布（每个 crate：org `42ch-dev`、repo `spoke`、workflow `release.yml`） |
 
 ## 核心概念
 

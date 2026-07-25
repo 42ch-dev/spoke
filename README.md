@@ -110,7 +110,7 @@ Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Tags without `-rc.` 
 | Auth | Use |
 |------|-----|
 | npm **Trusted Publisher** | OIDC from `release.yml` → `publish-npm` (each package: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
-| `CARGO_REGISTRY_TOKEN` | crates.io auth for `cargo publish` (GitHub repository secret) |
+| crates.io **Trusted Publishing** | OIDC from `release.yml` → `publish-crates` via `rust-lang/crates-io-auth-action` (each crate: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
 
 ## Core concepts
 

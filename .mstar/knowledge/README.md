@@ -6,7 +6,7 @@ Compound outputs land here at iteration-close (`mstar-compound`). Durable protoc
 
 | Doc | Category | Source | Summary |
 |-----|----------|--------|---------|
-| [`architecture-patterns/spoke-codegen-pipeline.md`](architecture-patterns/spoke-codegen-pipeline.md) | architecture-patterns | compound 2026-07-23 (bootstrap) | jstt+typify orchestrator, verify-codegen, rust-gen fail-fast, assemble-response `oneOf` |
+| [`architecture-patterns/spoke-codegen-pipeline.md`](architecture-patterns/spoke-codegen-pipeline.md) | architecture-patterns | compound 2026-07-23 (bootstrap); 2026-07-25 inventory | jstt+typify orchestrator, verify-codegen (`EXPECTED_SCHEMA_COUNT = 23`), rust-gen fail-fast, OpaqueJson, typify dup import guide |
 | [`architecture-patterns/consumer-readme-twin.md`](architecture-patterns/consumer-readme-twin.md) | architecture-patterns | compound 2026-07-23 (dev-docs) | Twin EN/CN human READMEs; no delivery banners or anti-pattern rhetoric |
 | [`architecture-patterns/timeline-projection-tiers.md`](architecture-patterns/timeline-projection-tiers.md) | architecture-patterns | compound 2026-07-23 (rule-event) | L5 TimelineScale brief/narrative/moment vocabulary |
 | [`architecture-patterns/ops-response-error-oneof.md`](architecture-patterns/ops-response-error-oneof.md) | architecture-patterns | compound 2026-07-23 (ops-harden) | Ops response oneOf success\|error envelope; codegen barrel note |

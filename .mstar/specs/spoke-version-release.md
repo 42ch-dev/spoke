@@ -128,7 +128,7 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Registry auth | npm and crates.io: Trusted Publishing only (org `42ch-dev`, repo `spoke`, workflow **`release.yml`** as top-level filename) |
 | Operator cut | `new-release.yml` opens labeled PR with GraphQL-signed bump; merge triggers this workflow’s `tag` job |
 
-**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
+**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `pnpm run test:release` (lockstep assert/bump unit tests), `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
 ### README version badge assert
 
@@ -208,4 +208,5 @@ A package SemVer bump does **not** require a wire `schema_version` bump, and vic
 | [`spoke-protocol.md`](spoke-protocol.md) | Protocol umbrella |
 | [`STRATEGY.md`](../../STRATEGY.md) | Registry publish on tagged stable releases |
 | [`.mstar/roadmap.md`](../roadmap.md) | Product scheduling |
-| Root `README.md` / `README_CN.md` | Version badge, consumer pinning, and maintainer release how-to |
+| Root `README.md` / `README_CN.md` | Version badge and consumer pinning |
+| [`CONTRIBUTING.md`](../../CONTRIBUTING.md) | Maintainer local development, CI, and release how-to |

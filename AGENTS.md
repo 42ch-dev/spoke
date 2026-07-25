@@ -30,7 +30,7 @@ Do not put plan progress or residual detail in this file.
 
 ## Human-readable docs — affirmative facts only (HARD)
 
-**Audience:** humans (protocol consumers / integrators). Applies to root `README.md` / `README_CN.md`, package/crate READMEs, and other consumer-facing prose. Keep the EN/CN twin outline where twins exist.
+**Audience:** humans (protocol consumers / integrators). Applies to root `README.md` / `README_CN.md`, package/crate READMEs, and other consumer-facing prose. Keep the EN/CN twin outline where twins exist. Maintainer / local-dev / release how-to lives in root [`CONTRIBUTING.md`](CONTRIBUTING.md) — do not deposit it in consumer READMEs.
 
 | In (state the result) | Out (agent / harness only — this file; normative exclusion may live in specs) |
 |-----------------------|----------------------------------------------------------------------------------|

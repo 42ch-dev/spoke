@@ -98,9 +98,7 @@
       "description": "Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.",
       "additionalProperties": true
     },
-    "OpaqueJson": {
-      "description": "Any JSON value (scalar, array, object, or null)."
-    },
+    "OpaqueJson": {},
     "ComputableLogChange": {
       "type": "object",
       "required": ["path"],

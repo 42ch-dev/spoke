@@ -3,37 +3,21 @@
 use crate::result::{spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use serde_json::{json, Map};
 
-fn is_valid_revision(value: f64) -> bool {
-    value.is_finite() && value >= 0.0 && value.fract() == 0.0
-}
-
 /// Compare caller-supplied revisions before persist; library performs no storage I/O.
-pub fn assert_revision_match(expected_revision: f64, actual_revision: f64) -> SpokeResult<()> {
-    if !is_valid_revision(expected_revision) || !is_valid_revision(actual_revision) {
-        let mut details = Map::new();
-        details.insert("expectedRevision".into(), json!(expected_revision));
-        details.insert("actualRevision".into(), json!(actual_revision));
-        return spoke_reject(
-            SpokeRejectCode::InvalidInput,
-            "Revisions must be non-negative integers",
-            Some(details),
-        );
-    }
-
-    let expected = expected_revision as u64;
-    let actual = actual_revision as u64;
-
-    if expected == actual {
+pub fn assert_revision_match(expected_revision: u64, actual_revision: u64) -> SpokeResult<()> {
+    if expected_revision == actual_revision {
         return spoke_ok_unit();
     }
 
-    if actual > expected {
+    if actual_revision > expected_revision {
         let mut details = Map::new();
         details.insert("expectedRevision".into(), json!(expected_revision));
         details.insert("actualRevision".into(), json!(actual_revision));
         return spoke_reject(
             SpokeRejectCode::StoredRevisionStale,
-            format!("Stored revision {actual} is ahead of expected {expected}"),
+            format!(
+                "Stored revision {actual_revision} is ahead of expected {expected_revision}"
+            ),
             Some(details),
         );
     }
@@ -43,7 +27,9 @@ pub fn assert_revision_match(expected_revision: f64, actual_revision: f64) -> Sp
     details.insert("actualRevision".into(), json!(actual_revision));
     spoke_reject(
         SpokeRejectCode::RevisionConflict,
-        format!("Expected revision {expected} is ahead of actual {actual}"),
+        format!(
+            "Expected revision {expected_revision} is ahead of actual {actual_revision}"
+        ),
         Some(details),
     )
 }
@@ -55,13 +41,19 @@ mod tests {
 
     #[test]
     fn accepts_equal_non_negative_integer_revisions() {
-        assert!(assert_revision_match(0.0, 0.0).is_ok());
-        assert!(assert_revision_match(3.0, 3.0).is_ok());
+        assert!(assert_revision_match(0, 0).is_ok());
+        assert!(assert_revision_match(3, 3).is_ok());
+    }
+
+    #[test]
+    fn accepts_revisions_above_js_safe_integer_range() {
+        let large = 9_007_199_254_740_993_u64;
+        assert!(assert_revision_match(large, large).is_ok());
     }
 
     #[test]
     fn rejects_when_actual_revision_is_greater_than_expected() {
-        let result = assert_revision_match(2.0, 5.0);
+        let result = assert_revision_match(2, 5);
 
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
@@ -71,7 +63,7 @@ mod tests {
 
     #[test]
     fn rejects_when_actual_revision_is_less_than_expected() {
-        let result = assert_revision_match(5.0, 2.0);
+        let result = assert_revision_match(5, 2);
 
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
@@ -80,21 +72,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_input() {
-        for (expected, actual) in [
-            (-1.0, 0.0),
-            (0.0, -1.0),
-            (1.5, 1.0),
-            (1.0, 1.5),
-            (f64::NAN, 0.0),
-            (0.0, f64::NAN),
-        ] {
-            let result = assert_revision_match(expected, actual);
+    fn detects_stale_revision_above_js_safe_integer_range() {
+        let expected = 9_007_199_254_740_992_u64;
+        let actual = 9_007_199_254_740_993_u64;
+        let result = assert_revision_match(expected, actual);
 
-            assert!(result.is_reject(), "expected reject for ({expected}, {actual})");
-            if let SpokeResult::Reject(reject) = result {
-                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
-            }
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
         }
     }
 }

@@ -185,7 +185,10 @@ pub fn build_assemble_packet(
         None => entries,
     };
 
-    let extensions = extension_map_to_packet(input.extensions.unwrap_or(&HashMap::new()));
+    let extensions = match extension_map_to_packet(input.extensions.unwrap_or(&HashMap::new())) {
+        SpokeResult::Ok(extensions) => extensions,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
 
     spoke_ok(AssemblePacket {
         entries: truncated_entries,
@@ -197,15 +200,27 @@ pub fn build_assemble_packet(
 
 fn extension_map_to_packet(
     extensions: &ExtensionMap,
-) -> HashMap<AssemblePacketExtensionsKey, Map<String, Value>> {
-    extensions
-        .iter()
-        .filter_map(|(key, value)| {
-            AssemblePacketExtensionsKey::try_from(key.as_str())
-                .ok()
-                .map(|typed_key| (typed_key, value.clone()))
-        })
-        .collect()
+) -> SpokeResult<HashMap<AssemblePacketExtensionsKey, Map<String, Value>>> {
+    let mut packet_extensions = HashMap::new();
+
+    for (key, value) in extensions {
+        let typed_key = match AssemblePacketExtensionsKey::try_from(key.as_str()) {
+            Ok(typed_key) => typed_key,
+            Err(_) => {
+                let mut details = Map::new();
+                details.insert("field".into(), Value::String("extensions".into()));
+                details.insert("namespace".into(), Value::String(key.clone()));
+                return spoke_reject(
+                    SpokeRejectCode::InvalidPacketInput,
+                    format!("AssemblePacket extensions namespace must match ^[a-z][a-z0-9_-]*$"),
+                    Some(details),
+                );
+            }
+        };
+        packet_extensions.insert(typed_key, value.clone());
+    }
+
+    spoke_ok(packet_extensions)
 }
 
 #[cfg(test)]
@@ -438,6 +453,27 @@ mod tests {
                 packet.extensions.get(&key).and_then(|m| m.get("profile")),
                 Some(&json!("chat"))
             );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_extension_namespace_key() {
+        let mut extensions = ExtensionMap::new();
+        extensions.insert(
+            "InvalidNamespace".into(),
+            Map::from_iter([("profile".into(), json!("chat"))]),
+        );
+
+        let result = build_assemble_packet(BuildAssemblePacketInput {
+            packet_id: "pkt_ext",
+            knowledge_entries: &[],
+            extensions: Some(&extensions),
+            max_entries: None,
+        });
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidPacketInput);
         }
     }
 

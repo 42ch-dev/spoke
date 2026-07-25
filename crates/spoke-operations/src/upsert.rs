@@ -151,10 +151,7 @@ fn validate_update_path(candidate: &KnowledgeEntry, stored: &KnowledgeEntry) -> 
         );
     };
 
-    assert_revision_match(
-        revision as f64,
-        stored.revision.unwrap_or(0) as f64,
-    )
+    assert_revision_match(revision, stored.revision.unwrap_or(0))
 }
 
 /// Validate KnowledgeEntry upsert before persist; create vs update inferred from stored presence.

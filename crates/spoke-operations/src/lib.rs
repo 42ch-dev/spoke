@@ -20,7 +20,7 @@ pub use assemble::{
 };
 pub use computable::{
     validate_computable_field_map, validate_computable_log_entry, validate_compute_request,
-    validate_project_request,
+    validate_compute_request_wire, validate_project_request, validate_project_request_wire,
 };
 pub use error::{from_error_envelope, to_error_envelope};
 pub use extensions::{merge_extension_maps, preserve_extension_maps, ExtensionMap};
@@ -33,8 +33,10 @@ pub use occ::assert_revision_match;
 pub use promote::{apply_promote_acceptance, validate_promote_request, validate_promote_request_wire};
 pub use relate::validate_relate_request;
 pub use scope::{
-    filter_knowledge_entries_by_scope, filter_timeline_events_by_scope,
-    knowledge_entry_matches_scope, timeline_event_matches_scope,
+    filter_knowledge_entries_by_scope, filter_knowledge_entries_by_scope_view,
+    filter_timeline_events_by_scope, filter_timeline_events_by_scope_view,
+    knowledge_entry_matches_scope, knowledge_entry_matches_scope_view, ScopeMatchView,
+    timeline_event_matches_scope, timeline_event_matches_scope_view,
 };
 pub use upsert::{
     validate_upsert_knowledge_entry, UpsertMode, ValidateUpsertKnowledgeEntryContext,

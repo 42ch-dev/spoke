@@ -129,10 +129,19 @@ fn validate_promote_lifecycle(request: &PromoteRequest) -> SpokeResult<()> {
     spoke_ok_unit()
 }
 
-fn next_revision(candidate: &KnowledgeEntry) -> u64 {
+fn next_revision(candidate: &KnowledgeEntry) -> SpokeResult<u64> {
     match candidate.revision {
-        None => 1,
-        Some(revision) => revision + 1,
+        None => spoke_ok(1),
+        Some(revision) if revision == u64::MAX => {
+            let mut details = Map::new();
+            details.insert("revision".into(), json!(revision));
+            spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "KnowledgeEntry revision cannot be incremented past u64::MAX",
+                Some(details),
+            )
+        }
+        Some(revision) => spoke_ok(revision + 1),
     }
 }
 
@@ -211,7 +220,11 @@ pub fn apply_promote_acceptance(request: &PromoteRequest) -> SpokeResult<Knowled
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
     promoted.status = "confirmed".into();
-    promoted.revision = Some(next_revision(&promoted));
+    let next = match next_revision(&promoted) {
+        SpokeResult::Ok(revision) => revision,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+    promoted.revision = Some(next);
     spoke_ok(promoted)
 }
 
@@ -397,6 +410,18 @@ mod tests {
         assert!(result.is_ok());
         if let SpokeResult::Ok(value) = result {
             assert_eq!(value.revision, Some(3));
+        }
+    }
+
+    #[test]
+    fn rejects_promote_when_revision_is_max() {
+        let result = apply_promote_acceptance(&make_request(|request| {
+            request.candidate.revision = Some(u64::MAX);
+        }));
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
         }
     }
 

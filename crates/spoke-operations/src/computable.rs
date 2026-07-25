@@ -9,7 +9,7 @@ fn is_non_empty_trimmed_string(value: &str) -> bool {
 }
 
 fn is_plain_object(value: &Value) -> bool {
-    value.is_object()
+    value.is_object() && !value.is_null()
 }
 
 /// Shape gate for body.state / body.computable and op ComputableFieldMap payloads.
@@ -67,6 +67,69 @@ pub fn validate_computable_log_entry(entry: &ComputableLogEntry) -> SpokeResult<
     spoke_ok_unit()
 }
 
+fn validate_extension_map_value(extensions: &Value, field: &str) -> SpokeResult<()> {
+    if !is_plain_object(extensions) {
+        let mut details = Map::new();
+        details.insert("field".into(), json!(field));
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            format!("{field} must be an object"),
+            Some(details),
+        );
+    }
+
+    spoke_ok_unit()
+}
+
+/// Required-field gate for project op request wire JSON.
+pub fn validate_project_request_wire(value: &Value) -> SpokeResult<()> {
+    let Some(request) = value.as_object() else {
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "ProjectRequest must be an object",
+            None,
+        );
+    };
+
+    let session_id = request
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !is_non_empty_trimmed_string(session_id) {
+        let mut details = Map::new();
+        details.insert("field".into(), json!("session_id"));
+        return spoke_reject(
+            SpokeRejectCode::MissingRequiredField,
+            "ProjectRequest session_id must be a non-empty string",
+            Some(details),
+        );
+    }
+
+    let entry_id = request.get("entry_id").and_then(Value::as_str).unwrap_or("");
+    if !is_non_empty_trimmed_string(entry_id) {
+        let mut details = Map::new();
+        details.insert("field".into(), json!("entry_id"));
+        return spoke_reject(
+            SpokeRejectCode::MissingRequiredField,
+            "ProjectRequest entry_id must be a non-empty string",
+            Some(details),
+        );
+    }
+
+    let state = request.get("state").unwrap_or(&Value::Null);
+    if let SpokeResult::Reject(reject) = validate_computable_field_map(state) {
+        return SpokeResult::Reject(reject);
+    }
+
+    if let Some(extensions) = request.get("extensions") {
+        if let SpokeResult::Reject(reject) = validate_extension_map_value(extensions, "extensions") {
+            return SpokeResult::Reject(reject);
+        }
+    }
+
+    spoke_ok_unit()
+}
+
 /// Required-field gate for project op request wire shape.
 pub fn validate_project_request(request: &ProjectRequest) -> SpokeResult<()> {
     if !is_non_empty_trimmed_string(&request.session_id) {
@@ -93,6 +156,75 @@ pub fn validate_project_request(request: &ProjectRequest) -> SpokeResult<()> {
         validate_computable_field_map(&Value::Object(request.state.clone()))
     {
         return SpokeResult::Reject(reject);
+    }
+
+    if !request.extensions.is_empty() {
+        if let SpokeResult::Reject(reject) =
+            validate_extension_map_value(&json!(request.extensions), "extensions")
+        {
+            return SpokeResult::Reject(reject);
+        }
+    }
+
+    spoke_ok_unit()
+}
+
+/// Required-field gate for compute op request wire shape.
+pub fn validate_compute_request_wire(value: &Value) -> SpokeResult<()> {
+    let Some(request) = value.as_object() else {
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "ComputeRequest must be an object",
+            None,
+        );
+    };
+
+    let session_id = request
+        .get("session_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !is_non_empty_trimmed_string(session_id) {
+        let mut details = Map::new();
+        details.insert("field".into(), json!("session_id"));
+        return spoke_reject(
+            SpokeRejectCode::MissingRequiredField,
+            "ComputeRequest session_id must be a non-empty string",
+            Some(details),
+        );
+    }
+
+    let entry_id = request.get("entry_id").and_then(Value::as_str).unwrap_or("");
+    if !is_non_empty_trimmed_string(entry_id) {
+        let mut details = Map::new();
+        details.insert("field".into(), json!("entry_id"));
+        return spoke_reject(
+            SpokeRejectCode::MissingRequiredField,
+            "ComputeRequest entry_id must be a non-empty string",
+            Some(details),
+        );
+    }
+
+    let computable = request.get("computable").unwrap_or(&Value::Null);
+    if let SpokeResult::Reject(reject) = validate_computable_field_map(computable) {
+        return SpokeResult::Reject(reject);
+    }
+
+    if let Some(settle) = request.get("settle") {
+        if !settle.is_boolean() {
+            let mut details = Map::new();
+            details.insert("field".into(), json!("settle"));
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "ComputeRequest settle must be a boolean when present",
+                Some(details),
+            );
+        }
+    }
+
+    if let Some(extensions) = request.get("extensions") {
+        if let SpokeResult::Reject(reject) = validate_extension_map_value(extensions, "extensions") {
+            return SpokeResult::Reject(reject);
+        }
     }
 
     spoke_ok_unit()
@@ -126,6 +258,14 @@ pub fn validate_compute_request(request: &ComputeRequest) -> SpokeResult<()> {
         return SpokeResult::Reject(reject);
     }
 
+    if !request.extensions.is_empty() {
+        if let SpokeResult::Reject(reject) =
+            validate_extension_map_value(&json!(request.extensions), "extensions")
+        {
+            return SpokeResult::Reject(reject);
+        }
+    }
+
     spoke_ok_unit()
 }
 
@@ -137,20 +277,6 @@ mod tests {
     use serde_json::json;
     use spoke_schemas::ComputableLogEntryChangesItem;
     use std::collections::HashMap;
-
-    fn validate_extension_map(extensions: &Value, field: &str) -> SpokeResult<()> {
-        if !is_plain_object(extensions) {
-            let mut details = Map::new();
-            details.insert("field".into(), json!(field));
-            return spoke_reject(
-                SpokeRejectCode::InvalidInput,
-                format!("{field} must be an object"),
-                Some(details),
-            );
-        }
-
-        spoke_ok_unit()
-    }
 
     fn is_parseable_date_time(value: &str) -> bool {
         let trimmed = value.trim();
@@ -452,6 +578,21 @@ mod tests {
         assert!(result.is_reject());
     }
 
+    #[test]
+    fn validate_project_request_rejects_non_object_extensions_via_wire() {
+        let result = validate_project_request_wire(&json!({
+            "session_id": "sess_tw_dawn_arrival",
+            "entry_id": "kb_tw_harbor",
+            "state": { "tide_level": 2.1 },
+            "extensions": []
+        }));
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        }
+    }
+
     fn valid_compute_request() -> ComputeRequest {
         ComputeRequest {
             computable: Map::from_iter([
@@ -505,65 +646,5 @@ mod tests {
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
         }
-    }
-
-    fn validate_compute_request_wire(value: &Value) -> SpokeResult<()> {
-        let Some(request) = value.as_object() else {
-            return spoke_reject(
-                SpokeRejectCode::InvalidInput,
-                "ComputeRequest must be an object",
-                None,
-            );
-        };
-
-        let session_id = request
-            .get("session_id")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !is_non_empty_trimmed_string(session_id) {
-            let mut details = Map::new();
-            details.insert("field".into(), json!("session_id"));
-            return spoke_reject(
-                SpokeRejectCode::MissingRequiredField,
-                "ComputeRequest session_id must be a non-empty string",
-                Some(details),
-            );
-        }
-
-        let entry_id = request.get("entry_id").and_then(Value::as_str).unwrap_or("");
-        if !is_non_empty_trimmed_string(entry_id) {
-            let mut details = Map::new();
-            details.insert("field".into(), json!("entry_id"));
-            return spoke_reject(
-                SpokeRejectCode::MissingRequiredField,
-                "ComputeRequest entry_id must be a non-empty string",
-                Some(details),
-            );
-        }
-
-        let computable = request.get("computable").unwrap_or(&Value::Null);
-        if let SpokeResult::Reject(reject) = validate_computable_field_map(computable) {
-            return SpokeResult::Reject(reject);
-        }
-
-        if let Some(settle) = request.get("settle") {
-            if !settle.is_boolean() {
-                let mut details = Map::new();
-                details.insert("field".into(), json!("settle"));
-                return spoke_reject(
-                    SpokeRejectCode::InvalidInput,
-                    "ComputeRequest settle must be a boolean when present",
-                    Some(details),
-                );
-            }
-        }
-
-        if let Some(extensions) = request.get("extensions") {
-            if let SpokeResult::Reject(reject) = validate_extension_map(extensions, "extensions") {
-                return SpokeResult::Reject(reject);
-            }
-        }
-
-        spoke_ok_unit()
     }
 }

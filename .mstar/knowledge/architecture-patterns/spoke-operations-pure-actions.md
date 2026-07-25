@@ -1,8 +1,8 @@
 # Pure operations actions over wire types
 
 > **Category:** architecture-patterns  
-> **Source:** compound 2026-07-23 (operations-deepen)  
-> **Package:** `@42ch/spoke-operations`
+> **Source:** compound 2026-07-23 (operations-deepen); updated 2026-07-25 (rust-ops-parity)  
+> **Packages:** `@42ch/spoke-operations` (npm), `spoke-operations` (crates.io)
 
 ## Problem
 
@@ -10,8 +10,8 @@ JSON Schema defines shapes; integrators still copy-paste lifecycle gates (OCC, s
 
 ## Pattern
 
-1. Hand-write pure TypeScript helpers over `@42ch/spoke-schemas` types only.
-2. Unify rejects via `SpokeResult` / `SpokeRejectCode` (never throw for expected rejects).
+1. Hand-write pure helpers over generated wire types only — TypeScript (`@42ch/spoke-schemas`) or Rust (`spoke-schemas`).
+2. Unify rejects via `SpokeResult` / `SpokeRejectCode` with **identical code strings** across languages (never throw/panic for expected rejects).
 3. OCC is **compare-only** — caller supplies `expected` vs `actual` revisions; library never fetches storage.
 4. Uniqueness / Scope gates take **caller-owned collections** + opaque `scope_key` / `scope_id` (no World/Book required fields).
 5. Map library rejects ↔ ops `error-envelope` by **code string only** (no HTTP/MCP tables).
@@ -25,4 +25,5 @@ JSON Schema defines shapes; integrators still copy-paste lifecycle gates (OCC, s
 ## See also
 
 - `.mstar/specs/spoke-operations.md` §5–11
+- `architecture-patterns/rust-spoke-operations-parity.md` — Rust crate layout, typify body wire preservation, crates.io dep pin
 - Residual R1 (operations deepen) — uniqueness param alignment

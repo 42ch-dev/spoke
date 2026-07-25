@@ -13,9 +13,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_OPS_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   README_BADGE_PATHS,
+  replaceOpsSpokeSchemasDependencyVersion,
   replaceReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
@@ -295,6 +297,12 @@ const cargoContents = readRepoFile(CARGO_WORKSPACE_PATH);
 writeRepoFile(
   CARGO_WORKSPACE_PATH,
   replaceWorkspacePackageVersion(cargoContents, targetVersion),
+);
+
+const opsCrateContents = readRepoFile(CARGO_OPS_CRATE_PATH);
+writeRepoFile(
+  CARGO_OPS_CRATE_PATH,
+  replaceOpsSpokeSchemasDependencyVersion(opsCrateContents, targetVersion),
 );
 
 for (const readmePath of README_BADGE_PATHS) {

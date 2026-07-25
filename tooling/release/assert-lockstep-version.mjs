@@ -29,6 +29,7 @@ import {
   JSON_VERSION_PATHS,
   README_BADGE_PATHS,
   README_BADGE_PREFIX,
+  parseOpsSpokeSchemasDependencyVersion,
   parseReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -206,6 +207,24 @@ assertWorkspaceCrateVersion(
   canonicalVersion,
   cargoWorkspaceVersion,
 );
+
+const opsCrateContents = readRepoFile(CARGO_OPS_CRATE_PATH);
+const opsSchemasDepVersion =
+  parseOpsSpokeSchemasDependencyVersion(opsCrateContents);
+if (opsSchemasDepVersion === null) {
+  recordFailure(
+    `${CARGO_OPS_CRATE_PATH} (spoke-schemas dependency)`,
+    `version = "${canonicalVersion}" with path`,
+    "(missing version in path dependency)",
+    "spoke-operations must declare spoke-schemas with version + path for cargo publish",
+  );
+} else {
+  assertEqual(
+    `${CARGO_OPS_CRATE_PATH} (spoke-schemas dependency)`,
+    canonicalVersion,
+    opsSchemasDepVersion,
+  );
+}
 
 for (const readmePath of README_BADGE_PATHS) {
   const contents = readRepoFile(readmePath);

@@ -31,6 +31,43 @@ export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
 export const CARGO_OPS_CRATE_PATH = "crates/spoke-operations/Cargo.toml";
 
 /**
+ * @param {string} version
+ * @returns {string}
+ */
+export function formatOpsSpokeSchemasDependency(version) {
+  return `spoke-schemas = { version = "${version}", path = "../spoke-schemas" }`;
+}
+
+/**
+ * @param {string} contents
+ * @returns {string | null}
+ */
+export function parseOpsSpokeSchemasDependencyVersion(contents) {
+  const match = contents.match(
+    /^spoke-schemas\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
+  );
+  return match?.[1] ?? null;
+}
+
+/**
+ * @param {string} contents
+ * @param {string} version
+ * @returns {string}
+ */
+export function replaceOpsSpokeSchemasDependencyVersion(contents, version) {
+  const updated = contents.replace(
+    /^spoke-schemas\s*=\s*\{[^}]*\}/m,
+    formatOpsSpokeSchemasDependency(version),
+  );
+  if (updated === contents) {
+    throw new Error(
+      `${CARGO_OPS_CRATE_PATH}: could not update spoke-schemas path dependency`,
+    );
+  }
+  return updated;
+}
+
+/**
  * README files with shields.io version badge (rows 9–10).
  * @type {readonly string[]}
  */

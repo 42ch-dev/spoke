@@ -52,11 +52,11 @@ Do not put plan progress or residual detail in this file.
 - Finding is checker output, not KnowledgeEntry `body`.
 - npm auth for CI publish is Trusted Publisher on `@42ch/spoke-schemas` and `@42ch/spoke-operations` (org `42ch-dev`, repo `spoke`, workflow `release.yml`). Do not document “NPM_TOKEN no longer required / revoke old secret” in human READMEs — that negation belongs here only.
 - Stable tags (`vX.Y.Z`) and prerelease SemVer tags without `-rc.` (e.g. `v0.1.0-alpha.3`) publish to npm and crates.io; tags containing `-rc.` create GitHub pre-releases only. If `publish-crates` fails after npm succeeded, re-run that job or `cargo publish` the missing crate at the tagged version.
-- Maintainer cut path: **New release** (`workflow_dispatch`) bumps lockstep SemVer onto `main` via GraphQL `createCommitOnBranch` (GitHub-verified), creates annotated `vX.Y.Z`, then `workflow_call` **Release**. No PR step: org `42ch-dev` has “Allow GitHub Actions to create and approve pull requests” disabled (GitHub default); repo cannot override; `github-actions` cannot be a ruleset bypass actor — so `GITHUB_TOKEN` cannot `createPullRequest`. Do not reintroduce PAT-based PR open (`CUT_RELEASE_TOKEN`) as the primary path.
+- Maintainer cut path: **New release** (`workflow_dispatch` → GitHub-signed bump on `release/<version>` + open PR with label `release`) → merge (or close to abort) → **Tag release on merge** creates annotated `vX.Y.Z` and `workflow_call` **Release**. Org must allow “Allow GitHub Actions to create and approve pull requests” so `GITHUB_TOKEN` can `createPullRequest`.
 - **New release** MUST refuse when the requested SemVer is not strictly greater than `package.json` on `main`, or when `vX.Y.Z` already exists. `release:bump` also refuses non-increasing bumps.
-- **New release** commits MUST be GitHub-verified (`tooling/release/push-github-signed-commit.mjs`). Main ruleset keeps `required_signatures` (and blocks deletion / non-fast-forward). The previous `pull_request`-required rule was removed so Actions can land signed bumps without `createPullRequest`.
-- **Release** (`release.yml`) is tag-driven (`push.tags: v*`) or called from **New release** / **Tag release on merge** (`workflow_call`). Do not add `workflow_dispatch` on Release.
-- Optional: human-opened PRs with label `release` may still use **Tag release on merge** to tag + `workflow_call` Release.
+- **New release** commits MUST be GitHub-verified (`tooling/release/push-github-signed-commit.mjs` → GraphQL `createCommitOnBranch`). Do not land unsigned `git commit` + `git push` from Actions — `main` ruleset `required_signatures` blocks merge.
+- **CHANGELOG:** `release:bump` MUST NOT prepend a second `## [X.Y.Z]` when that section already exists; promote the existing section to top instead (duplicate headings make `extract-changelog-notes.mjs` publish the wrong notes).
+- **Release** (`release.yml`) is tag-driven (`push.tags: v*`) or called from **Tag release on merge** (`workflow_call`). Do not add `workflow_dispatch` on Release.
 
 ## Tech direction (v0.1)
 

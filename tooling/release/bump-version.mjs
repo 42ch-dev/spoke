@@ -165,9 +165,86 @@ function lastChangelogCommit() {
 }
 
 /**
+ * Locate a Keep-a-Changelog version section (header + body).
+ *
+ * @param {string} changelog
+ * @param {string} version
+ * @returns {{ start: number; end: number; header: string; full: string } | null}
+ */
+function findChangelogSectionRange(changelog, version) {
+  const normalized = version.replace(/^v/i, "");
+  const headerRe = new RegExp(
+    `^## \\[${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\](?:\\s+-\\s+\\d{4}-\\d{2}-\\d{2})?\\s*$`,
+    "m",
+  );
+  const match = headerRe.exec(changelog);
+  if (!match || match.index === undefined) {
+    return null;
+  }
+
+  const header = match[0];
+  const sectionStart = match.index;
+  const afterHeader = match.index + header.length;
+  const rest = changelog.slice(afterHeader);
+  const nextHeader = rest.search(/^## \[/m);
+  const end =
+    nextHeader === -1 ? changelog.length : afterHeader + nextHeader;
+  return {
+    start: sectionStart,
+    end,
+    header,
+    full: changelog.slice(sectionStart, end),
+  };
+}
+
+/**
+ * Move an existing version section to the top (newest-first). Prevents duplicate
+ * headings when git-cliff would otherwise --prepend the same SemVer again.
+ *
+ * @param {string} version
+ * @returns {boolean} true when a section existed and was ensured at top
+ */
+function promoteExistingChangelogSection(version) {
+  if (!existsSync(repoPath(CHANGELOG_PATH))) {
+    return false;
+  }
+
+  const changelog = readRepoFile(CHANGELOG_PATH);
+  const found = findChangelogSectionRange(changelog, version);
+  if (!found) {
+    return false;
+  }
+
+  const firstHeading = changelog.search(/^## \[/m);
+  if (firstHeading === found.start) {
+    console.log(
+      `${CHANGELOG_PATH} already has a top section for ${version}; skipping git-cliff.`,
+    );
+    return true;
+  }
+
+  const without =
+    changelog.slice(0, found.start) + changelog.slice(found.end);
+  const insertAt = without.search(/^## \[/m);
+  const next = insertAt === -1 ? without : without.slice(0, insertAt);
+  const rest = insertAt === -1 ? "" : without.slice(insertAt);
+  const section = found.full.endsWith("\n") ? found.full : `${found.full}\n`;
+  const promoted = `${next.replace(/\s*$/, "\n\n")}${section}\n${rest.replace(/^\s+/, "")}`;
+  writeRepoFile(CHANGELOG_PATH, promoted);
+  console.log(
+    `Promoted existing ${CHANGELOG_PATH} section for ${version} to top; skipped git-cliff prepend.`,
+  );
+  return true;
+}
+
+/**
  * @param {string} version
  */
 function updateChangelog(version) {
+  if (promoteExistingChangelogSection(version)) {
+    return;
+  }
+
   const tag = `v${version}`;
   const changelogExists = existsSync(repoPath(CHANGELOG_PATH));
   // git-cliff requires -u/--unreleased or -l/--latest OR an explicit commit range
@@ -205,6 +282,20 @@ function updateChangelog(version) {
       `bump-version: failed to update ${CHANGELOG_PATH} via git-cliff for ${tag}.`,
     );
     process.exit(result.status ?? 1);
+  }
+
+  // Guard: if git-cliff somehow left two headings for the same version, keep one.
+  const after = readRepoFile(CHANGELOG_PATH);
+  const headingRe = new RegExp(
+    `^## \\[${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`,
+    "gm",
+  );
+  const matches = after.match(headingRe);
+  if (matches && matches.length > 1) {
+    console.error(
+      `bump-version: ${CHANGELOG_PATH} has ${matches.length} sections for ${version} after git-cliff; refusing duplicate.`,
+    );
+    process.exit(1);
   }
 
   console.log(`Updated ${CHANGELOG_PATH} for ${tag}.`);

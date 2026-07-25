@@ -81,8 +81,8 @@ A SPOKE release is:
 
 | Actor | Rule |
 |-------|------|
-| Maintainers | MAY run **New release** (`workflow_dispatch`); MAY still bump/tag manually |
-| CI | **New release** MAY land a GitHub-signed bump on `main`, tag `vX.Y.Z`, and `workflow_call` **Release**. **Tag release on merge** MAY still tag + call Release for human `release`-labeled PRs |
+| Maintainers | MAY run **New release** (`workflow_dispatch`) and merge or close the labeled PR; MAY still bump/tag manually |
+| CI | **New release** MAY open the bump PR; **Tag release on merge** MAY create the annotated tag and invoke **Release** via `workflow_call` when a `release`-labeled PR merges to `main` |
 | CI | MUST NOT auto-bump or auto-tag on ordinary (non-release) merges to `main` |
 | Forks | Release workflow MAY no-op or fail without `contents: write`; document in operator guide |
 
@@ -91,8 +91,8 @@ A SPOKE release is:
 | Trigger | Workflow | Requirement |
 |---------|----------|-------------|
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
-| `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | GitHub-signed bump on `main` + annotated tag + `workflow_call` `release.yml`; MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists |
-| `pull_request` closed (merged + label `release`) | `.github/workflows/tag-release-on-merge.yml` | Optional human path: annotated tag `vX.Y.Z` + `workflow_call` into `release.yml` |
+| `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | Opens lockstep bump PR with label `release` (GitHub-signed commit); MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists; MUST NOT duplicate `CHANGELOG` version headings |
+| `pull_request` closed (merged + label `release`) | `.github/workflows/tag-release-on-merge.yml` | Annotated tag `vX.Y.Z` + `workflow_call` into `release.yml` |
 | Push of tag matching `v*` **or** `workflow_call` (`tag` input) | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). No `workflow_dispatch`. |
 
 Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, and `spoke-operations`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
@@ -124,7 +124,7 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
 | Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1); `publish-crates`: `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
 | Registry auth | npm: Trusted Publisher on each package (GitHub Actions → org `42ch-dev`, repo `spoke`, workflow `release.yml`); crates.io: `CARGO_REGISTRY_TOKEN` repository secret — never committed |
-| Operator cut | `new-release.yml` bumps `main` via GraphQL `createCommitOnBranch`, tags with `create-annotated-tag.mjs`, then `workflow_call` this workflow |
+| Operator cut | `new-release.yml` opens labeled PR with GraphQL-signed bump; `tag-release-on-merge.yml` tags + `workflow_call` this workflow |
 
 **Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 

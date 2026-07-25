@@ -1,0 +1,20 @@
+[package]
+name = "spoke-operations"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SPOKE lifecycle helpers — pure functions over spoke-schemas wire types"
+readme = "README.md"
+keywords = ["spoke", "knowledge-entry", "operations"]
+categories = ["data-structures"]
+
+[dependencies]
+spoke-schemas = { path = "../spoke-schemas" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

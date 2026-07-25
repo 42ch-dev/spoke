@@ -486,7 +486,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Rust crate (shippable)
 
 - [ ] `spoke-operations` crate at `crates/spoke-operations/` with full TS export parity
-- [ ] All 20 `SpokeRejectCode` strings exported from `result` module
+- [ ] All 19 `SpokeRejectCode` strings exported from `result` module
 - [ ] `cargo test -p spoke-operations` in CI and release verify
 - [ ] crates.io publish after `spoke-schemas` on stable tags
 

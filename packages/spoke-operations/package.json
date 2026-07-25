@@ -1,9 +1,16 @@
 {
   "name": "@42ch/spoke-operations",
   "version": "0.1.0",
-  "private": true,
   "description": "SPOKE lifecycle operations — pure helpers over wire types",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/42ch/spoke.git",
+    "directory": "packages/spoke-operations"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

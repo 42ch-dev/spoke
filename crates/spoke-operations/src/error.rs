@@ -47,7 +47,7 @@ mod tests {
     use crate::result::{spoke_reject, SpokeResult};
     use serde_json::json;
 
-    const V0_ITER004_CODES: [SpokeRejectCode; 10] = [
+    const DEEPEN_REJECT_CODES: [SpokeRejectCode; 10] = [
         SpokeRejectCode::InvalidInput,
         SpokeRejectCode::MissingRequiredField,
         SpokeRejectCode::RevisionConflict,
@@ -60,7 +60,7 @@ mod tests {
         SpokeRejectCode::DuplicateActiveKnowledgeEntry,
     ];
 
-    const V0_ITER002_CODES: [SpokeRejectCode; 9] = [
+    const FIRST_SLICE_REJECT_CODES: [SpokeRejectCode; 9] = [
         SpokeRejectCode::InvalidStatus,
         SpokeRejectCode::InvalidStatusTransition,
         SpokeRejectCode::CandidateNotProvisional,
@@ -85,9 +85,9 @@ mod tests {
 
     #[test]
     fn round_trips_all_documented_codes() {
-        for code in V0_ITER002_CODES
+        for code in FIRST_SLICE_REJECT_CODES
             .into_iter()
-            .chain(V0_ITER004_CODES.into_iter())
+            .chain(DEEPEN_REJECT_CODES.into_iter())
         {
             let reject = reject_from_code(code);
             let envelope = to_error_envelope(&reject);

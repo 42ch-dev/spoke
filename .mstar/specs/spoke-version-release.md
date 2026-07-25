@@ -125,7 +125,7 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
 | Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1); `publish-crates`: `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
 | Registry auth | npm: Trusted Publisher on each package (GitHub Actions → org `42ch-dev`, repo `spoke`, workflow `release.yml`); crates.io: `CARGO_REGISTRY_TOKEN` repository secret — never committed |
-| Operator cut | `cut-release.yml` (`workflow_dispatch` version) opens labeled PR; `tag-release-on-merge.yml` tags + dispatches this workflow |
+| Operator cut | `cut-release.yml` (`workflow_dispatch` version) opens labeled PR; bump commit via GraphQL `createCommitOnBranch` (GitHub-verified); `tag-release-on-merge.yml` tags + dispatches this workflow |
 
 **Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 

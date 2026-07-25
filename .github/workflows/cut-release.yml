@@ -70,24 +70,31 @@ jobs:
       - name: Create release branch and bump
         env:
           VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.CUT_RELEASE_TOKEN || github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           BRANCH="release/${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main --prune
           git checkout -B "$BRANCH" origin/main
 
           # Re-check on the release branch tip (main may have moved; assert again).
           node tooling/release/assert-version-greater.mjs "$VERSION"
 
           pnpm run release:bump -- "$VERSION"
-          git add -A
-          if git diff --cached --quiet; then
+          if git diff --quiet origin/main -- && [ -z "$(git ls-files --others --exclude-standard)" ]; then
             echo "::error::Bump produced no changes."
             exit 1
           fi
-          git commit -m "chore(release): bump version to ${VERSION}"
-          git push -u origin "$BRANCH" --force-with-lease
+
+          # GraphQL createCommitOnBranch → GitHub-signed/verified commit (required_signatures).
+          # Do not `git commit` + `git push`: those commits are unsigned and cannot merge to main.
+          node tooling/release/push-github-signed-commit.mjs \
+            --branch "$BRANCH" \
+            --message "chore(release): bump version to ${VERSION}" \
+            --base-ref main
 
       # Org policy may block GITHUB_TOKEN from creating PRs. Prefer a maintainer PAT:
       # repo secret CUT_RELEASE_TOKEN (contents:write + pull_requests:write), or ask an org

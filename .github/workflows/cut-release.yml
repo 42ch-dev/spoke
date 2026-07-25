@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Lockstep SemVer to cut (e.g. 0.1.0-alpha.3 or 0.1.1)"
+        description: "Lockstep SemVer greater than current main (e.g. 0.1.0-alpha.3 or 0.1.1)"
         required: true
         type: string
       summary:
@@ -31,6 +31,8 @@ jobs:
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          # Always compare / cut against current main tip, regardless of dispatch branch.
+          ref: main
           fetch-depth: 0
 
       - name: Setup pnpm
@@ -45,12 +47,20 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Validate SemVer
+      - name: Validate SemVer is greater than main
         env:
           VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
             echo "::error::Invalid SemVer: ${VERSION}"
+            exit 1
+          fi
+          node tooling/release/assert-version-greater.mjs "$VERSION"
+          TAG="v${VERSION}"
+          git fetch --tags --force origin
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "::error::Git tag ${TAG} already exists; choose a higher version."
             exit 1
           fi
 
@@ -60,7 +70,6 @@ jobs:
       - name: Create release branch and bump
         env:
           VERSION: ${{ inputs.version }}
-          SUMMARY: ${{ inputs.summary }}
         run: |
           set -euo pipefail
           BRANCH="release/${VERSION}"
@@ -68,11 +77,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH" origin/main
 
-          CURRENT="$(node -p "require('./package.json').version")"
-          if [ "$CURRENT" = "$VERSION" ]; then
-            echo "::error::package.json is already ${VERSION}; nothing to bump."
-            exit 1
-          fi
+          # Re-check on the release branch tip (main may have moved; assert again).
+          node tooling/release/assert-version-greater.mjs "$VERSION"
 
           pnpm run release:bump -- "$VERSION"
           git add -A

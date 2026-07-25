@@ -53,6 +53,7 @@ Do not put plan progress or residual detail in this file.
 - npm auth for CI publish is Trusted Publisher on `@42ch/spoke-schemas` and `@42ch/spoke-operations` (org `42ch-dev`, repo `spoke`, workflow `release.yml`). Do not document “NPM_TOKEN no longer required / revoke old secret” in human READMEs — that negation belongs here only.
 - Stable tags (`vX.Y.Z`) and prerelease SemVer tags without `-rc.` (e.g. `v0.1.0-alpha.3`) publish to npm and crates.io; tags containing `-rc.` create GitHub pre-releases only. If `publish-crates` fails after npm succeeded, re-run that job or `cargo publish` the missing crate at the tagged version.
 - Maintainer cut path: **Cut release** workflow (`workflow_dispatch` → version bump PR with label `release`) → merge → **Tag release on merge** creates annotated `vX.Y.Z` and dispatches **Release** (`workflow_dispatch` with `tag=`). Manual `git tag` + push still works. GITHUB_TOKEN tag pushes do not auto-start other workflows — dispatch is required after bot tags.
+- **Cut release** MUST refuse when the requested SemVer is not strictly greater than `package.json` on `main`, or when `vX.Y.Z` already exists (`tooling/release/assert-version-greater.mjs` + tag existence check). `release:bump` also refuses non-increasing bumps.
 
 ## Tech direction (v0.1)
 

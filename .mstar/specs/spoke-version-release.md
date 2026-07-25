@@ -92,7 +92,7 @@ A SPOKE release is:
 | Trigger | Workflow | Requirement |
 |---------|----------|-------------|
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
-| `workflow_dispatch` (version input) | `.github/workflows/cut-release.yml` | Opens lockstep bump PR with label `release` |
+| `workflow_dispatch` (version input) | `.github/workflows/cut-release.yml` | Opens lockstep bump PR with label `release`; MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists (`assert-version-greater.mjs`) |
 | `pull_request` closed (merged + label `release`) | `.github/workflows/tag-release-on-merge.yml` | Annotated tag `vX.Y.Z` + dispatch `release.yml` |
 | Push of tag matching `v*` **or** `workflow_dispatch` (`tag` input) | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed) |
 

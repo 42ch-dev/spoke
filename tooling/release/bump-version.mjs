@@ -22,6 +22,7 @@ import {
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
+import { SEMVER_PATTERN, isSemVerGreater } from "./semver.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const CHANGELOG_PATH = "CHANGELOG.md";
@@ -29,8 +30,6 @@ const ASSERT_SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
   "assert-lockstep-version.mjs",
 );
-
-const SEMVER_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$/;
 
 /**
  * @param {string} relativePath
@@ -359,6 +358,13 @@ if (currentVersion === targetVersion) {
     );
   }
   process.exit(0);
+}
+
+if (!isSemVerGreater(targetVersion, currentVersion)) {
+  console.error(
+    `bump-version: target ${targetVersion} must be greater than current ${currentVersion}.`,
+  );
+  process.exit(1);
 }
 
 writeJsonVersion(CANONICAL_PATH, targetVersion);

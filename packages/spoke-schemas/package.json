@@ -1,9 +1,16 @@
 {
   "name": "@42ch/spoke-schemas",
   "version": "0.1.0",
-  "private": true,
   "description": "SPOKE wire types — TypeScript generated from JSON Schema",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/42ch-dev/spoke.git",
+    "directory": "packages/spoke-schemas"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "module": "./dist/index.mjs",

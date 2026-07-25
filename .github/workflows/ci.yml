@@ -111,3 +111,18 @@ jobs:
 
       - name: Check spoke-schemas crate
         run: cargo check -p spoke-schemas
+
+  verify-version:
+    name: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Assert lockstep package versions
+        run: node tooling/release/assert-lockstep-version.mjs

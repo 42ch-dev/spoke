@@ -35,7 +35,18 @@ Product-specific payloads live under `extensions.<namespace>` (namespace keys ar
 
 ## Install and consume
 
-Packages are **workspace-local** (private). In a pnpm monorepo:
+Install from npm and crates.io at the lockstep SemVer `X.Y.Z`:
+
+```bash
+pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
+```
+
+```toml
+# Cargo.toml
+spoke-schemas = "X.Y.Z"
+```
+
+In a pnpm monorepo that vendors SPOKE as a workspace member:
 
 ```json
 {
@@ -58,6 +69,53 @@ From another repo, depend on a local checkout:
 ```
 
 Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-schemas build` and `pnpm --filter @42ch/spoke-operations build`).
+
+## Version and pinning
+
+SPOKE publishes a **single lockstep SemVer** (`X.Y.Z`) across all workspace packages and the Rust `spoke-schemas` crate. Pin a consumer repo to an annotated git tag:
+
+```bash
+git checkout vX.Y.Z
+```
+
+Or download the source archive from the matching [GitHub Release](https://github.com/42ch-dev/spoke/releases). Release notes live in [`CHANGELOG.md`](CHANGELOG.md) at the tagged commit. Then depend via `file:` path (above) or a git dependency:
+
+```json
+{
+  "dependencies": {
+    "@42ch/spoke-schemas": "github:42ch-dev/spoke#vX.Y.Z",
+    "@42ch/spoke-operations": "github:42ch-dev/spoke#vX.Y.Z"
+  }
+}
+```
+
+The shields.io **Version** badge at the top of this README reflects the canonical version on the checked-out commit. Normative policy: [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md).
+
+## Release (maintainers)
+
+[`CHANGELOG.md`](CHANGELOG.md) is the primary release-notes source (Keep a Changelog format, generated from Conventional Commits via [git-cliff](https://git-cliff.org)). GitHub Releases use the matching version section; tag annotations are fallback only.
+
+After changes are ready on `main`:
+
+1. Bump all lockstep surfaces and refresh the changelog section: `pnpm run release:bump -- X.Y.Z`
+2. Commit and push: `git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
+3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "optional summary"` or `git tag -a vX.Y.Z -m "optional summary"`
+4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` to crates.io (stable tags only).
+
+If npm publish succeeds but the crates.io step fails, re-run the failed `publish-crates` job or publish `spoke-schemas` manually at the tagged version — npm artifacts are already live.
+
+To preview or regenerate changelog output without bumping versions: `pnpm run release:changelog -- --unreleased` (passes flags through to git-cliff).
+
+Pre-releases use `vX.Y.Z-rc.N` tags (GitHub pre-release). CI creates GitHub Releases only; registry publish is skipped for `-rc.` tags.
+
+### Repository secrets (maintainers)
+
+Configure these GitHub repository secrets before the first stable tag publish:
+
+| Secret | Use |
+|--------|-----|
+| `NPM_TOKEN` | npm auth for `pnpm publish` |
+| `CARGO_REGISTRY_TOKEN` | crates.io auth for `cargo publish` |
 
 ## Core concepts
 
@@ -139,4 +197,4 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operat
 
 ## Contributing and CI
 
-Pull requests must pass GitHub Actions jobs `verify-codegen`, `typescript`, and `rust` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Schema changes require regenerated output in the same commit (`pnpm run codegen`).
+Pull requests must pass GitHub Actions jobs `verify-codegen`, `typescript`, `rust`, and `verify-version` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). Schema changes require regenerated output in the same commit (`pnpm run codegen`).

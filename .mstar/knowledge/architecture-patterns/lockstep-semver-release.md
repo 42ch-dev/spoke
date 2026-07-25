@@ -1,0 +1,57 @@
+# Lockstep SemVer release (git tag + GitHub Release)
+
+**Category:** architecture-patterns  
+**Source:** compound 2026-07-25 (version-release)  
+**Status:** durable
+
+## Problem
+
+Integrators pin SPOKE across TypeScript packages, Rust crate, and human docs. Without a single version identity, a tag-driven release path, and registry artifacts at the same SemVer, sibling repos cannot install or pin reproducibly.
+
+## Decision
+
+1. **Lockstep SemVer** — one `X.Y.Z` across nine consumer pin surfaces. Canonical source: root `package.json` → `version`. SSOT manifest: `tooling/release/lockstep-surfaces.mjs`; assert: `tooling/release/assert-lockstep-version.mjs` (`pnpm run verify:version`).
+2. **CI drift gate** — `verify-version` job in `.github/workflows/ci.yml` on PR/push to `main` and `iteration/**`. Any manifest or README badge mismatch fails the build (no warn-only path).
+3. **Tag-triggered release** — `.github/workflows/release.yml` on `push.tags: ['v*']`. Four parallel verify jobs (including `verify-version`) → sequential `release` job with `needs:` (fail-closed). Creates GitHub Release from annotated tag; on stable tags, publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm, then `spoke-schemas` to crates.io (`publish-crates` runs after `publish-npm`).
+4. **Annotated tags** — form `vX.Y.Z` (leading `v` required). Pre-release: `vX.Y.Z-rc.N` → GitHub pre-release. Release notes extraction order: matching `CHANGELOG.md` section first (`extract-changelog-notes.mjs`); tag annotation fallback (`git tag -l --format='%(contents)'`); one-line `Release vX.Y.Z` when both are empty.
+5. **Operator bump** — `pnpm run release:bump -- X.Y.Z` writes all lockstep surfaces + README shields.io badges, regenerates `CHANGELOG.md` via git-cliff, then runs assert. Optional `--tag [message]` creates a **local** annotated tag only when the tree is clean and already at target version; script never pushes.
+6. **`--tag` deferral** — if bumping or working tree is dirty, `--tag` is refused (non-zero exit) with printed instructions: commit first, then re-run the same version with `--tag`.
+7. **Package SemVer vs wire `schema_version`** — independent axes. Package bumps track packaging identity; wire `schema_version` is an integer on durable JSON objects (`common.schema.json`). Couple only when release notes say so.
+8. **Consumer pinning** — npm/crates.io at `X.Y.Z`, git tag checkout, GitHub Release source archive, pnpm `file:` path, or git dependency at tag (e.g. `github:42ch-dev/spoke#vX.Y.Z`). Packages: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crate `spoke-schemas`.
+
+### Lockstep surfaces (assert rows 1–9)
+
+| # | Surface |
+|---|---------|
+| 1 | Root `package.json` → `version` (canonical) |
+| 2–5 | `packages/spoke-schemas`, `packages/spoke-operations`, `fixtures/toy-world`, `tooling/codegen` → `package.json` `version` |
+| 6–7 | `Cargo.toml` `[workspace.package].version`; `crates/spoke-schemas/Cargo.toml` with `version.workspace = true` |
+| 8–9 | `README.md` and `README_CN.md` shields.io `version-X.Y.Z` badge URLs |
+
+**Excluded:** `tooling/codegen/rust-gen/Cargo.toml` (standalone bin workspace; not a pin surface).
+
+### Maintainer happy path
+
+```bash
+pnpm run release:bump -- 0.1.1
+git add -A && git commit -m "chore(release): bump to 0.1.1"
+git push origin main
+pnpm run release:bump -- 0.1.1 --tag "Release 0.1.1"
+git push origin v0.1.1
+```
+
+Tag push re-runs verify-equivalent gates; on success, workflow creates the GitHub Release and publishes registry artifacts (stable tags only).
+
+## What not to do
+
+- Do not use independent per-package SemVer channels.
+- Do not auto-bump or auto-tag on every merge to `main`.
+- Do not create lightweight-only tags (annotation required for release notes).
+- Do not conflate package SemVer with wire `schema_version` in docs or tooling.
+
+## Related
+
+- Normative policy: `.mstar/specs/spoke-version-release.md`
+- Workflows: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
+- Tooling: `tooling/release/lockstep-surfaces.mjs`, `assert-lockstep-version.mjs`, `bump-version.mjs`
+- Consumer twin READMEs: `README.md`, `README_CN.md`

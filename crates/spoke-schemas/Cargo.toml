@@ -6,6 +6,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "SPOKE wire types — Rust generated from JSON Schema"
+readme = "README.md"
+keywords = ["spoke", "knowledge-entry", "json-schema", "wire-types"]
+categories = ["data-structures", "encoding"]
 
 [dependencies]
 serde.workspace = true

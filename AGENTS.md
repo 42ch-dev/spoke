@@ -47,7 +47,7 @@ Root `README.md` / `README_CN.md` are **for humans** (protocol consumers / integ
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
-- Packages are workspace-private (not published to npm); consume via workspace or `file:` path.
+- Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm), and `spoke-schemas` (crates.io) publish on stable tagged releases via CI; fixture and codegen packages remain workspace-private.
 - Finding is checker output, not KnowledgeEntry `body`.
 
 ## Tech direction (v0.1)

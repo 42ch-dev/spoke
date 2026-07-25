@@ -35,7 +35,18 @@
 
 ## 安装与消费
 
-软件包为**工作区本地包**（private）。在 pnpm monorepo 中：
+从 npm 与 crates.io 安装锁步 SemVer `X.Y.Z`：
+
+```bash
+pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
+```
+
+```toml
+# Cargo.toml
+spoke-schemas = "X.Y.Z"
+```
+
+在将 SPOKE 作为工作区成员的 pnpm monorepo 中：
 
 ```json
 {
@@ -89,11 +100,20 @@ git checkout vX.Y.Z
 1. Bump 所有锁步表面并刷新 changelog 章节：`pnpm run release:bump -- X.Y.Z`
 2. 提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
 3. 在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "可选摘要"`，或 `git tag -a vX.Y.Z -m "可选摘要"`
-4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁并从 `CHANGELOG.md` 创建 GitHub Release。
+4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release，并向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas`（仅稳定标签）。
 
 仅预览或重新生成 changelog（不 bump 版本）：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
 
-预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release，不向 npm 或 crates.io 发布。
+预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release；含 `-rc.` 的标签跳过 registry 发布。
+
+### 仓库密钥（维护者）
+
+首次稳定标签发布前，在 GitHub 仓库中配置以下 secrets：
+
+| Secret | 用途 |
+|--------|------|
+| `NPM_TOKEN` | `pnpm publish` 的 npm 认证 |
+| `CARGO_REGISTRY_TOKEN` | `cargo publish` 的 crates.io 认证 |
 
 ## 核心概念
 

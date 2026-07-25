@@ -12,9 +12,9 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 |-------------|------|
 | **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
 | **`schemas/`** | Draft-07 SSOT (**23** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
-| **`@42ch/spoke-schemas`** | Generated TypeScript types |
-| **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (operations library first slice onward) |
-| **`spoke-schemas`** (Rust crate) | Generated Rust types |
+| **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
+| **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (published to npm) |
+| **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
 | **`adapters/`** | README purpose note only (implementation deferred) |
 
 ## What we do not build
@@ -22,7 +22,7 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 - Shared runtime, daemon, or MCP server
 - Product ↔ SPOKE conversion packages (adapter packages deferred)
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` — fixtures conformance slice)
-- npm/crates.io publish (workspace-local packages; CI must not publish)
+- Publishing fixture, codegen, or adapter packages to registries
 
 ## Architecture (three columns)
 
@@ -55,6 +55,7 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Optional Computable (`l2-computable`) (delivered 2026-07-24)** | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project` / `compute` ops + pure validators |
 | **Optional Fork (`l5-fork`) (delivered 2026-07-24)** | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` matcher; fixtures |
 | **Unified version release (delivered 2026-07-25)** | Lockstep bump/assert, annotated tags, CI-gated GitHub Release — [spoke-version-release.md](.mstar/specs/spoke-version-release.md) |
+| **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas` (crates.io) on stable tags after verify gates |
 | **Next (when scheduled)** | CI / codegen harden residuals and/or Rust `spoke-operations` crate; adapter packages when a product binding sprint is planned |
 | **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
@@ -66,4 +67,4 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | [`CONCEPTS.md`](CONCEPTS.md) | Domain vocabulary and boundaries |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec and acceptance criteria |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, TimelineScale vocabulary |
-| [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release |
+| [`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md) | Lockstep SemVer, annotated tags, CI-gated GitHub Release, registry publish |

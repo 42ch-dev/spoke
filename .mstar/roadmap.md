@@ -32,6 +32,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-25 | Registry publish | CI `publish-npm` + `publish-crates` on stable tags after verify; npm `@42ch/spoke-schemas` / `@42ch/spoke-operations`; crates.io `spoke-schemas`; skip `-rc.` tags |
 | 2026-07-25 | Unified version release | Lockstep assert + `release:bump` tooling; CI `verify-version` + tag-gated `release.yml`; README EN/CN pinning + maintainer how-to; [spoke-version-release.md](specs/spoke-version-release.md) |
 | 2026-07-24 | Optional Fork (`l5-fork`) | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` + matcher; fixtures; Moment `computable_logs` schema example; schema-count **23** |
 | 2026-07-24 | Optional Computable (`l2-computable`) | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project`/`compute` ops; pure validators; fixtures; schema-count **23** |
@@ -64,7 +65,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 - Default full manuscript text on the wire
 - Closed forever enums that freeze product ontology growth
 - Creator Memory / unpromoted chat as KnowledgeEntry graph canon
-- npm / crates.io publish from CI (workspace-local consumption; see version release spec)
+- Publishing fixture, codegen, or adapter packages to registries
 
 ---
 
@@ -75,7 +76,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`STRATEGY.md`](../STRATEGY.md) | Why / principles / three-column architecture |
 | [`CONCEPTS.md`](../CONCEPTS.md) | KnowledgeEntry / TimelineEvent spelling + dual-concern |
 | [`.mstar/specs/spoke-protocol.md`](specs/spoke-protocol.md) | Normative umbrella |
-| [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) | Lockstep SemVer, tags, CI-gated GitHub Release |
+| [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) | Lockstep SemVer, tags, CI-gated GitHub Release, registry publish |
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
 | [`knowledge/architecture-patterns/l5-fork-timeline-event-wire.md`](knowledge/architecture-patterns/l5-fork-timeline-event-wire.md) | Compound note on optional Fork wire |
 | [`schemas/`](../schemas/) | Wire SSOT |

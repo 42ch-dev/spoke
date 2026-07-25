@@ -9,11 +9,11 @@
 
 ## Purpose
 
-SPOKE publishes a **single lockstep SemVer** for workspace packages and the Rust schema crate so integrators can pin **one version** across TypeScript and Rust artifacts. Releases are cut with **annotated git tags** and materialized as **GitHub Releases**. Registry publish (npm / crates.io) is out of scope and forbidden in CI.
+SPOKE publishes a **single lockstep SemVer** for workspace packages and the Rust schema crate so integrators can pin **one version** across TypeScript and Rust artifacts. Releases are cut with **annotated git tags**, materialized as **GitHub Releases**, and published to **npm** (`@42ch/spoke-schemas`, `@42ch/spoke-operations`) and **crates.io** (`spoke-schemas`) when CI passes on stable tags.
 
-**Integrator value:** pin sibling repos to `vX.Y.Z` (git tag or GitHub Release source archive) and consume workspace packages via `file:` path or git dependency at that tag — without a public registry.
+**Integrator value:** install from npm/crates.io at `X.Y.Z`, or pin sibling repos to `vX.Y.Z` (git tag or GitHub Release source archive) via `file:` path or git dependency.
 
-**Maintainer value:** one bump path updates every SSOT surface; CI blocks drift; tagging a green commit produces a Release after gates re-run.
+**Maintainer value:** one bump path updates every SSOT surface; CI blocks drift; tagging a green commit produces a Release and registry artifacts after gates re-run.
 
 ## Version SSOT (lockstep)
 
@@ -59,22 +59,23 @@ Pre-1.0: breaking wire or public API changes remain allowed without a deprecatio
 | Target | Commit on `main` (or `iteration/**` integration branch) that already passes CI |
 | Annotation | Optional human-readable summary; used only when `CHANGELOG.md` has no matching section |
 | Notes extraction | Primary: `tooling/release/extract-changelog-notes.mjs` on `CHANGELOG.md` for `vX.Y.Z`; fallback: `git tag -l --format='%(contents)' <tag>`; final fallback: `Release vX.Y.Z` |
-| Pre-release | `vX.Y.Z-rc.N` — CI MUST create a GitHub **pre-release**; MUST NOT imply registry publish |
+| Pre-release | `vX.Y.Z-rc.N` — CI MUST create a GitHub **pre-release**; MUST NOT publish to npm or crates.io |
 | Stable | `vX.Y.Z` without prerelease suffix — GitHub Release is **not** marked pre-release |
 
 Tags SHOULD be annotated. Release notes come from `CHANGELOG.md` first; tag annotation is a fallback only.
 
 ## What a release is
 
-A SPOKE release is **not** an npm or crates.io publish. A release is:
+A SPOKE release is:
 
 1. Lockstep manifests, README badges, and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via maintainer PR).
 2. Maintainer creates and pushes annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) pointing at that commit.
 3. CI **release** workflow on tag push re-validates verify-equivalent gates.
 4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply only when the section is missing.
-5. Consumers pin the repo at that tag.
+5. On stable tags (no `-rc.` suffix), CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas` to npm and crates.io.
+6. Consumers install from registries at `X.Y.Z` or pin the repo at that tag.
 
-**GitHub Release contents (minimum):** tag name, release notes body, automatic source archive (GitHub default). Optional: link to umbrella spec version. No registry artifacts.
+**GitHub Release contents (minimum):** tag name, release notes body, automatic source archive (GitHub default). Registry artifacts: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas` crate at the same SemVer.
 
 ## Who may cut a release
 
@@ -89,9 +90,9 @@ A SPOKE release is **not** an npm or crates.io publish. A release is:
 | Trigger | Workflow | Requirement |
 |---------|----------|-------------|
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
-| Push of tag matching `v*` | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release` job (fail-closed) |
+| Push of tag matching `v*` | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` on stable tags (fail-closed) |
 
-Release workflows MUST NOT publish to npm or crates.io. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
+Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, and crate `spoke-schemas`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
 ### Lockstep assert (PR / main)
 
@@ -113,11 +114,13 @@ On tag push, `release.yml` `verify-version` MUST also assert `github.ref_name` e
 | Trigger | `on.push.tags: ['v*']` |
 | Concurrency | `group: release-${{ github.ref }}`, `cancel-in-progress: true` |
 | Permissions | Workflow default `contents: read`; `release` job sets `contents: write` |
-| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` |
-| Fail-closed | If any verify job fails, `release` MUST NOT run and MUST NOT create a GitHub Release |
-| Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release |
+| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **parallel `publish-npm` + `publish-crates`** with the same `needs` plus `release` (stable tags only) |
+| Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
+| Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
+| Registry publish | `publish-npm`: `@42ch/spoke-schemas` then `@42ch/spoke-operations` via `pnpm publish --access public`; `publish-crates`: `cargo publish -p spoke-schemas` |
+| Registry secrets | `NPM_TOKEN` (npm auth), `CARGO_REGISTRY_TOKEN` (crates.io) — repository secrets only; never committed |
 
 **Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
@@ -166,6 +169,8 @@ Both `README.md` and `README_CN.md` MUST contain a shields.io Version badge whos
 
 | Method | Pattern |
 |--------|---------|
+| npm | `pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z` |
+| crates.io | `spoke-schemas = "X.Y.Z"` in `Cargo.toml` |
 | Git tag | `git checkout vX.Y.Z` |
 | GitHub Release | Download source archive for tag `vX.Y.Z` |
 | pnpm workspace | `"@42ch/spoke-schemas": "file:../spoke/packages/spoke-schemas"` at checked-out tag |
@@ -184,7 +189,7 @@ A package SemVer bump does **not** require a wire `schema_version` bump, and vic
 
 ## Non-goals
 
-- npm or crates.io publish jobs
+- Publishing fixture or codegen packages
 - Independent per-package SemVer
 - Adapter package releases
 - Auto-release on every merge to `main`
@@ -195,6 +200,6 @@ A package SemVer bump does **not** require a wire `schema_version` bump, and vic
 | Doc | Role |
 |-----|------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Protocol umbrella |
-| [`STRATEGY.md`](../../STRATEGY.md) | No registry publish from CI |
+| [`STRATEGY.md`](../../STRATEGY.md) | Registry publish on tagged stable releases |
 | [`.mstar/roadmap.md`](../roadmap.md) | Product scheduling |
 | Root `README.md` / `README_CN.md` | Version badge, consumer pinning, and maintainer release how-to |

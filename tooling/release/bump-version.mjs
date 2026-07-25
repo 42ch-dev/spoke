@@ -20,6 +20,7 @@ import {
   replaceOpsSpokeSchemasDependencyVersion,
   replaceReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
+import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -129,14 +130,77 @@ already committed (lockstep match on a clean tree). Refused when bumping or dirt
 }
 
 /**
+ * @returns {string | null} Latest annotated/lightweight tag matching v*, or null.
+ */
+function latestReleaseTag() {
+  const result = spawnSync(
+    "git",
+    ["describe", "--tags", "--match", "v*", "--abbrev=0"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    },
+  );
+  if (result.status !== 0) {
+    return null;
+  }
+  const tag = result.stdout.trim();
+  return tag.length > 0 ? tag : null;
+}
+
+/**
+ * @returns {string | null} Tip commit that last modified CHANGELOG.md, or null.
+ */
+function lastChangelogCommit() {
+  const result = spawnSync(
+    "git",
+    ["log", "-1", "--format=%H", "--", CHANGELOG_PATH],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    },
+  );
+  if (result.status !== 0) {
+    return null;
+  }
+  const sha = result.stdout.trim();
+  return sha.length > 0 ? sha : null;
+}
+
+/**
  * @param {string} version
  */
 function updateChangelog(version) {
   const tag = `v${version}`;
   const changelogExists = existsSync(repoPath(CHANGELOG_PATH));
-  const cliffArgs = changelogExists
-    ? ["--prepend", CHANGELOG_PATH, "--tag", tag]
-    : ["-o", CHANGELOG_PATH, "--tag", tag];
+  // git-cliff requires -u/--unreleased or -l/--latest OR an explicit commit range
+  // with --prepend / -o. Prefer:
+  //   1) commits since latest v* tag (--unreleased)
+  //   2) when no tags yet but CHANGELOG already exists: commits since last
+  //      CHANGELOG.md update (avoids replaying history already under older sections)
+  //   3) first CHANGELOG creation: full --unreleased history
+  /** @type {string[]} */
+  const cliffArgs = [];
+  const releaseTag = latestReleaseTag();
+  if (releaseTag) {
+    cliffArgs.push("--unreleased");
+  } else if (changelogExists) {
+    const since = lastChangelogCommit();
+    if (since) {
+      cliffArgs.push(`${since}..HEAD`);
+    } else {
+      cliffArgs.push("--unreleased");
+    }
+  } else {
+    cliffArgs.push("--unreleased");
+  }
+
+  cliffArgs.push("--tag", tag);
+  if (changelogExists) {
+    cliffArgs.push("--prepend", CHANGELOG_PATH);
+  } else {
+    cliffArgs.push("-o", CHANGELOG_PATH);
+  }
 
   const result = runGitCliff(cliffArgs, REPO_ROOT);
   if (result.status !== 0) {
@@ -262,8 +326,18 @@ if (typeof currentVersion !== "string" || currentVersion.length === 0) {
 
 if (currentVersion === targetVersion) {
   console.log(
-    `Version already ${targetVersion}; re-running assert only.`,
+    `Version already ${targetVersion}; ensuring changelog section and re-running assert.`,
   );
+  const changelog = existsSync(repoPath(CHANGELOG_PATH))
+    ? readRepoFile(CHANGELOG_PATH)
+    : "";
+  if (!extractChangelogSection(changelog, targetVersion)) {
+    updateChangelog(targetVersion);
+  } else {
+    console.log(
+      `${CHANGELOG_PATH} already has a section for ${targetVersion}; skipping git-cliff.`,
+    );
+  }
   runAssert(targetVersion);
   if (tag) {
     if (!isWorkingTreeClean()) {

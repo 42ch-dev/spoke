@@ -1,6 +1,6 @@
 {
   "name": "@42ch/spoke-fixture-toy-world",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "description": "SPOKE toy-world protocol fixtures and AJV/Vitest conformance harness",
   "license": "Apache-2.0",

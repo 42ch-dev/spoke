@@ -57,7 +57,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Optional Fork (`l5-fork`) (delivered 2026-07-24)** | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` matcher; fixtures |
 | **Unified version release (delivered 2026-07-25)** | Lockstep bump/assert, annotated tags, CI-gated GitHub Release — [spoke-version-release.md](.mstar/specs/spoke-version-release.md) |
 | **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas`, `spoke-operations` (crates.io) on stable tags after verify gates |
-| **Next (when scheduled)** | CI / codegen harden residuals; adapter packages when a product binding sprint is planned |
+| **CI / codegen harden (delivered 2026-07-25)** | OpaqueJson opaque fields; Rust typify strategy A; schema-count **23** surfaces; `test:release` lockstep script tests |
+| **Next (when scheduled)** | Adapter packages when a product binding sprint is planned |
 | **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 

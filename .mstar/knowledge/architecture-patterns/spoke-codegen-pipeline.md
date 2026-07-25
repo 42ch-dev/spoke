@@ -15,8 +15,9 @@ Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schemas`) a
 3. **Verify** — `pnpm run verify-codegen` = regenerate → `node tooling/codegen/assert-schema-count.mjs` (`EXPECTED_SCHEMA_COUNT = 23`) → `git diff --exit-code` on generated dirs. Bump the constant when adding/removing `schemas/**/*.schema.json` (same commit as schema + generated output).
 4. **Rust fail-fast** — `rust-gen` returns non-zero on per-schema failure and asserts exactly **23** output files (keep in sync with the TS assert constant when the schema inventory changes).
 5. **Closed ops responses** — mutually exclusive success/error shapes use draft-07 `oneOf` (see `assemble-response.schema.json`).
-6. **Opaque JSON** — `#/definitions/OpaqueJson` (empty schema `{}`) with `$ref` on consuming properties (e.g. `ComputableLogChange.previous` / `.next`). Generators emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust).
+6. **Opaque JSON** — `#/definitions/OpaqueJson` must be an **empty schema object `{}`** (optional `description` alone is insufficient for jstt — it still emits `{ [k: string]: unknown }` object-index maps). Consuming properties `$ref` that definition (e.g. `ComputableLogChange.previous` / `.next`). Generators then emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust).
 7. **Duplicate generated types (strategy A)** — document typify nominal duplication as known generator behavior; integrators use canonical `common/` imports (see below). No orchestrator dedupe.
+8. **Release tooling tests** — `pnpm run test:release` runs pure unit tests for lockstep assert/bump scripts (temp fixtures; optional `SPOKE_REPO_ROOT` for harness isolation). Wired into the CI `typescript` job.
 
 ## Schema inventory
 

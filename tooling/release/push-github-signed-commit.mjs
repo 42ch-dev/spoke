@@ -216,18 +216,21 @@ function collectFileChanges(baseRef) {
  * Point remote branch at baseOid (create or force-update). Release branches are
  * outside ~DEFAULT_BRANCH, so force updates are allowed.
  *
- * Note: updating a missing ref returns HTTP 422 ("Reference does not exist"),
- * not 404 — prefer GET-then-create/update over PATCH-only.
+ * IMPORTANT: `GET /git/refs/heads/<prefix>` is a **prefix** match (plural `refs`).
+ * `release/0.1.0` matches `release/0.1.0-alpha.3` and returns HTTP 200 — do not use
+ * that to decide existence. Use singular `GET /git/ref/heads/<branch>` (exact).
  *
  * @param {string} repo
  * @param {string} branch
  * @param {string} baseOid
  */
 async function ensureBranchAtOid(repo, branch, baseOid) {
-  const headsPath = `/repos/${repo}/git/refs/heads/${branch}`;
+  // Singular "ref" = exact match. Plural "refs" = prefix match (unsafe here).
+  const exactRefPath = `/repos/${repo}/git/ref/heads/${branch}`;
+  const updateRefPath = `/repos/${repo}/git/refs/heads/${branch}`;
   let exists = false;
   try {
-    await ghApi(headsPath);
+    await ghApi(exactRefPath);
     exists = true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -237,7 +240,7 @@ async function ensureBranchAtOid(repo, branch, baseOid) {
   }
 
   if (exists) {
-    await ghApi(headsPath, { sha: baseOid, force: true }, "PATCH");
+    await ghApi(updateRefPath, { sha: baseOid, force: true }, "PATCH");
     console.log(`Updated refs/heads/${branch} → ${baseOid}`);
     return;
   }

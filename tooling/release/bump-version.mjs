@@ -16,9 +16,7 @@ import {
   CARGO_OPS_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
-  README_BADGE_PATHS,
   replaceOpsSpokeSchemasDependencyVersion,
-  replaceReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
@@ -384,14 +382,6 @@ writeRepoFile(
   CARGO_OPS_CRATE_PATH,
   replaceOpsSpokeSchemasDependencyVersion(opsCrateContents, targetVersion),
 );
-
-for (const readmePath of README_BADGE_PATHS) {
-  const readmeContents = readRepoFile(readmePath);
-  writeRepoFile(
-    readmePath,
-    replaceReadmeBadgeVersion(readmeContents, currentVersion, targetVersion),
-  );
-}
 
 updateChangelog(targetVersion);
 runAssert(targetVersion);

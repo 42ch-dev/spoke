@@ -69,7 +69,7 @@ Tags SHOULD be annotated. Release notes come from `CHANGELOG.md` first; tag anno
 
 A SPOKE release is:
 
-1. Lockstep manifests, README badges, and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via **New release** PR or equivalent maintainer bump).
+1. Lockstep manifests and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via **New release** PR or equivalent maintainer bump). README Version badges track the latest GitHub Release dynamically.
 2. Annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) points at that commit (created by **Tag release on merge** after a `release`-labeled PR merges, or by a maintainer).
 3. CI **Release** workflow (`release.yml` on tag push **or** `workflow_call` from Tag release on merge) re-validates verify-equivalent gates.
 4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply when the section is missing.
@@ -131,22 +131,22 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 
 ### README version badge assert
 
-Both `README.md` and `README_CN.md` MUST contain a shields.io Version badge whose URL segment matches the canonical version:
+Both `README.md` and `README_CN.md` MUST contain a dynamic shields.io GitHub Releases Version badge (not a static `badge/version-<SemVer>` URL):
 
 | Item | Value |
 |------|-------|
 | Line marker | `[![Version]` |
-| URL pattern | `img.shields.io/badge/version-<X.Y.Z>` where `<X.Y.Z>` equals canonical `package.json` version |
-| Regex (implement) | `/img\.shields\.io\/badge\/version-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)-/` |
-| Bump script | Rewrites badge URL in both README files when version changes |
+| URL marker | `img.shields.io/github/v/release/42ch-dev/spoke` (include prereleases + SemVer sort) |
+| Link target | `https://github.com/42ch-dev/spoke/releases` |
+| Bump script | Does **not** rewrite README badges — badge tracks published GitHub Releases |
 
 ## Operator tooling
 
 | Script | Path | Role |
 |--------|------|------|
-| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `CARGO_SCHEMA_CRATE_PATH`, `CARGO_OPS_CRATE_PATH`, `README_BADGE_PATHS[]` |
+| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `CARGO_SCHEMA_CRATE_PATH`, `CARGO_OPS_CRATE_PATH`, `README_BADGE_PATHS[]`, `README_RELEASE_BADGE_MARKER` |
 | Assert | `tooling/release/assert-lockstep-version.mjs` | Reads manifest; exits 0/1 |
-| Bump | `tooling/release/bump-version.mjs` | Updates all manifest paths + badges; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
+| Bump | `tooling/release/bump-version.mjs` | Updates all lockstep manifests; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
 | Changelog runner | `tooling/release/run-git-cliff.mjs` | Resolves `git-cliff` (PATH → `pnpm dlx` → `npx`); used by bump and `release:changelog` |
 | Notes extractor | `tooling/release/extract-changelog-notes.mjs` | Prints `CHANGELOG.md` section body for `vX.Y.Z` / `X.Y.Z` (CI + local) |
 | Config | `cliff.toml` | git-cliff Conventional Commits grouping (Keep a Changelog sections) |

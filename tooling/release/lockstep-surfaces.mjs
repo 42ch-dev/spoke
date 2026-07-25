@@ -68,68 +68,22 @@ export function replaceOpsSpokeSchemasDependencyVersion(contents, version) {
 }
 
 /**
- * README files with shields.io version badge (rows 9–10).
+ * README files that must carry the dynamic GitHub Releases version badge.
  * @type {readonly string[]}
  */
 export const README_BADGE_PATHS = ["README.md", "README_CN.md"];
 
-/** Shields.io version badge URL prefix (hostname avoided in regex for CodeQL). */
-export const README_BADGE_PREFIX = "https://img.shields.io/badge/version-";
-
 /**
- * Anchored SemVer matcher for the segment immediately after {@link README_BADGE_PREFIX}.
- * Captures the version before the trailing `-` (e.g. `0.1.0-` in `version-0.1.0-informational`).
+ * Dynamic shields.io GitHub Releases badge (includes prereleases, SemVer sort).
+ * Not rewritten on bump — tracks the latest GitHub Release for the repo.
  */
-export const README_BADGE_VERSION_REGEX =
-  /^([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)-/;
+export const README_RELEASE_BADGE_MARKER =
+  "https://img.shields.io/github/v/release/42ch-dev/spoke";
 
 /**
  * @param {string} contents
- * @returns {string | null} Parsed SemVer from the version badge, or null when absent/invalid.
+ * @returns {boolean}
  */
-export function parseReadmeBadgeVersion(contents) {
-  const prefixIndex = contents.indexOf(README_BADGE_PREFIX);
-  if (prefixIndex === -1) {
-    return null;
-  }
-
-  const remainder = contents.slice(prefixIndex + README_BADGE_PREFIX.length);
-  const match = remainder.match(README_BADGE_VERSION_REGEX);
-  return match?.[1] ?? null;
-}
-
-/**
- * @param {string} contents
- * @param {string} oldVersion
- * @param {string} newVersion
- * @returns {string}
- */
-export function replaceReadmeBadgeVersion(contents, oldVersion, newVersion) {
-  const prefixIndex = contents.indexOf(README_BADGE_PREFIX);
-  if (prefixIndex === -1) {
-    throw new Error(
-      `README badge prefix not found (expected ${README_BADGE_PREFIX}<version>- URL)`,
-    );
-  }
-
-  const versionStart = prefixIndex + README_BADGE_PREFIX.length;
-  const remainder = contents.slice(versionStart);
-  const match = remainder.match(README_BADGE_VERSION_REGEX);
-  if (!match) {
-    throw new Error(
-      `README badge version segment invalid after ${README_BADGE_PREFIX}`,
-    );
-  }
-
-  if (match[1] !== oldVersion) {
-    throw new Error(
-      `README badge for version ${oldVersion} not found (found ${match[1]})`,
-    );
-  }
-
-  return (
-    contents.slice(0, versionStart) +
-    newVersion +
-    contents.slice(versionStart + match[1].length)
-  );
+export function hasReadmeReleaseBadge(contents) {
+  return contents.includes(README_RELEASE_BADGE_MARKER);
 }

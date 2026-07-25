@@ -28,9 +28,9 @@ import {
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   README_BADGE_PATHS,
-  README_BADGE_PREFIX,
+  README_RELEASE_BADGE_MARKER,
+  hasReadmeReleaseBadge,
   parseOpsSpokeSchemasDependencyVersion,
-  parseReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -228,18 +228,14 @@ if (opsSchemasDepVersion === null) {
 
 for (const readmePath of README_BADGE_PATHS) {
   const contents = readRepoFile(readmePath);
-  const badgeVersion = parseReadmeBadgeVersion(contents);
-  if (badgeVersion === null) {
+  if (!hasReadmeReleaseBadge(contents)) {
     recordFailure(
       readmePath,
-      canonicalVersion,
+      README_RELEASE_BADGE_MARKER,
       "(badge not found)",
-      `No shields.io version badge at ${README_BADGE_PREFIX}<version>-`,
+      `Expected dynamic GitHub Releases shields badge containing ${README_RELEASE_BADGE_MARKER}`,
     );
-    continue;
   }
-
-  assertEqual(readmePath, canonicalVersion, badgeVersion);
 }
 
 if (failures.length > 0) {

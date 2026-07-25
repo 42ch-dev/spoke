@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-generated-3178C6.svg?logo=typescript&logoColor=white)](packages/spoke-schemas)
 [![Rust](https://img.shields.io/badge/Rust-generated-DEA584.svg?logo=rust&logoColor=black)](crates/spoke-schemas)
 [![Schema](https://img.shields.io/badge/JSON%20Schema-SSOT-0B7285.svg)](schemas)
-[![Version](https://img.shields.io/badge/version-0.1.0-alpha.2-informational.svg)](package.json)
+[![Version](https://img.shields.io/github/v/release/42ch-dev/spoke?include_prereleases&sort=semver&label=version)](https://github.com/42ch-dev/spoke/releases)
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
@@ -91,7 +91,7 @@ git checkout vX.Y.Z
 }
 ```
 
-文首 shields.io **Version** 徽章对应当前检出提交上的规范版本。规范政策：[`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md)。
+文首 shields.io **Version** 徽章跟踪最新 [GitHub Release](https://github.com/42ch-dev/spoke/releases)（含预发布）。某次检出上的锁步包/crate 版本见根目录 `package.json`。规范政策：[`.mstar/specs/spoke-version-release.md`](.mstar/specs/spoke-version-release.md)。
 
 ## 发布（维护者）
 

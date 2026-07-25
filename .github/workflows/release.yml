@@ -262,3 +262,8 @@ jobs:
         run: cargo publish -p spoke-schemas
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish spoke-operations crate
+        run: cargo publish -p spoke-operations
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

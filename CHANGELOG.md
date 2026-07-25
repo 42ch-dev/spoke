@@ -41,6 +41,8 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 
 - **fixtures:** Add Fork-aware toy-world TimelineEvent sample
 
+- **release:** Add git-cliff CHANGELOG and notes extractor
+
 
 ### Changed
 
@@ -67,33 +69,15 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 
 - Document CI required checks for v0.1
 
-- **v0-iter002:** Lock iteration-start — operations spec + three-column framing
-
 - **readme:** Add twin consumer READMEs for integrators
-
-- Fix CN wire terminology and align STRATEGY roadmap
-
-- Align version labels and v0-iter002 delivered status
 
 - Keep READMEs human-facing; move agent boundaries to AGENTS.md
 
-- **v0-iter003:** Lock L0–L8 layers, TimelineScale, Rule/Event intent
-
 - **spec:** Fix L7 operations helpers in layers matrix
-
-- **spec:** Cross-link normative layers in umbrella and roadmap
-
-- **concepts:** Sync Rule/Event wire notes for v0-iter003
 
 - **spec:** Clarify target wire vs committed schemas for QC
 
-- **spec:** Ship Rule vs Finding boundary for v0-iter003
-
 - **schemas:** Update checklist and counts to 19 files
-
-- **specs:** Finalize ops-harden error envelope and Scope contracts
-
-- **iteration:** Lock v0-iter004 — ops actions + toy-world fixtures
 
 - Ban iteration ids from git-shared records
 
@@ -187,13 +171,7 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 
 - Run spoke-operations typecheck and tests in typescript job
 
-- **iteration:** Close v0-iter002 — compound consumer-readme twin
-
 - Rename spoke-schema packages to spoke-schemas
-
-- **iteration:** Close v0-iter003 — compound TimelineScale and ops oneOf
-
-- **iteration:** Close v0-iter004 — compound ops actions and fixture harness
 
 - **codegen:** Assert schema file count in verify-codegen
 
@@ -213,28 +191,5 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 
 - Add tag-triggered GitHub Release workflow
 
-
-### merge
-
-- **plan:** V0.1 spoke-core-bootstrap into iteration/v0.1
-
-- **plan:** V0.1 spoke-ci into iteration/v0.1
-
-- **plan:** V0-iter002 spoke-operations into iteration/v0-iter002
-
-- **plan:** V0-iter002 dev-docs into iteration/v0-iter002
-
-- **plan:** Ops-lifecycle — OCC, Keyblock status, uniqueness helpers
-
-- **plan:** Ops-wire-actions — Scope, upsert/relate, error map
-
-- **plan:** Fixtures-conformance — Mira at Harbor toy-world + AJV CI
-
-- **plan:** Fixture-boundary — toy-world harness out of spoke-operations
-
-- **plan:** Protocol-status-sync — docs delivered + schema-count guard
-
-- **plan:** Wire terminology — KnowledgeEntry + TimelineEvent schemas
-
-- **plan:** Consumers docs — KnowledgeEntry ops and fixtures
+- Use CHANGELOG section for GitHub Release body
 

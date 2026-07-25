@@ -44,6 +44,11 @@ commit_preprocessors = [
   { pattern = '\\((\\w+\\s)?#([0-9]+)\\)', replace = "([#${2}](<REPO>/issues/${2}))" },
 ]
 commit_parsers = [
+  # Morning Star harness process ids — omit from consumer-facing release notes
+  { message = "(?i)v0-iter", skip = true },
+  { message = "(?i)iteration/v0-iter", skip = true },
+  # Plan merge-only integration lines (no product delta)
+  { message = "(?i)merge\\(plan\\)", skip = true },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
   { message = "^docs?", group = "Documentation" },

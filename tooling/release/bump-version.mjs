@@ -305,8 +305,8 @@ for (const readmePath of README_BADGE_PATHS) {
   );
 }
 
-runAssert(targetVersion);
 updateChangelog(targetVersion);
+runAssert(targetVersion);
 
 console.log(`Bumped lockstep version ${currentVersion} → ${targetVersion}.`);
 console.log("");

@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["42ch"]
 license = "Apache-2.0"
-repository = "https://github.com/42ch/spoke"
+repository = "https://github.com/42ch-dev/spoke"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

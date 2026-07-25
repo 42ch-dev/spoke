@@ -175,3 +175,74 @@ jobs:
           tag_name: ${{ github.ref_name }}
           body: ${{ steps.notes.outputs.body }}
           prerelease: ${{ contains(github.ref_name, '-rc.') }}
+
+  publish-npm:
+    name: publish-npm
+    runs-on: ubuntu-latest
+    needs:
+      - verify-codegen
+      - typescript
+      - rust
+      - verify-version
+      - release
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup pnpm
+        # pnpm/action-setup@v4.4.0
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        # actions/setup-node@v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build publishable npm packages
+        run: |
+          pnpm -F @42ch/spoke-schemas build
+          pnpm -F @42ch/spoke-operations build
+
+      - name: Publish @42ch/spoke-schemas
+        run: pnpm -F @42ch/spoke-schemas publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @42ch/spoke-operations
+        run: pnpm -F @42ch/spoke-operations publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-crates:
+    name: publish-crates
+    runs-on: ubuntu-latest
+    needs:
+      - publish-npm
+    if: ${{ !contains(github.ref_name, '-rc.') }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Publish spoke-schemas crate
+        run: cargo publish -p spoke-schemas
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

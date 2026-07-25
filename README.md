@@ -102,6 +102,8 @@ After changes are ready on `main`:
 3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "optional summary"` or `git tag -a vX.Y.Z -m "optional summary"`
 4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` to crates.io (stable tags only).
 
+If npm publish succeeds but the crates.io step fails, re-run the failed `publish-crates` job or publish `spoke-schemas` manually at the tagged version — npm artifacts are already live.
+
 To preview or regenerate changelog output without bumping versions: `pnpm run release:changelog -- --unreleased` (passes flags through to git-cliff).
 
 Pre-releases use `vX.Y.Z-rc.N` tags (GitHub pre-release). CI creates GitHub Releases only; registry publish is skipped for `-rc.` tags.

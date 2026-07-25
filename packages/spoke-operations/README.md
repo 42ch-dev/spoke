@@ -19,4 +19,4 @@ import {
 } from "@42ch/spoke-operations";
 ```
 
-Helpers are pure (no I/O, storage, HTTP, or LLM). Protocol docs and the lockstep SemVer release policy live in the [SPOKE repository](https://github.com/42ch-dev/spoke).
+Helpers are pure functions over wire types. Protocol docs and the lockstep SemVer release policy live in the [SPOKE repository](https://github.com/42ch-dev/spoke).

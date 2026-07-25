@@ -13,7 +13,7 @@
 
 [English](README.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md)
 
-**Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。各独立产品用这些形状交换一致性检查与上下文组装的 I/O，无需共享数据库或运行时。
+**Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约仓库。各独立产品通过这些形状交换一致性检查与上下文组装的 I/O。
 
 **包含：**
 
@@ -95,29 +95,25 @@ git checkout vX.Y.Z
 
 ## 发布（维护者）
 
-[`CHANGELOG.md`](CHANGELOG.md) 是发布说明的主来源（Keep a Changelog 格式，由 [git-cliff](https://git-cliff.org) 根据 Conventional Commits 生成）。GitHub Release 使用对应版本章节；标签注释仅为后备。
+[`CHANGELOG.md`](CHANGELOG.md) 是发布说明来源（Keep a Changelog 格式，由 [git-cliff](https://git-cliff.org) 根据 Conventional Commits 生成）。GitHub Release 使用对应版本章节。
 
 当 `main` 上的变更就绪后：
 
 1. Bump 所有锁步表面并刷新 changelog 章节：`pnpm run release:bump -- X.Y.Z`
 2. 提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
 3. 在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "可选摘要"`，或 `git tag -a vX.Y.Z -m "可选摘要"`
-4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release，并向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas` 与 `spoke-operations`（仅稳定标签）。
+4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release；稳定标签向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas` 与 `spoke-operations`。
 
-若 npm 发布成功但 crates.io 步骤失败：重跑失败的 `publish-crates` job，或在该标签版本上手动发布缺失的 crate——npm 产物此时已上线。
+预览或重新生成 changelog：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
 
-仅预览或重新生成 changelog（不 bump 版本）：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
+预发布标签 `vX.Y.Z-rc.N` 创建 GitHub pre-release。稳定标签 `vX.Y.Z` 发布到 npm 与 crates.io。
 
-预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release；含 `-rc.` 的标签跳过 registry 发布。
-
-### 仓库密钥 / registry 认证（维护者）
+### Registry 认证（维护者）
 
 | 认证 | 用途 |
 |------|------|
-| npm **Trusted Publisher** | 由 `release.yml` → `publish-npm` 经 OIDC 发布（每个包配置：org `42ch-dev`、repo `spoke`、workflow `release.yml`） |
+| npm **Trusted Publisher** | 由 `release.yml` → `publish-npm` 经 OIDC 发布（每个包：org `42ch-dev`、repo `spoke`、workflow `release.yml`） |
 | `CARGO_REGISTRY_TOKEN` | `cargo publish` 的 crates.io 认证（GitHub repository secret） |
-
-已配置 Trusted Publisher 后，npm 发布不再需要 `NPM_TOKEN`。成功用 tag 发布一次后可撤销旧 secret。
 
 ## 核心概念
 
@@ -143,7 +139,7 @@ git checkout vX.Y.Z
 - **`TimelineEvent.computable_logs`** — Moment 层级字段变更展示
 - **`project` / `compute` ops** — 初始化/投影与应用/结算 I/O 信封
 
-基线集成方可完整省略该能力，无破坏性变更。规范细节：[`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels。
+基线集成方使用核心 schema；`l2-computable` 为可选能力。规范细节：[`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels。
 
 ## 快速开始
 

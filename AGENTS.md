@@ -28,27 +28,30 @@ Tracked **results** that agents and humans reuse as protocol SSOT must state **c
 
 Do not put plan progress or residual detail in this file.
 
-## README audience (HARD)
+## Human-readable docs — affirmative facts only (HARD)
 
-Root `README.md` / `README_CN.md` are **for humans** (protocol consumers / integrators), not for agent steering.
+**Audience:** humans (protocol consumers / integrators). Applies to root `README.md` / `README_CN.md`, package/crate READMEs, and other consumer-facing prose. Keep the EN/CN twin outline where twins exist.
 
-| In README | Out of README (agent / harness only — this file or `.mstar/`) |
-|-----------|----------------------------------------------------------------|
-| What the protocol and packages **do** | Iteration IDs, ship banners, delivery/changelog narrative |
-| How to install, consume, contribute | Anti-pattern / boundary rhetoric (“not a runtime”, “does not include…”, “out of scope…”, “never…”) |
-| Positive capability list | In/Out or “library does not…” tables meant to constrain agents |
+| In (state the result) | Out (agent / harness only — this file; normative exclusion may live in specs) |
+|-----------------------|----------------------------------------------------------------------------------|
+| What the protocol and packages **do** now | Negation / exclusion rhetoric (“not a runtime”, “does not include…”, “out of scope…”, “never…”, “no longer requires…”) |
+| How to install, consume, release, contribute | Anti-pattern lists, In/Out constraint tables meant to steer agents |
+| Positive capability and auth as configured | Delivery archaeology, “formerly / skip / without X”, migration leftover (“revoke the old secret”) |
+| Current wire names and happy-path procedures | Iteration IDs, ship banners, “do not confuse X with Y” |
 
-**Rule:** describe product state affirmatively. Negation, exclusion lists, and “do not confuse X with Y” prose belong here (or in specs for normative invariants) — **never** in consumer READMEs. Keep the EN/CN twin outline.
+**Rule:** human-readable docs state **final facts** and procedures affirmatively. Negation, anti-patterns, boundary “must not”, and agent constraints belong **only** in this file (and in `.mstar/specs/` when they are normative protocol invariants). Do not deposit them in READMEs.
 
-### Boundaries agents must enforce (not README copy)
+### Boundaries agents must enforce (not human-README copy)
 
 - SPOKE is a **protocol repo**, not a product runtime, daemon, or shared database.
 - `adapters/` holds **README purpose text only** for now — no product subdirs, packages, or mapping code until an iteration schedules them.
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
-- Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm), and `spoke-schemas`, `spoke-operations` (crates.io) publish on stable tagged releases via CI; fixture and codegen packages remain workspace-private.
+- Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm), and `spoke-schemas`, `spoke-operations` (crates.io) publish on stable tagged releases via CI Trusted Publisher (npm OIDC) + `CARGO_REGISTRY_TOKEN` (crates.io); fixture and codegen packages remain workspace-private.
 - Finding is checker output, not KnowledgeEntry `body`.
+- npm auth for CI publish is Trusted Publisher on `@42ch/spoke-schemas` and `@42ch/spoke-operations` (org `42ch-dev`, repo `spoke`, workflow `release.yml`). Do not document “NPM_TOKEN no longer required / revoke old secret” in human READMEs — that negation belongs here only.
+- Stable tags (`vX.Y.Z`) publish to npm and crates.io; pre-release tags (`vX.Y.Z-rc.N`) create GitHub pre-releases. If `publish-crates` fails after npm succeeded, re-run that job or `cargo publish` the missing crate at the tagged version.
 
 ## Tech direction (v0.1)
 

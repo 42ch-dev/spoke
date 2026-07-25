@@ -28,4 +28,4 @@ let result = apply_promote_acceptance(&request);
 - `validate_promote_request`, `apply_promote_acceptance`, `validate_promote_request_wire`
 - `knowledge_entry_to_assemble_entry`, `build_assemble_packet`, `KnowledgeEntryForAssemble`
 
-Pure functions only: no I/O, storage, HTTP, LLM, ranking, or retrieval.
+Pure functions over wire types.

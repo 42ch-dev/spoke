@@ -13,7 +13,7 @@
 
 [中文](README_CN.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md)
 
-**Standardized Programmable Ontology Knowledge Engine** — a protocol repository of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products use these shapes for consistency-check and context-assembly I/O without sharing a database or runtime.
+**Standardized Programmable Ontology Knowledge Engine** — a protocol repository of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products exchange consistency-check and context-assembly I/O through these shapes.
 
 **Includes:**
 
@@ -95,29 +95,25 @@ The shields.io **Version** badge at the top of this README reflects the canonica
 
 ## Release (maintainers)
 
-[`CHANGELOG.md`](CHANGELOG.md) is the primary release-notes source (Keep a Changelog format, generated from Conventional Commits via [git-cliff](https://git-cliff.org)). GitHub Releases use the matching version section; tag annotations are fallback only.
+[`CHANGELOG.md`](CHANGELOG.md) is the release-notes source (Keep a Changelog format, generated from Conventional Commits via [git-cliff](https://git-cliff.org)). GitHub Releases use the matching version section.
 
 After changes are ready on `main`:
 
 1. Bump all lockstep surfaces and refresh the changelog section: `pnpm run release:bump -- X.Y.Z`
 2. Commit and push: `git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
 3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "optional summary"` or `git tag -a vX.Y.Z -m "optional summary"`
-4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` and `spoke-operations` to crates.io (stable tags only).
+4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and on stable tags publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` and `spoke-operations` to crates.io.
 
-If npm publish succeeds but a crates.io step fails, re-run the failed `publish-crates` job or publish the missing crate manually at the tagged version — npm artifacts are already live.
+Preview or regenerate changelog output: `pnpm run release:changelog -- --unreleased` (flags pass through to git-cliff).
 
-To preview or regenerate changelog output without bumping versions: `pnpm run release:changelog -- --unreleased` (passes flags through to git-cliff).
+Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Stable tags `vX.Y.Z` publish to npm and crates.io.
 
-Pre-releases use `vX.Y.Z-rc.N` tags (GitHub pre-release). CI creates GitHub Releases only; registry publish is skipped for `-rc.` tags.
-
-### Repository secrets / registry auth (maintainers)
+### Registry auth (maintainers)
 
 | Auth | Use |
 |------|-----|
-| npm **Trusted Publisher** | OIDC from `release.yml` → `publish-npm` (configure on each package: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
+| npm **Trusted Publisher** | OIDC from `release.yml` → `publish-npm` (each package: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
 | `CARGO_REGISTRY_TOKEN` | crates.io auth for `cargo publish` (GitHub repository secret) |
-
-npm publish no longer requires `NPM_TOKEN` when Trusted Publisher is configured. You may revoke the old secret after a successful tag publish.
 
 ## Core concepts
 
@@ -143,7 +139,7 @@ Products that need programmable KnowledgeEntry body state may declare **`l2-comp
 - **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
 - **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
 
-Baseline integrators omit the entire capability with no breaking change. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
+Baseline integrators use core schemas; `l2-computable` is opt-in. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
 
 ## Quick start
 

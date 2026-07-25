@@ -4,6 +4,7 @@ use crate::extensions::ExtensionMap;
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use crate::util::{
     body_wire_from_entry_wire, extract_snippet_from_body_wire, knowledge_entry_body_to_json,
+    validate_assemble_body_wire,
 };
 use serde_json::{Map, Value};
 use spoke_schemas::assemble_packet::{
@@ -32,6 +33,15 @@ impl KnowledgeEntryForAssemble {
     /// Deserialize from wire JSON via `spoke-schemas`, preserving body additionalProperties.
     pub fn from_wire_json(wire: Value) -> SpokeResult<Self> {
         let body_wire = body_wire_from_entry_wire(&wire);
+        let entry_id = wire
+            .get("entry_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+
+        if let SpokeResult::Reject(reject) = validate_assemble_body_wire(&body_wire, entry_id) {
+            return SpokeResult::Reject(reject);
+        }
+
         let entry: KnowledgeEntry = match serde_json::from_value(wire) {
             Ok(entry) => entry,
             Err(error) => {
@@ -60,12 +70,20 @@ impl KnowledgeEntryForAssemble {
     }
 }
 
-fn validate_assemble_knowledge_entry(knowledge_entry: &KnowledgeEntry) -> SpokeResult<()> {
-    if knowledge_entry.canonical_name.as_str().trim().is_empty() {
+fn validate_assemble_knowledge_entry(
+    knowledge_entry: &KnowledgeEntryForAssemble,
+) -> SpokeResult<()> {
+    if let SpokeResult::Reject(reject) =
+        validate_assemble_body_wire(&knowledge_entry.body_wire, &knowledge_entry.entry.entry_id)
+    {
+        return SpokeResult::Reject(reject);
+    }
+
+    if knowledge_entry.entry.canonical_name.as_str().trim().is_empty() {
         let mut details = Map::new();
         details.insert(
             "entry_id".into(),
-            Value::String(knowledge_entry.entry_id.clone()),
+            Value::String(knowledge_entry.entry.entry_id.clone()),
         );
         details.insert("field".into(), Value::String("canonical_name".into()));
         return spoke_reject(
@@ -81,15 +99,28 @@ fn validate_assemble_knowledge_entry(knowledge_entry: &KnowledgeEntry) -> SpokeR
 fn map_to_assemble_entry(
     knowledge_entry: &KnowledgeEntry,
     body_wire: &Value,
-) -> AssemblePacketEntriesItem {
+) -> SpokeResult<AssemblePacketEntriesItem> {
+    let canonical_name = match AssemblePacketEntriesItemCanonicalName::try_from(
+        knowledge_entry.canonical_name.to_string(),
+    ) {
+        Ok(name) => name,
+        Err(_) => {
+            let mut details = Map::new();
+            details.insert(
+                "entry_id".into(),
+                Value::String(knowledge_entry.entry_id.clone()),
+            );
+            details.insert("field".into(), Value::String("canonical_name".into()));
+            return spoke_reject(
+                SpokeRejectCode::InvalidPacketInput,
+                "KnowledgeEntry canonical_name must be a string",
+                Some(details),
+            );
+        }
+    };
+
     let mut entry = AssemblePacketEntriesItem {
-        canonical_name: AssemblePacketEntriesItemCanonicalName::try_from(
-            knowledge_entry.canonical_name.to_string(),
-        )
-        .unwrap_or_else(|_| {
-            AssemblePacketEntriesItemCanonicalName::try_from("placeholder".to_owned())
-                .expect("placeholder")
-        }),
+        canonical_name,
         entry_id: knowledge_entry.entry_id.clone(),
         entry_type: knowledge_entry.entry_type.clone(),
         snippet: None,
@@ -99,14 +130,17 @@ fn map_to_assemble_entry(
         entry.snippet = Some(snippet);
     }
 
-    entry
+    spoke_ok(entry)
 }
 
 /// Map a KnowledgeEntry to a slim assemble entry per wire rules.
-#[must_use]
 pub fn knowledge_entry_to_assemble_entry(
     knowledge_entry: &KnowledgeEntryForAssemble,
-) -> AssemblePacketEntriesItem {
+) -> SpokeResult<AssemblePacketEntriesItem> {
+    if let SpokeResult::Reject(reject) = validate_assemble_knowledge_entry(knowledge_entry) {
+        return SpokeResult::Reject(reject);
+    }
+
     map_to_assemble_entry(&knowledge_entry.entry, &knowledge_entry.body_wire)
 }
 
@@ -133,18 +167,18 @@ pub fn build_assemble_packet(
     }
 
     for knowledge_entry in input.knowledge_entries {
-        if let SpokeResult::Reject(reject) =
-            validate_assemble_knowledge_entry(&knowledge_entry.entry)
-        {
+        if let SpokeResult::Reject(reject) = validate_assemble_knowledge_entry(knowledge_entry) {
             return SpokeResult::Reject(reject);
         }
     }
 
-    let entries: Vec<AssemblePacketEntriesItem> = input
-        .knowledge_entries
-        .iter()
-        .map(knowledge_entry_to_assemble_entry)
-        .collect();
+    let mut entries = Vec::with_capacity(input.knowledge_entries.len());
+    for knowledge_entry in input.knowledge_entries {
+        match map_to_assemble_entry(&knowledge_entry.entry, &knowledge_entry.body_wire) {
+            SpokeResult::Ok(entry) => entries.push(entry),
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        }
+    }
 
     let truncated_entries = match input.max_entries {
         Some(max) => entries.into_iter().take(max).collect(),
@@ -205,6 +239,13 @@ mod tests {
         }
     }
 
+    fn unwrap_assemble_entry(entry: &KnowledgeEntryForAssemble) -> AssemblePacketEntriesItem {
+        match knowledge_entry_to_assemble_entry(entry) {
+            SpokeResult::Ok(mapped) => mapped,
+            SpokeResult::Reject(reject) => panic!("assemble entry: {reject:?}"),
+        }
+    }
+
     #[test]
     fn maps_core_fields_with_snippet_from_wire_deserialize() {
         let entry = entry_from_wire(json!({
@@ -217,7 +258,7 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = knowledge_entry_to_assemble_entry(&entry);
+        let mapped = unwrap_assemble_entry(&entry);
 
         assert_eq!(mapped.entry_id, "kb_1");
         assert_eq!(mapped.entry_type, "character");
@@ -252,6 +293,46 @@ mod tests {
     }
 
     #[test]
+    fn rejects_null_body_in_build_packet_f002() {
+        let entry = KnowledgeEntryForAssemble {
+            entry: make_knowledge_entry(|_| {}),
+            body_wire: Value::Null,
+        };
+
+        let result = build_assemble_packet(BuildAssemblePacketInput {
+            packet_id: "pkt_5",
+            knowledge_entries: std::slice::from_ref(&entry),
+            extensions: None,
+            max_entries: None,
+        });
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidPacketInput);
+            assert_eq!(reject.message, "KnowledgeEntry body must be an object");
+        }
+    }
+
+    #[test]
+    fn rejects_null_body_from_wire_json_f002() {
+        let result = KnowledgeEntryForAssemble::from_wire_json(json!({
+            "schema_version": 1,
+            "entry_id": "kb_1",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "confirmed",
+            "body": null,
+            "extensions": {}
+        }));
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidPacketInput);
+            assert_eq!(reject.message, "KnowledgeEntry body must be an object");
+        }
+    }
+
+    #[test]
     fn omits_snippet_for_non_string_summary() {
         let entry = entry_from_wire(json!({
             "schema_version": 1,
@@ -263,7 +344,7 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = knowledge_entry_to_assemble_entry(&entry);
+        let mapped = unwrap_assemble_entry(&entry);
         assert!(mapped.snippet.is_none());
     }
 
@@ -279,7 +360,7 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = knowledge_entry_to_assemble_entry(&entry);
+        let mapped = unwrap_assemble_entry(&entry);
         assert!(mapped.snippet.is_none());
     }
 

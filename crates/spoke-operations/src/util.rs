@@ -25,6 +25,22 @@ pub(crate) fn knowledge_entry_body_to_json(body: &KnowledgeEntryBody) -> Value {
     serde_json::to_value(body).unwrap_or(Value::Object(Map::new()))
 }
 
+/// Validate wire `body` is a JSON object (TS assemble `validateAssembleKnowledgeEntry`).
+pub(crate) fn validate_assemble_body_wire(body_wire: &Value, entry_id: &str) -> SpokeResult<()> {
+    if body_wire.is_object() {
+        return spoke_ok_unit();
+    }
+
+    let mut details = Map::new();
+    details.insert("entry_id".into(), Value::String(entry_id.to_owned()));
+    details.insert("field".into(), Value::String("body".into()));
+    spoke_reject(
+        SpokeRejectCode::InvalidPacketInput,
+        "KnowledgeEntry body must be an object",
+        Some(details),
+    )
+}
+
 /// Preserve `body` wire JSON from a KnowledgeEntry wire object before typify deserialize.
 pub(crate) fn body_wire_from_entry_wire(entry_wire: &Value) -> Value {
     entry_wire

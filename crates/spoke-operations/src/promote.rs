@@ -1,14 +1,15 @@
 //! Promote acceptance validation and apply.
 
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
+use crate::util::validate_revision_wire;
 use serde_json::{json, Map, Value};
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use spoke_schemas::promote_request::PromoteRequest;
 
 const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 
-fn validate_revision(_candidate: &KnowledgeEntry) -> SpokeResult<()> {
-    spoke_ok_unit()
+fn validate_revision(candidate_wire: &Value) -> SpokeResult<()> {
+    validate_revision_wire(candidate_wire.get("revision"))
 }
 
 fn validate_knowledge_entry_shape(candidate: &KnowledgeEntry) -> SpokeResult<()> {
@@ -53,11 +54,6 @@ fn validate_knowledge_entry_shape(candidate: &KnowledgeEntry) -> SpokeResult<()>
         );
     }
 
-    let revision_result = validate_revision(candidate);
-    if revision_result.is_reject() {
-        return revision_result;
-    }
-
     if TERMINAL_KNOWLEDGE_ENTRY_STATUSES.contains(&candidate.status.as_str()) {
         let mut details = Map::new();
         details.insert("status".into(), Value::String(candidate.status.clone()));
@@ -92,7 +88,26 @@ fn request_target_equals_candidate(
 }
 
 fn validate_promote_lifecycle(request: &PromoteRequest) -> SpokeResult<()> {
-    let candidate = promote_candidate_as_data(&request.candidate);
+    let candidate_wire = match serde_json::to_value(&request.candidate) {
+        Ok(wire) => wire,
+        Err(_) => {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "PromoteRequest candidate is not serializable",
+                None,
+            );
+        }
+    };
+
+    if let SpokeResult::Reject(reject) = validate_revision(&candidate_wire) {
+        return SpokeResult::Reject(reject);
+    }
+
+    let candidate = match promote_candidate_as_data(&request.candidate) {
+        SpokeResult::Ok(candidate) => candidate,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
     let shape_result = validate_knowledge_entry_shape(&candidate);
     if shape_result.is_reject() {
         return shape_result;
@@ -123,15 +138,61 @@ fn next_revision(candidate: &KnowledgeEntry) -> u64 {
 
 fn promote_candidate_as_data(
     candidate: &spoke_schemas::promote_request::KnowledgeEntry,
-) -> KnowledgeEntry {
-    serde_json::from_value(serde_json::to_value(candidate).expect("candidate serializable"))
-        .expect("promote candidate maps to data KnowledgeEntry")
+) -> SpokeResult<KnowledgeEntry> {
+    let wire = match serde_json::to_value(candidate) {
+        Ok(wire) => wire,
+        Err(_) => {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "PromoteRequest candidate is not serializable",
+                None,
+            );
+        }
+    };
+
+    if let SpokeResult::Reject(reject) = validate_revision(&wire) {
+        return SpokeResult::Reject(reject);
+    }
+
+    match serde_json::from_value::<KnowledgeEntry>(wire) {
+        Ok(entry) => spoke_ok(entry),
+        Err(error) => spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            format!("Invalid promote candidate KnowledgeEntry: {error}"),
+            None,
+        ),
+    }
 }
 
-#[cfg(test)]
-fn data_candidate_to_promote(candidate: KnowledgeEntry) -> spoke_schemas::promote_request::KnowledgeEntry {
-    serde_json::from_value(serde_json::to_value(candidate).expect("candidate serializable"))
-        .expect("data KnowledgeEntry maps to promote candidate")
+/// Validate promote request wire JSON before typed deserialize (maps revision/shape errors to rejects).
+pub fn validate_promote_request_wire(wire: &Value) -> SpokeResult<()> {
+    let candidate_wire = match wire.get("candidate") {
+        Some(candidate) => candidate,
+        None => {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "PromoteRequest candidate is required",
+                None,
+            );
+        }
+    };
+
+    if let SpokeResult::Reject(reject) = validate_revision(candidate_wire) {
+        return SpokeResult::Reject(reject);
+    }
+
+    let request: PromoteRequest = match serde_json::from_value(wire.clone()) {
+        Ok(request) => request,
+        Err(error) => {
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("Invalid PromoteRequest wire JSON: {error}"),
+                None,
+            );
+        }
+    };
+
+    validate_promote_lifecycle(&request)
 }
 
 /// Validate promote request shape and lifecycle rules.
@@ -145,7 +206,10 @@ pub fn apply_promote_acceptance(request: &PromoteRequest) -> SpokeResult<Knowled
         return SpokeResult::Reject(reject);
     }
 
-    let mut promoted = promote_candidate_as_data(&request.candidate);
+    let mut promoted = match promote_candidate_as_data(&request.candidate) {
+        SpokeResult::Ok(candidate) => candidate,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
     promoted.status = "confirmed".into();
     promoted.revision = Some(next_revision(&promoted));
     spoke_ok(promoted)
@@ -177,13 +241,32 @@ mod tests {
     }
 
     fn make_request(overrides: impl FnOnce(&mut PromoteRequest)) -> PromoteRequest {
+        let candidate = make_candidate(|_| {});
+        let candidate = serde_json::from_value(serde_json::to_value(candidate).unwrap()).unwrap();
         let mut request = PromoteRequest {
-            candidate: data_candidate_to_promote(make_candidate(|_| {})),
+            candidate,
             extensions: HashMap::new(),
             target_entry_id: None,
         };
         overrides(&mut request);
         request
+    }
+
+    fn candidate_wire(overrides: impl FnOnce(&mut Map<String, Value>)) -> Value {
+        let mut candidate = Map::from_iter([
+            ("schema_version".into(), json!(1)),
+            ("entry_id".into(), json!("kb_1")),
+            ("entry_type".into(), json!("character")),
+            ("canonical_name".into(), json!("Mira Vale")),
+            ("status".into(), json!("provisional")),
+            ("body".into(), json!({})),
+            ("extensions".into(), json!({})),
+        ]);
+        overrides(&mut candidate);
+        json!({
+            "candidate": Value::Object(candidate),
+            "extensions": {},
+        })
     }
 
     #[test]
@@ -258,6 +341,30 @@ mod tests {
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::MissingRequiredField);
+        }
+    }
+
+    #[test]
+    fn rejects_string_revision_f001() {
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("revision".into(), json!("2"));
+        });
+        let result = validate_promote_request_wire(&wire);
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        }
+    }
+
+    #[test]
+    fn rejects_negative_revision_f003() {
+        let wire = candidate_wire(|candidate| {
+            candidate.insert("revision".into(), json!(-1));
+        });
+        let result = validate_promote_request_wire(&wire);
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
         }
     }
 

@@ -2,7 +2,9 @@
 
 use crate::extensions::ExtensionMap;
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
-use crate::util::{extract_snippet_from_body_wire, knowledge_entry_body_to_json};
+use crate::util::{
+    body_wire_from_entry_wire, extract_snippet_from_body_wire, knowledge_entry_body_to_json,
+};
 use serde_json::{Map, Value};
 use spoke_schemas::assemble_packet::{
     AssemblePacket, AssemblePacketEntriesItem, AssemblePacketEntriesItemCanonicalName,
@@ -14,6 +16,48 @@ use std::num::NonZeroU64;
 
 fn default_schema_version() -> NonZeroU64 {
     NonZeroU64::new(1).expect("schema version 1 is non-zero")
+}
+
+/// KnowledgeEntry with preserved body wire JSON for dynamic field reads (e.g. `body.summary`).
+///
+/// Integrators deserializing from wire JSON should use [`KnowledgeEntryForAssemble::from_wire_json`]
+/// so typify-stripped `body` additionalProperties remain available to assemble helpers.
+#[derive(Debug, Clone)]
+pub struct KnowledgeEntryForAssemble {
+    pub entry: KnowledgeEntry,
+    body_wire: Value,
+}
+
+impl KnowledgeEntryForAssemble {
+    /// Deserialize from wire JSON via `spoke-schemas`, preserving body additionalProperties.
+    pub fn from_wire_json(wire: Value) -> SpokeResult<Self> {
+        let body_wire = body_wire_from_entry_wire(&wire);
+        let entry: KnowledgeEntry = match serde_json::from_value(wire) {
+            Ok(entry) => entry,
+            Err(error) => {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidPacketInput,
+                    format!("Invalid KnowledgeEntry wire JSON: {error}"),
+                    None,
+                );
+            }
+        };
+
+        spoke_ok(Self { entry, body_wire })
+    }
+
+    /// Wrap a programmatically constructed entry (typify-known body fields only).
+    #[must_use]
+    pub fn from_entry(entry: KnowledgeEntry) -> Self {
+        let body_wire = knowledge_entry_body_to_json(&entry.body);
+        Self { entry, body_wire }
+    }
+
+    /// Typed KnowledgeEntry view.
+    #[must_use]
+    pub fn entry(&self) -> &KnowledgeEntry {
+        &self.entry
+    }
 }
 
 fn validate_assemble_knowledge_entry(knowledge_entry: &KnowledgeEntry) -> SpokeResult<()> {
@@ -61,30 +105,17 @@ fn map_to_assemble_entry(
 /// Map a KnowledgeEntry to a slim assemble entry per wire rules.
 #[must_use]
 pub fn knowledge_entry_to_assemble_entry(
-    knowledge_entry: &KnowledgeEntry,
+    knowledge_entry: &KnowledgeEntryForAssemble,
 ) -> AssemblePacketEntriesItem {
-    let body_wire = knowledge_entry_body_to_json(&knowledge_entry.body);
-    map_to_assemble_entry(knowledge_entry, &body_wire)
-}
-
-/// Map using wire JSON for `body` (preserves `summary` and other additionalProperties stripped by typify).
-#[cfg(test)]
-#[must_use]
-pub(crate) fn knowledge_entry_to_assemble_entry_with_body_wire(
-    knowledge_entry: &KnowledgeEntry,
-    body_wire: &Value,
-) -> AssemblePacketEntriesItem {
-    map_to_assemble_entry(knowledge_entry, body_wire)
+    map_to_assemble_entry(&knowledge_entry.entry, &knowledge_entry.body_wire)
 }
 
 /// Input for `build_assemble_packet`.
 pub struct BuildAssemblePacketInput<'a> {
     pub packet_id: &'a str,
-    pub knowledge_entries: &'a [KnowledgeEntry],
+    pub knowledge_entries: &'a [KnowledgeEntryForAssemble],
     pub extensions: Option<&'a ExtensionMap>,
     pub max_entries: Option<usize>,
-    /// Parallel body wire JSON per entry (typify preserves only known `body` keys on struct deserialize).
-    pub knowledge_entry_body_wires: Option<&'a [Value]>,
 }
 
 /// Build a wire-valid `AssemblePacket` from KnowledgeEntries (order-preserving truncate only).
@@ -101,18 +132,10 @@ pub fn build_assemble_packet(
         );
     }
 
-    if let Some(body_wires) = input.knowledge_entry_body_wires {
-        if body_wires.len() != input.knowledge_entries.len() {
-            return spoke_reject(
-                SpokeRejectCode::InvalidPacketInput,
-                "knowledge_entry_body_wires length must match knowledge_entries",
-                None,
-            );
-        }
-    }
-
     for knowledge_entry in input.knowledge_entries {
-        if let SpokeResult::Reject(reject) = validate_assemble_knowledge_entry(knowledge_entry) {
+        if let SpokeResult::Reject(reject) =
+            validate_assemble_knowledge_entry(&knowledge_entry.entry)
+        {
             return SpokeResult::Reject(reject);
         }
     }
@@ -120,17 +143,7 @@ pub fn build_assemble_packet(
     let entries: Vec<AssemblePacketEntriesItem> = input
         .knowledge_entries
         .iter()
-        .enumerate()
-        .map(|(index, knowledge_entry)| {
-            let body_wire = input
-                .knowledge_entry_body_wires
-                .and_then(|wires| wires.get(index))
-                .map_or_else(
-                    || knowledge_entry_body_to_json(&knowledge_entry.body),
-                    Clone::clone,
-                );
-            map_to_assemble_entry(knowledge_entry, &body_wire)
-        })
+        .map(knowledge_entry_to_assemble_entry)
         .collect();
 
     let truncated_entries = match input.max_entries {
@@ -185,15 +198,16 @@ mod tests {
         entry
     }
 
-    fn entry_from_wire(wire: Value) -> (KnowledgeEntry, Value) {
-        let body = wire.get("body").cloned().unwrap_or_else(|| json!({}));
-        let entry: KnowledgeEntry = serde_json::from_value(wire).expect("valid KnowledgeEntry");
-        (entry, body)
+    fn entry_from_wire(wire: Value) -> KnowledgeEntryForAssemble {
+        match KnowledgeEntryForAssemble::from_wire_json(wire) {
+            SpokeResult::Ok(entry) => entry,
+            SpokeResult::Reject(reject) => panic!("valid KnowledgeEntry wire JSON: {reject:?}"),
+        }
     }
 
     #[test]
-    fn maps_core_fields_with_snippet() {
-        let (entry, body) = entry_from_wire(json!({
+    fn maps_core_fields_with_snippet_from_wire_deserialize() {
+        let entry = entry_from_wire(json!({
             "schema_version": 1,
             "entry_id": "kb_1",
             "entry_type": "character",
@@ -203,7 +217,7 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = knowledge_entry_to_assemble_entry_with_body_wire(&entry, &body);
+        let mapped = knowledge_entry_to_assemble_entry(&entry);
 
         assert_eq!(mapped.entry_id, "kb_1");
         assert_eq!(mapped.entry_type, "character");
@@ -212,8 +226,34 @@ mod tests {
     }
 
     #[test]
+    fn build_packet_snippet_from_wire_deserialize() {
+        let entry = entry_from_wire(json!({
+            "schema_version": 1,
+            "entry_id": "kb_1",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "confirmed",
+            "body": { "summary": "Hero" },
+            "extensions": {}
+        }));
+
+        let result = build_assemble_packet(BuildAssemblePacketInput {
+            packet_id: "pkt_snippet",
+            knowledge_entries: std::slice::from_ref(&entry),
+            extensions: None,
+            max_entries: None,
+        });
+
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(packet) = result {
+            assert_eq!(packet.entries.len(), 1);
+            assert_eq!(packet.entries[0].snippet.as_deref(), Some("Hero"));
+        }
+    }
+
+    #[test]
     fn omits_snippet_for_non_string_summary() {
-        let (entry, body) = entry_from_wire(json!({
+        let entry = entry_from_wire(json!({
             "schema_version": 1,
             "entry_id": "kb_1",
             "entry_type": "character",
@@ -223,13 +263,13 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = knowledge_entry_to_assemble_entry_with_body_wire(&entry, &body);
+        let mapped = knowledge_entry_to_assemble_entry(&entry);
         assert!(mapped.snippet.is_none());
     }
 
     #[test]
     fn omits_snippet_for_whitespace_only_summary() {
-        let (entry, body) = entry_from_wire(json!({
+        let entry = entry_from_wire(json!({
             "schema_version": 1,
             "entry_id": "kb_1",
             "entry_type": "character",
@@ -239,7 +279,7 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = knowledge_entry_to_assemble_entry_with_body_wire(&entry, &body);
+        let mapped = knowledge_entry_to_assemble_entry(&entry);
         assert!(mapped.snippet.is_none());
     }
 
@@ -250,7 +290,6 @@ mod tests {
             knowledge_entries: &[],
             extensions: None,
             max_entries: None,
-            knowledge_entry_body_wires: None,
         });
 
         assert!(result.is_ok());
@@ -265,21 +304,21 @@ mod tests {
     #[test]
     fn truncates_entries_in_input_order() {
         let entries = vec![
-            make_knowledge_entry(|entry| {
+            KnowledgeEntryForAssemble::from_entry(make_knowledge_entry(|entry| {
                 entry.entry_id = "kb_a".into();
                 entry.canonical_name =
                     KnowledgeEntryCanonicalName::try_from("A".to_owned()).unwrap();
-            }),
-            make_knowledge_entry(|entry| {
+            })),
+            KnowledgeEntryForAssemble::from_entry(make_knowledge_entry(|entry| {
                 entry.entry_id = "kb_b".into();
                 entry.canonical_name =
                     KnowledgeEntryCanonicalName::try_from("B".to_owned()).unwrap();
-            }),
-            make_knowledge_entry(|entry| {
+            })),
+            KnowledgeEntryForAssemble::from_entry(make_knowledge_entry(|entry| {
                 entry.entry_id = "kb_c".into();
                 entry.canonical_name =
                     KnowledgeEntryCanonicalName::try_from("C".to_owned()).unwrap();
-            }),
+            })),
         ];
 
         let result = build_assemble_packet(BuildAssemblePacketInput {
@@ -287,7 +326,6 @@ mod tests {
             knowledge_entries: &entries,
             extensions: None,
             max_entries: Some(2),
-            knowledge_entry_body_wires: None,
         });
 
         assert!(result.is_ok());
@@ -310,7 +348,6 @@ mod tests {
             knowledge_entries: &[],
             extensions: Some(&extensions),
             max_entries: None,
-            knowledge_entry_body_wires: None,
         });
 
         assert!(result.is_ok());
@@ -330,7 +367,6 @@ mod tests {
             knowledge_entries: &[],
             extensions: None,
             max_entries: None,
-            knowledge_entry_body_wires: None,
         });
 
         assert!(result.is_reject());

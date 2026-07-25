@@ -9,10 +9,11 @@ mod util;
 
 pub use assemble::{
     build_assemble_packet, knowledge_entry_to_assemble_entry, BuildAssemblePacketInput,
+    KnowledgeEntryForAssemble,
 };
 pub use extensions::{merge_extension_maps, preserve_extension_maps, ExtensionMap};
 pub use finding::{is_valid_finding_status_transition, transition_finding_status};
-pub use promote::{apply_promote_acceptance, validate_promote_request};
+pub use promote::{apply_promote_acceptance, validate_promote_request, validate_promote_request_wire};
 pub use result::{
     spoke_ok, spoke_ok_unit, spoke_reject, SpokeReject, SpokeRejectCode, SpokeResult,
 };

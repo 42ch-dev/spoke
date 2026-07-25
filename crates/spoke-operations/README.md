@@ -25,7 +25,7 @@ let result = apply_promote_acceptance(&request);
 - `SpokeResult` / `SpokeReject` / `SpokeRejectCode` — unified reject envelope (19 stable code strings)
 - `merge_extension_maps`, `preserve_extension_maps`
 - `is_valid_finding_status_transition`, `transition_finding_status`
-- `validate_promote_request`, `apply_promote_acceptance`
-- `knowledge_entry_to_assemble_entry`, `build_assemble_packet`
+- `validate_promote_request`, `apply_promote_acceptance`, `validate_promote_request_wire`
+- `knowledge_entry_to_assemble_entry`, `build_assemble_packet`, `KnowledgeEntryForAssemble`
 
 Pure functions only: no I/O, storage, HTTP, LLM, ranking, or retrieval.

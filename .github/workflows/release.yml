@@ -132,6 +132,8 @@ jobs:
   verify-codegen:
     name: verify-codegen
     needs: [resolve-tag]
+    # Skipped `tag` (non-PR events) must not poison this job.
+    if: ${{ always() && needs.resolve-tag.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
@@ -175,6 +177,7 @@ jobs:
   typescript:
     name: typescript
     needs: [resolve-tag]
+    if: ${{ always() && needs.resolve-tag.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
@@ -222,6 +225,7 @@ jobs:
   rust:
     name: rust
     needs: [resolve-tag]
+    if: ${{ always() && needs.resolve-tag.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
@@ -253,6 +257,7 @@ jobs:
   verify-version:
     name: verify-version
     needs: [resolve-tag]
+    if: ${{ always() && needs.resolve-tag.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
@@ -294,6 +299,7 @@ jobs:
       - typescript
       - rust
       - verify-version
+    if: ${{ always() && needs.resolve-tag.result == 'success' && needs.verify-codegen.result == 'success' && needs.typescript.result == 'success' && needs.rust.result == 'success' && needs.verify-version.result == 'success' }}
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
@@ -345,7 +351,7 @@ jobs:
       - rust
       - verify-version
       - release
-    if: ${{ !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    if: ${{ always() && needs.resolve-tag.result == 'success' && needs.release.result == 'success' && !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
@@ -400,7 +406,7 @@ jobs:
     needs:
       - resolve-tag
       - publish-npm
-    if: ${{ !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    if: ${{ always() && needs.publish-npm.result == 'success' && !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
     env:
       RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:

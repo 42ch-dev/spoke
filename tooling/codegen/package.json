@@ -1,6 +1,6 @@
 {
   "name": "@42ch/spoke-codegen",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "SPOKE schema-to-code generation pipeline (TypeScript + Rust)",

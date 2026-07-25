@@ -195,4 +195,4 @@ if (result.ok) {
 
 ## 贡献与 CI
 
-Pull request 须通过 GitHub Actions 任务 `verify-codegen`、`typescript` 与 `rust`（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。修改 schema 时须在同一提交中重新生成产物（`pnpm run codegen`）。
+Pull request 须通过 GitHub Actions 任务 `verify-codegen`、`typescript`、`rust` 与 `verify-version`（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）。修改 schema 时须在同一提交中重新生成产物（`pnpm run codegen`）。

@@ -9,6 +9,7 @@
  *
  * Release tag test (optional SPOKE_RELEASE_TAG):
  *   SPOKE_RELEASE_TAG=v0.1.0 node tooling/release/assert-lockstep-version.mjs  # pass
+ *   SPOKE_RELEASE_TAG=v0.1.0-rc.1 node tooling/release/assert-lockstep-version.mjs  # pass when manifest is 0.1.0
  *   SPOKE_RELEASE_TAG=0.1.0 node tooling/release/assert-lockstep-version.mjs  # fail (missing v)
  *   SPOKE_RELEASE_TAG=v9.9.9 node tooling/release/assert-lockstep-version.mjs  # fail (mismatch)
  *
@@ -31,6 +32,16 @@ import {
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const RELEASE_TAG_SEMVER_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$/;
+const RELEASE_TAG_RC_PATTERN = /^([0-9]+\.[0-9]+\.[0-9]+)-rc\.[0-9]+$/;
+
+/**
+ * @param {string} tagVersion SemVer segment after leading "v" (e.g. "0.1.0-rc.1").
+ * @returns {string} Base X.Y.Z for RC tags; unchanged for stable tags.
+ */
+function releaseTagComparableVersion(tagVersion) {
+  const rcMatch = tagVersion.match(RELEASE_TAG_RC_PATTERN);
+  return rcMatch?.[1] ?? tagVersion;
+}
 
 /** @type {{ path: string; expected: string; actual: string; detail?: string }[]} */
 const failures = [];
@@ -123,7 +134,12 @@ if (releaseTag) {
         `Tag version segment must match SemVer (got "${tagVersion}").`,
       );
     } else {
-      assertEqual("git tag (SPOKE_RELEASE_TAG)", canonicalVersion, tagVersion);
+      const comparableTagVersion = releaseTagComparableVersion(tagVersion);
+      assertEqual(
+        "git tag (SPOKE_RELEASE_TAG)",
+        canonicalVersion,
+        comparableTagVersion,
+      );
     }
   }
 }

@@ -104,7 +104,7 @@ Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operation
 | CI job | `verify-version` in `ci.yml` — checkout + Node 20 only; runs in parallel with other jobs |
 | On failure | Non-zero exit; prints expected (canonical) vs actual per surface |
 
-On tag push, `release.yml` `verify-version` MUST also assert `github.ref_name` equals `v` + canonical `package.json` version (via `SPOKE_RELEASE_TAG` env on the assert script).
+On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `SPOKE_RELEASE_TAG`: stable tags (`vX.Y.Z`) require exact match to canonical `package.json` version; RC tags (`vX.Y.Z-rc.N`) compare base `X.Y.Z` only (prerelease suffix is not part of lockstep manifests).
 
 ### Tag release workflow (fail-closed)
 
@@ -114,7 +114,7 @@ On tag push, `release.yml` `verify-version` MUST also assert `github.ref_name` e
 | Trigger | `on.push.tags: ['v*']` |
 | Concurrency | `group: release-${{ github.ref }}`, `cancel-in-progress: true` |
 | Permissions | Workflow default `contents: read`; `release` job sets `contents: write` |
-| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **parallel `publish-npm` + `publish-crates`** with the same `needs` plus `release` (stable tags only) |
+| Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **`publish-npm`** then **`publish-crates`** (`publish-crates` `needs: [publish-npm]`; stable tags only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |

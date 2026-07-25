@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-generated-3178C6.svg?logo=typescript&logoColor=white)](packages/spoke-schemas)
 [![Rust](https://img.shields.io/badge/Rust-generated-DEA584.svg?logo=rust&logoColor=black)](crates/spoke-schemas)
 [![Schema](https://img.shields.io/badge/JSON%20Schema-SSOT-0B7285.svg)](schemas)
-[![Version](https://img.shields.io/badge/version-0.1.0-alpha.1-informational.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-0.1.0-alpha.2-informational.svg)](package.json)
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 

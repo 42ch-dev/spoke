@@ -1,6 +1,6 @@
 {
   "name": "@42ch/spoke-schemas",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "SPOKE wire types — TypeScript generated from JSON Schema",
   "license": "Apache-2.0",
   "repository": {
@@ -27,8 +27,7 @@
     }
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",

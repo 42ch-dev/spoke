@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Release notes for GitHub Releases are extracted from the matching version section here.
 
+## [0.1.0-alpha.2] - 2026-07-25
+
+### Fixed
+
+- **npm:** Publish dist-only package tarballs with package READMEs (omit `src/`)
+
 ## [0.1.0-alpha.1] - 2026-07-25
 
 

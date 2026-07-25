@@ -192,30 +192,31 @@ jobs:
         with:
           node-version: 20
 
-      - name: Resolve release notes
-        id: notes
-        run: |
-          TAG="${RELEASE_TAG}"
-          BODY="$(node tooling/release/extract-changelog-notes.mjs "$TAG" || true)"
-          if [ -z "$BODY" ]; then
-            BODY="$(git tag -l --format='%(contents)' "$TAG" || true)"
-          fi
-          if [ -z "$BODY" ]; then
-            BODY="Release $TAG"
-          fi
-          {
-            echo "body<<EOF"
-            printf '%s\n' "$BODY"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Create GitHub Release
-        # softprops/action-gh-release@v2
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          body: ${{ steps.notes.outputs.body }}
-          prerelease: ${{ contains(env.RELEASE_TAG, '-rc.') }}
+        # Idempotent for Retry release: skip when the tag already has a GitHub Release.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_TAG}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release ${TAG} already exists; leaving notes unchanged."
+            exit 0
+          fi
+          NOTES_FILE="$(mktemp)"
+          NOTES="$(node tooling/release/extract-changelog-notes.mjs "$TAG" || true)"
+          if [ -z "$NOTES" ]; then
+            NOTES="$(git tag -l --format='%(contents)' "$TAG" || true)"
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES="Release $TAG"
+          fi
+          printf '%s\n' "$NOTES" > "$NOTES_FILE"
+          ARGS=(release create "$TAG" --notes-file "$NOTES_FILE" --verify-tag)
+          if [[ "$TAG" == *-rc.* ]]; then
+            ARGS+=(--prerelease)
+          fi
+          gh "${ARGS[@]}"
 
   publish-npm:
     name: publish-npm
@@ -245,12 +246,13 @@ jobs:
           version: 9
 
       - name: Setup Node.js
-        # actions/setup-node@v4.4.0 — Node ≥22.14 required for npm Trusted Publishing (OIDC)
+        # actions/setup-node@v4.4.0 — Node ≥22.14 required for npm Trusted Publishing (OIDC).
+        # Do NOT set registry-url: it writes _authToken=${NODE_AUTH_TOKEN} into .npmrc and
+        # blocks the OIDC exchange (npm then returns E404 on scoped publish).
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - name: Ensure npm CLI supports Trusted Publishing
         run: npm install -g npm@11.5.1
@@ -267,12 +269,14 @@ jobs:
       - name: Publish @42ch/spoke-schemas
         working-directory: packages/spoke-schemas
         run: |
+          unset NODE_AUTH_TOKEN
           pnpm pack
           npm publish 42ch-spoke-schemas-*.tgz --access public
 
       - name: Publish @42ch/spoke-operations
         working-directory: packages/spoke-operations
         run: |
+          unset NODE_AUTH_TOKEN
           pnpm pack
           npm publish 42ch-spoke-operations-*.tgz --access public
 

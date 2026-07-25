@@ -121,9 +121,9 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **`publish-npm`** then **`publish-crates`** (`publish-crates` `needs: [publish-npm]`; tags without `-rc.` only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
-| Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
+| Release action | `gh release create` (idempotent skip if release already exists — Retry release safe) |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
-| Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1); `publish-crates`: `rust-lang/crates-io-auth-action` then `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
+| Registry publish | `publish-npm`: pack with pnpm then `npm publish` tarball (`@42ch/spoke-schemas` then `@42ch/spoke-operations`) via Trusted Publisher OIDC (Node ≥22.14, npm ≥11.5.1; no `setup-node` `registry-url` — it blocks OIDC); `publish-crates`: `rust-lang/crates-io-auth-action` then `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
 | Registry auth | npm and crates.io: Trusted Publishing only (GitHub Actions → org `42ch-dev`, repo `spoke`, workflow `release.yml`); crates job exchanges OIDC for a short-lived token via `rust-lang/crates-io-auth-action` — no long-lived registry secrets |
 | Operator cut | `new-release.yml` opens labeled PR with GraphQL-signed bump; `tag-release-on-merge.yml` tags + `workflow_call` this workflow |
 

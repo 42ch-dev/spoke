@@ -7,80 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Release notes for GitHub Releases are extracted from the matching version section here.
 
-## [0.1.0-alpha.2] - 2026-07-25
-
-### Fixed
-
-- **npm:** Publish dist-only package tarballs with package READMEs (omit `src/`)
-
-## [0.1.0-alpha.1] - 2026-07-25
-
-
-### Added
-
-- **rust-ops:** Add spoke-operations crate with first-slice helpers
-
-- **spoke-operations:** Add OCC and KnowledgeEntry lifecycle helpers
-
-- **spoke-operations:** Add scope, upsert, and relate helpers
-
-- **spoke-operations:** Add error envelope and computable validators
-
-
-### Documentation
-
-- **release:** Mirror npm/crates partial-failure note in README_CN
-
-- **protocol:** Lock Rust spoke-operations crate contract
-
-- **spec:** Record Rust deepen and computable parity
-
-- **spec:** Realign Hard In/Out Out column
-
-- **spec:** Clarify Rust export parity vs TS index
-
-- Add Rust spoke-operations consumer pin surfaces
-
-- **knowledge:** Crystallize Rust spoke-operations parity patterns
-
-
-### Fixed
-
-- **release:** Rc tag assert and registry publish hygiene
-
-- **release:** Align Cargo repository URL with GitHub remote
-
-- **release:** Reject lightweight tags in release verify
-
-- **rust-ops:** Wire body snippet path and revision validation
-
-- **rust-ops:** Assemble body validation and reject-code doc count
-
-- **release:** Pin spoke-schemas version for ops publish
-
-- **spoke-operations:** Address PR review parity and OCC safety
-
-- **deps:** Bump brace-expansion to >=5.0.8 for GHSA-mh99-v99m-4gvg
-
-
-### Internal
-
-- Publish npm packages and spoke-schemas crate on release tags
-
-- Run spoke-operations tests in rust verify jobs
-
-- Publish spoke-operations crate after spoke-schemas
-
-
-### build
-
-- Mark consumer packages publishable to npm and crates.io
-
-
-### release
-
-- Assert spoke-operations in lockstep surfaces
-
 ## [0.1.0] - 2026-07-25
 
 
@@ -267,3 +193,78 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 - Add tag-triggered GitHub Release workflow
 
 - Use CHANGELOG section for GitHub Release body
+
+## [0.1.0-alpha.2] - 2026-07-25
+
+### Fixed
+
+- **npm:** Publish dist-only package tarballs with package READMEs (omit `src/`)
+
+## [0.1.0-alpha.1] - 2026-07-25
+
+
+### Added
+
+- **rust-ops:** Add spoke-operations crate with first-slice helpers
+
+- **spoke-operations:** Add OCC and KnowledgeEntry lifecycle helpers
+
+- **spoke-operations:** Add scope, upsert, and relate helpers
+
+- **spoke-operations:** Add error envelope and computable validators
+
+
+### Documentation
+
+- **release:** Mirror npm/crates partial-failure note in README_CN
+
+- **protocol:** Lock Rust spoke-operations crate contract
+
+- **spec:** Record Rust deepen and computable parity
+
+- **spec:** Realign Hard In/Out Out column
+
+- **spec:** Clarify Rust export parity vs TS index
+
+- Add Rust spoke-operations consumer pin surfaces
+
+- **knowledge:** Crystallize Rust spoke-operations parity patterns
+
+
+### Fixed
+
+- **release:** Rc tag assert and registry publish hygiene
+
+- **release:** Align Cargo repository URL with GitHub remote
+
+- **release:** Reject lightweight tags in release verify
+
+- **rust-ops:** Wire body snippet path and revision validation
+
+- **rust-ops:** Assemble body validation and reject-code doc count
+
+- **release:** Pin spoke-schemas version for ops publish
+
+- **spoke-operations:** Address PR review parity and OCC safety
+
+- **deps:** Bump brace-expansion to >=5.0.8 for GHSA-mh99-v99m-4gvg
+
+
+### Internal
+
+- Publish npm packages and spoke-schemas crate on release tags
+
+- Run spoke-operations tests in rust verify jobs
+
+- Publish spoke-operations crate after spoke-schemas
+
+
+### build
+
+- Mark consumer packages publishable to npm and crates.io
+
+
+### release
+
+- Assert spoke-operations in lockstep surfaces
+

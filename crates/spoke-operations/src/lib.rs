@@ -1,7 +1,9 @@
 //! SPOKE lifecycle helpers — pure functions over `spoke-schemas` wire types.
 
 mod assemble;
+mod computable;
 mod extensions;
+mod error;
 mod finding;
 mod knowledge_entry;
 mod occ;
@@ -16,6 +18,11 @@ pub use assemble::{
     build_assemble_packet, knowledge_entry_to_assemble_entry, BuildAssemblePacketInput,
     KnowledgeEntryForAssemble,
 };
+pub use computable::{
+    validate_computable_field_map, validate_computable_log_entry, validate_compute_request,
+    validate_project_request,
+};
+pub use error::{from_error_envelope, to_error_envelope};
 pub use extensions::{merge_extension_maps, preserve_extension_maps, ExtensionMap};
 pub use finding::{is_valid_finding_status_transition, transition_finding_status};
 pub use knowledge_entry::{

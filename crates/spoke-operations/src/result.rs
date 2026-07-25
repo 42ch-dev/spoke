@@ -55,6 +55,35 @@ impl SpokeRejectCode {
             Self::RelationMissingEndpoint => "RELATION_MISSING_ENDPOINT",
         }
     }
+
+    /// Parse a wire code string into a known reject code.
+    #[must_use]
+    pub fn try_from_str(code: &str) -> Option<Self> {
+        match code {
+            "INVALID_INPUT" => Some(Self::InvalidInput),
+            "INVALID_STATUS" => Some(Self::InvalidStatus),
+            "INVALID_STATUS_TRANSITION" => Some(Self::InvalidStatusTransition),
+            "CANDIDATE_NOT_PROVISIONAL" => Some(Self::CandidateNotProvisional),
+            "CANDIDATE_TERMINAL_STATUS" => Some(Self::CandidateTerminalStatus),
+            "EMPTY_CANONICAL_NAME" => Some(Self::EmptyCanonicalName),
+            "MERGE_TARGET_SELF" => Some(Self::MergeTargetSelf),
+            "MISSING_REQUIRED_FIELD" => Some(Self::MissingRequiredField),
+            "INVALID_PACKET_INPUT" => Some(Self::InvalidPacketInput),
+            "REVISION_CONFLICT" => Some(Self::RevisionConflict),
+            "STORED_REVISION_STALE" => Some(Self::StoredRevisionStale),
+            "INVALID_KNOWLEDGE_ENTRY_STATUS" => Some(Self::InvalidKnowledgeEntryStatus),
+            "INVALID_KNOWLEDGE_ENTRY_STATUS_TRANSITION" => {
+                Some(Self::InvalidKnowledgeEntryStatusTransition)
+            }
+            "DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY" => Some(Self::DuplicateActiveKnowledgeEntry),
+            "KNOWLEDGE_ENTRY_NOT_FOUND" => Some(Self::KnowledgeEntryNotFound),
+            "KNOWLEDGE_ENTRY_ALREADY_EXISTS" => Some(Self::KnowledgeEntryAlreadyExists),
+            "KNOWLEDGE_ENTRY_TERMINAL_STATUS" => Some(Self::KnowledgeEntryTerminalStatus),
+            "RELATION_SELF_EDGE" => Some(Self::RelationSelfEdge),
+            "RELATION_MISSING_ENDPOINT" => Some(Self::RelationMissingEndpoint),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for SpokeRejectCode {

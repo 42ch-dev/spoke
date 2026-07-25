@@ -110,14 +110,14 @@ To preview or regenerate changelog output without bumping versions: `pnpm run re
 
 Pre-releases use `vX.Y.Z-rc.N` tags (GitHub pre-release). CI creates GitHub Releases only; registry publish is skipped for `-rc.` tags.
 
-### Repository secrets (maintainers)
+### Repository secrets / registry auth (maintainers)
 
-Configure these GitHub repository secrets before the first stable tag publish:
+| Auth | Use |
+|------|-----|
+| npm **Trusted Publisher** | OIDC from `release.yml` → `publish-npm` (configure on each package: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
+| `CARGO_REGISTRY_TOKEN` | crates.io auth for `cargo publish` (GitHub repository secret) |
 
-| Secret | Use |
-|--------|-----|
-| `NPM_TOKEN` | npm auth for `pnpm publish` |
-| `CARGO_REGISTRY_TOKEN` | crates.io auth for `cargo publish` |
+npm publish no longer requires `NPM_TOKEN` when Trusted Publisher is configured. You may revoke the old secret after a successful tag publish.
 
 ## Core concepts
 

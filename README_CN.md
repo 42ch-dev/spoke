@@ -110,14 +110,14 @@ git checkout vX.Y.Z
 
 预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release；含 `-rc.` 的标签跳过 registry 发布。
 
-### 仓库密钥（维护者）
+### 仓库密钥 / registry 认证（维护者）
 
-首次稳定标签发布前，在 GitHub 仓库中配置以下 secrets：
+| 认证 | 用途 |
+|------|------|
+| npm **Trusted Publisher** | 由 `release.yml` → `publish-npm` 经 OIDC 发布（每个包配置：org `42ch-dev`、repo `spoke`、workflow `release.yml`） |
+| `CARGO_REGISTRY_TOKEN` | `cargo publish` 的 crates.io 认证（GitHub repository secret） |
 
-| Secret | 用途 |
-|--------|------|
-| `NPM_TOKEN` | `pnpm publish` 的 npm 认证 |
-| `CARGO_REGISTRY_TOKEN` | `cargo publish` 的 crates.io 认证 |
+已配置 Trusted Publisher 后，npm 发布不再需要 `NPM_TOKEN`。成功用 tag 发布一次后可撤销旧 secret。
 
 ## 核心概念
 

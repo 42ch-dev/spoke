@@ -4,7 +4,7 @@
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Package (TypeScript):** `@42ch/spoke-operations` under `packages/spoke-operations/`  
-> **Crate (Rust):** `spoke-operations` under `crates/spoke-operations/` — behavioral port of the TypeScript package at lockstep SemVer
+> **Crate (Rust):** `spoke-operations` under `crates/spoke-operations/` — behavioral parity with the TypeScript package at lockstep SemVer
 
 ## Problem & user value
 
@@ -34,8 +34,8 @@ Without a shared operations library, every product reimplements the same pure ru
 | AssemblePacket builders from KnowledgeEntries (structure only) | Ranking, scoring, vector retrieval, token budgeting |
 | Unified `SpokeResult` / `SpokeRejectCode` on every reject path — **both** language packages | Silent auto-promote bypassing human review semantics |
 | Revision bump on promote apply (see §Promote acceptance) | — |
-| OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) | Product `world_id` / `book_id` as required core fields |
-| KnowledgeEntry status transitions + active uniqueness | `scope_id` parsing; retrieval engines |
+| OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) | — |
+| KnowledgeEntry status transitions + active uniqueness | Product `world_id` / `book_id` as required core fields |
 | Scope match, upsert/relate gates, error-envelope map | `scope_id` parsing; retrieval engines |
 | Computable shape validators (`validateComputableFieldMap`, log entry, project/compute request gates) | Compute engine execution, WASM, Session store I/O |
 

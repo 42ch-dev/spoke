@@ -1,10 +1,10 @@
 # SPOKE Operations Library
 
-> **Status:** Normative (operations library — TypeScript first slice + deepen; Rust crate parity in progress)  
+> **Status:** Normative (operations library — TypeScript and Rust packages ship first-slice, deepen, and computable validators)  
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Package (TypeScript):** `@42ch/spoke-operations` under `packages/spoke-operations/`  
-> **Crate (Rust):** `spoke-operations` under `crates/spoke-operations/` — behavioral port of the TypeScript package at lockstep SemVer
+> **Crate (Rust):** `spoke-operations` under `crates/spoke-operations/` — behavioral parity with the TypeScript package at lockstep SemVer
 
 ## Problem & user value
 
@@ -34,9 +34,10 @@ Without a shared operations library, every product reimplements the same pure ru
 | AssemblePacket builders from KnowledgeEntries (structure only) | Ranking, scoring, vector retrieval, token budgeting |
 | Unified `SpokeResult` / `SpokeRejectCode` on every reject path — **both** language packages | Silent auto-promote bypassing human review semantics |
 | Revision bump on promote apply (see §Promote acceptance) | — |
-| OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) — operations library deepen | — |
-| KnowledgeEntry status transitions + active uniqueness — operations library deepen | Product `world_id` / `book_id` as required core fields |
-| Scope match, upsert/relate gates, error-envelope map — operations library deepen | `scope_id` parsing; retrieval engines |
+| OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) | — |
+| KnowledgeEntry status transitions + active uniqueness | Product `world_id` / `book_id` as required core fields |
+| Scope match, upsert/relate gates, error-envelope map | `scope_id` parsing; retrieval engines |
+| Computable shape validators (`validateComputableFieldMap`, log entry, project/compute request gates) | Compute engine execution, WASM, Session store I/O |
 
 ### Per-family In / Out
 
@@ -51,6 +52,7 @@ Without a shared operations library, every product reimplements the same pure ru
 | **Scope** | KnowledgeEntry + TimelineEvent refinement filters | `scope_id` parsing; retrieval |
 | **Upsert / Relate** | Create/update revision rules; self-edge reject | Persist |
 | **Error map** | `SpokeReject` ↔ `ErrorEnvelope` code stability | HTTP/MCP status mapping |
+| **Computable** | Field-map, log-entry, project/compute request shape gates | Engine execution, WASM, Session I/O |
 
 ---
 
@@ -220,9 +222,9 @@ Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet:
 
 ---
 
-## Helper families (operations deepen)
+## Helper families (operations deepen + computable)
 
-Five new families (plus error map). Export names are **normative** for the deepen slice; `src/index.ts` MUST expose them alongside first-slice symbols.
+Deepen families (§5–§11) plus computable validators (§12). Export names are **normative**; `@42ch/spoke-operations` `src/index.ts` MUST expose them alongside first-slice symbols. `spoke-operations` `src/lib.rs` MUST re-export every symbol in TS `index.ts` (snake_case) and MAY additionally export Rust-only typed/wire helpers (see §Rust).
 
 ### 5. OCC — `occ/*`
 
@@ -443,7 +445,7 @@ Wire shapes: [`spoke-data-model.md` §Computable body](spoke-data-model.md#compu
 | Path | `packages/spoke-operations/` |
 | Dependency | `@42ch/spoke-schemas` (workspace) only |
 | Publish | npm on stable tags (`@42ch/spoke-schemas` first, then this package) |
-| Behavioral SSOT | This spec + TS implementation — Rust is a port |
+| Behavioral SSOT | This spec + TypeScript and Rust implementations at behavioral parity |
 
 Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`, `SpokeReject`, `SpokeRejectCode` types/constants.
 
@@ -455,10 +457,10 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 | Path | `crates/spoke-operations/` |
 | Dependency | `spoke-schemas` (workspace) only |
 | Publish | crates.io on stable tags (`spoke-schemas` first, then this crate) |
-| Parity rule | Behavioral port of `@42ch/spoke-operations`; same helper families, same `SpokeRejectCode` string literals, same In/Out tables |
+| Parity rule | Behavioral parity with `@42ch/spoke-operations` — same normative helper families (first-slice + deepen + computable), same `SpokeRejectCode` string literals, same In/Out tables |
 | `SpokeResult` | Rust `enum SpokeResult<T> { Ok(T), Reject(SpokeReject) }` with `spoke_ok` / `spoke_reject` — code strings match TS; idiomatic Rust surface, not a second vocabulary |
 
-Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering the same symbol set as TS `src/index.ts`.
+Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering **every** symbol in TS `src/index.ts`. Rust MAY also export additional typed/wire helpers not listed in TS `index.ts` — e.g. `KnowledgeEntryForAssemble`, `validate_promote_request_wire`, `UpsertMode`, `ExtensionMap`, `spoke_ok_unit` — without breaking parity.
 
 **Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); private `util` for typify field-access helpers only — no parallel wire DTOs.
 
@@ -476,24 +478,23 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 - [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
 - [x] CI typecheck + test + build includes `packages/spoke-operations/`
 
-### Deepen slice (TypeScript)
+### Deepen + computable (TypeScript and Rust)
 
-- [x] OCC, KnowledgeEntry status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
-- [x] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
-- [x] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
+- [x] OCC, KnowledgeEntry status, uniqueness, Scope, upsert, relate, error-map, and computable validator families implemented per §Helper families (operations deepen + computable) in `@42ch/spoke-operations` and `spoke-operations`
+- [x] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths in both packages
 - [x] First-slice export behavior unchanged except additive OCC emit on new call sites
 
 ### Rust crate (shippable)
 
-- [ ] `spoke-operations` crate at `crates/spoke-operations/` with full TS export parity
-- [ ] All 19 `SpokeRejectCode` strings exported from `result` module
+- [x] `spoke-operations` crate at `crates/spoke-operations/` re-exports all normative helper families and every TS `index.ts` symbol (first-slice + deepen + computable)
+- [x] All 19 `SpokeRejectCode` strings exported from `result` module
 - [ ] `cargo test -p spoke-operations` in CI and release verify
 - [ ] crates.io publish after `spoke-schemas` on stable tags
 
 ### Computable slice (`l2-computable`)
 
-- [x] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `src/index.ts`
-- [x] No compute execution, WASM, or I/O in `packages/spoke-operations/`
+- [x] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `@42ch/spoke-operations` `src/index.ts` and `spoke-operations` `src/lib.rs`
+- [x] No compute execution, WASM, or I/O in `packages/spoke-operations/` or `crates/spoke-operations/`
 
 ## Non-goals (operations layer)
 
@@ -523,6 +524,6 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
-| `packages/spoke-operations/` | TypeScript operations library (first slice + deepen) |
-| `crates/spoke-operations/` | Rust operations library — port of TS package at lockstep SemVer |
+| `packages/spoke-operations/` | TypeScript operations library (first-slice + deepen + computable) |
+| `crates/spoke-operations/` | Rust operations library — behavioral parity with `@42ch/spoke-operations` at lockstep SemVer |
 | `crates/spoke-schemas/` | Generated Rust wire types |

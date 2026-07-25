@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.1.0-alpha.3] - 2026-07-25
+
+
+### Documentation
+
+- Keep human READMEs affirmative; park negation in AGENTS
+
+
+### Internal
+
+- **release:** Publish npm via Trusted Publisher OIDC
+
+- **release:** Cut via Actions PR then auto-tag and publish
+
+- **release:** Require cut version strictly greater than main
+
+- **release:** Fall back when Actions cannot open Cut release PRs
+
 
 ## [0.1.0-alpha.2] - 2026-07-25
 

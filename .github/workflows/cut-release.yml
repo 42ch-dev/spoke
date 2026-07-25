@@ -89,21 +89,26 @@ jobs:
           git commit -m "chore(release): bump version to ${VERSION}"
           git push -u origin "$BRANCH" --force-with-lease
 
+      # Org policy may block GITHUB_TOKEN from creating PRs. Prefer a maintainer PAT:
+      # repo secret CUT_RELEASE_TOKEN (contents:write + pull_requests:write), or ask an org
+      # admin to allow "Actions can create and approve pull requests".
       - name: Ensure release label
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CUT_RELEASE_TOKEN || github.token }}
         run: |
           gh label create release --description "Release bump PR — merge to tag and publish" --color BFD4F2 2>/dev/null || true
 
       - name: Open or update pull request
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CUT_RELEASE_TOKEN || github.token }}
           VERSION: ${{ inputs.version }}
           SUMMARY: ${{ inputs.summary }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           BRANCH="release/${VERSION}"
           TITLE="chore(release): bump version to ${VERSION}"
+          COMPARE_URL="https://github.com/${REPO}/compare/main...${BRANCH}?expand=1"
           BODY_FILE="$(mktemp)"
           {
             echo "## Release ${VERSION}"
@@ -122,16 +127,35 @@ jobs:
             gh pr edit "$EXISTING" --title "$TITLE" --body-file "$BODY_FILE" --add-label release
             echo "Updated PR #${EXISTING}"
             echo "PR_URL=$(gh pr view "$EXISTING" --json url --jq .url)" >> "$GITHUB_ENV"
-          else
-            URL="$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE" --label release)"
-            echo "Opened ${URL}"
-            echo "PR_URL=${URL}" >> "$GITHUB_ENV"
+            exit 0
           fi
 
+          ERR_FILE="$(mktemp)"
+          if URL="$(gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE" --label release 2>"$ERR_FILE")"; then
+            echo "Opened ${URL}"
+            echo "PR_URL=${URL}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          cat "$ERR_FILE" >&2
+          echo "COMPARE_URL=${COMPARE_URL}" >> "$GITHUB_ENV"
+          if grep -qiE 'not permitted to create|createPullRequest' "$ERR_FILE"; then
+            echo "::error::Cannot create PR with the current token. Org policy blocks GITHUB_TOKEN from creating PRs. Set repo secret CUT_RELEASE_TOKEN (PAT with Contents + Pull requests write), or ask an org admin to enable Actions → create and approve pull requests. Branch is ready: ${COMPARE_URL}"
+          else
+            echo "::error::gh pr create failed. Branch is ready: ${COMPARE_URL}"
+          fi
+          exit 1
+
       - name: Summary
+        if: always()
         run: |
-          echo "### Release PR ready" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Cut release" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`${{ inputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- PR: ${PR_URL}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Next: merge the PR to tag and publish." >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${PR_URL:-}" ]; then
+            echo "- PR: ${PR_URL}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Next: merge the PR to tag and publish." >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "${COMPARE_URL:-}" ]; then
+            echo "- Branch ready — open PR: ${COMPARE_URL}" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Or set secret \`CUT_RELEASE_TOKEN\` and re-run Cut release." >> "$GITHUB_STEP_SUMMARY"
+          fi

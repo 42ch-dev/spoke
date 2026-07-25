@@ -54,6 +54,7 @@ Do not put plan progress or residual detail in this file.
 - Stable tags (`vX.Y.Z`) and prerelease SemVer tags without `-rc.` (e.g. `v0.1.0-alpha.3`) publish to npm and crates.io; tags containing `-rc.` create GitHub pre-releases only. If `publish-crates` fails after npm succeeded, re-run that job or `cargo publish` the missing crate at the tagged version.
 - Maintainer cut path: **Cut release** workflow (`workflow_dispatch` → version bump PR with label `release`) → merge → **Tag release on merge** creates annotated `vX.Y.Z` and dispatches **Release** (`workflow_dispatch` with `tag=`). Manual `git tag` + push still works. GITHUB_TOKEN tag pushes do not auto-start other workflows — dispatch is required after bot tags.
 - **Cut release** MUST refuse when the requested SemVer is not strictly greater than `package.json` on `main`, or when `vX.Y.Z` already exists (`tooling/release/assert-version-greater.mjs` + tag existence check). `release:bump` also refuses non-increasing bumps.
+- **Cut release** PR create: org `42ch-dev` currently blocks `GITHUB_TOKEN` from creating PRs. Prefer repo secret `CUT_RELEASE_TOKEN` (fine-grained PAT: Contents read/write + Pull requests read/write on `spoke`), or an org admin enabling Actions → “Allow GitHub Actions to create and approve pull requests”. Without that, the bump branch still pushes; open the compare URL manually (or `gh pr create`).
 
 ## Tech direction (v0.1)
 

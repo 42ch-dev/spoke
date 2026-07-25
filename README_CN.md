@@ -19,8 +19,8 @@
 
 - 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、Rule、TimelineEvent
 - Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
-- 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）
-- 纯函数生命周期辅助库（`@42ch/spoke-operations`）
+- 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
+- 纯函数生命周期辅助库（`@42ch/spoke-operations` / `spoke-operations`）
 - 协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）
 
 ## 软件包
@@ -30,6 +30,7 @@
 | [`@42ch/spoke-schemas`](packages/spoke-schemas/) | 由 JSON Schema 生成的 TypeScript 类型 — 描述**线上传输什么** |
 | [`@42ch/spoke-operations`](packages/spoke-operations/) | 手写纯函数辅助 — 晋升门控、Finding 状态迁移、扩展合并、AssemblePacket 构建 |
 | `spoke-schemas`（Rust crate） | [`crates/spoke-schemas/`](crates/spoke-schemas/) 中的生成 Rust 类型 |
+| `spoke-operations`（Rust crate） | [`crates/spoke-operations/`](crates/spoke-operations/) 中的手写纯函数辅助 — 与 `@42ch/spoke-operations` 行为对齐 |
 
 产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。
 
@@ -44,6 +45,7 @@ pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
 ```toml
 # Cargo.toml
 spoke-schemas = "X.Y.Z"
+spoke-operations = "X.Y.Z"
 ```
 
 在将 SPOKE 作为工作区成员的 pnpm monorepo 中：
@@ -72,7 +74,7 @@ spoke-schemas = "X.Y.Z"
 
 ## 版本与固定
 
-SPOKE 以**单一锁步 SemVer**（`X.Y.Z`）发布所有工作区软件包与 Rust `spoke-schemas` crate。在消费方仓库固定到带注释的 git 标签：
+SPOKE 以**单一锁步 SemVer**（`X.Y.Z`）发布所有工作区软件包与 Rust 消费 crate（`spoke-schemas`、`spoke-operations`）。在消费方仓库固定到带注释的 git 标签：
 
 ```bash
 git checkout vX.Y.Z
@@ -100,9 +102,9 @@ git checkout vX.Y.Z
 1. Bump 所有锁步表面并刷新 changelog 章节：`pnpm run release:bump -- X.Y.Z`
 2. 提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
 3. 在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "可选摘要"`，或 `git tag -a vX.Y.Z -m "可选摘要"`
-4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release，并向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas`（仅稳定标签）。
+4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release，并向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas` 与 `spoke-operations`（仅稳定标签）。
 
-若 npm 发布成功但 crates.io 步骤失败：重跑失败的 `publish-crates` job，或在该标签版本上手动 `cargo publish -p spoke-schemas`——npm 产物此时已上线。
+若 npm 发布成功但 crates.io 步骤失败：重跑失败的 `publish-crates` job，或在该标签版本上手动发布缺失的 crate——npm 产物此时已上线。
 
 仅预览或重新生成 changelog（不 bump 版本）：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
 

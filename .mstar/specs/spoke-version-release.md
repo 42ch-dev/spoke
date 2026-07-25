@@ -57,21 +57,21 @@ Pre-1.0: breaking wire or public API changes remain allowed without a deprecatio
 |------|-------|
 | Form | Annotated tag `vX.Y.Z` (required leading `v`) |
 | Target | Commit on `main` (or `iteration/**` integration branch) that already passes CI |
-| Annotation | SHOULD include human-readable release summary (primary Release notes source) |
-| Notes extraction | `git tag -l --format='%(contents)' <tag>` on the pushed tag; if empty, workflow generates a one-line fallback body (`Release vX.Y.Z`) |
+| Annotation | Optional human-readable summary; used only when `CHANGELOG.md` has no matching section |
+| Notes extraction | Primary: `tooling/release/extract-changelog-notes.mjs` on `CHANGELOG.md` for `vX.Y.Z`; fallback: `git tag -l --format='%(contents)' <tag>`; final fallback: `Release vX.Y.Z` |
 | Pre-release | `vX.Y.Z-rc.N` — CI MUST create a GitHub **pre-release**; MUST NOT imply registry publish |
 | Stable | `vX.Y.Z` without prerelease suffix — GitHub Release is **not** marked pre-release |
 
-Tags MUST NOT be lightweight-only; annotated tags are required so `git tag -l -n` and Release note extraction work.
+Tags SHOULD be annotated. Release notes come from `CHANGELOG.md` first; tag annotation is a fallback only.
 
 ## What a release is
 
 A SPOKE release is **not** an npm or crates.io publish. A release is:
 
-1. Lockstep manifests and README badges bumped to `X.Y.Z` on `main` (via maintainer PR).
+1. Lockstep manifests, README badges, and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via maintainer PR).
 2. Maintainer creates and pushes annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) pointing at that commit.
 3. CI **release** workflow on tag push re-validates verify-equivalent gates.
-4. On success, workflow creates a **GitHub Release** for that tag with notes from tag annotation first; generated fallback only when annotation is empty.
+4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply only when the section is missing.
 5. Consumers pin the repo at that tag.
 
 **GitHub Release contents (minimum):** tag name, release notes body, automatic source archive (GitHub default). Optional: link to umbrella spec version. No registry artifacts.
@@ -117,7 +117,7 @@ On tag push, `release.yml` `verify-version` MUST also assert `github.ref_name` e
 | Fail-closed | If any verify job fails, `release` MUST NOT run and MUST NOT create a GitHub Release |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
-| Notes body | Tag annotation via `git tag -l --format='%(contents)'`; fallback one-liner when empty |
+| Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
 
 **Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
@@ -138,20 +138,26 @@ Both `README.md` and `README_CN.md` MUST contain a shields.io Version badge whos
 |--------|------|------|
 | SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `README_BADGE_PATHS[]` |
 | Assert | `tooling/release/assert-lockstep-version.mjs` | Reads manifest; exits 0/1 |
-| Bump | `tooling/release/bump-version.mjs` | Updates all manifest paths + badges; invokes assert before exit 0 |
+| Bump | `tooling/release/bump-version.mjs` | Updates all manifest paths + badges; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
+| Changelog runner | `tooling/release/run-git-cliff.mjs` | Resolves `git-cliff` (PATH → `pnpm dlx` → `npx`); used by bump and `release:changelog` |
+| Notes extractor | `tooling/release/extract-changelog-notes.mjs` | Prints `CHANGELOG.md` section body for `vX.Y.Z` / `X.Y.Z` (CI + local) |
+| Config | `cliff.toml` | git-cliff Conventional Commits grouping (Keep a Changelog sections) |
 
 | Root script | Command |
 |-------------|---------|
 | `verify:version` | `node tooling/release/assert-lockstep-version.mjs` |
 | `release:bump` | `node tooling/release/bump-version.mjs` |
+| `release:changelog` | `node tooling/release/run-git-cliff.mjs` (pass git-cliff flags after `--`) |
 
-**Bump → assert contract:** `bump-version.mjs` writes all surfaces from `lockstep-surfaces.mjs`, then spawns assert (same entrypoint as CI). Exit non-zero if assert fails; no success message on drift.
+**Changelog SSOT:** root `CHANGELOG.md`. Maintainers edit only when correcting entries; routine updates happen via `release:bump`, which prepends the section for the target version using git-cliff.
+
+**Bump → assert contract:** `bump-version.mjs` writes all surfaces from `lockstep-surfaces.mjs`, updates `CHANGELOG.md` for the target tag via git-cliff (`cliff.toml`), then spawns assert (same entrypoint as CI). Exit non-zero if assert fails; no success message on drift.
 
 **CLI:** `node tooling/release/bump-version.mjs <X.Y.Z> [--tag [message]]` (root: `pnpm run release:bump -- X.Y.Z [--tag [message]]` — pass `--` before arguments when using pnpm).
 
 | Mode | Behavior |
 |------|----------|
-| Bump (`current ≠ target`) | Writes all lockstep surfaces, runs assert, prints commit + tag next steps. |
+| Bump (`current ≠ target`) | Writes all lockstep surfaces, updates `CHANGELOG.md`, runs assert, prints commit + tag next steps. |
 | Already at target (`current = target`) | Re-runs assert only; prints tag push instructions. |
 | `--tag` on clean tree at target | Creates **local annotated tag** `vX.Y.Z` (optional message; default `Release vX.Y.Z`). Script never pushes. |
 | `--tag` during bump or on dirty tree | **Refused** (non-zero exit) with printed commit/tag instructions — commit first, then re-run same version with `--tag`. |

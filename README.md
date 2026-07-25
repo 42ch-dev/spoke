@@ -67,7 +67,7 @@ SPOKE publishes a **single lockstep SemVer** (`X.Y.Z`) across all workspace pack
 git checkout vX.Y.Z
 ```
 
-Or download the source archive from the matching [GitHub Release](https://github.com/42ch-dev/spoke/releases). Then depend via `file:` path (above) or a git dependency:
+Or download the source archive from the matching [GitHub Release](https://github.com/42ch-dev/spoke/releases). Release notes live in [`CHANGELOG.md`](CHANGELOG.md) at the tagged commit. Then depend via `file:` path (above) or a git dependency:
 
 ```json
 {
@@ -82,12 +82,16 @@ The shields.io **Version** badge at the top of this README reflects the canonica
 
 ## Release (maintainers)
 
+[`CHANGELOG.md`](CHANGELOG.md) is the primary release-notes source (Keep a Changelog format, generated from Conventional Commits via [git-cliff](https://git-cliff.org)). GitHub Releases use the matching version section; tag annotations are fallback only.
+
 After changes are ready on `main`:
 
-1. Bump all lockstep surfaces: `pnpm run release:bump -- X.Y.Z`
+1. Bump all lockstep surfaces and refresh the changelog section: `pnpm run release:bump -- X.Y.Z`
 2. Commit and push: `git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
-3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "Release summary"` or `git tag -a vX.Y.Z -m "Release summary"`
-4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates and creates a GitHub Release from the tag annotation.
+3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "optional summary"` or `git tag -a vX.Y.Z -m "optional summary"`
+4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates and creates a GitHub Release from `CHANGELOG.md`.
+
+To preview or regenerate changelog output without bumping versions: `pnpm run release:changelog -- --unreleased` (passes flags through to git-cliff).
 
 Pre-releases use `vX.Y.Z-rc.N` tags (GitHub pre-release). CI creates GitHub Releases only; it does not publish to npm or crates.io.
 

@@ -67,7 +67,7 @@ SPOKE 以**单一锁步 SemVer**（`X.Y.Z`）发布所有工作区软件包与 R
 git checkout vX.Y.Z
 ```
 
-或从对应的 [GitHub Release](https://github.com/42ch-dev/spoke/releases) 下载源码归档，再通过 `file:` 路径（上文）或 git 依赖引用：
+或从对应的 [GitHub Release](https://github.com/42ch-dev/spoke/releases) 下载源码归档。发布说明见该标签下的 [`CHANGELOG.md`](CHANGELOG.md)。再通过 `file:` 路径（上文）或 git 依赖引用：
 
 ```json
 {
@@ -82,12 +82,16 @@ git checkout vX.Y.Z
 
 ## 发布（维护者）
 
+[`CHANGELOG.md`](CHANGELOG.md) 是发布说明的主来源（Keep a Changelog 格式，由 [git-cliff](https://git-cliff.org) 根据 Conventional Commits 生成）。GitHub Release 使用对应版本章节；标签注释仅为后备。
+
 当 `main` 上的变更就绪后：
 
-1. Bump 所有锁步表面：`pnpm run release:bump -- X.Y.Z`
-2.  提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
-3.  在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "发布摘要"`，或 `git tag -a vX.Y.Z -m "发布摘要"`
-4.  推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁并依据标签注释创建 GitHub Release。
+1. Bump 所有锁步表面并刷新 changelog 章节：`pnpm run release:bump -- X.Y.Z`
+2. 提交并推送：`git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
+3. 在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "可选摘要"`，或 `git tag -a vX.Y.Z -m "可选摘要"`
+4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁并从 `CHANGELOG.md` 创建 GitHub Release。
+
+仅预览或重新生成 changelog（不 bump 版本）：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
 
 预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release，不向 npm 或 crates.io 发布。
 

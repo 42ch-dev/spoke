@@ -146,11 +146,19 @@ jobs:
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Resolve release notes
         id: notes
         run: |
           TAG="${{ github.ref_name }}"
-          BODY=$(git tag -l --format='%(contents)' "$TAG")
+          BODY="$(node tooling/release/extract-changelog-notes.mjs "$TAG" || true)"
+          if [ -z "$BODY" ]; then
+            BODY="$(git tag -l --format='%(contents)' "$TAG" || true)"
+          fi
           if [ -z "$BODY" ]; then
             BODY="Release $TAG"
           fi

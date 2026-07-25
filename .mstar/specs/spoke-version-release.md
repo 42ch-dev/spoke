@@ -94,7 +94,7 @@ A SPOKE release is:
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
 | `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | Opens lockstep bump PR with label `release` (GitHub-signed commit); MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists; MUST NOT duplicate `CHANGELOG` version headings |
 | `pull_request` closed (merged + label `release`) | `.github/workflows/tag-release-on-merge.yml` | Annotated tag `vX.Y.Z` + `workflow_call` into `release.yml` |
-| Push of tag matching `v*` **or** `workflow_call` (`tag` input) | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). No `workflow_dispatch`. |
+| Push of tag matching `v*` **or** `workflow_call` (`tag` input) | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). `RELEASE_TAG` prefers `inputs.tag`, else `github.ref_name` (caller `github.event_name` is never `workflow_call`). Recovery: **Retry release** (`retry-release.yml` → `workflow_call`). |
 
 Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, and `spoke-operations`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
@@ -115,8 +115,8 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Item | Value |
 |------|-------|
 | File | `.github/workflows/release.yml` |
-| Trigger | `on.push.tags: ['v*']` and `workflow_call` with input `tag` (from Tag release on merge). No `workflow_dispatch`. |
-| Concurrency | `group: release-${{ github.event_name == 'workflow_call' && inputs.tag || github.ref }}`, `cancel-in-progress: true` |
+| Trigger | `on.push.tags: ['v*']` and `workflow_call` with input `tag` (from Tag release on merge or Retry release). No `workflow_dispatch` on this file (recovery via `retry-release.yml`). |
+| Concurrency | `group: release-${{ inputs.tag || github.ref }}`, `cancel-in-progress: true` |
 | Permissions | Workflow default `contents: read`; `release` job sets `contents: write`; `publish-npm` and `publish-crates` set `id-token: write` for Trusted Publishing (OIDC) |
 | Job layout | **Four parallel verify jobs** (`verify-codegen`, `typescript`, `rust`, `verify-version` — same commands as `ci.yml`) → **sequential `release`** job with `needs: [verify-codegen, typescript, rust, verify-version]` → **`publish-npm`** then **`publish-crates`** (`publish-crates` `needs: [publish-npm]`; tags without `-rc.` only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |

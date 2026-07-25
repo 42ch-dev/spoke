@@ -56,7 +56,7 @@ Do not put plan progress or residual detail in this file.
 - **New release** MUST refuse when the requested SemVer is not strictly greater than `package.json` on `main`, or when `vX.Y.Z` already exists. `release:bump` also refuses non-increasing bumps.
 - **New release** commits MUST be GitHub-verified (`tooling/release/push-github-signed-commit.mjs` → GraphQL `createCommitOnBranch`). Do not land unsigned `git commit` + `git push` from Actions — `main` ruleset `required_signatures` blocks merge.
 - **CHANGELOG:** `release:bump` MUST NOT prepend a second `## [X.Y.Z]` when that section already exists; promote the existing section to top instead (duplicate headings make `extract-changelog-notes.mjs` publish the wrong notes).
-- **Release** (`release.yml`) is tag-driven (`push.tags: v*`) or called from **Tag release on merge** (`workflow_call`). Do not add `workflow_dispatch` on Release.
+- **Release** (`release.yml`) is tag-driven (`push.tags: v*`) or called via `workflow_call` (`tag` input). Resolve the release tag as `inputs.tag || github.ref_name` — never gate on `github.event_name == 'workflow_call'` (that name is the caller's event, e.g. `pull_request`). Recovery re-run: **Retry release** (`retry-release.yml`). Do not add `workflow_dispatch` on Release itself.
 
 ## Tech direction (v0.1)
 

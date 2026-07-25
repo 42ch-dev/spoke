@@ -1,8 +1,8 @@
 name: Release
 
-# Tag-only entry for humans/PAT pushes. After a New release PR merges, Tag release
-# on merge calls this workflow (workflow_call) — no workflow_dispatch (avoids a
-# misleading "Run workflow" button that bypasses the New release → merge path).
+# Tag push (humans/PAT) or workflow_call (Tag release on merge / Retry release).
+# github.event_name is the *caller* event (e.g. pull_request), never "workflow_call" —
+# always prefer inputs.tag when set.
 on:
   push:
     tags:
@@ -15,14 +15,14 @@ on:
         type: string
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_call' && inputs.tag || github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_call' && inputs.tag || github.ref_name }}
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   verify-codegen:
@@ -226,7 +226,7 @@ jobs:
       - rust
       - verify-version
       - release
-    if: ${{ !contains(github.event_name == 'workflow_call' && inputs.tag || github.ref_name, '-rc.') }}
+    if: ${{ !contains(inputs.tag || github.ref_name, '-rc.') }}
     permissions:
       contents: read
       id-token: write
@@ -281,7 +281,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - publish-npm
-    if: ${{ !contains(github.event_name == 'workflow_call' && inputs.tag || github.ref_name, '-rc.') }}
+    if: ${{ !contains(inputs.tag || github.ref_name, '-rc.') }}
     permissions:
       contents: read
       id-token: write

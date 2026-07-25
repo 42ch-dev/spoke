@@ -8,7 +8,7 @@
 
 Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange KnowledgeEntry data and ops without sharing a runtime, database, or daemon.
 
-**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. **Operations library deepen + fixtures** delivered deepen helpers and protocol JSON at `fixtures/toy-world/`; harness ownership moves to `fixtures/toy-world/tests/` (boundary correction, 2026-07-23).
+**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. Deepen helpers ship in `@42ch/spoke-operations`; protocol conformance JSON and the AJV/Vitest harness live under `fixtures/toy-world/` (`@42ch/spoke-fixture-toy-world`).
 
 ## Three columns (Thrust A)
 
@@ -18,9 +18,9 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 |--------|----------------|---------------|---------------|
 | **1. Data** | Seven required objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **TimelineEvent** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
 | **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas when shipped) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
-| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`) |
+| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`); `crates/spoke-operations/` (`spoke-operations`) |
 
-**Invariant:** generated `@42ch/spoke-schemas` types are wire truth; `@42ch/spoke-operations` is hand-written behavior on those types — not a third runtime, daemon, or transport binding.
+**Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types — not a third runtime, daemon, or transport binding. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer.
 
 **Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
 
@@ -33,7 +33,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 | Slice | Hand-authored files | Breakdown |
 |-------|---------------------|-----------|
 | **Protocol layers + Rule/TimelineEvent (committed)** | **19** | 2 common + 7 data + 10 ops — `rule-event` + `ops-harden` (shared `Scope`, `rules[]`, error-envelope on all responses) |
-| **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON on `main`; harness relocates to `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
+| **Operations library deepen + fixtures** | **19** (unchanged) | Deepen helpers + `fixtures/toy-world/` JSON; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — see repository layout |
 | **Optional `l2-computable` ops (`project` / `compute`)** | **23** | +4 ops schemas; optional capability — baseline integrators unchanged |
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema land.
@@ -64,6 +64,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 | TypeScript | `@42ch/spoke-schemas` | `json-schema-to-typescript` | `packages/spoke-schemas/src/generated/` |
 | Rust | `spoke-schemas` | `typify` | `crates/spoke-schemas/src/generated/` |
 | TypeScript (hand-written) | `@42ch/spoke-operations` | — (not codegen) | `packages/spoke-operations/src/` |
+| Rust (hand-written) | `spoke-operations` | — (not codegen) | `crates/spoke-operations/src/` |
 
 `schemas/` is the only hand-authored wire truth. Generated output is committed; drift fails `verify-codegen`.
 
@@ -73,7 +74,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 spoke/
 ├── package.json                 # scripts: codegen, verify-codegen
 ├── pnpm-workspace.yaml          # packages: ["packages/*", "tooling/*", "fixtures/*"]
-├── Cargo.toml                   # workspace; members = ["crates/spoke-schemas"]
+├── Cargo.toml                   # workspace; members = ["crates/spoke-schemas", "crates/spoke-operations"]
 ├── schemas/                     # SSOT (hand-authored)
 ├── tooling/codegen/             # orchestrates jstt + typify (private package)
 ├── packages/spoke-schemas/       # @42ch/spoke-schemas (published path TBD)
@@ -94,6 +95,11 @@ spoke/
             ├── common/
             ├── data/
             └── ops/
+└── crates/spoke-operations/
+    ├── Cargo.toml
+    └── src/
+        ├── lib.rs               # flat re-exports; hand-written pure helpers
+        └── *.rs                 # family modules (result, extensions, finding, …)
 ```
 
 **Codegen rules:**
@@ -117,8 +123,9 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schemas/` | Generated TypeScript |
-| `packages/spoke-operations/` | Hand-written operations library — pure helpers only; no fixture harness or AJV |
-| `crates/spoke-schemas/` | Generated Rust |
+| `packages/spoke-operations/` | Hand-written TypeScript operations library — pure helpers only; no fixture harness or AJV |
+| `crates/spoke-schemas/` | Generated Rust wire types |
+| `crates/spoke-operations/` | Hand-written Rust operations library — port of TS package; pure helpers only |
 | `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`) — harness MUST NOT live under `packages/spoke-operations/` |
 | `adapters/` | README purpose note only; product adapter packages deferred |
 
@@ -132,9 +139,9 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all four jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
    - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test
-   - `rust` — `cargo check -p spoke-schemas`
+   - `rust` — `cargo check -p spoke-schemas`; `cargo test -p spoke-operations`
    - `verify-version` — `pnpm run verify:version` (lockstep SemVer across manifests and README badges; see [`spoke-version-release.md`](spoke-version-release.md))
-3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `pnpm run verify:version`)
+3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version`)
 4. Extensions contract enforced in data schemas
 5. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
 
@@ -161,9 +168,10 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | Phase | Deliverable |
 |-------|-------------|
 | **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
-| **Operations library first slice (delivered 2026-07-23)** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
-| **Protocol layers + Rule/TimelineEvent (delivered)** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
-| **Operations library deepen + fixtures (delivered 2026-07-23)** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
+| **Operations library first slice** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
+| **Protocol layers + Rule/TimelineEvent** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
+| **Operations library deepen + fixtures** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
+| **Rust operations library** | Hand-written `spoke-operations` crate — behavioral port of TS package at lockstep SemVer — see [`spoke-operations.md`](spoke-operations.md) |
 | **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
 | **North star** | Cross-product narrative **KnowledgeEntry** dialect for consistency-check and context-assembly I/O **without** a shared runtime |
 

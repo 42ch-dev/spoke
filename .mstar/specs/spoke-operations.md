@@ -1,17 +1,18 @@
 # SPOKE Operations Library
 
-> **Status:** Normative (operations library first slice + deepen — delivered 2026-07-23)  
+> **Status:** Normative (operations library — TypeScript first slice + deepen; Rust crate parity in progress)  
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
-> **Package:** `@42ch/spoke-operations` under `packages/spoke-operations/`
+> **Package (TypeScript):** `@42ch/spoke-operations` under `packages/spoke-operations/`  
+> **Crate (Rust):** `spoke-operations` under `crates/spoke-operations/` — behavioral port of the TypeScript package at lockstep SemVer
 
 ## Problem & user value
 
 Wire schemas (`@42ch/spoke-schemas`) tell integrators **what** crosses the boundary. They do not encode cross-product **lifecycle invariants** — promote gates, Finding status rules, extension round-trip preservation, or wire-valid `AssemblePacket` construction.
 
-Without a shared operations library, every product reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** is the single hand-written place for those invariants: callable from adapters and product code, with **no** I/O, storage, LLM, ranking, or retrieval.
+Without a shared operations library, every product reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** (TypeScript) and **`spoke-operations`** (Rust) are the hand-written surfaces for those invariants: callable from adapters and product code, with **no** I/O, storage, LLM, ranking, or retrieval.
 
-**Integrator outcome:** import types from `@42ch/spoke-schemas`, import lifecycle helpers from `@42ch/spoke-operations`, bind transport locally — no shared daemon required.
+**Integrator outcome:** import types from `@42ch/spoke-schemas` / `spoke-schemas`, import lifecycle helpers from `@42ch/spoke-operations` / `spoke-operations`, bind transport locally — no shared daemon required.
 
 ---
 
@@ -20,7 +21,7 @@ Without a shared operations library, every product reimplements the same pure ru
 | Layer | Authored how | Owns | Does not own |
 |-------|--------------|------|--------------|
 | **Wire schemas** | Hand-written JSON Schema in `schemas/` → generated `@42ch/spoke-schemas` | Object shapes, ops request/response envelopes, `extensions` bag presence | Lifecycle transitions, merge semantics, promote gates |
-| **Operations library** | Hand-written TypeScript in `packages/spoke-operations/` | Pure functions / small state machines over generated types | HTTP/MCP, persistence, LLM, ranking, retrieval, product-specific detectors |
+| **Operations library** | Hand-written TypeScript in `packages/spoke-operations/`; hand-written Rust in `crates/spoke-operations/` | Pure functions / small state machines over generated types | HTTP/MCP, persistence, LLM, ranking, retrieval, product-specific detectors |
 | **Adapters** | Hand-written per product in `adapters/*` | Product DTO ↔ SPOKE mapping, transport binding | Reimplementing operations invariants (MUST call library instead) |
 
 ### Hard In / Out
@@ -31,9 +32,9 @@ Without a shared operations library, every product reimplements the same pure ru
 | Finding `status` transition validation + apply | HTTP routes, MCP tools, message queues, HTTP status code tables |
 | Promote acceptance checks (pure gate before persist) | LLM calls, checker engines, Guardian logic |
 | AssemblePacket builders from KnowledgeEntries (structure only) | Ranking, scoring, vector retrieval, token budgeting |
-| Unified `SpokeResult` / `SpokeRejectCode` on every reject path | Silent auto-promote bypassing human review semantics |
+| Unified `SpokeResult` / `SpokeRejectCode` on every reject path — **both** language packages | Silent auto-promote bypassing human review semantics |
 | Revision bump on promote apply (see §Promote acceptance) | — |
-| OCC revision compare (`assertRevisionMatch`) — operations library deepen | — |
+| OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) — operations library deepen | — |
 | KnowledgeEntry status transitions + active uniqueness — operations library deepen | Product `world_id` / `book_id` as required core fields |
 | Scope match, upsert/relate gates, error-envelope map — operations library deepen | `scope_id` parsing; retrieval engines |
 
@@ -81,7 +82,7 @@ type SpokeResult<T = void> = SpokeOk<T> | SpokeReject;
 
 ### `SpokeRejectCode` (first slice + deepen)
 
-Stable string literals exported from `@42ch/spoke-operations` (e.g. `as const` object + union type). Implementers MUST NOT invent parallel code strings.
+Stable string literals exported from `@42ch/spoke-operations` and `spoke-operations` (e.g. TS `as const` object + union type; Rust `SpokeRejectCode` with `as_str()` returning the same literals). Implementers MUST NOT invent parallel code strings.
 
 | Code | Family | Emitted in first slice | Emitted in deepen slice | Meaning |
 |------|--------|----------------------|----------------------|---------|
@@ -434,20 +435,40 @@ Wire shapes: [`spoke-data-model.md` §Computable body](spoke-data-model.md#compu
 
 ## Package contract
 
+### TypeScript
+
 | Field | Value |
 |-------|-------|
 | Name | `@42ch/spoke-operations` |
+| Path | `packages/spoke-operations/` |
 | Dependency | `@42ch/spoke-schemas` (workspace) only |
-| Publish | Private workspace package; no npm publish job in CI |
-| Rust | Deferred (`spoke-operations` crate not in first slice) |
+| Publish | npm on stable tags (`@42ch/spoke-schemas` first, then this package) |
+| Behavioral SSOT | This spec + TS implementation — Rust is a port |
 
 Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`, `SpokeReject`, `SpokeRejectCode` types/constants.
+
+### Rust
+
+| Field | Value |
+|-------|-------|
+| Name | `spoke-operations` |
+| Path | `crates/spoke-operations/` |
+| Dependency | `spoke-schemas` (workspace) only |
+| Publish | crates.io on stable tags (`spoke-schemas` first, then this crate) |
+| Parity rule | Behavioral port of `@42ch/spoke-operations`; same helper families, same `SpokeRejectCode` string literals, same In/Out tables |
+| `SpokeResult` | Rust `enum SpokeResult<T> { Ok(T), Reject(SpokeReject) }` with `spoke_ok` / `spoke_reject` — code strings match TS; idiomatic Rust surface, not a second vocabulary |
+
+Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering the same symbol set as TS `src/index.ts`.
+
+**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); private `util` for typify field-access helpers only — no parallel wire DTOs.
+
+**Wire types:** helpers accept `spoke_schemas` generated types directly (`KnowledgeEntry`, `Finding`, `ErrorEnvelope`, etc.).
 
 ---
 
 ## Acceptance (operations layer)
 
-### First slice (delivered)
+### First slice (TypeScript)
 
 - [x] This spec + [`spoke-protocol.md`](spoke-protocol.md) cross-link (umbrella column 3)
 - [x] Package exists with four helper families and unit tests per table above
@@ -455,12 +476,19 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - [x] No I/O, LLM, ranking, retrieval, or storage imports in package dependency graph
 - [x] CI typecheck + test + build includes `packages/spoke-operations/`
 
-### Deepen slice (delivered 2026-07-23)
+### Deepen slice (TypeScript)
 
 - [x] OCC, KnowledgeEntry status, uniqueness, Scope, upsert, relate, error-map families implemented per §Helper families (operations deepen)
 - [x] `REVISION_CONFLICT` and `STORED_REVISION_STALE` emitted on documented paths
 - [x] [`spoke-protocol-layers.md`](spoke-protocol-layers.md) library column updated for L0–L6 rows
 - [x] First-slice export behavior unchanged except additive OCC emit on new call sites
+
+### Rust crate (shippable)
+
+- [ ] `spoke-operations` crate at `crates/spoke-operations/` with full TS export parity
+- [ ] All 20 `SpokeRejectCode` strings exported from `result` module
+- [ ] `cargo test -p spoke-operations` in CI and release verify
+- [ ] crates.io publish after `spoke-schemas` on stable tags
 
 ### Computable slice (`l2-computable`)
 
@@ -472,7 +500,6 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 ### First slice
 
 - Adapter conversion code
-- Rust operations crate
 - Conformance fixtures / golden files
 - `Rule` evaluation, checker engines, Guardian detectors
 - HTTP/MCP binding or daemon routes
@@ -485,7 +512,6 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 - HTTP/MCP status code tables
 - Checker Rule evaluation engines
 - Compute engine execution, WASM, Session store I/O
-- Rust `spoke-operations` crate (TS library remains SSOT)
 
 ---
 
@@ -497,4 +523,6 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
-| `packages/spoke-operations/` | Implementation (first slice + deepen delivered 2026-07-23) |
+| `packages/spoke-operations/` | TypeScript operations library (first slice + deepen) |
+| `crates/spoke-operations/` | Rust operations library — port of TS package at lockstep SemVer |
+| `crates/spoke-schemas/` | Generated Rust wire types |

@@ -9,7 +9,7 @@
 
 ## Purpose
 
-SPOKE publishes a **single lockstep SemVer** for workspace packages and the Rust schema crate so integrators can pin **one version** across TypeScript and Rust artifacts. Releases are cut with **annotated git tags**, materialized as **GitHub Releases**, and published to **npm** (`@42ch/spoke-schemas`, `@42ch/spoke-operations`) and **crates.io** (`spoke-schemas`) when CI passes on stable tags.
+SPOKE publishes a **single lockstep SemVer** for workspace packages and Rust consumer crates so integrators can pin **one version** across TypeScript and Rust artifacts. Releases are cut with **annotated git tags**, materialized as **GitHub Releases**, and published to **npm** (`@42ch/spoke-schemas`, `@42ch/spoke-operations`) and **crates.io** (`spoke-schemas`, `spoke-operations`) when CI passes on stable tags.
 
 **Integrator value:** install from npm/crates.io at `X.Y.Z`, or pin sibling repos to `vX.Y.Z` (git tag or GitHub Release source archive) via `file:` path or git dependency.
 
@@ -28,8 +28,9 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 5 | Codegen runner | `tooling/codegen/package.json` → `version` | JSON `version` field |
 | 6 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
 | 7 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
-| 8 | README EN badge | `README.md` | shields.io `version-X.Y.Z` regex (see below) |
-| 9 | README CN badge | `README_CN.md` | Same regex as row 8 |
+| 8 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
+| 9 | README EN badge | `README.md` | shields.io `version-X.Y.Z` regex (see below) |
+| 10 | README CN badge | `README_CN.md` | Same regex as row 9 |
 
 **Canonical version source:** row 1 (`package.json` → `version`). The assert script compares every other row to that string.
 
@@ -39,7 +40,7 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 |------|--------|
 | `tooling/codegen/rust-gen/Cargo.toml` | Standalone `[workspace]` bin crate (`spoke-rust-gen`); not a consumer pin surface; version is local to the codegen tool |
 
-CI **lockstep assert** MUST cover rows 1–9. Drift on any row MUST fail the build (no warn-only path).
+CI **lockstep assert** MUST cover rows 1–10. Drift on any row MUST fail the build (no warn-only path).
 
 ## SemVer usage (monorepo)
 
@@ -72,10 +73,10 @@ A SPOKE release is:
 2. Maintainer creates and pushes annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) pointing at that commit.
 3. CI **release** workflow on tag push re-validates verify-equivalent gates.
 4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply only when the section is missing.
-5. On stable tags (no `-rc.` suffix), CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas` to npm and crates.io.
+5. On stable tags (no `-rc.` suffix), CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas`, then crate `spoke-operations` to npm and crates.io.
 6. Consumers install from registries at `X.Y.Z` or pin the repo at that tag.
 
-**GitHub Release contents (minimum):** tag name, release notes body, automatic source archive (GitHub default). Registry artifacts: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas` crate at the same SemVer.
+**GitHub Release contents (minimum):** tag name, release notes body, automatic source archive (GitHub default). Registry artifacts: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, `spoke-operations` at the same SemVer.
 
 ## Who may cut a release
 
@@ -92,7 +93,7 @@ A SPOKE release is:
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
 | Push of tag matching `v*` | `.github/workflows/release.yml` | Parallel verify-equivalent jobs, then `release`, then `publish-npm` + `publish-crates` on stable tags (fail-closed) |
 
-Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, and crate `spoke-schemas`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
+Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, and `spoke-operations`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
 ### Lockstep assert (PR / main)
 
@@ -119,10 +120,10 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
 | Release action | `softprops/action-gh-release` pinned by commit SHA (same pin style as `ci.yml`) |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
-| Registry publish | `publish-npm`: `@42ch/spoke-schemas` then `@42ch/spoke-operations` via `pnpm publish --access public`; `publish-crates`: `cargo publish -p spoke-schemas` |
+| Registry publish | `publish-npm`: `@42ch/spoke-schemas` then `@42ch/spoke-operations` via `pnpm publish --access public`; `publish-crates`: `cargo publish -p spoke-schemas` then `cargo publish -p spoke-operations` |
 | Registry secrets | `NPM_TOKEN` (npm auth), `CARGO_REGISTRY_TOKEN` (crates.io) — repository secrets only; never committed |
 
-**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
+**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
 ### README version badge assert
 
@@ -139,7 +140,7 @@ Both `README.md` and `README_CN.md` MUST contain a shields.io Version badge whos
 
 | Script | Path | Role |
 |--------|------|------|
-| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `README_BADGE_PATHS[]` |
+| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `CARGO_SCHEMA_CRATE_PATH`, `CARGO_OPS_CRATE_PATH`, `README_BADGE_PATHS[]` |
 | Assert | `tooling/release/assert-lockstep-version.mjs` | Reads manifest; exits 0/1 |
 | Bump | `tooling/release/bump-version.mjs` | Updates all manifest paths + badges; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
 | Changelog runner | `tooling/release/run-git-cliff.mjs` | Resolves `git-cliff` (PATH → `pnpm dlx` → `npx`); used by bump and `release:changelog` |
@@ -170,13 +171,13 @@ Both `README.md` and `README_CN.md` MUST contain a shields.io Version badge whos
 | Method | Pattern |
 |--------|---------|
 | npm | `pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z` |
-| crates.io | `spoke-schemas = "X.Y.Z"` in `Cargo.toml` |
+| crates.io | `spoke-schemas = "X.Y.Z"` and `spoke-operations = "X.Y.Z"` in `Cargo.toml` |
 | Git tag | `git checkout vX.Y.Z` |
 | GitHub Release | Download source archive for tag `vX.Y.Z` |
 | pnpm workspace | `"@42ch/spoke-schemas": "file:../spoke/packages/spoke-schemas"` at checked-out tag |
 | Git dependency | `"@42ch/spoke-schemas": "github:42ch-dev/spoke#vX.Y.Z"` (org/repo as applicable) |
 
-Package names: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crate `spoke-schemas`.
+Package names: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crates `spoke-schemas`, `spoke-operations`.
 
 ## Orthogonality — package SemVer vs wire `schema_version`
 

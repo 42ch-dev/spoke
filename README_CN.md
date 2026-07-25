@@ -99,7 +99,7 @@ git checkout vX.Y.Z
 
 1. 打开 [Actions → New release](https://github.com/42ch-dev/spoke/actions/workflows/new-release.yml) → **Run workflow**。
 2. **version** 填锁步 SemVer（例如 `0.1.0-alpha.3`）。可选 summary 写入 PR 正文。
-3. 合并打开的 PR（保留 `release` 标签），或关闭以中止。CI 运行 [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml)：创建带注释标签 `vX.Y.Z`、校验门禁、从 [`CHANGELOG.md`](CHANGELOG.md) 创建 GitHub Release；不含 `-rc.` 后缀的标签发布到 npm 与 crates.io。若需重试 registry 发布，可对同一 workflow 使用 **Run workflow** 并填入已有 tag。
+3. 合并打开的 PR（保留 `release` 标签），或关闭以中止。CI 运行 [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml)：创建带注释标签 `vX.Y.Z`、校验门禁、从 [`CHANGELOG.md`](CHANGELOG.md) 创建 GitHub Release；不含 `-rc.` 后缀的标签发布到 npm 与 crates.io。
 
 [`CHANGELOG.md`](CHANGELOG.md) 是发布说明来源（Keep a Changelog，由 [git-cliff](https://git-cliff.org) 生成）。本地预览：`pnpm run release:changelog -- --unreleased`。
 

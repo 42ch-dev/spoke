@@ -29,8 +29,9 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 6 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
 | 7 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
 | 8 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
-| 9 | README EN badge | `README.md` | shields.io `version-X.Y.Z` regex (see below) |
-| 10 | README CN badge | `README_CN.md` | Same regex as row 9 |
+| 9 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas` and `spoke-operations` | TOML package version entries |
+| 10 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
+| 11 | README CN badge | `README_CN.md` | Same as row 10 |
 
 **Canonical version source:** row 1 (`package.json` → `version`). The assert script compares every other row to that string.
 
@@ -39,8 +40,9 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | Path | Reason |
 |------|--------|
 | `tooling/codegen/rust-gen/Cargo.toml` | Standalone `[workspace]` bin crate (`spoke-rust-gen`); not a consumer pin surface; version is local to the codegen tool |
+| `pnpm-lock.yaml` | Workspace packages use `link:` protocol; lockfile does not embed package SemVer |
 
-CI **lockstep assert** MUST cover rows 1–10. Drift on any row MUST fail the build (no warn-only path).
+CI **lockstep assert** MUST cover rows 1–11. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
 
 ## SemVer usage (monorepo)
 
@@ -71,7 +73,7 @@ A SPOKE release is:
 
 1. Lockstep manifests and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via **New release** PR or equivalent maintainer bump). README Version badges track the latest GitHub Release dynamically.
 2. Annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) points at that commit (created by **Release** after a `release`-labeled PR merges, or by a maintainer).
-3. CI **Release** workflow (`release.yml` — top-level only: tag push, PR-merge tag path, or `workflow_dispatch`) re-validates verify-equivalent gates.
+3. CI **Release** workflow (`release.yml` — top-level only: tag push or PR-merge tag path) re-validates verify-equivalent gates.
 4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply when the section is missing.
 5. When the tag name does not contain `-rc.`, CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas`, then crate `spoke-operations` to npm and crates.io.
 6. Consumers install from registries at `X.Y.Z` or pin the repo at that tag.
@@ -82,7 +84,7 @@ A SPOKE release is:
 
 | Actor | Rule |
 |-------|------|
-| Maintainers | MAY run **New release** (`workflow_dispatch`) and merge or close the labeled PR; MAY still bump/tag manually; MAY re-run **Release** via `workflow_dispatch` with an existing tag |
+| Maintainers | MAY run **New release** (`workflow_dispatch`) and merge or close the labeled PR; MAY still bump/tag manually |
 | CI | **New release** MAY open the bump PR; **Release** MAY create the annotated tag and publish when a `release`-labeled PR merges to `main` |
 | CI | MUST NOT auto-bump or auto-tag on ordinary (non-release) merges to `main` |
 | Forks | Release workflow MAY no-op or fail without `contents: write`; document in operator guide |
@@ -93,7 +95,7 @@ A SPOKE release is:
 |---------|----------|-------------|
 | `pull_request` / push to `main` / `iteration/**` | `.github/workflows/ci.yml` | Existing verify jobs **plus** dedicated `verify-version` job |
 | `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | Opens lockstep bump PR with label `release` (GitHub-signed commit); MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists; MUST NOT duplicate `CHANGELOG` version headings |
-| `pull_request` closed (merged + label `release`), push of tag `v*`, or `workflow_dispatch` (`tag` input) | `.github/workflows/release.yml` | Top-level only (no `workflow_call`). Tag-on-merge when applicable → parallel verify → GitHub Release → `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). Trusted Publishing OIDC requires this filename (`release.yml`). |
+| `pull_request` closed (merged + label `release`) or push of tag `v*` | `.github/workflows/release.yml` | Top-level only (no `workflow_call`, no `workflow_dispatch`). Tag-on-merge when applicable → parallel verify → GitHub Release → `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). Trusted Publishing OIDC requires this filename (`release.yml`). |
 
 Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, and `spoke-operations`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
@@ -114,13 +116,13 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Item | Value |
 |------|-------|
 | File | `.github/workflows/release.yml` |
-| Trigger | `on.push.tags: ['v*']`; `pull_request` closed (merged + label `release`); `workflow_dispatch` with `tag` (recovery). No `workflow_call` (OIDC Trusted Publishing requires top-level `release.yml`). |
-| Concurrency | `group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || inputs.tag || github.ref }}`, `cancel-in-progress: true` |
-| Permissions | Workflow-level `contents: write`, `id-token: write`, `pull-requests: read` (mstar-harness Trusted Publishing pattern) |
+| Trigger | `on.push.tags: ['v*']`; `pull_request` closed (merged + label `release`). No `workflow_call` / no `workflow_dispatch` (OIDC Trusted Publishing requires top-level `release.yml`). |
+| Concurrency | `group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}`, `cancel-in-progress: true` |
+| Permissions | Workflow-level `contents: write`, `id-token: write`, `pull-requests: read` |
 | Job layout | Optional `tag` → `resolve-tag` → **four parallel verify jobs** → **`release`** → **`publish-npm`** then **`publish-crates`** (tags without `-rc.` only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
 | Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm` and `publish-crates` |
-| Release action | `gh release create` (idempotent skip if release already exists) |
+| Release action | `softprops/action-gh-release` pinned by commit SHA |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
 | Registry publish | `publish-npm`: Node 24 + `registry-url`, stock npm (no global npm upgrade), pack with pnpm then `npm publish` tarball; `publish-crates`: `rust-lang/crates-io-auth-action` then `cargo publish` schemas then ops |
 | Registry auth | npm and crates.io: Trusted Publishing only (org `42ch-dev`, repo `spoke`, workflow **`release.yml`** as top-level filename) |
@@ -143,9 +145,9 @@ Both `README.md` and `README_CN.md` MUST contain a dynamic shields.io GitHub Rel
 
 | Script | Path | Role |
 |--------|------|------|
-| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `CARGO_SCHEMA_CRATE_PATH`, `CARGO_OPS_CRATE_PATH`, `README_BADGE_PATHS[]`, `README_RELEASE_BADGE_MARKER` |
-| Assert | `tooling/release/assert-lockstep-version.mjs` | Reads manifest; exits 0/1 |
-| Bump | `tooling/release/bump-version.mjs` | Updates all lockstep manifests; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
+| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `CARGO_SCHEMA_CRATE_PATH`, `CARGO_OPS_CRATE_PATH`, `CARGO_LOCK_PATH`, `CARGO_LOCK_PACKAGE_NAMES[]`, `README_BADGE_PATHS[]`, `README_RELEASE_BADGE_MARKER` |
+| Assert | `tooling/release/assert-lockstep-version.mjs` | Reads manifest (incl. `Cargo.lock` member versions); exits 0/1 |
+| Bump | `tooling/release/bump-version.mjs` | Updates all lockstep manifests + `Cargo.lock` member versions; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
 | Changelog runner | `tooling/release/run-git-cliff.mjs` | Resolves `git-cliff` (PATH → `pnpm dlx` → `npx`); used by bump and `release:changelog` |
 | Notes extractor | `tooling/release/extract-changelog-notes.mjs` | Prints `CHANGELOG.md` section body for `vX.Y.Z` / `X.Y.Z` (CI + local) |
 | Config | `cliff.toml` | git-cliff Conventional Commits grouping (Keep a Changelog sections) |

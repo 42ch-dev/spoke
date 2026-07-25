@@ -23,6 +23,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_LOCK_PACKAGE_NAMES,
+  CARGO_LOCK_PATH,
   CARGO_OPS_CRATE_PATH,
   CARGO_SCHEMA_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
@@ -30,6 +32,7 @@ import {
   README_BADGE_PATHS,
   README_RELEASE_BADGE_MARKER,
   hasReadmeReleaseBadge,
+  parseCargoLockPackageVersion,
   parseOpsSpokeSchemasDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -224,6 +227,28 @@ if (opsSchemasDepVersion === null) {
     canonicalVersion,
     opsSchemasDepVersion,
   );
+}
+
+const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
+for (const packageName of CARGO_LOCK_PACKAGE_NAMES) {
+  const lockVersion = parseCargoLockPackageVersion(
+    cargoLockContents,
+    packageName,
+  );
+  if (lockVersion === null) {
+    recordFailure(
+      `${CARGO_LOCK_PATH} (${packageName})`,
+      canonicalVersion,
+      "(missing [[package]] entry)",
+      `Cargo.lock must list workspace member ${packageName}`,
+    );
+  } else {
+    assertEqual(
+      `${CARGO_LOCK_PATH} (${packageName})`,
+      canonicalVersion,
+      lockVersion,
+    );
+  }
 }
 
 for (const readmePath of README_BADGE_PATHS) {

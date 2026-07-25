@@ -1,13 +1,11 @@
 name: Release
 
-# Single top-level workflow so npm/crates Trusted Publishing OIDC sees workflow
-# filename `release.yml` (same pattern as mstar-harness). Do not wrap this file
-# in workflow_call — the caller's name would become the OIDC workflow claim.
+# Top-level only so Trusted Publishing OIDC binds to workflow filename
+# `release.yml` (mstar-harness pattern). Do not call this via workflow_call.
 #
 # Entry points:
 #   - push tags v* (human/PAT tag push)
 #   - pull_request closed on main with label `release` (tag + publish)
-#   - workflow_dispatch with tag (recovery re-run)
 on:
   push:
     tags:
@@ -15,18 +13,11 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing annotated tag to (re)publish (e.g. v0.1.0)"
-        required: true
-        type: string
 
 concurrency:
-  group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || inputs.tag || github.ref }}
+  group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
-# Match mstar-harness: workflow-level id-token for Trusted Publishing.
 permissions:
   contents: write
   id-token: write
@@ -97,7 +88,6 @@ jobs:
     if: >
       always() && (
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-        github.event_name == 'workflow_dispatch' ||
         (github.event_name == 'pull_request' && needs.tag.result == 'success')
       )
     outputs:
@@ -108,9 +98,6 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ github.event_name }}" in
-            workflow_dispatch)
-              TAG="${{ inputs.tag }}"
-              ;;
             push)
               TAG="${{ github.ref_name }}"
               ;;
@@ -132,7 +119,7 @@ jobs:
   verify-codegen:
     name: verify-codegen
     needs: [resolve-tag]
-    # Skipped `tag` (non-PR events) must not poison this job.
+    # `tag` is skipped on push.tags; keep the graph alive when resolve-tag succeeds.
     if: ${{ always() && needs.resolve-tag.result == 'success' }}
     runs-on: ubuntu-latest
     env:
@@ -315,31 +302,30 @@ jobs:
         with:
           node-version: 20
 
-      - name: Create GitHub Release
-        # Idempotent for workflow_dispatch re-runs.
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Resolve release notes
+        id: notes
         run: |
-          set -euo pipefail
           TAG="${RELEASE_TAG}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "GitHub Release ${TAG} already exists; leaving notes unchanged."
-            exit 0
+          BODY="$(node tooling/release/extract-changelog-notes.mjs "$TAG" || true)"
+          if [ -z "$BODY" ]; then
+            BODY="$(git tag -l --format='%(contents)' "$TAG" || true)"
           fi
-          NOTES_FILE="$(mktemp)"
-          NOTES="$(node tooling/release/extract-changelog-notes.mjs "$TAG" || true)"
-          if [ -z "$NOTES" ]; then
-            NOTES="$(git tag -l --format='%(contents)' "$TAG" || true)"
+          if [ -z "$BODY" ]; then
+            BODY="Release $TAG"
           fi
-          if [ -z "$NOTES" ]; then
-            NOTES="Release $TAG"
-          fi
-          printf '%s\n' "$NOTES" > "$NOTES_FILE"
-          ARGS=(release create "$TAG" --notes-file "$NOTES_FILE" --verify-tag)
-          if [[ "$TAG" == *-rc.* ]]; then
-            ARGS+=(--prerelease)
-          fi
-          gh "${ARGS[@]}"
+          {
+            echo "body<<EOF"
+            printf '%s\n' "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        # softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          body: ${{ steps.notes.outputs.body }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-rc.') }}
 
   publish-npm:
     name: publish-npm
@@ -368,9 +354,7 @@ jobs:
         with:
           version: 9
 
-      # Match mstar-harness Trusted Publishing:
-      # Node 24 ships working npm OIDC/provenance — do not `npm install -g npm@…`.
-      # Keep registry-url (same as mstar); OIDC works when this workflow is top-level.
+      # Node 24 + registry-url; use stock npm (do not npm install -g).
       - name: Setup Node.js
         # actions/setup-node@v4.4.0
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -421,7 +405,7 @@ jobs:
         # dtolnay/rust-toolchain@stable (2026-07-16)
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
-      # Temporary crates.io token via OIDC Trusted Publishing; post step revokes it.
+      # crates.io Trusted Publishing — short-lived token; post step revokes it.
       - name: Authenticate to crates.io
         id: crates-io-auth
         # rust-lang/crates-io-auth-action@v1.0.5

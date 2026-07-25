@@ -13,9 +13,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_LOCK_PATH,
   CARGO_OPS_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
+  replaceCargoLockPackageVersions,
   replaceOpsSpokeSchemasDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
@@ -414,7 +416,12 @@ if (typeof currentVersion !== "string" || currentVersion.length === 0) {
 
 if (currentVersion === targetVersion) {
   console.log(
-    `Version already ${targetVersion}; ensuring changelog section and re-running assert.`,
+    `Version already ${targetVersion}; ensuring changelog section, Cargo.lock, and re-running assert.`,
+  );
+  const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
+  writeRepoFile(
+    CARGO_LOCK_PATH,
+    replaceCargoLockPackageVersions(cargoLockContents, targetVersion),
   );
   const changelog = existsSync(repoPath(CHANGELOG_PATH))
     ? readRepoFile(CHANGELOG_PATH)
@@ -472,6 +479,12 @@ const opsCrateContents = readRepoFile(CARGO_OPS_CRATE_PATH);
 writeRepoFile(
   CARGO_OPS_CRATE_PATH,
   replaceOpsSpokeSchemasDependencyVersion(opsCrateContents, targetVersion),
+);
+
+const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
+writeRepoFile(
+  CARGO_LOCK_PATH,
+  replaceCargoLockPackageVersions(cargoLockContents, targetVersion),
 );
 
 updateChangelog(targetVersion);

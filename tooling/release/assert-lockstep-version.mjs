@@ -8,6 +8,8 @@
  *   3. Revert the change; assert must pass again.
  *
  * Release tag test (optional SPOKE_RELEASE_TAG):
+ *   Annotated-tag requirement is enforced in `.github/workflows/release.yml` verify-version job
+ *   (lightweight tags fail before this script runs).
  *   SPOKE_RELEASE_TAG=v0.1.0 node tooling/release/assert-lockstep-version.mjs  # pass
  *   SPOKE_RELEASE_TAG=v0.1.0-rc.1 node tooling/release/assert-lockstep-version.mjs  # pass when manifest is 0.1.0
  *   SPOKE_RELEASE_TAG=0.1.0 node tooling/release/assert-lockstep-version.mjs  # fail (missing v)

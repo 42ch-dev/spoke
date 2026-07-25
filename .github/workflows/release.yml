@@ -120,6 +120,19 @@ jobs:
       - name: Checkout
         # actions/checkout@v4.2.2
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Require annotated release tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          git fetch --tags --force origin
+          TYPE="$(git cat-file -t "refs/tags/${TAG}")"
+          if [ "$TYPE" != "tag" ]; then
+            echo "::error::Release tag ${TAG} must be an annotated tag (git tag -a), not a lightweight tag."
+            echo "Found object type: ${TYPE} (expected: tag)"
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

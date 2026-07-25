@@ -24,7 +24,7 @@
 
 ## 软件包
 
-已发布的消费方软件包共用**锁步 SemVer**（当前发布 **`0.1.0`**）。
+已发布的消费方软件包共用**锁步 SemVer**。
 
 | 软件包 | 注册表 | 职责 |
 |--------|--------|------|
@@ -41,7 +41,7 @@
 
 ```bash
 pnpm add @42ch/spoke-schemas @42ch/spoke-operations
-# 将两者固定到同一锁步 SemVer，例如 @0.1.0
+# 将两者固定到同一锁步 SemVer，例如 @X.Y.Z
 ```
 
 **`@42ch/spoke-schemas`** — 导入生成的线上类型：
@@ -79,14 +79,14 @@ if (gate.ok) {
 
 ```bash
 cargo add spoke-schemas spoke-operations
-# 将两者固定到同一锁步 SemVer，例如 0.1.0
+# 将两者固定到同一锁步 SemVer，例如 X.Y.Z
 ```
 
 ```toml
 # Cargo.toml
 [dependencies]
-spoke-schemas = "0.1.0"
-spoke-operations = "0.1.0"
+spoke-schemas = "X.Y.Z"
+spoke-operations = "X.Y.Z"
 ```
 
 **`spoke-schemas`** — 与 JSON Schema SSOT 对齐的线上类型：

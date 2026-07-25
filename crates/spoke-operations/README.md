@@ -8,13 +8,13 @@ Depends on [`spoke-schemas`](https://crates.io/crates/spoke-schemas) for wire ty
 
 ```bash
 cargo add spoke-schemas spoke-operations
-# Pin both to the same lockstep SemVer (current: 0.1.0)
+# Pin both to the same lockstep SemVer (e.g. X.Y.Z)
 ```
 
 ```toml
 [dependencies]
-spoke-schemas = "0.1.0"
-spoke-operations = "0.1.0"
+spoke-schemas = "X.Y.Z"
+spoke-operations = "X.Y.Z"
 ```
 
 ## Usage

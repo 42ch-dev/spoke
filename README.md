@@ -24,7 +24,7 @@
 
 ## Packages
 
-Published consumer packages share one **lockstep SemVer** (current release **`0.1.0`**).
+Published consumer packages share one **lockstep SemVer**.
 
 | Package | Registry | Role |
 |---------|----------|------|
@@ -41,7 +41,7 @@ Product-specific payloads live under `extensions.<namespace>` (namespace keys ar
 
 ```bash
 pnpm add @42ch/spoke-schemas @42ch/spoke-operations
-# Pin both to the same lockstep SemVer, e.g. @0.1.0
+# Pin both to the same lockstep SemVer, e.g. @X.Y.Z
 ```
 
 **`@42ch/spoke-schemas`** — import generated wire types:
@@ -79,14 +79,14 @@ if (gate.ok) {
 
 ```bash
 cargo add spoke-schemas spoke-operations
-# Pin both to the same lockstep SemVer, e.g. 0.1.0
+# Pin both to the same lockstep SemVer, e.g. X.Y.Z
 ```
 
 ```toml
 # Cargo.toml
 [dependencies]
-spoke-schemas = "0.1.0"
-spoke-operations = "0.1.0"
+spoke-schemas = "X.Y.Z"
+spoke-operations = "X.Y.Z"
 ```
 
 **`spoke-schemas`** — wire types from the same JSON Schema SSOT:

@@ -8,7 +8,7 @@ Types are produced from the repository JSON Schema SSOT (`schemas/`). Pair with 
 
 ```bash
 pnpm add @42ch/spoke-schemas
-# Prefer the same SemVer as @42ch/spoke-operations (current lockstep: 0.1.0)
+# Prefer the same SemVer as @42ch/spoke-operations (e.g. @X.Y.Z)
 ```
 
 Lockstep with `@42ch/spoke-operations` at the same SemVer when using both.

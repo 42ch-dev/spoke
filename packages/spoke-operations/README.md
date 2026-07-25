@@ -8,7 +8,7 @@ Depends on [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-sch
 
 ```bash
 pnpm add @42ch/spoke-schemas @42ch/spoke-operations
-# Pin both to the same lockstep SemVer (current: 0.1.0)
+# Pin both to the same lockstep SemVer (e.g. @X.Y.Z)
 ```
 
 Pin both packages to the same lockstep SemVer.

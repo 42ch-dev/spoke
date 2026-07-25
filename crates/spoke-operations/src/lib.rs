@@ -6,7 +6,10 @@ mod finding;
 mod knowledge_entry;
 mod occ;
 mod promote;
+mod relate;
 mod result;
+mod scope;
+mod upsert;
 mod util;
 
 pub use assemble::{
@@ -21,6 +24,14 @@ pub use knowledge_entry::{
 };
 pub use occ::assert_revision_match;
 pub use promote::{apply_promote_acceptance, validate_promote_request, validate_promote_request_wire};
+pub use relate::validate_relate_request;
+pub use scope::{
+    filter_knowledge_entries_by_scope, filter_timeline_events_by_scope,
+    knowledge_entry_matches_scope, timeline_event_matches_scope,
+};
+pub use upsert::{
+    validate_upsert_knowledge_entry, UpsertMode, ValidateUpsertKnowledgeEntryContext,
+};
 pub use result::{
     spoke_ok, spoke_ok_unit, spoke_reject, SpokeReject, SpokeRejectCode, SpokeResult,
 };

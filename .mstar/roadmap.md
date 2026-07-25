@@ -20,7 +20,6 @@ Ordered by likely value; lock scope in a delivery compass before implement. Item
 | Priority | Item | Outcome | Notes |
 |----------|------|---------|-------|
 | 1 | CI / codegen harden (residuals) | e.g. TS codegen narrowing for ComputableLogChange; Rust generated-type duplication strategy; keep schema-count (**23**) in sync | Open: ComputableLogChange previous/next narrowing |
-| 2 | **Rust** `spoke-operations` crate (optional) | Pure helpers mirrored for Rust consumers | TS library is SSOT today |
 
 **Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
 
@@ -32,6 +31,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-25 | Rust ops CI + publish | CI/release verify `cargo test -p spoke-operations`; lockstep assert for ops crate; crates.io `spoke-operations` after `spoke-schemas`; README EN/CN Rust ops pin/install |
 | 2026-07-25 | Registry publish | CI `publish-npm` + `publish-crates` on stable tags after verify; npm `@42ch/spoke-schemas` / `@42ch/spoke-operations`; crates.io `spoke-schemas`; skip `-rc.` tags |
 | 2026-07-25 | CHANGELOG release notes | `CHANGELOG.md` via git-cliff; bump regenerates sections; GitHub Release body prefers changelog section over tag annotation |
 | 2026-07-25 | Unified version release | Lockstep assert + `release:bump` tooling; CI `verify-version` + tag-gated `release.yml`; README EN/CN pinning + maintainer how-to; [spoke-version-release.md](specs/spoke-version-release.md) |
@@ -50,7 +50,7 @@ Newest first. Dates are delivery dates on `main`.
 |------|--------|
 | Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `body.state`/`body.computable`, `computable_logs` (`l2-computable`); optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`) |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
-| Ops library | Pure TS helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
+| Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
 | Fixtures | `fixtures/toy-world/` samples + conformance (dual-concern ontology `"event"` + TimelineEvent; Fork-aware TimelineEvent sample under `l5-fork`) |
 | Specs / vocabulary | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/`; CONCEPTS + knowledge vocabulary pattern |
 
@@ -81,5 +81,6 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
 | [`knowledge/architecture-patterns/l5-fork-timeline-event-wire.md`](knowledge/architecture-patterns/l5-fork-timeline-event-wire.md) | Compound note on optional Fork wire |
 | [`schemas/`](../schemas/) | Wire SSOT |
-| [`packages/spoke-operations/`](../packages/spoke-operations/) | Pure behavior library |
+| [`packages/spoke-operations/`](../packages/spoke-operations/) | Pure behavior library (TypeScript) |
+| [`crates/spoke-operations/`](../crates/spoke-operations/) | Pure behavior library (Rust) |
 | [`fixtures/toy-world/`](../fixtures/toy-world/) | Protocol samples + harness |

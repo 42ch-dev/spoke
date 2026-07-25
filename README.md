@@ -19,8 +19,8 @@
 
 - Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
-- Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`)
-- Pure lifecycle helpers (`@42ch/spoke-operations`)
+- Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
+- Pure lifecycle helpers (`@42ch/spoke-operations` / `spoke-operations`)
 - Protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/))
 
 ## Packages
@@ -30,6 +30,7 @@
 | [`@42ch/spoke-schemas`](packages/spoke-schemas/) | Generated TypeScript types from JSON Schema — **what** crosses the wire |
 | [`@42ch/spoke-operations`](packages/spoke-operations/) | Hand-written pure helpers — promote gates, Finding transitions, extension merge, AssemblePacket construction |
 | `spoke-schemas` (Rust crate) | Generated Rust types in [`crates/spoke-schemas/`](crates/spoke-schemas/) |
+| `spoke-operations` (Rust crate) | Hand-written pure helpers in [`crates/spoke-operations/`](crates/spoke-operations/) — parity with `@42ch/spoke-operations` |
 
 Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids).
 
@@ -44,6 +45,7 @@ pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
 ```toml
 # Cargo.toml
 spoke-schemas = "X.Y.Z"
+spoke-operations = "X.Y.Z"
 ```
 
 In a pnpm monorepo that vendors SPOKE as a workspace member:
@@ -72,7 +74,7 @@ Then build (`pnpm install` at the SPOKE root, then `pnpm --filter @42ch/spoke-sc
 
 ## Version and pinning
 
-SPOKE publishes a **single lockstep SemVer** (`X.Y.Z`) across all workspace packages and the Rust `spoke-schemas` crate. Pin a consumer repo to an annotated git tag:
+SPOKE publishes a **single lockstep SemVer** (`X.Y.Z`) across all workspace packages and Rust consumer crates (`spoke-schemas`, `spoke-operations`). Pin a consumer repo to an annotated git tag:
 
 ```bash
 git checkout vX.Y.Z
@@ -100,9 +102,9 @@ After changes are ready on `main`:
 1. Bump all lockstep surfaces and refresh the changelog section: `pnpm run release:bump -- X.Y.Z`
 2. Commit and push: `git add -A && git commit -m "chore(release): bump version to X.Y.Z" && git push`
 3. Create an annotated tag on the clean commit — re-run `pnpm run release:bump -- X.Y.Z --tag "optional summary"` or `git tag -a vX.Y.Z -m "optional summary"`
-4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` to crates.io (stable tags only).
+4. Push the tag: `git push origin vX.Y.Z` — triggers [`.github/workflows/release.yml`](.github/workflows/release.yml), which re-runs verify gates, creates a GitHub Release from `CHANGELOG.md`, and publishes `@42ch/spoke-schemas` and `@42ch/spoke-operations` to npm plus `spoke-schemas` and `spoke-operations` to crates.io (stable tags only).
 
-If npm publish succeeds but the crates.io step fails, re-run the failed `publish-crates` job or publish `spoke-schemas` manually at the tagged version — npm artifacts are already live.
+If npm publish succeeds but a crates.io step fails, re-run the failed `publish-crates` job or publish the missing crate manually at the tagged version — npm artifacts are already live.
 
 To preview or regenerate changelog output without bumping versions: `pnpm run release:changelog -- --unreleased` (passes flags through to git-cliff).
 

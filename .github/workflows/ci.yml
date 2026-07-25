@@ -112,6 +112,9 @@ jobs:
       - name: Check spoke-schemas crate
         run: cargo check -p spoke-schemas
 
+      - name: Test spoke-operations crate
+        run: cargo test -p spoke-operations
+
   verify-version:
     name: verify-version
     runs-on: ubuntu-latest

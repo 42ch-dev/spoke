@@ -113,6 +113,9 @@ jobs:
       - name: Check spoke-schemas crate
         run: cargo check -p spoke-schemas
 
+      - name: Test spoke-operations crate
+        run: cargo test -p spoke-operations
+
   verify-version:
     name: verify-version
     runs-on: ubuntu-latest
@@ -257,5 +260,10 @@ jobs:
 
       - name: Publish spoke-schemas crate
         run: cargo publish -p spoke-schemas
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Publish spoke-operations crate
+        run: cargo publish -p spoke-operations
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

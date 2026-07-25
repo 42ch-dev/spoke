@@ -10,7 +10,7 @@ Core terms for the SPOKE protocol repository. Each entry defines what the term m
 
 ### KnowledgeEntry
 
-The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`entry_id`), open-string `entry_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — transitions enforced by `@42ch/spoke-operations`; `deprecated` → `merged` is excluded (restore to `confirmed` before absorb).
+The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`entry_id`), open-string `entry_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — transitions enforced by `@42ch/spoke-operations` / `spoke-operations`; `deprecated` → `merged` is excluded (restore to `confirmed` before absorb).
 
 ### Relation
 

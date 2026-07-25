@@ -23,11 +23,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_OPS_CRATE_PATH,
   CARGO_SCHEMA_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   README_BADGE_PATHS,
   README_BADGE_PREFIX,
+  parseOpsSpokeSchemasDependencyVersion,
   parseReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -106,6 +108,35 @@ function recordFailure(relativePath, expected, actual, detail) {
 
 /**
  * @param {string} relativePath
+ * @param {string} label
+ * @param {string} expectedVersion
+ * @param {string | null} workspaceVersion
+ */
+function assertWorkspaceCrateVersion(
+  relativePath,
+  label,
+  expectedVersion,
+  workspaceVersion,
+) {
+  const crateContents = readRepoFile(relativePath);
+  if (!hasWorkspaceVersionDeclaration(crateContents)) {
+    recordFailure(
+      relativePath,
+      "version.workspace = true",
+      "(not declared)",
+      `${label} must declare version.workspace = true`,
+    );
+  } else if (workspaceVersion !== null) {
+    assertEqual(
+      `${relativePath} (effective via workspace)`,
+      expectedVersion,
+      workspaceVersion,
+    );
+  }
+}
+
+/**
+ * @param {string} relativePath
  * @param {string} expected
  * @param {string} actual
  */
@@ -164,19 +195,34 @@ if (cargoWorkspaceVersion === null) {
   assertEqual(CARGO_WORKSPACE_PATH, canonicalVersion, cargoWorkspaceVersion);
 }
 
-const schemaCrateContents = readRepoFile(CARGO_SCHEMA_CRATE_PATH);
-if (!hasWorkspaceVersionDeclaration(schemaCrateContents)) {
+assertWorkspaceCrateVersion(
+  CARGO_SCHEMA_CRATE_PATH,
+  "crates/spoke-schemas/Cargo.toml",
+  canonicalVersion,
+  cargoWorkspaceVersion,
+);
+assertWorkspaceCrateVersion(
+  CARGO_OPS_CRATE_PATH,
+  "crates/spoke-operations/Cargo.toml",
+  canonicalVersion,
+  cargoWorkspaceVersion,
+);
+
+const opsCrateContents = readRepoFile(CARGO_OPS_CRATE_PATH);
+const opsSchemasDepVersion =
+  parseOpsSpokeSchemasDependencyVersion(opsCrateContents);
+if (opsSchemasDepVersion === null) {
   recordFailure(
-    CARGO_SCHEMA_CRATE_PATH,
-    "version.workspace = true",
-    "(not declared)",
-    "crates/spoke-schemas/Cargo.toml must declare version.workspace = true",
+    `${CARGO_OPS_CRATE_PATH} (spoke-schemas dependency)`,
+    `version = "${canonicalVersion}" with path`,
+    "(missing version in path dependency)",
+    "spoke-operations must declare spoke-schemas with version + path for cargo publish",
   );
-} else if (cargoWorkspaceVersion !== null) {
+} else {
   assertEqual(
-    `${CARGO_SCHEMA_CRATE_PATH} (effective via workspace)`,
+    `${CARGO_OPS_CRATE_PATH} (spoke-schemas dependency)`,
     canonicalVersion,
-    cargoWorkspaceVersion,
+    opsSchemasDepVersion,
   );
 }
 

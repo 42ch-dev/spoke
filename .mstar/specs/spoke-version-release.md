@@ -69,9 +69,10 @@ Tags SHOULD be annotated. Release notes come from `CHANGELOG.md` first; tag anno
 
 A SPOKE release is:
 
-1. Lockstep manifests and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via **New release** or equivalent maintainer bump). README Version badges track the latest GitHub Release dynamically.
-2. Annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) points at that commit (created by **New release**, or by **Tag release on merge** after a human `release`-labeled PR, or by a maintainer).
-3. CI **Release** workflow (`release.yml` on tag push **or** `workflow_call`) re-validates verify-equivalent gates.4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply when the section is missing.
+1. Lockstep manifests and `CHANGELOG.md` bumped to `X.Y.Z` on `main` (via **New release** PR or equivalent maintainer bump). README Version badges track the latest GitHub Release dynamically.
+2. Annotated tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) points at that commit (created by **Tag release on merge** after a `release`-labeled PR merges, or by a maintainer).
+3. CI **Release** workflow (`release.yml` on tag push **or** `workflow_call` from Tag release on merge) re-validates verify-equivalent gates.
+4. On success, workflow creates a **GitHub Release** for that tag with notes from the matching `CHANGELOG.md` section; tag annotation and a one-line fallback apply when the section is missing.
 5. When the tag name does not contain `-rc.`, CI publishes `@42ch/spoke-schemas`, then `@42ch/spoke-operations`, then crate `spoke-schemas`, then crate `spoke-operations` to npm and crates.io.
 6. Consumers install from registries at `X.Y.Z` or pin the repo at that tag.
 

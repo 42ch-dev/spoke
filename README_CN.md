@@ -102,6 +102,8 @@ git checkout vX.Y.Z
 3. 在干净提交上创建带注释标签 — 再次执行 `pnpm run release:bump -- X.Y.Z --tag "可选摘要"`，或 `git tag -a vX.Y.Z -m "可选摘要"`
 4. 推送标签：`git push origin vX.Y.Z` — 触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，重新运行校验门禁、从 `CHANGELOG.md` 创建 GitHub Release，并向 npm 发布 `@42ch/spoke-schemas` 与 `@42ch/spoke-operations`、向 crates.io 发布 `spoke-schemas`（仅稳定标签）。
 
+若 npm 发布成功但 crates.io 步骤失败：重跑失败的 `publish-crates` job，或在该标签版本上手动 `cargo publish -p spoke-schemas`——npm 产物此时已上线。
+
 仅预览或重新生成 changelog（不 bump 版本）：`pnpm run release:changelog -- --unreleased`（参数透传给 git-cliff）。
 
 预发布使用 `vX.Y.Z-rc.N` 标签（GitHub pre-release）。CI 仅创建 GitHub Release；含 `-rc.` 的标签跳过 registry 发布。

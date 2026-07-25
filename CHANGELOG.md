@@ -6,6 +6,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.1.1] - 2026-07-25
+
+
+### Added
+
+- **schema:** Add OpaqueJson ref for ComputableLogChange fields
+
+
+### Changed
+
+- **release:** Add lockstep assert and bump unit tests
+
+
+### Documentation
+
+- **protocol:** Lock CI/codegen harden contracts and consumer docs
+
+- **readme:** Drop hardcoded lockstep version literals
+
+- **schemas:** Refresh OpaqueJson type-test header comment
+
+- **codegen:** Document Rust typify duplication strategy A
+
+
+### Fixed
+
+- **release:** Resolve RELEASE_TAG from inputs.tag on workflow_call
+
+- **release:** Unblock npm OIDC by dropping setup-node registry-url
+
+- **release:** Top-level release.yml for Trusted Publishing OIDC
+
+- **release:** Keep verify/publish running when tag job is skipped
+
+
+### Internal
+
+- **codegen:** Regenerate OpaqueJson as unknown JSON value
+
+- **roadmap:** Close CI/codegen harden and refresh codegen knowledge
+
 
 ## [0.1.0] - 2026-07-25
 

@@ -3,7 +3,7 @@ members = ["crates/spoke-schemas", "crates/spoke-operations"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["42ch"]
 license = "Apache-2.0"

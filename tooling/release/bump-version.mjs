@@ -7,7 +7,7 @@
  * Normative: `.mstar/specs/spoke-version-release.md`
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,8 +18,10 @@ import {
   README_BADGE_PATHS,
   replaceReadmeBadgeVersion,
 } from "./lockstep-surfaces.mjs";
+import { runGitCliff } from "./run-git-cliff.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const CHANGELOG_PATH = "CHANGELOG.md";
 const ASSERT_SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
   "assert-lockstep-version.mjs",
@@ -122,6 +124,27 @@ already committed (lockstep match on a clean tree). Refused when bumping or dirt
       : `Release v${targetVersion}`;
 
   return { targetVersion, tag: true, tagMessage };
+}
+
+/**
+ * @param {string} version
+ */
+function updateChangelog(version) {
+  const tag = `v${version}`;
+  const changelogExists = existsSync(repoPath(CHANGELOG_PATH));
+  const cliffArgs = changelogExists
+    ? ["--prepend", CHANGELOG_PATH, "--tag", tag]
+    : ["-o", CHANGELOG_PATH, "--tag", tag];
+
+  const result = runGitCliff(cliffArgs, REPO_ROOT);
+  if (result.status !== 0) {
+    console.error(
+      `bump-version: failed to update ${CHANGELOG_PATH} via git-cliff for ${tag}.`,
+    );
+    process.exit(result.status ?? 1);
+  }
+
+  console.log(`Updated ${CHANGELOG_PATH} for ${tag}.`);
 }
 
 /**
@@ -283,6 +306,7 @@ for (const readmePath of README_BADGE_PATHS) {
 }
 
 runAssert(targetVersion);
+updateChangelog(targetVersion);
 
 console.log(`Bumped lockstep version ${currentVersion} → ${targetVersion}.`);
 console.log("");

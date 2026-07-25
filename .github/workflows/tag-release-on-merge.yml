@@ -1,6 +1,6 @@
 name: Tag release on merge
 
-# After a Cut release PR (label `release`) merges to main, create vX.Y.Z and run Release.
+# After a New release PR (label `release`) merges to main, create vX.Y.Z and run Release.
 on:
   pull_request:
     types: [closed]
@@ -12,16 +12,18 @@ concurrency:
 
 permissions:
   contents: write
-  actions: write
   pull-requests: read
+  id-token: write
 
 jobs:
-  tag-and-dispatch:
-    name: tag-and-dispatch
+  tag:
+    name: tag
     if: >
       github.event.pull_request.merged == true &&
       contains(join(github.event.pull_request.labels.*.name, ','), 'release')
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout merge commit
         # actions/checkout@v4.2.2
@@ -51,7 +53,7 @@ jobs:
               echo "::error::Tag ${TAG} exists but is not annotated."
               exit 1
             fi
-            echo "Tag ${TAG} already exists; will dispatch Release."
+            echo "Tag ${TAG} already exists; will invoke Release."
           else
             MSG="Release ${TAG}"
             # Prefer first non-empty non-heading line from PR body as annotation
@@ -64,21 +66,22 @@ jobs:
             echo "Created and pushed ${TAG}"
           fi
 
-      - name: Dispatch Release workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          # GITHUB_TOKEN tag pushes do not start other workflows; dispatch explicitly.
-          gh workflow run release.yml \
-            --repo "${{ github.repository }}" \
-            -f "tag=${TAG}"
-          echo "Dispatched Release for ${TAG}"
-
       - name: Summary
         run: |
           echo "### Tagged release" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: \`${{ steps.tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Merge: \`${{ github.event.pull_request.merge_commit_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Next: watch the **Release** workflow run." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Next: **Release** runs via workflow_call (GITHUB_TOKEN tag pushes do not start workflows)." >> "$GITHUB_STEP_SUMMARY"
+
+  # GITHUB_TOKEN tag pushes do not start other workflows — call Release directly.
+  release:
+    name: release
+    needs: tag
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write

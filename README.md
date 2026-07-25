@@ -95,9 +95,9 @@ The shields.io **Version** badge at the top of this README reflects the canonica
 
 ## Release (maintainers)
 
-Primary path — **Cut release** on GitHub Actions, then merge the PR:
+Primary path — **New release** on GitHub Actions, then merge the PR:
 
-1. Open [Actions → Cut release](https://github.com/42ch-dev/spoke/actions/workflows/cut-release.yml) → **Run workflow**.
+1. Open [Actions → New release](https://github.com/42ch-dev/spoke/actions/workflows/new-release.yml) → **Run workflow**.
 2. Set **version** to the lockstep SemVer (e.g. `0.1.0-alpha.3`). Optional summary fills the PR body.
 3. Merge the opened PR (keep the `release` label). CI creates annotated tag `vX.Y.Z` and runs [**Release**](https://github.com/42ch-dev/spoke/actions/workflows/release.yml): verify gates, GitHub Release from [`CHANGELOG.md`](CHANGELOG.md), and on stable / alpha tags (no `-rc.` suffix) publish npm + crates.io.
 

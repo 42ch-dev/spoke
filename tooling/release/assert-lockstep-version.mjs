@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_OPS_CRATE_PATH,
   CARGO_SCHEMA_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
@@ -106,6 +107,35 @@ function recordFailure(relativePath, expected, actual, detail) {
 
 /**
  * @param {string} relativePath
+ * @param {string} label
+ * @param {string} expectedVersion
+ * @param {string | null} workspaceVersion
+ */
+function assertWorkspaceCrateVersion(
+  relativePath,
+  label,
+  expectedVersion,
+  workspaceVersion,
+) {
+  const crateContents = readRepoFile(relativePath);
+  if (!hasWorkspaceVersionDeclaration(crateContents)) {
+    recordFailure(
+      relativePath,
+      "version.workspace = true",
+      "(not declared)",
+      `${label} must declare version.workspace = true`,
+    );
+  } else if (workspaceVersion !== null) {
+    assertEqual(
+      `${relativePath} (effective via workspace)`,
+      expectedVersion,
+      workspaceVersion,
+    );
+  }
+}
+
+/**
+ * @param {string} relativePath
  * @param {string} expected
  * @param {string} actual
  */
@@ -164,21 +194,18 @@ if (cargoWorkspaceVersion === null) {
   assertEqual(CARGO_WORKSPACE_PATH, canonicalVersion, cargoWorkspaceVersion);
 }
 
-const schemaCrateContents = readRepoFile(CARGO_SCHEMA_CRATE_PATH);
-if (!hasWorkspaceVersionDeclaration(schemaCrateContents)) {
-  recordFailure(
-    CARGO_SCHEMA_CRATE_PATH,
-    "version.workspace = true",
-    "(not declared)",
-    "crates/spoke-schemas/Cargo.toml must declare version.workspace = true",
-  );
-} else if (cargoWorkspaceVersion !== null) {
-  assertEqual(
-    `${CARGO_SCHEMA_CRATE_PATH} (effective via workspace)`,
-    canonicalVersion,
-    cargoWorkspaceVersion,
-  );
-}
+assertWorkspaceCrateVersion(
+  CARGO_SCHEMA_CRATE_PATH,
+  "crates/spoke-schemas/Cargo.toml",
+  canonicalVersion,
+  cargoWorkspaceVersion,
+);
+assertWorkspaceCrateVersion(
+  CARGO_OPS_CRATE_PATH,
+  "crates/spoke-operations/Cargo.toml",
+  canonicalVersion,
+  cargoWorkspaceVersion,
+);
 
 for (const readmePath of README_BADGE_PATHS) {
   const contents = readRepoFile(readmePath);

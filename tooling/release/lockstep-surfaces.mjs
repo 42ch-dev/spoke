@@ -1,7 +1,7 @@
 /**
  * Lockstep version surfaces — SSOT manifest for assert and bump scripts.
  *
- * Normative source: `.mstar/specs/spoke-version-release.md` rows 1–9.
+ * Normative source: `.mstar/specs/spoke-version-release.md` rows 1–10.
  *
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.
@@ -27,8 +27,11 @@ export const CARGO_WORKSPACE_PATH = "Cargo.toml";
 /** @type {string} Rust schema crate manifest (row 7). */
 export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
 
+/** @type {string} Rust operations crate manifest (row 8). */
+export const CARGO_OPS_CRATE_PATH = "crates/spoke-operations/Cargo.toml";
+
 /**
- * README files with shields.io version badge (rows 8–9).
+ * README files with shields.io version badge (rows 9–10).
  * @type {readonly string[]}
  */
 export const README_BADGE_PATHS = ["README.md", "README_CN.md"];

@@ -1,33 +1,140 @@
 name: Release
 
-# Tag push (humans/PAT) or workflow_call (Tag release on merge / Retry release).
-# github.event_name is the *caller* event (e.g. pull_request), never "workflow_call" —
-# always prefer inputs.tag when set.
+# Single top-level workflow so npm/crates Trusted Publishing OIDC sees workflow
+# filename `release.yml` (same pattern as mstar-harness). Do not wrap this file
+# in workflow_call — the caller's name would become the OIDC workflow claim.
+#
+# Entry points:
+#   - push tags v* (human/PAT tag push)
+#   - pull_request closed on main with label `release` (tag + publish)
+#   - workflow_dispatch with tag (recovery re-run)
 on:
   push:
     tags:
       - v*
-  workflow_call:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
     inputs:
       tag:
-        description: "Annotated tag to release (e.g. v0.1.0-alpha.3)"
+        description: "Existing annotated tag to (re)publish (e.g. v0.1.0)"
         required: true
         type: string
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref }}
+  group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || inputs.tag || github.ref }}
   cancel-in-progress: true
 
+# Match mstar-harness: workflow-level id-token for Trusted Publishing.
 permissions:
-  contents: read
-
-env:
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  contents: write
+  id-token: write
+  pull-requests: read
 
 jobs:
+  tag:
+    name: tag
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      contains(join(github.event.pull_request.labels.*.name, ','), 'release')
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout merge commit
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Resolve version and ensure annotated tag
+        id: tag
+        env:
+          SUMMARY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force origin
+
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            TYPE="$(git cat-file -t "refs/tags/${TAG}")"
+            if [ "$TYPE" != "tag" ]; then
+              echo "::error::Tag ${TAG} exists but is not annotated."
+              exit 1
+            fi
+            echo "Tag ${TAG} already exists; continuing Release."
+          else
+            MSG="Release ${TAG}"
+            BODY_LINE="$(printf '%s\n' "$SUMMARY" | sed -n '/^[^#[:space:]].*/{p;q;}')"
+            if [ -n "$BODY_LINE" ]; then
+              MSG="$BODY_LINE"
+            fi
+            git tag -a "$TAG" -m "$MSG" "${{ github.event.pull_request.merge_commit_sha }}"
+            git push origin "refs/tags/${TAG}"
+            echo "Created and pushed ${TAG}"
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Tagged release" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ steps.tag.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Merge: \`${{ github.event.pull_request.merge_commit_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  resolve-tag:
+    name: resolve-tag
+    runs-on: ubuntu-latest
+    needs: [tag]
+    if: >
+      always() && (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && needs.tag.result == 'success')
+      )
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: resolve
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            workflow_dispatch)
+              TAG="${{ inputs.tag }}"
+              ;;
+            push)
+              TAG="${{ github.ref_name }}"
+              ;;
+            pull_request)
+              TAG="${{ needs.tag.outputs.tag }}"
+              ;;
+            *)
+              echo "::error::Unsupported event: ${{ github.event_name }}"
+              exit 1
+              ;;
+          esac
+          if [ -z "$TAG" ]; then
+            echo "::error::Empty release tag"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved RELEASE_TAG=${TAG}"
+
   verify-codegen:
     name: verify-codegen
+    needs: [resolve-tag]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -67,7 +174,10 @@ jobs:
 
   typescript:
     name: typescript
+    needs: [resolve-tag]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -111,7 +221,10 @@ jobs:
 
   rust:
     name: rust
+    needs: [resolve-tag]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -139,7 +252,10 @@ jobs:
 
   verify-version:
     name: verify-version
+    needs: [resolve-tag]
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -173,12 +289,13 @@ jobs:
     name: release
     runs-on: ubuntu-latest
     needs:
+      - resolve-tag
       - verify-codegen
       - typescript
       - rust
       - verify-version
-    permissions:
-      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -193,7 +310,7 @@ jobs:
           node-version: 20
 
       - name: Create GitHub Release
-        # Idempotent for Retry release: skip when the tag already has a GitHub Release.
+        # Idempotent for workflow_dispatch re-runs.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -222,15 +339,15 @@ jobs:
     name: publish-npm
     runs-on: ubuntu-latest
     needs:
+      - resolve-tag
       - verify-codegen
       - typescript
       - rust
       - verify-version
       - release
-    if: ${{ !contains(inputs.tag || github.ref_name, '-rc.') }}
-    permissions:
-      contents: read
-      id-token: write
+    if: ${{ !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2
@@ -245,17 +362,16 @@ jobs:
         with:
           version: 9
 
+      # Match mstar-harness Trusted Publishing:
+      # Node 24 ships working npm OIDC/provenance — do not `npm install -g npm@…`.
+      # Keep registry-url (same as mstar); OIDC works when this workflow is top-level.
       - name: Setup Node.js
-        # actions/setup-node@v4.4.0 — Node ≥22.14 required for npm Trusted Publishing (OIDC).
-        # Do NOT set registry-url: it writes _authToken=${NODE_AUTH_TOKEN} into .npmrc and
-        # blocks the OIDC exchange (npm then returns E404 on scoped publish).
+        # actions/setup-node@v4.4.0
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
-
-      - name: Ensure npm CLI supports Trusted Publishing
-        run: npm install -g npm@11.5.1
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -269,14 +385,12 @@ jobs:
       - name: Publish @42ch/spoke-schemas
         working-directory: packages/spoke-schemas
         run: |
-          unset NODE_AUTH_TOKEN
           pnpm pack
           npm publish 42ch-spoke-schemas-*.tgz --access public
 
       - name: Publish @42ch/spoke-operations
         working-directory: packages/spoke-operations
         run: |
-          unset NODE_AUTH_TOKEN
           pnpm pack
           npm publish 42ch-spoke-operations-*.tgz --access public
 
@@ -284,11 +398,11 @@ jobs:
     name: publish-crates
     runs-on: ubuntu-latest
     needs:
+      - resolve-tag
       - publish-npm
-    if: ${{ !contains(inputs.tag || github.ref_name, '-rc.') }}
-    permissions:
-      contents: read
-      id-token: write
+    if: ${{ !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2

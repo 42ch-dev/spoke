@@ -15,6 +15,7 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 | **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
+| **`spoke-operations`** (Rust crate) | Hand-written lifecycle helpers over wire types (published to crates.io) |
 | **`adapters/`** | README purpose note only (implementation deferred) |
 
 ## What we do not build
@@ -55,8 +56,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Optional Computable (`l2-computable`) (delivered 2026-07-24)** | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project` / `compute` ops + pure validators |
 | **Optional Fork (`l5-fork`) (delivered 2026-07-24)** | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` matcher; fixtures |
 | **Unified version release (delivered 2026-07-25)** | Lockstep bump/assert, annotated tags, CI-gated GitHub Release — [spoke-version-release.md](.mstar/specs/spoke-version-release.md) |
-| **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas` (crates.io) on stable tags after verify gates |
-| **Next (when scheduled)** | CI / codegen harden residuals and/or Rust `spoke-operations` crate; adapter packages when a product binding sprint is planned |
+| **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas`, `spoke-operations` (crates.io) on stable tags after verify gates |
+| **Next (when scheduled)** | CI / codegen harden residuals; adapter packages when a product binding sprint is planned |
 | **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 

@@ -261,7 +261,7 @@ HTTP mapping (4xx/5xx) is adapter concern. **`@42ch/spoke-operations`** provides
 
 ## Relationship to adapters and operations library
 
-v0.1 delivers **ops wire** shapes. Cross-product lifecycle rules and the capability-sliced adapter implementation protocol — promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders, ports, and injection orchestration — live in [`spoke-operations.md`](spoke-operations.md#adapter-interfaces-normative). Adapters and product code call `@42ch/spoke-operations` / `spoke-operations` for those invariants.
+v0.1 delivers **ops wire** shapes. Cross-product lifecycle rules and the capability-sliced adapter implementation protocol — promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders, [adapter ports](spoke-operations.md#adapter-interfaces-normative), and [injection orchestration](spoke-operations.md#injection-orchestration-normative) — live in [`spoke-operations.md`](spoke-operations.md). Adapters and product code call `@42ch/spoke-operations` / `spoke-operations` for those invariants.
 
 Mapping product HTTP/API handlers to these wire payloads is an adapter concern: product adapters implement the port contracts defined in the operations library.
 ---
@@ -293,6 +293,6 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `Rule`, `TimelineEvent`, …) |
-| [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers, adapter interfaces, injection orchestration |
+| [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`schemas/README.md`](../../schemas/README.md) | Fourteen op schema files under `schemas/ops/` (ten baseline + four optional) |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

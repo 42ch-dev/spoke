@@ -100,7 +100,7 @@ Baseline compliance MUST NOT require either flag.
 | Core stays open | `entry_type`, statuses, relation types remain open strings in schemas |
 | Profile documents vocabulary | Published tables (product KB / ontology types) live in **adapter specs**, product docs, or future Showcases — not closed `enum` in core |
 | Profile is not a fork | Products MUST NOT fork `knowledge-entry.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
-| Adapter role | `adapters/*` maps product DTOs ↔ SPOKE; implements operations port families; calls `@42ch/spoke-operations` / `spoke-operations` for shared gates and orchestration |
+| Adapter role | `adapters/*` maps product DTOs ↔ SPOKE; implements operations port families; calls `@42ch/spoke-operations` / `spoke-operations` for shared gates and [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 
 ## Layer ↔ artifact map
 
@@ -114,7 +114,7 @@ Baseline compliance MUST NOT require either flag.
 | **L5 Temporal** | `data/timeline-event.schema.json` (`fork_id`, `parent_fork_id`, `computable_logs` optional); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry` | `check-*`, `assemble-*` via `Scope` (`timeline_scale`, `fork_id` refinements); `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry` |
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
-| **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `knowledgeEntryToAssembleEntry`; injected orchestration (`orchestrateAssemble` and peers) |
+| **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `knowledgeEntryToAssembleEntry`; [injected orchestration](spoke-operations.md#injection-orchestration-normative) (`orchestrateAssemble` and peers) |
 
 ### Shared cross-layer defs (`schemas/common/common.schema.json`)
 
@@ -138,7 +138,7 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 - [x] Every baseline layer row maps to at least one committed schema or op family — L5/L6 data schemas plus shared `Scope`, `TimelineScale`, and error-envelope on all ops responses
 - [x] Rule vs Finding and Check vs Assemble boundaries appear in this doc and cross-link data/ops specs
 - [x] Domain Profile section prevents “closed enum in core” misread
-- [x] Layer ↔ artifact matrix is complete (schema / op / library helper per layer); library column includes deepen helpers and adapter orchestration per [`spoke-operations.md`](spoke-operations.md)
+- [x] Layer ↔ artifact matrix is complete (schema / op / library helper per layer); library column includes deepen helpers and [adapter orchestration](spoke-operations.md#injection-orchestration-normative) per [`spoke-operations.md`](spoke-operations.md)
 
 ## Non-goals (this spec)
 
@@ -155,6 +155,6 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella — three columns (data / ops wire / operations library) |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data object field detail |
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + Scope + error envelope |
-| [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers, adapter interfaces, and injection orchestration |
+| [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust B — nine layers on the wire |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule vocabulary |

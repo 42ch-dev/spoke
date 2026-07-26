@@ -639,6 +639,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Adapter interfaces + injection orchestration
 
 - [x] Capability → interface family → methods matrix complete for `spoke-baseline`, `l2-computable`, and `l5-fork` (no TBD cells)
+- [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
 - [ ] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
 - [ ] Orchestrators call pure helpers and perform I/O only through injected ports
 - [ ] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)

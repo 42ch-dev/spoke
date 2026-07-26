@@ -36,16 +36,25 @@
     },
     "body": {
       "type": "object",
-      "additionalProperties": true,
-      "description": "Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings. Under l2-computable: optional state (static durable computable) and computable (dynamic Session-scoped projection).",
+      "additionalProperties": false,
+      "description": "Closed L2 payload. Optional summary, tags, trait attributes, and l2-computable state/computable maps only.",
       "properties": {
+        "summary": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/BodyAttribute"
+          }
+        },
         "state": {
-          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap",
-          "description": "Static durable computable state (l2-computable optional). Authoritative pre-Session and after settle."
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap"
         },
         "computable": {
-          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap",
-          "description": "Dynamic Session-scoped computable projection (l2-computable optional). Absent or inert pre-Session; mutates mid-Session only."
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ComputableFieldMap"
         }
       }
     },
@@ -78,7 +87,11 @@
       "status": "confirmed",
       "body": {
         "summary": "Protagonist; reluctant cartographer.",
-        "tags": ["pov"]
+        "tags": ["pov"],
+        "attributes": [
+          { "trait_type": "role", "value": "protagonist" },
+          { "trait_type": "age", "value": 28, "display_type": "number" }
+        ]
       },
       "source_anchor": {
         "schema_version": 1,

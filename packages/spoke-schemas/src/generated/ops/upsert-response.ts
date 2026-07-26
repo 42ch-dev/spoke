@@ -49,12 +49,14 @@ export interface KnowledgeEntry {
    */
   status: string;
   /**
-   * Structured payload. Typed attributes (summary, tags, attributes) live here — not as protocol siblings. Under l2-computable: optional state (static durable computable) and computable (dynamic Session-scoped projection).
+   * Closed L2 payload. Optional summary, tags, trait attributes, and l2-computable state/computable maps only.
    */
   body: {
+    summary?: string;
+    tags?: string[];
+    attributes?: BodyAttribute[];
     state?: ComputableFieldMap;
-    computable?: ComputableFieldMap1;
-    [k: string]: unknown | undefined;
+    computable?: ComputableFieldMap;
   };
   source_anchor?: SourceAnchor;
   /**
@@ -72,15 +74,18 @@ export interface KnowledgeEntry {
   extensions: ExtensionMap;
 }
 /**
- * Static durable computable state (l2-computable optional). Authoritative pre-Session and after settle.
+ * ERC721-style trait item for KnowledgeEntry body.attributes. Duplicate trait_type allowed at array level.
  */
-export interface ComputableFieldMap {
-  [k: string]: unknown | undefined;
+export interface BodyAttribute {
+  trait_type: string;
+  value: string | number | boolean;
+  display_type?: string;
+  max_value?: number;
 }
 /**
- * Dynamic Session-scoped computable projection (l2-computable optional). Absent or inert pre-Session; mutates mid-Session only.
+ * Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.
  */
-export interface ComputableFieldMap1 {
+export interface ComputableFieldMap {
   [k: string]: unknown | undefined;
 }
 /**

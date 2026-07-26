@@ -100,6 +100,15 @@ describe("fixtures/toy-world schema conformance", () => {
     });
   });
 
+  it("illustrates BodyAttribute traits on Mira KnowledgeEntry", () => {
+    const mira = loadFixture<KnowledgeEntry>("kb_tw_mira.json");
+
+    expect(mira.body.attributes).toEqual([
+      { trait_type: "role", value: "protagonist" },
+      { trait_type: "age", value: 28, display_type: "number" },
+    ]);
+  });
+
   it("illustrates l2-computable body.state and body.computable on Harbor", () => {
     const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
 

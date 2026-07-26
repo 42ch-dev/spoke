@@ -6,7 +6,11 @@
   "status": "confirmed",
   "body": {
     "summary": "Reluctant cartographer who charts coastal towns.",
-    "tags": ["pov", "protagonist"]
+    "tags": ["pov", "protagonist"],
+    "attributes": [
+      { "trait_type": "role", "value": "protagonist" },
+      { "trait_type": "age", "value": 28, "display_type": "number" }
+    ]
   },
   "source_anchor": {
     "schema_version": 1,

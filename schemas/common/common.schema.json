@@ -93,6 +93,24 @@
       },
       "additionalProperties": false
     },
+    "BodyAttribute": {
+      "type": "object",
+      "description": "ERC721-style trait item for KnowledgeEntry body.attributes. Duplicate trait_type allowed at array level.",
+      "required": ["trait_type", "value"],
+      "properties": {
+        "trait_type": { "type": "string", "minLength": 1 },
+        "value": {
+          "anyOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "boolean" }
+          ]
+        },
+        "display_type": { "type": "string" },
+        "max_value": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
     "ComputableFieldMap": {
       "type": "object",
       "description": "Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.",

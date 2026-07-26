@@ -1,6 +1,6 @@
 # spoke-operations
 
-Hand-written Rust lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, and `AssemblePacket` builders.
+Hand-written Rust lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, and `AssemblePacket` builders.
 
 Depends on [`spoke-schemas`](https://crates.io/crates/spoke-schemas) for wire types. Behavioral parity with [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) (TypeScript).
 
@@ -39,5 +39,6 @@ if let SpokeResult::Ok(_) = gate {
 - `validate_promote_request`, `apply_promote_acceptance`, `validate_promote_request_wire`
 - `knowledge_entry_to_assemble_entry`, `build_assemble_packet`
 - Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
+- `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` — read/filter `body.attributes` by `trait_type`
 
 Pure functions over wire types. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).

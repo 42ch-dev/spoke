@@ -1,6 +1,7 @@
 //! SPOKE lifecycle helpers — pure functions over `spoke-schemas` wire types.
 
 mod assemble;
+mod body;
 mod computable;
 mod extensions;
 mod error;
@@ -17,6 +18,10 @@ mod util;
 pub use assemble::{
     build_assemble_packet, knowledge_entry_to_assemble_entry, BuildAssemblePacketInput,
     KnowledgeEntryForAssemble,
+};
+pub use body::{
+    filter_body_attributes_by_trait_type, find_body_attribute, list_body_attributes,
+    BodyAttributesInput,
 };
 pub use computable::{
     validate_computable_field_map, validate_computable_log_entry, validate_compute_request,

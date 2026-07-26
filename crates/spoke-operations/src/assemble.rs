@@ -348,8 +348,8 @@ mod tests {
     }
 
     #[test]
-    fn omits_snippet_for_non_string_summary() {
-        let entry = entry_from_wire(json!({
+    fn rejects_wire_json_with_non_string_summary() {
+        let result = KnowledgeEntryForAssemble::from_wire_json(json!({
             "schema_version": 1,
             "entry_id": "kb_1",
             "entry_type": "character",
@@ -359,8 +359,12 @@ mod tests {
             "extensions": {}
         }));
 
-        let mapped = unwrap_assemble_entry(&entry);
-        assert!(mapped.snippet.is_none());
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidPacketInput);
+            }
+            SpokeResult::Ok(_) => panic!("expected reject for invalid summary type"),
+        }
     }
 
     #[test]

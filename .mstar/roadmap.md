@@ -12,6 +12,7 @@
 | Slice | Focus |
 |-------|--------|
 | L2 typed body | Formalize optional `body.summary` / `tags` / trait-array `attributes`; close `body` (`additionalProperties: false`); keep `l2-computable` maps |
+| Release test harden | `bump-version` unit tests must not hardcode live lockstep SemVer (breaks CI after each bump) |
 
 ---
 

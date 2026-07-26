@@ -17,6 +17,7 @@ Rust integrators already pin `spoke-schemas` on crates.io but had no published p
    - Integrators deserializing from wire: `KnowledgeEntryForAssemble::from_wire_json(wire)` — extracts `body` via `body_wire_from_entry_wire` before typify deserialize.
    - Programmatic construction: `KnowledgeEntryForAssemble::from_entry(entry)` — serializes known body fields to JSON for reads.
    - Private `util` module: field access only (`extract_snippet_from_body_wire`, `validate_revision_wire` with `None` → `0` for OCC); **no** parallel wire DTO structs.
+   - Trait reads: `list_body_attributes` / `filter_body_attributes_by_trait_type` / `find_body_attribute` in `body.rs` — skip malformed items; never panic on missing `attributes`.
 5. **crates.io dependency pin** — `spoke-operations` manifest MUST declare `spoke-schemas` with **both** `version` and `path`:
 
    ```toml

@@ -9,16 +9,15 @@
 
 ## Now (in progress)
 
-| Slice | Focus |
-|-------|--------|
-| L2 typed body | Formalize optional `body.summary` / `tags` / trait-array `attributes`; close `body` (`additionalProperties: false`); keep `l2-computable` maps |
-| Release test harden | `bump-version` unit tests must not hardcode live lockstep SemVer (breaks CI after each bump) |
+_No in-progress slices — L2 typed body + release-test harden delivered (pending merge to `main`)._
 
 ---
 
 ## Up next (planned)
 
-_No additional planned rows beyond the in-progress L2 typed body slice._
+| Slice | Focus |
+|-------|--------|
+| Product adapters | Consumer-repo Creader / Nexus → SPOKE L2 mapping; optional `adapters/` binding rows when scheduled |
 
 ---
 
@@ -28,6 +27,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-26 | L2 typed closed body + trait helpers | Closed `body` with optional `summary` / `tags` / `BodyAttribute[]`; codegen; Mira traits fixture; pure TS/Rust trait read helpers; SemVer-agnostic `bump-version` tests; knowledge `l2-closed-body-and-traits` + `release-bump-tests-version-agnostic` |
 | 2026-07-25 | CI / codegen harden | `OpaqueJson` empty schema for opaque log fields; TS/Rust regen; Rust typify duplication strategy A + import guide; schema-count surfaces at **23**; `test:release` lockstep assert/bump unit tests in CI |
 | 2026-07-25 | Rust ops CI + publish | CI/release verify `cargo test -p spoke-operations`; lockstep assert for ops crate; crates.io `spoke-operations` after `spoke-schemas`; README EN/CN Rust ops pin/install |
 | 2026-07-25 | Registry publish | CI `publish-npm` + `publish-crates` on stable tags after verify; npm `@42ch/spoke-schemas` / `@42ch/spoke-operations`; crates.io `spoke-schemas`; skip `-rc.` tags |

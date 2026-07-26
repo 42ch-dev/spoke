@@ -52,11 +52,13 @@ Tag push re-runs verify-equivalent gates; on success, workflow creates the GitHu
 - Do not auto-bump or auto-tag on every merge to `main`.
 - Do not create lightweight-only tags (annotation required for release notes).
 - Do not conflate package SemVer with wire `schema_version` in docs or tooling.
+- Do not hardcode live lockstep SemVer in `bump-version` unit tests that seed fixtures from `package.json` — see `testing-patterns/release-bump-tests-version-agnostic.md`.
 
 ## Related
 
 - Normative policy: `.mstar/specs/spoke-version-release.md`
 - Rust ops parity + typify helpers: `architecture-patterns/rust-spoke-operations-parity.md`
+- Release test pattern: `testing-patterns/release-bump-tests-version-agnostic.md`
 - Workflows: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
 - Tooling: `tooling/release/lockstep-surfaces.mjs`, `assert-lockstep-version.mjs`, `bump-version.mjs`
 - Consumer twin READMEs: `README.md`, `README_CN.md`

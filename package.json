@@ -1,6 +1,6 @@
 {
   "name": "spoke",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "SPOKE protocol monorepo — JSON Schema SSOT with generated TypeScript and Rust types",
   "license": "Apache-2.0",

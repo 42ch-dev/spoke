@@ -477,6 +477,16 @@ Ports are synchronous on the normative v0.1 surface. TypeScript methods and Rust
 
 All port methods return `SpokeResult<T>`. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
 
+### Capability matrix
+
+| Capability | Required interface families | Orchestration enabled |
+|---|---|---|
+| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort` | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
+| `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
+| `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
+
+Unclaimed capabilities need no ports; their orchestrators are not callable for that product.
+
 ### Baseline port families
 
 The following five families are required for `spoke-baseline`:

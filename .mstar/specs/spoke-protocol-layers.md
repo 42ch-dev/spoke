@@ -27,7 +27,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 |-------|---------|------------------------------|---------------------|------------------------|
 | **L0 Envelope** | Identity + `schema_version` | Required on all durable objects | — | All `schemas/data/*`; `schema_version` in `common.schema.json` |
 | **L1 Ontology** | `entry_type` + Domain Profile | Open `entry_type` string + published core vocabulary | Profile-specific type tables (adapter/docs) | `knowledge-entry.schema.json`; `CONCEPTS.md`; future adapter specs |
-| **L2 Body** | summary / attributes / tags | Structured `body` (`additionalProperties: true` subtree) | Optional `body.state` + `body.computable` (`l2-computable`); `project` / `compute` ops | `knowledge-entry.schema.json` `body`; optional `project-*` / `compute-*` ops |
+| **L2 Body** | summary / tags / trait `attributes` | Closed `body` with optional `summary`, `tags`, `attributes[]` (`BodyAttribute`) | Optional `body.state` + `body.computable` (`l2-computable`); `project` / `compute` ops | `knowledge-entry.schema.json` `body`; `common/…#/definitions/BodyAttribute`; optional `project-*` / `compute-*` ops |
 | **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on KnowledgeEntry |
 | **L4 Graph** | Relation | Typed directed edges | OCC / revision as product concern | `relation.schema.json`; `relate` op |
 | **L5 Temporal** | Timeline dimension + TimelineEvent + optional Fork | **`TimelineEvent` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (`l5-fork`); optional `computable_logs` on Moment-scale events (`l2-computable`) | `timeline-event.schema.json`; `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry`; tier + Fork vocabulary in this spec + data-model |
@@ -75,7 +75,7 @@ Required for “SPOKE baseline” claims:
 
 | Includes | Excludes |
 |----------|----------|
-| L0–L4 via KnowledgeEntry, Relation, SourceAnchor | Required Fork |
+| L0–L4 via KnowledgeEntry (closed L2 body: optional `summary`, `tags`, `attributes`), Relation, SourceAnchor | Required Fork |
 | L5 `TimelineEvent` wire object | Required WASM / computable body state |
 | L6 `Rule` wire object | Adapter packages |
 | L7 Finding + core status vocabulary | Shared runtime / daemon |
@@ -108,7 +108,7 @@ Baseline compliance MUST NOT require either flag.
 |-------|--------------------------------------------|--------------------------|-------------------------------------|
 | **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | `assertRevisionMatch`; `toErrorEnvelope` / `fromErrorEnvelope` |
 | **L1 Ontology** | `data/knowledge-entry.schema.json` (`entry_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKnowledgeEntryStatusTransition`, `transitionKnowledgeEntryStatus`; `assertUniqueActiveKnowledgeEntry`; `validateUpsertKnowledgeEntry` |
-| **L2 Body** | `knowledge-entry.schema.json` → `body` (`state`, `computable` optional); `common/…#/definitions/ComputableFieldMap` | `project-*`, `compute-*` (optional) | `validateComputableFieldMap`; `validateProjectRequest`; `validateComputeRequest` |
+| **L2 Body** | `knowledge-entry.schema.json` → closed `body` (`summary`, `tags`, `attributes`, optional `state` / `computable`); `common/…#/definitions/BodyAttribute`, `ComputableFieldMap` | `project-*`, `compute-*` (optional) | `validateComputableFieldMap`; `validateProjectRequest`; `validateComputeRequest` |
 | **L3 Provenance** | `data/source-anchor.schema.json`; optional on KnowledgeEntry / Finding / TimelineEvent / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `knowledgeEntryMatchesScope`, `filterKnowledgeEntriesByScope` (`source_id` refinement) |
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | `validateRelateRequest` |
 | **L5 Temporal** | `data/timeline-event.schema.json` (`fork_id`, `parent_fork_id`, `computable_logs` optional); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry` | `check-*`, `assemble-*` via `Scope` (`timeline_scale`, `fork_id` refinements); `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry` |
@@ -124,6 +124,7 @@ Baseline compliance MUST NOT require either flag.
 | `TimelineScale` | `TimelineEvent.timeline_scale`, `Scope.timeline_scale` | L5 tier vocabulary (`brief` / `narrative` / `moment`) |
 | `ForkId` | `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, `Scope.fork_id` | Opaque world-history branch identity (`l5-fork`) |
 | `ComputableFieldMap` | `KnowledgeEntry.body.state`, `body.computable`; `project` / `compute` op payloads | Open JSON object for computable domain values (`l2-computable`) |
+| `BodyAttribute` | `KnowledgeEntry.body.attributes[]` | Scalar trait item (`trait_type` + `value`; optional `display_type`, `max_value`) |
 | `ComputableLogEntry` | `TimelineEvent.computable_logs[]` | Moment-scale computable change presentation (`l2-computable`) |
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |

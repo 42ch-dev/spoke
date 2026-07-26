@@ -34,7 +34,7 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 |-----------|-------|-----------|
 | **Committed `*.schema.json` files** | **23** | 2 common + 7 data + 14 ops (10 baseline + 4 optional `l2-computable` `project` / `compute`) |
 
-Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, and `ComputableLogEntry`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first 19 schema files; optional `l2-computable` adds four ops schemas.
+Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first 19 schema files; optional `l2-computable` adds four ops schemas.
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema changes.
 

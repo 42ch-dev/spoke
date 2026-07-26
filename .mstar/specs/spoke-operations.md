@@ -37,6 +37,7 @@ Without a shared operations library, every product reimplements the same pure ru
 | OCC revision compare (`assertRevisionMatch` / `assert_revision_match`) | — |
 | KnowledgeEntry status transitions + active uniqueness | Product `world_id` / `book_id` as required core fields |
 | Scope match, upsert/relate gates, error-envelope map | `scope_id` parsing; retrieval engines |
+| Body attribute list/filter/read by `trait_type` | Attribute upsert, merge, or validation that rejects unknown traits |
 | Computable shape validators (`validateComputableFieldMap`, log entry, project/compute request gates) | Compute engine execution, WASM, Session store I/O |
 
 ### Per-family In / Out
@@ -50,6 +51,7 @@ Without a shared operations library, every product reimplements the same pure ru
 | **OCC** | `assertRevisionMatch` on caller-supplied integers | Storage fetch |
 | **KnowledgeEntry** | Status transition table; active uniqueness over caller set | Product `world_id` / `book_id` required fields |
 | **Scope** | KnowledgeEntry + TimelineEvent refinement filters | `scope_id` parsing; retrieval |
+| **Body attributes** | List/filter `body.attributes` by `trait_type`; skip malformed wire elements | Attribute upsert, merge, ranking, defaulting |
 | **Upsert / Relate** | Create/update revision rules; self-edge reject | Persist |
 | **Error map** | `SpokeReject` ↔ `ErrorEnvelope` code stability | HTTP/MCP status mapping |
 | **Computable** | Field-map, log-entry, project/compute request shape gates | Engine execution, WASM, Session I/O |
@@ -224,7 +226,7 @@ Do **not** coerce non-strings, fall back to other `body` keys, or emit `snippet:
 
 ## Helper families (operations deepen + computable)
 
-Deepen families (§5–§11) plus computable validators (§12). Export names are **normative**; `@42ch/spoke-operations` `src/index.ts` MUST expose them alongside first-slice symbols. `spoke-operations` `src/lib.rs` MUST re-export every symbol in TS `index.ts` (snake_case) and MAY additionally export Rust-only typed/wire helpers (see §Rust).
+Deepen families (§5–§11), computable validators (§12), and body attribute read helpers (§13). Export names are **normative**; `@42ch/spoke-operations` `src/index.ts` MUST expose them alongside first-slice symbols. `spoke-operations` `src/lib.rs` MUST re-export every symbol in TS `index.ts` (snake_case) and MAY additionally export Rust-only typed/wire helpers (see §Rust).
 
 ### 5. OCC — `occ/*`
 
@@ -435,6 +437,34 @@ Wire shapes: [`spoke-data-model.md` §Computable body](spoke-data-model.md#compu
 
 ---
 
+### 13. Body attributes — `body/*`
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `listBodyAttributes(input)` | `list_body_attributes(input)` | List valid `body.attributes` traits in array order | Pure |
+| `filterBodyAttributesByTraitType(input, traitType)` | `filter_body_attributes_by_trait_type(input, trait_type)` | Return all traits matching `trait_type` in original order | Pure |
+| `findBodyAttribute(input, traitType)` | `find_body_attribute(input, trait_type)` | Return first trait matching `trait_type`, or absent | Pure |
+
+**Input:** `KnowledgeEntry["body"]`, full `KnowledgeEntry`, or wire JSON (`null` / absent → empty). Rust: `BodyAttributesInput::Body`, `Entry`, or `Wire(Option<&Value>)`.
+
+**Rules (normative):**
+
+| Case | `list*` / `filter*` | `find*` |
+|------|---------------------|---------|
+| `body` / `attributes` absent | `[]` | absent (`undefined` / `None`) |
+| `attributes: []` | `[]` | absent |
+| Duplicate `trait_type` in array | all matches in order | first match in order |
+| Malformed array element (not plain object; empty/missing `trait_type`; `value` not `string` \| `number` \| `boolean`) | skip element; never throw | skip element |
+| `trait_type` match | exact string equality (case-sensitive) | same |
+
+**Out of scope:** attribute upsert/merge, schema validation that rejects unknown traits, ranking, persistence.
+
+Wire shape: [`spoke-data-model.md` §KnowledgeEntry body](spoke-data-model.md) — closed L2 payload with optional `attributes[]` (`BodyAttribute` items).
+
+**Tests must cover:** absent input, omitted/empty attributes, duplicate `trait_type`, malformed skip, first-match find, case-sensitive filter.
+
+---
+
 ## Package contract
 
 ### TypeScript
@@ -462,7 +492,7 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 
 Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering **every** symbol in TS `src/index.ts`. Rust MAY also export additional typed/wire helpers not listed in TS `index.ts` — e.g. `KnowledgeEntryForAssemble`, `validate_promote_request_wire`, `UpsertMode`, `ExtensionMap`, `spoke_ok_unit` — without breaking parity.
 
-**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); private `util` for typify field-access helpers only — no parallel wire DTOs.
+**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); private `util` for typify field-access helpers only — no parallel wire DTOs.
 
 **Wire types:** helpers accept `spoke_schemas` generated types directly (`KnowledgeEntry`, `Finding`, `ErrorEnvelope`, etc.).
 
@@ -495,6 +525,12 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 
 - [x] `validateComputableFieldMap`, `validateComputableLogEntry`, `validateProjectRequest`, `validateComputeRequest` exported from `@42ch/spoke-operations` `src/index.ts` and `spoke-operations` `src/lib.rs`
 - [x] No compute execution, WASM, or I/O in `packages/spoke-operations/` or `crates/spoke-operations/`
+
+### Body attributes (`body.attributes` read)
+
+- [x] `listBodyAttributes`, `filterBodyAttributesByTraitType`, `findBodyAttribute` exported from `@42ch/spoke-operations` `src/index.ts`
+- [x] `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` re-exported from `spoke-operations` `src/lib.rs`
+- [x] Read/filter semantics documented in §13 (missing → empty; duplicate `trait_type` → all matches; malformed wire skip)
 
 ## Non-goals (operations layer)
 

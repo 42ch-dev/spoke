@@ -1,4 +1,11 @@
 export {
+  listBodyAttributes,
+  filterBodyAttributesByTraitType,
+  findBodyAttribute,
+  type BodyAttributesInput,
+} from "./body/attributes.js";
+
+export {
   mergeExtensionMaps,
   preserveExtensionMaps,
 } from "./extensions/merge.js";

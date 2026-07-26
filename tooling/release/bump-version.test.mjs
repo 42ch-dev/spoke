@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { CANONICAL_PATH } from "./lockstep-surfaces.mjs";
+import { parseSemVer } from "./semver.mjs";
 import {
   cleanupTempRepo,
   createTempRepo,
@@ -13,6 +14,47 @@ import {
 
 /** @type {string[]} */
 const tempDirs = [];
+
+/**
+ * Next patch release relative to a lockstep fixture version (drops prerelease).
+ * Tests must not hardcode the repo's live SemVer — fixtures copy package.json.
+ *
+ * @param {string} version
+ * @returns {string}
+ */
+function nextPatchRelease(version) {
+  const parsed = parseSemVer(version);
+  if (!parsed) {
+    throw new Error(`Invalid fixture SemVer: ${version}`);
+  }
+  return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+}
+
+/**
+ * Strictly lower core SemVer than fixture (for refuse-path tests).
+ * Prefer decrementing patch/minor/major over a hardcoded sentinel.
+ *
+ * @param {string} version
+ * @returns {string}
+ */
+function strictlyLowerRelease(version) {
+  const parsed = parseSemVer(version);
+  if (!parsed) {
+    throw new Error(`Invalid fixture SemVer: ${version}`);
+  }
+  if (parsed.patch > 0) {
+    return `${parsed.major}.${parsed.minor}.${parsed.patch - 1}`;
+  }
+  if (parsed.minor > 0) {
+    return `${parsed.major}.${parsed.minor - 1}.999`;
+  }
+  if (parsed.major > 0) {
+    return `${parsed.major - 1}.999.999`;
+  }
+  // Fixture is 0.0.0* — any X.Y.Z with prerelease sorts lower than 0.0.0 release,
+  // but bump refuses non-greater cores; use a sentinel that cannot equal live lockstep.
+  return "0.0.0-test.0";
+}
 
 afterEach(() => {
   while (tempDirs.length > 0) {
@@ -30,21 +72,26 @@ describe("bump-version.mjs", () => {
     initGitRepo(repoRoot);
 
     const current = readCanonicalVersion(repoRoot);
-    assert.equal(current, "0.1.0");
+    const target = nextPatchRelease(current);
 
     const result = runReleaseScript(
       "bump-version.mjs",
-      ["0.1.1"],
+      [target],
       repoRoot,
     );
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.match(result.stdout, /Bumped lockstep version 0\.1\.0 → 0\.1\.1/);
+    assert.match(
+      result.stdout,
+      new RegExp(
+        `Bumped lockstep version ${escapeRegExp(current)} → ${escapeRegExp(target)}`,
+      ),
+    );
 
     const bumped = JSON.parse(
       readFileSync(join(repoRoot, CANONICAL_PATH), "utf8"),
     );
-    assert.equal(bumped.version, "0.1.1");
+    assert.equal(bumped.version, target);
 
     const assertResult = runReleaseScript(
       "assert-lockstep-version.mjs",
@@ -58,15 +105,29 @@ describe("bump-version.mjs", () => {
     const repoRoot = createTempRepo();
     tempDirs.push(repoRoot);
 
+    const current = readCanonicalVersion(repoRoot);
+    // Equal target is an intentional idempotent path (changelog/assert only).
+    // Strictly lower SemVer must refuse before any git-cliff work.
+    const lower = strictlyLowerRelease(current);
+    assert.notEqual(lower, current);
+
     const result = runReleaseScript(
       "bump-version.mjs",
-      ["0.0.9"],
+      [lower],
       repoRoot,
     );
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /must be greater than current/);
 
-    assert.equal(readCanonicalVersion(repoRoot), "0.1.0");
+    assert.equal(readCanonicalVersion(repoRoot), current);
   });
 });
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

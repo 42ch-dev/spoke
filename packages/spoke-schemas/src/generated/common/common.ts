@@ -106,6 +106,18 @@ export interface Scope {
   fork_id?: string;
 }
 /**
+ * ERC721-style trait item for KnowledgeEntry body.attributes. Duplicate trait_type allowed at array level.
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "BodyAttribute".
+ */
+export interface BodyAttribute {
+  trait_type: string;
+  value: string | number | boolean;
+  display_type?: string;
+  max_value?: number;
+}
+/**
  * Open map of product-owned computable field names to domain values. Shared by KnowledgeEntry body.state and body.computable under l2-computable. Protocol does not require WASM bytecode or executable artifacts.
  *
  * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema

@@ -2,22 +2,22 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-25  
+**Updated:** 2026-07-26  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
 
 ---
 
 ## Now (in progress)
 
-_No active slice — Up next is empty until a new capability is scheduled._
+_No in-progress slices — L2 typed body + release-test harden delivered (pending merge to `main`)._
 
 ---
 
 ## Up next (planned)
 
-_No planned rows. Next capability (e.g. product adapter packages under `adapters/<product>/`) is scheduled only when a product binding sprint is planned._
-
-**Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
+| Slice | Focus |
+|-------|--------|
+| Product adapters | Consumer-repo Creader / Nexus → SPOKE L2 mapping; optional `adapters/` binding rows when scheduled |
 
 ---
 
@@ -27,6 +27,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-26 | L2 typed closed body + trait helpers | Closed `body` with optional `summary` / `tags` / `BodyAttribute[]`; codegen; Mira traits fixture; pure TS/Rust trait read helpers; SemVer-agnostic `bump-version` tests; knowledge `l2-closed-body-and-traits` + `release-bump-tests-version-agnostic` |
 | 2026-07-25 | CI / codegen harden | `OpaqueJson` empty schema for opaque log fields; TS/Rust regen; Rust typify duplication strategy A + import guide; schema-count surfaces at **23**; `test:release` lockstep assert/bump unit tests in CI |
 | 2026-07-25 | Rust ops CI + publish | CI/release verify `cargo test -p spoke-operations`; lockstep assert for ops crate; crates.io `spoke-operations` after `spoke-schemas`; README EN/CN Rust ops pin/install |
 | 2026-07-25 | Registry publish | CI `publish-npm` + `publish-crates` on stable tags after verify; npm `@42ch/spoke-schemas` / `@42ch/spoke-operations`; crates.io `spoke-schemas`; skip `-rc.` tags |
@@ -45,7 +46,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | Area | Status |
 |------|--------|
-| Data wire | KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `body.state`/`body.computable`, `computable_logs` (`l2-computable`); optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`); `OpaqueJson` for opaque log field values |
+| Data wire | KnowledgeEntry (closed L2 `body`: optional `summary`, `tags`, `attributes`; optional `body.state`/`body.computable`, `computable_logs` under `l2-computable`), Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`); `OpaqueJson` for opaque log field values |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
 | Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
 | Fixtures | `fixtures/toy-world/` samples + conformance (dual-concern ontology `"event"` + TimelineEvent; Fork-aware TimelineEvent sample under `l5-fork`) |

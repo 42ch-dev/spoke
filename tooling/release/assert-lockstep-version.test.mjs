@@ -40,9 +40,14 @@ describe("assert-lockstep-version.mjs", () => {
     const repoRoot = createTempRepo();
     tempDirs.push(repoRoot);
 
+    const current = readCanonicalVersion(repoRoot);
+    // Synthetic drift — must not equal the live lockstep SemVer.
+    const drifted = `${current}-drift.test`;
+    assert.notEqual(drifted, current);
+
     const driftedPath = join(repoRoot, "packages/spoke-schemas/package.json");
     const pkg = JSON.parse(readFileSync(driftedPath, "utf8"));
-    pkg.version = "9.9.9";
+    pkg.version = drifted;
     writeFileSync(driftedPath, `${JSON.stringify(pkg, null, 2)}\n`);
 
     const result = runReleaseScript(

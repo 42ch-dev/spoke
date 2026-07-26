@@ -296,7 +296,7 @@ Every durable data object schema MUST:
 | `entry_type` | string | Open string; core vocabulary in §Open vocabulary |
 | `canonical_name` | string | Human-stable name (min length 1) |
 | `status` | string | Open string; core vocabulary in §Open vocabulary |
-| `body` | object | Structured payload; `additionalProperties: true` on `body` only |
+| `body` | object | Closed L2 payload (`additionalProperties: false`); see §Body rules |
 | `extensions` | object | Namespace map (§Extensions) |
 
 ### Optional protocol fields
@@ -310,9 +310,42 @@ Every durable data object schema MUST:
 
 ### Body rules
 
-- `body` is the **only** protocol subtree that allows open keys (`additionalProperties: true`).
-- Typed attributes (e.g. `summary`, `tags`, `attributes`) live under `body`, not as sibling protocol keys.
-- Product-specific body shapes MUST NOT add protocol siblings; use `extensions.<namespace>` for opaque product fields that must round-trip outside `body`.
+`body` is a **closed** JSON object: `additionalProperties: false`. Only the keys below are valid on the wire. Product-specific or lossy-round-trip fields belong in `extensions.<namespace>` — not as extra `body` keys.
+
+| Key | Required on `body` | Type | Semantics |
+|-----|-------------------|------|-----------|
+| `summary` | no | string | Short human blurb; `assemble` MAY emit `snippet` from trimmed non-empty `summary` (see [`spoke-operations.md`](spoke-operations.md)) |
+| `tags` | no | string[] | Free-form labels |
+| `attributes` | no | `BodyAttribute[]` | Trait list; duplicate `trait_type` allowed |
+| `state` | no | `ComputableFieldMap` | Static durable computable state (`l2-computable` optional) |
+| `computable` | no | `ComputableFieldMap` | Dynamic Session-scoped projection (`l2-computable` optional) |
+
+Empty `body: {}` is valid for `spoke-baseline` — no L2 key is required.
+
+### BodyAttribute
+
+Shared JSON Schema fragment: `common.schema.json#/definitions/BodyAttribute`. ERC721-style trait item for `body.attributes[]`.
+
+| Field | Required | Type | Semantics |
+|-------|----------|------|-----------|
+| `trait_type` | yes | string (`minLength: 1`) | Trait name / metadata key |
+| `value` | yes | string \| number \| boolean | Scalar trait value only — no nested object or array |
+| `display_type` | no | string | Optional presentation hint (e.g. `"number"`, `"date"`) |
+| `max_value` | no | number | Optional numeric ceiling hint |
+
+| Rule | Requirement |
+|------|-------------|
+| Item shape | `additionalProperties: false` on each trait object |
+| Array level | Duplicate `trait_type` **allowed** — multi-valued metadata uses multiple items |
+| Nested values | Not in `value`; use multiple traits or `extensions.<namespace>` |
+
+```json
+{
+  "trait_type": "affiliation",
+  "value": "Guild",
+  "display_type": "string"
+}
+```
 
 ### Computable body (`l2-computable` optional)
 
@@ -347,7 +380,10 @@ Products declaring **`l2-computable`** MAY use two documented optional keys unde
   "status": "confirmed",
   "body": {
     "summary": "Protagonist; reluctant cartographer.",
-    "tags": ["pov"]
+    "tags": ["pov"],
+    "attributes": [
+      { "trait_type": "role", "value": "protagonist" }
+    ]
   },
   "source_anchor": {
     "schema_version": 1,
@@ -588,6 +624,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
 - **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body
 - **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`
+- **BodyAttribute** — scalar trait item in `body.attributes[]` (`trait_type` + `value`; optional `display_type`, `max_value`)
 - **ComputableLogEntry** — Moment-scale presentation on `TimelineEvent.computable_logs` (not Finding)
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
 - **Finding** — checker output, not a KnowledgeEntry body

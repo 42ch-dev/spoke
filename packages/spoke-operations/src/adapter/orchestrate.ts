@@ -206,7 +206,17 @@ export function orchestratePromote(
     return accepted;
   }
 
-  const put = ports.putKnowledgeEntry(accepted.value);
+  // When stored exists, base the persisted revision on stored — do not trust
+  // candidate-only bump if it could diverge from the loaded OCC base.
+  const toPersist =
+    stored !== undefined
+      ? {
+          ...accepted.value,
+          revision: (stored.revision ?? 0) + 1,
+        }
+      : accepted.value;
+
+  const put = ports.putKnowledgeEntry(toPersist);
   if (!put.ok) {
     return put;
   }

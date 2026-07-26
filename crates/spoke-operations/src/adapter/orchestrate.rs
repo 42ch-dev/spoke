@@ -255,10 +255,16 @@ pub fn orchestrate_promote(
         return SpokeResult::Reject(reject);
     }
 
-    let accepted = match apply_promote_acceptance(&request) {
+    let mut accepted = match apply_promote_acceptance(&request) {
         SpokeResult::Ok(entry) => entry,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
+
+    // When stored exists, base the persisted revision on stored — do not trust
+    // candidate-only bump if it could diverge from the loaded OCC base.
+    if let Some(stored) = stored.as_ref() {
+        accepted.revision = Some(stored.revision.unwrap_or(0) + 1);
+    }
 
     let put = match ports.put_knowledge_entry(accepted) {
         SpokeResult::Ok(entry) => entry,
@@ -1176,6 +1182,156 @@ mod tests {
             assert_eq!(knowledge_entry.revision, Some(3));
         } else {
             panic!("expected promote success");
+        }
+    }
+
+    /// OCC-aware adapter: put rejects when store revision is not `entry.revision - 1`.
+    /// `advance_on_get` simulates a concurrent writer racing between get and put.
+    struct OccBaselinePorts {
+        baseline: MemoryBaselinePorts,
+        store_revision: Mutex<u64>,
+        advance_on_get: Mutex<bool>,
+        puts: Mutex<Vec<KnowledgeEntry>>,
+    }
+
+    impl OccBaselinePorts {
+        fn new(entry: KnowledgeEntry, advance_on_get: bool) -> Self {
+            let store_revision = entry.revision.unwrap_or(0);
+            Self {
+                baseline: MemoryBaselinePorts::with_entry(entry),
+                store_revision: Mutex::new(store_revision),
+                advance_on_get: Mutex::new(advance_on_get),
+                puts: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl KnowledgeEntryPort for OccBaselinePorts {
+        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            let result = self.baseline.get_knowledge_entry(entry_id);
+            if result.is_ok() {
+                let mut advance = self.advance_on_get.lock().expect("advance lock");
+                if *advance {
+                    *self.store_revision.lock().expect("rev lock") += 1;
+                    *advance = false;
+                }
+            }
+            result
+        }
+
+        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
+            let expected_base = entry.revision.unwrap_or(1).saturating_sub(1);
+            let store_revision = *self.store_revision.lock().expect("rev lock");
+            if store_revision != expected_base {
+                let mut details = Map::new();
+                details.insert("expectedBase".into(), json!(expected_base));
+                details.insert("storeRevision".into(), json!(store_revision));
+                return spoke_reject(
+                    SpokeRejectCode::StoredRevisionStale,
+                    format!(
+                        "Store revision {store_revision} is ahead of expected base {expected_base}"
+                    ),
+                    Some(details),
+                );
+            }
+            *self.store_revision.lock().expect("rev lock") = entry.revision.unwrap_or(0);
+            self.puts.lock().expect("puts lock").push(entry.clone());
+            self.baseline.put_knowledge_entry(entry)
+        }
+    }
+
+    impl RelationPort for OccBaselinePorts {
+        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
+            self.baseline.put_relation(relation)
+        }
+    }
+    impl ScopeQueryPort for OccBaselinePorts {
+        fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            self.baseline.list_knowledge_entries(scope)
+        }
+        fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.baseline.list_timeline_events(scope)
+        }
+    }
+    impl FindingPort for OccBaselinePorts {
+        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            self.baseline.put_findings(findings)
+        }
+    }
+    impl RuleQueryPort for OccBaselinePorts {
+        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            self.baseline.list_rules(rule_refs)
+        }
+    }
+
+    #[test]
+    fn orchestrate_promote_forces_persisted_revision_to_stored_plus_one() {
+        let stored = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_force_rev",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 7,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let ports = OccBaselinePorts::new(stored, false);
+
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_force_rev",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 7,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_promote(&ports, promote_request(candidate));
+        assert!(result.is_ok());
+        let puts = ports.puts.lock().expect("puts lock");
+        assert_eq!(puts.len(), 1);
+        assert_eq!(puts[0].revision, Some(8));
+        if let SpokeResult::Ok(PromoteResponse::Variant0 { knowledge_entry, .. }) = result {
+            assert_eq!(knowledge_entry.revision, Some(8));
+        } else {
+            panic!("expected promote success");
+        }
+    }
+
+    #[test]
+    fn orchestrate_promote_propagates_adapter_occ_reject_on_concurrent_advance() {
+        let stored = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_occ",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 2,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let ports = OccBaselinePorts::new(stored, true);
+
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_occ",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 2,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_promote(&ports, promote_request(candidate));
+        assert!(!result.is_ok());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
+        } else {
+            panic!("expected OCC reject");
         }
     }
 

@@ -10,6 +10,11 @@ use spoke_schemas::{
 /// Knowledge entry persistence — get / put by entry id.
 pub trait KnowledgeEntryPort {
     fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry>;
+    /// Persist a KnowledgeEntry.
+    ///
+    /// Adapters SHOULD reject concurrent stale writes (e.g. conditional put / OCC)
+    /// with `REVISION_CONFLICT` or `STORED_REVISION_STALE` when the store’s current
+    /// revision is not the expected base (`entry.revision - 1`, or missing → 0).
     fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry>;
 }
 

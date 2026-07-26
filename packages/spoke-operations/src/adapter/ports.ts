@@ -22,6 +22,13 @@ import type { SpokeResult } from "../result.js";
 /** Knowledge entry persistence — get / put by entry id. */
 export interface KnowledgeEntryPort {
   getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>;
+  /**
+   * Persist a KnowledgeEntry.
+   *
+   * Adapters SHOULD reject concurrent stale writes (e.g. conditional put / OCC)
+   * with `REVISION_CONFLICT` or `STORED_REVISION_STALE` when the store’s current
+   * revision is not the expected base (`entry.revision - 1`, or missing → 0).
+   */
   putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry>;
 }
 

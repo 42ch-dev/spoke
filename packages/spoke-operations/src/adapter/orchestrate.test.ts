@@ -281,6 +281,84 @@ describe("baseline orchestration", () => {
     expect(result.value.knowledge_entry.revision).toBe(3);
   });
 
+  it("orchestratePromote forces persisted revision to stored.revision + 1 when stored exists", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_force_rev",
+      status: "provisional",
+      revision: 7,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_force_rev",
+      status: "provisional",
+      revision: 7,
+    });
+    const puts: KnowledgeEntry[] = [];
+    const baseline = createMemoryBaselinePorts({ entries: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry> {
+        puts.push(entry);
+        return baseline.putKnowledgeEntry(entry);
+      },
+    };
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.revision).toBe(8);
+    expect(result.value.knowledge_entry.revision).toBe(8);
+  });
+
+  it("orchestratePromote propagates adapter OCC reject when concurrent promote advanced revision", () => {
+    const snapshot = makeKnowledgeEntry({
+      entry_id: "kb_promote_occ",
+      status: "provisional",
+      revision: 2,
+    });
+    let storeRevision = 2;
+    const baseline = createMemoryBaselinePorts({ entries: [snapshot] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+        const result = baseline.getKnowledgeEntry(entryId);
+        if (result.ok) {
+          // Concurrent writer advances the store after our read snapshot.
+          storeRevision = 3;
+        }
+        return result;
+      },
+      putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry> {
+        const expectedBase = (entry.revision ?? 1) - 1;
+        if (storeRevision !== expectedBase) {
+          return spokeReject(
+            SpokeRejectCode.STORED_REVISION_STALE,
+            `Store revision ${storeRevision} is ahead of expected base ${expectedBase}`,
+            { expectedBase, storeRevision },
+          );
+        }
+        storeRevision = entry.revision ?? 0;
+        return baseline.putKnowledgeEntry(entry);
+      },
+    };
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_occ",
+      status: "provisional",
+      revision: 2,
+    });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
   it("orchestrateRelate persists a Relation", () => {
     const ports = createMemoryBaselinePorts();
     const relation = makeRelation({ relation_id: "rel_1" });

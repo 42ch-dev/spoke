@@ -4,7 +4,7 @@
 > **Document class:** Detail — ops **wire** layer (column 2)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Schema home:** `schemas/ops/`, `schemas/common/`  
-> **Lifecycle behavior:** [`spoke-operations.md`](spoke-operations.md) (column 3 — hand-written library, not wire)
+> **Lifecycle behavior:** [`spoke-operations.md`](spoke-operations.md) (column 3 — pure helpers, adapter ports, injection orchestration)
 
 ## Purpose
 
@@ -59,7 +59,7 @@ Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five basel
 - Ops MUST `$ref` data-layer types (`KnowledgeEntry`, `Relation`, `Finding`, `AssemblePacket`, `TimelineEvent`, `Rule`) — no duplicated inline copies of those objects.
 - Ops MAY include an optional top-level `extensions` object (same `ExtensionMap` as data layer) for transport metadata products choose to standardize later.
 - Ops MUST NOT embed product-specific payloads as protocol siblings on nested data objects; use `extensions` on those objects.
-- **Error path (architect-locked):** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `knowledge_entries`, …). Optional top-level `extensions` allowed on both branches.
+- **Error path:** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `knowledge_entries`, …). Optional top-level `extensions` allowed on both branches.
 
 ### Scope (shared — `check` + `assemble`)
 
@@ -118,7 +118,7 @@ Pure promote gates and revision bump before persist: [`spoke-operations.md` §Pr
 | Response (success) | `findings: Finding[]`; optional `extensions` |
 | Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
 
-**Rule input pattern (architect-locked):** support **both** `rule_refs` and embedded `rules[]`.
+**Rule input pattern:** support **both** `rule_refs` and embedded `rules[]`.
 
 | Mechanism | When to use |
 |-----------|-------------|
@@ -223,7 +223,7 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 | `details` | no | object (open) |
 | `extensions` | yes | object |
 
-### Attachment pattern (architect-locked — R3)
+### Attachment pattern (R3)
 
 All ops response schemas MUST use the same discriminated union:
 
@@ -261,10 +261,9 @@ HTTP mapping (4xx/5xx) is adapter concern. **`@42ch/spoke-operations`** provides
 
 ## Relationship to adapters and operations library
 
-v0.1 delivers **ops wire** shapes only. Cross-product lifecycle rules (promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders) live in [`spoke-operations.md`](spoke-operations.md) — adapters and product code MUST call `@42ch/spoke-operations` instead of reimplementing those invariants.
+v0.1 delivers **ops wire** shapes. Cross-product lifecycle rules and the capability-sliced adapter implementation protocol — promote acceptance, Finding status transitions, extension preserve, AssemblePacket builders, ports, and injection orchestration — live in [`spoke-operations.md`](spoke-operations.md#adapter-interfaces-normative). Adapters and product code call `@42ch/spoke-operations` / `spoke-operations` for those invariants.
 
-Mapping product HTTP/API handlers to these wire payloads remains a **follow-on** adapter concern (`@42ch/spoke-operations` delivered in operations library first slice).
-
+Mapping product HTTP/API handlers to these wire payloads is an adapter concern: product adapters implement the port contracts defined in the operations library.
 ---
 
 ## Acceptance (ops layer)
@@ -275,7 +274,7 @@ Mapping product HTTP/API handlers to these wire payloads remains a **follow-on**
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)
 - [ ] `check-request` / `assemble-request` `$ref` shared `Scope` from `common.schema.json`
-- [ ] `check-request` supports `rule_refs` and `rules[]` per architect lock
+- [ ] `check-request` supports `rule_refs` and `rules[]`
 - [ ] No transport-specific fields (HTTP method, URL path, gRPC service name) in ops schemas
 
 ## Non-goals (ops layer)
@@ -285,7 +284,7 @@ Mapping product HTTP/API handlers to these wire payloads remains a **follow-on**
 - Checker execution engine
 - Assemble ranking / retrieval algorithms
 - Conformance fixtures or golden round-trips
-- Adapter route mapping (post–ops wire harden)
+- Product adapter route mapping (ports live in the operations library)
 
 ## See also
 
@@ -294,6 +293,6 @@ Mapping product HTTP/API handlers to these wire payloads remains a **follow-on**
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `Rule`, `TimelineEvent`, …) |
-| [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers on top of wire types (column 3) |
+| [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers, adapter interfaces, injection orchestration |
 | [`schemas/README.md`](../../schemas/README.md) | Fourteen op schema files under `schemas/ops/` (ten baseline + four optional) |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

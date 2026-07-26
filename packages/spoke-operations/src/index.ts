@@ -69,3 +69,30 @@ export {
   type SpokeReject,
   type SpokeResult,
 } from "./result.js";
+
+export type {
+  KnowledgeEntryPort,
+  RelationPort,
+  ScopeQueryPort,
+  FindingPort,
+  RuleQueryPort,
+  ComputablePort,
+  ForkTimelineQueryPort,
+  BaselinePorts,
+  ComputablePorts,
+  ForkPorts,
+  FullPorts,
+} from "./adapter/ports.js";
+
+export {
+  orchestrateUpsert,
+  orchestratePromote,
+  orchestrateRelate,
+  orchestrateCheck,
+  orchestrateAssemble,
+  orchestrateProject,
+  orchestrateCompute,
+  orchestrateForkCheck,
+  orchestrateForkAssemble,
+  type CheckRunInput,
+} from "./adapter/orchestrate.js";

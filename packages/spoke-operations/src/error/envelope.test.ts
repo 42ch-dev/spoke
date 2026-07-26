@@ -14,6 +14,7 @@ const V0_ITER004_CODES = [
   SpokeRejectCode.RELATION_SELF_EDGE,
   SpokeRejectCode.RELATION_MISSING_ENDPOINT,
   SpokeRejectCode.DUPLICATE_ACTIVE_KNOWLEDGE_ENTRY,
+  SpokeRejectCode.CAPABILITY_PORT_MISSING,
 ] as const;
 
 const V0_ITER002_CODES = [

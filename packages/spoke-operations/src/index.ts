@@ -69,3 +69,17 @@ export {
   type SpokeReject,
   type SpokeResult,
 } from "./result.js";
+
+export type {
+  KnowledgeEntryPort,
+  RelationPort,
+  ScopeQueryPort,
+  FindingPort,
+  RuleQueryPort,
+  ComputablePort,
+  ForkTimelineQueryPort,
+  BaselinePorts,
+  ComputablePorts,
+  ForkPorts,
+  FullPorts,
+} from "./adapter/ports.js";

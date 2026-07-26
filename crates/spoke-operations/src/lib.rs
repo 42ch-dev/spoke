@@ -1,5 +1,6 @@
 //! SPOKE lifecycle helpers — pure functions over `spoke-schemas` wire types.
 
+mod adapter;
 mod assemble;
 mod body;
 mod computable;
@@ -48,6 +49,13 @@ pub use upsert::{
 };
 pub use result::{
     spoke_ok, spoke_ok_unit, spoke_reject, SpokeReject, SpokeRejectCode, SpokeResult,
+};
+pub use adapter::{
+    orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_fork_assemble,
+    orchestrate_fork_check, orchestrate_project, orchestrate_promote, orchestrate_relate,
+    orchestrate_upsert, BaselinePorts, CheckRunInput, ComputablePort, ComputablePorts, FindingPort,
+    ForkPorts, ForkTimelineQueryPort, FullPorts, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort,
 };
 
 /// Re-export wire types for integrator convenience.

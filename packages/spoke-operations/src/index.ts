@@ -90,5 +90,9 @@ export {
   orchestrateRelate,
   orchestrateCheck,
   orchestrateAssemble,
+  orchestrateProject,
+  orchestrateCompute,
+  orchestrateForkCheck,
+  orchestrateForkAssemble,
   type CheckRunInput,
 } from "./adapter/orchestrate.js";

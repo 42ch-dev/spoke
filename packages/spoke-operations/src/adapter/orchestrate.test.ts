@@ -1,8 +1,12 @@
 import type {
   AssembleRequest,
   CheckRequest,
+  ComputeRequest,
+  ComputeResponse,
   Finding,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
   PromoteRequest,
   RelateRequest,
   Relation,
@@ -17,6 +21,10 @@ import {
   SpokeRejectCode,
   orchestrateAssemble,
   orchestrateCheck,
+  orchestrateCompute,
+  orchestrateForkAssemble,
+  orchestrateForkCheck,
+  orchestrateProject,
   orchestratePromote,
   orchestrateRelate,
   orchestrateUpsert,
@@ -24,6 +32,8 @@ import {
   spokeReject,
   type BaselinePorts,
   type CheckRunInput,
+  type ComputablePorts,
+  type ForkPorts,
   type SpokeResult,
 } from "../index.js";
 
@@ -277,5 +287,213 @@ describe("baseline orchestration", () => {
         snippet: "Context snippet",
       },
     ]);
+  });
+});
+
+function withComputablePorts(
+  baseline: BaselinePorts,
+): ComputablePorts & { projected: ProjectRequest[]; computed: ComputeRequest[] } {
+  const projected: ProjectRequest[] = [];
+  const computed: ComputeRequest[] = [];
+
+  const ports: ComputablePorts = {
+    ...baseline,
+    project(request: ProjectRequest): SpokeResult<ProjectResponse> {
+      projected.push(request);
+      return spokeOk({
+        session_id: request.session_id,
+        entry_id: request.entry_id,
+        computable: { ...request.state, projected: true },
+      });
+    },
+    compute(request: ComputeRequest): SpokeResult<ComputeResponse> {
+      computed.push(request);
+      return spokeOk({
+        session_id: request.session_id,
+        entry_id: request.entry_id,
+        computable: request.computable,
+        ...(request.settle === true
+          ? { state: { ...request.computable } }
+          : {}),
+      });
+    },
+  };
+
+  return { ...ports, projected, computed };
+}
+
+function withForkPorts(
+  baseline: ReturnType<typeof createMemoryBaselinePorts>,
+): ForkPorts & { forkListCalls: Scope[] } {
+  const forkListCalls: Scope[] = [];
+
+  const ports: ForkPorts = {
+    ...baseline,
+    listForkTimelineEvents(scope: Scope & { fork_id: string }): SpokeResult<
+      TimelineEvent[]
+    > {
+      forkListCalls.push(scope);
+      return spokeOk(
+        baseline.store.events.filter((event) => event.fork_id === scope.fork_id),
+      );
+    },
+  };
+
+  return { ...ports, forkListCalls };
+}
+
+describe("optional computable orchestration", () => {
+  it("orchestrateProject validates then calls ComputablePort.project", () => {
+    const ports = withComputablePorts(createMemoryBaselinePorts());
+    const request: ProjectRequest = {
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      state: { tide_level: 2.4 },
+    };
+
+    const result = orchestrateProject(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      computable: { tide_level: 2.4, projected: true },
+    });
+    expect(ports.projected).toEqual([request]);
+  });
+
+  it("orchestrateCompute validates then calls ComputablePort.compute", () => {
+    const ports = withComputablePorts(createMemoryBaselinePorts());
+    const request: ComputeRequest = {
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      computable: { tide_level: 3.1 },
+      settle: true,
+    };
+
+    const result = orchestrateCompute(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      computable: { tide_level: 3.1 },
+      state: { tide_level: 3.1 },
+    });
+    expect(ports.computed).toEqual([request]);
+  });
+
+  it("returns CAPABILITY_PORT_MISSING when project is absent at a dynamic boundary", () => {
+    const baseline = createMemoryBaselinePorts();
+    const ports = baseline as unknown as ComputablePorts;
+    const request: ProjectRequest = {
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      state: {},
+    };
+
+    const result = orchestrateProject(ports, request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+    }
+  });
+});
+
+describe("optional fork orchestration", () => {
+  it("orchestrateForkCheck loads KE via listKnowledgeEntries and events via listForkTimelineEvents", () => {
+    const entry = makeKnowledgeEntry({ entry_id: "kb_fork" });
+    const onFork = makeTimelineEvent({
+      timeline_event_id: "te_fork",
+      fork_id: "fork_a",
+    });
+    const otherFork = makeTimelineEvent({
+      timeline_event_id: "te_other",
+      fork_id: "fork_b",
+    });
+    const baseline = createMemoryBaselinePorts({
+      entries: [entry],
+      events: [onFork, otherFork],
+    });
+    const ports = withForkPorts(baseline);
+    const request: CheckRequest = {
+      scope: {
+        scope_id: "world_1",
+        entry_ids: ["kb_fork"],
+        fork_id: "fork_a",
+      },
+    };
+    const finding = makeFinding({ finding_id: "f_fork" });
+
+    const result = orchestrateForkCheck(ports, request, (input) => {
+      expect(input.entries).toEqual([entry]);
+      expect(input.events).toEqual([onFork]);
+      return spokeOk([finding]);
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({ findings: [finding] });
+    expect(ports.forkListCalls).toEqual([request.scope]);
+    expect(baseline.store.findings).toEqual([finding]);
+  });
+
+  it("orchestrateForkAssemble uses fork timeline port and builds a packet", () => {
+    const entry = makeKnowledgeEntry({
+      entry_id: "kb_fork_assemble",
+      canonical_name: "Fork Hero",
+      body: { summary: "On branch" },
+    });
+    const baseline = createMemoryBaselinePorts({
+      entries: [entry],
+      events: [
+        makeTimelineEvent({
+          timeline_event_id: "te_1",
+          fork_id: "fork_a",
+        }),
+      ],
+    });
+    const ports = withForkPorts(baseline);
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        entry_ids: ["kb_fork_assemble"],
+        fork_id: "fork_a",
+      },
+    };
+
+    const result = orchestrateForkAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.packet_id).toBe("assemble:world_1");
+    expect(result.value.packet.entries[0]?.canonical_name).toBe("Fork Hero");
+    expect(ports.forkListCalls).toHaveLength(1);
+  });
+
+  it("returns CAPABILITY_PORT_MISSING when listForkTimelineEvents is absent", () => {
+    const baseline = createMemoryBaselinePorts();
+    const ports = baseline as unknown as ForkPorts;
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", fork_id: "fork_a" },
+    };
+
+    const result = orchestrateForkCheck(ports, request, () => spokeOk([]));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+    }
   });
 });

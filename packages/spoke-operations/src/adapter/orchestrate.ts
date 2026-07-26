@@ -7,19 +7,29 @@ import type {
   AssembleResponse,
   CheckRequest,
   CheckResponse,
+  ComputeRequest,
+  ComputeResponse,
   Finding,
+  ForkId,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
   PromoteRequest,
   PromoteResponse,
   RelateRequest,
   RelateResponse,
   Rule,
+  Scope,
   TimelineEvent,
   UpsertRequest,
   UpsertResponse,
 } from "@42ch/spoke-schemas";
 
 import { buildAssemblePacket } from "../assemble/builder.js";
+import {
+  validateComputeRequest,
+  validateProjectRequest,
+} from "../computable/validate.js";
 import { assertUniqueActiveKnowledgeEntry } from "../knowledge-entry/uniqueness.js";
 import { isValidKnowledgeEntryStatusTransition } from "../knowledge-entry/transition.js";
 import {
@@ -39,7 +49,12 @@ import {
 } from "../scope/match.js";
 import { validateUpsertKnowledgeEntry } from "../upsert/validate.js";
 
-import type { BaselinePorts, KnowledgeEntryPort } from "./ports.js";
+import type {
+  BaselinePorts,
+  ComputablePorts,
+  ForkPorts,
+  KnowledgeEntryPort,
+} from "./ports.js";
 
 /** Checker callback input after ports load scoped data and rules. */
 export type CheckRunInput = {
@@ -272,6 +287,184 @@ export function orchestrateAssemble(
   }
 
   const eventsResult = ports.listTimelineEvents(request.scope);
+  if (!eventsResult.ok) {
+    return eventsResult;
+  }
+
+  // Events are loaded/filtered for sequence parity; packet builders use entries only.
+  filterTimelineEventsByScope(eventsResult.value, request.scope);
+
+  const entries = filterKnowledgeEntriesByScope(
+    entriesResult.value,
+    request.scope,
+  );
+
+  const packetResult = buildAssemblePacket({
+    packetId: `assemble:${request.scope.scope_id}`,
+    knowledgeEntries: entries,
+    maxEntries: request.max_entries,
+    extensions: request.extensions,
+  });
+  if (!packetResult.ok) {
+    return packetResult;
+  }
+
+  return spokeOk({ packet: packetResult.value });
+}
+
+function requirePortMethod(
+  ports: object,
+  method: string,
+): SpokeResult<void> {
+  const candidate = (ports as Record<string, unknown>)[method];
+  if (typeof candidate !== "function") {
+    return spokeReject(
+      SpokeRejectCode.CAPABILITY_PORT_MISSING,
+      `Optional port method missing: ${method}`,
+      { method },
+    );
+  }
+  return spokeOk();
+}
+
+function requireForkScope(
+  scope: Scope,
+): SpokeResult<Scope & { fork_id: ForkId }> {
+  if (
+    typeof scope.fork_id !== "string" ||
+    scope.fork_id.trim().length === 0
+  ) {
+    return spokeReject(
+      SpokeRejectCode.MISSING_REQUIRED_FIELD,
+      "Fork orchestration requires scope.fork_id",
+      { field: "scope.fork_id" },
+    );
+  }
+
+  return spokeOk({ ...scope, fork_id: scope.fork_id });
+}
+
+/**
+ * Project Session computable view via ComputablePort after request validation.
+ */
+export function orchestrateProject(
+  ports: ComputablePorts,
+  request: ProjectRequest,
+): SpokeResult<ProjectResponse> {
+  const capability = requirePortMethod(ports, "project");
+  if (!capability.ok) {
+    return capability;
+  }
+
+  const validation = validateProjectRequest(request);
+  if (!validation.ok) {
+    return validation;
+  }
+
+  return ports.project(request);
+}
+
+/**
+ * Compute Session updates via ComputablePort after request validation.
+ * Settled-state persistence remains an explicit adapter step.
+ */
+export function orchestrateCompute(
+  ports: ComputablePorts,
+  request: ComputeRequest,
+): SpokeResult<ComputeResponse> {
+  const capability = requirePortMethod(ports, "compute");
+  if (!capability.ok) {
+    return capability;
+  }
+
+  const validation = validateComputeRequest(request);
+  if (!validation.ok) {
+    return validation;
+  }
+
+  return ports.compute(request);
+}
+
+/**
+ * Fork-aware check: KE via ScopeQueryPort; timeline via ForkTimelineQueryPort.
+ */
+export function orchestrateForkCheck(
+  ports: ForkPorts,
+  request: CheckRequest,
+  runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>,
+): SpokeResult<CheckResponse> {
+  const capability = requirePortMethod(ports, "listForkTimelineEvents");
+  if (!capability.ok) {
+    return capability;
+  }
+
+  const forkScope = requireForkScope(request.scope);
+  if (!forkScope.ok) {
+    return forkScope;
+  }
+
+  const rulesResult = resolveCheckRules(ports, request);
+  if (!rulesResult.ok) {
+    return rulesResult;
+  }
+
+  const entriesResult = ports.listKnowledgeEntries(request.scope);
+  if (!entriesResult.ok) {
+    return entriesResult;
+  }
+
+  const eventsResult = ports.listForkTimelineEvents(forkScope.value);
+  if (!eventsResult.ok) {
+    return eventsResult;
+  }
+
+  const entries = filterKnowledgeEntriesByScope(
+    entriesResult.value,
+    request.scope,
+  );
+  const events = filterTimelineEventsByScope(eventsResult.value, request.scope);
+
+  const checkResult = runChecker({
+    request,
+    entries,
+    events,
+    rules: rulesResult.value,
+  });
+  if (!checkResult.ok) {
+    return checkResult;
+  }
+
+  const put = ports.putFindings(checkResult.value);
+  if (!put.ok) {
+    return put;
+  }
+
+  return spokeOk({ findings: put.value });
+}
+
+/**
+ * Fork-aware assemble: KE via ScopeQueryPort; timeline via ForkTimelineQueryPort.
+ */
+export function orchestrateForkAssemble(
+  ports: ForkPorts,
+  request: AssembleRequest,
+): SpokeResult<AssembleResponse> {
+  const capability = requirePortMethod(ports, "listForkTimelineEvents");
+  if (!capability.ok) {
+    return capability;
+  }
+
+  const forkScope = requireForkScope(request.scope);
+  if (!forkScope.ok) {
+    return forkScope;
+  }
+
+  const entriesResult = ports.listKnowledgeEntries(request.scope);
+  if (!entriesResult.ok) {
+    return entriesResult;
+  }
+
+  const eventsResult = ports.listForkTimelineEvents(forkScope.value);
   if (!eventsResult.ok) {
     return eventsResult;
   }

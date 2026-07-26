@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.2.0] - 2026-07-26
+
+
+### Added
+
+- **schema:** Close KnowledgeEntry body with BodyAttribute traits
+
+- **spoke-operations:** Add body attribute read helpers
+
+- **spoke-operations:** Add Rust body attribute read helpers
+
+
+### Changed
+
+- **fixtures:** Add BodyAttribute traits to Mira KB sample
+
+
+### Documentation
+
+- Lock closed L2 body and BodyAttribute trait contract
+
+- **roadmap:** Note release bump-test harden in Now
+
+- Align tracked results with closed L2 body wire
+
+- **spoke-operations:** Document body attribute read helpers
+
+
+### Fixed
+
+- **release:** Make bump-version tests independent of live SemVer
+
+- **release:** Derive refuse/drift SemVer from fixture version
+
 ## [0.1.1] - 2026-07-25
 
 

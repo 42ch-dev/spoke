@@ -637,9 +637,9 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Rust crate (shippable)
 
 - [x] `spoke-operations` crate at `crates/spoke-operations/` re-exports all normative helper families and every TS `index.ts` symbol (first-slice + deepen + computable)
-- [ ] All 20 `SpokeRejectCode` strings exported from `result` module, including `CAPABILITY_PORT_MISSING`
-- [ ] `cargo test -p spoke-operations` in CI and release verify
-- [ ] crates.io publish after `spoke-schemas` on stable tags
+- [x] All 20 `SpokeRejectCode` strings exported from `result` module, including `CAPABILITY_PORT_MISSING`
+- [x] `cargo test -p spoke-operations` in CI and release verify
+- [x] crates.io publish after `spoke-schemas` on stable tags
 
 ### Computable slice (`l2-computable`)
 
@@ -656,10 +656,10 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 
 - [x] Capability → interface family → methods matrix complete for `spoke-baseline`, `l2-computable`, and `l5-fork` (no TBD cells)
 - [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
-- [ ] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
-- [ ] Orchestrators call pure helpers and perform I/O only through injected ports
-- [ ] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)
-- [ ] In-package mock adapters cover baseline five ops plus at least one computable and one fork-aware path
+- [x] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
+- [x] Orchestrators call pure helpers and perform I/O only through injected ports
+- [x] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)
+- [x] In-package mock adapters cover baseline five ops plus at least one computable and one fork-aware path
 
 ## Non-goals (operations layer)
 

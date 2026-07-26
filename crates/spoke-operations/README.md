@@ -1,6 +1,6 @@
 # spoke-operations
 
-Hand-written Rust lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, and `AssemblePacket` builders.
+Hand-written Rust lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, `AssemblePacket` builders, **capability-sliced adapter port traits**, and **injection orchestration**.
 
 Depends on [`spoke-schemas`](https://crates.io/crates/spoke-schemas) for wire types. Behavioral parity with [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) (TypeScript).
 
@@ -17,7 +17,7 @@ spoke-schemas = "X.Y.Z"
 spoke-operations = "X.Y.Z"
 ```
 
-## Usage
+## Usage — pure helpers
 
 ```rust
 use spoke_operations::{
@@ -31,6 +31,30 @@ if let SpokeResult::Ok(_) = gate {
 }
 ```
 
+## Usage — adapter ports and orchestration
+
+Implement the port traits (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`), then call the matching orchestrator:
+
+```rust
+use spoke_operations::{
+    orchestrate_check, orchestrate_upsert, BaselinePorts, CheckRunInput, SpokeResult,
+};
+use spoke_operations::spoke_schemas::{CheckRequest, UpsertRequest};
+
+fn run_baseline(ports: &impl BaselinePorts, upsert: UpsertRequest, check: CheckRequest) {
+    let _ = orchestrate_upsert(ports, upsert);
+    let _ = orchestrate_check(ports, check, |_input: CheckRunInput| SpokeResult::Ok(Vec::new()));
+}
+```
+
+Optional capabilities use `ComputablePorts` / `ForkPorts` with `orchestrate_project` / `orchestrate_compute` and `orchestrate_fork_check` / `orchestrate_fork_assemble`.
+
+**Integrator notes**
+
+- Adapters own **transaction boundaries** for multi-entry upsert and other multi-write sequences.
+- Active-uniqueness helpers take **caller-supplied peer sets**. Orchestration supplies batch-local peers; pass a store-wide snapshot when product uniqueness must span the whole store.
+- Absent optional ports at a dynamic boundary surface `SpokeRejectCode::CapabilityPortMissing` (`CAPABILITY_PORT_MISSING`).
+
 ## Helper families
 
 - `SpokeResult` / `SpokeReject` / `SpokeRejectCode` — unified reject envelope (stable code strings shared with TypeScript)
@@ -40,5 +64,6 @@ if let SpokeResult::Ok(_) = gate {
 - `knowledge_entry_to_assemble_entry`, `build_assemble_packet`
 - Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
 - `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` — read/filter `body.attributes` by `trait_type`
+- Adapter ports + orchestration: `KnowledgeEntryPort` … `FullPorts`, `CheckRunInput`, `orchestrate_upsert` … `orchestrate_fork_assemble`
 
-Pure functions over wire types. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).
+Pure functions and port-injected orchestrators over wire types. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).

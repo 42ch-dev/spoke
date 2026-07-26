@@ -44,7 +44,10 @@ describe("adapter port exports", () => {
       getKnowledgeEntry(_entryId: string): SpokeResult<KnowledgeEntry> {
         return spokeOk({} as KnowledgeEntry);
       },
-      putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry> {
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        _expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
         return spokeOk(entry);
       },
       putRelation(relation: Relation): SpokeResult<Relation> {
@@ -74,7 +77,7 @@ describe("adapter port exports", () => {
   it("ComputablePorts / ForkPorts / FullPorts compose optional families", () => {
     const baseline: BaselinePorts = {
       getKnowledgeEntry: () => spokeOk({} as KnowledgeEntry),
-      putKnowledgeEntry: (entry) => spokeOk(entry),
+      putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
       putRelation: (relation) => spokeOk(relation),
       listKnowledgeEntries: () => spokeOk([]),
       listTimelineEvents: () => spokeOk([]),
@@ -112,7 +115,7 @@ describe("adapter port exports", () => {
   it("individual port interfaces are assignable by method shape", () => {
     const knowledge: KnowledgeEntryPort = {
       getKnowledgeEntry: () => spokeOk({} as KnowledgeEntry),
-      putKnowledgeEntry: (entry) => spokeOk(entry),
+      putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
     };
     const relation: RelationPort = {
       putRelation: (r) => spokeOk(r),

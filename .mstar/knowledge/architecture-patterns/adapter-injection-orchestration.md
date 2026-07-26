@@ -16,6 +16,7 @@ Pure helpers keep lifecycle invariants consistent, but every product still inven
 4. **Sync `SpokeResult` ports** — normative methods return `SpokeResult<T>` directly; future async surfaces use distinct `Async*Port` names.
 5. **Missing optional ports** — dynamic boundaries return `CAPABILITY_PORT_MISSING` (not throw/panic).
 6. **Check injectee** — checkers remain product-owned via `CheckRunInput` + `runChecker` callback after ports load scoped data.
+7. **Knowledge entry OCC** — `putKnowledgeEntry(entry, expectedBaseRevision)` requires adapters to enforce compare-and-put: `null`/`None` means absent (create); non-null means the store’s current revision for `entry_id` must match before accepting the write (`STORED_REVISION_STALE` or `REVISION_CONFLICT` on mismatch). Orchestrators pass the loaded stored revision (or `null`/`None` on create).
 
 ## Gotchas
 

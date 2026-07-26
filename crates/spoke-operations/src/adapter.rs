@@ -68,6 +68,7 @@ mod parity_export_checklist {
         fn put_knowledge_entry(
             &self,
             entry: spoke_schemas::KnowledgeEntry,
+            _expected_base_revision: Option<u64>,
         ) -> crate::SpokeResult<spoke_schemas::KnowledgeEntry> {
             crate::spoke_ok(entry)
         }

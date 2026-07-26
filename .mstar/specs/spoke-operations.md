@@ -493,13 +493,15 @@ The following five families are required for `spoke-baseline`:
 
 | Family | TypeScript interface | Rust trait | Methods |
 |---|---|---|---|
-| Knowledge entry persistence | `KnowledgeEntryPort` | `KnowledgeEntryPort` | `getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>`; `putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry>` |
+| Knowledge entry persistence | `KnowledgeEntryPort` | `KnowledgeEntryPort` | `getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>`; `putKnowledgeEntry(entry: KnowledgeEntry, expectedBaseRevision: number \| null): SpokeResult<KnowledgeEntry>` |
 | Relation persistence | `RelationPort` | `RelationPort` | `putRelation(relation: Relation): SpokeResult<Relation>` |
 | Scope query | `ScopeQueryPort` | `ScopeQueryPort` | `listKnowledgeEntries(scope: Scope): SpokeResult<KnowledgeEntry[]>`; `listTimelineEvents(scope: Scope): SpokeResult<TimelineEvent[]>` |
 | Finding persistence | `FindingPort` | `FindingPort` | `putFindings(findings: Finding[]): SpokeResult<Finding[]>` |
 | Rule query | `RuleQueryPort` | `RuleQueryPort` | `listRules(ruleRefs: string[]): SpokeResult<Rule[]>` |
 
 `ScopeQueryPort` is the query boundary for `check` and `assemble`. `RuleQueryPort` is used when a check request supplies rule references; embedded rules remain request data and do not require a port lookup.
+
+`putKnowledgeEntry` / `put_knowledge_entry` carry optimistic concurrency control structurally: adapters MUST treat `expectedBaseRevision` / `expected_base_revision` as the store’s required current revision before accepting the write (`null`/`None` = absent entry for create). True concurrent safety requires atomic compare-and-put in the adapter; the library stays I/O-free.
 
 ### Optional port families
 
@@ -547,8 +549,8 @@ Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The ca
 
 | Operation | TypeScript entrypoint | Rust entrypoint | Required ports | Required sequence |
 |---|---|---|---|---|
-| upsert | `orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): SpokeResult<UpsertResponse>` | `orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry` |
-| promote | `orchestratePromote(ports: BaselinePorts, request: PromoteRequest): SpokeResult<PromoteResponse>` | `orchestrate_promote(ports: &impl BaselinePorts, request: PromoteRequest) -> SpokeResult<PromoteResponse>` | `KnowledgeEntryPort` | Call `validatePromoteRequest`; call `applyPromoteAcceptance`; call `putKnowledgeEntry` |
+| upsert | `orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): SpokeResult<UpsertResponse>` | `orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` on create and the stored revision on update |
+| promote | `orchestratePromote(ports: BaselinePorts, request: PromoteRequest): SpokeResult<PromoteResponse>` | `orchestrate_promote(ports: &impl BaselinePorts, request: PromoteRequest) -> SpokeResult<PromoteResponse>` | `KnowledgeEntryPort` | Load stored entry; terminal and revision gates; call `validatePromoteRequest`; call `applyPromoteAcceptance`; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` when absent and `stored.revision` (or `0`) when stored exists |
 | relate | `orchestrateRelate(ports: BaselinePorts, request: RelateRequest): SpokeResult<RelateResponse>` | `orchestrate_relate(ports: &impl BaselinePorts, request: RelateRequest) -> SpokeResult<RelateResponse>` | `RelationPort` | Call `validateRelateRequest`; call `putRelation` |
 | check | `orchestrateCheck(ports: BaselinePorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): SpokeResult<CheckResponse>` | `orchestrate_check(ports: &impl BaselinePorts, request: CheckRequest, run_checker: impl Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ScopeQueryPort`, `RuleQueryPort`, `FindingPort` | Resolve refs with `listRules`; query scoped entries/events via `ScopeQueryPort`; apply scope helpers; invoke `runChecker`; call `putFindings` |
 | assemble | `orchestrateAssemble(ports: BaselinePorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_assemble(ports: &impl BaselinePorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ScopeQueryPort` | Query scoped entries/events; apply scope helpers; call `buildAssemblePacket`; return packet |

@@ -151,7 +151,10 @@ export function orchestrateUpsert(
       return uniqueness;
     }
 
-    const put = ports.putKnowledgeEntry(candidate);
+    const expectedBaseRevision =
+      stored === undefined ? null : (stored.revision ?? 0);
+
+    const put = ports.putKnowledgeEntry(candidate, expectedBaseRevision);
     if (!put.ok) {
       return put;
     }
@@ -216,7 +219,10 @@ export function orchestratePromote(
         }
       : accepted.value;
 
-  const put = ports.putKnowledgeEntry(toPersist);
+  const expectedBaseRevision =
+    stored === undefined ? null : (stored.revision ?? 0);
+
+  const put = ports.putKnowledgeEntry(toPersist, expectedBaseRevision);
   if (!put.ok) {
     return put;
   }

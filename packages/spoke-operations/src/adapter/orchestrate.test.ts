@@ -101,7 +101,42 @@ function makeTimelineEvent(
   };
 }
 
-/** In-memory BaselinePorts for orchestration tests (no I/O). */
+/** Enforce OCC on in-memory put — mirrors adapter CAS contract. */
+function putKnowledgeEntryWithOcc(
+  entries: Map<string, KnowledgeEntry>,
+  entry: KnowledgeEntry,
+  expectedBaseRevision: number | null,
+): SpokeResult<KnowledgeEntry> {
+  const existing = entries.get(entry.entry_id);
+  if (expectedBaseRevision === null) {
+    if (existing !== undefined) {
+      return spokeReject(
+        SpokeRejectCode.REVISION_CONFLICT,
+        `Entry already exists: ${entry.entry_id}`,
+        { entry_id: entry.entry_id },
+      );
+    }
+  } else {
+    if (existing === undefined) {
+      return spokeReject(
+        SpokeRejectCode.STORED_REVISION_STALE,
+        `KnowledgeEntry not found for update: ${entry.entry_id}`,
+        { entry_id: entry.entry_id, expectedBaseRevision },
+      );
+    }
+    const currentRevision = existing.revision ?? 0;
+    if (currentRevision !== expectedBaseRevision) {
+      return spokeReject(
+        SpokeRejectCode.STORED_REVISION_STALE,
+        `Store revision ${currentRevision} does not match expected base ${expectedBaseRevision}`,
+        { expectedBaseRevision, storeRevision: currentRevision },
+      );
+    }
+  }
+  entries.set(entry.entry_id, entry);
+  return spokeOk(entry);
+}
+
 function createMemoryBaselinePorts(seed?: {
   entries?: KnowledgeEntry[];
   relations?: Relation[];
@@ -138,9 +173,11 @@ function createMemoryBaselinePorts(seed?: {
       }
       return spokeOk(entry);
     },
-    putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry> {
-      entries.set(entry.entry_id, entry);
-      return spokeOk(entry);
+    putKnowledgeEntry(
+      entry: KnowledgeEntry,
+      expectedBaseRevision: number | null,
+    ): SpokeResult<KnowledgeEntry> {
+      return putKnowledgeEntryWithOcc(entries, entry, expectedBaseRevision);
     },
     putRelation(relation: Relation): SpokeResult<Relation> {
       relations.set(relation.relation_id, relation);
@@ -292,13 +329,16 @@ describe("baseline orchestration", () => {
       status: "provisional",
       revision: 7,
     });
-    const puts: KnowledgeEntry[] = [];
+    const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
     const baseline = createMemoryBaselinePorts({ entries: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry> {
-        puts.push(entry);
-        return baseline.putKnowledgeEntry(entry);
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        puts.push({ entry, expectedBaseRevision });
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
       },
     };
 
@@ -309,7 +349,8 @@ describe("baseline orchestration", () => {
       return;
     }
     expect(puts).toHaveLength(1);
-    expect(puts[0]?.revision).toBe(8);
+    expect(puts[0]?.expectedBaseRevision).toBe(7);
+    expect(puts[0]?.entry.revision).toBe(8);
     expect(result.value.knowledge_entry.revision).toBe(8);
   });
 
@@ -331,17 +372,19 @@ describe("baseline orchestration", () => {
         }
         return result;
       },
-      putKnowledgeEntry(entry: KnowledgeEntry): SpokeResult<KnowledgeEntry> {
-        const expectedBase = (entry.revision ?? 1) - 1;
-        if (storeRevision !== expectedBase) {
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        if (expectedBaseRevision !== null && storeRevision !== expectedBaseRevision) {
           return spokeReject(
             SpokeRejectCode.STORED_REVISION_STALE,
-            `Store revision ${storeRevision} is ahead of expected base ${expectedBase}`,
-            { expectedBase, storeRevision },
+            `Store revision ${storeRevision} is ahead of expected base ${expectedBaseRevision}`,
+            { expectedBaseRevision, storeRevision },
           );
         }
         storeRevision = entry.revision ?? 0;
-        return baseline.putKnowledgeEntry(entry);
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
       },
     };
     const candidate = makeKnowledgeEntry({
@@ -351,6 +394,108 @@ describe("baseline orchestration", () => {
     });
 
     const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
+  it("orchestrateUpsert passes null expectedBaseRevision on create", () => {
+    const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
+    const baseline = createMemoryBaselinePorts();
+    const ports: BaselinePorts = {
+      ...baseline,
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        puts.push({ entry, expectedBaseRevision });
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_create_occ" });
+    const request: UpsertRequest = { knowledge_entries: [candidate] };
+
+    const result = orchestrateUpsert(ports, request);
+
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBeNull();
+  });
+
+  it("orchestrateUpsert passes stored revision as expectedBaseRevision on update", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_update_occ",
+      revision: 4,
+    });
+    const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
+    const baseline = createMemoryBaselinePorts({ entries: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        puts.push({ entry, expectedBaseRevision });
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_update_occ",
+      revision: 4,
+      canonical_name: "Updated",
+    });
+    const request: UpsertRequest = { knowledge_entries: [candidate] };
+
+    const result = orchestrateUpsert(ports, request);
+
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBe(4);
+  });
+
+  it("orchestrateUpsert rejects concurrent update when expected base is stale", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_upsert_occ",
+      revision: 1,
+    });
+    let storeRevision = 1;
+    const baseline = createMemoryBaselinePorts({ entries: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+        const result = baseline.getKnowledgeEntry(entryId);
+        if (result.ok) {
+          storeRevision = 2;
+        }
+        return result;
+      },
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        if (expectedBaseRevision !== null && storeRevision !== expectedBaseRevision) {
+          return spokeReject(
+            SpokeRejectCode.STORED_REVISION_STALE,
+            `Store revision ${storeRevision} does not match expected base ${expectedBaseRevision}`,
+            { expectedBaseRevision, storeRevision },
+          );
+        }
+        storeRevision = entry.revision ?? 0;
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_upsert_occ",
+      revision: 1,
+      canonical_name: "Raced",
+    });
+
+    const result = orchestrateUpsert(ports, {
+      knowledge_entries: [candidate],
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) {

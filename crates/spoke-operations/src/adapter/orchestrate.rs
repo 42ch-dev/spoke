@@ -200,6 +200,10 @@ pub fn orchestrate_upsert(
             return SpokeResult::Reject(reject);
         }
 
+        let expected_base_revision = stored
+            .as_ref()
+            .map(|stored| stored.revision.unwrap_or(0));
+
         let mut uniqueness_existing = batch_peers.clone();
         if let Some(stored_entry) = stored {
             uniqueness_existing.push(stored_entry);
@@ -210,7 +214,7 @@ pub fn orchestrate_upsert(
             return SpokeResult::Reject(reject);
         }
 
-        let put = match ports.put_knowledge_entry(candidate) {
+        let put = match ports.put_knowledge_entry(candidate, expected_base_revision) {
             SpokeResult::Ok(entry) => entry,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -266,7 +270,9 @@ pub fn orchestrate_promote(
         accepted.revision = Some(stored.revision.unwrap_or(0) + 1);
     }
 
-    let put = match ports.put_knowledge_entry(accepted) {
+    let expected_base_revision = stored.as_ref().map(|stored| stored.revision.unwrap_or(0));
+
+    let put = match ports.put_knowledge_entry(accepted, expected_base_revision) {
         SpokeResult::Ok(entry) => entry,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -648,6 +654,56 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
+    fn put_knowledge_entry_with_occ(
+        entries: &mut HashMap<String, KnowledgeEntry>,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        let existing = entries.get(&entry.entry_id);
+        if expected_base_revision.is_none() {
+            if existing.is_some() {
+                let mut details = Map::new();
+                details.insert("entry_id".into(), json!(entry.entry_id));
+                return spoke_reject(
+                    SpokeRejectCode::RevisionConflict,
+                    format!("Entry already exists: {}", entry.entry_id),
+                    Some(details),
+                );
+            }
+        } else {
+            let expected = expected_base_revision.unwrap_or(0);
+            match existing {
+                None => {
+                    let mut details = Map::new();
+                    details.insert("entry_id".into(), json!(entry.entry_id));
+                    details.insert("expectedBaseRevision".into(), json!(expected));
+                    return spoke_reject(
+                        SpokeRejectCode::StoredRevisionStale,
+                        format!("KnowledgeEntry not found for update: {}", entry.entry_id),
+                        Some(details),
+                    );
+                }
+                Some(stored) => {
+                    let current = stored.revision.unwrap_or(0);
+                    if current != expected {
+                        let mut details = Map::new();
+                        details.insert("expectedBaseRevision".into(), json!(expected));
+                        details.insert("storeRevision".into(), json!(current));
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            format!(
+                                "Store revision {current} does not match expected base {expected}"
+                            ),
+                            Some(details),
+                        );
+                    }
+                }
+            }
+        }
+        entries.insert(entry.entry_id.clone(), entry.clone());
+        spoke_ok(entry)
+    }
+
     #[derive(Default)]
     struct MemoryStore {
         entries: HashMap<String, KnowledgeEntry>,
@@ -692,10 +748,13 @@ mod tests {
             }
         }
 
-        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
             let mut store = self.store.lock().expect("store lock");
-            store.entries.insert(entry.entry_id.clone(), entry.clone());
-            spoke_ok(entry)
+            put_knowledge_entry_with_occ(&mut store.entries, entry, expected_base_revision)
         }
     }
 
@@ -771,8 +830,13 @@ mod tests {
         fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
             self.baseline.get_knowledge_entry(entry_id)
         }
-        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.put_knowledge_entry(entry)
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            self.baseline
+                .put_knowledge_entry(entry, expected_base_revision)
         }
     }
     impl RelationPort for MemoryComputablePorts {
@@ -842,8 +906,13 @@ mod tests {
         fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
             self.baseline.get_knowledge_entry(entry_id)
         }
-        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.put_knowledge_entry(entry)
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            self.baseline
+                .put_knowledge_entry(entry, expected_base_revision)
         }
     }
     impl RelationPort for MemoryForkPorts {
@@ -899,8 +968,13 @@ mod tests {
         fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
             self.baseline.get_knowledge_entry(entry_id)
         }
-        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.put_knowledge_entry(entry)
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            self.baseline
+                .put_knowledge_entry(entry, expected_base_revision)
         }
     }
     impl RelationPort for MissingComputablePorts {
@@ -940,8 +1014,13 @@ mod tests {
         fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
             self.baseline.get_knowledge_entry(entry_id)
         }
-        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.put_knowledge_entry(entry)
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            self.baseline
+                .put_knowledge_entry(entry, expected_base_revision)
         }
     }
     impl RelationPort for MissingForkPorts {
@@ -1185,13 +1264,13 @@ mod tests {
         }
     }
 
-    /// OCC-aware adapter: put rejects when store revision is not `entry.revision - 1`.
+    /// OCC-aware adapter: put rejects when store revision does not match `expected_base_revision`.
     /// `advance_on_get` simulates a concurrent writer racing between get and put.
     struct OccBaselinePorts {
         baseline: MemoryBaselinePorts,
         store_revision: Mutex<u64>,
         advance_on_get: Mutex<bool>,
-        puts: Mutex<Vec<KnowledgeEntry>>,
+        puts: Mutex<Vec<(KnowledgeEntry, Option<u64>)>>,
     }
 
     impl OccBaselinePorts {
@@ -1219,24 +1298,33 @@ mod tests {
             result
         }
 
-        fn put_knowledge_entry(&self, entry: KnowledgeEntry) -> SpokeResult<KnowledgeEntry> {
-            let expected_base = entry.revision.unwrap_or(1).saturating_sub(1);
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
             let store_revision = *self.store_revision.lock().expect("rev lock");
-            if store_revision != expected_base {
-                let mut details = Map::new();
-                details.insert("expectedBase".into(), json!(expected_base));
-                details.insert("storeRevision".into(), json!(store_revision));
-                return spoke_reject(
-                    SpokeRejectCode::StoredRevisionStale,
-                    format!(
-                        "Store revision {store_revision} is ahead of expected base {expected_base}"
-                    ),
-                    Some(details),
-                );
+            if let Some(expected_base) = expected_base_revision {
+                if store_revision != expected_base {
+                    let mut details = Map::new();
+                    details.insert("expectedBaseRevision".into(), json!(expected_base));
+                    details.insert("storeRevision".into(), json!(store_revision));
+                    return spoke_reject(
+                        SpokeRejectCode::StoredRevisionStale,
+                        format!(
+                            "Store revision {store_revision} is ahead of expected base {expected_base}"
+                        ),
+                        Some(details),
+                    );
+                }
             }
             *self.store_revision.lock().expect("rev lock") = entry.revision.unwrap_or(0);
-            self.puts.lock().expect("puts lock").push(entry.clone());
-            self.baseline.put_knowledge_entry(entry)
+            self.puts
+                .lock()
+                .expect("puts lock")
+                .push((entry.clone(), expected_base_revision));
+            self.baseline
+                .put_knowledge_entry(entry, expected_base_revision)
         }
     }
 
@@ -1293,7 +1381,8 @@ mod tests {
         assert!(result.is_ok());
         let puts = ports.puts.lock().expect("puts lock");
         assert_eq!(puts.len(), 1);
-        assert_eq!(puts[0].revision, Some(8));
+        assert_eq!(puts[0].1, Some(7));
+        assert_eq!(puts[0].0.revision, Some(8));
         if let SpokeResult::Ok(PromoteResponse::Variant0 { knowledge_entry, .. }) = result {
             assert_eq!(knowledge_entry.revision, Some(8));
         } else {
@@ -1327,6 +1416,130 @@ mod tests {
         });
 
         let result = orchestrate_promote(&ports, promote_request(candidate));
+        assert!(!result.is_ok());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
+        } else {
+            panic!("expected OCC reject");
+        }
+    }
+
+    #[test]
+    fn orchestrate_upsert_passes_none_expected_base_revision_on_create() {
+        let ports = MemoryBaselinePorts::new(MemoryStore::default());
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_create_occ",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_upsert(&ports, upsert_request(vec![candidate]));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn orchestrate_upsert_rejects_concurrent_update_when_expected_base_is_stale() {
+        let stored = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_upsert_occ",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 1,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let baseline = MemoryBaselinePorts::with_entry(stored);
+        let store_revision = Mutex::new(1_u64);
+        let advance_on_get = Mutex::new(true);
+
+        struct UpsertOccPorts {
+            baseline: MemoryBaselinePorts,
+            store_revision: Mutex<u64>,
+            advance_on_get: Mutex<bool>,
+        }
+
+        impl KnowledgeEntryPort for UpsertOccPorts {
+            fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+                let result = self.baseline.get_knowledge_entry(entry_id);
+                if result.is_ok() {
+                    let mut advance = self.advance_on_get.lock().expect("advance lock");
+                    if *advance {
+                        *self.store_revision.lock().expect("rev lock") = 2;
+                        *advance = false;
+                    }
+                }
+                result
+            }
+
+            fn put_knowledge_entry(
+                &self,
+                entry: KnowledgeEntry,
+                expected_base_revision: Option<u64>,
+            ) -> SpokeResult<KnowledgeEntry> {
+                let store_revision = *self.store_revision.lock().expect("rev lock");
+                if let Some(expected) = expected_base_revision {
+                    if store_revision != expected {
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            format!(
+                                "Store revision {store_revision} does not match expected base {expected}"
+                            ),
+                            None,
+                        );
+                    }
+                }
+                self.baseline
+                    .put_knowledge_entry(entry, expected_base_revision)
+            }
+        }
+
+        impl RelationPort for UpsertOccPorts {
+            fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
+                self.baseline.put_relation(relation)
+            }
+        }
+        impl ScopeQueryPort for UpsertOccPorts {
+            fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+                self.baseline.list_knowledge_entries(scope)
+            }
+            fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+                self.baseline.list_timeline_events(scope)
+            }
+        }
+        impl FindingPort for UpsertOccPorts {
+            fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+                self.baseline.put_findings(findings)
+            }
+        }
+        impl RuleQueryPort for UpsertOccPorts {
+            fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+                self.baseline.list_rules(rule_refs)
+            }
+        }
+
+        let ports = UpsertOccPorts {
+            baseline,
+            store_revision,
+            advance_on_get,
+        };
+
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_upsert_occ",
+            "entry_type": "character",
+            "canonical_name": "Raced",
+            "status": "provisional",
+            "revision": 1,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_upsert(&ports, upsert_request(vec![candidate]));
         assert!(!result.is_ok());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);

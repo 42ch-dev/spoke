@@ -477,6 +477,16 @@ Ports are synchronous on the normative v0.1 surface. TypeScript methods and Rust
 
 All port methods return `SpokeResult<T>`. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
 
+### Capability matrix
+
+| Capability | Required interface families | Orchestration enabled |
+|---|---|---|
+| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort` | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
+| `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
+| `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
+
+Unclaimed capabilities need no ports; their orchestrators are not callable for that product.
+
 ### Baseline port families
 
 The following five families are required for `spoke-baseline`:
@@ -518,19 +528,34 @@ These are conceptual public types; Rust implementers satisfy the corresponding t
 
 ## Injection Orchestration (normative)
 
-Orchestration is additive to the pure helper families. The public surface exposes one per-operation entrypoint per language — not a stateful facade. Each entrypoint receives injected ports and a request, calls the listed pure helpers, and performs all reads and writes through those ports.
+Orchestration is additive to the pure helper families. The public surface exposes one per-operation entrypoint per language — not a stateful facade. Each entrypoint receives injected ports and a request, calls the listed pure helpers, and performs all reads and writes through those ports. Check orchestrators additionally accept a caller-supplied checker callback — the library loads scoped data via ports, invokes the callback, and persists findings; checker engines remain product-owned.
+
+### Check orchestration injectee
+
+Check paths do not embed a checker engine. After loading scoped entries, timeline events, and rules via ports, the orchestrator invokes a caller-supplied callback and persists the returned findings.
+
+```typescript
+type CheckRunInput = {
+  request: CheckRequest;
+  entries: KnowledgeEntry[];
+  events: TimelineEvent[];
+  rules: Rule[];
+};
+```
+
+Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The callback type is `(input: CheckRunInput) => SpokeResult<Finding[]>` in TypeScript and `Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>` (or equivalent trait object) in Rust.
 
 | Operation | TypeScript entrypoint | Rust entrypoint | Required ports | Required sequence |
 |---|---|---|---|---|
 | upsert | `orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): SpokeResult<UpsertResponse>` | `orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry` |
 | promote | `orchestratePromote(ports: BaselinePorts, request: PromoteRequest): SpokeResult<PromoteResponse>` | `orchestrate_promote(ports: &impl BaselinePorts, request: PromoteRequest) -> SpokeResult<PromoteResponse>` | `KnowledgeEntryPort` | Call `validatePromoteRequest`; call `applyPromoteAcceptance`; call `putKnowledgeEntry` |
 | relate | `orchestrateRelate(ports: BaselinePorts, request: RelateRequest): SpokeResult<RelateResponse>` | `orchestrate_relate(ports: &impl BaselinePorts, request: RelateRequest) -> SpokeResult<RelateResponse>` | `RelationPort` | Call `validateRelateRequest`; call `putRelation` |
-| check | `orchestrateCheck(ports: BaselinePorts, request: CheckRequest): SpokeResult<CheckResponse>` | `orchestrate_check(ports: &impl BaselinePorts, request: CheckRequest) -> SpokeResult<CheckResponse>` | `ScopeQueryPort`, `RuleQueryPort`, `FindingPort` | Resolve refs with `listRules`; query scoped entries/events; apply scope helpers; invoke caller-supplied checker; call `putFindings` |
+| check | `orchestrateCheck(ports: BaselinePorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): SpokeResult<CheckResponse>` | `orchestrate_check(ports: &impl BaselinePorts, request: CheckRequest, run_checker: impl Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ScopeQueryPort`, `RuleQueryPort`, `FindingPort` | Resolve refs with `listRules`; query scoped entries/events via `ScopeQueryPort`; apply scope helpers; invoke `runChecker`; call `putFindings` |
 | assemble | `orchestrateAssemble(ports: BaselinePorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_assemble(ports: &impl BaselinePorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ScopeQueryPort` | Query scoped entries/events; apply scope helpers; call `buildAssemblePacket`; return packet |
 | project | `orchestrateProject(ports: ComputablePorts, request: ProjectRequest): SpokeResult<ProjectResponse>` | `orchestrate_project(ports: &impl ComputablePorts, request: ProjectRequest) -> SpokeResult<ProjectResponse>` | `ComputablePort` | Call `validateProjectRequest`; call `project` |
 | compute | `orchestrateCompute(ports: ComputablePorts, request: ComputeRequest): SpokeResult<ComputeResponse>` | `orchestrate_compute(ports: &impl ComputablePorts, request: ComputeRequest) -> SpokeResult<ComputeResponse>` | `ComputablePort` | Call `validateComputeRequest`; call `compute`; any settled-state persistence is an explicit adapter step |
-| fork check | `orchestrateForkCheck(ports: ForkPorts, request: CheckRequest): SpokeResult<CheckResponse>` | `orchestrate_fork_check(ports: &impl ForkPorts, request: CheckRequest) -> SpokeResult<CheckResponse>` | `ForkTimelineQueryPort` plus baseline check ports | Validate `scope.fork_id`; use fork query; follow check sequence |
-| fork assemble | `orchestrateForkAssemble(ports: ForkPorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_fork_assemble(ports: &impl ForkPorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ForkTimelineQueryPort` plus baseline assemble ports | Validate `scope.fork_id`; use fork query; call `buildAssemblePacket` |
+| fork check | `orchestrateForkCheck(ports: ForkPorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): SpokeResult<CheckResponse>` | `orchestrate_fork_check(ports: &impl ForkPorts, request: CheckRequest, run_checker: impl Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ForkTimelineQueryPort` plus baseline check ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; resolve rules; apply scope helpers; invoke `runChecker`; call `putFindings` |
+| fork assemble | `orchestrateForkAssemble(ports: ForkPorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_fork_assemble(ports: &impl ForkPorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ForkTimelineQueryPort` plus baseline assemble ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; apply scope helpers; call `buildAssemblePacket` |
 
 Orchestrators compose pure helpers and port I/O only. Checker engines, compute engines, ranking, retrieval, transactions, and retries remain adapter- or product-owned. The adapter controls transaction boundaries.
 
@@ -549,6 +574,7 @@ TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and 
 | `RuleQueryPort` | `RuleQueryPort` |
 | `ComputablePort` | `ComputablePort` |
 | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` |
+| `CheckRunInput` | `CheckRunInput` |
 | `orchestrateUpsert` | `orchestrate_upsert` |
 | `orchestratePromote` | `orchestrate_promote` |
 | `orchestrateRelate` | `orchestrate_relate` |
@@ -611,7 +637,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Rust crate (shippable)
 
 - [x] `spoke-operations` crate at `crates/spoke-operations/` re-exports all normative helper families and every TS `index.ts` symbol (first-slice + deepen + computable)
-- [x] All 20 `SpokeRejectCode` strings exported from `result` module, including `CAPABILITY_PORT_MISSING`
+- [ ] All 20 `SpokeRejectCode` strings exported from `result` module, including `CAPABILITY_PORT_MISSING`
 - [ ] `cargo test -p spoke-operations` in CI and release verify
 - [ ] crates.io publish after `spoke-schemas` on stable tags
 
@@ -629,6 +655,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Adapter interfaces + injection orchestration
 
 - [x] Capability → interface family → methods matrix complete for `spoke-baseline`, `l2-computable`, and `l5-fork` (no TBD cells)
+- [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
 - [ ] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
 - [ ] Orchestrators call pure helpers and perform I/O only through injected ports
 - [ ] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)

@@ -20,7 +20,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 | **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas when shipped) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants and injected adapter orchestration that JSON Schema cannot express | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`); `crates/spoke-operations/` (`spoke-operations`) |
 
-**Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types, including capability-sliced adapter ports and injection orchestration. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer. The adapter contract is defined in [`spoke-operations.md`](spoke-operations.md#adapter-interfaces-normative).
+**Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types, including capability-sliced adapter ports and injection orchestration. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer. Adapter interfaces are defined in [`spoke-operations.md` §Adapter Interfaces](spoke-operations.md#adapter-interfaces-normative); per-operation orchestration sequences in [`§Injection Orchestration`](spoke-operations.md#injection-orchestration-normative).
 
 **Protocol layers (Rule + TimelineEvent):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
 
@@ -187,7 +187,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
-| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — pure helpers, adapter interfaces, injection orchestration |
+| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — pure helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (23 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

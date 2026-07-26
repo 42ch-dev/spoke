@@ -2,22 +2,22 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-25  
+**Updated:** 2026-07-26  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
 
 ---
 
 ## Now (in progress)
 
-_No active slice — Up next is empty until a new capability is scheduled._
+| Slice | Focus |
+|-------|--------|
+| L2 typed body | Formalize optional `body.summary` / `tags` / trait-array `attributes`; close `body` (`additionalProperties: false`); keep `l2-computable` maps |
 
 ---
 
 ## Up next (planned)
 
-_No planned rows. Next capability (e.g. product adapter packages under `adapters/<product>/`) is scheduled only when a product binding sprint is planned._
-
-**Explicitly not on this roadmap right now:** product adapter packages under `adapters/<product>/`. The `adapters/` tree is a **placeholder README only** — not a delivery track until a product binding sprint is scheduled.
+_No additional planned rows beyond the in-progress L2 typed body slice._
 
 ---
 

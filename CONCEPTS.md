@@ -10,7 +10,7 @@ Core terms for the SPOKE protocol repository. Each entry defines what the term m
 
 ### KnowledgeEntry
 
-The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`entry_id`), open-string `entry_type` and `status`, a structured `body`, optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — transitions enforced by `@42ch/spoke-operations` / `spoke-operations`; `deprecated` → `merged` is excluded (restore to `confirmed` before absorb).
+The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntry has stable identity (`entry_id`), open-string `entry_type` and `status`, a **closed** structured `body` (optional `summary`, `tags`, `attributes[]`, and under `l2-computable` optional `state` / `computable` maps), optional provenance (`source_anchor`), and required `extensions`. Core `status` vocabulary: `provisional`, `confirmed`, `deprecated`, `merged`, `deleted` — transitions enforced by `@42ch/spoke-operations` / `spoke-operations`; `deprecated` → `merged` is excluded (restore to `confirmed` before absorb).
 
 ### Relation
 
@@ -59,6 +59,10 @@ Protocol lifecycle binding static `body.state` to temporary `body.computable` pr
 ### ComputableFieldMap
 
 Open JSON object (`additionalProperties: true`) shared by `body.state` and `body.computable`. Domain field names and values are product-owned; protocol does not embed WASM bytecode as required fields.
+
+### BodyAttribute
+
+Scalar trait item in `body.attributes[]` — `trait_type` (non-empty string) + `value` (`string` | `number` | `boolean`); optional `display_type`, `max_value`. Duplicate `trait_type` values are allowed in the array. Nested object/array values belong in `extensions.<namespace>` or as multiple scalar traits. Shared def: `common.schema.json#/definitions/BodyAttribute`.
 
 ### ComputableLogEntry
 
@@ -127,6 +131,7 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | **Rule** | L6 declarative wire object + `check` input |
 | **TimelineEvent / TimelineScale** | L5 when-axis object + `brief` / `narrative` / `moment` vocabulary |
 | **Session / Computable** | Optional `l2-computable` lifecycle — `body.state`, `body.computable`, op `session_id`; not `entry_type` |
+| **BodyAttribute** | Scalar trait in `body.attributes[]` — see [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §BodyAttribute |
 | **Fork** | Optional `l5-fork` — `fork_id` / `parent_fork_id` on TimelineEvent; `Scope.fork_id` filter (not baseline) |
 
 **Invariant:** SPOKE standardizes interchange shapes. It does not own world history implementation, daemon routes, or checker engines.

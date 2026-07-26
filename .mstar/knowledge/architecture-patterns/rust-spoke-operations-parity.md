@@ -13,7 +13,7 @@ Rust integrators already pin `spoke-schemas` on crates.io but had no published p
 1. **Crate location** — hand-authored `crates/spoke-operations/`; workspace member; depends on `spoke-schemas` only for wire types (+ serde stack). Public `lib.rs` flat re-exports mirror `@42ch/spoke-operations` `index.ts` (Rust snake_case identifiers; same behavioral contracts).
 2. **`SpokeResult` idiom** — dedicated `enum SpokeResult<T> { Ok(T), Reject(SpokeReject) }` with `spoke_ok` / `spoke_reject` constructors. **Not** `std::result::Result`. Expected lifecycle rejects never panic.
 3. **Reject-code parity** — single `result` module exports all stable `SpokeRejectCode` values; `as_str()` returns **identical** wire literals as TypeScript `SpokeRejectCode` (e.g. `CANDIDATE_NOT_PROVISIONAL`, `REVISION_CONFLICT`). Error-envelope mapping uses code string only.
-4. **typify wire helpers** — typify-generated `KnowledgeEntry` types drop dynamic `body` keys (e.g. `body.summary`). Assemble and similar paths MUST preserve raw body wire JSON:
+4. **typify wire helpers** — closed L2 `body` declares `summary`, `tags`, `attributes`, and optional `state` / `computable` maps; `ComputableFieldMap` values remain open JSON objects. Assemble and similar paths MUST preserve raw `body` wire JSON when helpers read fields typify does not round-trip faithfully:
    - Integrators deserializing from wire: `KnowledgeEntryForAssemble::from_wire_json(wire)` — extracts `body` via `body_wire_from_entry_wire` before typify deserialize.
    - Programmatic construction: `KnowledgeEntryForAssemble::from_entry(entry)` — serializes known body fields to JSON for reads.
    - Private `util` module: field access only (`extract_snippet_from_body_wire`, `validate_revision_wire` with `None` → `0` for OCC); **no** parallel wire DTO structs.
@@ -29,7 +29,7 @@ Rust integrators already pin `spoke-schemas` on crates.io but had no published p
 ## What not to do
 
 - Do not invent a second reject-code vocabulary in Rust.
-- Do not deserialize assemble inputs through typify alone when helpers read `body.summary` or other additionalProperties.
+- Do not deserialize assemble inputs through typify alone when helpers read `body.summary`, `ComputableFieldMap` domain keys, or other fields that require full wire JSON.
 - Do not add I/O, storage, HTTP, LLM, ranking, retrieval, or fixture harness inside the crate.
 - Do not use path-only `spoke-schemas` dependency in the ops crate manifest.
 

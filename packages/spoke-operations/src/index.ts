@@ -83,3 +83,12 @@ export type {
   ForkPorts,
   FullPorts,
 } from "./adapter/ports.js";
+
+export {
+  orchestrateUpsert,
+  orchestratePromote,
+  orchestrateRelate,
+  orchestrateCheck,
+  orchestrateAssemble,
+  type CheckRunInput,
+} from "./adapter/orchestrate.js";

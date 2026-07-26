@@ -32,6 +32,7 @@ import {
 } from "../computable/validate.js";
 import { assertUniqueActiveKnowledgeEntry } from "../knowledge-entry/uniqueness.js";
 import { isValidKnowledgeEntryStatusTransition } from "../knowledge-entry/transition.js";
+import { assertRevisionMatch } from "../occ/assert-revision.js";
 import {
   applyPromoteAcceptance,
   validatePromoteRequest,
@@ -48,6 +49,8 @@ import {
   filterTimelineEventsByScope,
 } from "../scope/match.js";
 import { validateUpsertKnowledgeEntry } from "../upsert/validate.js";
+
+const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 
 import type {
   BaselinePorts,
@@ -167,6 +170,32 @@ export function orchestratePromote(
   ports: BaselinePorts,
   request: PromoteRequest,
 ): SpokeResult<PromoteResponse> {
+  const storedResult = loadStoredKnowledgeEntry(
+    ports,
+    request.candidate.entry_id,
+  );
+  if (!storedResult.ok) {
+    return storedResult;
+  }
+  const stored = storedResult.value;
+  if (stored !== undefined) {
+    if (TERMINAL_KNOWLEDGE_ENTRY_STATUSES.has(stored.status)) {
+      return spokeReject(
+        SpokeRejectCode.KNOWLEDGE_ENTRY_TERMINAL_STATUS,
+        `Stored KnowledgeEntry has terminal status: ${stored.status}`,
+        { status: stored.status },
+      );
+    }
+
+    const revisionGate = assertRevisionMatch(
+      request.candidate.revision ?? 0,
+      stored.revision ?? 0,
+    );
+    if (!revisionGate.ok) {
+      return revisionGate;
+    }
+  }
+
   const validation = validatePromoteRequest(request);
   if (!validation.ok) {
     return validation;
@@ -224,7 +253,17 @@ function resolveCheckRules(
     return resolved;
   }
 
-  return spokeOk([...resolved.value, ...embedded]);
+  // Start from resolved refs; embedded rules win by rule_id (replace or append).
+  const merged = [...resolved.value];
+  for (const rule of embedded) {
+    const index = merged.findIndex((item) => item.rule_id === rule.rule_id);
+    if (index >= 0) {
+      merged[index] = rule;
+    } else {
+      merged.push(rule);
+    }
+  }
+  return spokeOk(merged);
 }
 
 /**

@@ -10,11 +10,14 @@ use crate::knowledge_entry::{
     assert_unique_active_knowledge_entry, is_valid_knowledge_entry_status_transition,
     AssertUniqueActiveKnowledgeEntryInput,
 };
+use crate::occ::assert_revision_match;
 use crate::promote::{apply_promote_acceptance, validate_promote_request};
 use crate::relate::validate_relate_request;
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use crate::scope::{filter_knowledge_entries_by_scope, filter_timeline_events_by_scope};
 use crate::upsert::{validate_upsert_knowledge_entry, ValidateUpsertKnowledgeEntryContext};
+
+const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 use serde_json::{json, Map, Value};
 use spoke_schemas::{
     AssembleRequest, AssembleResponse, CheckRequest, CheckResponse, ComputeRequest, ComputeResponse,
@@ -224,6 +227,30 @@ pub fn orchestrate_promote(
     ports: &impl BaselinePorts,
     request: PromoteRequest,
 ) -> SpokeResult<PromoteResponse> {
+    let stored = match load_stored_knowledge_entry(ports, &request.candidate.entry_id) {
+        SpokeResult::Ok(stored) => stored,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    if let Some(stored) = stored.as_ref() {
+        if TERMINAL_KNOWLEDGE_ENTRY_STATUSES.contains(&stored.status.as_str()) {
+            let mut details = Map::new();
+            details.insert("status".into(), Value::String(stored.status.clone()));
+            return spoke_reject(
+                SpokeRejectCode::KnowledgeEntryTerminalStatus,
+                format!("Stored KnowledgeEntry has terminal status: {}", stored.status),
+                Some(details),
+            );
+        }
+
+        if let SpokeResult::Reject(reject) = assert_revision_match(
+            request.candidate.revision.unwrap_or(0),
+            stored.revision.unwrap_or(0),
+        ) {
+            return SpokeResult::Reject(reject);
+        }
+    }
+
     if let SpokeResult::Reject(reject) = validate_promote_request(&request) {
         return SpokeResult::Reject(reject);
     }
@@ -288,9 +315,16 @@ fn resolve_check_rules(
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let mut combined = resolved;
-    combined.extend(embedded);
-    spoke_ok(combined)
+    // Start from resolved refs; embedded rules win by rule_id (replace or append).
+    let mut merged = resolved;
+    for rule in embedded {
+        if let Some(index) = merged.iter().position(|item| item.rule_id == rule.rule_id) {
+            merged[index] = rule;
+        } else {
+            merged.push(rule);
+        }
+    }
+    spoke_ok(merged)
 }
 
 /// Load scoped data and rules, invoke product checker callback, persist findings.
@@ -1034,6 +1068,118 @@ mod tests {
     }
 
     #[test]
+    fn orchestrate_promote_rejects_when_stored_status_is_terminal() {
+        let stored = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_terminal",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "merged",
+            "revision": 1,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.entries.insert(stored.entry_id.clone(), stored);
+        let ports = MemoryBaselinePorts::new(store);
+
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_terminal",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 1,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_promote(&ports, promote_request(candidate));
+        assert!(!result.is_ok());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(
+                reject.code,
+                SpokeRejectCode::KnowledgeEntryTerminalStatus
+            );
+        } else {
+            panic!("expected terminal status reject");
+        }
+    }
+
+    #[test]
+    fn orchestrate_promote_rejects_on_stored_revision_mismatch() {
+        let stored = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_rev",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 3,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.entries.insert(stored.entry_id.clone(), stored);
+        let ports = MemoryBaselinePorts::new(store);
+
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_rev",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 1,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_promote(&ports, promote_request(candidate));
+        assert!(!result.is_ok());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
+        } else {
+            panic!("expected revision mismatch reject");
+        }
+    }
+
+    #[test]
+    fn orchestrate_promote_succeeds_when_stored_provisional_matches_revision() {
+        let stored = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_match",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 2,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.entries.insert(stored.entry_id.clone(), stored);
+        let ports = MemoryBaselinePorts::new(store);
+
+        let candidate = json!({
+            "schema_version": 1,
+            "entry_id": "kb_promote_match",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "revision": 2,
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        });
+
+        let result = orchestrate_promote(&ports, promote_request(candidate));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(PromoteResponse::Variant0 { knowledge_entry, .. }) = result {
+            assert_eq!(knowledge_entry.status, "confirmed");
+            assert_eq!(knowledge_entry.revision, Some(3));
+        } else {
+            panic!("expected promote success");
+        }
+    }
+
+    #[test]
     fn orchestrate_relate_persists_relation() {
         let ports = MemoryBaselinePorts::new(MemoryStore::default());
         let rel = json!({
@@ -1117,6 +1263,83 @@ mod tests {
             panic!("expected check success");
         }
         let _ = (entry, event, rule, request);
+    }
+
+    #[test]
+    fn orchestrate_check_lets_embedded_rules_win_by_rule_id_over_refs() {
+        let entry = ke(json!({
+            "schema_version": 1,
+            "entry_id": "kb_check_merge",
+            "entry_type": "character",
+            "canonical_name": "Mira Vale",
+            "status": "provisional",
+            "body": { "summary": "Protagonist" },
+            "extensions": {}
+        }));
+        let stored_rule = rule(json!({
+            "schema_version": 1,
+            "rule_id": "rule_shared",
+            "canonical_name": "Stored rule",
+            "kind": "rule",
+            "statement": "from-store",
+            "extensions": {}
+        }));
+        let other_stored = rule(json!({
+            "schema_version": 1,
+            "rule_id": "rule_other",
+            "canonical_name": "Other stored",
+            "kind": "rule",
+            "statement": "keep-me",
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.entries.insert(entry.entry_id.clone(), entry);
+        store.rules.insert(stored_rule.rule_id.clone(), stored_rule);
+        store
+            .rules
+            .insert(other_stored.rule_id.clone(), other_stored.clone());
+        let ports = MemoryBaselinePorts::new(store);
+
+        let embedded_override = json!({
+            "schema_version": 1,
+            "rule_id": "rule_shared",
+            "canonical_name": "Embedded wins",
+            "kind": "rule",
+            "statement": "from-embed",
+            "extensions": {}
+        });
+        let embedded_new = json!({
+            "schema_version": 1,
+            "rule_id": "rule_new",
+            "canonical_name": "New embed",
+            "kind": "rule",
+            "statement": "append-me",
+            "extensions": {}
+        });
+
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1", "entry_ids": ["kb_check_merge"] },
+            "rule_refs": ["rule_shared", "rule_other"],
+            "rules": [embedded_override, embedded_new]
+        }));
+
+        let result = orchestrate_check(&ports, request, |input| {
+            assert_eq!(input.rules.len(), 3);
+            assert_eq!(input.rules[0].rule_id, "rule_shared");
+            assert_eq!(input.rules[0].canonical_name.as_str(), "Embedded wins");
+            assert_eq!(
+                input.rules[0].statement.as_deref(),
+                Some("from-embed")
+            );
+            assert_eq!(input.rules[1].rule_id, "rule_other");
+            assert_eq!(input.rules[1].statement.as_deref(), Some("keep-me"));
+            assert_eq!(input.rules[2].rule_id, "rule_new");
+            assert_eq!(input.rules[2].statement.as_deref(), Some("append-me"));
+            spoke_ok(vec![])
+        });
+
+        assert!(result.is_ok());
+        let _ = other_stored;
     }
 
     #[test]

@@ -214,6 +214,73 @@ describe("baseline orchestration", () => {
     expect(ports.store.entries.get("kb_promote")?.status).toBe("confirmed");
   });
 
+  it("orchestratePromote rejects when stored status is terminal", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_terminal",
+      status: "merged",
+      revision: 1,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_terminal",
+      status: "provisional",
+      revision: 1,
+    });
+    const ports = createMemoryBaselinePorts({ entries: [stored] });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.KNOWLEDGE_ENTRY_TERMINAL_STATUS);
+  });
+
+  it("orchestratePromote rejects on stored revision mismatch", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_rev",
+      status: "provisional",
+      revision: 3,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_rev",
+      status: "provisional",
+      revision: 1,
+    });
+    const ports = createMemoryBaselinePorts({ entries: [stored] });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
+  it("orchestratePromote succeeds when stored provisional matches revision", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_match",
+      status: "provisional",
+      revision: 2,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_match",
+      status: "provisional",
+      revision: 2,
+    });
+    const ports = createMemoryBaselinePorts({ entries: [stored] });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.knowledge_entry.status).toBe("confirmed");
+    expect(result.value.knowledge_entry.revision).toBe(3);
+  });
+
   it("orchestrateRelate persists a Relation", () => {
     const ports = createMemoryBaselinePorts();
     const relation = makeRelation({ relation_id: "rel_1" });
@@ -258,6 +325,54 @@ describe("baseline orchestration", () => {
     }
     expect(result.value).toEqual({ findings: [finding] });
     expect(ports.store.findings).toEqual([finding]);
+  });
+
+  it("orchestrateCheck lets embedded rules win by rule_id over refs", () => {
+    const entry = makeKnowledgeEntry({ entry_id: "kb_check_merge" });
+    const storedRule = makeRule({
+      rule_id: "rule_shared",
+      canonical_name: "Stored rule",
+      statement: "from-store",
+    });
+    const otherStored = makeRule({
+      rule_id: "rule_other",
+      canonical_name: "Other stored",
+      statement: "keep-me",
+    });
+    const embeddedOverride = makeRule({
+      rule_id: "rule_shared",
+      canonical_name: "Embedded wins",
+      statement: "from-embed",
+    });
+    const embeddedNew = makeRule({
+      rule_id: "rule_new",
+      canonical_name: "New embed",
+      statement: "append-me",
+    });
+    const ports = createMemoryBaselinePorts({
+      entries: [entry],
+      rules: [storedRule, otherStored],
+    });
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", entry_ids: ["kb_check_merge"] },
+      rule_refs: ["rule_shared", "rule_other"],
+      rules: [embeddedOverride, embeddedNew],
+    };
+
+    const result = orchestrateCheck(ports, request, (input: CheckRunInput) => {
+      expect(input.rules).toHaveLength(3);
+      expect(input.rules.map((rule) => rule.rule_id)).toEqual([
+        "rule_shared",
+        "rule_other",
+        "rule_new",
+      ]);
+      expect(input.rules[0]).toEqual(embeddedOverride);
+      expect(input.rules[1]).toEqual(otherStored);
+      expect(input.rules[2]).toEqual(embeddedNew);
+      return spokeOk([]);
+    });
+
+    expect(result.ok).toBe(true);
   });
 
   it("orchestrateAssemble builds a packet from scoped KnowledgeEntries", () => {

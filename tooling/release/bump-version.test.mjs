@@ -30,6 +30,32 @@ function nextPatchRelease(version) {
   return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
 }
 
+/**
+ * Strictly lower core SemVer than fixture (for refuse-path tests).
+ * Prefer decrementing patch/minor/major over a hardcoded sentinel.
+ *
+ * @param {string} version
+ * @returns {string}
+ */
+function strictlyLowerRelease(version) {
+  const parsed = parseSemVer(version);
+  if (!parsed) {
+    throw new Error(`Invalid fixture SemVer: ${version}`);
+  }
+  if (parsed.patch > 0) {
+    return `${parsed.major}.${parsed.minor}.${parsed.patch - 1}`;
+  }
+  if (parsed.minor > 0) {
+    return `${parsed.major}.${parsed.minor - 1}.999`;
+  }
+  if (parsed.major > 0) {
+    return `${parsed.major - 1}.999.999`;
+  }
+  // Fixture is 0.0.0* — any X.Y.Z with prerelease sorts lower than 0.0.0 release,
+  // but bump refuses non-greater cores; use a sentinel that cannot equal live lockstep.
+  return "0.0.0-test.0";
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -82,7 +108,7 @@ describe("bump-version.mjs", () => {
     const current = readCanonicalVersion(repoRoot);
     // Equal target is an intentional idempotent path (changelog/assert only).
     // Strictly lower SemVer must refuse before any git-cliff work.
-    const lower = "0.0.0";
+    const lower = strictlyLowerRelease(current);
     assert.notEqual(lower, current);
 
     const result = runReleaseScript(

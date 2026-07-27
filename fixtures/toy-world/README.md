@@ -15,6 +15,18 @@ One adapter type implements the port families, then call `orchestrate*` from `@4
 
 Vitest demos live in `tests/toy-world-adapter.test.ts` (imports adapter source directly).
 
+## Integrator path (Rust)
+
+One adapter type implements the port traits, then call `orchestrate_*` from `spoke-operations`:
+
+1. Open `rust/` — crate `spoke-fixture-toy-world` (`src/toy_world_adapter.rs`, `src/memory_store.rs`, `src/lib.rs`).
+2. Construct the adapter: `ToyWorldAdapter::with_committed_fixtures()` (seeded `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*`) or `ToyWorldAdapter::default()` for an empty store.
+3. Pass the same adapter into baseline orchestrators: `orchestrate_upsert`, `orchestrate_promote`, `orchestrate_relate`, `orchestrate_check`, `orchestrate_assemble`.
+4. For Full composition, the same type also implements `project` / `compute` / `list_fork_timeline_events` — call `orchestrate_project`, `orchestrate_compute`, and fork-aware orchestrators against that instance.
+5. For a baseline-only dynamic boundary, wrap with `as_baseline_only(adapter)` so optional ports surface `CAPABILITY_PORT_MISSING`.
+
+Cargo demos live in `rust/tests/toy_world_adapter.rs`.
+
 ### Full stub policy (reference behavior)
 
 | Port family | ToyWorldAdapter behavior |
@@ -58,6 +70,8 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 
 ## Validate locally
 
+TypeScript (AJV/Vitest harness):
+
 ```bash
 pnpm run test:fixtures
 ```
@@ -68,4 +82,10 @@ Or from this directory:
 pnpm test
 ```
 
-CI runs the AJV/Vitest harness via `@42ch/spoke-fixture-toy-world` (`fixtures/toy-world/tests/`).
+Rust (workspace member `spoke-fixture-toy-world`, from repo root):
+
+```bash
+cargo test -p spoke-fixture-toy-world
+```
+
+CI runs the AJV/Vitest harness via `@42ch/spoke-fixture-toy-world` (`fixtures/toy-world/tests/`) and `cargo test -p spoke-fixture-toy-world` in the Rust job.

@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/spoke-schemas", "crates/spoke-operations"]
+members = [
+  "crates/spoke-schemas",
+  "crates/spoke-operations",
+  "fixtures/toy-world/rust",
+]
 resolver = "2"
 
 [workspace.package]

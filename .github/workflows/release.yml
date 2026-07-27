@@ -241,6 +241,9 @@ jobs:
       - name: Test spoke-operations crate
         run: cargo test -p spoke-operations
 
+      - name: Test spoke-fixture-toy-world crate
+        run: cargo test -p spoke-fixture-toy-world
+
   verify-version:
     name: verify-version
     needs: [resolve-tag]

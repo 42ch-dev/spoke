@@ -62,7 +62,10 @@ function normalizePeerManifests(
     byHostId.set(peer.host_id, peer);
   }
   return [...byHostId.values()].sort((left, right) =>
-    left.host_id.localeCompare(right.host_id),
+    Buffer.compare(
+      Buffer.from(left.host_id, "utf8"),
+      Buffer.from(right.host_id, "utf8"),
+    ),
   );
 }
 

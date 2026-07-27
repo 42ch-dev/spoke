@@ -4,19 +4,24 @@ import { join } from "node:path";
 import type {
   AssembleRequest,
   CheckRequest,
+  ComputeRequest,
+  ComputeResponse,
   Finding,
   KnowledgeEntry,
   ProjectRequest,
+  ProjectResponse,
   PromoteRequest,
   RelateRequest,
   Relation,
   Rule,
+  TimelineEvent,
   UpsertRequest,
 } from "@42ch/spoke-schemas";
 import {
   SpokeRejectCode,
   orchestrateAssemble,
   orchestrateCheck,
+  orchestrateCompute,
   orchestrateProject,
   orchestratePromote,
   orchestrateRelate,
@@ -24,6 +29,7 @@ import {
   spokeOk,
   type CheckRunInput,
   type ComputablePorts,
+  type FullAdapter,
 } from "@42ch/spoke-operations";
 import { describe, expect, it } from "vitest";
 
@@ -220,5 +226,64 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
     }
+  });
+});
+
+describe("ToyWorldAdapter FullAdapter optional ports", () => {
+  it("satisfies FullAdapter and orchestrateProject returns fixture-shaped success", () => {
+    const adapter: FullAdapter = ToyWorldAdapter.withCommittedFixtures();
+    const request = loadFixture<ProjectRequest>("op_tw_project_request.json");
+    const fixtureResponse = loadFixture<ProjectResponse>(
+      "op_tw_project_response.json",
+    );
+
+    const result = orchestrateProject(adapter, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({
+      session_id: request.session_id,
+      entry_id: request.entry_id,
+      computable: fixtureResponse.computable,
+    });
+  });
+
+  it("orchestrateCompute settle returns wire-valid success from settle response fixture", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const request = loadFixture<ComputeRequest>(
+      "op_tw_compute_settle_request.json",
+    );
+    const fixtureResponse = loadFixture<ComputeResponse>(
+      "op_tw_compute_settle_response.json",
+    );
+
+    const result = orchestrateCompute(adapter, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.session_id).toBe(request.session_id);
+    expect(result.value.entry_id).toBe(request.entry_id);
+    expect(result.value.computable).toEqual(request.computable);
+    expect(result.value.state).toEqual(fixtureResponse.state);
+  });
+
+  it("listForkTimelineEvents returns seeded events for fork_tw_storm_branch", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const storm = loadFixture<TimelineEvent>("evt_tw_harbor_storm_delay.json");
+
+    const result = adapter.listForkTimelineEvents({
+      scope_id: "toy-scope-001",
+      fork_id: "fork_tw_storm_branch",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual([storm]);
   });
 });

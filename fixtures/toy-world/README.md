@@ -4,6 +4,27 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 
 **Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the moment-scale timeline event records `computable_logs` for those field changes.
 
+## Integrator path (TypeScript)
+
+One adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations`:
+
+1. Open `src/adapter/` — `ToyWorldAdapter` (`toy-world-adapter.ts`), in-memory OCC store (`memory-store.ts`), barrel (`index.ts`).
+2. Construct the adapter: `ToyWorldAdapter.withCommittedFixtures()` (seeded `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*`) or `new ToyWorldAdapter()` for an empty store.
+3. Pass the same adapter instance into baseline orchestrators: `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble`.
+4. For Full composition, the same type also implements `project` / `compute` / `listForkTimelineEvents` — call `orchestrateProject`, `orchestrateCompute`, and fork-aware orchestrators against that instance.
+
+Vitest demos live in `tests/toy-world-adapter.test.ts` (imports adapter source directly).
+
+### Full stub policy (reference behavior)
+
+| Port family | ToyWorldAdapter behavior |
+|-------------|--------------------------|
+| Baseline five families | Runnable in-memory OCC; optional seed from committed fixture JSON |
+| `ComputablePort` | Wire-valid `ProjectResponse` / `ComputeResponse` synthesized from `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo request `session_id` / `entry_id`) |
+| `ForkTimelineQueryPort` | Seeded timeline events filtered by `scope.fork_id` (e.g. `evt_tw_harbor_storm_delay.json` for `fork_tw_storm_branch`) |
+
+Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-operations.md) § Reference adapter stub policy.
+
 ## Reference adapters
 
 | Language | Path | Package / crate |
@@ -11,7 +32,7 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 | TypeScript | `src/adapter/` | `@42ch/spoke-fixture-toy-world` (workspace-private) |
 | Rust | `rust/` | `spoke-fixture-toy-world` (`publish = false`) |
 
-`ToyWorldAdapter` implements **FullAdapter** (baseline + `l2-computable` + `l5-fork`). Baseline ports use an in-memory OCC store seeded from committed JSON; computable and fork paths synthesize wire-valid responses from fixture op JSON. See [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-operations.md) § Reference adapter stub policy.
+`ToyWorldAdapter` implements **FullAdapter** (baseline + `l2-computable` + `l5-fork`).
 
 ## Files
 
@@ -23,6 +44,7 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 | `anchor_tw_manuscript.json` | SourceAnchor | (provenance example) |
 | `rel_tw_mira_harbor.json` | Relation | `rel_tw_mira_harbor` |
 | `evt_tw_harbor_dawn.json` | TimelineEvent (`timeline_scale: "moment"`, `computable_logs`) | `evt_tw_harbor_dawn` |
+| `evt_tw_harbor_storm_delay.json` | TimelineEvent (`fork_id: fork_tw_storm_branch`) | `evt_tw_harbor_storm_delay` |
 | `rule_tw_consistency.json` | Rule | `rule_tw_consistency` |
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |
 | `pkt_tw_scope.json` | AssemblePacket | `pkt_tw_scope` |

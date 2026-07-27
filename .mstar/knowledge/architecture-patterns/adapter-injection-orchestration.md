@@ -10,8 +10,8 @@ Pure helpers keep lifecycle invariants consistent, but every product still inven
 
 ## Pattern
 
-1. **Ports live in operations** — TypeScript interfaces and Rust traits (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`) are exported from the operations packages alongside pure helpers.
-2. **Capability composition** — `BaselinePorts`, `ComputablePorts`, `ForkPorts`, `FullPorts` are intersections; ergonomic aliases `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter` name the same compositions (TS: `export type *Adapter = *Ports`; Rust: marker trait `*Adapter: *Ports` + blanket impl). Claim `spoke-baseline` / `l2-computable` / `l5-fork` and implement only the required `*Port` families on one adapter type.
+1. **Ports live in operations** — TypeScript interfaces and Rust traits (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, `HostManifestPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`) are exported from the operations packages alongside pure helpers.
+2. **Capability composition** — `BaselinePorts` requires six families (the five OCC/query ports plus baseline-required `HostManifestPort`); `ComputablePorts`, `ForkPorts`, `FullPorts` inherit via `BaselinePorts`. Ergonomic aliases `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter` name the same compositions (TS: `export type *Adapter = *Ports`; Rust: marker trait `*Adapter: *Ports` + blanket impl). Claim `spoke-baseline` / `l2-computable` / `l5-fork` and implement the required `*Port` families on one adapter type.
 3. **Injection orchestration** — per-op entrypoints (`orchestrateUpsert`, …, `orchestrateForkAssemble`) take composed ports (+ `runChecker` on check paths), call pure helpers, and perform all reads/writes through ports. The library stays I/O-free.
 4. **Sync `SpokeResult` ports** — normative methods return `SpokeResult<T>` directly; future async surfaces use distinct `Async*Port` names.
 5. **Missing optional ports** — dynamic boundaries return `CAPABILITY_PORT_MISSING` (not throw/panic).
@@ -27,7 +27,8 @@ Pure helpers keep lifecycle invariants consistent, but every product still inven
 
 ## See also
 
-- `.mstar/specs/spoke-operations.md` — Adapter Interfaces + Injection Orchestration
+- `.mstar/specs/spoke-operations.md` — Adapter Interfaces + Injection Orchestration + Host collaboration
+- `architecture-patterns/host-capability-manifest-collaboration.md` — `HostCapabilityManifest` roles, namespace exclusivity, peer-list rules
 - `architecture-patterns/spoke-operations-pure-actions.md` — pure helper families
 - `architecture-patterns/rust-spoke-operations-parity.md` — Rust crate layout and reject-code parity
 - `fixtures/toy-world/` — reference `ToyWorldAdapter` (TS: `src/adapter/`; Rust: `spoke-fixture-toy-world` under `rust/`)

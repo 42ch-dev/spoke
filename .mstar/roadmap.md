@@ -9,15 +9,13 @@
 
 ## Now (in progress)
 
-**Host capability collaboration** — `HostCapabilityManifest` wire schema and normative specs (five host roles, namespace exclusivity, baseline `HostManifestPort` contract); toy-world multi-host proof in flight. Specs: [`spoke-data-model.md`](specs/spoke-data-model.md) §HostCapabilityManifest, [`spoke-operations.md`](specs/spoke-operations.md) §Host collaboration.
-
-**Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper. Composed-port aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) export from `@42ch/spoke-operations` and `spoke-operations`; reference examples and conformance harness live under `fixtures/toy-world/`.
+**Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper. Composed-port aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) export from `@42ch/spoke-operations` and `spoke-operations`; reference examples and conformance harness live under `fixtures/toy-world/`. Baseline composition includes required `HostManifestPort` for host self-description and product-supplied peer manifests.
 
 ---
 
 ## Up next (planned)
 
-_No planned slices queued in this protocol repo._
+_No planned slices queued in this protocol repo._ Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 
 ---
 
@@ -27,6 +25,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-27 | Host capability collaboration | `HostCapabilityManifest` schema + codegen (inventory **24**); five-role / ns-exclusivity / authority normative specs; baseline-required `HostManifestPort` (TS+Rust); toy-world dual manifests + fixture-backed adapters |
 | 2026-07-27 | ToyWorldAdapter reference examples | Runnable TS `ToyWorldAdapter` (`fixtures/toy-world/src/adapter/`) + Rust `spoke-fixture-toy-world` (`fixtures/toy-world/rust/`); CI `cargo test -p spoke-fixture-toy-world` |
 | 2026-07-27 | Adapter aliases | `*Adapter` composed-port aliases in TS/Rust ops; integrator docs point to operations + `fixtures/toy-world/` |
 | 2026-07-26 | Adapter interfaces + injection orchestration | Capability-sliced ports + `orchestrate*` / `orchestrate_*` in TS and Rust ops packages; `CAPABILITY_PORT_MISSING`; mock-backed orchestration tests; normative matrix in [spoke-operations.md](specs/spoke-operations.md) |

@@ -107,3 +107,23 @@ where
 pub trait FullPorts: ComputablePorts + ForkPorts {}
 
 impl<T> FullPorts for T where T: ComputablePorts + ForkPorts {}
+
+/// Ergonomic marker for baseline adapter composition.
+pub trait BaselineAdapter: BaselinePorts {}
+
+impl<T: BaselinePorts> BaselineAdapter for T {}
+
+/// Ergonomic marker for baseline plus computable adapter composition.
+pub trait ComputableAdapter: ComputablePorts {}
+
+impl<T: ComputablePorts> ComputableAdapter for T {}
+
+/// Ergonomic marker for baseline plus fork adapter composition.
+pub trait ForkAdapter: ForkPorts {}
+
+impl<T: ForkPorts> ForkAdapter for T {}
+
+/// Ergonomic marker for full adapter composition.
+pub trait FullAdapter: FullPorts {}
+
+impl<T: FullPorts> FullAdapter for T {}

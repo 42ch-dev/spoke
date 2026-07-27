@@ -91,3 +91,15 @@ export type ForkPorts = BaselinePorts & ForkTimelineQueryPort;
 
 /** Full composition of baseline, computable, and fork ports. */
 export type FullPorts = BaselinePorts & ComputablePort & ForkTimelineQueryPort;
+
+/** Ergonomic alias for baseline adapter composition. */
+export type BaselineAdapter = BaselinePorts;
+
+/** Ergonomic alias for baseline plus computable adapter composition. */
+export type ComputableAdapter = ComputablePorts;
+
+/** Ergonomic alias for baseline plus fork adapter composition. */
+export type ForkAdapter = ForkPorts;
+
+/** Ergonomic alias for full adapter composition. */
+export type FullAdapter = FullPorts;

@@ -9,8 +9,9 @@ pub use orchestrate::{
     orchestrate_upsert, CheckRunInput,
 };
 pub use ports::{
-    BaselinePorts, ComputablePort, ComputablePorts, FindingPort, ForkPorts, ForkTimelineQueryPort,
-    FullPorts, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+    BaselineAdapter, BaselinePorts, ComputableAdapter, ComputablePort, ComputablePorts,
+    FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort, FullAdapter, FullPorts,
+    KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
 };
 
 /// Parity export checklist — mirrors TS `adapter/ports.test.ts` "adapter port exports"
@@ -32,6 +33,10 @@ mod parity_export_checklist {
         ("ComputablePorts", "ComputablePorts"),
         ("ForkPorts", "ForkPorts"),
         ("FullPorts", "FullPorts"),
+        ("BaselineAdapter", "BaselineAdapter"),
+        ("ComputableAdapter", "ComputableAdapter"),
+        ("ForkAdapter", "ForkAdapter"),
+        ("FullAdapter", "FullAdapter"),
         ("CheckRunInput", "CheckRunInput"),
         ("orchestrateUpsert", "orchestrate_upsert"),
         ("orchestratePromote", "orchestrate_promote"),
@@ -50,9 +55,9 @@ mod parity_export_checklist {
     use crate::{
         orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_fork_assemble,
         orchestrate_fork_check, orchestrate_project, orchestrate_promote, orchestrate_relate,
-        orchestrate_upsert, BaselinePorts, CheckRunInput, ComputablePort, ComputablePorts,
-        FindingPort, ForkPorts, ForkTimelineQueryPort, FullPorts, KnowledgeEntryPort, RelationPort,
-        RuleQueryPort, ScopeQueryPort,
+        orchestrate_upsert, BaselineAdapter, BaselinePorts, CheckRunInput, ComputableAdapter,
+        ComputablePort, ComputablePorts, FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort,
+        FullAdapter, FullPorts, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
     };
 
     /// Minimal probe type so generic orchestrator paths monomorphize in the checklist.
@@ -182,6 +187,10 @@ mod parity_export_checklist {
         let _: Option<&dyn ComputablePorts> = None;
         let _: Option<&dyn ForkPorts> = None;
         let _: Option<&dyn FullPorts> = None;
+        let _: Option<&dyn BaselineAdapter> = None;
+        let _: Option<&dyn ComputableAdapter> = None;
+        let _: Option<&dyn ForkAdapter> = None;
+        let _: Option<&dyn FullAdapter> = None;
         let _: Option<CheckRunInput> = None;
 
         // `impl Trait` orchestrators cannot be stored as bare fn items; type-check call paths
@@ -274,7 +283,7 @@ mod parity_export_checklist {
             Some(SpokeRejectCode::CapabilityPortMissing)
         );
 
-        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 22);
+        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 26);
         for (ts, rust) in TS_RUST_ADAPTER_PARITY {
             assert!(!ts.is_empty(), "TS symbol must be non-empty");
             assert!(!rust.is_empty(), "Rust symbol must be non-empty");
@@ -286,15 +295,19 @@ mod parity_export_checklist {
             ("KnowledgeEntryPort", "KnowledgeEntryPort")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[12],
+            TS_RUST_ADAPTER_PARITY[11],
+            ("BaselineAdapter", "BaselineAdapter")
+        );
+        assert_eq!(
+            TS_RUST_ADAPTER_PARITY[16],
             ("orchestrateUpsert", "orchestrate_upsert")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[20],
+            TS_RUST_ADAPTER_PARITY[24],
             ("orchestrateForkAssemble", "orchestrate_fork_assemble")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[21],
+            TS_RUST_ADAPTER_PARITY[25],
             ("CAPABILITY_PORT_MISSING", "CAPABILITY_PORT_MISSING")
         );
 

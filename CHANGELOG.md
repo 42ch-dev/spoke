@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.3.0] - 2026-07-27
+
+
+### Added
+
+- **operations:** Add adapter port interfaces and CAPABILITY_PORT_MISSING
+
+- **operations:** Add baseline injection orchestration with in-memory mocks
+
+- **operations:** Add optional computable and fork orchestration
+
+- **operations:** Add Rust adapter ports and injection orchestration
+
+
+### Changed
+
+- **operations:** Add adapter TS/Rust parity export checklist
+
+
+### Documentation
+
+- **specs:** Lock adapter interface and injection orchestration contracts
+
+- **specs:** Add capability matrix to adapter interfaces section
+
+- **specs:** Add injection orchestration cross-links and acceptance
+
+- **specs:** Address QC findings for check orchestration contract
+
+- Sync adapter interface protocol across strategy and ops READMEs
+
+- **protocol:** Lock Adapter aliases and toy-world example path
+
+- **roadmap:** State Adapter aliases delivery affirmatively
+
+- **roadmap:** Drop in-repo adapters/* from scope
+
+- Clear Up next queue and drop registry version badges
+
+
+### Fixed
+
+- **operations:** Merge check rules by rule_id; gate promote on stored state
+
+- **operations:** Harden promote OCC with stored-based revision and adapter CAS contract
+
+- **operations:** Require expectedBaseRevision on putKnowledgeEntry for adapter OCC
+
+- **release:** Include spoke-fixture-toy-world in Cargo.lock bump rewrite
+
+- **toy-world:** Echo empty computable and reject project error fixtures
+
+- Parse README release badge URLs instead of substring match
+
+
+### Internal
+
+- **iteration:** Close adapter-interfaces slice — compound round, roadmap update
+
+- **iteration:** Close adapter aliases and toy-world examples
+
 ## [0.2.0] - 2026-07-26
 
 

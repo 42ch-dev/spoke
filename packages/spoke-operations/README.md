@@ -71,6 +71,18 @@ Optional capabilities use the composed port types (`ComputablePorts`, `ForkPorts
 - Active-uniqueness helpers take **caller-supplied peer sets**. Orchestration supplies batch-local peers; pass a store-wide snapshot when product uniqueness must span the whole store.
 - Absent optional ports at a dynamic boundary surface `SpokeRejectCode.CAPABILITY_PORT_MISSING`. `HostManifestPort` is baseline-required — not gated behind that code.
 
+## Helper families
+
+- `SpokeResult` / `SpokeReject` / `SpokeRejectCode` — unified reject envelope (stable code strings shared with Rust)
+- `mergeExtensionMaps`, `preserveExtensionMaps`
+- `isValidFindingStatusTransition`, `transitionFindingStatus`
+- `validatePromoteRequest`, `applyPromoteAcceptance`
+- `knowledgeEntryToAssembleEntry`, `buildAssemblePacket`
+- Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
+- `listBodyAttributes`, `filterBodyAttributesByTraitType`, `findBodyAttribute` — read/filter `body.attributes` by `trait_type`
+- `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` — filter and order moment-scale TimelineEvents from caller-supplied sets
+- Adapter ports + orchestration: `KnowledgeEntryPort` … `HostManifestPort` … `FullAdapter`, `CheckRunInput`, `orchestrateUpsert` … `orchestrateForkAssemble`
+
 Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in TypeScript `src/adapter/`).
 
 Helpers and orchestrators are pure relative to host I/O — all reads and writes go through injected ports. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).

@@ -742,7 +742,7 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 
 Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering **every** symbol in TS `src/index.ts`. Rust MAY also export additional typed/wire helpers not listed in TS `index.ts` — e.g. `KnowledgeEntryForAssemble`, `validate_promote_request_wire`, `UpsertMode`, `ExtensionMap`, `spoke_ok_unit` — without breaking parity.
 
-**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); adapter ports/orchestrators use `adapter/ports.ts` and `adapter/orchestrate.ts` in TypeScript and `adapter.rs` submodules in Rust; private `util` is for typify field-access helpers only — no parallel wire DTOs.
+**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `timeline`, `upsert`, `relate`, `error`, `computable`); adapter ports/orchestrators use `adapter/ports.ts` and `adapter/orchestrate.ts` in TypeScript and `adapter.rs` submodules in Rust; private `util` is for typify field-access helpers only — no parallel wire DTOs.
 
 **Wire types:** helpers accept `spoke_schemas` generated types directly (`KnowledgeEntry`, `Finding`, `ErrorEnvelope`, etc.).
 

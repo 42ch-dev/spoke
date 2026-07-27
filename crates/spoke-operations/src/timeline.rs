@@ -98,6 +98,7 @@ pub fn order_timeline_events_by_precedes(
         .and_then(|opts| opts.relation_type.as_deref())
         .unwrap_or("precedes");
 
+    let mut linked_events: Vec<TimelineEvent> = Vec::new();
     let mut unlinked_events = Vec::new();
     let mut entry_id_to_event_id = HashMap::new();
     let mut event_id_to_entry_id = HashMap::new();
@@ -107,11 +108,15 @@ pub fn order_timeline_events_by_precedes(
             unlinked_events.push(event.clone());
             continue;
         };
+        linked_events.push(event.clone());
         entry_id_to_event_id.insert(entry_id.clone(), event.timeline_event_id.clone());
         event_id_to_entry_id.insert(event.timeline_event_id.clone(), entry_id);
     }
 
-    let linked_event_ids: HashSet<String> = entry_id_to_event_id.values().cloned().collect();
+    let linked_event_ids: HashSet<String> = linked_events
+        .iter()
+        .map(|event| event.timeline_event_id.clone())
+        .collect();
     let mut in_degree: HashMap<&str, usize> = linked_event_ids
         .iter()
         .map(|event_id| (event_id.as_str(), 0))
@@ -539,6 +544,32 @@ mod tests {
                 ("precedes_cycle".into(), json!(true)),
                 ("entry_ids".into(), json!(["kb_a", "kb_b", "kb_c"])),
             ]))
+        );
+    }
+
+    #[test]
+    fn order_by_precedes_keeps_all_events_sharing_timeline_entry_id() {
+        let events = [
+            make_timeline_event(|event| {
+                event.timeline_event_id = "evt_b".into();
+                event.extensions = spoke_extension("kb_shared");
+            }),
+            make_timeline_event(|event| {
+                event.timeline_event_id = "evt_a".into();
+                event.extensions = spoke_extension("kb_shared");
+            }),
+        ];
+
+        let result = order_timeline_events_by_precedes(&events, &[], None);
+        let SpokeResult::Ok(ordered) = result else {
+            panic!("expected ok result");
+        };
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|event| event.timeline_event_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["evt_a", "evt_b"]
         );
     }
 

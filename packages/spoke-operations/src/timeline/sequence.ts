@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+
 import type { Relation, TimelineEvent } from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
@@ -5,6 +7,13 @@ import { SpokeRejectCode } from "../result.js";
 
 function isNonEmptyTrimmedString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function compareUtf8Lexicographic(left: string, right: string): number {
+  return Buffer.compare(
+    Buffer.from(left, "utf8"),
+    Buffer.from(right, "utf8"),
+  );
 }
 
 function readTimelineEntryId(event: TimelineEvent): string | undefined {
@@ -147,7 +156,7 @@ export function orderTimelineEventsByPrecedes(
 
   const ready = [...linkedEventIds]
     .filter((eventId) => (inDegree.get(eventId) ?? 0) === 0)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareUtf8Lexicographic);
 
   const sortedLinkedIds: string[] = [];
   while (ready.length > 0) {
@@ -162,14 +171,14 @@ export function orderTimelineEventsByPrecedes(
         ready.push(neighbor);
       }
     }
-    ready.sort((left, right) => left.localeCompare(right));
+    ready.sort(compareUtf8Lexicographic);
   }
 
   if (sortedLinkedIds.length !== linkedEventIds.size) {
     const cycleEntryIds = [...linkedEventIds]
       .filter((eventId) => (inDegree.get(eventId) ?? 0) > 0)
       .map((eventId) => eventIdToEntryId.get(eventId)!)
-      .sort((left, right) => left.localeCompare(right));
+      .sort(compareUtf8Lexicographic);
 
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,

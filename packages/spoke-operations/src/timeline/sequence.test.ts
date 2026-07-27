@@ -284,6 +284,29 @@ describe("orderTimelineEventsByPrecedes", () => {
     });
   });
 
+  it("keeps all linked events when timeline_entry_id is shared", () => {
+    const events = [
+      makeTimelineEvent({
+        timeline_event_id: "evt_b",
+        extensions: { spoke: { timeline_entry_id: "kb_shared" } },
+      }),
+      makeTimelineEvent({
+        timeline_event_id: "evt_a",
+        extensions: { spoke: { timeline_entry_id: "kb_shared" } },
+      }),
+    ];
+
+    const result = orderTimelineEventsByPrecedes(events, []);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.map((event) => event.timeline_event_id)).toEqual([
+      "evt_a",
+      "evt_b",
+    ]);
+  });
+
   it("honors options.relationType when filtering relations", () => {
     const events = [
       makeTimelineEvent({

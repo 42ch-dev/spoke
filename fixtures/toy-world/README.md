@@ -4,6 +4,17 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 
 **Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the moment-scale timeline event records `computable_logs` for those field changes.
 
+## Host capability manifests (in-process collaboration)
+
+Committed `HostCapabilityManifest` JSON describes two toy-world hosts with **pairwise disjoint** `namespaces[]`:
+
+| Fixture | `host_id` | Owned namespaces | Roles (summary) |
+|---------|-----------|------------------|-----------------|
+| `host_tw_primary.json` | `host_tw_primary` | `toy_world` | `data-store`, `checker`, `assembler`, `input-source` |
+| `host_tw_peer.json` | `host_tw_peer` | `peer_demo` | `checker`, `input-source` |
+
+Both declare `spoke-baseline`. The primary host carries closed-loop `assembler` and the single write authority (`data-store`); the peer host is a narrower checker/input peer and omits `computable-engine`. Integrators map each manifest's `namespaces[]` to owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context — host metadata stays on the manifest wire object, not inside KE core fields. Reference adapters load these fixtures in-process; peer listing is product-supplied memory (no network runtime).
+
 ## Integrator path (TypeScript)
 
 One adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations`:
@@ -65,6 +76,8 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `op_tw_compute_request.json` | ComputeRequest (mid-Session apply) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_request.json` | ComputeRequest (`settle: true`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host) | `host_tw_primary` |
+| `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
 
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 

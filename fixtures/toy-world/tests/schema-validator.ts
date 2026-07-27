@@ -79,6 +79,8 @@ export const SCHEMA_IDS = {
   projectResponse: "https://spoke42.invalid/schemas/ops/project-response.schema.json",
   computeRequest: "https://spoke42.invalid/schemas/ops/compute-request.schema.json",
   computeResponse: "https://spoke42.invalid/schemas/ops/compute-response.schema.json",
+  hostCapabilityManifest:
+    "https://spoke42.invalid/schemas/data/host-capability-manifest.schema.json",
 } as const;
 
 export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
@@ -97,6 +99,8 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "op_tw_compute_request.json": SCHEMA_IDS.computeRequest,
   "op_tw_compute_settle_request.json": SCHEMA_IDS.computeRequest,
   "op_tw_compute_settle_response.json": SCHEMA_IDS.computeResponse,
+  "host_tw_primary.json": SCHEMA_IDS.hostCapabilityManifest,
+  "host_tw_peer.json": SCHEMA_IDS.hostCapabilityManifest,
 };
 
 export const FIXTURES_ROOT = join(REPO_ROOT, "fixtures/toy-world");

@@ -304,3 +304,70 @@ impl ForkPorts for BaselineOnlyAdapter {
         None
     }
 }
+
+#[cfg(test)]
+mod normalize_peer_manifests_tests {
+    use super::normalize_peer_manifests;
+    use serde_json::json;
+    use spoke_schemas::HostCapabilityManifest;
+
+    fn load_fixture<T: serde::de::DeserializeOwned>(filename: &str) -> T {
+        crate::memory_store::load_op_fixture(filename)
+    }
+
+    fn make_manifest(
+        host_id: &str,
+        namespaces: &[&str],
+        roles: &[&str],
+    ) -> HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": roles,
+            "capabilities": ["spoke-baseline"],
+            "namespaces": namespaces,
+            "extensions": {}
+        }))
+        .expect("valid HostCapabilityManifest")
+    }
+
+    #[test]
+    fn accepts_empty_peer_list() {
+        let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
+
+        let result = normalize_peer_manifests(primary.host_id.as_str(), &[]);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn excludes_self_dedupes_last_wins_and_sorts_ascending_by_host_id() {
+        let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
+        let peer = load_fixture::<HostCapabilityManifest>("host_tw_peer.json");
+        let peer_zulu = make_manifest("host_tw_zulu", &["zulu-ns"], &["checker"]);
+        let peer_alpha_dupe = make_manifest(
+            "host_tw_alpha",
+            &["alpha-ns-dup"],
+            &["checker"],
+        );
+        let peer_alpha = make_manifest("host_tw_alpha", &["alpha-ns"], &["assembler"]);
+        let raw = vec![
+            peer_zulu.clone(),
+            primary.clone(),
+            peer.clone(),
+            peer_alpha_dupe,
+            peer_alpha.clone(),
+        ];
+
+        let result = normalize_peer_manifests(primary.host_id.as_str(), &raw);
+
+        let host_ids: Vec<_> = result.iter().map(|m| m.host_id.as_str()).collect();
+        assert_eq!(
+            host_ids,
+            vec!["host_tw_alpha", "host_tw_peer", "host_tw_zulu"]
+        );
+        assert_eq!(result[0].namespaces, peer_alpha.namespaces);
+        assert_eq!(result[1].host_id.as_str(), peer.host_id.as_str());
+        assert_eq!(result[2].host_id.as_str(), peer_zulu.host_id.as_str());
+    }
+}

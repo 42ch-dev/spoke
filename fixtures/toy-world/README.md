@@ -42,7 +42,7 @@ Cargo demos live in `rust/tests/toy_world_adapter.rs`.
 
 | Port family | ToyWorldAdapter behavior |
 |-------------|--------------------------|
-| Baseline five families | Runnable in-memory OCC; optional seed from committed fixture JSON |
+| Baseline OCC families (five port families) | Runnable in-memory OCC; optional seed from committed fixture JSON |
 | `HostManifestPort` | Self manifest from `host_tw_primary.json`; peer list from in-memory `host_tw_peer.json` (exclude self; dedupe by `host_id`; ascending `host_id` sort) |
 | `ComputablePort` | Wire-valid `ProjectResponse` / `ComputeResponse` synthesized from `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo request `session_id` / `entry_id`) |
 | `ForkTimelineQueryPort` | Seeded timeline events filtered by `scope.fork_id` (e.g. `evt_tw_harbor_storm_delay.json` for `fork_tw_storm_branch`) |

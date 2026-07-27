@@ -48,7 +48,8 @@ const TOY_WORLD_PEER_MANIFESTS: HostCapabilityManifest[] = [
   loadOpFixture<HostCapabilityManifest>("host_tw_peer.json"),
 ];
 
-function normalizePeerManifests(
+/** Peer-list normalization used by ToyWorldAdapter (exclude self, dedupe, sort). */
+export function normalizePeerManifests(
   selfHostId: string,
   peers: HostCapabilityManifest[],
 ): HostCapabilityManifest[] {

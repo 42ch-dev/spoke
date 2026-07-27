@@ -40,14 +40,32 @@ function loadOpFixture<T>(filename: string): T {
   return JSON.parse(raw) as T;
 }
 
-const TOY_WORLD_HOST_MANIFEST: HostCapabilityManifest = {
-  schema_version: 1,
-  host_id: "host_tw_adapter",
-  roles: ["data-store", "checker", "assembler", "input-source"],
-  capabilities: ["spoke-baseline"],
-  namespaces: ["toy_world"],
-  extensions: {},
-};
+const TOY_WORLD_SELF_MANIFEST: HostCapabilityManifest =
+  loadOpFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+/** Product-seeded peer manifests held in adapter memory (static fixture graph). */
+const TOY_WORLD_PEER_MANIFESTS: HostCapabilityManifest[] = [
+  loadOpFixture<HostCapabilityManifest>("host_tw_peer.json"),
+];
+
+function normalizePeerManifests(
+  selfHostId: string,
+  peers: HostCapabilityManifest[],
+): HostCapabilityManifest[] {
+  const byHostId = new Map<string, HostCapabilityManifest>();
+  for (const peer of peers) {
+    if (peer.host_id === selfHostId) {
+      continue;
+    }
+    byHostId.set(peer.host_id, peer);
+  }
+  return [...byHostId.values()].sort((left, right) =>
+    Buffer.compare(
+      Buffer.from(left.host_id, "utf8"),
+      Buffer.from(right.host_id, "utf8"),
+    ),
+  );
+}
 
 /**
  * Toy-world reference adapter — implements FullAdapter over an in-memory store.
@@ -102,11 +120,16 @@ export class ToyWorldAdapter implements FullAdapter {
   }
 
   getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
-    return spokeOk(TOY_WORLD_HOST_MANIFEST);
+    return spokeOk(TOY_WORLD_SELF_MANIFEST);
   }
 
   listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
-    return spokeOk([]);
+    return spokeOk(
+      normalizePeerManifests(
+        TOY_WORLD_SELF_MANIFEST.host_id,
+        TOY_WORLD_PEER_MANIFESTS,
+      ),
+    );
   }
 
   /**

@@ -100,25 +100,41 @@ impl RuleQueryPort for ToyWorldAdapter {
     }
 }
 
-fn toy_world_host_manifest() -> HostCapabilityManifest {
-    serde_json::from_value(json!({
-        "schema_version": 1,
-        "host_id": "host_tw_adapter",
-        "roles": ["data-store", "checker", "assembler", "input-source"],
-        "capabilities": ["spoke-baseline"],
-        "namespaces": ["toy_world"],
-        "extensions": {}
-    }))
-    .expect("valid HostCapabilityManifest")
+fn toy_world_self_manifest() -> HostCapabilityManifest {
+    load_op_fixture("host_tw_primary.json")
+}
+
+fn toy_world_peer_manifests() -> Vec<HostCapabilityManifest> {
+    vec![load_op_fixture("host_tw_peer.json")]
+}
+
+fn normalize_peer_manifests(
+    self_host_id: &str,
+    peers: &[HostCapabilityManifest],
+) -> Vec<HostCapabilityManifest> {
+    let mut by_host_id = std::collections::HashMap::new();
+    for peer in peers {
+        if peer.host_id.as_str() == self_host_id {
+            continue;
+        }
+        by_host_id.insert(peer.host_id.as_str().to_string(), peer.clone());
+    }
+    let mut normalized: Vec<HostCapabilityManifest> = by_host_id.into_values().collect();
+    normalized.sort_by(|left, right| left.host_id.as_str().cmp(right.host_id.as_str()));
+    normalized
 }
 
 impl HostManifestPort for ToyWorldAdapter {
     fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
-        spoke_ok(toy_world_host_manifest())
+        spoke_ok(toy_world_self_manifest())
     }
 
     fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
-        spoke_ok(Vec::new())
+        let self_manifest = toy_world_self_manifest();
+        spoke_ok(normalize_peer_manifests(
+            self_manifest.host_id.as_str(),
+            &toy_world_peer_manifests(),
+        ))
     }
 }
 

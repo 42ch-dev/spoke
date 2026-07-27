@@ -7,6 +7,7 @@ import type {
   ComputeRequest,
   ComputeResponse,
   Finding,
+  HostCapabilityManifest,
   KnowledgeEntry,
   ProjectRequest,
   ProjectResponse,
@@ -226,6 +227,49 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
     }
+  });
+});
+
+describe("ToyWorldAdapter HostManifestPort", () => {
+  it("returns the primary host manifest from getHostCapabilityManifest", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+    const result = adapter.getHostCapabilityManifest();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual(primary);
+    expect(result.value.host_id).toBe("host_tw_primary");
+    expect(result.value.roles).toContain("assembler");
+    expect(result.value.roles).toContain("data-store");
+  });
+
+  it("lists peer manifests excluding self with ascending host_id sort", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+    const peer = loadFixture<HostCapabilityManifest>("host_tw_peer.json");
+
+    const result = adapter.listPeerHostCapabilityManifests();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual([peer]);
+    expect(result.value.map((manifest) => manifest.host_id)).toEqual([
+      "host_tw_peer",
+    ]);
+    expect(result.value[0]?.host_id).not.toBe(primary.host_id);
+
+    const primaryNamespaces = new Set(primary.namespaces);
+    const peerNamespaces = new Set(peer.namespaces);
+    const overlap = [...primaryNamespaces].filter((ns) =>
+      peerNamespaces.has(ns),
+    );
+    expect(overlap).toEqual([]);
   });
 });
 

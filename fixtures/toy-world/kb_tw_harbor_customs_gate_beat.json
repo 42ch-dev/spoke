@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "entry_id": "kb_tw_harbor_customs_gate_beat",
+  "entry_type": "beat",
+  "canonical_name": "Customs Gate Inspection",
+  "status": "confirmed",
+  "body": {
+    "summary": "Harbor officials inspect Mira's coastal charts at the customs gate before she may enter the inner docks.",
+    "tags": ["story-beat", "obstacle"],
+    "attributes": [
+      { "trait_type": "structural_role", "value": "rising_action" }
+    ]
+  },
+  "revision": 1,
+  "created_at": "2026-07-23T07:15:00Z",
+  "updated_at": "2026-07-23T07:15:00Z",
+  "extensions": {
+    "nexus": {
+      "world_id": "wld_toy_nexus_001"
+    }
+  }
+}

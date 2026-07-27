@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "timeline_event_id": "evt_tw_harbor_berth_confirm",
+  "canonical_name": "Berth Confirmation",
+  "timeline_scale": "moment",
+  "occurred_at": "2026-07-23T08:00:00Z",
+  "description": "Mira compares her mooring assignment against the harbor map — the berth remains unverified against official charts.",
+  "participant_entry_ids": ["kb_tw_mira", "kb_tw_harbor"],
+  "source_anchor": {
+    "schema_version": 1,
+    "source_id": "manuscript:tw-ch1",
+    "span": { "start": 299, "end": 380 },
+    "extensions": {}
+  },
+  "sort_key": "ch1-004",
+  "created_at": "2026-07-23T08:00:00Z",
+  "updated_at": "2026-07-23T08:00:00Z",
+  "extensions": {
+    "nexus": {
+      "world_id": "wld_toy_nexus_001"
+    },
+    "spoke": {
+      "timeline_entry_id": "kb_tw_harbor_berth_confirm_event"
+    }
+  }
+}

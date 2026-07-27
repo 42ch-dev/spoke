@@ -1,19 +1,25 @@
-import { Buffer } from "node:buffer";
-
 import type { Relation, TimelineEvent } from "@42ch/spoke-schemas";
 
 import { spokeOk, spokeReject, type SpokeResult } from "../result.js";
 import { SpokeRejectCode } from "../result.js";
+
+const utf8Encoder = new TextEncoder();
 
 function isNonEmptyTrimmedString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
 function compareUtf8Lexicographic(left: string, right: string): number {
-  return Buffer.compare(
-    Buffer.from(left, "utf8"),
-    Buffer.from(right, "utf8"),
-  );
+  const leftBytes = utf8Encoder.encode(left);
+  const rightBytes = utf8Encoder.encode(right);
+  const sharedLength = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const delta = leftBytes[index]! - rightBytes[index]!;
+    if (delta !== 0) {
+      return delta;
+    }
+  }
+  return leftBytes.length - rightBytes.length;
 }
 
 function readTimelineEntryId(event: TimelineEvent): string | undefined {

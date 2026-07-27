@@ -269,7 +269,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 ## Acceptance (ops layer)
 
 - [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
-- [x] Optional `project` / `compute` ops documented when `l2-computable` ships (4 additional schema files; total **23**)
+- [x] Optional `project` / `compute` ops documented when `l2-computable` ships (4 optional ops schemas; protocol inventory **24** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
 - [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 2 optional)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)
@@ -292,7 +292,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing and v0.1 acceptance |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `Rule`, `TimelineEvent`, …) |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `HostCapabilityManifest`, `Rule`, `TimelineEvent`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`schemas/README.md`](../../schemas/README.md) | Fourteen op schema files under `schemas/ops/` (ten baseline + four optional) |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

@@ -12,7 +12,7 @@
 
 **Includes:**
 
-- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent
+- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
 - Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
 - Pure lifecycle helpers (`@42ch/spoke-operations` / `spoke-operations`)

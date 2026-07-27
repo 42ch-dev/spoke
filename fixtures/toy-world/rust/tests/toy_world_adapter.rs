@@ -7,13 +7,13 @@ use spoke_fixture_toy_world::{
 use spoke_operations::{
     orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_fork_check,
     orchestrate_project, orchestrate_promote, orchestrate_relate, orchestrate_upsert, spoke_ok,
-    CheckRunInput, ComputablePort, ForkTimelineQueryPort, FullAdapter, KnowledgeEntryPort,
-    SpokeRejectCode, SpokeResult,
+    CheckRunInput, ComputablePort, ForkTimelineQueryPort, FullAdapter, HostManifestPort,
+    KnowledgeEntryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
-    AssembleRequest, CheckRequest, ComputeRequest, ComputeResponse, Finding, KnowledgeEntry,
-    ProjectRequest, ProjectResponse, PromoteRequest, RelateRequest, Relation, Rule, Scope,
-    TimelineEvent, UpsertRequest,
+    AssembleRequest, CheckRequest, ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest,
+    KnowledgeEntry, ProjectRequest, ProjectResponse, PromoteRequest, RelateRequest, Relation, Rule,
+    Scope, TimelineEvent, UpsertRequest,
 };
 
 fn load_fixture<T: serde::de::DeserializeOwned>(filename: &str) -> T {
@@ -232,6 +232,52 @@ fn returns_capability_port_missing_for_baseline_only_adapter() {
     assert!(result.is_reject());
     if let SpokeResult::Reject(reject) = result {
         assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+    }
+}
+
+#[test]
+fn get_host_capability_manifest_returns_primary_fixture() {
+    let adapter = ToyWorldAdapter::with_committed_fixtures();
+    let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
+
+    let result = adapter.get_host_capability_manifest();
+    assert!(result.is_ok(), "{result:?}");
+    if let SpokeResult::Ok(manifest) = result {
+        assert_eq!(manifest.host_id.as_str(), primary.host_id.as_str());
+        assert_eq!(manifest.roles, primary.roles);
+        assert_eq!(manifest.capabilities, primary.capabilities);
+        assert_eq!(manifest.namespaces, primary.namespaces);
+        assert_eq!(manifest.host_id.as_str(), "host_tw_primary");
+        assert!(manifest.roles.iter().any(|role| role.as_str() == "assembler"));
+        assert!(manifest.roles.iter().any(|role| role.as_str() == "data-store"));
+    }
+}
+
+#[test]
+fn list_peer_host_capability_manifests_returns_peer_fixture_excluding_self() {
+    let adapter = ToyWorldAdapter::with_committed_fixtures();
+    let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
+    let peer = load_fixture::<HostCapabilityManifest>("host_tw_peer.json");
+
+    let result = adapter.list_peer_host_capability_manifests();
+    assert!(result.is_ok(), "{result:?}");
+    if let SpokeResult::Ok(peers) = result {
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].host_id.as_str(), peer.host_id.as_str());
+        assert_eq!(peers[0].roles, peer.roles);
+        assert_eq!(peers[0].namespaces, peer.namespaces);
+        assert_eq!(peers[0].host_id.as_str(), "host_tw_peer");
+        assert_ne!(peers[0].host_id.as_str(), primary.host_id.as_str());
+
+        let primary_namespaces: std::collections::HashSet<_> =
+            primary.namespaces.iter().map(|ns| ns.as_str()).collect();
+        let peer_namespaces: std::collections::HashSet<_> =
+            peer.namespaces.iter().map(|ns| ns.as_str()).collect();
+        let overlap: Vec<_> = primary_namespaces
+            .intersection(&peer_namespaces)
+            .copied()
+            .collect();
+        assert!(overlap.is_empty());
     }
 }
 

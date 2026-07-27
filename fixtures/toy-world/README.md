@@ -4,6 +4,17 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 
 **Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the moment-scale timeline event records `computable_logs` for those field changes.
 
+## Host capability manifests (in-process collaboration)
+
+Committed `HostCapabilityManifest` JSON describes two toy-world hosts with **pairwise disjoint** `namespaces[]`:
+
+| Fixture | `host_id` | Owned namespaces | Roles (summary) |
+|---------|-----------|------------------|-----------------|
+| `host_tw_primary.json` | `host_tw_primary` | `toy_world` | `data-store`, `checker`, `assembler`, `input-source` |
+| `host_tw_peer.json` | `host_tw_peer` | `peer_demo` | `checker`, `input-source` |
+
+Both declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fixture JSON; peer hosts resolve through product-supplied in-memory listing.
+
 ## Integrator path (TypeScript)
 
 One adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations`:
@@ -31,7 +42,8 @@ Cargo demos live in `rust/tests/toy_world_adapter.rs`.
 
 | Port family | ToyWorldAdapter behavior |
 |-------------|--------------------------|
-| Baseline five families | Runnable in-memory OCC; optional seed from committed fixture JSON |
+| Baseline OCC families (five port families) | Runnable in-memory OCC; optional seed from committed fixture JSON |
+| `HostManifestPort` | Self manifest from `host_tw_primary.json`; peer list from in-memory `host_tw_peer.json` (exclude self; dedupe by `host_id`; ascending `host_id` sort) |
 | `ComputablePort` | Wire-valid `ProjectResponse` / `ComputeResponse` synthesized from `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo request `session_id` / `entry_id`) |
 | `ForkTimelineQueryPort` | Seeded timeline events filtered by `scope.fork_id` (e.g. `evt_tw_harbor_storm_delay.json` for `fork_tw_storm_branch`) |
 
@@ -65,6 +77,8 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `op_tw_compute_request.json` | ComputeRequest (mid-Session apply) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_request.json` | ComputeRequest (`settle: true`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host) | `host_tw_primary` |
+| `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
 
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 

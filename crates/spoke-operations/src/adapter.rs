@@ -11,7 +11,7 @@ pub use orchestrate::{
 pub use ports::{
     BaselineAdapter, BaselinePorts, ComputableAdapter, ComputablePort, ComputablePorts,
     FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort, FullAdapter, FullPorts,
-    KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+    HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
 };
 
 /// Parity export checklist — mirrors TS `adapter/ports.test.ts` "adapter port exports"
@@ -27,6 +27,7 @@ mod parity_export_checklist {
         ("ScopeQueryPort", "ScopeQueryPort"),
         ("FindingPort", "FindingPort"),
         ("RuleQueryPort", "RuleQueryPort"),
+        ("HostManifestPort", "HostManifestPort"),
         ("ComputablePort", "ComputablePort"),
         ("ForkTimelineQueryPort", "ForkTimelineQueryPort"),
         ("BaselinePorts", "BaselinePorts"),
@@ -57,7 +58,8 @@ mod parity_export_checklist {
         orchestrate_fork_check, orchestrate_project, orchestrate_promote, orchestrate_relate,
         orchestrate_upsert, BaselineAdapter, BaselinePorts, CheckRunInput, ComputableAdapter,
         ComputablePort, ComputablePorts, FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort,
-        FullAdapter, FullPorts, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+        FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+        ScopeQueryPort,
     };
 
     /// Minimal probe type so generic orchestrator paths monomorphize in the checklist.
@@ -114,6 +116,18 @@ mod parity_export_checklist {
             _rule_refs: &[String],
         ) -> crate::SpokeResult<Vec<spoke_schemas::Rule>> {
             crate::spoke_ok(Vec::new())
+        }
+    }
+    impl HostManifestPort for ExportProbePorts {
+        fn get_host_capability_manifest(
+            &self,
+        ) -> crate::SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            unreachable!("parity checklist probe")
+        }
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> crate::SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            unreachable!("parity checklist probe")
         }
     }
     impl ForkTimelineQueryPort for ExportProbePorts {
@@ -181,6 +195,7 @@ mod parity_export_checklist {
         let _: Option<&dyn ScopeQueryPort> = None;
         let _: Option<&dyn FindingPort> = None;
         let _: Option<&dyn RuleQueryPort> = None;
+        let _: Option<&dyn HostManifestPort> = None;
         let _: Option<&dyn ComputablePort> = None;
         let _: Option<&dyn ForkTimelineQueryPort> = None;
         let _: Option<&dyn BaselinePorts> = None;
@@ -283,7 +298,7 @@ mod parity_export_checklist {
             Some(SpokeRejectCode::CapabilityPortMissing)
         );
 
-        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 26);
+        assert_eq!(TS_RUST_ADAPTER_PARITY.len(), 27);
         for (ts, rust) in TS_RUST_ADAPTER_PARITY {
             assert!(!ts.is_empty(), "TS symbol must be non-empty");
             assert!(!rust.is_empty(), "Rust symbol must be non-empty");
@@ -295,19 +310,19 @@ mod parity_export_checklist {
             ("KnowledgeEntryPort", "KnowledgeEntryPort")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[11],
+            TS_RUST_ADAPTER_PARITY[12],
             ("BaselineAdapter", "BaselineAdapter")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[16],
+            TS_RUST_ADAPTER_PARITY[17],
             ("orchestrateUpsert", "orchestrate_upsert")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[24],
+            TS_RUST_ADAPTER_PARITY[25],
             ("orchestrateForkAssemble", "orchestrate_fork_assemble")
         );
         assert_eq!(
-            TS_RUST_ADAPTER_PARITY[25],
+            TS_RUST_ADAPTER_PARITY[26],
             ("CAPABILITY_PORT_MISSING", "CAPABILITY_PORT_MISSING")
         );
 

@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/host-capability-manifest.schema.json",
+  "title": "HostCapabilityManifest",
+  "description": "Host self-description: roles, capability flags, namespace ownership, and optional single-writer authority scope.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "host_id",
+    "roles",
+    "capabilities",
+    "namespaces",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "host_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable host identity (opaque to protocol)."
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "Open string role vocabulary. Core vocabulary (documented, not enforced): data-store, input-source, checker, assembler, computable-engine."
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "Open string capability flags. Core vocabulary (documented, not enforced): spoke-baseline, l2-computable."
+    },
+    "namespaces": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
+      "description": "Extension namespace keys owned by this host in a collaboration context."
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope_key"],
+      "properties": {
+        "scope_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque single-writer authority scope key."
+        }
+      },
+      "description": "Optional explicit authority scope. When absent and data-store is in roles, implicit authority is this manifest's host_id."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": 1,
+      "host_id": "host_tw_adapter",
+      "roles": ["data-store", "checker", "assembler", "input-source"],
+      "capabilities": ["spoke-baseline"],
+      "namespaces": ["toy_world"],
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "host_id": "host_computable_engine",
+      "roles": ["computable-engine"],
+      "capabilities": ["spoke-baseline", "l2-computable"],
+      "namespaces": ["computable"],
+      "extensions": {
+        "my_product": { "deployment": "staging" }
+      }
+    }
+  ]
+}

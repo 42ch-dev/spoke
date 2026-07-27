@@ -7,6 +7,7 @@ import type {
   ComputeRequest,
   ComputeResponse,
   Finding,
+  HostCapabilityManifest,
   KnowledgeEntry,
   ProjectRequest,
   ProjectResponse,
@@ -37,11 +38,26 @@ import {
   ToyWorldAdapter,
   asBaselineOnly,
 } from "../src/adapter/index.js";
+import { normalizePeerManifests } from "../src/adapter/toy-world-adapter.js";
 import { FIXTURES_ROOT } from "./schema-validator.js";
 
 function loadFixture<T>(filename: string): T {
   const raw = readFileSync(join(FIXTURES_ROOT, filename), "utf8");
   return JSON.parse(raw) as T;
+}
+
+function makeManifest(
+  overrides: Partial<HostCapabilityManifest> &
+    Pick<HostCapabilityManifest, "host_id">,
+): HostCapabilityManifest {
+  return {
+    schema_version: 1,
+    roles: ["checker"],
+    capabilities: ["spoke-baseline"],
+    namespaces: ["peer_demo"],
+    extensions: {},
+    ...overrides,
+  };
 }
 
 function provisionalMira(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntry {
@@ -226,6 +242,130 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
     }
+  });
+});
+
+describe("normalizePeerManifests (ToyWorldAdapter integrator path)", () => {
+  it("accepts an empty peer list", () => {
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+    const result = normalizePeerManifests(primary.host_id, []);
+
+    expect(result).toEqual([]);
+  });
+
+  it("excludes self, dedupes by host_id last-wins, and sorts ascending by host_id", () => {
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+    const peer = loadFixture<HostCapabilityManifest>("host_tw_peer.json");
+    const peerZulu = makeManifest({
+      host_id: "host_tw_zulu",
+      namespaces: ["zulu-ns"],
+    });
+    const peerAlphaDupe = makeManifest({
+      host_id: "host_tw_alpha",
+      namespaces: ["alpha-ns-dup"],
+      roles: ["checker"],
+    });
+    const peerAlpha = makeManifest({
+      host_id: "host_tw_alpha",
+      namespaces: ["alpha-ns"],
+      roles: ["assembler"],
+    });
+
+    const result = normalizePeerManifests(primary.host_id, [
+      peerZulu,
+      primary,
+      peer,
+      peerAlphaDupe,
+      peerAlpha,
+    ]);
+
+    expect(result.map((manifest) => manifest.host_id)).toEqual([
+      "host_tw_alpha",
+      "host_tw_peer",
+      "host_tw_zulu",
+    ]);
+    expect(result[0]).toEqual(peerAlpha);
+    expect(result[1]).toEqual(peer);
+    expect(result[2]).toEqual(peerZulu);
+  });
+});
+
+describe("ToyWorldAdapter HostManifestPort", () => {
+  it("returns the primary host manifest from getHostCapabilityManifest", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+    const result = adapter.getHostCapabilityManifest();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual(primary);
+    expect(result.value.host_id).toBe("host_tw_primary");
+    expect(result.value.roles).toContain("assembler");
+    expect(result.value.roles).toContain("data-store");
+  });
+
+  it("lists peer manifests excluding self with ascending host_id sort", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+    const peer = loadFixture<HostCapabilityManifest>("host_tw_peer.json");
+
+    const result = adapter.listPeerHostCapabilityManifests();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual([peer]);
+    expect(result.value.map((manifest) => manifest.host_id)).toEqual([
+      "host_tw_peer",
+    ]);
+    expect(result.value[0]?.host_id).not.toBe(primary.host_id);
+
+    const primaryNamespaces = new Set(primary.namespaces);
+    const peerNamespaces = new Set(peer.namespaces);
+    const overlap = [...primaryNamespaces].filter((ns) =>
+      peerNamespaces.has(ns),
+    );
+    expect(overlap).toEqual([]);
+  });
+
+  it("returns defensive copies that callers cannot mutate", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+    const selfResult = adapter.getHostCapabilityManifest();
+    expect(selfResult.ok).toBe(true);
+    if (!selfResult.ok) {
+      return;
+    }
+    selfResult.value.host_id = "mutated-self";
+
+    const selfAgain = adapter.getHostCapabilityManifest();
+    expect(selfAgain.ok).toBe(true);
+    if (!selfAgain.ok) {
+      return;
+    }
+    expect(selfAgain.value).toEqual(primary);
+    expect(selfAgain.value.host_id).toBe("host_tw_primary");
+
+    const peersResult = adapter.listPeerHostCapabilityManifests();
+    expect(peersResult.ok).toBe(true);
+    if (!peersResult.ok) {
+      return;
+    }
+    expect(peersResult.value.length).toBeGreaterThan(0);
+    peersResult.value[0]!.host_id = "mutated-peer";
+
+    const peersAgain = adapter.listPeerHostCapabilityManifests();
+    expect(peersAgain.ok).toBe(true);
+    if (!peersAgain.ok) {
+      return;
+    }
+    expect(peersAgain.value[0]!.host_id).toBe("host_tw_peer");
   });
 });
 

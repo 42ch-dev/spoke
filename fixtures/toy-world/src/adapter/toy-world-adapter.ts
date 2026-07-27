@@ -11,6 +11,7 @@ import type {
   ComputeResponse,
   Finding,
   ForkId,
+  HostCapabilityManifest,
   KnowledgeEntry,
   ProjectRequest,
   ProjectResponse,
@@ -37,6 +38,40 @@ import {
 function loadOpFixture<T>(filename: string): T {
   const raw = readFileSync(join(TOY_WORLD_FIXTURES_ROOT, filename), "utf8");
   return JSON.parse(raw) as T;
+}
+
+const TOY_WORLD_SELF_MANIFEST: HostCapabilityManifest =
+  loadOpFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+/** Product-seeded peer manifests held in adapter memory (static fixture graph). */
+const TOY_WORLD_PEER_MANIFESTS: HostCapabilityManifest[] = [
+  loadOpFixture<HostCapabilityManifest>("host_tw_peer.json"),
+];
+
+function cloneHostCapabilityManifest(
+  manifest: HostCapabilityManifest,
+): HostCapabilityManifest {
+  return structuredClone(manifest);
+}
+
+/** Peer-list normalization used by ToyWorldAdapter (exclude self, dedupe, sort). */
+export function normalizePeerManifests(
+  selfHostId: string,
+  peers: HostCapabilityManifest[],
+): HostCapabilityManifest[] {
+  const byHostId = new Map<string, HostCapabilityManifest>();
+  for (const peer of peers) {
+    if (peer.host_id === selfHostId) {
+      continue;
+    }
+    byHostId.set(peer.host_id, cloneHostCapabilityManifest(peer));
+  }
+  return [...byHostId.values()].sort((left, right) =>
+    Buffer.compare(
+      Buffer.from(left.host_id, "utf8"),
+      Buffer.from(right.host_id, "utf8"),
+    ),
+  );
 }
 
 /**
@@ -89,6 +124,19 @@ export class ToyWorldAdapter implements FullAdapter {
 
   listRules(ruleRefs: string[]): SpokeResult<Rule[]> {
     return this.store.listRules(ruleRefs);
+  }
+
+  getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+    return spokeOk(cloneHostCapabilityManifest(TOY_WORLD_SELF_MANIFEST));
+  }
+
+  listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
+    return spokeOk(
+      normalizePeerManifests(
+        TOY_WORLD_SELF_MANIFEST.host_id,
+        TOY_WORLD_PEER_MANIFESTS,
+      ),
+    );
   }
 
   /**
@@ -161,5 +209,8 @@ export function asBaselineOnly(adapter: ToyWorldAdapter): BaselineAdapter {
     listTimelineEvents: (scope) => adapter.listTimelineEvents(scope),
     putFindings: (findings) => adapter.putFindings(findings),
     listRules: (ruleRefs) => adapter.listRules(ruleRefs),
+    getHostCapabilityManifest: () => adapter.getHostCapabilityManifest(),
+    listPeerHostCapabilityManifests: () =>
+      adapter.listPeerHostCapabilityManifests(),
   };
 }

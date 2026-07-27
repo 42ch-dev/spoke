@@ -6,6 +6,7 @@
 
 export type { AssemblePacket } from './assemble-packet';
 export type { Finding } from './finding';
+export type { HostCapabilityManifest } from './host-capability-manifest';
 export type { KnowledgeEntry } from './knowledge-entry';
 export type { Relation } from './relation';
 export type { Rule } from './rule';

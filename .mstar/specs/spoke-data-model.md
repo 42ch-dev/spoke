@@ -13,7 +13,7 @@ Define durable **data** wire shapes for narrative KnowledgeEntries and related o
 
 ### v0.1 baseline (delivered)
 
-Five required wire objects in v0.1:
+Six core durable wire objects for baseline host collaboration and narrative knowledge:
 
 | Object | Role | Schema file |
 |--------|------|-------------|
@@ -22,6 +22,7 @@ Five required wire objects in v0.1:
 | **SourceAnchor** | Pointer to manuscript/source span | `schemas/data/source-anchor.schema.json` |
 | **Finding** | Checker output (consistency, style, structure, …) | `schemas/data/finding.schema.json` |
 | **AssemblePacket** | Context-assembly payload (structure only) | `schemas/data/assemble-packet.schema.json` |
+| **HostCapabilityManifest** | Adapter self-description: roles, capabilities, owned `extensions` namespaces | `schemas/data/host-capability-manifest.schema.json` |
 
 ### Protocol layers + Rule/TimelineEvent deepen (committed wire)
 
@@ -30,7 +31,97 @@ Five required wire objects in v0.1:
 | **Rule** | L6 | Declarative constraint **input** to checkers (not Finding output) | `schemas/data/rule.schema.json` |
 | **TimelineEvent** | L5 | Temporal when-axis object | `schemas/data/timeline-event.schema.json` |
 
-Product invariant: each durable object participates in the `extensions` round-trip contract (§Extensions). See [`spoke-protocol-layers.md`](spoke-protocol-layers.md) for capability levels and Rule vs Finding boundaries.
+Product invariant: each durable object participates in the `extensions` round-trip contract (§Extensions). `HostCapabilityManifest` uses the same `ExtensionMap` for deployment metadata only — host roles and namespace ownership are core manifest fields, not KE `extensions.<ns>` bags. See [`spoke-operations.md`](spoke-operations.md) §Host collaboration. See [`spoke-protocol-layers.md`](spoke-protocol-layers.md) for capability levels and Rule vs Finding boundaries.
+
+---
+
+## HostCapabilityManifest (host collaboration)
+
+First-class wire object for **in-process adapter self-description** — roles, capability flags, and exclusive `extensions` namespace ownership. Distinct from KnowledgeEntry: host metadata MUST NOT be required inside `KnowledgeEntry.extensions.<ns>`.
+
+Schema: `schemas/data/host-capability-manifest.schema.json`.
+
+### Required fields
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `schema_version` | integer | Wire version; align with `common.SchemaVersion` |
+| `host_id` | string | Stable host identity in a collaboration context (`minLength: 1`; opaque to protocol) |
+| `roles` | string[] | Open strings; `minItems: 1`; `uniqueItems: true` — core vocabulary in §Host roles |
+| `capabilities` | string[] | Open strings; `minItems: 1`; `uniqueItems: true` — capability flags in §Host capabilities |
+| `namespaces` | string[] | Namespace keys this host owns; `minItems: 1`; `uniqueItems: true`; each item matches `^[a-z][a-z0-9_-]*$` |
+| `extensions` | object | `ExtensionMap` — deployment/product metadata only (§Manifest extensions) |
+
+### Optional protocol fields
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `authority` | object | Closed scope pointer for data-store OCC — see §Authority |
+
+### Host roles (open vocabulary)
+
+`roles` is an open `string[]` (no JSON Schema `enum`). Core collaboration vocabulary:
+
+| Role | Purpose | Typical ports / ops |
+|------|---------|---------------------|
+| `data-store` | Single OCC authority per `entry_id`; settled state via `putKnowledgeEntry` | `KnowledgeEntryPort`; `orchestrateUpsert`, `orchestratePromote` |
+| `input-source` | Ingest or propose entries/intent | Product-defined ingest surface (no new port family) |
+| `checker` | Emit `Finding[]`; no settled `body.state` write-back | `RuleQueryPort`, `FindingPort`; `orchestrateCheck` |
+| `assembler` | Closed-loop context aggregation | `ScopeQueryPort`; `orchestrateAssemble` |
+| `computable-engine` | Optional L2 session/compute | `ComputablePort` when `l2-computable` declared |
+
+Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, and computable-engine emit intent or derived artifacts — write-back flows through the data-store authority.
+
+`assembler` is closed-loop core vocabulary (not an optional role label). `computable-engine` is optional and pairs with the `l2-computable` capability flag.
+
+### Host capabilities (open vocabulary)
+
+`capabilities` reuses existing capability flag strings from [`spoke-protocol-layers.md`](spoke-protocol-layers.md):
+
+| Flag | Normative pairing |
+|------|-------------------|
+| `spoke-baseline` | MUST appear when manifest describes a baseline-compliant adapter |
+| `l2-computable` | MUST appear when `computable-engine` ∈ `roles` |
+| `l5-fork` | SHOULD appear when fork-aware timeline query is advertised |
+
+### Authority (optional)
+
+When `authority` is present, it is a **closed** object (`additionalProperties: false`) — not a free-form opaque bag:
+
+| Field | Required when `authority` present | Semantics |
+|-------|-----------------------------------|-----------|
+| `scope_key` | yes | Opaque collaboration scope for OCC / active-uniqueness (aligns with operations `scope_key` folklore in `assertUniqueActiveKnowledgeEntry`) |
+
+`authority` is **not** schema-required when `data-store` ∈ `roles`. When absent, integrators treat this manifest's `host_id` as the implicit write authority for its collaboration scope. No CRDT or vector-clock fields on the wire.
+
+### Namespace exclusivity
+
+Within one **collaboration context**, each namespace string in `namespaces[]` MUST appear on **at most one** manifest (`host_id`). Integrators enforce exclusivity when assembling peer lists and routing `KnowledgeEntry.extensions.<ns>` ownership product-side.
+
+### Manifest extensions vs KnowledgeEntry extensions
+
+| Surface | Role |
+|---------|------|
+| `HostCapabilityManifest.extensions` | Required `ExtensionMap`; deployment/product metadata only |
+| `KnowledgeEntry.extensions.<ns>` | Product bags only — not the host-role channel |
+
+Manifest `extensions` MUST NOT duplicate `roles`, `capabilities`, or `namespaces`.
+
+### Illustrative instance
+
+```json
+{
+  "schema_version": 1,
+  "host_id": "host_toy_primary",
+  "roles": ["data-store", "checker", "assembler", "input-source"],
+  "capabilities": ["spoke-baseline"],
+  "namespaces": ["toy"],
+  "authority": { "scope_key": "collab_toy_world" },
+  "extensions": {
+    "toy_world": { "display_name": "Toy World primary host" }
+  }
+}
+```
 
 ---
 
@@ -628,16 +719,18 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **ComputableLogEntry** — Moment-scale presentation on `TimelineEvent.computable_logs` (not Finding)
 - **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
 - **Finding** — checker output, not a KnowledgeEntry body
-- **Rule** — L6 declarative wire object; distinct from `entry_type: "rule"` on a KnowledgeEntry
+- **HostCapabilityManifest** — in-process adapter self-description (`host_id`, `roles`, `capabilities`, `namespaces`); distinct from KnowledgeEntry
+- **Host role** — open string in `HostCapabilityManifest.roles[]`; core vocabulary: `data-store`, `input-source`, `checker`, `assembler`, `computable-engine`
+- **Namespace attribution** — integrator maps manifest `namespaces[]` → owning `host_id` for `extensions.<ns>` folklore; exclusivity per collaboration context
 
 ---
 
 ## Acceptance (data layer)
 
-- [x] Each baseline and optional-capability object above has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
+- [x] Each **committed** baseline and optional-capability wire object in this doc (KnowledgeEntry through TimelineEvent) has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
 - [x] Umbrella + this doc list the same object set; `Rule` and `TimelineEvent` schemas committed
-- [ ] Sample valid KnowledgeEntry instance (inline above or schema `examples`) shows `extensions` usage — **no fixture directory required**
-- [ ] `entry_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
+- [x] `HostCapabilityManifest` schema committed at `schemas/data/host-capability-manifest.schema.json` with field rules in §HostCapabilityManifest
+- [x] `entry_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 
 ## Non-goals (data layer)
 

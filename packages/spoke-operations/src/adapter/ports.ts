@@ -8,6 +8,7 @@ import type {
   ComputeResponse,
   Finding,
   ForkId,
+  HostCapabilityManifest,
   KnowledgeEntry,
   ProjectRequest,
   ProjectResponse,
@@ -60,6 +61,15 @@ export interface RuleQueryPort {
   listRules(ruleRefs: string[]): SpokeResult<Rule[]>;
 }
 
+/**
+ * Host collaboration metadata — self manifest and product-known peer manifests.
+ * Integrators call explicitly; orchestrators do not auto-fetch manifests.
+ */
+export interface HostManifestPort {
+  getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest>;
+  listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]>;
+}
+
 /** Optional l2-computable session — project / compute. */
 export interface ComputablePort {
   project(request: ProjectRequest): SpokeResult<ProjectResponse>;
@@ -81,7 +91,8 @@ export type BaselinePorts = KnowledgeEntryPort &
   RelationPort &
   ScopeQueryPort &
   FindingPort &
-  RuleQueryPort;
+  RuleQueryPort &
+  HostManifestPort;
 
 /** Baseline plus optional computable capability. */
 export type ComputablePorts = BaselinePorts & ComputablePort;

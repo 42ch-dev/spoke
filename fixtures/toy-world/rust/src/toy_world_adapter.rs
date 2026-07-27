@@ -5,12 +5,12 @@ use std::sync::Mutex;
 use serde_json::json;
 use spoke_operations::{
     spoke_ok, spoke_reject, ComputablePort, ComputablePorts, FindingPort, ForkPorts,
-    ForkTimelineQueryPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeRejectCode, SpokeResult,
+    ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
-    ComputeRequest, ComputeResponse, Finding, KnowledgeEntry, ProjectRequest, ProjectResponse,
-    Relation, Rule, Scope, TimelineEvent,
+    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 use crate::memory_store::{load_op_fixture, MemoryStore, MemoryStoreSeed};
@@ -97,6 +97,44 @@ impl FindingPort for ToyWorldAdapter {
 impl RuleQueryPort for ToyWorldAdapter {
     fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
         self.with_store(|store| store.list_rules(rule_refs))
+    }
+}
+
+fn toy_world_self_manifest() -> HostCapabilityManifest {
+    load_op_fixture("host_tw_primary.json")
+}
+
+fn toy_world_peer_manifests() -> Vec<HostCapabilityManifest> {
+    vec![load_op_fixture("host_tw_peer.json")]
+}
+
+fn normalize_peer_manifests(
+    self_host_id: &str,
+    peers: &[HostCapabilityManifest],
+) -> Vec<HostCapabilityManifest> {
+    let mut by_host_id = std::collections::HashMap::new();
+    for peer in peers {
+        if peer.host_id.as_str() == self_host_id {
+            continue;
+        }
+        by_host_id.insert(peer.host_id.as_str().to_string(), peer.clone());
+    }
+    let mut normalized: Vec<HostCapabilityManifest> = by_host_id.into_values().collect();
+    normalized.sort_by(|left, right| left.host_id.as_str().cmp(right.host_id.as_str()));
+    normalized
+}
+
+impl HostManifestPort for ToyWorldAdapter {
+    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        spoke_ok(toy_world_self_manifest())
+    }
+
+    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        let self_manifest = toy_world_self_manifest();
+        spoke_ok(normalize_peer_manifests(
+            self_manifest.host_id.as_str(),
+            &toy_world_peer_manifests(),
+        ))
     }
 }
 
@@ -245,6 +283,16 @@ impl RuleQueryPort for BaselineOnlyAdapter {
     }
 }
 
+impl HostManifestPort for BaselineOnlyAdapter {
+    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        self.inner.get_host_capability_manifest()
+    }
+
+    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        self.inner.list_peer_host_capability_manifests()
+    }
+}
+
 impl ComputablePorts for BaselineOnlyAdapter {
     fn as_computable(&self) -> Option<&dyn ComputablePort> {
         None
@@ -254,5 +302,72 @@ impl ComputablePorts for BaselineOnlyAdapter {
 impl ForkPorts for BaselineOnlyAdapter {
     fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort> {
         None
+    }
+}
+
+#[cfg(test)]
+mod normalize_peer_manifests_tests {
+    use super::normalize_peer_manifests;
+    use serde_json::json;
+    use spoke_schemas::HostCapabilityManifest;
+
+    fn load_fixture<T: serde::de::DeserializeOwned>(filename: &str) -> T {
+        crate::memory_store::load_op_fixture(filename)
+    }
+
+    fn make_manifest(
+        host_id: &str,
+        namespaces: &[&str],
+        roles: &[&str],
+    ) -> HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": roles,
+            "capabilities": ["spoke-baseline"],
+            "namespaces": namespaces,
+            "extensions": {}
+        }))
+        .expect("valid HostCapabilityManifest")
+    }
+
+    #[test]
+    fn accepts_empty_peer_list() {
+        let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
+
+        let result = normalize_peer_manifests(primary.host_id.as_str(), &[]);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn excludes_self_dedupes_last_wins_and_sorts_ascending_by_host_id() {
+        let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
+        let peer = load_fixture::<HostCapabilityManifest>("host_tw_peer.json");
+        let peer_zulu = make_manifest("host_tw_zulu", &["zulu-ns"], &["checker"]);
+        let peer_alpha_dupe = make_manifest(
+            "host_tw_alpha",
+            &["alpha-ns-dup"],
+            &["checker"],
+        );
+        let peer_alpha = make_manifest("host_tw_alpha", &["alpha-ns"], &["assembler"]);
+        let raw = vec![
+            peer_zulu.clone(),
+            primary.clone(),
+            peer.clone(),
+            peer_alpha_dupe,
+            peer_alpha.clone(),
+        ];
+
+        let result = normalize_peer_manifests(primary.host_id.as_str(), &raw);
+
+        let host_ids: Vec<_> = result.iter().map(|m| m.host_id.as_str()).collect();
+        assert_eq!(
+            host_ids,
+            vec!["host_tw_alpha", "host_tw_peer", "host_tw_zulu"]
+        );
+        assert_eq!(result[0].namespaces, peer_alpha.namespaces);
+        assert_eq!(result[1].host_id.as_str(), peer.host_id.as_str());
+        assert_eq!(result[2].host_id.as_str(), peer_zulu.host_id.as_str());
     }
 }

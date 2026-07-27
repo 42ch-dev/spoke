@@ -481,7 +481,7 @@ All port methods return `SpokeResult<T>`. Adapter-level failures map to stable `
 
 | Capability | Required interface families | Orchestration enabled |
 |---|---|---|
-| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort` | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
+| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, **`HostManifestPort`** | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
 | `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
 | `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
 
@@ -489,7 +489,7 @@ Unclaimed capabilities need no ports; their orchestrators are not callable for t
 
 ### Baseline port families
 
-The following five families are required for `spoke-baseline`:
+The following **six** families are required for `spoke-baseline`:
 
 | Family | TypeScript interface | Rust trait | Methods |
 |---|---|---|---|
@@ -498,10 +498,50 @@ The following five families are required for `spoke-baseline`:
 | Scope query | `ScopeQueryPort` | `ScopeQueryPort` | `listKnowledgeEntries(scope: Scope): SpokeResult<KnowledgeEntry[]>`; `listTimelineEvents(scope: Scope): SpokeResult<TimelineEvent[]>` |
 | Finding persistence | `FindingPort` | `FindingPort` | `putFindings(findings: Finding[]): SpokeResult<Finding[]>` |
 | Rule query | `RuleQueryPort` | `RuleQueryPort` | `listRules(ruleRefs: string[]): SpokeResult<Rule[]>` |
+| Host manifest | `HostManifestPort` | `HostManifestPort` | `getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest>`; `listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]>` |
 
 `ScopeQueryPort` is the query boundary for `check` and `assemble`. `RuleQueryPort` is used when a check request supplies rule references; embedded rules remain request data and do not require a port lookup.
 
+`HostManifestPort` exposes in-process collaboration metadata. Integrators call it explicitly — existing `orchestrate*` entrypoints do **not** auto-fetch manifests. `listPeerHostCapabilityManifests` returns **peers only** (excludes self), deduped by `host_id`, sorted ascending by `host_id` (UTF-8 lexicographic); empty `[]` is valid. The library does not discover peers; product/adapter memory supplies the list.
+
 `putKnowledgeEntry` / `put_knowledge_entry` carry optimistic concurrency control structurally: adapters MUST treat `expectedBaseRevision` / `expected_base_revision` as the store’s required current revision before accepting the write (`null`/`None` = absent entry for create). True concurrent safety requires atomic compare-and-put in the adapter; the library stays I/O-free.
+
+### Host collaboration (normative)
+
+Wire shape: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest.
+
+#### Roles ↔ ports map
+
+| `roles[]` value | Typical port families / orchestrators | Write authority |
+|-----------------|--------------------------------------|-----------------|
+| `data-store` | `KnowledgeEntryPort`; `orchestrateUpsert`, `orchestratePromote` | **Yes** — single OCC authority per `entry_id` in collaboration context |
+| `input-source` | Product ingest surface (no new port family) | No — proposes intent |
+| `checker` | `RuleQueryPort`, `FindingPort`; `orchestrateCheck` | No — emits `Finding[]` only |
+| `assembler` | `ScopeQueryPort`; `orchestrateAssemble` | No — emits `AssemblePacket` only |
+| `computable-engine` | `ComputablePort` when `l2-computable` ∈ `capabilities` | No — Session I/O; settled state via data-store |
+
+`assembler` is closed-loop core vocabulary. `computable-engine` is optional and MUST pair with `l2-computable` in `capabilities`.
+
+#### Namespace exclusivity
+
+Within one collaboration context, each namespace string in any manifest's `namespaces[]` MUST appear on **at most one** `host_id`. Integrators enforce exclusivity when building peer lists and attributing `KnowledgeEntry.extensions.<ns>` ownership product-side. Host roles and namespace ownership live on the manifest — not in KE `extensions`.
+
+#### `authority` and OCC
+
+Optional manifest `authority.scope_key` binds the data-store role to an opaque collaboration scope (aligns with `assertUniqueActiveKnowledgeEntry` `scope_key` folklore). When `authority` is absent and `data-store` ∈ `roles`, integrators treat this manifest's `host_id` as implicit write authority.
+
+#### `HostManifestPort` contract
+
+| Method (TS) | Method (Rust) | Returns | Notes |
+|-------------|---------------|---------|-------|
+| `getHostCapabilityManifest` | `get_host_capability_manifest` | `SpokeResult<HostCapabilityManifest>` | Self manifest |
+| `listPeerHostCapabilityManifests` | `list_peer_host_capability_manifests` | `SpokeResult<HostCapabilityManifest[]>` | Peers only; exclude self; dedupe by `host_id`; stable ascending `host_id` sort; `[]` OK |
+
+#### Baseline fold-in
+
+`HostManifestPort` is the **sixth** required family folded into `BaselinePorts` and `BaselineAdapter` for `spoke-baseline` claims. Baseline orchestrators (`orchestrateUpsert` through `orchestrateAssemble`) do **not** auto-fetch manifests — integrators call `getHostCapabilityManifest` / `listPeerHostCapabilityManifests` explicitly when composing peer lists or attributing namespace ownership. A baseline adapter MUST implement both methods; absence is an adapter defect, not `CAPABILITY_PORT_MISSING`.
+
+`HostManifestPort` is **baseline-required** — not gated behind `CAPABILITY_PORT_MISSING`.
 
 ### Optional port families
 
@@ -520,7 +560,8 @@ type BaselinePorts =
   RelationPort &
   ScopeQueryPort &
   FindingPort &
-  RuleQueryPort;
+  RuleQueryPort &
+  HostManifestPort;
 type ComputablePorts = BaselinePorts & ComputablePort;
 type ForkPorts = BaselinePorts & ForkTimelineQueryPort;
 type FullPorts = BaselinePorts & ComputablePort & ForkTimelineQueryPort;
@@ -556,7 +597,7 @@ Orchestrator signatures keep `&impl BaselinePorts` (etc.); `&impl BaselineAdapte
 
 | Port family | Reference behavior |
 |-------------|-------------------|
-| Baseline five families | Runnable in-memory OCC store; optional seed from committed `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*` JSON |
+| Six baseline families (incl. `HostManifestPort`) | Runnable in-memory OCC store; optional seed from committed `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*` JSON; self manifest + product-seeded peer list |
 | `ComputablePort` | Minimal wire-valid `ProjectResponse` / `ComputeResponse` synthesized from committed `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo `session_id`, `entry_id`, fixture-shaped `computable` / `state`) |
 | `ForkTimelineQueryPort` | Returns seeded timeline events filtered by `scope.fork_id` from committed graph (e.g. `evt_tw_harbor_dawn.json` when fork scope matches) |
 
@@ -612,6 +653,7 @@ TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and 
 | `RuleQueryPort` | `RuleQueryPort` |
 | `ComputablePort` | `ComputablePort` |
 | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` |
+| `HostManifestPort` | `HostManifestPort` |
 | `BaselineAdapter` | `BaselineAdapter` (marker trait; TS: `type BaselineAdapter = BaselinePorts`) |
 | `ComputableAdapter` | `ComputableAdapter` (marker trait; TS: `type ComputableAdapter = ComputablePorts`) |
 | `ForkAdapter` | `ForkAdapter` (marker trait; TS: `type ForkAdapter = ForkPorts`) |
@@ -696,7 +738,9 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 
 ### Adapter interfaces + injection orchestration
 
-- [x] Capability → interface family → methods matrix complete for `spoke-baseline`, `l2-computable`, and `l5-fork` (no TBD cells)
+- [x] Capability → interface family → methods matrix complete for `spoke-baseline` (six families incl. `HostManifestPort`), `l2-computable`, and `l5-fork` (no TBD cells)
+- [x] `HostManifestPort` exported + required on `BaselinePorts` / `BaselineAdapter` (TS + Rust)
+- [x] Host collaboration section documents roles↔ports map, namespace exclusivity, peer-list semantics, and `HostManifestPort` contract
 - [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
 - [x] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
 - [x] Orchestrators call pure helpers and perform I/O only through injected ports

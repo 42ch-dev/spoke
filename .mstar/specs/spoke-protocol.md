@@ -179,7 +179,8 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | **Protocol layers + Rule/TimelineEvent** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
 | **Operations library deepen + fixtures** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
 | **Rust operations library** | Hand-written `spoke-operations` crate — behavioral port of TS package at lockstep SemVer — see [`spoke-operations.md`](spoke-operations.md) |
-| **Next** | Product adapter packages implementing the operations port protocol (product DTO ↔ SPOKE) |
+| **Adapter aliases (delivered)** | `*Adapter` composed-port aliases in `@42ch/spoke-operations` and `spoke-operations`; integrator path via operations packages + `fixtures/toy-world/` reference examples — see [`spoke-operations.md`](spoke-operations.md) § Adapter aliases |
+| **Next** | Reference `ToyWorldAdapter` in `fixtures/toy-world/`; then product adapter packages in consumer repos (product DTO ↔ SPOKE) |
 | **North star** | Cross-product narrative **KnowledgeEntry** dialect for consistency-check and context-assembly I/O on a shared protocol surface |
 
 ## See also

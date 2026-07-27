@@ -13,15 +13,15 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 | **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
 | **`schemas/`** | Draft-07 SSOT (**23** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
-| **`@42ch/spoke-operations`** | Hand-written lifecycle helpers over wire types (published to npm) |
+| **`@42ch/spoke-operations`** | Hand-written lifecycle helpers, capability-sliced adapter port contracts, and injection orchestration over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
-| **`spoke-operations`** (Rust crate) | Hand-written lifecycle helpers over wire types (published to crates.io) |
-| **`adapters/`** | README purpose note only (implementation deferred) |
+| **`spoke-operations`** (Rust crate) | Hand-written lifecycle helpers, adapter port traits, and injection orchestration over wire types (published to crates.io) |
+| **`adapters/`** | Future product mapping packages that implement operations ports and call orchestration entrypoints |
 
 ## What we do not build
 
 - Shared runtime, daemon, or MCP server
-- Product ↔ SPOKE conversion packages (adapter packages deferred)
+- Product mapping packages under `adapters/<product>/` until a product binding sprint schedules them
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` — fixtures conformance slice)
 - Publishing fixture, codegen, or adapter packages to registries
 
@@ -33,9 +33,9 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 |--------|----------------|----------|
 | **1. Data wire** | Durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket; protocol layers deepen adds Rule, TimelineEvent | `schemas/data/` → `@42ch/spoke-schemas` |
 | **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schemas` |
-| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | `@42ch/spoke-operations` |
+| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express, plus the **adapter interface protocol**: capability-sliced ports and injection orchestration for baseline / optional computable / optional fork paths | `@42ch/spoke-operations` / `spoke-operations` |
 
-Product-specific fields live only in `extensions.<namespace>`. Core protocol objects use `additionalProperties: false`. Adapters map product DTOs to wire types and **call** `@42ch/spoke-operations` for shared lifecycle rules — they must not reimplement those invariants.
+Product-specific fields live only in `extensions.<namespace>`. Core protocol objects use `additionalProperties: false`. Product adapters implement the operations port contracts, map product DTOs to wire types, and **call** `@42ch/spoke-operations` / `spoke-operations` orchestration entrypoints for shared lifecycle sequences. Adapters own transport, persistence, and **transaction boundaries** (including multi-entry upsert). Active-uniqueness helpers take **caller-supplied peer sets** — batch-local peers from the orchestrator unless the adapter supplies a wider store snapshot.
 
 ## Guiding principles
 
@@ -58,8 +58,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Unified version release (delivered 2026-07-25)** | Lockstep bump/assert, annotated tags, CI-gated GitHub Release — [spoke-version-release.md](.mstar/specs/spoke-version-release.md) |
 | **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas`, `spoke-operations` (crates.io) on stable tags after verify gates |
 | **CI / codegen harden (delivered 2026-07-25)** | OpaqueJson opaque fields; Rust typify strategy A; schema-count **23** surfaces; `test:release` lockstep script tests |
-| **Next (when scheduled)** | Adapter packages when a product binding sprint is planned |
-| **Later** | Adapter packages under `adapters/<product>/` — scheduled when a product binding sprint is planned |
+| **Adapter interfaces + injection orchestration (delivered 2026-07-26)** | Capability-sliced ports and `orchestrate*` / `orchestrate_*` entrypoints in `@42ch/spoke-operations` and `spoke-operations`; normative sequences in [spoke-operations.md](.mstar/specs/spoke-operations.md) |
+| **Next (when scheduled)** | Product mapping packages under `adapters/<product>/` that implement those ports for concrete products |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 
 ## See also

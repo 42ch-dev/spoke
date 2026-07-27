@@ -38,6 +38,8 @@ Rust integrators already pin `spoke-schemas` on crates.io but had no published p
 
 - Normative: `.mstar/specs/spoke-operations.md`
 - TS + Rust pure-actions pattern: `architecture-patterns/spoke-operations-pure-actions.md`
+- Adapter ports + injection orchestration: `architecture-patterns/adapter-injection-orchestration.md`
+- Adapter modules: `crates/spoke-operations/src/adapter.rs` (`ports` / `orchestrate`) with OQ-4 parity export checklist test
 - Lockstep + publish: `architecture-patterns/lockstep-semver-release.md`
 - Crate README: `crates/spoke-operations/README.md`
 - CI verify: `cargo test -p spoke-operations` in `.github/workflows/ci.yml` and `release.yml`

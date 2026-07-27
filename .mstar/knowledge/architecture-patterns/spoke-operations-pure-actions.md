@@ -25,5 +25,6 @@ JSON Schema defines shapes; integrators still copy-paste lifecycle gates (OCC, s
 ## See also
 
 - `.mstar/specs/spoke-operations.md` §5–11
+- `architecture-patterns/adapter-injection-orchestration.md` — ports + injection orchestration over these helpers
 - `architecture-patterns/rust-spoke-operations-parity.md` — Rust crate layout, typify body wire preservation, crates.io dep pin
 - Residual R1 (operations deepen) — uniqueness param alignment

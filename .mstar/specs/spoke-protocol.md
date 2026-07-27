@@ -6,23 +6,23 @@
 
 ## Problem & user value
 
-Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange KnowledgeEntry data and ops without sharing a runtime, database, or daemon.
+Story-AI products each invent local shapes for knowledge units, checker I/O, and context assembly. SPOKE provides a **shared wire dialect** so products can exchange KnowledgeEntry data and ops on a common protocol surface.
 
-**v0.1 delivers:** schema SSOT, generated language packages, and normative docs — not working adapters. Deepen helpers ship in `@42ch/spoke-operations`; protocol conformance JSON and the AJV/Vitest harness live under `fixtures/toy-world/` (`@42ch/spoke-fixture-toy-world`).
+**v0.1 delivers:** schema SSOT, generated language packages, a hand-written operations library (pure helpers plus adapter ports/orchestration), and normative docs. Protocol conformance JSON and the AJV/Vitest harness live under `fixtures/toy-world/` (`@42ch/spoke-fixture-toy-world`).
 
 ## Three columns (Thrust A)
 
-SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md). v0.1 delivered columns 1–2; operations library first slice delivered column 3.
+SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md).
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
 | **1. Data** | Seven required objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **Rule**, **TimelineEvent** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
 | **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas when shipped) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
-| **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express (promote gate, Finding transitions, extensions preserve, AssemblePacket builders) | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`); `crates/spoke-operations/` (`spoke-operations`) |
+| **3. Ops library** | Pure lifecycle invariants and injected adapter orchestration that JSON Schema cannot express | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`); `crates/spoke-operations/` (`spoke-operations`) |
 
-**Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types — not a third runtime, daemon, or transport binding. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer.
+**Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types, including capability-sliced adapter ports and injection orchestration. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer. Adapter interfaces are defined in [`spoke-operations.md` §Adapter Interfaces](spoke-operations.md#adapter-interfaces-normative); per-operation orchestration sequences in [`§Injection Orchestration`](spoke-operations.md#injection-orchestration-normative).
 
-**Protocol layers + Rule/TimelineEvent deepen (architect-locked):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
+**Protocol layers (Rule + TimelineEvent):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **23** hand-authored schema files (baseline + optional `l2-computable` ops).
 
 ## Nine-layer model (L0–L8)
 
@@ -127,11 +127,11 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `schemas/` | JSON Schema SSOT |
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schemas/` | Generated TypeScript |
-| `packages/spoke-operations/` | Hand-written TypeScript operations library — pure helpers only; no fixture harness or AJV |
+| `packages/spoke-operations/` | Hand-written TypeScript operations library — pure helpers plus injected adapter ports/orchestration |
 | `crates/spoke-schemas/` | Generated Rust wire types |
-| `crates/spoke-operations/` | Hand-written Rust operations library — port of TS package; pure helpers only |
+| `crates/spoke-operations/` | Hand-written Rust operations library — behavioral port of TS helpers plus injected adapter traits/orchestration |
 | `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`) — harness MUST NOT live under `packages/spoke-operations/` |
-| `adapters/` | README purpose note only; product adapter packages deferred |
+| `adapters/` | README purpose note; product adapter packages implement the operations port protocol when scheduled |
 
 ## v0.1 acceptance (umbrella)
 
@@ -176,8 +176,8 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | **Protocol layers + Rule/TimelineEvent** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
 | **Operations library deepen + fixtures** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |
 | **Rust operations library** | Hand-written `spoke-operations` crate — behavioral port of TS package at lockstep SemVer — see [`spoke-operations.md`](spoke-operations.md) |
-| **Next** | Implementable adapter packages (product DTO ↔ SPOKE) |
-| **North star** | Cross-product narrative **KnowledgeEntry** dialect for consistency-check and context-assembly I/O **without** a shared runtime |
+| **Next** | Product adapter packages implementing the operations port protocol (product DTO ↔ SPOKE) |
+| **North star** | Cross-product narrative **KnowledgeEntry** dialect for consistency-check and context-assembly I/O on a shared protocol surface |
 
 ## See also
 
@@ -187,7 +187,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Nine layers L0–L8, capability levels, Domain Profile, layer ↔ artifact map |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
-| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — `SpokeResult`, helper families (first slice + deepen), hard In/Out |
+| [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — pure helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (23 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

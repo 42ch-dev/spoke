@@ -25,6 +25,7 @@ pub enum SpokeRejectCode {
     KnowledgeEntryTerminalStatus,
     RelationSelfEdge,
     RelationMissingEndpoint,
+    CapabilityPortMissing,
 }
 
 impl SpokeRejectCode {
@@ -53,6 +54,7 @@ impl SpokeRejectCode {
             Self::KnowledgeEntryTerminalStatus => "KNOWLEDGE_ENTRY_TERMINAL_STATUS",
             Self::RelationSelfEdge => "RELATION_SELF_EDGE",
             Self::RelationMissingEndpoint => "RELATION_MISSING_ENDPOINT",
+            Self::CapabilityPortMissing => "CAPABILITY_PORT_MISSING",
         }
     }
 
@@ -81,6 +83,7 @@ impl SpokeRejectCode {
             "KNOWLEDGE_ENTRY_TERMINAL_STATUS" => Some(Self::KnowledgeEntryTerminalStatus),
             "RELATION_SELF_EDGE" => Some(Self::RelationSelfEdge),
             "RELATION_MISSING_ENDPOINT" => Some(Self::RelationMissingEndpoint),
+            "CAPABILITY_PORT_MISSING" => Some(Self::CapabilityPortMissing),
             _ => None,
         }
     }
@@ -168,6 +171,7 @@ mod tests {
             "KNOWLEDGE_ENTRY_TERMINAL_STATUS",
             "RELATION_SELF_EDGE",
             "RELATION_MISSING_ENDPOINT",
+            "CAPABILITY_PORT_MISSING",
         ];
 
         let rust_codes = [
@@ -190,9 +194,10 @@ mod tests {
             SpokeRejectCode::KnowledgeEntryTerminalStatus,
             SpokeRejectCode::RelationSelfEdge,
             SpokeRejectCode::RelationMissingEndpoint,
+            SpokeRejectCode::CapabilityPortMissing,
         ];
 
-        assert_eq!(TS_SPOKE_REJECT_CODES.len(), 19);
+        assert_eq!(TS_SPOKE_REJECT_CODES.len(), 20);
         assert_eq!(rust_codes.len(), TS_SPOKE_REJECT_CODES.len());
 
         for (code, expected) in rust_codes.into_iter().zip(TS_SPOKE_REJECT_CODES.iter()) {

@@ -1,0 +1,837 @@
+import type {
+  AssembleRequest,
+  CheckRequest,
+  ComputeRequest,
+  ComputeResponse,
+  Finding,
+  KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
+  PromoteRequest,
+  RelateRequest,
+  Relation,
+  Rule,
+  Scope,
+  TimelineEvent,
+  UpsertRequest,
+} from "@42ch/spoke-schemas";
+import { describe, expect, it } from "vitest";
+
+import {
+  SpokeRejectCode,
+  orchestrateAssemble,
+  orchestrateCheck,
+  orchestrateCompute,
+  orchestrateForkAssemble,
+  orchestrateForkCheck,
+  orchestrateProject,
+  orchestratePromote,
+  orchestrateRelate,
+  orchestrateUpsert,
+  spokeOk,
+  spokeReject,
+  type BaselinePorts,
+  type CheckRunInput,
+  type ComputablePorts,
+  type ForkPorts,
+  type SpokeResult,
+} from "../index.js";
+
+function makeKnowledgeEntry(
+  overrides: Partial<KnowledgeEntry> & Pick<KnowledgeEntry, "entry_id">,
+): KnowledgeEntry {
+  return {
+    schema_version: 1,
+    entry_type: "character",
+    canonical_name: "Mira Vale",
+    status: "provisional",
+    body: { summary: "Protagonist" },
+    extensions: {},
+    ...overrides,
+  };
+}
+
+function makeRelation(
+  overrides: Partial<Relation> & Pick<Relation, "relation_id">,
+): Relation {
+  return {
+    schema_version: 1,
+    relation_type: "related_to",
+    from_id: "kb_a",
+    to_id: "kb_b",
+    extensions: {},
+    ...overrides,
+  };
+}
+
+function makeFinding(
+  overrides: Partial<Finding> & Pick<Finding, "finding_id">,
+): Finding {
+  return {
+    schema_version: 1,
+    severity: "warning",
+    status: "open",
+    title: "Issue",
+    description: "Detected by mock checker",
+    extensions: {},
+    ...overrides,
+  };
+}
+
+function makeRule(
+  overrides: Partial<Rule> & Pick<Rule, "rule_id">,
+): Rule {
+  return {
+    schema_version: 1,
+    canonical_name: "No orphans",
+    kind: "rule",
+    extensions: {},
+    ...overrides,
+  };
+}
+
+function makeTimelineEvent(
+  overrides: Partial<TimelineEvent> & Pick<TimelineEvent, "timeline_event_id">,
+): TimelineEvent {
+  return {
+    schema_version: 1,
+    canonical_name: "Arrival",
+    extensions: {},
+    ...overrides,
+  };
+}
+
+/** Enforce OCC on in-memory put — mirrors adapter CAS contract. */
+function putKnowledgeEntryWithOcc(
+  entries: Map<string, KnowledgeEntry>,
+  entry: KnowledgeEntry,
+  expectedBaseRevision: number | null,
+): SpokeResult<KnowledgeEntry> {
+  const existing = entries.get(entry.entry_id);
+  if (expectedBaseRevision === null) {
+    if (existing !== undefined) {
+      return spokeReject(
+        SpokeRejectCode.REVISION_CONFLICT,
+        `Entry already exists: ${entry.entry_id}`,
+        { entry_id: entry.entry_id },
+      );
+    }
+  } else {
+    if (existing === undefined) {
+      return spokeReject(
+        SpokeRejectCode.STORED_REVISION_STALE,
+        `KnowledgeEntry not found for update: ${entry.entry_id}`,
+        { entry_id: entry.entry_id, expectedBaseRevision },
+      );
+    }
+    const currentRevision = existing.revision ?? 0;
+    if (currentRevision !== expectedBaseRevision) {
+      return spokeReject(
+        SpokeRejectCode.STORED_REVISION_STALE,
+        `Store revision ${currentRevision} does not match expected base ${expectedBaseRevision}`,
+        { expectedBaseRevision, storeRevision: currentRevision },
+      );
+    }
+  }
+  entries.set(entry.entry_id, entry);
+  return spokeOk(entry);
+}
+
+function createMemoryBaselinePorts(seed?: {
+  entries?: KnowledgeEntry[];
+  relations?: Relation[];
+  events?: TimelineEvent[];
+  rules?: Rule[];
+}): BaselinePorts & {
+  store: {
+    entries: Map<string, KnowledgeEntry>;
+    relations: Map<string, Relation>;
+    events: TimelineEvent[];
+    rules: Map<string, Rule>;
+    findings: Finding[];
+  };
+} {
+  const entries = new Map(
+    (seed?.entries ?? []).map((entry) => [entry.entry_id, entry]),
+  );
+  const relations = new Map(
+    (seed?.relations ?? []).map((relation) => [relation.relation_id, relation]),
+  );
+  const events = [...(seed?.events ?? [])];
+  const rules = new Map((seed?.rules ?? []).map((rule) => [rule.rule_id, rule]));
+  const findings: Finding[] = [];
+
+  const ports: BaselinePorts = {
+    getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+      const entry = entries.get(entryId);
+      if (entry === undefined) {
+        return spokeReject(
+          SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND,
+          `KnowledgeEntry not found: ${entryId}`,
+          { entry_id: entryId },
+        );
+      }
+      return spokeOk(entry);
+    },
+    putKnowledgeEntry(
+      entry: KnowledgeEntry,
+      expectedBaseRevision: number | null,
+    ): SpokeResult<KnowledgeEntry> {
+      return putKnowledgeEntryWithOcc(entries, entry, expectedBaseRevision);
+    },
+    putRelation(relation: Relation): SpokeResult<Relation> {
+      relations.set(relation.relation_id, relation);
+      return spokeOk(relation);
+    },
+    listKnowledgeEntries(_scope: Scope): SpokeResult<KnowledgeEntry[]> {
+      return spokeOk([...entries.values()]);
+    },
+    listTimelineEvents(_scope: Scope): SpokeResult<TimelineEvent[]> {
+      return spokeOk([...events]);
+    },
+    putFindings(next: Finding[]): SpokeResult<Finding[]> {
+      findings.push(...next);
+      return spokeOk(next);
+    },
+    listRules(ruleRefs: string[]): SpokeResult<Rule[]> {
+      const resolved: Rule[] = [];
+      for (const ref of ruleRefs) {
+        const rule = rules.get(ref);
+        if (rule === undefined) {
+          return spokeReject(
+            SpokeRejectCode.INVALID_INPUT,
+            `Rule not found: ${ref}`,
+            { rule_ref: ref },
+          );
+        }
+        resolved.push(rule);
+      }
+      return spokeOk(resolved);
+    },
+  };
+
+  return { ...ports, store: { entries, relations, events, rules, findings } };
+}
+
+describe("baseline orchestration", () => {
+  it("orchestrateUpsert creates a KnowledgeEntry through ports", () => {
+    const ports = createMemoryBaselinePorts();
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_new" });
+    const request: UpsertRequest = { knowledge_entries: [candidate] };
+
+    const result = orchestrateUpsert(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({
+      knowledge_entries: [candidate],
+    });
+    expect(ports.store.entries.get("kb_new")).toEqual(candidate);
+  });
+
+  it("orchestratePromote persists confirmed KnowledgeEntry", () => {
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote",
+      status: "provisional",
+      revision: 0,
+    });
+    const ports = createMemoryBaselinePorts();
+    const request: PromoteRequest = { candidate };
+
+    const result = orchestratePromote(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.knowledge_entry.status).toBe("confirmed");
+    expect(result.value.knowledge_entry.revision).toBe(1);
+    expect(ports.store.entries.get("kb_promote")?.status).toBe("confirmed");
+  });
+
+  it("orchestratePromote rejects when stored status is terminal", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_terminal",
+      status: "merged",
+      revision: 1,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_terminal",
+      status: "provisional",
+      revision: 1,
+    });
+    const ports = createMemoryBaselinePorts({ entries: [stored] });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.KNOWLEDGE_ENTRY_TERMINAL_STATUS);
+  });
+
+  it("orchestratePromote rejects on stored revision mismatch", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_rev",
+      status: "provisional",
+      revision: 3,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_rev",
+      status: "provisional",
+      revision: 1,
+    });
+    const ports = createMemoryBaselinePorts({ entries: [stored] });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
+  it("orchestratePromote succeeds when stored provisional matches revision", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_match",
+      status: "provisional",
+      revision: 2,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_match",
+      status: "provisional",
+      revision: 2,
+    });
+    const ports = createMemoryBaselinePorts({ entries: [stored] });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.knowledge_entry.status).toBe("confirmed");
+    expect(result.value.knowledge_entry.revision).toBe(3);
+  });
+
+  it("orchestratePromote forces persisted revision to stored.revision + 1 when stored exists", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_promote_force_rev",
+      status: "provisional",
+      revision: 7,
+    });
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_force_rev",
+      status: "provisional",
+      revision: 7,
+    });
+    const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
+    const baseline = createMemoryBaselinePorts({ entries: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        puts.push({ entry, expectedBaseRevision });
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBe(7);
+    expect(puts[0]?.entry.revision).toBe(8);
+    expect(result.value.knowledge_entry.revision).toBe(8);
+  });
+
+  it("orchestratePromote propagates adapter OCC reject when concurrent promote advanced revision", () => {
+    const snapshot = makeKnowledgeEntry({
+      entry_id: "kb_promote_occ",
+      status: "provisional",
+      revision: 2,
+    });
+    let storeRevision = 2;
+    const baseline = createMemoryBaselinePorts({ entries: [snapshot] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+        const result = baseline.getKnowledgeEntry(entryId);
+        if (result.ok) {
+          // Concurrent writer advances the store after our read snapshot.
+          storeRevision = 3;
+        }
+        return result;
+      },
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        if (expectedBaseRevision !== null && storeRevision !== expectedBaseRevision) {
+          return spokeReject(
+            SpokeRejectCode.STORED_REVISION_STALE,
+            `Store revision ${storeRevision} is ahead of expected base ${expectedBaseRevision}`,
+            { expectedBaseRevision, storeRevision },
+          );
+        }
+        storeRevision = entry.revision ?? 0;
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_promote_occ",
+      status: "provisional",
+      revision: 2,
+    });
+
+    const result = orchestratePromote(ports, { candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
+  it("orchestrateUpsert passes null expectedBaseRevision on create", () => {
+    const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
+    const baseline = createMemoryBaselinePorts();
+    const ports: BaselinePorts = {
+      ...baseline,
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        puts.push({ entry, expectedBaseRevision });
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({ entry_id: "kb_create_occ" });
+    const request: UpsertRequest = { knowledge_entries: [candidate] };
+
+    const result = orchestrateUpsert(ports, request);
+
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBeNull();
+  });
+
+  it("orchestrateUpsert passes stored revision as expectedBaseRevision on update", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_update_occ",
+      revision: 4,
+    });
+    const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
+    const baseline = createMemoryBaselinePorts({ entries: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        puts.push({ entry, expectedBaseRevision });
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_update_occ",
+      revision: 4,
+      canonical_name: "Updated",
+    });
+    const request: UpsertRequest = { knowledge_entries: [candidate] };
+
+    const result = orchestrateUpsert(ports, request);
+
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBe(4);
+  });
+
+  it("orchestrateUpsert rejects concurrent update when expected base is stale", () => {
+    const stored = makeKnowledgeEntry({
+      entry_id: "kb_upsert_occ",
+      revision: 1,
+    });
+    let storeRevision = 1;
+    const baseline = createMemoryBaselinePorts({ entries: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+        const result = baseline.getKnowledgeEntry(entryId);
+        if (result.ok) {
+          storeRevision = 2;
+        }
+        return result;
+      },
+      putKnowledgeEntry(
+        entry: KnowledgeEntry,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<KnowledgeEntry> {
+        if (expectedBaseRevision !== null && storeRevision !== expectedBaseRevision) {
+          return spokeReject(
+            SpokeRejectCode.STORED_REVISION_STALE,
+            `Store revision ${storeRevision} does not match expected base ${expectedBaseRevision}`,
+            { expectedBaseRevision, storeRevision },
+          );
+        }
+        storeRevision = entry.revision ?? 0;
+        return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
+      },
+    };
+    const candidate = makeKnowledgeEntry({
+      entry_id: "kb_upsert_occ",
+      revision: 1,
+      canonical_name: "Raced",
+    });
+
+    const result = orchestrateUpsert(ports, {
+      knowledge_entries: [candidate],
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
+  it("orchestrateRelate persists a Relation", () => {
+    const ports = createMemoryBaselinePorts();
+    const relation = makeRelation({ relation_id: "rel_1" });
+    const request: RelateRequest = { relation };
+
+    const result = orchestrateRelate(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({ relation });
+    expect(ports.store.relations.get("rel_1")).toEqual(relation);
+  });
+
+  it("orchestrateCheck loads scope data, runs checker, and puts findings", () => {
+    const entry = makeKnowledgeEntry({ entry_id: "kb_check" });
+    const event = makeTimelineEvent({ timeline_event_id: "te_1" });
+    const rule = makeRule({ rule_id: "rule_1" });
+    const ports = createMemoryBaselinePorts({
+      entries: [entry],
+      events: [event],
+      rules: [rule],
+    });
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", entry_ids: ["kb_check"] },
+      rule_refs: ["rule_1"],
+    };
+    const finding = makeFinding({ finding_id: "f_1", target_entry_id: "kb_check" });
+
+    const result = orchestrateCheck(ports, request, (input: CheckRunInput) => {
+      expect(input.request).toEqual(request);
+      expect(input.entries).toEqual([entry]);
+      expect(input.events).toEqual([event]);
+      expect(input.rules).toEqual([rule]);
+      return spokeOk([finding]);
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({ findings: [finding] });
+    expect(ports.store.findings).toEqual([finding]);
+  });
+
+  it("orchestrateCheck lets embedded rules win by rule_id over refs", () => {
+    const entry = makeKnowledgeEntry({ entry_id: "kb_check_merge" });
+    const storedRule = makeRule({
+      rule_id: "rule_shared",
+      canonical_name: "Stored rule",
+      statement: "from-store",
+    });
+    const otherStored = makeRule({
+      rule_id: "rule_other",
+      canonical_name: "Other stored",
+      statement: "keep-me",
+    });
+    const embeddedOverride = makeRule({
+      rule_id: "rule_shared",
+      canonical_name: "Embedded wins",
+      statement: "from-embed",
+    });
+    const embeddedNew = makeRule({
+      rule_id: "rule_new",
+      canonical_name: "New embed",
+      statement: "append-me",
+    });
+    const ports = createMemoryBaselinePorts({
+      entries: [entry],
+      rules: [storedRule, otherStored],
+    });
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", entry_ids: ["kb_check_merge"] },
+      rule_refs: ["rule_shared", "rule_other"],
+      rules: [embeddedOverride, embeddedNew],
+    };
+
+    const result = orchestrateCheck(ports, request, (input: CheckRunInput) => {
+      expect(input.rules).toHaveLength(3);
+      expect(input.rules.map((rule) => rule.rule_id)).toEqual([
+        "rule_shared",
+        "rule_other",
+        "rule_new",
+      ]);
+      expect(input.rules[0]).toEqual(embeddedOverride);
+      expect(input.rules[1]).toEqual(otherStored);
+      expect(input.rules[2]).toEqual(embeddedNew);
+      return spokeOk([]);
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("orchestrateAssemble builds a packet from scoped KnowledgeEntries", () => {
+    const entry = makeKnowledgeEntry({
+      entry_id: "kb_assemble",
+      canonical_name: "Assemble Hero",
+      body: { summary: "Context snippet" },
+    });
+    const ports = createMemoryBaselinePorts({ entries: [entry] });
+    const request: AssembleRequest = {
+      scope: { scope_id: "world_1", entry_ids: ["kb_assemble"] },
+      max_entries: 10,
+    };
+
+    const result = orchestrateAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.packet_id).toBe("assemble:world_1");
+    expect(result.value.packet.entries).toEqual([
+      {
+        entry_id: "kb_assemble",
+        entry_type: "character",
+        canonical_name: "Assemble Hero",
+        snippet: "Context snippet",
+      },
+    ]);
+  });
+});
+
+function withComputablePorts(
+  baseline: BaselinePorts,
+): ComputablePorts & { projected: ProjectRequest[]; computed: ComputeRequest[] } {
+  const projected: ProjectRequest[] = [];
+  const computed: ComputeRequest[] = [];
+
+  const ports: ComputablePorts = {
+    ...baseline,
+    project(request: ProjectRequest): SpokeResult<ProjectResponse> {
+      projected.push(request);
+      return spokeOk({
+        session_id: request.session_id,
+        entry_id: request.entry_id,
+        computable: { ...request.state, projected: true },
+      });
+    },
+    compute(request: ComputeRequest): SpokeResult<ComputeResponse> {
+      computed.push(request);
+      return spokeOk({
+        session_id: request.session_id,
+        entry_id: request.entry_id,
+        computable: request.computable,
+        ...(request.settle === true
+          ? { state: { ...request.computable } }
+          : {}),
+      });
+    },
+  };
+
+  return { ...ports, projected, computed };
+}
+
+function withForkPorts(
+  baseline: ReturnType<typeof createMemoryBaselinePorts>,
+): ForkPorts & { forkListCalls: Scope[] } {
+  const forkListCalls: Scope[] = [];
+
+  const ports: ForkPorts = {
+    ...baseline,
+    listForkTimelineEvents(scope: Scope & { fork_id: string }): SpokeResult<
+      TimelineEvent[]
+    > {
+      forkListCalls.push(scope);
+      return spokeOk(
+        baseline.store.events.filter((event) => event.fork_id === scope.fork_id),
+      );
+    },
+  };
+
+  return { ...ports, forkListCalls };
+}
+
+describe("optional computable orchestration", () => {
+  it("orchestrateProject validates then calls ComputablePort.project", () => {
+    const ports = withComputablePorts(createMemoryBaselinePorts());
+    const request: ProjectRequest = {
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      state: { tide_level: 2.4 },
+    };
+
+    const result = orchestrateProject(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      computable: { tide_level: 2.4, projected: true },
+    });
+    expect(ports.projected).toEqual([request]);
+  });
+
+  it("orchestrateCompute validates then calls ComputablePort.compute", () => {
+    const ports = withComputablePorts(createMemoryBaselinePorts());
+    const request: ComputeRequest = {
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      computable: { tide_level: 3.1 },
+      settle: true,
+    };
+
+    const result = orchestrateCompute(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      computable: { tide_level: 3.1 },
+      state: { tide_level: 3.1 },
+    });
+    expect(ports.computed).toEqual([request]);
+  });
+
+  it("returns CAPABILITY_PORT_MISSING when project is absent at a dynamic boundary", () => {
+    const baseline = createMemoryBaselinePorts();
+    const ports = baseline as unknown as ComputablePorts;
+    const request: ProjectRequest = {
+      session_id: "sess_1",
+      entry_id: "kb_1",
+      state: {},
+    };
+
+    const result = orchestrateProject(ports, request);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+    }
+  });
+});
+
+describe("optional fork orchestration", () => {
+  it("orchestrateForkCheck loads KE via listKnowledgeEntries and events via listForkTimelineEvents", () => {
+    const entry = makeKnowledgeEntry({ entry_id: "kb_fork" });
+    const onFork = makeTimelineEvent({
+      timeline_event_id: "te_fork",
+      fork_id: "fork_a",
+    });
+    const otherFork = makeTimelineEvent({
+      timeline_event_id: "te_other",
+      fork_id: "fork_b",
+    });
+    const baseline = createMemoryBaselinePorts({
+      entries: [entry],
+      events: [onFork, otherFork],
+    });
+    const ports = withForkPorts(baseline);
+    const request: CheckRequest = {
+      scope: {
+        scope_id: "world_1",
+        entry_ids: ["kb_fork"],
+        fork_id: "fork_a",
+      },
+    };
+    const finding = makeFinding({ finding_id: "f_fork" });
+
+    const result = orchestrateForkCheck(ports, request, (input) => {
+      expect(input.entries).toEqual([entry]);
+      expect(input.events).toEqual([onFork]);
+      return spokeOk([finding]);
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toEqual({ findings: [finding] });
+    expect(ports.forkListCalls).toEqual([request.scope]);
+    expect(baseline.store.findings).toEqual([finding]);
+  });
+
+  it("orchestrateForkAssemble uses fork timeline port and builds a packet", () => {
+    const entry = makeKnowledgeEntry({
+      entry_id: "kb_fork_assemble",
+      canonical_name: "Fork Hero",
+      body: { summary: "On branch" },
+    });
+    const baseline = createMemoryBaselinePorts({
+      entries: [entry],
+      events: [
+        makeTimelineEvent({
+          timeline_event_id: "te_1",
+          fork_id: "fork_a",
+        }),
+      ],
+    });
+    const ports = withForkPorts(baseline);
+    const request: AssembleRequest = {
+      scope: {
+        scope_id: "world_1",
+        entry_ids: ["kb_fork_assemble"],
+        fork_id: "fork_a",
+      },
+    };
+
+    const result = orchestrateForkAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.packet_id).toBe("assemble:world_1");
+    expect(result.value.packet.entries[0]?.canonical_name).toBe("Fork Hero");
+    expect(ports.forkListCalls).toHaveLength(1);
+  });
+
+  it("returns CAPABILITY_PORT_MISSING when listForkTimelineEvents is absent", () => {
+    const baseline = createMemoryBaselinePorts();
+    const ports = baseline as unknown as ForkPorts;
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", fork_id: "fork_a" },
+    };
+
+    const result = orchestrateForkCheck(ports, request, () => spokeOk([]));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+    }
+  });
+});

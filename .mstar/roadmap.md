@@ -3,13 +3,13 @@
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
 **Updated:** 2026-07-26  
-**North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O — **without** a shared runtime.
+**North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
 
 ## Now (in progress)
 
-_No in-progress slices — L2 typed body + release-test harden delivered (pending merge to `main`)._
+_No in-progress slices — adapter interface protocol + injection orchestration landed in operations packages (merge path as scheduled)._
 
 ---
 
@@ -17,7 +17,9 @@ _No in-progress slices — L2 typed body + release-test harden delivered (pendin
 
 | Slice | Focus |
 |-------|--------|
-| Product adapters | Consumer-repo Creader / Nexus → SPOKE L2 mapping; optional `adapters/` binding rows when scheduled |
+| Product adapters | Packages under `adapters/<product>/` that implement operations ports, own persistence/transactions, and map product DTOs ↔ SPOKE wire (e.g. consumer-repo Creader / Nexus L2 bindings when scheduled) |
+
+**Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper.
 
 ---
 
@@ -27,6 +29,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-26 | Adapter interfaces + injection orchestration | Capability-sliced ports + `orchestrate*` / `orchestrate_*` in TS and Rust ops packages; `CAPABILITY_PORT_MISSING`; mock-backed orchestration tests; normative matrix in [spoke-operations.md](specs/spoke-operations.md) |
 | 2026-07-26 | L2 typed closed body + trait helpers | Closed `body` with optional `summary` / `tags` / `BodyAttribute[]`; codegen; Mira traits fixture; pure TS/Rust trait read helpers; SemVer-agnostic `bump-version` tests; knowledge `l2-closed-body-and-traits` + `release-bump-tests-version-agnostic` |
 | 2026-07-25 | CI / codegen harden | `OpaqueJson` empty schema for opaque log fields; TS/Rust regen; Rust typify duplication strategy A + import guide; schema-count surfaces at **23**; `test:release` lockstep assert/bump unit tests in CI |
 | 2026-07-25 | Rust ops CI + publish | CI/release verify `cargo test -p spoke-operations`; lockstep assert for ops crate; crates.io `spoke-operations` after `spoke-schemas`; README EN/CN Rust ops pin/install |
@@ -48,7 +51,7 @@ Newest first. Dates are delivery dates on `main`.
 |------|--------|
 | Data wire | KnowledgeEntry (closed L2 `body`: optional `summary`, `tags`, `attributes`; optional `body.state`/`body.computable`, `computable_logs` under `l2-computable`), Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`); `OpaqueJson` for opaque log field values |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
-| Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming; no I/O, no fixture harness) |
+| Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming) plus adapter port contracts and injection orchestration (`spoke-baseline`, optional `l2-computable`, optional `l5-fork`) |
 | Fixtures | `fixtures/toy-world/` samples + conformance (dual-concern ontology `"event"` + TimelineEvent; Fork-aware TimelineEvent sample under `l5-fork`) |
 | Codegen / CI | Schema inventory **23**; verify-codegen; `test:release` for lockstep assert/bump; Rust typify strategy A documented |
 | Specs / vocabulary | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/`; CONCEPTS + knowledge vocabulary pattern |

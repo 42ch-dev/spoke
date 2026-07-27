@@ -1,6 +1,6 @@
 # SPOKE Operations Library
 
-> **Status:** Normative (operations library — TypeScript and Rust packages ship first-slice, deepen, and computable validators)  
+> **Status:** Normative (operations library — pure helpers, capability-sliced adapter ports, and injection orchestration)  
 > **Document class:** Detail — hand-written behavior layer (column 3)  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Package (TypeScript):** `@42ch/spoke-operations` under `packages/spoke-operations/`  
@@ -10,9 +10,9 @@
 
 Wire schemas (`@42ch/spoke-schemas`) tell integrators **what** crosses the boundary. They do not encode cross-product **lifecycle invariants** — promote gates, Finding status rules, extension round-trip preservation, or wire-valid `AssemblePacket` construction.
 
-Without a shared operations library, every product reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** (TypeScript) and **`spoke-operations`** (Rust) are the hand-written surfaces for those invariants: callable from adapters and product code, with **no** I/O, storage, LLM, ranking, or retrieval.
+Without a shared operations library, every product reimplements the same pure rules and drifts. **`@42ch/spoke-operations`** (TypeScript) and **`spoke-operations`** (Rust) are the hand-written surfaces for those invariants: pure helpers plus capability-sliced adapter ports and injection orchestration. The library performs **no** I/O, storage, LLM, ranking, or retrieval; product adapters supply persistence and query through injected ports.
 
-**Integrator outcome:** import types from `@42ch/spoke-schemas` / `spoke-schemas`, import lifecycle helpers from `@42ch/spoke-operations` / `spoke-operations`, bind transport locally — no shared daemon required.
+**Integrator outcome:** import types from `@42ch/spoke-schemas` / `spoke-schemas`, implement the port families for the capability flags you claim, call orchestration entrypoints (or pure helpers directly), and bind transport locally.
 
 ---
 
@@ -21,8 +21,8 @@ Without a shared operations library, every product reimplements the same pure ru
 | Layer | Authored how | Owns | Does not own |
 |-------|--------------|------|--------------|
 | **Wire schemas** | Hand-written JSON Schema in `schemas/` → generated `@42ch/spoke-schemas` | Object shapes, ops request/response envelopes, `extensions` bag presence | Lifecycle transitions, merge semantics, promote gates |
-| **Operations library** | Hand-written TypeScript in `packages/spoke-operations/`; hand-written Rust in `crates/spoke-operations/` | Pure functions / small state machines over generated types | HTTP/MCP, persistence, LLM, ranking, retrieval, product-specific detectors |
-| **Adapters** | Hand-written per product in `adapters/*` | Product DTO ↔ SPOKE mapping, transport binding | Reimplementing operations invariants (MUST call library instead) |
+| **Operations library** | Hand-written TypeScript in `packages/spoke-operations/`; hand-written Rust in `crates/spoke-operations/` | Pure helpers over generated types; capability-sliced port contracts; injection orchestration | HTTP/MCP, persistence engines, LLM, ranking, retrieval, product-specific detectors |
+| **Adapters** | Hand-written per product in `adapters/*` | Product DTO ↔ SPOKE mapping; transport binding; port implementations | Reimplementing operations invariants (MUST call library instead) |
 
 ### Hard In / Out
 
@@ -39,6 +39,7 @@ Without a shared operations library, every product reimplements the same pure ru
 | Scope match, upsert/relate gates, error-envelope map | `scope_id` parsing; retrieval engines |
 | Body attribute list/filter/read by `trait_type` | Attribute upsert, merge, or validation that rejects unknown traits |
 | Computable shape validators (`validateComputableFieldMap`, log entry, project/compute request gates) | Compute engine execution, WASM, Session store I/O |
+| Capability-sliced adapter ports + injection orchestration entrypoints | Product DTO field maps; storage/HTTP/LLM imports inside the library |
 
 ### Per-family In / Out
 
@@ -84,12 +85,12 @@ type SpokeResult<T = void> = SpokeOk<T> | SpokeReject;
 | `details` | Optional structured context (e.g. `{ from, to }` on transition reject) — not a second error channel |
 | Throwing | Unexpected programmer errors only; lifecycle rejects are **never** thrown |
 
-### `SpokeRejectCode` (first slice + deepen)
+### `SpokeRejectCode` (normative)
 
 Stable string literals exported from `@42ch/spoke-operations` and `spoke-operations` (e.g. TS `as const` object + union type; Rust `SpokeRejectCode` with `as_str()` returning the same literals). Implementers MUST NOT invent parallel code strings.
 
-| Code | Family | Emitted in first slice | Emitted in deepen slice | Meaning |
-|------|--------|----------------------|----------------------|---------|
+| Code | Family | Emitted by baseline helpers | Emitted by deepen / orchestration | Meaning |
+|------|--------|----------------------------|-----------------------------------|---------|
 | `INVALID_INPUT` | shared | yes | yes | Argument fails shape/null checks before domain rules |
 | `INVALID_STATUS` | finding | yes | yes | `to` (or current `finding.status`) not in core vocabulary |
 | `INVALID_STATUS_TRANSITION` | finding | yes | yes | Disallowed `from` → `to` (see transition table) |
@@ -109,6 +110,7 @@ Stable string literals exported from `@42ch/spoke-operations` and `spoke-operati
 | `KNOWLEDGE_ENTRY_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
 | `RELATION_SELF_EDGE` | relate | — | **yes** | `from_id === to_id` |
 | `RELATION_MISSING_ENDPOINT` | relate | — | **yes** | `from_id` or `to_id` missing or whitespace-only |
+| `CAPABILITY_PORT_MISSING` | orchestration | — | **yes** | An optional orchestrator was called without the injected port required by its claimed capability |
 
 ---
 
@@ -465,6 +467,126 @@ Wire shape: [`spoke-data-model.md` §KnowledgeEntry body](spoke-data-model.md) �
 
 ---
 
+## Adapter Interfaces (normative)
+
+The operations packages define the **implementation protocol** for storage and query adapters. Port interfaces are capability-sliced and accept generated wire types directly. Adapter implementations own transport, persistence, transactions, and product DTO mapping; the operations package owns the port contracts and the injection orchestration below.
+
+### Port policy
+
+Ports are synchronous on the normative v0.1 surface. TypeScript methods and Rust traits both return `SpokeResult<T>` directly. Adapters that perform asynchronous I/O present a synchronous boundary to the operations package. A future async surface MAY add distinct `Async*Port` interfaces and async orchestrators without changing these names or signatures. No normative method returns `T | Promise<T>`.
+
+All port methods return `SpokeResult<T>`. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
+
+### Capability matrix
+
+| Capability | Required interface families | Orchestration enabled |
+|---|---|---|
+| `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort` | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
+| `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
+| `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
+
+Unclaimed capabilities need no ports; their orchestrators are not callable for that product.
+
+### Baseline port families
+
+The following five families are required for `spoke-baseline`:
+
+| Family | TypeScript interface | Rust trait | Methods |
+|---|---|---|---|
+| Knowledge entry persistence | `KnowledgeEntryPort` | `KnowledgeEntryPort` | `getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>`; `putKnowledgeEntry(entry: KnowledgeEntry, expectedBaseRevision: number \| null): SpokeResult<KnowledgeEntry>` |
+| Relation persistence | `RelationPort` | `RelationPort` | `putRelation(relation: Relation): SpokeResult<Relation>` |
+| Scope query | `ScopeQueryPort` | `ScopeQueryPort` | `listKnowledgeEntries(scope: Scope): SpokeResult<KnowledgeEntry[]>`; `listTimelineEvents(scope: Scope): SpokeResult<TimelineEvent[]>` |
+| Finding persistence | `FindingPort` | `FindingPort` | `putFindings(findings: Finding[]): SpokeResult<Finding[]>` |
+| Rule query | `RuleQueryPort` | `RuleQueryPort` | `listRules(ruleRefs: string[]): SpokeResult<Rule[]>` |
+
+`ScopeQueryPort` is the query boundary for `check` and `assemble`. `RuleQueryPort` is used when a check request supplies rule references; embedded rules remain request data and do not require a port lookup.
+
+`putKnowledgeEntry` / `put_knowledge_entry` carry optimistic concurrency control structurally: adapters MUST treat `expectedBaseRevision` / `expected_base_revision` as the store’s required current revision before accepting the write (`null`/`None` = absent entry for create). True concurrent safety requires atomic compare-and-put in the adapter; the library stays I/O-free.
+
+### Optional port families
+
+| Capability | Family | TypeScript interface | Rust trait | Methods |
+|---|---|---|---|---|
+| `l2-computable` | Computable session | `ComputablePort` | `ComputablePort` | `project(request: ProjectRequest): SpokeResult<ProjectResponse>`; `compute(request: ComputeRequest): SpokeResult<ComputeResponse>` |
+| `l5-fork` | Fork-aware timeline query | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` | `listForkTimelineEvents(scope: Scope & { fork_id: ForkId }): SpokeResult<TimelineEvent[]>` |
+
+`ForkTimelineQueryPort` is a capability-specific refinement of `ScopeQueryPort`; one object MAY satisfy both.
+
+### Capability composition and availability
+
+```typescript
+type BaselinePorts =
+  KnowledgeEntryPort &
+  RelationPort &
+  ScopeQueryPort &
+  FindingPort &
+  RuleQueryPort;
+type ComputablePorts = BaselinePorts & ComputablePort;
+type ForkPorts = BaselinePorts & ForkTimelineQueryPort;
+type FullPorts = BaselinePorts & ComputablePort & ForkTimelineQueryPort;
+```
+
+These are conceptual public types; Rust implementers satisfy the corresponding trait bounds. Optional orchestrators require the matching composed type at compile time. At JavaScript boundaries and for dynamically assembled Rust trait objects, an absent optional method returns `SpokeReject { code: "CAPABILITY_PORT_MISSING", ... }` rather than a `TypeError` or panic.
+
+## Injection Orchestration (normative)
+
+Orchestration is additive to the pure helper families. The public surface exposes one per-operation entrypoint per language — not a stateful facade. Each entrypoint receives injected ports and a request, calls the listed pure helpers, and performs all reads and writes through those ports. Check orchestrators additionally accept a caller-supplied checker callback — the library loads scoped data via ports, invokes the callback, and persists findings; checker engines remain product-owned.
+
+### Check orchestration injectee
+
+Check paths do not embed a checker engine. After loading scoped entries, timeline events, and rules via ports, the orchestrator invokes a caller-supplied callback and persists the returned findings.
+
+```typescript
+type CheckRunInput = {
+  request: CheckRequest;
+  entries: KnowledgeEntry[];
+  events: TimelineEvent[];
+  rules: Rule[];
+};
+```
+
+Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The callback type is `(input: CheckRunInput) => SpokeResult<Finding[]>` in TypeScript and `Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>` (or equivalent trait object) in Rust.
+
+| Operation | TypeScript entrypoint | Rust entrypoint | Required ports | Required sequence |
+|---|---|---|---|---|
+| upsert | `orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): SpokeResult<UpsertResponse>` | `orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` on create and the stored revision on update |
+| promote | `orchestratePromote(ports: BaselinePorts, request: PromoteRequest): SpokeResult<PromoteResponse>` | `orchestrate_promote(ports: &impl BaselinePorts, request: PromoteRequest) -> SpokeResult<PromoteResponse>` | `KnowledgeEntryPort` | Load stored entry; terminal and revision gates; call `validatePromoteRequest`; call `applyPromoteAcceptance`; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` when absent and `stored.revision` (or `0`) when stored exists |
+| relate | `orchestrateRelate(ports: BaselinePorts, request: RelateRequest): SpokeResult<RelateResponse>` | `orchestrate_relate(ports: &impl BaselinePorts, request: RelateRequest) -> SpokeResult<RelateResponse>` | `RelationPort` | Call `validateRelateRequest`; call `putRelation` |
+| check | `orchestrateCheck(ports: BaselinePorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): SpokeResult<CheckResponse>` | `orchestrate_check(ports: &impl BaselinePorts, request: CheckRequest, run_checker: impl Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ScopeQueryPort`, `RuleQueryPort`, `FindingPort` | Resolve refs with `listRules`; query scoped entries/events via `ScopeQueryPort`; apply scope helpers; invoke `runChecker`; call `putFindings` |
+| assemble | `orchestrateAssemble(ports: BaselinePorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_assemble(ports: &impl BaselinePorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ScopeQueryPort` | Query scoped entries/events; apply scope helpers; call `buildAssemblePacket`; return packet |
+| project | `orchestrateProject(ports: ComputablePorts, request: ProjectRequest): SpokeResult<ProjectResponse>` | `orchestrate_project(ports: &impl ComputablePorts, request: ProjectRequest) -> SpokeResult<ProjectResponse>` | `ComputablePort` | Call `validateProjectRequest`; call `project` |
+| compute | `orchestrateCompute(ports: ComputablePorts, request: ComputeRequest): SpokeResult<ComputeResponse>` | `orchestrate_compute(ports: &impl ComputablePorts, request: ComputeRequest) -> SpokeResult<ComputeResponse>` | `ComputablePort` | Call `validateComputeRequest`; call `compute`; any settled-state persistence is an explicit adapter step |
+| fork check | `orchestrateForkCheck(ports: ForkPorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): SpokeResult<CheckResponse>` | `orchestrate_fork_check(ports: &impl ForkPorts, request: CheckRequest, run_checker: impl Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ForkTimelineQueryPort` plus baseline check ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; resolve rules; apply scope helpers; invoke `runChecker`; call `putFindings` |
+| fork assemble | `orchestrateForkAssemble(ports: ForkPorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_fork_assemble(ports: &impl ForkPorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ForkTimelineQueryPort` plus baseline assemble ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; apply scope helpers; call `buildAssemblePacket` |
+
+Orchestrators compose pure helpers and port I/O only. Checker engines, compute engines, ranking, retrieval, transactions, and retries remain adapter- or product-owned. The adapter controls transaction boundaries.
+
+### Public export and module paths
+
+TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and entrypoints in `packages/spoke-operations/src/adapter/orchestrate.ts`; `src/index.ts` flat-re-exports both. Rust mirrors this at `crates/spoke-operations/src/adapter.rs` with `ports` and `orchestrate` submodules; `src/lib.rs` flat-re-exports the public traits and functions. Pure helper family paths remain unchanged.
+
+### TS/Rust parity table
+
+| TypeScript | Rust |
+|---|---|
+| `KnowledgeEntryPort` | `KnowledgeEntryPort` |
+| `RelationPort` | `RelationPort` |
+| `ScopeQueryPort` | `ScopeQueryPort` |
+| `FindingPort` | `FindingPort` |
+| `RuleQueryPort` | `RuleQueryPort` |
+| `ComputablePort` | `ComputablePort` |
+| `ForkTimelineQueryPort` | `ForkTimelineQueryPort` |
+| `CheckRunInput` | `CheckRunInput` |
+| `orchestrateUpsert` | `orchestrate_upsert` |
+| `orchestratePromote` | `orchestrate_promote` |
+| `orchestrateRelate` | `orchestrate_relate` |
+| `orchestrateCheck` | `orchestrate_check` |
+| `orchestrateAssemble` | `orchestrate_assemble` |
+| `orchestrateProject` | `orchestrate_project` |
+| `orchestrateCompute` | `orchestrate_compute` |
+| `orchestrateForkCheck` | `orchestrate_fork_check` |
+| `orchestrateForkAssemble` | `orchestrate_fork_assemble` |
+
 ## Package contract
 
 ### TypeScript
@@ -487,12 +609,12 @@ Public entry: `src/index.ts` re-exporting all families above plus `SpokeResult`,
 | Path | `crates/spoke-operations/` |
 | Dependency | `spoke-schemas` (workspace) only |
 | Publish | crates.io on stable tags (`spoke-schemas` first, then this crate) |
-| Parity rule | Behavioral parity with `@42ch/spoke-operations` — same normative helper families (first-slice + deepen + computable), same `SpokeRejectCode` string literals, same In/Out tables |
+| Parity rule | Behavioral parity with `@42ch/spoke-operations` — same normative helper families (baseline + deepen + computable + adapter orchestration), same `SpokeRejectCode` string literals, same In/Out tables |
 | `SpokeResult` | Rust `enum SpokeResult<T> { Ok(T), Reject(SpokeReject) }` with `spoke_ok` / `spoke_reject` — code strings match TS; idiomatic Rust surface, not a second vocabulary |
 
 Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering **every** symbol in TS `src/index.ts`. Rust MAY also export additional typed/wire helpers not listed in TS `index.ts` — e.g. `KnowledgeEntryForAssemble`, `validate_promote_request_wire`, `UpsertMode`, `ExtensionMap`, `spoke_ok_unit` — without breaking parity.
 
-**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); private `util` for typify field-access helpers only — no parallel wire DTOs.
+**Module layout:** one source file per helper family (`result`, `extensions`, `finding`, `promote`, `assemble`, `body`, `occ`, `knowledge_entry`, `scope`, `upsert`, `relate`, `error`, `computable`); adapter ports/orchestrators use `adapter/ports.ts` and `adapter/orchestrate.ts` in TypeScript and `adapter.rs` submodules in Rust; private `util` is for typify field-access helpers only — no parallel wire DTOs.
 
 **Wire types:** helpers accept `spoke_schemas` generated types directly (`KnowledgeEntry`, `Finding`, `ErrorEnvelope`, etc.).
 
@@ -517,9 +639,9 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Rust crate (shippable)
 
 - [x] `spoke-operations` crate at `crates/spoke-operations/` re-exports all normative helper families and every TS `index.ts` symbol (first-slice + deepen + computable)
-- [x] All 19 `SpokeRejectCode` strings exported from `result` module
-- [ ] `cargo test -p spoke-operations` in CI and release verify
-- [ ] crates.io publish after `spoke-schemas` on stable tags
+- [x] All 20 `SpokeRejectCode` strings exported from `result` module, including `CAPABILITY_PORT_MISSING`
+- [x] `cargo test -p spoke-operations` in CI and release verify
+- [x] crates.io publish after `spoke-schemas` on stable tags
 
 ### Computable slice (`l2-computable`)
 
@@ -532,25 +654,29 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 - [x] `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` re-exported from `spoke-operations` `src/lib.rs`
 - [x] Read/filter semantics documented in §13 (missing → empty; duplicate `trait_type` → all matches; malformed wire skip)
 
+### Adapter interfaces + injection orchestration
+
+- [x] Capability → interface family → methods matrix complete for `spoke-baseline`, `l2-computable`, and `l5-fork` (no TBD cells)
+- [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
+- [x] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
+- [x] Orchestrators call pure helpers and perform I/O only through injected ports
+- [x] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)
+- [x] In-package mock adapters cover baseline five ops plus at least one computable and one fork-aware path
+
 ## Non-goals (operations layer)
 
-### First slice
+### Pure helpers and wire gates
 
-- Adapter conversion code
-- Conformance fixtures / golden files
+- Product DTO conversion packages under `adapters/<product>/`
+- Conformance fixtures / golden files (owned by `fixtures/toy-world/`)
 - `Rule` evaluation, checker engines, Guardian detectors
 - HTTP/MCP binding or daemon routes
 - Ranking / retrieval / token-budget helpers
-
-### Deepen slice (unchanged)
-
-- Adapter packages and product DTO field maps
-- Storage fetch inside library
+- Storage fetch inside the library
 - HTTP/MCP status code tables
-- Checker Rule evaluation engines
 - Compute engine execution, WASM, Session store I/O
 
----
+Product adapter packages implement the ports defined here; they are scheduled separately from this library surface.
 
 ## Related paths
 
@@ -560,6 +686,6 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
-| `packages/spoke-operations/` | TypeScript operations library (first-slice + deepen + computable) |
+| `packages/spoke-operations/` | TypeScript operations library (pure helpers + adapter ports/orchestration) |
 | `crates/spoke-operations/` | Rust operations library — behavioral parity with `@42ch/spoke-operations` at lockstep SemVer |
 | `crates/spoke-schemas/` | Generated Rust wire types |

@@ -3,6 +3,7 @@
 
 pub mod assemble_packet;
 pub mod finding;
+pub mod host_capability_manifest;
 pub mod knowledge_entry;
 pub mod relation;
 pub mod rule;
@@ -11,6 +12,7 @@ pub mod timeline_event;
 
 pub use assemble_packet::AssemblePacket;
 pub use finding::Finding;
+pub use host_capability_manifest::HostCapabilityManifest;
 pub use knowledge_entry::KnowledgeEntry;
 pub use relation::Relation;
 pub use rule::Rule;

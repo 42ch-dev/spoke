@@ -19,7 +19,8 @@ schemas/
 │   ├── finding.schema.json
 │   ├── assemble-packet.schema.json
 │   ├── rule.schema.json                # L6 declarative constraint input
-│   └── timeline-event.schema.json      # L5 when-axis temporal object
+│   ├── timeline-event.schema.json      # L5 when-axis temporal object
+│   └── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
 └── ops/
     ├── upsert-request.schema.json
     ├── upsert-response.schema.json
@@ -37,7 +38,7 @@ schemas/
     └── compute-response.schema.json
 ```
 
-**Total:** **23** hand-authored schema files (2 common + 7 data + 14 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **24** hand-authored schema files (2 common + 8 data + 14 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -94,19 +95,20 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 7 | `data/assemble-packet.schema.json` | done |
 | 8 | `data/rule.schema.json` | done |
 | 9 | `data/timeline-event.schema.json` | done |
-| 10 | `ops/upsert-request.schema.json` | done |
-| 11 | `ops/upsert-response.schema.json` | done |
-| 12 | `ops/promote-request.schema.json` | done |
-| 13 | `ops/promote-response.schema.json` | done |
-| 14 | `ops/relate-request.schema.json` | done |
-| 15 | `ops/relate-response.schema.json` | done |
-| 16 | `ops/check-request.schema.json` | done |
-| 17 | `ops/check-response.schema.json` | done |
-| 18 | `ops/assemble-request.schema.json` | done |
-| 19 | `ops/assemble-response.schema.json` | done |
-| 20 | `ops/project-request.schema.json` | done |
-| 21 | `ops/project-response.schema.json` | done |
-| 22 | `ops/compute-request.schema.json` | done |
-| 23 | `ops/compute-response.schema.json` | done |
+| 10 | `data/host-capability-manifest.schema.json` | done |
+| 11 | `ops/upsert-request.schema.json` | done |
+| 12 | `ops/upsert-response.schema.json` | done |
+| 13 | `ops/promote-request.schema.json` | done |
+| 14 | `ops/promote-response.schema.json` | done |
+| 15 | `ops/relate-request.schema.json` | done |
+| 16 | `ops/relate-response.schema.json` | done |
+| 17 | `ops/check-request.schema.json` | done |
+| 18 | `ops/check-response.schema.json` | done |
+| 19 | `ops/assemble-request.schema.json` | done |
+| 20 | `ops/assemble-response.schema.json` | done |
+| 21 | `ops/project-request.schema.json` | done |
+| 22 | `ops/project-response.schema.json` | done |
+| 23 | `ops/compute-request.schema.json` | done |
+| 24 | `ops/compute-response.schema.json` | done |
 
-**Total:** 23 schema files (`l2-computable` optional ops landed).
+**Total:** 24 schema files (`l2-computable` optional ops landed).

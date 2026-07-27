@@ -181,7 +181,7 @@ Normative helper contracts for moment-scale filter and beat-sheet ordering live 
 | `orderTimelineEventsByIds` | `order_timeline_events_by_ids` |
 | `orderTimelineEventsByPrecedes` | `order_timeline_events_by_precedes` |
 
-`@42ch/spoke-operations` and `spoke-operations` gain matching exports when the narrative-sequence ops slice lands.
+`@42ch/spoke-operations` and `spoke-operations` export the helpers from their public entrypoints (`src/index.ts` / `src/lib.rs`).
 
 Contract summary (full rules in §14):
 

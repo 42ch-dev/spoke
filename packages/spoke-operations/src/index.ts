@@ -46,6 +46,13 @@ export {
 } from "./scope/match.js";
 
 export {
+  filterTimelineEventsByMomentScale,
+  orderTimelineEventsByIds,
+  orderTimelineEventsByPrecedes,
+  type OrderTimelineEventsByPrecedesOptions,
+} from "./timeline/sequence.js";
+
+export {
   validateUpsertKnowledgeEntry,
   type ValidateUpsertKnowledgeEntryContext,
 } from "./upsert/validate.js";

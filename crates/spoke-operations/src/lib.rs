@@ -13,6 +13,7 @@ mod promote;
 mod relate;
 mod result;
 mod scope;
+mod timeline;
 mod upsert;
 mod util;
 
@@ -43,6 +44,10 @@ pub use scope::{
     filter_timeline_events_by_scope, filter_timeline_events_by_scope_view,
     knowledge_entry_matches_scope, knowledge_entry_matches_scope_view, ScopeMatchView,
     timeline_event_matches_scope, timeline_event_matches_scope_view,
+};
+pub use timeline::{
+    filter_timeline_events_by_moment_scale, order_timeline_events_by_ids,
+    order_timeline_events_by_precedes, OrderTimelineEventsByPrecedesOptions,
 };
 pub use upsert::{
     validate_upsert_knowledge_entry, UpsertMode, ValidateUpsertKnowledgeEntryContext,

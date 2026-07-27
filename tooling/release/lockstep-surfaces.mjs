@@ -154,9 +154,27 @@ export const README_RELEASE_BADGE_MARKER =
   "https://img.shields.io/github/v/release/42ch-dev/spoke";
 
 /**
+ * True when README content embeds the dynamic GitHub Releases shields badge.
+ * Parses URL tokens and matches host + path (not a raw substring check).
+ *
  * @param {string} contents
  * @returns {boolean}
  */
 export function hasReadmeReleaseBadge(contents) {
-  return contents.includes(README_RELEASE_BADGE_MARKER);
+  const expected = new URL(README_RELEASE_BADGE_MARKER);
+  const urlRe = /https?:\/\/[^\s)"'\]]+/g;
+  for (const match of contents.matchAll(urlRe)) {
+    try {
+      const parsed = new URL(match[0]);
+      if (
+        parsed.hostname === expected.hostname &&
+        parsed.pathname === expected.pathname
+      ) {
+        return true;
+      }
+    } catch {
+      // Ignore malformed URL-like tokens in markdown.
+    }
+  }
+  return false;
 }

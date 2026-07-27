@@ -17,9 +17,7 @@ _No in-progress slices — Adapter aliases and `ToyWorldAdapter` reference examp
 
 ## Up next (planned)
 
-| Slice | Focus |
-|-------|--------|
-| Consumer-repo product bindings | In **consumer repositories** (not this protocol repo): implement operations ports, own persistence/transactions, and map product DTOs ↔ SPOKE wire (e.g. Creader / Nexus L2). Reference shape: `fixtures/toy-world/` ToyWorldAdapter — no in-repo `adapters/*` tree |
+_No planned slices queued in this protocol repo._
 
 ---
 

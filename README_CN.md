@@ -3,10 +3,6 @@
 [![CI](https://github.com/42ch-dev/spoke/actions/workflows/ci.yml/badge.svg)](https://github.com/42ch-dev/spoke/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/release/42ch-dev/spoke?include_prereleases&sort=semver&label=version)](https://github.com/42ch-dev/spoke/releases)
-[![npm @42ch/spoke-schemas](https://img.shields.io/npm/v/@42ch/spoke-schemas)](https://www.npmjs.com/package/@42ch/spoke-schemas)
-[![npm @42ch/spoke-operations](https://img.shields.io/npm/v/@42ch/spoke-operations)](https://www.npmjs.com/package/@42ch/spoke-operations)
-[![crates.io spoke-schemas](https://img.shields.io/crates/v/spoke-schemas?label=spoke-schemas)](https://crates.io/crates/spoke-schemas)
-[![crates.io spoke-operations](https://img.shields.io/crates/v/spoke-operations?label=spoke-operations)](https://crates.io/crates/spoke-operations)
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 

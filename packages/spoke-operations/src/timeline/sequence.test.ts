@@ -113,6 +113,22 @@ describe("orderTimelineEventsByIds", () => {
     }
     expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
   });
+
+  it("rejects duplicate timeline_event_id values in timelineEvents", () => {
+    const duplicateEvents = [
+      makeTimelineEvent({ timeline_event_id: "evt_a" }),
+      makeTimelineEvent({ timeline_event_id: "evt_a" }),
+      makeTimelineEvent({ timeline_event_id: "evt_b" }),
+    ];
+
+    const result = orderTimelineEventsByIds(duplicateEvents, ["evt_a"]);
+    expect(result).toEqual({
+      ok: false,
+      code: SpokeRejectCode.INVALID_INPUT,
+      message: "timelineEvents contains duplicate timeline_event_id values",
+      details: { duplicate_timeline_event_ids: ["evt_a"] },
+    });
+  });
 });
 
 describe("orderTimelineEventsByPrecedes", () => {
@@ -305,6 +321,52 @@ describe("orderTimelineEventsByPrecedes", () => {
       "evt_a",
       "evt_b",
     ]);
+  });
+
+  it("rejects self-loop precedes relations", () => {
+    const events = [
+      makeTimelineEvent({
+        timeline_event_id: "evt_a",
+        extensions: { spoke: { timeline_entry_id: "kb_a" } },
+      }),
+    ];
+    const relations = [
+      makeRelation({
+        relation_id: "rel_self",
+        from_id: "kb_a",
+        to_id: "kb_a",
+      }),
+    ];
+
+    const result = orderTimelineEventsByPrecedes(events, relations);
+    expect(result).toEqual({
+      ok: false,
+      code: SpokeRejectCode.INVALID_INPUT,
+      message:
+        "precedes relation resolves both endpoints to the same timeline event",
+      details: { precedes_cycle: true, entry_ids: ["kb_a"] },
+    });
+  });
+
+  it("rejects duplicate timeline_event_id values in timelineEvents", () => {
+    const events = [
+      makeTimelineEvent({
+        timeline_event_id: "evt_a",
+        extensions: { spoke: { timeline_entry_id: "kb_a" } },
+      }),
+      makeTimelineEvent({
+        timeline_event_id: "evt_a",
+        extensions: { spoke: { timeline_entry_id: "kb_b" } },
+      }),
+    ];
+
+    const result = orderTimelineEventsByPrecedes(events, []);
+    expect(result).toEqual({
+      ok: false,
+      code: SpokeRejectCode.INVALID_INPUT,
+      message: "timelineEvents contains duplicate timeline_event_id values",
+      details: { duplicate_timeline_event_ids: ["evt_a"] },
+    });
   });
 
   it("honors options.relationType when filtering relations", () => {

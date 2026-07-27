@@ -492,6 +492,7 @@ Beat-assist pure helpers over caller-supplied `TimelineEvent[]` and `Relation[]`
 | `orderedIds` sequence | output lists matching events in that order first |
 | id in `orderedIds` not found in `timelineEvents` | `INVALID_INPUT`; `details: { unknown_timeline_event_ids: string[] }` |
 | duplicate id in `orderedIds` | `INVALID_INPUT` |
+| duplicate `timeline_event_id` in `timelineEvents` | `INVALID_INPUT`; `details: { duplicate_timeline_event_ids: string[] }` |
 | events in input but not in `orderedIds` | append after ordered block in **input order** (stable tail) |
 
 **`orderTimelineEventsByPrecedes` rules:**
@@ -501,13 +502,15 @@ Beat-assist pure helpers over caller-supplied `TimelineEvent[]` and `Relation[]`
 | Link map | For each input event, read `extensions.spoke.timeline_entry_id` (non-empty trimmed string) as linked KE `entry_id`; events without link are **unlinked** |
 | Relation filter | `relation_type` exact match — default `"precedes"`; overridable via `options.relationType` |
 | Endpoint filter | keep relations where both `from_id` and `to_id` resolve to linked KE ids present in the input link map |
+| Self-loop | `from_id` and `to_id` resolve to the same linked event → `INVALID_INPUT`; `details: { precedes_cycle: true, entry_ids: string[] }` |
 | Sort | Kahn topological sort on linked events; ready queue ordered by ascending `timeline_event_id` (UTF-8 lexicographic) before dequeue |
 | Unlinked tail | append unlinked input events after linked ordered block in **input order** |
 | Cycle | not all linked nodes sortable → `INVALID_INPUT`; `details: { precedes_cycle: true, entry_ids: string[] }` |
+| Duplicate input ids | duplicate `timeline_event_id` in `timelineEvents` → `INVALID_INPUT`; `details: { duplicate_timeline_event_ids: string[] }` |
 
 **Relation schema alignment:** `from_id` / `to_id` are KnowledgeEntry (or SourceAnchor) ids — helpers never accept `timeline_event_id` as Relation endpoints. Dual-concern pairing uses `extensions.spoke.timeline_entry_id` on `TimelineEvent` (toy-world convention).
 
-**Reject codes:** `INVALID_INPUT` only for order helpers (cycles, unknown ids, duplicate ids in `orderedIds`).
+**Reject codes:** `INVALID_INPUT` only for order helpers (cycles, self-loops, unknown ids, duplicate ids in `orderedIds` or `timelineEvents`).
 
 **Tests must cover:** moment filter preserves order; order by ids happy path + unknown id + stable tail; precedes acyclic chain + cycle reject + unlinked tail + lexicographic tie-break; ignored relations with endpoints outside input link set.
 

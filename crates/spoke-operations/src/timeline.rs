@@ -28,11 +28,43 @@ pub fn filter_timeline_events_by_moment_scale(
         .collect()
 }
 
+fn duplicate_timeline_event_ids(timeline_events: &[TimelineEvent]) -> Option<Vec<String>> {
+    let mut seen = HashSet::new();
+    let mut duplicates = HashSet::new();
+    for event in timeline_events {
+        if !seen.insert(event.timeline_event_id.clone()) {
+            duplicates.insert(event.timeline_event_id.clone());
+        }
+    }
+    if duplicates.is_empty() {
+        None
+    } else {
+        let mut ids: Vec<String> = duplicates.into_iter().collect();
+        ids.sort();
+        Some(ids)
+    }
+}
+
 /// Order TimelineEvents by an explicit `timeline_event_id` list; unknown or duplicate ids reject.
 pub fn order_timeline_events_by_ids(
     timeline_events: &[TimelineEvent],
     ordered_ids: &[String],
 ) -> SpokeResult<Vec<TimelineEvent>> {
+    if let Some(duplicate_timeline_event_ids) =
+        duplicate_timeline_event_ids(timeline_events)
+    {
+        let mut details = Map::new();
+        details.insert(
+            "duplicate_timeline_event_ids".into(),
+            json!(duplicate_timeline_event_ids),
+        );
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "timelineEvents contains duplicate timeline_event_id values",
+            Some(details),
+        );
+    }
+
     let mut seen_ordered_ids = HashSet::new();
     for id in ordered_ids {
         if !seen_ordered_ids.insert(id.clone()) {
@@ -94,6 +126,21 @@ pub fn order_timeline_events_by_precedes(
     relations: &[Relation],
     options: Option<&OrderTimelineEventsByPrecedesOptions>,
 ) -> SpokeResult<Vec<TimelineEvent>> {
+    if let Some(duplicate_timeline_event_ids) =
+        duplicate_timeline_event_ids(timeline_events)
+    {
+        let mut details = Map::new();
+        details.insert(
+            "duplicate_timeline_event_ids".into(),
+            json!(duplicate_timeline_event_ids),
+        );
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "timelineEvents contains duplicate timeline_event_id values",
+            Some(details),
+        );
+    }
+
     let relation_type = options
         .and_then(|opts| opts.relation_type.as_deref())
         .unwrap_or("precedes");
@@ -145,7 +192,14 @@ pub fn order_timeline_events_by_precedes(
             continue;
         };
         if from_event_id == to_event_id {
-            continue;
+            let mut details = Map::new();
+            details.insert("precedes_cycle".into(), json!(true));
+            details.insert("entry_ids".into(), json!([from_entry_id]));
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "precedes relation resolves both endpoints to the same timeline event",
+                Some(details),
+            );
         }
 
         adjacency
@@ -374,6 +428,27 @@ mod tests {
     }
 
     #[test]
+    fn order_by_ids_rejects_duplicate_timeline_event_ids_in_input() {
+        let events = [
+            make_timeline_event(|event| event.timeline_event_id = "evt_a".into()),
+            make_timeline_event(|event| event.timeline_event_id = "evt_a".into()),
+            make_timeline_event(|event| event.timeline_event_id = "evt_b".into()),
+        ];
+        let result = order_timeline_events_by_ids(&events, &["evt_a".into()]);
+        let SpokeResult::Reject(reject) = result else {
+            panic!("expected reject result");
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        assert_eq!(
+            reject.details,
+            Some(Map::from_iter([(
+                "duplicate_timeline_event_ids".into(),
+                json!(["evt_a"]),
+            )]))
+        );
+    }
+
+    #[test]
     fn order_by_precedes_orders_harbor_moment_beats() {
         let events = [
             load_fixture::<TimelineEvent>("evt_tw_harbor_berth_confirm.json"),
@@ -544,6 +619,59 @@ mod tests {
                 ("precedes_cycle".into(), json!(true)),
                 ("entry_ids".into(), json!(["kb_a", "kb_b", "kb_c"])),
             ]))
+        );
+    }
+
+    #[test]
+    fn order_by_precedes_rejects_self_loop_relations() {
+        let events = [make_timeline_event(|event| {
+            event.timeline_event_id = "evt_a".into();
+            event.extensions = spoke_extension("kb_a");
+        })];
+        let relations = [make_relation(|relation| {
+            relation.relation_id = "rel_self".into();
+            relation.from_id = "kb_a".into();
+            relation.to_id = "kb_a".into();
+        })];
+
+        let result = order_timeline_events_by_precedes(&events, &relations, None);
+        let SpokeResult::Reject(reject) = result else {
+            panic!("expected reject result");
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        assert_eq!(
+            reject.details,
+            Some(Map::from_iter([
+                ("precedes_cycle".into(), json!(true)),
+                ("entry_ids".into(), json!(["kb_a"])),
+            ]))
+        );
+    }
+
+    #[test]
+    fn order_by_precedes_rejects_duplicate_timeline_event_ids_in_input() {
+        let events = [
+            make_timeline_event(|event| {
+                event.timeline_event_id = "evt_a".into();
+                event.extensions = spoke_extension("kb_a");
+            }),
+            make_timeline_event(|event| {
+                event.timeline_event_id = "evt_a".into();
+                event.extensions = spoke_extension("kb_b");
+            }),
+        ];
+
+        let result = order_timeline_events_by_precedes(&events, &[], None);
+        let SpokeResult::Reject(reject) = result else {
+            panic!("expected reject result");
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        assert_eq!(
+            reject.details,
+            Some(Map::from_iter([(
+                "duplicate_timeline_event_ids".into(),
+                json!(["evt_a"]),
+            )]))
         );
     }
 

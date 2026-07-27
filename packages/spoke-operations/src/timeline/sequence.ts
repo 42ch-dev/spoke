@@ -22,6 +22,24 @@ function compareUtf8Lexicographic(left: string, right: string): number {
   return leftBytes.length - rightBytes.length;
 }
 
+function findDuplicateTimelineEventIds(
+  timelineEvents: TimelineEvent[],
+): string[] | undefined {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const event of timelineEvents) {
+    const id = event.timeline_event_id;
+    if (seen.has(id)) {
+      duplicates.add(id);
+    }
+    seen.add(id);
+  }
+  if (duplicates.size === 0) {
+    return undefined;
+  }
+  return [...duplicates].sort(compareUtf8Lexicographic);
+}
+
 function readTimelineEntryId(event: TimelineEvent): string | undefined {
   const spoke = event.extensions?.spoke;
   if (spoke === null || typeof spoke !== "object" || Array.isArray(spoke)) {
@@ -52,6 +70,16 @@ export function orderTimelineEventsByIds(
   timelineEvents: TimelineEvent[],
   orderedIds: string[],
 ): SpokeResult<TimelineEvent[]> {
+  const duplicateTimelineEventIds =
+    findDuplicateTimelineEventIds(timelineEvents);
+  if (duplicateTimelineEventIds !== undefined) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "timelineEvents contains duplicate timeline_event_id values",
+      { duplicate_timeline_event_ids: duplicateTimelineEventIds },
+    );
+  }
+
   const seenOrderedIds = new Set<string>();
   for (const id of orderedIds) {
     if (seenOrderedIds.has(id)) {
@@ -105,6 +133,16 @@ export function orderTimelineEventsByPrecedes(
   relations: Relation[],
   options?: OrderTimelineEventsByPrecedesOptions,
 ): SpokeResult<TimelineEvent[]> {
+  const duplicateTimelineEventIds =
+    findDuplicateTimelineEventIds(timelineEvents);
+  if (duplicateTimelineEventIds !== undefined) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "timelineEvents contains duplicate timeline_event_id values",
+      { duplicate_timeline_event_ids: duplicateTimelineEventIds },
+    );
+  }
+
   const relationType = options?.relationType ?? "precedes";
 
   const linkedEvents: TimelineEvent[] = [];
@@ -153,7 +191,11 @@ export function orderTimelineEventsByPrecedes(
       continue;
     }
     if (fromEventId === toEventId) {
-      continue;
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        "precedes relation resolves both endpoints to the same timeline event",
+        { precedes_cycle: true, entry_ids: [fromEntryId] },
+      );
     }
 
     adjacency.get(fromEventId)!.push(toEventId);

@@ -34,12 +34,12 @@ Atomic and structural beats interoperate: a beat-sheet row may reference one or 
 | Scene atom / micro-beat | `TimelineEvent` (`timeline_scale: "moment"`) | Dual KE: `entry_type: "event"` **or** profile `entry_type: "beat"` | `Scope.timeline_event_ids` and/or `Relation` `precedes` on **linked KE** `from_id` / `to_id` |
 | Beat on narrative tier | `TimelineEvent` (`timeline_scale: "narrative"`) | Dual KE `entry_type: "event"` | Same as above |
 | Beat-sheet slot label | `BodyAttribute` (`trait_type: "structural_role"`) on a KE body | `Relation` `fulfills` / `foreshadows` between KE `from_id` / `to_id` | Profile open strings; not core `enum` |
-| Ordered beat sheet (interchange sample) | Moment `TimelineEvent` sequence + dual KE pairs | `precedes` chain on KE ids (see §Dual-concern link) | Harbor fixture graph |
+| Ordered beat sheet (interchange sample) | Moment `TimelineEvent` sequence + dual KE pairs | `precedes` chain on KE ids (see §Dual-concern link) | Dual-concern link + optional `precedes` chain (see §Beat sheet) |
 | Scope filter for beat work | `Scope` with `timeline_scale: "moment"` and/or `timeline_event_ids` | `entry_types` when filtering profile `beat` KEs | [`spoke-ops.md`](spoke-ops.md) §Scope; ops [`filterTimelineEventsByMomentScale`](spoke-operations.md#14-narrative-sequence--timeline) |
 
 **Dual-concern (unchanged):** KnowledgeEntry `entry_type: "event"` is an ontology label; `TimelineEvent` is the L5 when-axis object. The same local beat may map to one or both. See [`spoke-data-model.md`](spoke-data-model.md) §Dual-concern example.
 
-**Dual-concern link (ordering):** `Relation` endpoints are **KnowledgeEntry** or SourceAnchor ids (`from_id`, `to_id`) — not `timeline_event_id`. For beat-sheet `precedes` chains, emit Relations between dual KE ids and link each moment `TimelineEvent` to its KE via `extensions.spoke.timeline_entry_id` (toy-world convention; see `evt_tw_harbor_dawn`). Pure ops helpers resolve precedes walks through that link. Integrators that omit dual KEs order moments with explicit `Scope.timeline_event_ids` only.
+**Dual-concern link (ordering):** `Relation` endpoints are **KnowledgeEntry** or SourceAnchor ids (`from_id`, `to_id`) — not `timeline_event_id`. For beat-sheet `precedes` chains, emit Relations between dual KE ids and link each moment `TimelineEvent` to its KE via `extensions.spoke.timeline_entry_id` (toy-world convention). Committed Harbor pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` with `extensions.spoke.timeline_entry_id` → `kb_tw_harbor_dawn_event`. Documented ops helpers ([`spoke-operations.md`](spoke-operations.md) §14) resolve `precedes` walks through that link. Integrators that omit dual KEs order moments with explicit `Scope.timeline_event_ids` only.
 
 **Profile-only `entry_type: "beat"`:** Valid open string for integrators publishing this profile. It remains **outside** the core `entry_type` table and schema `description` core lists. Adapters round-trip unknown `entry_type` values verbatim.
 
@@ -99,7 +99,7 @@ Integrators MAY emit values outside these tables. Adapters MUST round-trip unkno
 | `precedes` | Directed order: **from** beat occurs before **to** beat in beat-sheet or scene sequence | `from_id` / `to_id` = dual KE `entry_id` values for the beats being ordered |
 | `follows` | Inverse narrative of `precedes` (use one convention per graph; document in adapter) | Same KE endpoint rule |
 
-**`precedes` on TimelineEvents (schema-legal):** emit `precedes` between the **dual KnowledgeEntry** ids, not `timeline_event_id` values. Pair each moment `TimelineEvent` with its KE and set `TimelineEvent.extensions.spoke.timeline_entry_id` to that `entry_id`. Ops helpers and Harbor fixtures follow this link.
+**`precedes` on TimelineEvents (schema-legal):** emit `precedes` between the **dual KnowledgeEntry** ids, not `timeline_event_id` values. Pair each moment `TimelineEvent` with its KE and set `TimelineEvent.extensions.spoke.timeline_entry_id` to that `entry_id`. Harbor committed fixtures demonstrate the dual-concern link (`kb_tw_harbor_dawn_event` ↔ `evt_tw_harbor_dawn`); integrators MAY extend Harbor with KE-scoped `precedes` Relations for ordered beat-sheet samples.
 
 **`precedes` chain:** Beat-sheet interchange samples form a directed acyclic sequence on KE ids. Cycles → `orderTimelineEventsByPrecedes` rejects with `INVALID_INPUT` (`details.precedes_cycle`). See [`spoke-operations.md`](spoke-operations.md) §14.
 
@@ -126,7 +126,7 @@ Core starter vocabulary in [`spoke-data-model.md`](spoke-data-model.md) §Core `
 1. **Dual-concern + `precedes`:** KE `from_id` / `to_id` + `extensions.spoke.timeline_entry_id` on each `TimelineEvent`, **or**
 2. **Scope-only:** explicit `Scope.timeline_event_ids` array order (no Relations required).
 
-Harbor toy-world fixtures demonstrate (1) with committed `rel_tw_harbor_*` rows between `kb_tw_harbor_*` ids.
+Harbor toy-world fixtures demonstrate the dual-concern link (1): `kb_tw_harbor_dawn_event` paired with `evt_tw_harbor_dawn` via `extensions.spoke.timeline_entry_id`. Integrators MAY extend Harbor with `rel_tw_harbor_*` `precedes` rows between dual KE ids for ordered beat-sheet interchange samples.
 
 ---
 
@@ -154,7 +154,7 @@ kb_tw_harbor_beat_a --precedes--> kb_tw_harbor_beat_b --precedes--> kb_tw_harbor
 evt_tw_harbor_beat_a                    evt_tw_harbor_beat_b                 evt_tw_harbor_beat_c
 ```
 
-Reference sample: extend `fixtures/toy-world/` Harbor graph with 2–4 ordered moment events, matching dual KEs, and `rel_tw_harbor_*` `precedes` rows on KE ids. See [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md).
+Integrators MAY extend `fixtures/toy-world/` Harbor with 2–4 ordered moment events, matching dual KEs, and `rel_tw_harbor_*` `precedes` rows on KE ids. Sample ids for extension: `kb_tw_harbor_beat_a` … `kb_tw_harbor_beat_c`, `evt_tw_harbor_beat_a` … `evt_tw_harbor_beat_c`, `rel_tw_harbor_beat_*`. See [`fixtures/toy-world/README.md`](../../fixtures/toy-world/README.md) for the committed dual-concern pair.
 
 ---
 
@@ -171,21 +171,25 @@ Use profile `beat` when the integrator wants a dedicated ontology label distinct
 
 ---
 
-## Pure ops helpers (consumer contract)
+## Pure ops helpers (documented contracts)
 
-`@42ch/spoke-operations` / `spoke-operations` export:
+Normative helper contracts for moment-scale filter and beat-sheet ordering live in [`spoke-operations.md`](spoke-operations.md) §14:
 
-| TypeScript | Rust |
-|------------|------|
+| TypeScript (contract name) | Rust (contract name) |
+|----------------------------|----------------------|
 | `filterTimelineEventsByMomentScale` | `filter_timeline_events_by_moment_scale` |
 | `orderTimelineEventsByIds` | `order_timeline_events_by_ids` |
 | `orderTimelineEventsByPrecedes` | `order_timeline_events_by_precedes` |
+
+`@42ch/spoke-operations` and `spoke-operations` gain matching exports when the narrative-sequence ops slice lands.
+
+Contract summary (full rules in §14):
 
 - **Filter:** `timeline_scale === "moment"`; preserve input order.
 - **Order by ids:** output follows `orderedIds`; unlisted input events append in input order; unknown ids → `INVALID_INPUT`.
 - **Order by precedes:** walk `relation_type: "precedes"` on KE `from_id` / `to_id` via `extensions.spoke.timeline_entry_id` links; acyclic only; stable tie-break by ascending `timeline_event_id`.
 
-Helpers accept **caller-supplied** arrays — no I/O, storage, LLM, or ranking. Normative detail: [`spoke-operations.md`](spoke-operations.md) §14.
+Helpers accept **caller-supplied** arrays — no I/O, storage, LLM, or ranking.
 
 ---
 
@@ -210,4 +214,4 @@ Helpers accept **caller-supplied** arrays — no I/O, storage, LLM, or ranking. 
 | [`spoke-ops.md`](spoke-ops.md) | Scope refinements |
 | [`spoke-operations.md`](spoke-operations.md) | Pure moment filter / order helpers |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile, dual-concern, TimelineScale |
-| [`fixtures/toy-world/`](../../fixtures/toy-world/) | Harbor ordered-moment conformance samples |
+| [`fixtures/toy-world/`](../../fixtures/toy-world/) | Harbor dual-concern moment event sample (`kb_tw_harbor_dawn_event` ↔ `evt_tw_harbor_dawn`) |

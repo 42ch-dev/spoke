@@ -19,7 +19,7 @@ _No in-progress slices — Adapter aliases and `ToyWorldAdapter` reference examp
 
 | Slice | Focus |
 |-------|--------|
-| Consumer-repo product bindings | Product-specific adapter packages that implement operations ports, own persistence/transactions, and map product DTOs ↔ SPOKE wire (e.g. Creader / Nexus L2 bindings when scheduled) |
+| Consumer-repo product bindings | In **consumer repositories** (not this protocol repo): implement operations ports, own persistence/transactions, and map product DTOs ↔ SPOKE wire (e.g. Creader / Nexus L2). Reference shape: `fixtures/toy-world/` ToyWorldAdapter — no in-repo `adapters/*` tree |
 
 ---
 
@@ -67,10 +67,11 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 - Shared daemon / MCP server / single multi-product runtime
 - I/O, LLM, ranking, retrieval, or product detectors inside `@42ch/spoke-operations`
 - Protocol-fixture AJV/fs harness inside `@42ch/spoke-operations` (belongs under `fixtures/`)
+- In-repo `adapters/*` product binding packages — product DTO↔SPOKE adapters live in consumer repositories; this repo keeps port contracts + `fixtures/toy-world/` reference examples only
 - Default full manuscript text on the wire
 - Closed forever enums that freeze product ontology growth
 - Creator Memory / unpromoted chat as KnowledgeEntry graph canon
-- Publishing fixture, codegen, or adapter packages to registries
+- Publishing fixture or codegen packages to registries
 
 ---
 

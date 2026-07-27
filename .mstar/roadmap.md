@@ -17,9 +17,8 @@
 
 | Slice | What ships | Notes |
 |-------|------------|-------|
-| **Beat-assist protocol slice** (in progress) | [`domain-profile-narrative-structure.md`](specs/domain-profile-narrative-structure.md); Harbor ordered-moment fixtures; pure moment filter/order ops helpers (TS + Rust) | Merge to `main` only — no SemVer bump in-slice |
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
-| **Registry release** (when convenient) | New release workflow after ops helpers land on `main` | Optional SemVer cut via **New release** when maintainers choose — not gated on docs site |
+| **Registry release** (when convenient) | SemVer cut after beat-assist helpers land on `main` | Optional via **New release** when maintainers choose — not gated on docs site |
 
 Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 
@@ -31,6 +30,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-28 | Beat-assist protocol slice | Domain Profile handbook [`domain-profile-narrative-structure.md`](specs/domain-profile-narrative-structure.md); Harbor ordered-moment beat chain + KE-scoped `precedes`; pure timeline sequence helpers (TS + Rust); knowledge `beat-assist-moment-sequence` |
 | 2026-07-27 | Host capability collaboration | `HostCapabilityManifest` schema + codegen (inventory **24**); five-role / ns-exclusivity / authority normative specs; baseline-required `HostManifestPort` (TS+Rust); toy-world dual manifests + fixture-backed adapters |
 | 2026-07-27 | ToyWorldAdapter reference examples | Runnable TS `ToyWorldAdapter` (`fixtures/toy-world/src/adapter/`) + Rust `spoke-fixture-toy-world` (`fixtures/toy-world/rust/`); CI `cargo test -p spoke-fixture-toy-world` |
 | 2026-07-27 | Adapter aliases | `*Adapter` composed-port aliases in TS/Rust ops; integrator docs point to operations + `fixtures/toy-world/` |

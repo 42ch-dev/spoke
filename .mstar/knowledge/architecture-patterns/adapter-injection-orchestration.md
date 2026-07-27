@@ -31,3 +31,10 @@ Pure helpers keep lifecycle invariants consistent, but every product still inven
 - `architecture-patterns/spoke-operations-pure-actions.md` — pure helper families
 - `architecture-patterns/rust-spoke-operations-parity.md` — Rust crate layout and reject-code parity
 - `fixtures/toy-world/` — reference `ToyWorldAdapter` (TS: `src/adapter/`; Rust: `spoke-fixture-toy-world` under `rust/`)
+
+## Adopter path
+
+1. Choose capability flags (`spoke-baseline`, optional `l2-computable`, optional `l5-fork`).
+2. Implement **one** adapter type satisfying the matching `*Port` families (type as `BaselineAdapter` / `FullAdapter` aliases).
+3. Call `orchestrate*` / `orchestrate_*` with that adapter; own persistence, transactions, and DTO mapping in the product runtime.
+4. Copy patterns from `fixtures/toy-world/` (`ToyWorldAdapter` TS + `spoke-fixture-toy-world` Rust).

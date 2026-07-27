@@ -9,9 +9,7 @@
 
 ## Now (in progress)
 
-| Slice | Focus |
-|-------|--------|
-| ToyWorldAdapter reference | Ship reference `ToyWorldAdapter` in TypeScript and Rust under `fixtures/toy-world/` |
+_No in-progress slices — Adapter aliases and `ToyWorldAdapter` reference examples under `fixtures/toy-world/` are delivered._
 
 **Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper. Composed-port aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) export from `@42ch/spoke-operations` and `spoke-operations`; reference examples and conformance harness live under `fixtures/toy-world/`.
 
@@ -31,6 +29,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-27 | ToyWorldAdapter reference examples | Runnable TS `ToyWorldAdapter` (`fixtures/toy-world/src/adapter/`) + Rust `spoke-fixture-toy-world` (`fixtures/toy-world/rust/`); CI `cargo test -p spoke-fixture-toy-world` |
 | 2026-07-27 | Adapter aliases | `*Adapter` composed-port aliases in TS/Rust ops; integrator docs point to operations + `fixtures/toy-world/` |
 | 2026-07-26 | Adapter interfaces + injection orchestration | Capability-sliced ports + `orchestrate*` / `orchestrate_*` in TS and Rust ops packages; `CAPABILITY_PORT_MISSING`; mock-backed orchestration tests; normative matrix in [spoke-operations.md](specs/spoke-operations.md) |
 | 2026-07-26 | L2 typed closed body + trait helpers | Closed `body` with optional `summary` / `tags` / `BodyAttribute[]`; codegen; Mira traits fixture; pure TS/Rust trait read helpers; SemVer-agnostic `bump-version` tests; knowledge `l2-closed-body-and-traits` + `release-bump-tests-version-agnostic` |

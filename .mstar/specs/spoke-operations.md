@@ -739,7 +739,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 ### Adapter interfaces + injection orchestration
 
 - [x] Capability → interface family → methods matrix complete for `spoke-baseline` (six families incl. `HostManifestPort`), `l2-computable`, and `l5-fork` (no TBD cells)
-- [ ] `HostManifestPort` exported + required on `BaselinePorts` / `BaselineAdapter` (TS + Rust)
+- [x] `HostManifestPort` exported + required on `BaselinePorts` / `BaselineAdapter` (TS + Rust)
 - [x] Host collaboration section documents roles↔ports map, namespace exclusivity, peer-list semantics, and `HostManifestPort` contract
 - [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
 - [x] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table

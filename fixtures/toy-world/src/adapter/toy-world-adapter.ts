@@ -11,6 +11,7 @@ import type {
   ComputeResponse,
   Finding,
   ForkId,
+  HostCapabilityManifest,
   KnowledgeEntry,
   ProjectRequest,
   ProjectResponse,
@@ -38,6 +39,15 @@ function loadOpFixture<T>(filename: string): T {
   const raw = readFileSync(join(TOY_WORLD_FIXTURES_ROOT, filename), "utf8");
   return JSON.parse(raw) as T;
 }
+
+const TOY_WORLD_HOST_MANIFEST: HostCapabilityManifest = {
+  schema_version: 1,
+  host_id: "host_tw_adapter",
+  roles: ["data-store", "checker", "assembler", "input-source"],
+  capabilities: ["spoke-baseline"],
+  namespaces: ["toy_world"],
+  extensions: {},
+};
 
 /**
  * Toy-world reference adapter — implements FullAdapter over an in-memory store.
@@ -89,6 +99,14 @@ export class ToyWorldAdapter implements FullAdapter {
 
   listRules(ruleRefs: string[]): SpokeResult<Rule[]> {
     return this.store.listRules(ruleRefs);
+  }
+
+  getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+    return spokeOk(TOY_WORLD_HOST_MANIFEST);
+  }
+
+  listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
+    return spokeOk([]);
   }
 
   /**
@@ -161,5 +179,8 @@ export function asBaselineOnly(adapter: ToyWorldAdapter): BaselineAdapter {
     listTimelineEvents: (scope) => adapter.listTimelineEvents(scope),
     putFindings: (findings) => adapter.putFindings(findings),
     listRules: (ruleRefs) => adapter.listRules(ruleRefs),
+    getHostCapabilityManifest: () => adapter.getHostCapabilityManifest(),
+    listPeerHostCapabilityManifests: () =>
+      adapter.listPeerHostCapabilityManifests(),
   };
 }

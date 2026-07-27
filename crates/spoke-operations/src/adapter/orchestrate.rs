@@ -645,8 +645,8 @@ pub fn orchestrate_fork_assemble(
 mod tests {
     use super::*;
     use crate::adapter::ports::{
-        ComputablePort, FindingPort, ForkTimelineQueryPort, KnowledgeEntryPort, RelationPort,
-        RuleQueryPort, ScopeQueryPort,
+        ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
+        RelationPort, RuleQueryPort, ScopeQueryPort,
     };
     use crate::result::SpokeResult;
     use serde_json::json;
@@ -810,6 +810,30 @@ mod tests {
         }
     }
 
+    fn memory_baseline_host_manifest() -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": "memory-baseline",
+            "roles": ["data-store"],
+            "capabilities": ["spoke-baseline"],
+            "namespaces": ["default"],
+            "extensions": {}
+        }))
+        .expect("valid HostCapabilityManifest")
+    }
+
+    impl HostManifestPort for MemoryBaselinePorts {
+        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            spoke_ok(memory_baseline_host_manifest())
+        }
+
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            spoke_ok(Vec::new())
+        }
+    }
+
     struct MemoryComputablePorts {
         baseline: MemoryBaselinePorts,
         projected: RefCell<Vec<ProjectRequest>>,
@@ -860,6 +884,17 @@ mod tests {
     impl RuleQueryPort for MemoryComputablePorts {
         fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
             self.baseline.list_rules(rule_refs)
+        }
+    }
+    impl HostManifestPort for MemoryComputablePorts {
+        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest()
+        }
+
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            self.baseline.list_peer_host_capability_manifests()
         }
     }
     impl ComputablePort for MemoryComputablePorts {
@@ -938,6 +973,17 @@ mod tests {
             self.baseline.list_rules(rule_refs)
         }
     }
+    impl HostManifestPort for MemoryForkPorts {
+        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest()
+        }
+
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            self.baseline.list_peer_host_capability_manifests()
+        }
+    }
     impl ForkTimelineQueryPort for MemoryForkPorts {
         fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             self.fork_list_calls.borrow_mut().push(scope.clone());
@@ -1000,6 +1046,17 @@ mod tests {
             self.baseline.list_rules(rule_refs)
         }
     }
+    impl HostManifestPort for MissingComputablePorts {
+        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest()
+        }
+
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            self.baseline.list_peer_host_capability_manifests()
+        }
+    }
     impl ComputablePorts for MissingComputablePorts {
         fn as_computable(&self) -> Option<&dyn ComputablePort> {
             None
@@ -1044,6 +1101,17 @@ mod tests {
     impl RuleQueryPort for MissingForkPorts {
         fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
             self.baseline.list_rules(rule_refs)
+        }
+    }
+    impl HostManifestPort for MissingForkPorts {
+        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest()
+        }
+
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            self.baseline.list_peer_host_capability_manifests()
         }
     }
     impl ForkPorts for MissingForkPorts {
@@ -1351,6 +1419,17 @@ mod tests {
             self.baseline.list_rules(rule_refs)
         }
     }
+    impl HostManifestPort for OccBaselinePorts {
+        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest()
+        }
+
+        fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+            self.baseline.list_peer_host_capability_manifests()
+        }
+    }
 
     #[test]
     fn orchestrate_promote_forces_persisted_revision_to_stored_plus_one() {
@@ -1519,6 +1598,19 @@ mod tests {
         impl RuleQueryPort for UpsertOccPorts {
             fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
                 self.baseline.list_rules(rule_refs)
+            }
+        }
+        impl HostManifestPort for UpsertOccPorts {
+            fn get_host_capability_manifest(
+                &self,
+            ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+                self.baseline.get_host_capability_manifest()
+            }
+
+            fn list_peer_host_capability_manifests(
+                &self,
+            ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+                self.baseline.list_peer_host_capability_manifests()
             }
         }
 

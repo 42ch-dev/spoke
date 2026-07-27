@@ -76,6 +76,7 @@ export type {
   ScopeQueryPort,
   FindingPort,
   RuleQueryPort,
+  HostManifestPort,
   ComputablePort,
   ForkTimelineQueryPort,
   BaselinePorts,

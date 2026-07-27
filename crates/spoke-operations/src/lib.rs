@@ -55,7 +55,8 @@ pub use adapter::{
     orchestrate_fork_check, orchestrate_project, orchestrate_promote, orchestrate_relate,
     orchestrate_upsert, BaselineAdapter, BaselinePorts, CheckRunInput, ComputableAdapter,
     ComputablePort, ComputablePorts, FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort,
-    FullAdapter, FullPorts, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+    FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort,
 };
 
 /// Re-export wire types for integrator convenience.

@@ -5,12 +5,12 @@ use std::sync::Mutex;
 use serde_json::json;
 use spoke_operations::{
     spoke_ok, spoke_reject, ComputablePort, ComputablePorts, FindingPort, ForkPorts,
-    ForkTimelineQueryPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeRejectCode, SpokeResult,
+    ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
-    ComputeRequest, ComputeResponse, Finding, KnowledgeEntry, ProjectRequest, ProjectResponse,
-    Relation, Rule, Scope, TimelineEvent,
+    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 use crate::memory_store::{load_op_fixture, MemoryStore, MemoryStoreSeed};
@@ -97,6 +97,28 @@ impl FindingPort for ToyWorldAdapter {
 impl RuleQueryPort for ToyWorldAdapter {
     fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
         self.with_store(|store| store.list_rules(rule_refs))
+    }
+}
+
+fn toy_world_host_manifest() -> HostCapabilityManifest {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "host_id": "host_tw_adapter",
+        "roles": ["data-store", "checker", "assembler", "input-source"],
+        "capabilities": ["spoke-baseline"],
+        "namespaces": ["toy_world"],
+        "extensions": {}
+    }))
+    .expect("valid HostCapabilityManifest")
+}
+
+impl HostManifestPort for ToyWorldAdapter {
+    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        spoke_ok(toy_world_host_manifest())
+    }
+
+    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        spoke_ok(Vec::new())
     }
 }
 
@@ -242,6 +264,16 @@ impl FindingPort for BaselineOnlyAdapter {
 impl RuleQueryPort for BaselineOnlyAdapter {
     fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
         self.inner.list_rules(rule_refs)
+    }
+}
+
+impl HostManifestPort for BaselineOnlyAdapter {
+    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        self.inner.get_host_capability_manifest()
+    }
+
+    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        self.inner.list_peer_host_capability_manifests()
     }
 }
 

@@ -1,6 +1,6 @@
 # spoke-operations
 
-Hand-written Rust lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, `AssemblePacket` builders, **capability-sliced adapter port traits**, and **injection orchestration**.
+Hand-written Rust lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, timeline sequence helpers, `AssemblePacket` builders, **capability-sliced adapter port traits**, and **injection orchestration**.
 
 Depends on [`spoke-schemas`](https://crates.io/crates/spoke-schemas) for wire types. Behavioral parity with [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) (TypeScript).
 
@@ -64,6 +64,7 @@ Optional capabilities use `ComputablePorts` / `ForkPorts` with `orchestrate_proj
 - `knowledge_entry_to_assemble_entry`, `build_assemble_packet`
 - Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
 - `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` — read/filter `body.attributes` by `trait_type`
+- `filter_timeline_events_by_moment_scale`, `order_timeline_events_by_ids`, `order_timeline_events_by_precedes` — filter and order moment-scale TimelineEvents from caller-supplied sets
 - Adapter ports + orchestration: `KnowledgeEntryPort` … `HostManifestPort` … `FullAdapter`, `CheckRunInput`, `orchestrate_upsert` … `orchestrate_fork_assemble`
 
 Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in crate `spoke-fixture-toy-world` under `rust/`).

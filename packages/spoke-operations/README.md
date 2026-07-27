@@ -1,6 +1,6 @@
 # @42ch/spoke-operations
 
-Hand-written TypeScript lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, `AssemblePacket` builders, **capability-sliced adapter ports**, and **injection orchestration**.
+Hand-written TypeScript lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, timeline sequence helpers, `AssemblePacket` builders, **capability-sliced adapter ports**, and **injection orchestration**.
 
 Depends on [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) for wire types. Behavioral parity with the Rust crate [`spoke-operations`](https://crates.io/crates/spoke-operations).
 

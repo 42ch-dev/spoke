@@ -784,9 +784,9 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 
 ### Narrative sequence (`timeline/*` beat assist)
 
-- [ ] `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` exported from `@42ch/spoke-operations` `src/index.ts`
-- [ ] `filter_timeline_events_by_moment_scale`, `order_timeline_events_by_ids`, `order_timeline_events_by_precedes` re-exported from `spoke-operations` `src/lib.rs`
-- [ ] §14 documents filter/order semantics, dual KE link rule, cycle reject, stable sort
+- [x] `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` exported from `@42ch/spoke-operations` `src/index.ts`
+- [x] `filter_timeline_events_by_moment_scale`, `order_timeline_events_by_ids`, `order_timeline_events_by_precedes` re-exported from `spoke-operations` `src/lib.rs`
+- [x] §14 documents filter/order semantics, dual KE link rule, cycle reject, stable sort
 
 ### Adapter interfaces + injection orchestration
 

@@ -100,7 +100,7 @@ Baseline compliance MUST NOT require either flag.
 | Core stays open | `entry_type`, statuses, relation types remain open strings in schemas |
 | Profile documents vocabulary | Published tables (product KB / ontology types) live in **adapter specs**, product docs, or future Showcases — not closed `enum` in core |
 | Profile is not a fork | Products MUST NOT fork `knowledge-entry.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
-| Adapter role | `adapters/*` maps product DTOs ↔ SPOKE; implements operations port families; calls `@42ch/spoke-operations` / `spoke-operations` for shared gates and [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
+| Adapter role | Product adapters in consumer repositories (or reference examples in `fixtures/toy-world/`) map product DTOs ↔ SPOKE; implement operations port families; call `@42ch/spoke-operations` / `spoke-operations` for shared gates and [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 
 ## Layer ↔ artifact map
 

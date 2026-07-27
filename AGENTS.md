@@ -22,7 +22,7 @@ Tracked **results** that agents and humans reuse as protocol SSOT must state **c
 |------------|----------------------|
 | Current wire names, fields, vocabularies, dual-concern rules, capability levels | Deprecated / retired names (e.g. draft Keyblock), rename history, “formerly / superseded / early drafts” |
 | Normative invariants and positive capability | Iteration ship banners, plan ids, “in this slice we renamed…” |
-| Protocol-neutral examples | Named external product runtimes as concept owners inside `CONCEPTS.md` (product binding tables belong in adapters / future Showcases — not here) |
+| Protocol-neutral examples | Named external product runtimes as concept owners inside `CONCEPTS.md` (product binding tables belong in consumer repositories / future Showcases — not here) |
 
 **Applies to:** `.mstar/specs/`, `.mstar/knowledge/`, `.mstar/roadmap.md` (durable rows), root `CONCEPTS.md`, and other tracked result docs. Process paths (`plans/`, `iterations/`, `sdd/`) may record history locally; do not promote that narrative into results without rewriting as present-tense facts.
 
@@ -44,7 +44,7 @@ Do not put plan progress or residual detail in this file.
 ### Boundaries agents must enforce (not human-README copy)
 
 - SPOKE is a **protocol repo**, not a product runtime, daemon, or shared database.
-- `adapters/` holds **README purpose text only** for now — no product subdirs, packages, or mapping code until an iteration schedules them.
+- Reference `ToyWorldAdapter` examples live under `fixtures/toy-world/` (TypeScript `src/adapter/`; Rust crate `spoke-fixture-toy-world` in `rust/`, `publish = false`). Product binding packages ship in consumer repositories when scheduled.
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
@@ -65,7 +65,7 @@ Do not put plan progress or residual detail in this file.
 - **TS package:** `@42ch/spoke-schemas` → `packages/spoke-schemas/`
 - **Rust crates:** `spoke-schemas` → `crates/spoke-schemas/`; `spoke-operations` → `crates/spoke-operations/`
 - **Extensions:** `extensions.<namespace>` only; core fields closed
-- **Adapters:** deferred — `adapters/README.md` only until scheduled
+- **Adapters:** reference examples in `fixtures/toy-world/`; product bindings in consumer repos
 
 ## Conflict priority
 

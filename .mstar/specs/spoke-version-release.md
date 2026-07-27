@@ -128,7 +128,7 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Registry auth | npm and crates.io: Trusted Publishing only (org `42ch-dev`, repo `spoke`, workflow **`release.yml`** as top-level filename) |
 | Operator cut | `new-release.yml` opens labeled PR with GraphQL-signed bump; merge triggers this workflow’s `tag` job |
 
-**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `pnpm run test:release` (lockstep assert/bump unit tests), `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
+**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `pnpm run test:release` (lockstep assert/bump unit tests), `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `cargo test -p spoke-fixture-toy-world` (private fixture crate; excluded from `publish-crates`), `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
 ### README version badge assert
 

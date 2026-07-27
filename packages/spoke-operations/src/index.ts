@@ -82,6 +82,10 @@ export type {
   ComputablePorts,
   ForkPorts,
   FullPorts,
+  BaselineAdapter,
+  ComputableAdapter,
+  ForkAdapter,
+  FullAdapter,
 } from "./adapter/ports.js";
 
 export {

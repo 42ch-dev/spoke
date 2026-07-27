@@ -31,6 +31,14 @@ Useful scripts (repo root):
 
 Schema changes and generated output belong in the **same** commit.
 
+Rust crates (from repo root):
+
+```bash
+cargo check -p spoke-schemas
+cargo test -p spoke-operations
+cargo test -p spoke-fixture-toy-world
+```
+
 ### Workspace / path dependencies
 
 When this repo is a pnpm workspace member of another monorepo:

@@ -22,7 +22,7 @@ Without a shared operations library, every product reimplements the same pure ru
 |-------|--------------|------|--------------|
 | **Wire schemas** | Hand-written JSON Schema in `schemas/` → generated `@42ch/spoke-schemas` | Object shapes, ops request/response envelopes, `extensions` bag presence | Lifecycle transitions, merge semantics, promote gates |
 | **Operations library** | Hand-written TypeScript in `packages/spoke-operations/`; hand-written Rust in `crates/spoke-operations/` | Pure helpers over generated types; capability-sliced port contracts; injection orchestration | HTTP/MCP, persistence engines, LLM, ranking, retrieval, product-specific detectors |
-| **Adapters** | Hand-written per product in `adapters/*` | Product DTO ↔ SPOKE mapping; transport binding; port implementations | Reimplementing operations invariants (MUST call library instead) |
+| **Adapters** | Hand-written per product in consumer repositories, or as reference examples in `fixtures/toy-world/` | Product DTO ↔ SPOKE mapping; transport binding; port implementations | Reimplementing operations invariants (MUST call library instead) |
 
 ### Hard In / Out
 
@@ -526,6 +526,42 @@ type ForkPorts = BaselinePorts & ForkTimelineQueryPort;
 type FullPorts = BaselinePorts & ComputablePort & ForkTimelineQueryPort;
 ```
 
+### Adapter aliases (normative)
+
+Integrators implement **one** adapter type (class/struct) that satisfies the port families for the capabilities they claim. The operations packages export **Adapter** aliases as ergonomic names for the composed port intersections below. Individual capability families remain `*Port`; legacy `*Ports` type names remain exported.
+
+| Adapter alias | Equivalent composed ports | Capabilities |
+|---------------|---------------------------|--------------|
+| `BaselineAdapter` | `BaselinePorts` | `spoke-baseline` |
+| `ComputableAdapter` | `ComputablePorts` | baseline + `l2-computable` |
+| `ForkAdapter` | `ForkPorts` | baseline + `l5-fork` |
+| `FullAdapter` | `FullPorts` | baseline + computable + fork |
+
+Rust exports the same names with TS/Rust parity per the **Alias implementation** table below.
+
+**Adopter path:** implement the `*Port` families on one type, pass it to `orchestrate*` / `orchestrate_*`. Reference implementations: `fixtures/toy-world/` (TypeScript and Rust).
+
+### Alias implementation (normative)
+
+| Language | Shape | Location |
+|----------|-------|----------|
+| TypeScript | `export type BaselineAdapter = BaselinePorts` (and same for `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) | `packages/spoke-operations/src/adapter/ports.ts` → flat-re-export `src/index.ts` |
+| Rust | Marker traits `pub trait BaselineAdapter: BaselinePorts {}` with blanket `impl<T: BaselinePorts> BaselineAdapter for T {}` (same for `ComputableAdapter: ComputablePorts`, `ForkAdapter: ForkPorts`, `FullAdapter: FullPorts`) | `crates/spoke-operations/src/adapter/ports.rs` → flat-re-export `src/lib.rs` |
+
+Orchestrator signatures keep `&impl BaselinePorts` (etc.); `&impl BaselineAdapter` is equivalent via the blanket impl. Legacy `*Ports` names remain exported.
+
+### Reference adapter stub policy (normative)
+
+`fixtures/toy-world/` reference `ToyWorldAdapter` examples demonstrate **FullAdapter** composition:
+
+| Port family | Reference behavior |
+|-------------|-------------------|
+| Baseline five families | Runnable in-memory OCC store; optional seed from committed `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*` JSON |
+| `ComputablePort` | Minimal wire-valid `ProjectResponse` / `ComputeResponse` synthesized from committed `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo `session_id`, `entry_id`, fixture-shaped `computable` / `state`) |
+| `ForkTimelineQueryPort` | Returns seeded timeline events filtered by `scope.fork_id` from committed graph (e.g. `evt_tw_harbor_dawn.json` when fork scope matches) |
+
+`CAPABILITY_PORT_MISSING` is **not** the default Full stub. Demonstrate it in **one** negative test per language using a baseline-only adapter at a dynamic optional boundary (parity with in-package `orchestrate` tests).
+
 These are conceptual public types; Rust implementers satisfy the corresponding trait bounds. Optional orchestrators require the matching composed type at compile time. At JavaScript boundaries and for dynamically assembled Rust trait objects, an absent optional method returns `SpokeReject { code: "CAPABILITY_PORT_MISSING", ... }` rather than a `TypeError` or panic.
 
 ## Injection Orchestration (normative)
@@ -576,6 +612,10 @@ TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and 
 | `RuleQueryPort` | `RuleQueryPort` |
 | `ComputablePort` | `ComputablePort` |
 | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` |
+| `BaselineAdapter` | `BaselineAdapter` (marker trait; TS: `type BaselineAdapter = BaselinePorts`) |
+| `ComputableAdapter` | `ComputableAdapter` (marker trait; TS: `type ComputableAdapter = ComputablePorts`) |
+| `ForkAdapter` | `ForkAdapter` (marker trait; TS: `type ForkAdapter = ForkPorts`) |
+| `FullAdapter` | `FullAdapter` (marker trait; TS: `type FullAdapter = FullPorts`) |
 | `CheckRunInput` | `CheckRunInput` |
 | `orchestrateUpsert` | `orchestrate_upsert` |
 | `orchestratePromote` | `orchestrate_promote` |
@@ -667,7 +707,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 
 ### Pure helpers and wire gates
 
-- Product DTO conversion packages under `adapters/<product>/`
+- Product DTO conversion in consumer product repositories (outside this protocol repo)
 - Conformance fixtures / golden files (owned by `fixtures/toy-world/`)
 - `Rule` evaluation, checker engines, Guardian detectors
 - HTTP/MCP binding or daemon routes
@@ -676,7 +716,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 - HTTP/MCP status code tables
 - Compute engine execution, WASM, Session store I/O
 
-Product adapter packages implement the ports defined here; they are scheduled separately from this library surface.
+Product adapter implementations satisfy the ports defined here; they ship in consumer repos when scheduled. Reference `ToyWorldAdapter` examples live under `fixtures/toy-world/` (TS `src/adapter/`; Rust `spoke-fixture-toy-world` in `rust/`).
 
 ## Related paths
 
@@ -689,3 +729,5 @@ Product adapter packages implement the ports defined here; they are scheduled se
 | `packages/spoke-operations/` | TypeScript operations library (pure helpers + adapter ports/orchestration) |
 | `crates/spoke-operations/` | Rust operations library — behavioral parity with `@42ch/spoke-operations` at lockstep SemVer |
 | `crates/spoke-schemas/` | Generated Rust wire types |
+| `fixtures/toy-world/src/adapter/` | TypeScript reference `ToyWorldAdapter` (private workspace package) |
+| `fixtures/toy-world/rust/` | Rust `spoke-fixture-toy-world` crate (`publish = false`) |

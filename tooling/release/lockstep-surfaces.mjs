@@ -39,7 +39,11 @@ export const CARGO_LOCK_PATH = "Cargo.lock";
  * match the lockstep SemVer.
  * @type {readonly string[]}
  */
-export const CARGO_LOCK_PACKAGE_NAMES = ["spoke-schemas", "spoke-operations"];
+export const CARGO_LOCK_PACKAGE_NAMES = [
+  "spoke-schemas",
+  "spoke-operations",
+  "spoke-fixture-toy-world",
+];
 
 /**
  * @param {string} version

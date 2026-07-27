@@ -42,4 +42,4 @@ Rust integrators already pin `spoke-schemas` on crates.io but had no published p
 - Adapter modules: `crates/spoke-operations/src/adapter.rs` (`ports` / `orchestrate`) with OQ-4 parity export checklist test
 - Lockstep + publish: `architecture-patterns/lockstep-semver-release.md`
 - Crate README: `crates/spoke-operations/README.md`
-- CI verify: `cargo test -p spoke-operations` in `.github/workflows/ci.yml` and `release.yml`
+- CI verify: `cargo test -p spoke-operations` and `cargo test -p spoke-fixture-toy-world` in `.github/workflows/ci.yml` and `release.yml` (fixture crate excluded from `publish-crates`)

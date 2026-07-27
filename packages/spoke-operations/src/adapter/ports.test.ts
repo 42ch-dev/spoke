@@ -29,6 +29,10 @@ import {
   type ComputablePorts,
   type ForkPorts,
   type FullPorts,
+  type BaselineAdapter,
+  type ComputableAdapter,
+  type ForkAdapter,
+  type FullAdapter,
 } from "../index.js";
 
 describe("adapter port exports", () => {
@@ -110,6 +114,37 @@ describe("adapter port exports", () => {
     expect(typeof forkPorts.listForkTimelineEvents).toBe("function");
     expect(typeof fullPorts.compute).toBe("function");
     expect(typeof fullPorts.listForkTimelineEvents).toBe("function");
+  });
+
+  it("*Adapter aliases are assignable from matching *Ports compositions", () => {
+    const baseline: BaselinePorts = {
+      getKnowledgeEntry: () => spokeOk({} as KnowledgeEntry),
+      putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
+      putRelation: (relation) => spokeOk(relation),
+      listKnowledgeEntries: () => spokeOk([]),
+      listTimelineEvents: () => spokeOk([]),
+      putFindings: (findings) => spokeOk(findings),
+      listRules: () => spokeOk([]),
+    };
+
+    const computable: ComputablePort = {
+      project: () => spokeOk({} as ProjectResponse),
+      compute: () => spokeOk({} as ComputeResponse),
+    };
+
+    const fork: ForkTimelineQueryPort = {
+      listForkTimelineEvents: () => spokeOk([]),
+    };
+
+    const baselineAdapter: BaselineAdapter = baseline;
+    const computableAdapter: ComputableAdapter = { ...baseline, ...computable };
+    const forkAdapter: ForkAdapter = { ...baseline, ...fork };
+    const fullAdapter: FullAdapter = { ...baseline, ...computable, ...fork };
+
+    expect(typeof baselineAdapter.getKnowledgeEntry).toBe("function");
+    expect(typeof computableAdapter.project).toBe("function");
+    expect(typeof forkAdapter.listForkTimelineEvents).toBe("function");
+    expect(typeof fullAdapter.compute).toBe("function");
   });
 
   it("individual port interfaces are assignable by method shape", () => {

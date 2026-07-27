@@ -2,7 +2,7 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-27  
+**Updated:** 2026-07-28  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
@@ -15,7 +15,13 @@
 
 ## Up next (planned)
 
-_No planned slices queued in this protocol repo._ Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
+| Slice | What ships | Notes |
+|-------|------------|-------|
+| **Beat-assist protocol slice** (in progress) | [`domain-profile-narrative-structure.md`](specs/domain-profile-narrative-structure.md); Harbor ordered-moment fixtures; pure moment filter/order ops helpers (TS + Rust) | Merge to `main` only — no SemVer bump in-slice |
+| **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
+| **Registry release** (when convenient) | New release workflow after ops helpers land on `main` | Optional SemVer cut via **New release** when maintainers choose — not gated on docs site |
+
+Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 
 ---
 
@@ -81,6 +87,7 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`.mstar/specs/spoke-protocol.md`](specs/spoke-protocol.md) | Normative umbrella |
 | [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) | Lockstep SemVer, tags, CI-gated GitHub Release, registry publish |
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
+| [`.mstar/specs/domain-profile-narrative-structure.md`](specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping |
 | [`knowledge/architecture-patterns/l5-fork-timeline-event-wire.md`](knowledge/architecture-patterns/l5-fork-timeline-event-wire.md) | Compound note on optional Fork wire |
 | [`knowledge/architecture-patterns/spoke-codegen-pipeline.md`](knowledge/architecture-patterns/spoke-codegen-pipeline.md) | Codegen inventory, OpaqueJson, Rust typify strategy A |
 | [`schemas/`](../schemas/) | Wire SSOT |

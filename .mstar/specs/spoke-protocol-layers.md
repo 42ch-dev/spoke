@@ -104,6 +104,7 @@ Baseline compliance MUST NOT require either flag.
 | Profile documents vocabulary | Published tables (product KB / ontology types) live in **adapter specs**, product docs, or future Showcases — not closed `enum` in core |
 | Profile is not a fork | Products MUST NOT fork `knowledge-entry.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
 | Adapter role | Product adapters in consumer repositories (or reference examples in `fixtures/toy-world/`) map product DTOs ↔ SPOKE; implement operations port families; call `@42ch/spoke-operations` / `spoke-operations` for shared gates and [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
+| Tracked profile handbooks | Narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) |
 
 ## Layer ↔ artifact map
 
@@ -162,3 +163,4 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust B — nine layers on the wire |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule, HostCapabilityManifest vocabulary |
+| [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping handbook |

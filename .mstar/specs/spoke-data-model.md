@@ -315,7 +315,7 @@ The same story beat may appear as **both** wire shapes — products choose mappi
 | KnowledgeEntry (`entry_type: "event"`) | KB fact node “Treaty of Ashford” with structured `body` |
 | TimelineEvent | When-axis placement with `timeline_scale: "narrative"` and `timeline_event_id` |
 
-Toy-world dual-concern fixture pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` — see [`fixtures/toy-world/`](../../fixtures/toy-world/).
+Toy-world dual-concern fixture pair: `kb_tw_harbor_dawn_event` + `evt_tw_harbor_dawn` — see [`fixtures/toy-world/`](../../fixtures/toy-world/). Beat-assisted outlining (moment-scale atoms, `precedes` order, `structural_role`) — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md).
 
 ---
 
@@ -662,7 +662,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `rule`* | **Add** (core) | Ontology label `entry_type: "rule"`; **≠** L6 `Rule` object |
 | `note`, `research` | **Keep** (core) | Authoring extras; not shown on canvas `TYPE_MAP` |
 | `dialogue` | **Profile-only** | Domain Profile / adapter spec |
-| `beat` | **Profile-only** | Domain Profile / adapter spec |
+| `beat` | **Profile-only** | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) |
 | `species`, `magic_system` | **Profile-only** | Typically under worldbuilding profile |
 
 **Dual-concern quick reference:**
@@ -711,7 +711,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; World/Book ids in `extensions` or adapters — see [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
-- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md)
+- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md)
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
 - **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body
 - **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`

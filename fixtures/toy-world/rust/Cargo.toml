@@ -13,6 +13,3 @@ spoke-operations = { path = "../../../crates/spoke-operations" }
 spoke-schemas = { path = "../../../crates/spoke-schemas" }
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true

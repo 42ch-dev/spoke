@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.4.0] - 2026-07-27
+
+
+### Added
+
+- **toy-world:** Add HostCapabilityManifest JSON fixtures
+
+
+### Changed
+
+- **toy-world:** Cover peer manifest normalization edge cases
+
+
+### Documentation
+
+- **toy-world:** State host manifest facts affirmatively
+
+
+### Fixed
+
+- **operations:** UTF-8 byte order peer sort in orchestrate tests
+
+- **toy-world:** Return defensive HostCapabilityManifest copies
+
+
+### Internal
+
+- **docs:** Close host-capability collaboration compound and roadmap.
+
 ## [0.3.0] - 2026-07-27
 
 

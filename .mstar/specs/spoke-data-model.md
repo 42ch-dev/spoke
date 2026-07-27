@@ -114,7 +114,7 @@ Manifest `extensions` MUST NOT duplicate `roles`, `capabilities`, or `namespaces
   "schema_version": 1,
   "host_id": "host_toy_primary",
   "roles": ["data-store", "checker", "assembler", "input-source"],
-  "capabilities": ["spoke-baseline", "l2-computable"],
+  "capabilities": ["spoke-baseline"],
   "namespaces": ["toy"],
   "authority": { "scope_key": "collab_toy_world" },
   "extensions": {

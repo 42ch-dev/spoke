@@ -82,9 +82,6 @@
       "roles": ["computable-engine"],
       "capabilities": ["spoke-baseline", "l2-computable"],
       "namespaces": ["computable"],
-      "authority": {
-        "scope_key": "collab_alpha"
-      },
       "extensions": {
         "my_product": { "deployment": "staging" }
       }

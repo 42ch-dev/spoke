@@ -5,9 +5,10 @@ use spoke_fixture_toy_world::{
     as_baseline_only, toy_world_fixtures_root, MemoryStoreSeed, ToyWorldAdapter,
 };
 use spoke_operations::{
-    orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_project,
-    orchestrate_promote, orchestrate_relate, orchestrate_upsert, spoke_ok, CheckRunInput,
-    ForkTimelineQueryPort, FullAdapter, KnowledgeEntryPort, SpokeRejectCode, SpokeResult,
+    orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_fork_check,
+    orchestrate_project, orchestrate_promote, orchestrate_relate, orchestrate_upsert, spoke_ok,
+    CheckRunInput, ForkTimelineQueryPort, FullAdapter, KnowledgeEntryPort, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::{
     AssembleRequest, CheckRequest, ComputeRequest, ComputeResponse, Finding, KnowledgeEntry,
@@ -317,5 +318,38 @@ fn list_fork_timeline_events_returns_seeded_events_for_storm_branch() {
             events[0].fork_id.as_ref().map(|v| v.as_str()),
             Some("fork_tw_storm_branch")
         );
+    }
+}
+
+#[test]
+fn full_adapter_orchestrate_fork_check_uses_fork_timeline_stub() {
+    let adapter = ToyWorldAdapter::with_committed_fixtures();
+    let _: &dyn FullAdapter = &adapter;
+    let request: CheckRequest = serde_json::from_value(json!({
+        "scope": {
+            "scope_id": "toy-scope-001",
+            "entry_ids": ["kb_tw_mira"],
+            "fork_id": "fork_tw_storm_branch"
+        }
+    }))
+    .expect("CheckRequest");
+    let mut finding = load_fixture::<Finding>("fnd_tw_open.json");
+    finding.finding_id = "fnd_tw_fork_check".into();
+
+    let result = orchestrate_fork_check(&adapter, request, |input: CheckRunInput| {
+        assert_eq!(input.events.len(), 1);
+        assert_eq!(
+            input.events[0].timeline_event_id,
+            "evt_tw_harbor_storm_delay"
+        );
+        spoke_ok(vec![finding.clone()])
+    });
+
+    assert!(result.is_ok(), "{result:?}");
+    if let SpokeResult::Ok(spoke_schemas::CheckResponse::Variant0 { findings, .. }) = result {
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_id, "fnd_tw_fork_check");
+    } else {
+        panic!("expected fork check success");
     }
 }

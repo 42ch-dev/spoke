@@ -15,8 +15,8 @@
 - 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent
 - Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
 - 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
-- 纯函数生命周期辅助库（`@42ch/spoke-operations` / `spoke-operations`）
-- 协议一致性样例（[`fixtures/toy-world/`](fixtures/toy-world/)）
+- 纯函数生命周期辅助，以及 **adapter ports** 与 **injection orchestration**（`@42ch/spoke-operations` / `spoke-operations`）
+- 协议一致性样例与参考 **`ToyWorldAdapter`**（[`fixtures/toy-world/`](fixtures/toy-world/)）
 
 ## 软件包
 
@@ -25,9 +25,9 @@
 | 软件包 | 注册表 | 职责 |
 |--------|--------|------|
 | [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | 生成的 TypeScript 线上类型 — 描述**线上传输什么** |
-| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | 基于上述类型的纯函数生命周期辅助 |
+| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | 基于上述类型的纯函数辅助、adapter ports 与编排 |
 | [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | 生成的 Rust 线上类型 |
-| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数生命周期辅助 — 与 `@42ch/spoke-operations` 行为对齐 |
+| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数辅助、adapter ports 与编排 — 与 `@42ch/spoke-operations` 行为对齐 |
 
 产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。
 
@@ -48,28 +48,31 @@ import type {
   TimelineEvent,
   PromoteRequest,
   AssemblePacket,
+  HostCapabilityManifest,
 } from "@42ch/spoke-schemas";
 ```
 
-**`@42ch/spoke-operations`** — 调用纯函数辅助（依赖 `@42ch/spoke-schemas`）：
+**`@42ch/spoke-operations`** — 在同一 adapter 上实现按能力切片的 ports，再调用 `orchestrate*`：
 
 ```ts
-import type { PromoteRequest } from "@42ch/spoke-schemas";
+import type { PromoteRequest, UpsertRequest } from "@42ch/spoke-schemas";
 import {
-  validatePromoteRequest,
-  applyPromoteAcceptance,
-  buildAssemblePacket,
-  transitionFindingStatus,
-  mergeExtensionMaps,
+  orchestrateUpsert,
+  orchestratePromote,
+  orchestrateCheck,
+  orchestrateAssemble,
+  type BaselineAdapter,
 } from "@42ch/spoke-operations";
 
-const request: PromoteRequest = { candidate /* KnowledgeEntry */ };
-const gate = validatePromoteRequest(request);
-if (gate.ok) {
-  const accepted = applyPromoteAcceptance(request);
-  // 通过你的产品适配器持久化
-}
+declare const adapter: BaselineAdapter; // 产品实现 BaselineAdapter / FullAdapter
+declare const upsertRequest: UpsertRequest;
+declare const promoteRequest: PromoteRequest;
+
+const upserted = orchestrateUpsert(adapter, upsertRequest);
+const promoted = orchestratePromote(adapter, promoteRequest);
 ```
+
+可选能力使用 `ComputableAdapter` / `ForkAdapter`（或 `FullAdapter`），配合 `orchestrateProject`、`orchestrateCompute`、`orchestrateForkCheck`、`orchestrateForkAssemble`。纯函数辅助（`validatePromoteRequest`、`mergeExtensionMaps`、`buildAssemblePacket` 等）仍可用于聚焦门控。
 
 ### Rust（crates.io）
 
@@ -88,20 +91,20 @@ spoke-operations = "X.Y.Z"
 **`spoke-schemas`** — 与 JSON Schema SSOT 对齐的线上类型：
 
 ```rust
-use spoke_schemas::{KnowledgeEntry, PromoteRequest, TimelineEvent};
+use spoke_schemas::{KnowledgeEntry, HostCapabilityManifest, PromoteRequest, TimelineEvent};
 ```
 
-**`spoke-operations`** — 基于上述类型的辅助（同时 re-export `spoke_schemas`）：
+**`spoke-operations`** — port traits 与 `orchestrate_*`（同时 re-export `spoke_schemas`）：
 
 ```rust
 use spoke_operations::{
-    apply_promote_acceptance, validate_promote_request, SpokeResult,
+    orchestrate_promote, orchestrate_upsert, BaselineAdapter,
 };
-use spoke_operations::spoke_schemas::PromoteRequest;
+use spoke_operations::spoke_schemas::{PromoteRequest, UpsertRequest};
 
-let gate = validate_promote_request(&request);
-if let SpokeResult::Ok(_) = gate {
-    let _accepted = apply_promote_acceptance(&request);
+fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
+    let _ = orchestrate_upsert(adapter, upsert);
+    let _ = orchestrate_promote(adapter, promote);
 }
 ```
 
@@ -118,9 +121,18 @@ cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
 
 ## 快速开始
 
+集成路径：由一个 adapter 类型实现各 port 族，再调用 `@42ch/spoke-operations` 的 `orchestrate*`（Rust 侧为 `orchestrate_*`，形状相同）。
+
 ```typescript
 import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
-import { validatePromoteRequest } from "@42ch/spoke-operations";
+import {
+  orchestratePromote,
+  type BaselineAdapter,
+} from "@42ch/spoke-operations";
+
+// 产品 adapter 实现 BaselineAdapter。
+// 参考 FullAdapter：fixtures/toy-world 的 ToyWorldAdapter
+declare const adapter: BaselineAdapter;
 
 const candidate: KnowledgeEntry = {
   schema_version: 1,
@@ -133,13 +145,20 @@ const candidate: KnowledgeEntry = {
 };
 
 const request: PromoteRequest = { candidate };
-const result = validatePromoteRequest(request);
+const result = orchestratePromote(adapter, request);
 
 if (result.ok) {
-  // 门控通过 — 通过你的产品适配器持久化
+  // 已通过 adapter OCC ports 持久化 confirmed 条目
 } else {
   console.error(result.code, result.message);
 }
+```
+
+完整「Mira at Harbor」样例图与 Vitest/Cargo 演示见 [`fixtures/toy-world/`](fixtures/toy-world/)：
+
+```bash
+pnpm run test:fixtures
+cargo test -p spoke-fixture-toy-world
 ```
 
 ## 核心概念
@@ -153,7 +172,10 @@ if (result.ok) {
 | **Rule** | `check` 的声明式约束输入（L6） |
 | **TimelineEvent** | when 轴上的第一类时间对象（L5） |
 | **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
+| **HostCapabilityManifest** | 主机角色、能力与所拥有的 `namespaces[]`，用于进程内协作 |
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
+| **Adapter ports** | 注入式读写面（`KnowledgeEntryPort`、`HostManifestPort` 等），由产品负责持久化 |
+| **Orchestration** | `orchestrate*` / `orchestrate_*` 序列：加载 scope、执行门控、经 ports 持久化 |
 
 词汇与定位：[`CONCEPTS.md`](CONCEPTS.md)、[`STRATEGY.md`](STRATEGY.md)。
 
@@ -166,17 +188,24 @@ if (result.ok) {
 - **`TimelineEvent.computable_logs`** — Moment 层级字段变更展示
 - **`project` / `compute` ops** — 初始化/投影与应用/结算 I/O 信封
 
-基线集成方使用核心 schema；`l2-computable` 为可选能力。规范细节：[`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels。
+需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
+
+基线集成方使用核心 schema；可选能力按需启用。规范细节：[`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels。
 
 ## 操作层
 
-`@42ch/spoke-operations` / `spoke-operations` 提供跨产品的纯函数生命周期辅助：
+`@42ch/spoke-operations` / `spoke-operations` 提供纯函数辅助与经 ports 注入的编排：
 
+- **基线编排：** `orchestrateUpsert`、`orchestratePromote`、`orchestrateRelate`、`orchestrateCheck`、`orchestrateAssemble`
+- **可选编排：** `orchestrateProject`、`orchestrateCompute`、`orchestrateForkCheck`、`orchestrateForkAssemble`
+- 按能力切片的 ports 与组合别名（`BaselineAdapter` … `FullAdapter`）
 - 扩展映射合并与往返保留
-- Finding `status` 迁移校验与应用
-- 晋升接受检查（持久化前门控）
+- Finding / KnowledgeEntry `status` 迁移辅助
+- 晋升接受与 upsert/relate 校验
 - 由 KnowledgeEntry 构建 AssemblePacket
 - 拒绝路径上统一的 `SpokeResult` / `SpokeRejectCode`
+
+参考 **FullAdapter**（baseline + `l2-computable` + `l5-fork`，含 `HostCapabilityManifest` 对等主机）：[`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`，Rust crate `spoke-fixture-toy-world`。
 
 规范细节：[`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md)。
 
@@ -185,7 +214,7 @@ if (result.ok) {
 | 路径 | 主题 |
 |------|------|
 | [`schemas/`](schemas/) | JSON Schema 单一事实来源（Draft-07） |
-| [`fixtures/toy-world/`](fixtures/toy-world/) | 协议一致性 JSON 图（「Mira at Harbor」） |
+| [`fixtures/toy-world/`](fixtures/toy-world/) | 协议一致性 JSON 图（「Mira at Harbor」）+ 参考 adapters |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | 协议总览规范 |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | 九层模型（L0–L8）、能力等级、Timeline 层级 |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | 数据对象与开放词汇 |

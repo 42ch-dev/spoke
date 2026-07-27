@@ -15,8 +15,8 @@
 - Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
 - Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
-- Pure lifecycle helpers (`@42ch/spoke-operations` / `spoke-operations`)
-- Protocol conformance fixtures ([`fixtures/toy-world/`](fixtures/toy-world/))
+- Pure lifecycle helpers plus **adapter ports** and **injection orchestration** (`@42ch/spoke-operations` / `spoke-operations`)
+- Protocol conformance fixtures and reference **`ToyWorldAdapter`** ([`fixtures/toy-world/`](fixtures/toy-world/))
 
 ## Packages
 
@@ -25,9 +25,9 @@ Published consumer packages share one **lockstep SemVer**.
 | Package | Registry | Role |
 |---------|----------|------|
 | [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | Generated TypeScript wire types — **what** crosses the wire |
-| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | Pure lifecycle helpers over those types |
+| [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | Pure helpers, adapter ports, and orchestration over those types |
 | [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | Generated Rust wire types |
-| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure lifecycle helpers — parity with `@42ch/spoke-operations` |
+| [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
 
 Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids).
 
@@ -48,28 +48,31 @@ import type {
   TimelineEvent,
   PromoteRequest,
   AssemblePacket,
+  HostCapabilityManifest,
 } from "@42ch/spoke-schemas";
 ```
 
-**`@42ch/spoke-operations`** — call pure helpers (depends on `@42ch/spoke-schemas`):
+**`@42ch/spoke-operations`** — implement capability-sliced ports on one adapter, then call `orchestrate*`:
 
 ```ts
-import type { PromoteRequest } from "@42ch/spoke-schemas";
+import type { PromoteRequest, UpsertRequest } from "@42ch/spoke-schemas";
 import {
-  validatePromoteRequest,
-  applyPromoteAcceptance,
-  buildAssemblePacket,
-  transitionFindingStatus,
-  mergeExtensionMaps,
+  orchestrateUpsert,
+  orchestratePromote,
+  orchestrateCheck,
+  orchestrateAssemble,
+  type BaselineAdapter,
 } from "@42ch/spoke-operations";
 
-const request: PromoteRequest = { candidate /* KnowledgeEntry */ };
-const gate = validatePromoteRequest(request);
-if (gate.ok) {
-  const accepted = applyPromoteAcceptance(request);
-  // Persist via your product adapter
-}
+declare const adapter: BaselineAdapter; // product implements BaselineAdapter / FullAdapter
+declare const upsertRequest: UpsertRequest;
+declare const promoteRequest: PromoteRequest;
+
+const upserted = orchestrateUpsert(adapter, upsertRequest);
+const promoted = orchestratePromote(adapter, promoteRequest);
 ```
+
+Optional capabilities use `ComputableAdapter` / `ForkAdapter` (or `FullAdapter`) with `orchestrateProject`, `orchestrateCompute`, `orchestrateForkCheck`, and `orchestrateForkAssemble`. Pure helpers (`validatePromoteRequest`, `mergeExtensionMaps`, `buildAssemblePacket`, …) remain available for focused gates.
 
 ### Rust (crates.io)
 
@@ -88,20 +91,20 @@ spoke-operations = "X.Y.Z"
 **`spoke-schemas`** — wire types from the same JSON Schema SSOT:
 
 ```rust
-use spoke_schemas::{KnowledgeEntry, PromoteRequest, TimelineEvent};
+use spoke_schemas::{KnowledgeEntry, HostCapabilityManifest, PromoteRequest, TimelineEvent};
 ```
 
-**`spoke-operations`** — helpers over those types (`spoke_schemas` is also re-exported):
+**`spoke-operations`** — port traits plus `orchestrate_*` (also re-exports `spoke_schemas`):
 
 ```rust
 use spoke_operations::{
-    apply_promote_acceptance, validate_promote_request, SpokeResult,
+    orchestrate_promote, orchestrate_upsert, BaselineAdapter,
 };
-use spoke_operations::spoke_schemas::PromoteRequest;
+use spoke_operations::spoke_schemas::{PromoteRequest, UpsertRequest};
 
-let gate = validate_promote_request(&request);
-if let SpokeResult::Ok(_) = gate {
-    let _accepted = apply_promote_acceptance(&request);
+fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
+    let _ = orchestrate_upsert(adapter, upsert);
+    let _ = orchestrate_promote(adapter, promote);
 }
 ```
 
@@ -118,9 +121,18 @@ Annotated git tags `vX.Y.Z` match that lockstep version. Release notes: [`CHANGE
 
 ## Quick start
 
+Integrator path: one adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations` (same shape in Rust as `orchestrate_*`).
+
 ```typescript
 import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
-import { validatePromoteRequest } from "@42ch/spoke-operations";
+import {
+  orchestratePromote,
+  type BaselineAdapter,
+} from "@42ch/spoke-operations";
+
+// Product adapter implements BaselineAdapter.
+// Reference FullAdapter: fixtures/toy-world ToyWorldAdapter
+declare const adapter: BaselineAdapter;
 
 const candidate: KnowledgeEntry = {
   schema_version: 1,
@@ -133,13 +145,20 @@ const candidate: KnowledgeEntry = {
 };
 
 const request: PromoteRequest = { candidate };
-const result = validatePromoteRequest(request);
+const result = orchestratePromote(adapter, request);
 
 if (result.ok) {
-  // Gate passed — persist via your product adapter
+  // Confirmed entry persisted through adapter OCC ports
 } else {
   console.error(result.code, result.message);
 }
+```
+
+Walk the committed “Mira at Harbor” graph and Vitest/Cargo demos in [`fixtures/toy-world/`](fixtures/toy-world/):
+
+```bash
+pnpm run test:fixtures
+cargo test -p spoke-fixture-toy-world
 ```
 
 ## Core concepts
@@ -153,7 +172,10 @@ if (result.ok) {
 | **Rule** | Declarative constraint input to `check` (L6) |
 | **TimelineEvent** | First-class temporal object on the when-axis (L5) |
 | **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
+| **HostCapabilityManifest** | Host roles, capabilities, and owned `namespaces[]` for in-process collaboration |
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
+| **Adapter ports** | Injected read/write surfaces (`KnowledgeEntryPort`, `HostManifestPort`, …) that own persistence |
+| **Orchestration** | `orchestrate*` / `orchestrate_*` sequences that load scope, apply gates, and persist via ports |
 
 Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md).
 
@@ -166,17 +188,24 @@ Products that need programmable KnowledgeEntry body state may declare **`l2-comp
 - **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
 - **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
 
-Baseline integrators use core schemas; `l2-computable` is opt-in. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
+Products that need fork-scoped timeline queries may declare **`l5-fork`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
+
+Baseline integrators use core schemas; optional capabilities are opt-in. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
 
 ## Operations
 
-`@42ch/spoke-operations` / `spoke-operations` provide pure, cross-product lifecycle helpers:
+`@42ch/spoke-operations` / `spoke-operations` provide pure helpers and port-injected orchestration:
 
+- **Baseline orchestrators:** `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble`
+- **Optional orchestrators:** `orchestrateProject`, `orchestrateCompute`, `orchestrateForkCheck`, `orchestrateForkAssemble`
+- Capability-sliced ports and composed aliases (`BaselineAdapter` … `FullAdapter`)
 - Extension map merge and round-trip preservation
-- Finding `status` transition validation and apply
-- Promote acceptance checks (gate before persist)
+- Finding / KnowledgeEntry `status` transition helpers
+- Promote acceptance and upsert/relate validators
 - AssemblePacket builders from KnowledgeEntries
 - Unified `SpokeResult` / `SpokeRejectCode` on reject paths
+
+Reference **FullAdapter** (baseline + `l2-computable` + `l5-fork`, including `HostCapabilityManifest` peers): [`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`, Rust crate `spoke-fixture-toy-world`.
 
 Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md).
 
@@ -185,7 +214,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operat
 | Path | Topic |
 |------|-------|
 | [`schemas/`](schemas/) | JSON Schema SSOT (Draft-07) |
-| [`fixtures/toy-world/`](fixtures/toy-world/) | Protocol conformance JSON graph ("Mira at Harbor") |
+| [`fixtures/toy-world/`](fixtures/toy-world/) | Protocol conformance JSON graph (“Mira at Harbor”) + reference adapters |
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella protocol spec |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | Nine layers (L0–L8), capability levels, Timeline tiers |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects and open vocabulary |

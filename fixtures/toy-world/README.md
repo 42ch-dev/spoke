@@ -13,7 +13,7 @@ Committed `HostCapabilityManifest` JSON describes two toy-world hosts with **pai
 | `host_tw_primary.json` | `host_tw_primary` | `toy_world` | `data-store`, `checker`, `assembler`, `input-source` |
 | `host_tw_peer.json` | `host_tw_peer` | `peer_demo` | `checker`, `input-source` |
 
-Both declare `spoke-baseline`. The primary host carries closed-loop `assembler` and the single write authority (`data-store`); the peer host is a narrower checker/input peer and omits `computable-engine`. Integrators map each manifest's `namespaces[]` to owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context — host metadata stays on the manifest wire object, not inside KE core fields. Reference adapters load these fixtures in-process; peer listing is product-supplied memory (no network runtime).
+Both declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fixture JSON; peer hosts resolve through product-supplied in-memory listing.
 
 ## Integrator path (TypeScript)
 

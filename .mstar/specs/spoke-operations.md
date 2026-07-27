@@ -537,6 +537,10 @@ Optional manifest `authority.scope_key` binds the data-store role to an opaque c
 | `getHostCapabilityManifest` | `get_host_capability_manifest` | `SpokeResult<HostCapabilityManifest>` | Self manifest |
 | `listPeerHostCapabilityManifests` | `list_peer_host_capability_manifests` | `SpokeResult<HostCapabilityManifest[]>` | Peers only; exclude self; dedupe by `host_id`; stable ascending `host_id` sort; `[]` OK |
 
+#### Baseline fold-in
+
+`HostManifestPort` is the **sixth** required family folded into `BaselinePorts` and `BaselineAdapter` for `spoke-baseline` claims. Baseline orchestrators (`orchestrateUpsert` through `orchestrateAssemble`) do **not** auto-fetch manifests — integrators call `getHostCapabilityManifest` / `listPeerHostCapabilityManifests` explicitly when composing peer lists or attributing namespace ownership. A baseline adapter MUST implement both methods; absence is an adapter defect, not `CAPABILITY_PORT_MISSING`.
+
 `HostManifestPort` is **baseline-required** — not gated behind `CAPABILITY_PORT_MISSING`.
 
 ### Optional port families

@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-**Host capability collaboration** — normative `HostCapabilityManifest` wire (`schemas/data/host-capability-manifest.schema.json`), baseline-required `HostManifestPort`, five host roles with namespace exclusivity; toy-world multi-host proof in flight. Specs: [`spoke-data-model.md`](specs/spoke-data-model.md) §HostCapabilityManifest, [`spoke-operations.md`](specs/spoke-operations.md) §Host collaboration.
+**Host capability collaboration** — `HostCapabilityManifest` wire schema and normative specs (five host roles, namespace exclusivity, baseline `HostManifestPort` contract); toy-world multi-host proof in flight. Specs: [`spoke-data-model.md`](specs/spoke-data-model.md) §HostCapabilityManifest, [`spoke-operations.md`](specs/spoke-operations.md) §Host collaboration.
 
 **Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper. Composed-port aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) export from `@42ch/spoke-operations` and `spoke-operations`; reference examples and conformance harness live under `fixtures/toy-world/`.
 

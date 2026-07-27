@@ -4,6 +4,7 @@ import type {
   ComputeRequest,
   ComputeResponse,
   Finding,
+  HostCapabilityManifest,
   KnowledgeEntry,
   ProjectRequest,
   ProjectResponse,
@@ -137,11 +138,40 @@ function putKnowledgeEntryWithOcc(
   return spokeOk(entry);
 }
 
+function makeMemorySelfManifest(): HostCapabilityManifest {
+  return {
+    schema_version: 1,
+    host_id: "memory-baseline-host",
+    roles: ["data-store"],
+    capabilities: ["spoke-baseline"],
+    namespaces: ["memory"],
+    extensions: {},
+  };
+}
+
+function normalizePeerManifests(
+  selfHostId: string,
+  peers: HostCapabilityManifest[],
+): HostCapabilityManifest[] {
+  const byHostId = new Map<string, HostCapabilityManifest>();
+  for (const peer of peers) {
+    if (peer.host_id === selfHostId) {
+      continue;
+    }
+    byHostId.set(peer.host_id, peer);
+  }
+  return [...byHostId.values()].sort((left, right) =>
+    left.host_id.localeCompare(right.host_id),
+  );
+}
+
 function createMemoryBaselinePorts(seed?: {
   entries?: KnowledgeEntry[];
   relations?: Relation[];
   events?: TimelineEvent[];
   rules?: Rule[];
+  selfManifest?: HostCapabilityManifest;
+  peerManifests?: HostCapabilityManifest[];
 }): BaselinePorts & {
   store: {
     entries: Map<string, KnowledgeEntry>;
@@ -160,6 +190,8 @@ function createMemoryBaselinePorts(seed?: {
   const events = [...(seed?.events ?? [])];
   const rules = new Map((seed?.rules ?? []).map((rule) => [rule.rule_id, rule]));
   const findings: Finding[] = [];
+  const selfManifest = seed?.selfManifest ?? makeMemorySelfManifest();
+  const peerManifests = seed?.peerManifests ?? [];
 
   const ports: BaselinePorts = {
     getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
@@ -207,6 +239,12 @@ function createMemoryBaselinePorts(seed?: {
         resolved.push(rule);
       }
       return spokeOk(resolved);
+    },
+    getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+      return spokeOk(selfManifest);
+    },
+    listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
+      return spokeOk(normalizePeerManifests(selfManifest.host_id, peerManifests));
     },
   };
 

@@ -3,8 +3,8 @@
 
 use crate::result::SpokeResult;
 use spoke_schemas::{
-    ComputeRequest, ComputeResponse, Finding, KnowledgeEntry, ProjectRequest, ProjectResponse,
-    Relation, Rule, Scope, TimelineEvent,
+    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 /// Knowledge entry persistence — get / put by entry id.
@@ -47,6 +47,14 @@ pub trait RuleQueryPort {
     fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>>;
 }
 
+/// Host collaboration metadata — self manifest and product-known peer manifests.
+///
+/// Integrators call explicitly; orchestrators do not auto-fetch manifests.
+pub trait HostManifestPort {
+    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest>;
+    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>>;
+}
+
 /// Optional l2-computable session — project / compute.
 pub trait ComputablePort {
     fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse>;
@@ -62,12 +70,22 @@ pub trait ForkTimelineQueryPort {
 
 /// Ports required for spoke-baseline orchestration.
 pub trait BaselinePorts:
-    KnowledgeEntryPort + RelationPort + ScopeQueryPort + FindingPort + RuleQueryPort
+    KnowledgeEntryPort
+    + RelationPort
+    + ScopeQueryPort
+    + FindingPort
+    + RuleQueryPort
+    + HostManifestPort
 {
 }
 
 impl<T> BaselinePorts for T where
-    T: KnowledgeEntryPort + RelationPort + ScopeQueryPort + FindingPort + RuleQueryPort
+    T: KnowledgeEntryPort
+        + RelationPort
+        + ScopeQueryPort
+        + FindingPort
+        + RuleQueryPort
+        + HostManifestPort
 {
 }
 
@@ -127,3 +145,244 @@ impl<T: ForkPorts> ForkAdapter for T {}
 pub trait FullAdapter: FullPorts {}
 
 impl<T: FullPorts> FullAdapter for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{spoke_ok, SpokeRejectCode};
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn make_manifest(
+        host_id: &str,
+        namespaces: &[&str],
+        roles: &[&str],
+    ) -> HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": roles,
+            "capabilities": ["spoke-baseline"],
+            "namespaces": namespaces,
+            "extensions": {}
+        }))
+        .expect("valid HostCapabilityManifest")
+    }
+
+    fn normalize_peer_manifests(
+        self_host_id: &str,
+        peers: &[HostCapabilityManifest],
+    ) -> Vec<HostCapabilityManifest> {
+        let mut by_host_id: HashMap<String, HostCapabilityManifest> = HashMap::new();
+        for peer in peers {
+            if peer.host_id.as_str() == self_host_id {
+                continue;
+            }
+            by_host_id.insert(peer.host_id.as_str().to_string(), peer.clone());
+        }
+        let mut normalized: Vec<HostCapabilityManifest> = by_host_id.into_values().collect();
+        normalized.sort_by(|left, right| left.host_id.as_str().cmp(right.host_id.as_str()));
+        normalized
+    }
+
+    struct HostManifestPortMock {
+        self_manifest: HostCapabilityManifest,
+        raw_peers: Vec<HostCapabilityManifest>,
+    }
+
+    impl HostManifestPortMock {
+        fn new(
+            self_manifest: HostCapabilityManifest,
+            raw_peers: Vec<HostCapabilityManifest>,
+        ) -> Self {
+            Self {
+                self_manifest,
+                raw_peers,
+            }
+        }
+    }
+
+    impl HostManifestPort for HostManifestPortMock {
+        fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+            spoke_ok(self.self_manifest.clone())
+        }
+
+        fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+            spoke_ok(normalize_peer_manifests(
+                self.self_manifest.host_id.as_str(),
+                &self.raw_peers,
+            ))
+        }
+    }
+
+    struct BaselinePortStub {
+        host_manifest: HostManifestPortMock,
+    }
+
+    impl BaselinePortStub {
+        fn new(host_manifest: HostManifestPortMock) -> Self {
+            Self { host_manifest }
+        }
+    }
+
+    impl KnowledgeEntryPort for BaselinePortStub {
+        fn get_knowledge_entry(&self, _entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            unreachable!("baseline port stub")
+        }
+
+        fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            _expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            spoke_ok(entry)
+        }
+    }
+
+    impl RelationPort for BaselinePortStub {
+        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
+            spoke_ok(relation)
+        }
+    }
+
+    impl ScopeQueryPort for BaselinePortStub {
+        fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            spoke_ok(Vec::new())
+        }
+
+        fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            spoke_ok(Vec::new())
+        }
+    }
+
+    impl FindingPort for BaselinePortStub {
+        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            spoke_ok(findings)
+        }
+    }
+
+    impl RuleQueryPort for BaselinePortStub {
+        fn list_rules(&self, _rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            spoke_ok(Vec::new())
+        }
+    }
+
+    impl HostManifestPort for BaselinePortStub {
+        fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+            self.host_manifest.get_host_capability_manifest()
+        }
+
+        fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+            self.host_manifest.list_peer_host_capability_manifests()
+        }
+    }
+
+    #[test]
+    fn capability_port_missing_is_twentieth_spoke_reject_code() {
+        assert_eq!(
+            SpokeRejectCode::CapabilityPortMissing.as_str(),
+            "CAPABILITY_PORT_MISSING"
+        );
+        assert_eq!(
+            SpokeRejectCode::try_from_str("CAPABILITY_PORT_MISSING"),
+            Some(SpokeRejectCode::CapabilityPortMissing)
+        );
+    }
+
+    #[test]
+    fn baseline_ports_accepts_all_six_baseline_families() {
+        let ports = BaselinePortStub::new(HostManifestPortMock::new(
+            make_manifest("self-host", &["self-ns"], &["data-store"]),
+            Vec::new(),
+        ));
+
+        let _: &dyn BaselinePorts = &ports;
+        let _: &dyn KnowledgeEntryPort = &ports;
+        let _: &dyn RelationPort = &ports;
+        let _: &dyn ScopeQueryPort = &ports;
+        let _: &dyn FindingPort = &ports;
+        let _: &dyn RuleQueryPort = &ports;
+        let _: &dyn HostManifestPort = &ports;
+    }
+
+    #[test]
+    fn host_manifest_port_returns_self_manifest() {
+        let self_manifest = make_manifest(
+            "adapter-self",
+            &["alpha"],
+            &["data-store", "checker"],
+        );
+        let ports = HostManifestPortMock::new(self_manifest.clone(), Vec::new());
+
+        let result = ports.get_host_capability_manifest();
+
+        match result {
+            SpokeResult::Ok(value) => assert_eq!(value.host_id.as_str(), "adapter-self"),
+            SpokeResult::Reject(_) => panic!("expected ok"),
+        }
+    }
+
+    #[test]
+    fn host_manifest_port_accepts_empty_peer_list() {
+        let ports = HostManifestPortMock::new(
+            make_manifest("self-host", &["default"], &["data-store"]),
+            Vec::new(),
+        );
+
+        let result = ports.list_peer_host_capability_manifests();
+
+        match result {
+            SpokeResult::Ok(value) => assert!(value.is_empty()),
+            SpokeResult::Reject(_) => panic!("expected ok"),
+        }
+    }
+
+    #[test]
+    fn host_manifest_port_returns_seeded_peers_with_disjoint_namespaces() {
+        let self_manifest = make_manifest("self-host", &["self-ns"], &["data-store"]);
+        let peer_a = make_manifest("peer-a", &["peer-a-ns"], &["checker"]);
+        let peer_b = make_manifest("peer-b", &["peer-b-ns"], &["assembler"]);
+        let ports = HostManifestPortMock::new(self_manifest, vec![peer_b.clone(), peer_a.clone()]);
+
+        let result = ports.list_peer_host_capability_manifests();
+
+        match result {
+            SpokeResult::Ok(value) => {
+                assert_eq!(value.len(), 2);
+                assert_eq!(value[0].host_id.as_str(), "peer-a");
+                assert_eq!(value[1].host_id.as_str(), "peer-b");
+                let namespaces: Vec<&str> = value
+                    .iter()
+                    .flat_map(|manifest| manifest.namespaces.iter().map(|ns| ns.as_str()))
+                    .collect();
+                let unique: std::collections::HashSet<_> = namespaces.iter().copied().collect();
+                assert_eq!(namespaces.len(), unique.len());
+                assert!(!namespaces.contains(&"self-ns"));
+            }
+            SpokeResult::Reject(_) => panic!("expected ok"),
+        }
+    }
+
+    #[test]
+    fn host_manifest_port_excludes_self_dedupes_and_sorts_peers() {
+        let self_manifest = make_manifest("self-host", &["self-ns"], &["data-store"]);
+        let peer_z = make_manifest("peer-z", &["z-ns"], &["data-store"]);
+        let peer_a_dupe = make_manifest("peer-a", &["a-ns-dup"], &["checker"]);
+        let peer_a = make_manifest("peer-a", &["a-ns"], &["assembler"]);
+        let ports = HostManifestPortMock::new(
+            self_manifest.clone(),
+            vec![peer_z.clone(), self_manifest, peer_a_dupe, peer_a.clone()],
+        );
+
+        let result = ports.list_peer_host_capability_manifests();
+
+        match result {
+            SpokeResult::Ok(value) => {
+                let host_ids: Vec<&str> = value.iter().map(|m| m.host_id.as_str()).collect();
+                assert_eq!(host_ids, vec!["peer-a", "peer-z"]);
+                assert_eq!(value[0].roles, peer_a.roles);
+            }
+            SpokeResult::Reject(_) => panic!("expected ok"),
+        }
+    }
+}

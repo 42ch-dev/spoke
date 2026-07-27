@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "host_id": "host_tw_peer",
+  "roles": ["checker", "input-source"],
+  "capabilities": ["spoke-baseline"],
+  "namespaces": ["peer_demo"],
+  "extensions": {
+    "peer_demo": { "display_name": "Toy World peer checker host" }
+  }
+}

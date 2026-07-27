@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "host_id": "host_tw_primary",
+  "roles": ["data-store", "checker", "assembler", "input-source"],
+  "capabilities": ["spoke-baseline"],
+  "namespaces": ["toy_world"],
+  "authority": { "scope_key": "collab_toy_world" },
+  "extensions": {
+    "toy_world": { "display_name": "Toy World primary host" }
+  }
+}

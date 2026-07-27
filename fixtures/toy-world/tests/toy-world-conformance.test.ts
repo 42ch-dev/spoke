@@ -9,6 +9,7 @@ import {
 import type {
   AssemblePacket,
   Finding,
+  HostCapabilityManifest,
   KnowledgeEntry,
   TimelineEvent,
 } from "@42ch/spoke-schemas";
@@ -161,6 +162,25 @@ describe("fixtures/toy-world schema conformance", () => {
       world_id: "wld_toy_nexus_001",
     });
     expect(mira.extensions?.nexus?.fork_hint).toBe("baseline");
+  });
+
+  it("illustrates disjoint host manifest namespaces across toy-world hosts", () => {
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+    const peer = loadFixture<HostCapabilityManifest>("host_tw_peer.json");
+
+    expect(primary.host_id).not.toBe(peer.host_id);
+    expect(primary.roles).toContain("assembler");
+    expect(primary.roles).toContain("data-store");
+    expect(primary.capabilities).toContain("spoke-baseline");
+    expect(primary.roles).not.toContain("computable-engine");
+    expect(peer.roles).not.toContain("computable-engine");
+    expect(peer.capabilities).toContain("spoke-baseline");
+
+    const primaryNamespaces = new Set(primary.namespaces);
+    const peerNamespaces = new Set(peer.namespaces);
+    const overlap = [...primaryNamespaces].filter((ns) => peerNamespaces.has(ns));
+
+    expect(overlap).toEqual([]);
   });
 
   it("filters TimelineEvents by Scope.fork_id via operations helper", () => {

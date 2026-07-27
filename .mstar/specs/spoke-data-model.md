@@ -13,7 +13,7 @@ Define durable **data** wire shapes for narrative KnowledgeEntries and related o
 
 ### v0.1 baseline (delivered)
 
-Six baseline wire objects — the original five durable objects plus **HostCapabilityManifest** for in-process host collaboration:
+Six core durable wire objects for baseline host collaboration and narrative knowledge:
 
 | Object | Role | Schema file |
 |--------|------|-------------|
@@ -114,7 +114,7 @@ Manifest `extensions` MUST NOT duplicate `roles`, `capabilities`, or `namespaces
   "schema_version": 1,
   "host_id": "host_toy_primary",
   "roles": ["data-store", "checker", "assembler", "input-source"],
-  "capabilities": ["spoke-baseline", "l2-computable"],
+  "capabilities": ["spoke-baseline"],
   "namespaces": ["toy"],
   "authority": { "scope_key": "collab_toy_world" },
   "extensions": {
@@ -729,8 +729,8 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 
 - [x] Each **committed** baseline and optional-capability wire object in this doc (KnowledgeEntry through TimelineEvent) has a draft-07 schema under `schemas/data/` (or `schemas/common/` for shared defs)
 - [x] Umbrella + this doc list the same object set; `Rule` and `TimelineEvent` schemas committed
-- [ ] `HostCapabilityManifest` schema committed at `schemas/data/host-capability-manifest.schema.json` with field rules in §HostCapabilityManifest
-- [ ] `entry_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
+- [x] `HostCapabilityManifest` schema committed at `schemas/data/host-capability-manifest.schema.json` with field rules in §HostCapabilityManifest
+- [x] `entry_type` / `status` fields are `type: string` without `enum`; core vocabulary appears in `description`
 
 ## Non-goals (data layer)
 

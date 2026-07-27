@@ -48,6 +48,12 @@ const TOY_WORLD_PEER_MANIFESTS: HostCapabilityManifest[] = [
   loadOpFixture<HostCapabilityManifest>("host_tw_peer.json"),
 ];
 
+function cloneHostCapabilityManifest(
+  manifest: HostCapabilityManifest,
+): HostCapabilityManifest {
+  return structuredClone(manifest);
+}
+
 /** Peer-list normalization used by ToyWorldAdapter (exclude self, dedupe, sort). */
 export function normalizePeerManifests(
   selfHostId: string,
@@ -58,7 +64,7 @@ export function normalizePeerManifests(
     if (peer.host_id === selfHostId) {
       continue;
     }
-    byHostId.set(peer.host_id, peer);
+    byHostId.set(peer.host_id, cloneHostCapabilityManifest(peer));
   }
   return [...byHostId.values()].sort((left, right) =>
     Buffer.compare(
@@ -121,7 +127,7 @@ export class ToyWorldAdapter implements FullAdapter {
   }
 
   getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
-    return spokeOk(TOY_WORLD_SELF_MANIFEST);
+    return spokeOk(cloneHostCapabilityManifest(TOY_WORLD_SELF_MANIFEST));
   }
 
   listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {

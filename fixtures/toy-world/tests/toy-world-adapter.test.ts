@@ -332,6 +332,41 @@ describe("ToyWorldAdapter HostManifestPort", () => {
     );
     expect(overlap).toEqual([]);
   });
+
+  it("returns defensive copies that callers cannot mutate", () => {
+    const adapter = ToyWorldAdapter.withCommittedFixtures();
+    const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
+
+    const selfResult = adapter.getHostCapabilityManifest();
+    expect(selfResult.ok).toBe(true);
+    if (!selfResult.ok) {
+      return;
+    }
+    selfResult.value.host_id = "mutated-self";
+
+    const selfAgain = adapter.getHostCapabilityManifest();
+    expect(selfAgain.ok).toBe(true);
+    if (!selfAgain.ok) {
+      return;
+    }
+    expect(selfAgain.value).toEqual(primary);
+    expect(selfAgain.value.host_id).toBe("host_tw_primary");
+
+    const peersResult = adapter.listPeerHostCapabilityManifests();
+    expect(peersResult.ok).toBe(true);
+    if (!peersResult.ok) {
+      return;
+    }
+    expect(peersResult.value.length).toBeGreaterThan(0);
+    peersResult.value[0]!.host_id = "mutated-peer";
+
+    const peersAgain = adapter.listPeerHostCapabilityManifests();
+    expect(peersAgain.ok).toBe(true);
+    if (!peersAgain.ok) {
+      return;
+    }
+    expect(peersAgain.value[0]!.host_id).toBe("host_tw_peer");
+  });
 });
 
 describe("ToyWorldAdapter FullAdapter optional ports", () => {

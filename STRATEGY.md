@@ -11,7 +11,7 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 | Deliverable | Role |
 |-------------|------|
 | **Normative specs** | `.mstar/specs/` — protocol umbrella, L0–L8 layers, data model, ops wire, operations library |
-| **`schemas/`** | Draft-07 SSOT (**23** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
+| **`schemas/`** | Draft-07 SSOT (**24** files — see [`spoke-protocol.md`](.mstar/specs/spoke-protocol.md)) |
 | **`@42ch/spoke-schemas`** | Generated TypeScript types (published to npm) |
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers, capability-sliced adapter port contracts, and injection orchestration over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
@@ -31,7 +31,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Artifact |
 |--------|----------------|----------|
-| **1. Data wire** | Durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket; protocol layers deepen adds Rule, TimelineEvent | `schemas/data/` → `@42ch/spoke-schemas` |
+| **1. Data wire** | Durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**; protocol layers deepen adds Rule, TimelineEvent | `schemas/data/` → `@42ch/spoke-schemas` |
 | **2. Ops wire** | Transport-agnostic request/response families: `upsert`, extract→promote, `relate`, `check`, `assemble` | `schemas/ops/` → `@42ch/spoke-schemas` |
 | **3. Ops library** | Pure lifecycle invariants JSON Schema cannot express, plus the **adapter interface protocol**: capability-sliced ports and injection orchestration for baseline / optional computable / optional fork paths | `@42ch/spoke-operations` / `spoke-operations` |
 
@@ -60,8 +60,9 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **CI / codegen harden (delivered 2026-07-25)** | OpaqueJson opaque fields; Rust typify strategy A; schema-count **23** surfaces; `test:release` lockstep script tests |
 | **Adapter interfaces + injection orchestration (delivered 2026-07-26)** | Capability-sliced ports and `orchestrate*` / `orchestrate_*` entrypoints in `@42ch/spoke-operations` and `spoke-operations`; normative sequences in [spoke-operations.md](.mstar/specs/spoke-operations.md) |
 | **Adapter aliases (delivered 2026-07-27)** | Export `BaselineAdapter` / `ComputableAdapter` / `ForkAdapter` / `FullAdapter` in `@42ch/spoke-operations` and `spoke-operations`; integrator docs point to operations packages and `fixtures/toy-world/` reference examples |
-| **ToyWorldAdapter reference (when scheduled)** | Ship `ToyWorldAdapter` in TypeScript and Rust under `fixtures/toy-world/` |
-| **Next (when scheduled)** | Consumer-repo product bindings that implement ports for concrete products |
+| **ToyWorldAdapter reference (delivered 2026-07-27)** | Runnable `ToyWorldAdapter` in TypeScript and Rust under `fixtures/toy-world/` |
+| **Host capability collaboration (normative)** | `HostCapabilityManifest` wire, baseline-required `HostManifestPort`, five host roles, namespace exclusivity — see [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §HostCapabilityManifest |
+| **Next (when scheduled)** | Toy-world multi-host manifest proof; consumer-repo product bindings that implement ports for concrete products |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 
 ## See also

@@ -12,7 +12,7 @@
 
 **包含：**
 
-- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、Rule、TimelineEvent
+- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent
 - Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
 - 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
 - 纯函数生命周期辅助库（`@42ch/spoke-operations` / `spoke-operations`）

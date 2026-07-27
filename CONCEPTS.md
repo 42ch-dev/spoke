@@ -46,7 +46,19 @@ How an integrator publishes ontology vocabulary without closing core protocol en
 
 ### spoke-baseline
 
-Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics per [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Baseline — excludes required Fork (`l5-fork`) and L2 computable state (`l2-computable`).
+Declared capability level for spoke-baseline SPOKE compliance: L0–L8 semantics per [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Baseline — excludes required Fork (`l5-fork`) and L2 computable state (`l2-computable`). Baseline adapters implement six port families including `HostManifestPort` per [`spoke-operations.md`](.mstar/specs/spoke-operations.md).
+
+### HostCapabilityManifest
+
+Wire object (`schemas/data/host-capability-manifest.schema.json`) advertising a host's `host_id`, `roles`, `capabilities`, and owned `extensions` namespaces. Distinct from KnowledgeEntry — host metadata MUST NOT be required inside `KnowledgeEntry.extensions.<ns>`. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §HostCapabilityManifest.
+
+### HostManifestPort
+
+Baseline-required adapter port: `getHostCapabilityManifest` / `listPeerHostCapabilityManifests` (Rust: `get_host_capability_manifest` / `list_peer_host_capability_manifests`). Peer list excludes self, dedupes by `host_id`, sorts ascending by `host_id`. See [`spoke-operations.md`](.mstar/specs/spoke-operations.md) §Host collaboration.
+
+### Host role
+
+Open string in `HostCapabilityManifest.roles[]`. Core vocabulary: `data-store` (single OCC write authority), `input-source`, `checker`, `assembler` (closed-loop assemble; core vocabulary), `computable-engine` (optional; pairs with `l2-computable`).
 
 ### l2-computable
 
@@ -86,7 +98,7 @@ Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_t
 
 ### Extensions (`extensions.<namespace>`)
 
-The sole product-specific bag on every data object. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim.
+Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim.
 
 ---
 
@@ -133,6 +145,8 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | **Session / Computable** | Optional `l2-computable` lifecycle — `body.state`, `body.computable`, op `session_id`; not `entry_type` |
 | **BodyAttribute** | Scalar trait in `body.attributes[]` — see [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §BodyAttribute |
 | **Fork** | Optional `l5-fork` — `fork_id` / `parent_fork_id` on TimelineEvent; `Scope.fork_id` filter (not baseline) |
+| **HostCapabilityManifest** | Adapter self-description wire object; namespace exclusivity per collaboration context |
+| **Host role / HostManifestPort** | Roles on manifest; baseline port for self + peer manifests |
 
 **Invariant:** SPOKE standardizes interchange shapes. It does not own world history implementation, daemon routes, or checker engines.
 

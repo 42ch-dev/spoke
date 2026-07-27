@@ -81,6 +81,9 @@ Required for “SPOKE baseline” claims:
 | L7 Finding + core status vocabulary | Shared runtime / daemon |
 | L8 AssemblePacket wire shape | Ranking/retrieval in assemble protocol fields |
 | Five ops wire families + `error-envelope` on failures | Transport bindings (HTTP/MCP) |
+| `HostCapabilityManifest` wire + baseline `HostManifestPort` | Network discovery / cross-process manifest transport |
+
+**Host collaboration (baseline):** each `spoke-baseline` adapter exposes `HostCapabilityManifest` via `HostManifestPort` (`getHostCapabilityManifest`, `listPeerHostCapabilityManifests`). Manifest carries `host_id`, `roles`, `capabilities`, and exclusive `namespaces[]` ownership — not KnowledgeEntry `extensions.<ns>`. Field tables: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest; port contract: [`spoke-operations.md`](spoke-operations.md) §Host collaboration.
 
 ### Optional flags (declare explicitly)
 
@@ -106,7 +109,7 @@ Baseline compliance MUST NOT require either flag.
 
 | Layer | Data schema (`schemas/data/` or `common/`) | Op wire (`schemas/ops/`) | Library (`@42ch/spoke-operations`) |
 |-------|--------------------------------------------|--------------------------|-------------------------------------|
-| **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | `assertRevisionMatch`; `toErrorEnvelope` / `fromErrorEnvelope`; adapter port `SpokeResult` mapping |
+| **L0 Envelope** | `common/common.schema.json` (`SchemaVersion`, `ExtensionMap`, `Timestamp`, `SourceSpan`); `schema_version` on all data objects | All ops request/response envelopes; `common/error-envelope.schema.json` | `assertRevisionMatch`; `toErrorEnvelope` / `fromErrorEnvelope`; adapter port `SpokeResult` mapping; `HostManifestPort` for collaboration metadata |
 | **L1 Ontology** | `data/knowledge-entry.schema.json` (`entry_type`, `canonical_name`, `status`) | `upsert-*`, `promote-*` | `validatePromoteRequest`; `isValidKnowledgeEntryStatusTransition`, `transitionKnowledgeEntryStatus`; `assertUniqueActiveKnowledgeEntry`; `validateUpsertKnowledgeEntry` |
 | **L2 Body** | `knowledge-entry.schema.json` → closed `body` (`summary`, `tags`, `attributes`, optional `state` / `computable`); `common/…#/definitions/BodyAttribute`, `ComputableFieldMap` | `project-*`, `compute-*` (optional) | `validateComputableFieldMap`; `validateProjectRequest`; `validateComputeRequest` |
 | **L3 Provenance** | `data/source-anchor.schema.json`; optional on KnowledgeEntry / Finding / TimelineEvent / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `knowledgeEntryMatchesScope`, `filterKnowledgeEntriesByScope` (`source_id` refinement) |
@@ -114,6 +117,7 @@ Baseline compliance MUST NOT require either flag.
 | **L5 Temporal** | `data/timeline-event.schema.json` (`fork_id`, `parent_fork_id`, `computable_logs` optional); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry` | `check-*`, `assemble-*` via `Scope` (`timeline_scale`, `fork_id` refinements); `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry` |
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
+| **Host collaboration** | `data/host-capability-manifest.schema.json` | — | `HostManifestPort` (`getHostCapabilityManifest`, `listPeerHostCapabilityManifests`) |
 | **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `knowledgeEntryToAssembleEntry`; [injected orchestration](spoke-operations.md#injection-orchestration-normative) (`orchestrateAssemble` and peers) |
 
 ### Shared cross-layer defs (`schemas/common/common.schema.json`)
@@ -129,7 +133,7 @@ Baseline compliance MUST NOT require either flag.
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |
 
-Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, TimelineEvent, TimelineScale, §Rule vs Finding) and [`spoke-ops.md`](spoke-ops.md) (Scope, error envelope, check `rule_refs` + `rules[]`, assemble).
+Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, TimelineEvent, TimelineScale, HostCapabilityManifest, §Rule vs Finding) and [`spoke-ops.md`](spoke-ops.md) (Scope, error envelope, check `rule_refs` + `rules[]`, assemble).
 
 ## Acceptance (layers spec)
 
@@ -157,4 +161,4 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + Scope + error envelope |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust B — nine layers on the wire |
-| [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule vocabulary |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule, HostCapabilityManifest vocabulary |

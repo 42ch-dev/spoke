@@ -9,7 +9,7 @@
 
 ## Now (in progress)
 
-_No in-progress slices — Adapter aliases and `ToyWorldAdapter` reference examples under `fixtures/toy-world/` are delivered._
+**Host capability collaboration** — normative `HostCapabilityManifest` wire (`schemas/data/host-capability-manifest.schema.json`), baseline-required `HostManifestPort`, five host roles with namespace exclusivity; toy-world multi-host proof in flight. Specs: [`spoke-data-model.md`](specs/spoke-data-model.md) §HostCapabilityManifest, [`spoke-operations.md`](specs/spoke-operations.md) §Host collaboration.
 
 **Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper. Composed-port aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) export from `@42ch/spoke-operations` and `spoke-operations`; reference examples and conformance harness live under `fixtures/toy-world/`.
 
@@ -49,11 +49,11 @@ Newest first. Dates are delivery dates on `main`.
 
 | Area | Status |
 |------|--------|
-| Data wire | KnowledgeEntry (closed L2 `body`: optional `summary`, `tags`, `attributes`; optional `body.state`/`body.computable`, `computable_logs` under `l2-computable`), Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`); `OpaqueJson` for opaque log field values |
+| Data wire | KnowledgeEntry (closed L2 `body`: optional `summary`, `tags`, `attributes`; optional `body.state`/`body.computable`, `computable_logs` under `l2-computable`), Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent + `extensions`; optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`); `OpaqueJson` for opaque log field values |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
-| Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming) plus adapter port contracts, `*Adapter` composed-port aliases, and injection orchestration (`spoke-baseline`, optional `l2-computable`, optional `l5-fork`) |
+| Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming) plus adapter port contracts (six baseline families incl. `HostManifestPort`), `*Adapter` composed-port aliases, and injection orchestration (`spoke-baseline`, optional `l2-computable`, optional `l5-fork`) |
 | Fixtures | `fixtures/toy-world/` samples + conformance + reference Adapter examples (dual-concern ontology `"event"` + TimelineEvent; Fork-aware TimelineEvent sample under `l5-fork`) |
-| Codegen / CI | Schema inventory **23**; verify-codegen; `test:release` for lockstep assert/bump; Rust typify strategy A documented |
+| Codegen / CI | Protocol schema inventory **24** (`HostCapabilityManifest` included); `verify-codegen`; `test:release` for lockstep assert/bump; Rust typify strategy A documented |
 | Specs / vocabulary | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/`; CONCEPTS + knowledge vocabulary pattern |
 
 ---

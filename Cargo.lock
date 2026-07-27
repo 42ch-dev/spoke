@@ -289,7 +289,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "spoke-fixture-toy-world"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-operations"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "serde",
@@ -309,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-schemas"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "regress",

@@ -131,10 +131,8 @@ impl ComputablePort for ToyWorldAdapter {
     /// Minimal wire-valid ComputeResponse from committed settle response fixture.
     fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
         let fixture: ComputeResponse = load_op_fixture("op_tw_compute_settle_response.json");
-        let (fixture_computable, fixture_state) = match fixture {
-            ComputeResponse::Variant0 {
-                computable, state, ..
-            } => (computable, state),
+        let fixture_state = match fixture {
+            ComputeResponse::Variant0 { state, .. } => state,
             ComputeResponse::Variant1 { error, .. } => {
                 return spoke_reject(
                     SpokeRejectCode::InvalidInput,
@@ -144,16 +142,11 @@ impl ComputablePort for ToyWorldAdapter {
             }
         };
 
-        let computable = if request.computable.is_empty() {
-            fixture_computable
-        } else {
-            request.computable.clone()
-        };
-
+        // Always echo request.computable — never backfill from the fixture.
         let mut body = json!({
             "session_id": request.session_id,
             "entry_id": request.entry_id,
-            "computable": computable,
+            "computable": request.computable.clone(),
         });
         if request.settle == Some(true) {
             let state = if fixture_state.is_empty() {

@@ -7,8 +7,8 @@ use spoke_fixture_toy_world::{
 use spoke_operations::{
     orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_fork_check,
     orchestrate_project, orchestrate_promote, orchestrate_relate, orchestrate_upsert, spoke_ok,
-    CheckRunInput, ForkTimelineQueryPort, FullAdapter, KnowledgeEntryPort, SpokeRejectCode,
-    SpokeResult,
+    CheckRunInput, ComputablePort, ForkTimelineQueryPort, FullAdapter, KnowledgeEntryPort,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
     AssembleRequest, CheckRequest, ComputeRequest, ComputeResponse, Finding, KnowledgeEntry,
@@ -293,6 +293,26 @@ fn orchestrate_compute_settle_returns_wire_valid_success_from_fixture() {
         assert_eq!(state, fixture_state);
     } else {
         panic!("expected compute success");
+    }
+}
+
+#[test]
+fn compute_with_empty_computable_preserves_empty_map() {
+    let adapter = ToyWorldAdapter::with_committed_fixtures();
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": {},
+    }))
+    .expect("ComputeRequest with empty computable");
+
+    let result = adapter.compute(request.clone());
+    assert!(result.is_ok(), "{result:?}");
+    if let SpokeResult::Ok(ComputeResponse::Variant0 { computable, .. }) = result {
+        assert!(computable.is_empty());
+        assert_eq!(computable, request.computable);
+    } else {
+        panic!("expected compute success with empty computable echoed");
     }
 }
 

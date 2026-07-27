@@ -20,7 +20,9 @@ import type {
   TimelineEvent,
 } from "@42ch/spoke-schemas";
 import {
+  SpokeRejectCode,
   spokeOk,
+  spokeReject,
   type BaselineAdapter,
   type FullAdapter,
   type SpokeResult,
@@ -92,9 +94,16 @@ export class ToyWorldAdapter implements FullAdapter {
   /**
    * Minimal wire-valid ProjectResponse from committed op_tw_project_response.json.
    * Echoes request session_id / entry_id; computable shape comes from the fixture.
+   * Error-envelope fixtures are rejected (parity with the Rust adapter).
    */
   project(request: ProjectRequest): SpokeResult<ProjectResponse> {
     const fixture = loadOpFixture<ProjectResponse>("op_tw_project_response.json");
+    if ("error" in fixture && !("computable" in fixture)) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        `fixture project response is an error envelope: ${fixture.error.message}`,
+      );
+    }
     return spokeOk({
       session_id: request.session_id,
       entry_id: request.entry_id,

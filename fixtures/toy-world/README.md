@@ -1,8 +1,17 @@
 # Mira at Harbor — protocol toy-world fixtures
 
-Minimal **protocol-owned** JSON graph for integrators to validate parsers and codegen against committed `schemas/`. No product adapters or DTO maps.
+Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyWorldAdapter`** examples (TypeScript and Rust) for integrators validating parsers, codegen, and operations port orchestration against committed `schemas/`.
 
 **Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the moment-scale timeline event records `computable_logs` for those field changes.
+
+## Reference adapters
+
+| Language | Path | Package / crate |
+|----------|------|-----------------|
+| TypeScript | `src/adapter/` | `@42ch/spoke-fixture-toy-world` (workspace-private) |
+| Rust | `rust/` | `spoke-fixture-toy-world` (`publish = false`) |
+
+`ToyWorldAdapter` implements **FullAdapter** (baseline + `l2-computable` + `l5-fork`). Baseline ports use an in-memory OCC store seeded from committed JSON; computable and fork paths synthesize wire-valid responses from fixture op JSON. See [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-operations.md) § Reference adapter stub policy.
 
 ## Files
 

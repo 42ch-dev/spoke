@@ -2,14 +2,18 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-26  
+**Updated:** 2026-07-27  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
 
 ## Now (in progress)
 
-_No in-progress slices — adapter interface protocol + injection orchestration landed in operations packages (merge path as scheduled)._
+| Slice | Focus |
+|-------|--------|
+| Adapter aliases + toy-world examples | Export `*Adapter` composed-port aliases; ship reference `ToyWorldAdapter` in TypeScript and Rust under `fixtures/toy-world/`; remove root `adapters/` placeholder |
+
+**Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper.
 
 ---
 
@@ -17,9 +21,7 @@ _No in-progress slices — adapter interface protocol + injection orchestration 
 
 | Slice | Focus |
 |-------|--------|
-| Product adapters | Packages under `adapters/<product>/` that implement operations ports, own persistence/transactions, and map product DTOs ↔ SPOKE wire (e.g. consumer-repo Creader / Nexus L2 bindings when scheduled) |
-
-**Integrator notes (durable):** Adapters own transaction boundaries for multi-entry upsert. Active-uniqueness helpers evaluate **caller-supplied peer sets** — orchestration supplies batch-local peers; store-wide uniqueness is available when the adapter loads a wider peer snapshot into that helper.
+| Consumer-repo product bindings | Product-specific adapter packages that implement operations ports, own persistence/transactions, and map product DTOs ↔ SPOKE wire (e.g. Creader / Nexus L2 bindings when scheduled) |
 
 ---
 
@@ -52,7 +54,7 @@ Newest first. Dates are delivery dates on `main`.
 | Data wire | KnowledgeEntry (closed L2 `body`: optional `summary`, `tags`, `attributes`; optional `body.state`/`body.computable`, `computable_logs` under `l2-computable`), Relation, SourceAnchor, Finding, AssemblePacket, Rule, TimelineEvent + `extensions`; optional `fork_id`/`parent_fork_id` on TimelineEvent (`l5-fork`); `OpaqueJson` for opaque log field values |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`) |
 | Ops library | Pure TS + Rust helpers over wire types (incl. `Scope.fork_id` TimelineEvent match; KnowledgeEntry / TimelineEvent naming) plus adapter port contracts and injection orchestration (`spoke-baseline`, optional `l2-computable`, optional `l5-fork`) |
-| Fixtures | `fixtures/toy-world/` samples + conformance (dual-concern ontology `"event"` + TimelineEvent; Fork-aware TimelineEvent sample under `l5-fork`) |
+| Fixtures | `fixtures/toy-world/` samples + conformance + reference Adapter examples (dual-concern ontology `"event"` + TimelineEvent; Fork-aware TimelineEvent sample under `l5-fork`) |
 | Codegen / CI | Schema inventory **23**; verify-codegen; `test:release` for lockstep assert/bump; Rust typify strategy A documented |
 | Specs / vocabulary | Umbrella, layers, data-model, ops wire, operations library under `.mstar/specs/`; CONCEPTS + knowledge vocabulary pattern |
 
@@ -86,4 +88,4 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`schemas/`](../schemas/) | Wire SSOT |
 | [`packages/spoke-operations/`](../packages/spoke-operations/) | Pure behavior library (TypeScript) |
 | [`crates/spoke-operations/`](../crates/spoke-operations/) | Pure behavior library (Rust) |
-| [`fixtures/toy-world/`](../fixtures/toy-world/) | Protocol samples + harness |
+| [`fixtures/toy-world/`](../fixtures/toy-world/) | Protocol samples, harness, and reference Adapter examples |

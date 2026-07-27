@@ -39,7 +39,7 @@ if (gate.ok) {
 
 ## Usage — adapter ports and orchestration
 
-Implement capability-sliced ports (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`), then call the matching orchestrator:
+Implement capability-sliced ports (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`) on one adapter type. Ergonomic composed-port aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) name the same intersections as `BaselinePorts`, `ComputablePorts`, `ForkPorts`, and `FullPorts`. Then call the matching orchestrator:
 
 ```ts
 import type { CheckRequest, UpsertRequest } from "@42ch/spoke-schemas";
@@ -70,5 +70,7 @@ Optional capabilities use the composed port types (`ComputablePorts`, `ForkPorts
 - Adapters own **transaction boundaries** for multi-entry upsert and other multi-write sequences.
 - Active-uniqueness helpers take **caller-supplied peer sets**. Orchestration supplies batch-local peers; pass a store-wide snapshot when product uniqueness must span the whole store.
 - Absent optional ports at a dynamic boundary surface `SpokeRejectCode.CAPABILITY_PORT_MISSING`.
+
+Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in TypeScript `src/adapter/`).
 
 Helpers and orchestrators are pure relative to host I/O — all reads and writes go through injected ports. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).

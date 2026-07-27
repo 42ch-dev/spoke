@@ -16,12 +16,12 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 | **`@42ch/spoke-operations`** | Hand-written lifecycle helpers, capability-sliced adapter port contracts, and injection orchestration over wire types (published to npm) |
 | **`spoke-schemas`** (Rust crate) | Generated Rust types (published to crates.io) |
 | **`spoke-operations`** (Rust crate) | Hand-written lifecycle helpers, adapter port traits, and injection orchestration over wire types (published to crates.io) |
-| **`adapters/`** | Future product mapping packages that implement operations ports and call orchestration entrypoints |
+| **`fixtures/toy-world/`** | Protocol conformance JSON, AJV/Vitest harness, and reference Adapter examples (`ToyWorldAdapter` in TypeScript and Rust) |
 
 ## What we do not build
 
 - Shared runtime, daemon, or MCP server
-- Product mapping packages under `adapters/<product>/` until a product binding sprint schedules them
+- Product mapping packages in consumer repositories until a product binding sprint schedules them
 - Golden product DTO round-trips (protocol `fixtures/toy-world/` — fixtures conformance slice)
 - Publishing fixture, codegen, or adapter packages to registries
 
@@ -59,7 +59,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas`, `spoke-operations` (crates.io) on stable tags after verify gates |
 | **CI / codegen harden (delivered 2026-07-25)** | OpaqueJson opaque fields; Rust typify strategy A; schema-count **23** surfaces; `test:release` lockstep script tests |
 | **Adapter interfaces + injection orchestration (delivered 2026-07-26)** | Capability-sliced ports and `orchestrate*` / `orchestrate_*` entrypoints in `@42ch/spoke-operations` and `spoke-operations`; normative sequences in [spoke-operations.md](.mstar/specs/spoke-operations.md) |
-| **Next (when scheduled)** | Product mapping packages under `adapters/<product>/` that implement those ports for concrete products |
+| **Adapter aliases + toy-world examples (in progress)** | Export `BaselineAdapter` / `ComputableAdapter` / `ForkAdapter` / `FullAdapter`; reference `ToyWorldAdapter` under `fixtures/toy-world/` (TS + Rust); remove root `adapters/` placeholder |
+| **Next (when scheduled)** | Consumer-repo product bindings that implement ports for concrete products |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 
 ## See also

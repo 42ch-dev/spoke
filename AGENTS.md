@@ -44,7 +44,7 @@ Do not put plan progress or residual detail in this file.
 ### Boundaries agents must enforce (not human-README copy)
 
 - SPOKE is a **protocol repo**, not a product runtime, daemon, or shared database.
-- `adapters/` holds **README purpose text only** for now — no product subdirs, packages, or mapping code until an iteration schedules them.
+- Reference `ToyWorldAdapter` examples live under `fixtures/toy-world/` (TypeScript `src/adapter/`; Rust crate `spoke-fixture-toy-world` in `rust/`, `publish = false`). Root `adapters/` is a transitional placeholder (README only) until implement plan removes it; product binding packages ship in consumer repositories when scheduled.
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
@@ -65,7 +65,7 @@ Do not put plan progress or residual detail in this file.
 - **TS package:** `@42ch/spoke-schemas` → `packages/spoke-schemas/`
 - **Rust crates:** `spoke-schemas` → `crates/spoke-schemas/`; `spoke-operations` → `crates/spoke-operations/`
 - **Extensions:** `extensions.<namespace>` only; core fields closed
-- **Adapters:** deferred — `adapters/README.md` only until scheduled
+- **Adapters:** reference examples in `fixtures/toy-world/`; product bindings in consumer repos; root `adapters/` placeholder pending removal
 
 ## Conflict priority
 

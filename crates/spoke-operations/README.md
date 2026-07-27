@@ -33,7 +33,7 @@ if let SpokeResult::Ok(_) = gate {
 
 ## Usage — adapter ports and orchestration
 
-Implement the port traits (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`), then call the matching orchestrator:
+Implement the port traits (`KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, plus optional `ComputablePort` / `ForkTimelineQueryPort`) on one adapter type. Marker traits `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, and `FullAdapter` name the same compositions as `BaselinePorts`, `ComputablePorts`, `ForkPorts`, and `FullPorts` (blanket impl for any matching port set). Then call the matching orchestrator:
 
 ```rust
 use spoke_operations::{
@@ -64,6 +64,8 @@ Optional capabilities use `ComputablePorts` / `ForkPorts` with `orchestrate_proj
 - `knowledge_entry_to_assemble_entry`, `build_assemble_packet`
 - Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
 - `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` — read/filter `body.attributes` by `trait_type`
-- Adapter ports + orchestration: `KnowledgeEntryPort` … `FullPorts`, `CheckRunInput`, `orchestrate_upsert` … `orchestrate_fork_assemble`
+- Adapter ports + orchestration: `KnowledgeEntryPort` … `FullAdapter`, `CheckRunInput`, `orchestrate_upsert` … `orchestrate_fork_assemble`
+
+Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in crate `spoke-fixture-toy-world` under `rust/`).
 
 Pure functions and port-injected orchestrators over wire types. Normative behavior: [spoke-operations.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-operations.md).

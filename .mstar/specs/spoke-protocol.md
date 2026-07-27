@@ -74,7 +74,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 spoke/
 ├── package.json                 # scripts: codegen, verify-codegen
 ├── pnpm-workspace.yaml          # packages: ["packages/*", "tooling/*", "fixtures/*"]
-├── Cargo.toml                   # workspace; members = ["crates/spoke-schemas", "crates/spoke-operations"]
+├── Cargo.toml                   # workspace; members include crates/* and fixtures/toy-world/rust (private)
 ├── schemas/                     # SSOT (hand-authored)
 ├── tooling/codegen/             # orchestrates jstt + typify (private package)
 ├── packages/spoke-schemas/       # @42ch/spoke-schemas (published path TBD)
@@ -100,6 +100,10 @@ spoke/
     └── src/
         ├── lib.rs               # flat re-exports; hand-written pure helpers
         └── *.rs                 # family modules (result, extensions, finding, …)
+└── fixtures/toy-world/
+    ├── src/adapter/             # TS ToyWorldAdapter (private; not published)
+    ├── rust/                    # spoke-fixture-toy-world crate (publish = false)
+    └── tests/                   # AJV/Vitest conformance + adapter orchestration tests
 ```
 
 **Codegen rules:**
@@ -130,8 +134,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `packages/spoke-operations/` | Hand-written TypeScript operations library — pure helpers plus injected adapter ports/orchestration |
 | `crates/spoke-schemas/` | Generated Rust wire types |
 | `crates/spoke-operations/` | Hand-written Rust operations library — behavioral port of TS helpers plus injected adapter traits/orchestration |
-| `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`) — harness MUST NOT live under `packages/spoke-operations/` |
-| `adapters/` | README purpose note; product adapter packages implement the operations port protocol when scheduled |
+| `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; `@42ch/spoke-fixture-toy-world`) + reference `ToyWorldAdapter` (TS: `src/adapter/`; Rust: `rust/` crate `spoke-fixture-toy-world`, `publish = false`) |
 
 ## v0.1 acceptance (umbrella)
 
@@ -143,11 +146,11 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 2. **CI green on PR** — [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs on `pull_request` and on pushes to `main` / `iteration/**`; all four jobs must pass:
    - `verify-codegen` — `pnpm run verify-codegen` (schema drift fails the build)
    - `typescript` — `pnpm -F @42ch/spoke-schemas typecheck` + `build`; `@42ch/spoke-operations` typecheck + test; `pnpm run test:fixtures`; `pnpm run test:release`
-   - `rust` — `cargo check -p spoke-schemas`; `cargo test -p spoke-operations`
+   - `rust` — `cargo check -p spoke-schemas`; `cargo test -p spoke-operations`; `cargo test -p spoke-fixture-toy-world` (private fixture crate; not published)
    - `verify-version` — `pnpm run verify:version` (lockstep SemVer across manifests and README badges; see [`spoke-version-release.md`](spoke-version-release.md))
-3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `pnpm run verify:version`)
+3. Same checks pass locally (`pnpm run verify-codegen`, package typecheck/build, `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `cargo test -p spoke-fixture-toy-world`, `pnpm run verify:version`)
 4. Extensions contract enforced in data schemas
-5. Protocol conformance fixtures at `fixtures/toy-world/` (`adapters/README.md` only for adapters)
+5. Protocol conformance fixtures and reference Adapter examples at `fixtures/toy-world/` (`@42ch/spoke-fixture-toy-world` harness under `tests/`)
 
 **Current data inventory (normative):**
 
@@ -161,7 +164,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 
 | Out of scope | Rationale |
 |--------------|-----------|
-| Product ↔ SPOKE conversion packages | Adapter packages deferred |
+| Product ↔ SPOKE binding packages in this repo | Reference `ToyWorldAdapter` in `fixtures/toy-world/`; consumer-repo product bindings when scheduled |
 | Required WASM / compute engines in protocol | Optional `l2-computable` shapes I/O only — engines are product-owned |
 | Fork merge / rebase engines and world-history stores | Product-owned — protocol documents interchange fields only (`fork_id`, `parent_fork_id`, `Scope.fork_id`) |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
@@ -171,7 +174,7 @@ Current wire bar: seven data objects (including `Rule` + `TimelineEvent`), five 
 
 | Phase | Deliverable |
 |-------|-------------|
-| **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, empty adapter dirs, CI gate |
+| **v0.1 (delivered)** | Data + ops **wire** SSOT, `@42ch/spoke-schemas` / `spoke-schemas`, codegen packages, CI verify gate |
 | **Operations library first slice** | Hand-written `@42ch/spoke-operations` (column 3) + integrator README EN/CN — see [`spoke-operations.md`](spoke-operations.md) |
 | **Protocol layers + Rule/TimelineEvent** | Normative L0–L8 + capability levels; `Rule` + `TimelineEvent` field semantics; ops harden (Scope neutrality, Check≠Assemble, error-envelope R3) |
 | **Operations library deepen + fixtures** | Deepen `@42ch/spoke-operations` helpers + `fixtures/toy-world/` conformance graph; AJV/Vitest harness at `fixtures/toy-world/tests/` (`@42ch/spoke-fixture-toy-world`) — **no adapters** |

@@ -59,7 +59,8 @@ Product-specific fields live only in `extensions.<namespace>`. Core protocol obj
 | **Registry publish (delivered 2026-07-25)** | CI publishes `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm) and `spoke-schemas`, `spoke-operations` (crates.io) on stable tags after verify gates |
 | **CI / codegen harden (delivered 2026-07-25)** | OpaqueJson opaque fields; Rust typify strategy A; schema-count **23** surfaces; `test:release` lockstep script tests |
 | **Adapter interfaces + injection orchestration (delivered 2026-07-26)** | Capability-sliced ports and `orchestrate*` / `orchestrate_*` entrypoints in `@42ch/spoke-operations` and `spoke-operations`; normative sequences in [spoke-operations.md](.mstar/specs/spoke-operations.md) |
-| **Adapter aliases + toy-world examples (in progress)** | Export `BaselineAdapter` / `ComputableAdapter` / `ForkAdapter` / `FullAdapter`; reference `ToyWorldAdapter` under `fixtures/toy-world/` (TS + Rust); remove root `adapters/` placeholder |
+| **Adapter aliases (delivered 2026-07-27)** | Export `BaselineAdapter` / `ComputableAdapter` / `ForkAdapter` / `FullAdapter` in `@42ch/spoke-operations` and `spoke-operations`; integrator docs point to operations packages and `fixtures/toy-world/` reference examples |
+| **ToyWorldAdapter reference (when scheduled)** | Ship `ToyWorldAdapter` in TypeScript and Rust under `fixtures/toy-world/` |
 | **Next (when scheduled)** | Consumer-repo product bindings that implement ports for concrete products |
 | **North star** | Cross-product KnowledgeEntry dialect for checker and context-assembly I/O |
 

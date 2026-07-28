@@ -526,7 +526,29 @@ Directed edge between two KnowledgeEntries (or KnowledgeEntry ↔ SourceAnchor w
 | `to_id` | yes | string |
 | `extensions` | yes | object |
 
-Optional: `label`, `metadata` (object, open), `created_at`, `updated_at`.
+Optional: `label`, `metadata` (object, open), `revision` (integer ≥ 0, optimistic concurrency), `created_at`, `updated_at`.
+
+### Persisted-entity OCC parity (normative guardrail)
+
+Any SPOKE entity that (a) has a dedicated write `*Port` family and (b) is the subject of a create-or-update orchestrated op MUST carry structural `revision` (integer ≥ 0) and MUST be persisted through `put*(entity, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` on create and the stored revision on update. This rule applies to:
+
+| Entity | OCC port | Orchestrated op | Status |
+|--------|----------|-----------------|--------|
+| `KnowledgeEntry` | `KnowledgeEntryPort` (`getKnowledgeEntry` + `putKnowledgeEntry(entry, expectedBaseRevision)`) | `orchestrateUpsert`, `orchestratePromote` | **OCC parity delivered** |
+| `Relation` | `RelationPort` (`getRelation` + `putRelation(relation, expectedBaseRevision)`) | `orchestrateRelate` | **OCC parity delivered** |
+
+**Exemptions — entities that do NOT carry structural OCC or an `expectedBaseRevision` write signature:**
+
+| Entity | Reason (architecture) |
+|--------|-----------------------|
+| `Finding` | Bulk checker output via `putFindings`; products replace sets atomically, not RMW a single finding id through relate-style per-id OCC (`putFindings` is a batch operation, not a create-or-update on one id) |
+| `Rule` | Read/query port (`RuleQueryPort`) only; no create-or-update persistence op on the baseline write surface |
+| `HostCapabilityManifest` | Read port (`HostManifestPort`) only; persistence lifecycle stays product-side |
+| `TimelineEvent` | Product-owned world history; protocol owns wire shape only, not write-port OCC or a baseline persistence port |
+| `SourceAnchor` | Embedded inside `KnowledgeEntry`, not independently persisted |
+| `AssemblePacket` | Ephemeral op output; never persisted |
+
+**OCC codes:** `STORED_REVISION_STALE` / `REVISION_CONFLICT` are reused across all persisted-entity update paths (upsert, promote, relate). No parallel per-entity OCC code families.
 
 ---
 

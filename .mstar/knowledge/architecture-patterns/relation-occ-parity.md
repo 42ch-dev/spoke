@@ -1,7 +1,7 @@
 # Relation OCC parity
 
-> **Category:** architecture-patterns  
-> **Source:** compound 2026-07-29 (relation OCC port)  
+> **Category:** architecture-patterns
+> **Source:** compound 2026-07-29 (relation OCC port)
 > **Packages:** `@42ch/spoke-operations` (npm), `spoke-operations` (crates.io), `spoke-fixture-toy-world` (reference adapter)
 
 ## Problem
@@ -37,7 +37,7 @@ trait RelationPort {
 
 1. **Load** — `getRelation(relation_id)`; a `RELATION_NOT_FOUND` reject collapses to “no stored entity” (create path).
 2. **Validate** — `validateRelateRequest` / `validate_relate_request` infers create vs update from stored presence:
-   - create: `revision` must be absent, `0`, or a non-negative integer; `revision ≥ 1` is rejected as `INVALID_INPUT`.
+   - create: accepts an absent/undefined `revision` or `0`; `revision ≥ 1` is rejected as `INVALID_INPUT`.
    - update: `revision` is required (`MISSING_REQUIRED_FIELD`), must be a non-negative integer, and must match the stored revision via `assertRevisionMatch`.
 3. **OCC** — the orchestrator passes `expectedBaseRevision = stored.revision ?? 0` on update, or `null`/`None` on create.
 4. **Put** — the adapter enforces compare-and-put and owns **revision assignment**: seed `1` on create, bump `current + 1` on accepted update. The persisted (returned) relation carries the assigned revision.
@@ -66,7 +66,7 @@ TypeScript (`@42ch/spoke-operations`) and Rust (`spoke-operations`) expose the s
 - **Revision ownership differs from KnowledgeEntry.** The Relation adapter assigns `revision` (seed on create, bump on update) and returns the relation with the assigned revision; the orchestrator passes the candidate as-is. `KnowledgeEntry` upsert stores the caller-supplied revision; only `orchestratePromote` bumps it before put. Consumers must not assume the two ports share the same revision-assignment rule.
 - **Create stays permissive.** `revision` is optional or `0` on create so first-write callers and fixtures without a revision still pass. The `revision ≥ 1` guard only rejects pre-seeded revisions on first write.
 - **Concurrent safety is adapter-owned.** The library performs no storage I/O; true CAS requires an atomic compare-and-put in the adapter (database conditional update, lock, or single-writer). The in-memory toy-world store is a reference, not a concurrency primitive.
-- **0.x breaking port change.** `putRelation(relation)` became `putRelation(relation, expectedBaseRevision)` and `getRelation` is now required. Every in-repo implementer updated; external adopters add `null`/`None` on create and the stored revision on update. No dual-signature shim.
+- **Port contract.** `RelationPort` requires `getRelation` and the two-argument OCC `putRelation`; callers pass `null`/`None` for create and the stored revision for update.
 
 ## See also
 

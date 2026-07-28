@@ -1,7 +1,7 @@
 # Pure operations actions over wire types
 
 > **Category:** architecture-patterns  
-> **Source:** compound 2026-07-23 (operations-deepen); updated 2026-07-25 (rust-ops-parity)  
+> **Source:** compound 2026-07-23 (operations-deepen); updated 2026-07-25 (rust-ops-parity); 2026-07-28 (timeline sequence)  
 > **Packages:** `@42ch/spoke-operations` (npm), `spoke-operations` (crates.io)
 
 ## Problem
@@ -22,9 +22,14 @@ JSON Schema defines shapes; integrators still copy-paste lifecycle gates (OCC, s
 - Relate self-edge checks must use **trimmed** ids after emptiness validation.
 - Create-path `canonical_name` must reject whitespace-only (`EMPTY_CANONICAL_NAME`), matching promote.
 
+## Timeline sequence (moment filter / order)
+
+Caller-supplied `TimelineEvent[]` + `Relation[]` helpers live under the `timeline` module (`sequence.ts` / `timeline.rs`): moment-scale filter, explicit id order, and `precedes` Kahn sort via dual-KE `extensions.spoke.timeline_entry_id`. Contracts: `.mstar/specs/spoke-operations.md` §14. Pattern: `architecture-patterns/beat-assist-moment-sequence.md`.
+
 ## See also
 
-- `.mstar/specs/spoke-operations.md` §5–11
+- `.mstar/specs/spoke-operations.md` §5–11, §14
 - `architecture-patterns/adapter-injection-orchestration.md` — ports + injection orchestration over these helpers
 - `architecture-patterns/rust-spoke-operations-parity.md` — Rust crate layout, typify body wire preservation, crates.io dep pin
+- `architecture-patterns/beat-assist-moment-sequence.md` — dual KE + precedes ordering for beat sheets
 - Residual R1 (operations deepen) — uniqueness param alignment

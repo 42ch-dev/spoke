@@ -2,7 +2,7 @@
 
 Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyWorldAdapter`** examples (TypeScript and Rust) for integrators validating parsers, codegen, and operations port orchestration against committed `schemas/`.
 
-**Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the moment-scale timeline event records `computable_logs` for those field changes.
+**Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Three additional moment-scale beats extend the Harbor mainline in order — market square inquiry, customs gate inspection (profile `entry_type: "beat"`), berth confirmation — linked by `precedes` Relations on dual KE ids and `extensions.spoke.timeline_entry_id` on each TimelineEvent. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the dawn moment records `computable_logs` for those field changes.
 
 ## Host capability manifests (in-process collaboration)
 
@@ -65,9 +65,18 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `kb_tw_mira.json` | KnowledgeEntry | `kb_tw_mira` |
 | `kb_tw_harbor.json` | KnowledgeEntry (l2-computable `body.state` / `body.computable`) | `kb_tw_harbor` |
 | `kb_tw_harbor_dawn_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_dawn_event` |
+| `kb_tw_harbor_market_square_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_market_square_event` |
+| `kb_tw_harbor_customs_gate_beat.json` | KnowledgeEntry (profile `entry_type: "beat"`, `structural_role`) | `kb_tw_harbor_customs_gate_beat` |
+| `kb_tw_harbor_berth_confirm_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_berth_confirm_event` |
 | `anchor_tw_manuscript.json` | SourceAnchor | (provenance example) |
 | `rel_tw_mira_harbor.json` | Relation | `rel_tw_mira_harbor` |
+| `rel_tw_harbor_precedes_dawn_to_market.json` | Relation (`precedes` on KE ids) | `rel_tw_harbor_precedes_dawn_to_market` |
+| `rel_tw_harbor_precedes_market_to_customs.json` | Relation (`precedes` on KE ids) | `rel_tw_harbor_precedes_market_to_customs` |
+| `rel_tw_harbor_precedes_customs_to_berth.json` | Relation (`precedes` on KE ids) | `rel_tw_harbor_precedes_customs_to_berth` |
 | `evt_tw_harbor_dawn.json` | TimelineEvent (`timeline_scale: "moment"`, `computable_logs`) | `evt_tw_harbor_dawn` |
+| `evt_tw_harbor_market_square.json` | TimelineEvent (`timeline_scale: "moment"`, beat-sheet sample) | `evt_tw_harbor_market_square` |
+| `evt_tw_harbor_customs_gate.json` | TimelineEvent (`timeline_scale: "moment"`, beat-sheet sample) | `evt_tw_harbor_customs_gate` |
+| `evt_tw_harbor_berth_confirm.json` | TimelineEvent (`timeline_scale: "moment"`, beat-sheet sample) | `evt_tw_harbor_berth_confirm` |
 | `evt_tw_harbor_storm_delay.json` | TimelineEvent (`fork_id: fork_tw_storm_branch`) | `evt_tw_harbor_storm_delay` |
 | `rule_tw_consistency.json` | Rule | `rule_tw_consistency` |
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |

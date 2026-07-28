@@ -42,7 +42,7 @@ Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-ne
 
 ### Domain Profile
 
-How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md).
+How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbook for narrative-structure / Beat mapping: [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md).
 
 ### spoke-baseline
 
@@ -108,7 +108,7 @@ Open string on `KnowledgeEntry.entry_type`. Full table with typical-use rows: [`
 
 **In the core table:** includes `ability` (skill / power / capability) and `rule` (world-rule ontology label — see dual-concern below), among other documented values.
 
-**Profile-only (not in core table or schema description list):** e.g. `dialogue`, `beat`, `species`, `magic_system` — publish via Domain Profile / adapter specs.
+**Profile-only (not in core table or schema description list):** e.g. `dialogue`, `beat`, `species`, `magic_system` — publish via Domain Profile / adapter specs. Beat-assisted outlining maps atomic beats to `TimelineEvent` (`timeline_scale: "moment"`), structural roles to `BodyAttribute` (e.g. `structural_role`), and beat-sheet order to open `Relation` strings such as `precedes` — see [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md).
 
 ---
 
@@ -171,4 +171,5 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, Timeline tiers |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
+| [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |

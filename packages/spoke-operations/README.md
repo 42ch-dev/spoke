@@ -1,6 +1,6 @@
 # @42ch/spoke-operations
 
-Hand-written TypeScript lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, `AssemblePacket` builders, **capability-sliced adapter ports**, and **injection orchestration**.
+Hand-written TypeScript lifecycle helpers for [SPOKE](https://github.com/42ch-dev/spoke): extension merge/preserve, Finding status transitions, promote acceptance gates, Scope/upsert/relate validators, `body.attributes` read helpers, timeline sequence helpers, `AssemblePacket` builders, **capability-sliced adapter ports**, and **injection orchestration**.
 
 Depends on [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) for wire types. Behavioral parity with the Rust crate [`spoke-operations`](https://crates.io/crates/spoke-operations).
 
@@ -70,6 +70,18 @@ Optional capabilities use the composed port types (`ComputablePorts`, `ForkPorts
 - Adapters own **transaction boundaries** for multi-entry upsert and other multi-write sequences.
 - Active-uniqueness helpers take **caller-supplied peer sets**. Orchestration supplies batch-local peers; pass a store-wide snapshot when product uniqueness must span the whole store.
 - Absent optional ports at a dynamic boundary surface `SpokeRejectCode.CAPABILITY_PORT_MISSING`. `HostManifestPort` is baseline-required — not gated behind that code.
+
+## Helper families
+
+- `SpokeResult` / `SpokeReject` / `SpokeRejectCode` — unified reject envelope (stable code strings shared with Rust)
+- `mergeExtensionMaps`, `preserveExtensionMaps`
+- `isValidFindingStatusTransition`, `transitionFindingStatus`
+- `validatePromoteRequest`, `applyPromoteAcceptance`
+- `knowledgeEntryToAssembleEntry`, `buildAssemblePacket`
+- Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
+- `listBodyAttributes`, `filterBodyAttributesByTraitType`, `findBodyAttribute` — read/filter `body.attributes` by `trait_type`
+- `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` — filter and order moment-scale TimelineEvents from caller-supplied sets
+- Adapter ports + orchestration: `KnowledgeEntryPort` … `HostManifestPort` … `FullAdapter`, `CheckRunInput`, `orchestrateUpsert` … `orchestrateForkAssemble`
 
 Reference **FullAdapter** implementation: [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) (`ToyWorldAdapter` in TypeScript `src/adapter/`).
 

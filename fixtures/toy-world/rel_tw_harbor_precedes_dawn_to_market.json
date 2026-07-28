@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "relation_id": "rel_tw_harbor_precedes_dawn_to_market",
+  "relation_type": "precedes",
+  "from_id": "kb_tw_harbor_dawn_event",
+  "to_id": "kb_tw_harbor_market_square_event",
+  "label": "Dawn arrival precedes market square inquiry",
+  "created_at": "2026-07-23T08:15:00Z",
+  "updated_at": "2026-07-23T08:15:00Z",
+  "extensions": {}
+}

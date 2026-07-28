@@ -247,7 +247,8 @@ export function orchestrateRelate(
     return validation;
   }
 
-  const put = ports.putRelation(request.relation);
+  // TODO(T2): load stored Relation via getRelation, then run OCC-aware put.
+  const put = ports.putRelation(request.relation, null);
   if (!put.ok) {
     return put;
   }

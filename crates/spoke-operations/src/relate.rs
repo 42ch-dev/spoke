@@ -63,6 +63,7 @@ mod tests {
             metadata: serde_json::Map::new(),
             relation_id: "rel_1".into(),
             relation_type: "related_to".into(),
+            revision: None,
             schema_version: NonZeroU64::new(1).unwrap(),
             to_id: "kb_2".into(),
             updated_at: None,

@@ -298,7 +298,8 @@ pub fn orchestrate_relate(
         return SpokeResult::Reject(reject);
     }
 
-    let put = match ports.put_relation(relation) {
+    // TODO(T2): load stored Relation via get_relation, then run OCC-aware put.
+    let put = match ports.put_relation(relation, None) {
         SpokeResult::Ok(relation) => relation,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -759,7 +760,27 @@ mod tests {
     }
 
     impl RelationPort for MemoryBaselinePorts {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
+        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            let store = self.store.lock().expect("store lock");
+            match store.relations.get(relation_id) {
+                Some(relation) => spoke_ok(relation.clone()),
+                None => {
+                    let mut details = Map::new();
+                    details.insert("relation_id".into(), json!(relation_id));
+                    spoke_reject(
+                        SpokeRejectCode::RelationNotFound,
+                        format!("Relation not found: {relation_id}"),
+                        Some(details),
+                    )
+                }
+            }
+        }
+
+        fn put_relation(
+            &self,
+            relation: Relation,
+            _expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
             let mut store = self.store.lock().expect("store lock");
             store
                 .relations
@@ -864,8 +885,15 @@ mod tests {
         }
     }
     impl RelationPort for MemoryComputablePorts {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation)
+        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id)
+        }
+        fn put_relation(
+            &self,
+            relation: Relation,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
+            self.baseline.put_relation(relation, expected_base_revision)
         }
     }
     impl ScopeQueryPort for MemoryComputablePorts {
@@ -951,8 +979,15 @@ mod tests {
         }
     }
     impl RelationPort for MemoryForkPorts {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation)
+        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id)
+        }
+        fn put_relation(
+            &self,
+            relation: Relation,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
+            self.baseline.put_relation(relation, expected_base_revision)
         }
     }
     impl ScopeQueryPort for MemoryForkPorts {
@@ -1024,8 +1059,15 @@ mod tests {
         }
     }
     impl RelationPort for MissingComputablePorts {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation)
+        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id)
+        }
+        fn put_relation(
+            &self,
+            relation: Relation,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
+            self.baseline.put_relation(relation, expected_base_revision)
         }
     }
     impl ScopeQueryPort for MissingComputablePorts {
@@ -1081,8 +1123,15 @@ mod tests {
         }
     }
     impl RelationPort for MissingForkPorts {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation)
+        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id)
+        }
+        fn put_relation(
+            &self,
+            relation: Relation,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
+            self.baseline.put_relation(relation, expected_base_revision)
         }
     }
     impl ScopeQueryPort for MissingForkPorts {
@@ -1397,8 +1446,15 @@ mod tests {
     }
 
     impl RelationPort for OccBaselinePorts {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation)
+        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id)
+        }
+        fn put_relation(
+            &self,
+            relation: Relation,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
+            self.baseline.put_relation(relation, expected_base_revision)
         }
     }
     impl ScopeQueryPort for OccBaselinePorts {
@@ -1578,8 +1634,15 @@ mod tests {
         }
 
         impl RelationPort for UpsertOccPorts {
-            fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-                self.baseline.put_relation(relation)
+            fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+                self.baseline.get_relation(relation_id)
+            }
+            fn put_relation(
+                &self,
+                relation: Relation,
+                expected_base_revision: Option<u64>,
+            ) -> SpokeResult<Relation> {
+                self.baseline.put_relation(relation, expected_base_revision)
             }
         }
         impl ScopeQueryPort for UpsertOccPorts {

@@ -214,7 +214,21 @@ function createMemoryBaselinePorts(seed?: {
     ): SpokeResult<KnowledgeEntry> {
       return putKnowledgeEntryWithOcc(entries, entry, expectedBaseRevision);
     },
-    putRelation(relation: Relation): SpokeResult<Relation> {
+    getRelation(relationId: string): SpokeResult<Relation> {
+      const relation = relations.get(relationId);
+      if (relation === undefined) {
+        return spokeReject(
+          SpokeRejectCode.RELATION_NOT_FOUND,
+          `Relation not found: ${relationId}`,
+          { relation_id: relationId },
+        );
+      }
+      return spokeOk(relation);
+    },
+    putRelation(
+      relation: Relation,
+      _expectedBaseRevision: number | null,
+    ): SpokeResult<Relation> {
       relations.set(relation.relation_id, relation);
       return spokeOk(relation);
     },

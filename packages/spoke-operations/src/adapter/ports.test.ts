@@ -97,7 +97,8 @@ function createBaselinePortStub(
   return {
     getKnowledgeEntry: () => spokeOk({} as KnowledgeEntry),
     putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
-    putRelation: (relation) => spokeOk(relation),
+    getRelation: () => spokeOk({} as Relation),
+    putRelation: (relation, _expectedBaseRevision) => spokeOk(relation),
     listKnowledgeEntries: () => spokeOk([]),
     listTimelineEvents: () => spokeOk([]),
     putFindings: (findings) => spokeOk(findings),
@@ -108,17 +109,18 @@ function createBaselinePortStub(
 }
 
 describe("adapter port exports", () => {
-  it("exports CAPABILITY_PORT_MISSING as the 20th SpokeRejectCode", () => {
+  it("exports CAPABILITY_PORT_MISSING as the 22nd SpokeRejectCode", () => {
     expect(SpokeRejectCode.CAPABILITY_PORT_MISSING).toBe(
       "CAPABILITY_PORT_MISSING",
     );
-    expect(Object.keys(SpokeRejectCode)).toHaveLength(20);
+    expect(Object.keys(SpokeRejectCode)).toHaveLength(22);
   });
 
   it("BaselinePorts accepts an object implementing all six baseline families", () => {
     const ports: BaselinePorts = createBaselinePortStub();
 
     expect(typeof ports.getKnowledgeEntry).toBe("function");
+    expect(typeof ports.getRelation).toBe("function");
     expect(typeof ports.putRelation).toBe("function");
     expect(typeof ports.listKnowledgeEntries).toBe("function");
     expect(typeof ports.putFindings).toBe("function");
@@ -186,7 +188,8 @@ describe("adapter port exports", () => {
       putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
     };
     const relation: RelationPort = {
-      putRelation: (r) => spokeOk(r),
+      getRelation: () => spokeOk({} as Relation),
+      putRelation: (r, _expectedBaseRevision) => spokeOk(r),
     };
     const scope: ScopeQueryPort = {
       listKnowledgeEntries: () => spokeOk([]),

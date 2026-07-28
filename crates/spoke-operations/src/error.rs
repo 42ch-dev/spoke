@@ -47,7 +47,7 @@ mod tests {
     use crate::result::{spoke_reject, SpokeResult};
     use serde_json::json;
 
-    const DEEPEN_REJECT_CODES: [SpokeRejectCode; 11] = [
+    const DEEPEN_REJECT_CODES: [SpokeRejectCode; 13] = [
         SpokeRejectCode::InvalidInput,
         SpokeRejectCode::MissingRequiredField,
         SpokeRejectCode::RevisionConflict,
@@ -57,6 +57,8 @@ mod tests {
         SpokeRejectCode::KnowledgeEntryTerminalStatus,
         SpokeRejectCode::RelationSelfEdge,
         SpokeRejectCode::RelationMissingEndpoint,
+        SpokeRejectCode::RelationNotFound,
+        SpokeRejectCode::RelationAlreadyExists,
         SpokeRejectCode::DuplicateActiveKnowledgeEntry,
         SpokeRejectCode::CapabilityPortMissing,
     ];

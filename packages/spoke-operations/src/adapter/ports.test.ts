@@ -129,6 +129,19 @@ describe("adapter port exports", () => {
     expect(typeof ports.listPeerHostCapabilityManifests).toBe("function");
   });
 
+  it("RelationPort shape exposes getRelation + putRelation(relation, expectedBaseRevision)", () => {
+    const relation: RelationPort = {
+      getRelation: () => spokeOk({} as Relation),
+      putRelation: (r, _expectedBaseRevision) => spokeOk(r),
+    };
+
+    // The port requires a two-arg putRelation (OCC expectedBaseRevision) and a
+    // getRelation reader — parity with KnowledgeEntryPort and the Rust trait.
+    expect(typeof relation.getRelation).toBe("function");
+    expect(typeof relation.putRelation).toBe("function");
+    expect(relation.putRelation.length).toBe(2);
+  });
+
   it("ComputablePorts / ForkPorts / FullPorts compose optional families", () => {
     const baseline: BaselinePorts = createBaselinePortStub();
 

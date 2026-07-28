@@ -731,6 +731,58 @@ mod tests {
         spoke_ok(entry)
     }
 
+    fn put_relation_with_occ(
+        relations: &mut HashMap<String, Relation>,
+        mut relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        let existing = relations.get(&relation.relation_id);
+        match expected_base_revision {
+            None => {
+                if existing.is_some() {
+                    let mut details = Map::new();
+                    details.insert("relation_id".into(), json!(relation.relation_id));
+                    return spoke_reject(
+                        SpokeRejectCode::RelationAlreadyExists,
+                        format!("Relation already exists: {}", relation.relation_id),
+                        Some(details),
+                    );
+                }
+                relation.revision = Some(1);
+            }
+            Some(expected) => match existing {
+                None => {
+                    let mut details = Map::new();
+                    details.insert("relation_id".into(), json!(relation.relation_id));
+                    details.insert("expectedBaseRevision".into(), json!(expected));
+                    return spoke_reject(
+                        SpokeRejectCode::StoredRevisionStale,
+                        format!("Relation not found for update: {}", relation.relation_id),
+                        Some(details),
+                    );
+                }
+                Some(stored) => {
+                    let current = stored.revision.unwrap_or(0);
+                    if current != expected {
+                        let mut details = Map::new();
+                        details.insert("expectedBaseRevision".into(), json!(expected));
+                        details.insert("storeRevision".into(), json!(current));
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            format!(
+                                "Store revision {current} does not match expected base {expected}"
+                            ),
+                            Some(details),
+                        );
+                    }
+                    relation.revision = Some(current + 1);
+                }
+            },
+        }
+        relations.insert(relation.relation_id.clone(), relation.clone());
+        spoke_ok(relation)
+    }
+
     #[derive(Default)]
     struct MemoryStore {
         entries: HashMap<String, KnowledgeEntry>,
@@ -805,13 +857,10 @@ mod tests {
         fn put_relation(
             &self,
             relation: Relation,
-            _expected_base_revision: Option<u64>,
+            expected_base_revision: Option<u64>,
         ) -> SpokeResult<Relation> {
             let mut store = self.store.lock().expect("store lock");
-            store
-                .relations
-                .insert(relation.relation_id.clone(), relation.clone());
-            spoke_ok(relation)
+            put_relation_with_occ(&mut store.relations, relation, expected_base_revision)
         }
     }
 
@@ -1745,10 +1794,230 @@ mod tests {
         assert!(result.is_ok());
         if let SpokeResult::Ok(RelateResponse::Variant0 { relation: got, .. }) = result {
             assert_eq!(got.relation_id, "rel_1");
+            // Create path seeds revision 1 (adapter owns revision assignment).
+            assert_eq!(got.revision, Some(1));
         } else {
             panic!("expected relate success");
         }
         let _ = relation(rel);
+    }
+
+    #[test]
+    fn orchestrate_relate_passes_none_expected_base_revision_on_create() {
+        let ports = MemoryBaselinePorts::new(MemoryStore::default());
+        let rel = json!({
+            "schema_version": 1,
+            "relation_id": "rel_create_occ",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "extensions": {}
+        });
+
+        let result = orchestrate_relate(&ports, relate_request(rel));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn orchestrate_relate_passes_stored_revision_as_expected_base_on_update() {
+        let stored = relation(json!({
+            "schema_version": 1,
+            "relation_id": "rel_update_occ",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 4,
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.relations.insert(stored.relation_id.clone(), stored);
+        let ports = MemoryBaselinePorts::new(store);
+
+        let candidate = json!({
+            "schema_version": 1,
+            "relation_id": "rel_update_occ",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 4,
+            "extensions": {}
+        });
+
+        let result = orchestrate_relate(&ports, relate_request(candidate));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(RelateResponse::Variant0 { relation: got, .. }) = result {
+            // Update bumps stored revision 4 -> 5.
+            assert_eq!(got.revision, Some(5));
+        } else {
+            panic!("expected relate success");
+        }
+    }
+
+    #[test]
+    fn orchestrate_relate_rejects_update_when_candidate_revision_conflicts() {
+        let stored = relation(json!({
+            "schema_version": 1,
+            "relation_id": "rel_conflict",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 2,
+            "extensions": {}
+        }));
+        let mut store = MemoryStore::default();
+        store.relations.insert(stored.relation_id.clone(), stored);
+        let ports = MemoryBaselinePorts::new(store);
+
+        // Candidate claims revision 7 while store holds 2 -> validator returns
+        // REVISION_CONFLICT (candidate ahead of stored) before the put.
+        let candidate = json!({
+            "schema_version": 1,
+            "relation_id": "rel_conflict",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 7,
+            "extensions": {}
+        });
+
+        let result = orchestrate_relate(&ports, relate_request(candidate));
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::RevisionConflict);
+        }
+    }
+
+    #[test]
+    fn orchestrate_relate_rejects_concurrent_update_when_store_revision_advances() {
+        let stored = relation(json!({
+            "schema_version": 1,
+            "relation_id": "rel_stale",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 5,
+            "extensions": {}
+        }));
+        let baseline = MemoryBaselinePorts::with_entry(serde_json::from_value(json!({
+            "schema_version": 1,
+            "entry_id": "kb_placeholder",
+            "entry_type": "character",
+            "canonical_name": "Placeholder",
+            "status": "provisional",
+            "body": { "summary": "placeholder" },
+            "extensions": {}
+        })).expect("placeholder KE"));
+        // Seed the relation into the baseline store directly.
+        {
+            let mut store = baseline.store.lock().expect("store lock");
+            store.relations.insert(stored.relation_id.clone(), stored);
+        }
+        let store_revision = Mutex::new(5_u64);
+        let advance_on_get = Mutex::new(true);
+
+        struct RelateOccPorts {
+            baseline: MemoryBaselinePorts,
+            store_revision: Mutex<u64>,
+            advance_on_get: Mutex<bool>,
+        }
+
+        impl KnowledgeEntryPort for RelateOccPorts {
+            fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+                self.baseline.get_knowledge_entry(entry_id)
+            }
+            fn put_knowledge_entry(
+                &self,
+                entry: KnowledgeEntry,
+                expected_base_revision: Option<u64>,
+            ) -> SpokeResult<KnowledgeEntry> {
+                self.baseline
+                    .put_knowledge_entry(entry, expected_base_revision)
+            }
+        }
+        impl RelationPort for RelateOccPorts {
+            fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+                let result = self.baseline.get_relation(relation_id);
+                if result.is_ok() {
+                    let mut advance = self.advance_on_get.lock().expect("advance lock");
+                    if *advance {
+                        *self.store_revision.lock().expect("rev lock") = 6;
+                        *advance = false;
+                    }
+                }
+                result
+            }
+            fn put_relation(
+                &self,
+                relation: Relation,
+                expected_base_revision: Option<u64>,
+            ) -> SpokeResult<Relation> {
+                let store_revision = *self.store_revision.lock().expect("rev lock");
+                if let Some(expected) = expected_base_revision {
+                    if store_revision != expected {
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            format!(
+                                "Store revision {store_revision} does not match expected base {expected}"
+                            ),
+                            None,
+                        );
+                    }
+                }
+                self.baseline.put_relation(relation, expected_base_revision)
+            }
+        }
+        impl ScopeQueryPort for RelateOccPorts {
+            fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+                self.baseline.list_knowledge_entries(scope)
+            }
+            fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+                self.baseline.list_timeline_events(scope)
+            }
+        }
+        impl FindingPort for RelateOccPorts {
+            fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+                self.baseline.put_findings(findings)
+            }
+        }
+        impl RuleQueryPort for RelateOccPorts {
+            fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+                self.baseline.list_rules(rule_refs)
+            }
+        }
+        impl HostManifestPort for RelateOccPorts {
+            fn get_host_capability_manifest(
+                &self,
+            ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+                self.baseline.get_host_capability_manifest()
+            }
+            fn list_peer_host_capability_manifests(
+                &self,
+            ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+                self.baseline.list_peer_host_capability_manifests()
+            }
+        }
+
+        let ports = RelateOccPorts {
+            baseline,
+            store_revision,
+            advance_on_get,
+        };
+
+        let candidate = json!({
+            "schema_version": 1,
+            "relation_id": "rel_stale",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 5,
+            "extensions": {}
+        });
+
+        let result = orchestrate_relate(&ports, relate_request(candidate));
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
+        }
     }
 
     #[test]

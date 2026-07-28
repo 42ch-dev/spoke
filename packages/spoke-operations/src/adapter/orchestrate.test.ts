@@ -138,6 +138,49 @@ function putKnowledgeEntryWithOcc(
   return spokeOk(entry);
 }
 
+/**
+ * Enforce OCC on in-memory relation put — mirrors adapter CAS contract.
+ * The adapter owns revision assignment (seed 1 on create, bump +1 on update),
+ * matching the toy-world fixture store and the RelationPort parity contract.
+ */
+function putRelationWithOcc(
+  relations: Map<string, Relation>,
+  relation: Relation,
+  expectedBaseRevision: number | null,
+): SpokeResult<Relation> {
+  const existing = relations.get(relation.relation_id);
+  if (expectedBaseRevision === null) {
+    if (existing !== undefined) {
+      return spokeReject(
+        SpokeRejectCode.RELATION_ALREADY_EXISTS,
+        `Relation already exists: ${relation.relation_id}`,
+        { relation_id: relation.relation_id },
+      );
+    }
+    const created: Relation = { ...relation, revision: 1 };
+    relations.set(relation.relation_id, created);
+    return spokeOk(created);
+  }
+  if (existing === undefined) {
+    return spokeReject(
+      SpokeRejectCode.STORED_REVISION_STALE,
+      `Relation not found for update: ${relation.relation_id}`,
+      { relation_id: relation.relation_id, expectedBaseRevision },
+    );
+  }
+  const currentRevision = existing.revision ?? 0;
+  if (currentRevision !== expectedBaseRevision) {
+    return spokeReject(
+      SpokeRejectCode.STORED_REVISION_STALE,
+      `Store revision ${currentRevision} does not match expected base ${expectedBaseRevision}`,
+      { expectedBaseRevision, storeRevision: currentRevision },
+    );
+  }
+  const updated: Relation = { ...relation, revision: currentRevision + 1 };
+  relations.set(relation.relation_id, updated);
+  return spokeOk(updated);
+}
+
 function makeMemorySelfManifest(): HostCapabilityManifest {
   return {
     schema_version: 1,
@@ -227,10 +270,9 @@ function createMemoryBaselinePorts(seed?: {
     },
     putRelation(
       relation: Relation,
-      _expectedBaseRevision: number | null,
+      expectedBaseRevision: number | null,
     ): SpokeResult<Relation> {
-      relations.set(relation.relation_id, relation);
-      return spokeOk(relation);
+      return putRelationWithOcc(relations, relation, expectedBaseRevision);
     },
     listKnowledgeEntries(_scope: Scope): SpokeResult<KnowledgeEntry[]> {
       return spokeOk([...entries.values()]);
@@ -559,7 +601,7 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
   });
 
-  it("orchestrateRelate persists a Relation", () => {
+  it("orchestrateRelate persists a Relation (create seeds revision 1)", () => {
     const ports = createMemoryBaselinePorts();
     const relation = makeRelation({ relation_id: "rel_1" });
     const request: RelateRequest = { relation };
@@ -570,8 +612,150 @@ describe("baseline orchestration", () => {
     if (!result.ok) {
       return;
     }
-    expect(result.value).toEqual({ relation });
-    expect(ports.store.relations.get("rel_1")).toEqual(relation);
+    expect(result.value.relation.relation_id).toBe("rel_1");
+    expect(result.value.relation.revision).toBe(1);
+    expect(ports.store.relations.get("rel_1")?.revision).toBe(1);
+  });
+
+  it("orchestrateRelate passes null expectedBaseRevision on create", () => {
+    const puts: {
+      relation: Relation;
+      expectedBaseRevision: number | null;
+    }[] = [];
+    const baseline = createMemoryBaselinePorts();
+    const ports: BaselinePorts = {
+      ...baseline,
+      putRelation(
+        relation: Relation,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<Relation> {
+        puts.push({ relation, expectedBaseRevision });
+        return baseline.putRelation(relation, expectedBaseRevision);
+      },
+    };
+    const relation = makeRelation({ relation_id: "rel_create_occ" });
+    const request: RelateRequest = { relation };
+
+    const result = orchestrateRelate(ports, request);
+
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBeNull();
+  });
+
+  it("orchestrateRelate passes stored revision as expectedBaseRevision on update", () => {
+    const stored = makeRelation({ relation_id: "rel_update_occ", revision: 4 });
+    const puts: {
+      relation: Relation;
+      expectedBaseRevision: number | null;
+    }[] = [];
+    const baseline = createMemoryBaselinePorts({ relations: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      putRelation(
+        relation: Relation,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<Relation> {
+        puts.push({ relation, expectedBaseRevision });
+        return baseline.putRelation(relation, expectedBaseRevision);
+      },
+    };
+    const candidate = makeRelation({
+      relation_id: "rel_update_occ",
+      revision: 4,
+    });
+    const request: RelateRequest = { relation: candidate };
+
+    const result = orchestrateRelate(ports, request);
+
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.expectedBaseRevision).toBe(4);
+  });
+
+  it("orchestrateRelate rejects update when store revision is stale (ahead)", () => {
+    const stored = makeRelation({ relation_id: "rel_stale", revision: 5 });
+    let storeRevision = 5;
+    const baseline = createMemoryBaselinePorts({ relations: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      getRelation(relationId: string): SpokeResult<Relation> {
+        const result = baseline.getRelation(relationId);
+        if (result.ok) {
+          // Concurrent writer advances the store after our read snapshot.
+          storeRevision = 6;
+        }
+        return result;
+      },
+      putRelation(
+        relation: Relation,
+        expectedBaseRevision: number | null,
+      ): SpokeResult<Relation> {
+        if (
+          expectedBaseRevision !== null &&
+          storeRevision !== expectedBaseRevision
+        ) {
+          return spokeReject(
+            SpokeRejectCode.STORED_REVISION_STALE,
+            `Store revision ${storeRevision} does not match expected base ${expectedBaseRevision}`,
+            { expectedBaseRevision, storeRevision },
+          );
+        }
+        storeRevision = (relation.revision ?? 0) + 1;
+        return baseline.putRelation(relation, expectedBaseRevision);
+      },
+    };
+    const candidate = makeRelation({
+      relation_id: "rel_stale",
+      revision: 5,
+    });
+
+    const result = orchestrateRelate(ports, { relation: candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+  });
+
+  it("orchestrateRelate rejects update when candidate revision conflicts (ahead of store)", () => {
+    const stored = makeRelation({ relation_id: "rel_conflict", revision: 2 });
+    const baseline = createMemoryBaselinePorts({ relations: [stored] });
+    // Candidate claims revision 7 while store holds 2 → validator returns
+    // REVISION_CONFLICT (candidate ahead of stored) before the put.
+    const candidate = makeRelation({
+      relation_id: "rel_conflict",
+      revision: 7,
+    });
+
+    const result = orchestrateRelate(baseline, { relation: candidate });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.REVISION_CONFLICT);
+  });
+
+  it("orchestrateRelate persisted relation carries bumped revision on update", () => {
+    const stored = makeRelation({ relation_id: "rel_bump", revision: 3 });
+    const baseline = createMemoryBaselinePorts({ relations: [stored] });
+    const candidate = makeRelation({
+      relation_id: "rel_bump",
+      revision: 3,
+      label: "updated-label",
+    });
+
+    const result = orchestrateRelate(baseline, { relation: candidate });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.relation.revision).toBe(4);
+    expect(result.value.relation.label).toBe("updated-label");
+    expect(baseline.store.relations.get("rel_bump")?.revision).toBe(4);
   });
 
   it("orchestrateCheck loads scope data, runs checker, and puts findings", () => {

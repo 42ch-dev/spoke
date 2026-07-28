@@ -120,9 +120,11 @@ describe("ToyWorldAdapter baseline orchestration", () => {
   it("orchestrateRelate persists a Relation", () => {
     const adapter = new ToyWorldAdapter();
     const relation = loadFixture<Relation>("rel_tw_mira_harbor.json");
+    // Create path: revision must be absent/0; the adapter seeds revision 1.
+    const { revision: _stripForCreate, ...createCandidate } = relation;
     const request: RelateRequest = {
       relation: {
-        ...relation,
+        ...createCandidate,
         relation_id: "rel_tw_adapter_demo",
       },
     };
@@ -134,8 +136,9 @@ describe("ToyWorldAdapter baseline orchestration", () => {
       return;
     }
     expect(result.value.relation.relation_id).toBe("rel_tw_adapter_demo");
-    expect(adapter.store.relations.get("rel_tw_adapter_demo")).toEqual(
-      request.relation,
+    expect(result.value.relation.revision).toBe(1);
+    expect(adapter.store.relations.get("rel_tw_adapter_demo")?.revision).toBe(
+      1,
     );
   });
 

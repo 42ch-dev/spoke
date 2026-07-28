@@ -109,10 +109,14 @@ fn orchestrate_promote_persists_confirmed_knowledge_entry() {
 #[test]
 fn orchestrate_relate_persists_relation() {
     let adapter = ToyWorldAdapter::default();
+    // Create path: revision must be absent/0; the adapter seeds revision 1.
     let mut relation: Value = serde_json::to_value(load_fixture::<Relation>(
         "rel_tw_mira_harbor.json",
     ))
     .expect("relation value");
+    if let Value::Object(map) = &mut relation {
+        map.remove("revision");
+    }
     relation["relation_id"] = json!("rel_tw_adapter_demo");
     let request: RelateRequest =
         serde_json::from_value(json!({ "relation": relation })).expect("RelateRequest");
@@ -121,12 +125,19 @@ fn orchestrate_relate_persists_relation() {
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::RelateResponse::Variant0 { relation: got, .. }) = result {
         assert_eq!(got.relation_id, "rel_tw_adapter_demo");
+        assert_eq!(got.revision, Some(1));
     } else {
         panic!("expected relate success");
     }
 
     adapter.with_store(|store| {
-        assert!(store.relations.contains_key("rel_tw_adapter_demo"));
+        assert_eq!(
+            store
+                .relations
+                .get("rel_tw_adapter_demo")
+                .and_then(|r| r.revision),
+            Some(1)
+        );
     });
 }
 

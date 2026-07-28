@@ -1,7 +1,7 @@
 //! Injection orchestration entrypoints — compose pure helpers with port I/O.
 
 use crate::adapter::ports::{
-    BaselinePorts, ComputablePorts, ForkPorts, KnowledgeEntryPort,
+    BaselinePorts, ComputablePorts, ForkPorts, KnowledgeEntryPort, RelationPort,
 };
 use crate::assemble::{build_assemble_packet, BuildAssemblePacketInput, KnowledgeEntryForAssemble};
 use crate::computable::{validate_compute_request, validate_project_request};
@@ -12,7 +12,7 @@ use crate::knowledge_entry::{
 };
 use crate::occ::assert_revision_match;
 use crate::promote::{apply_promote_acceptance, validate_promote_request};
-use crate::relate::validate_relate_request;
+use crate::relate::{validate_relate_request, ValidateRelateRequestContext};
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use crate::scope::{filter_knowledge_entries_by_scope, filter_timeline_events_by_scope};
 use crate::upsert::{validate_upsert_knowledge_entry, ValidateUpsertKnowledgeEntryContext};
@@ -117,6 +117,19 @@ fn load_stored_knowledge_entry(
         SpokeResult::Reject(reject)
             if reject.code == SpokeRejectCode::KnowledgeEntryNotFound =>
         {
+            spoke_ok(None)
+        }
+        SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+    }
+}
+
+fn load_stored_relation(
+    ports: &impl RelationPort,
+    relation_id: &str,
+) -> SpokeResult<Option<Relation>> {
+    match ports.get_relation(relation_id) {
+        SpokeResult::Ok(relation) => spoke_ok(Some(relation)),
+        SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::RelationNotFound => {
             spoke_ok(None)
         }
         SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
@@ -284,7 +297,8 @@ pub fn orchestrate_promote(
     success_response(body)
 }
 
-/// Validate and persist a Relation.
+/// Validate and persist a Relation: load stored, validate (create vs update),
+/// run OCC-aware put. Mirrors orchestrate_upsert.
 pub fn orchestrate_relate(
     ports: &impl BaselinePorts,
     request: RelateRequest,
@@ -294,12 +308,24 @@ pub fn orchestrate_relate(
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    if let SpokeResult::Reject(reject) = validate_relate_request(&relation) {
+    let stored = match load_stored_relation(ports, &relation.relation_id) {
+        SpokeResult::Ok(stored) => stored,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    let validation = validate_relate_request(
+        &relation,
+        ValidateRelateRequestContext {
+            stored: stored.as_ref(),
+        },
+    );
+    if let SpokeResult::Reject(reject) = validation {
         return SpokeResult::Reject(reject);
     }
 
-    // TODO(T2): load stored Relation via get_relation, then run OCC-aware put.
-    let put = match ports.put_relation(relation, None) {
+    let expected_base_revision = stored.as_ref().map(|stored| stored.revision.unwrap_or(0));
+
+    let put = match ports.put_relation(relation, expected_base_revision) {
         SpokeResult::Ok(relation) => relation,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };

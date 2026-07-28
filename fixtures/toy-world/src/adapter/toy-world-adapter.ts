@@ -106,8 +106,15 @@ export class ToyWorldAdapter implements FullAdapter {
     return this.store.putKnowledgeEntry(entry, expectedBaseRevision);
   }
 
-  putRelation(relation: Relation): SpokeResult<Relation> {
-    return this.store.putRelation(relation);
+  getRelation(relationId: string): SpokeResult<Relation> {
+    return this.store.getRelation(relationId);
+  }
+
+  putRelation(
+    relation: Relation,
+    expectedBaseRevision: number | null,
+  ): SpokeResult<Relation> {
+    return this.store.putRelation(relation, expectedBaseRevision);
   }
 
   listKnowledgeEntries(_scope: Scope): SpokeResult<KnowledgeEntry[]> {
@@ -204,7 +211,9 @@ export function asBaselineOnly(adapter: ToyWorldAdapter): BaselineAdapter {
     getKnowledgeEntry: (entryId) => adapter.getKnowledgeEntry(entryId),
     putKnowledgeEntry: (entry, expectedBaseRevision) =>
       adapter.putKnowledgeEntry(entry, expectedBaseRevision),
-    putRelation: (relation) => adapter.putRelation(relation),
+    getRelation: (relationId) => adapter.getRelation(relationId),
+    putRelation: (relation, expectedBaseRevision) =>
+      adapter.putRelation(relation, expectedBaseRevision),
     listKnowledgeEntries: (scope) => adapter.listKnowledgeEntries(scope),
     listTimelineEvents: (scope) => adapter.listTimelineEvents(scope),
     putFindings: (findings) => adapter.putFindings(findings),

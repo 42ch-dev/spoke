@@ -39,6 +39,10 @@ export interface Relation {
     [k: string]: unknown | undefined;
   };
   /**
+   * Optimistic concurrency revision.
+   */
+  revision?: number;
+  /**
    * RFC 3339 UTC datetime string.
    */
   created_at?: string;

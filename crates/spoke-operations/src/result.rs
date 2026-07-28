@@ -25,6 +25,8 @@ pub enum SpokeRejectCode {
     KnowledgeEntryTerminalStatus,
     RelationSelfEdge,
     RelationMissingEndpoint,
+    RelationNotFound,
+    RelationAlreadyExists,
     CapabilityPortMissing,
 }
 
@@ -54,6 +56,8 @@ impl SpokeRejectCode {
             Self::KnowledgeEntryTerminalStatus => "KNOWLEDGE_ENTRY_TERMINAL_STATUS",
             Self::RelationSelfEdge => "RELATION_SELF_EDGE",
             Self::RelationMissingEndpoint => "RELATION_MISSING_ENDPOINT",
+            Self::RelationNotFound => "RELATION_NOT_FOUND",
+            Self::RelationAlreadyExists => "RELATION_ALREADY_EXISTS",
             Self::CapabilityPortMissing => "CAPABILITY_PORT_MISSING",
         }
     }
@@ -83,6 +87,8 @@ impl SpokeRejectCode {
             "KNOWLEDGE_ENTRY_TERMINAL_STATUS" => Some(Self::KnowledgeEntryTerminalStatus),
             "RELATION_SELF_EDGE" => Some(Self::RelationSelfEdge),
             "RELATION_MISSING_ENDPOINT" => Some(Self::RelationMissingEndpoint),
+            "RELATION_NOT_FOUND" => Some(Self::RelationNotFound),
+            "RELATION_ALREADY_EXISTS" => Some(Self::RelationAlreadyExists),
             "CAPABILITY_PORT_MISSING" => Some(Self::CapabilityPortMissing),
             _ => None,
         }
@@ -171,6 +177,8 @@ mod tests {
             "KNOWLEDGE_ENTRY_TERMINAL_STATUS",
             "RELATION_SELF_EDGE",
             "RELATION_MISSING_ENDPOINT",
+            "RELATION_NOT_FOUND",
+            "RELATION_ALREADY_EXISTS",
             "CAPABILITY_PORT_MISSING",
         ];
 
@@ -194,10 +202,12 @@ mod tests {
             SpokeRejectCode::KnowledgeEntryTerminalStatus,
             SpokeRejectCode::RelationSelfEdge,
             SpokeRejectCode::RelationMissingEndpoint,
+            SpokeRejectCode::RelationNotFound,
+            SpokeRejectCode::RelationAlreadyExists,
             SpokeRejectCode::CapabilityPortMissing,
         ];
 
-        assert_eq!(TS_SPOKE_REJECT_CODES.len(), 20);
+        assert_eq!(TS_SPOKE_REJECT_CODES.len(), 22);
         assert_eq!(rust_codes.len(), TS_SPOKE_REJECT_CODES.len());
 
         for (code, expected) in rust_codes.into_iter().zip(TS_SPOKE_REJECT_CODES.iter()) {

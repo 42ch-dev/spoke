@@ -57,7 +57,10 @@ export {
   type ValidateUpsertKnowledgeEntryContext,
 } from "./upsert/validate.js";
 
-export { validateRelateRequest } from "./relate/validate.js";
+export {
+  validateRelateRequest,
+  type ValidateRelateRequestContext,
+} from "./relate/validate.js";
 
 export {
   validateComputableFieldMap,

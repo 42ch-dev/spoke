@@ -337,6 +337,7 @@ mod tests {
             metadata: Map::new(),
             relation_id: "rel_1".into(),
             relation_type: "precedes".into(),
+            revision: None,
             schema_version: NonZeroU64::new(1).unwrap(),
             to_id: "kb_b".into(),
             updated_at: None,

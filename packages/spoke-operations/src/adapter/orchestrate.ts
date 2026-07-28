@@ -18,6 +18,7 @@ import type {
   PromoteResponse,
   RelateRequest,
   RelateResponse,
+  Relation,
   Rule,
   Scope,
   TimelineEvent,
@@ -57,6 +58,7 @@ import type {
   ComputablePorts,
   ForkPorts,
   KnowledgeEntryPort,
+  RelationPort,
 } from "./ports.js";
 
 /** Checker callback input after ports load scoped data and rules. */
@@ -75,6 +77,20 @@ function loadStoredKnowledgeEntry(
   if (!result.ok) {
     if (result.code === SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND) {
       // spokeOk(undefined) collapses to void SpokeOk; keep explicit value for absence.
+      return { ok: true, value: undefined };
+    }
+    return result;
+  }
+  return spokeOk(result.value);
+}
+
+function loadStoredRelation(
+  ports: RelationPort,
+  relationId: string,
+): SpokeResult<Relation | undefined> {
+  const result = ports.getRelation(relationId);
+  if (!result.ok) {
+    if (result.code === SpokeRejectCode.RELATION_NOT_FOUND) {
       return { ok: true, value: undefined };
     }
     return result;
@@ -236,18 +252,34 @@ export function orchestratePromote(
 }
 
 /**
- * Validate and persist a Relation.
+ * Validate and persist a Relation: load stored, validate (create vs update),
+ * run OCC-aware put. Mirrors orchestrateUpsert.
  */
 export function orchestrateRelate(
   ports: BaselinePorts,
   request: RelateRequest,
 ): SpokeResult<RelateResponse> {
-  const validation = validateRelateRequest(request.relation);
+  const storedResult = loadStoredRelation(
+    ports,
+    request.relation.relation_id,
+  );
+  if (!storedResult.ok) {
+    return storedResult;
+  }
+  const stored = storedResult.value;
+
+  const validation = validateRelateRequest(request.relation, {
+    stored,
+    mode: stored === undefined ? "create" : "update",
+  });
   if (!validation.ok) {
     return validation;
   }
 
-  const put = ports.putRelation(request.relation);
+  const expectedBaseRevision =
+    stored === undefined ? null : (stored.revision ?? 0);
+
+  const put = ports.putRelation(request.relation, expectedBaseRevision);
   if (!put.ok) {
     return put;
   }

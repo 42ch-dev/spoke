@@ -81,9 +81,16 @@ mod parity_export_checklist {
         }
     }
     impl RelationPort for ExportProbePorts {
+        fn get_relation(
+            &self,
+            _relation_id: &str,
+        ) -> crate::SpokeResult<spoke_schemas::Relation> {
+            unreachable!("parity checklist probe")
+        }
         fn put_relation(
             &self,
             relation: spoke_schemas::Relation,
+            _expected_base_revision: Option<u64>,
         ) -> crate::SpokeResult<spoke_schemas::Relation> {
             crate::spoke_ok(relation)
         }

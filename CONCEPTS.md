@@ -14,7 +14,7 @@ The atomic **Knowledge Base entry** on the SPOKE wire (L0–L1). A KnowledgeEntr
 
 ### Relation
 
-A directed edge between two KnowledgeEntries (or KnowledgeEntry ↔ source) identified by `relation_id` and open-string `relation_type`.
+A directed edge between two KnowledgeEntries (or KnowledgeEntry ↔ source) identified by `relation_id` and open-string `relation_type`. Optionally carries `revision` (integer ≥ 0) for optimistic concurrency control, at parity with `KnowledgeEntry`.
 
 ### SourceAnchor
 

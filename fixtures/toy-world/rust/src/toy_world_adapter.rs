@@ -73,8 +73,16 @@ impl KnowledgeEntryPort for ToyWorldAdapter {
 }
 
 impl RelationPort for ToyWorldAdapter {
-    fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-        self.with_store_mut(|store| store.put_relation(relation))
+    fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        self.with_store(|store| store.get_relation(relation_id))
+    }
+
+    fn put_relation(
+        &self,
+        relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        self.with_store_mut(|store| store.put_relation(relation, expected_base_revision))
     }
 }
 
@@ -256,8 +264,16 @@ impl KnowledgeEntryPort for BaselineOnlyAdapter {
 }
 
 impl RelationPort for BaselineOnlyAdapter {
-    fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
-        self.inner.put_relation(relation)
+    fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        self.inner.get_relation(relation_id)
+    }
+
+    fn put_relation(
+        &self,
+        relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        self.inner.put_relation(relation, expected_base_revision)
     }
 }
 

@@ -110,6 +110,8 @@ Stable string literals exported from `@42ch/spoke-operations` and `spoke-operati
 | `KNOWLEDGE_ENTRY_TERMINAL_STATUS` | upsert | — | **yes** | Update rejected because `stored.status` is `merged` or `deleted` |
 | `RELATION_SELF_EDGE` | relate | — | **yes** | `from_id === to_id` |
 | `RELATION_MISSING_ENDPOINT` | relate | — | **yes** | `from_id` or `to_id` missing or whitespace-only |
+| `RELATION_NOT_FOUND` | relate | — | **yes** | Update path but no stored Relation |
+| `RELATION_ALREADY_EXISTS` | relate | — | **yes** | Create path but stored Relation already present |
 | `CAPABILITY_PORT_MISSING` | orchestration | — | **yes** | An optional orchestrator was called without the injected port required by its claimed capability |
 
 ---
@@ -386,7 +388,7 @@ Integrator SHOULD run KnowledgeEntry status transition validation separately whe
 
 | Export | Purpose | Purity |
 |--------|---------|--------|
-| `validateRelateRequest(relation)` | Shape + lifecycle rules before persist | Pure |
+| `validateRelateRequest(relation, context)` | Shape + lifecycle rules before persist; context supplies `stored?: Relation` for create vs update | Pure |
 
 **Rules:**
 
@@ -394,7 +396,31 @@ Integrator SHOULD run KnowledgeEntry status transition validation separately whe
 - `from_id === to_id` → `RELATION_SELF_EDGE`.
 - `relation_type` remains open string (no closed enum in library).
 
-**Tests must cover:** happy path, self-edge, missing endpoint.
+**Create** (`context.stored` absent):
+
+| Rule | Reject |
+|------|--------|
+| `revision` absent, `undefined`, or `0` | accept |
+| `revision` ≥ 1 on create | `INVALID_INPUT` |
+
+**Update** (`context.stored` present):
+
+| Rule | Reject |
+|------|--------|
+| `relation.relation_id === stored.relation_id` | `INVALID_INPUT` on mismatch |
+| `relation.revision` present, integer ≥ 0 | `MISSING_REQUIRED_FIELD` if absent |
+| `assertRevisionMatch(relation.revision, stored.revision ?? 0)` | OCC codes (`STORED_REVISION_STALE`, `REVISION_CONFLICT`) |
+
+**Implicit path errors (caller wiring):**
+
+| Situation | Code |
+|-----------|------|
+| Update path with no `stored` | `RELATION_NOT_FOUND` |
+| Create path when `stored` provided | `RELATION_ALREADY_EXISTS` |
+
+Reject codes reused: `INVALID_INPUT`, `MISSING_REQUIRED_FIELD`, `STORED_REVISION_STALE`, `REVISION_CONFLICT`.
+
+**Tests must cover:** happy path create, happy path update with OCC, create with revision ≥ 1 reject, update null revision reject, self-edge, missing endpoint, stored relation_id mismatch.
 
 ---
 
@@ -541,9 +567,9 @@ Unclaimed capabilities need no ports; their orchestrators are not callable for t
 The following **six** families are required for `spoke-baseline`:
 
 | Family | TypeScript interface | Rust trait | Methods |
-|---|---|---|---|
+|---|---|---|---|---|
 | Knowledge entry persistence | `KnowledgeEntryPort` | `KnowledgeEntryPort` | `getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>`; `putKnowledgeEntry(entry: KnowledgeEntry, expectedBaseRevision: number \| null): SpokeResult<KnowledgeEntry>` |
-| Relation persistence | `RelationPort` | `RelationPort` | `putRelation(relation: Relation): SpokeResult<Relation>` |
+| Relation persistence | `RelationPort` | `RelationPort` | `getRelation(relationId: string): SpokeResult<Relation>`; `putRelation(relation: Relation, expectedBaseRevision: number \| null): SpokeResult<Relation>` (`null`/`None` = create; non-null = conditional put — adapters MUST atomic compare-and-put, parity with `putKnowledgeEntry`) |
 | Scope query | `ScopeQueryPort` | `ScopeQueryPort` | `listKnowledgeEntries(scope: Scope): SpokeResult<KnowledgeEntry[]>`; `listTimelineEvents(scope: Scope): SpokeResult<TimelineEvent[]>` |
 | Finding persistence | `FindingPort` | `FindingPort` | `putFindings(findings: Finding[]): SpokeResult<Finding[]>` |
 | Rule query | `RuleQueryPort` | `RuleQueryPort` | `listRules(ruleRefs: string[]): SpokeResult<Rule[]>` |
@@ -553,7 +579,7 @@ The following **six** families are required for `spoke-baseline`:
 
 `HostManifestPort` exposes in-process collaboration metadata. Integrators call it explicitly — existing `orchestrate*` entrypoints do **not** auto-fetch manifests. `listPeerHostCapabilityManifests` returns **peers only** (excludes self), deduped by `host_id`, sorted ascending by `host_id` (UTF-8 lexicographic); empty `[]` is valid. The library does not discover peers; product/adapter memory supplies the list.
 
-`putKnowledgeEntry` / `put_knowledge_entry` carry optimistic concurrency control structurally: adapters MUST treat `expectedBaseRevision` / `expected_base_revision` as the store’s required current revision before accepting the write (`null`/`None` = absent entry for create). True concurrent safety requires atomic compare-and-put in the adapter; the library stays I/O-free.
+**Persisted-entity OCC parity:** `putKnowledgeEntry` / `put_knowledge_entry` and `putRelation` / `put_relation` carry optimistic concurrency control structurally: adapters MUST treat `expectedBaseRevision` / `expected_base_revision` as the store's required current revision before accepting the write (`null`/`None` = absent entity for create). The orchestrated create-or-update entrypoints (upsert, promote, relate) deep-integrate load → validate → OCC → put. True concurrent safety requires atomic compare-and-put in the adapter; the library stays I/O-free. See [`spoke-data-model.md`](spoke-data-model.md) §Persisted-entity OCC parity for the structural guardrail and exemption list.
 
 ### Host collaboration (normative)
 
@@ -677,7 +703,7 @@ Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The ca
 |---|---|---|---|---|
 | upsert | `orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): SpokeResult<UpsertResponse>` | `orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` on create and the stored revision on update |
 | promote | `orchestratePromote(ports: BaselinePorts, request: PromoteRequest): SpokeResult<PromoteResponse>` | `orchestrate_promote(ports: &impl BaselinePorts, request: PromoteRequest) -> SpokeResult<PromoteResponse>` | `KnowledgeEntryPort` | Load stored entry; terminal and revision gates; call `validatePromoteRequest`; call `applyPromoteAcceptance`; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` when absent and `stored.revision` (or `0`) when stored exists |
-| relate | `orchestrateRelate(ports: BaselinePorts, request: RelateRequest): SpokeResult<RelateResponse>` | `orchestrate_relate(ports: &impl BaselinePorts, request: RelateRequest) -> SpokeResult<RelateResponse>` | `RelationPort` | Call `validateRelateRequest`; call `putRelation` |
+| relate | `orchestrateRelate(ports: BaselinePorts, request: RelateRequest): SpokeResult<RelateResponse>` | `orchestrate_relate(ports: &impl BaselinePorts, request: RelateRequest) -> SpokeResult<RelateResponse>` | `RelationPort` | Load stored via `getRelation` (RELATION_NOT_FOUND ⇒ create path); call `validateRelateRequest(request.relation, { stored })` (create: revision absent/0 ok; update: id match, revision present ≥ 0, `assertRevisionMatch`); call `putRelation(relation, expectedBaseRevision)` (`null`/`None` on create, stored.revision on update) |
 | check | `orchestrateCheck(ports: BaselinePorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): SpokeResult<CheckResponse>` | `orchestrate_check(ports: &impl BaselinePorts, request: CheckRequest, run_checker: impl Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ScopeQueryPort`, `RuleQueryPort`, `FindingPort` | Resolve refs with `listRules`; query scoped entries/events via `ScopeQueryPort`; apply scope helpers; invoke `runChecker`; call `putFindings` |
 | assemble | `orchestrateAssemble(ports: BaselinePorts, request: AssembleRequest): SpokeResult<AssembleResponse>` | `orchestrate_assemble(ports: &impl BaselinePorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ScopeQueryPort` | Query scoped entries/events; apply scope helpers; call `buildAssemblePacket`; return packet |
 | project | `orchestrateProject(ports: ComputablePorts, request: ProjectRequest): SpokeResult<ProjectResponse>` | `orchestrate_project(ports: &impl ComputablePorts, request: ProjectRequest) -> SpokeResult<ProjectResponse>` | `ComputablePort` | Call `validateProjectRequest`; call `project` |

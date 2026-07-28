@@ -26,9 +26,29 @@ pub trait KnowledgeEntryPort {
     ) -> SpokeResult<KnowledgeEntry>;
 }
 
-/// Relation persistence.
+/// Relation persistence — get / put by relation id.
 pub trait RelationPort {
-    fn put_relation(&self, relation: Relation) -> SpokeResult<Relation>;
+    fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation>;
+    /// Persist a Relation with optimistic concurrency control.
+    ///
+    /// Adapters MUST treat `expected_base_revision` as the store’s required current
+    /// revision before accepting the write (conditional put / OCC / CAS).
+    /// `None` means the relation must be absent (create). A non-null value means the
+    /// store’s current revision for `relation.relation_id` MUST equal
+    /// `expected_base_revision`; otherwise reject with `STORED_REVISION_STALE` or
+    /// `REVISION_CONFLICT`. True concurrent safety requires atomic compare-and-put
+    /// in the adapter; the library stays I/O-free.
+    ///
+    /// Revision assignment is adapter-owned: on create
+    /// (`expected_base_revision` `None`) the adapter MUST seed `revision = 1`;
+    /// on an accepted update it MUST persist `revision = stored + 1`. The
+    /// returned Relation carries the assigned revision — callers must not set
+    /// it themselves.
+    fn put_relation(
+        &self,
+        relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation>;
 }
 
 /// Scope query for check / assemble — knowledge entries and timeline events.
@@ -240,7 +260,15 @@ mod tests {
     }
 
     impl RelationPort for BaselinePortStub {
-        fn put_relation(&self, relation: Relation) -> SpokeResult<Relation> {
+        fn get_relation(&self, _relation_id: &str) -> SpokeResult<Relation> {
+            unreachable!("baseline port stub")
+        }
+
+        fn put_relation(
+            &self,
+            relation: Relation,
+            _expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
             spoke_ok(relation)
         }
     }

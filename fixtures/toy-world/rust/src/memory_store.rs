@@ -166,7 +166,78 @@ impl MemoryStore {
         spoke_ok(entry)
     }
 
-    pub fn put_relation(&mut self, relation: Relation) -> SpokeResult<Relation> {
+    pub fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        match self.relations.get(relation_id) {
+            Some(relation) => spoke_ok(relation.clone()),
+            None => {
+                let mut details = Map::new();
+                details.insert("relation_id".into(), json!(relation_id));
+                spoke_reject(
+                    SpokeRejectCode::RelationNotFound,
+                    format!("Relation not found: {relation_id}"),
+                    Some(details),
+                )
+            }
+        }
+    }
+
+    /// Conditional put — `None` expected_base_revision means create (must be absent).
+    /// Mirrors put_knowledge_entry OCC, with the store owning revision assignment
+    /// (seed 1 on create, bump +1 on accepted update).
+    pub fn put_relation(
+        &mut self,
+        mut relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        let existing = self.relations.get(&relation.relation_id);
+        match expected_base_revision {
+            None => {
+                if existing.is_some() {
+                    let mut details = Map::new();
+                    details.insert(
+                        "relation_id".into(),
+                        Value::String(relation.relation_id.clone()),
+                    );
+                    return spoke_reject(
+                        SpokeRejectCode::RelationAlreadyExists,
+                        format!("Relation already exists: {}", relation.relation_id),
+                        Some(details),
+                    );
+                }
+                relation.revision = Some(1);
+            }
+            Some(expected) => match existing {
+                None => {
+                    let mut details = Map::new();
+                    details.insert(
+                        "relation_id".into(),
+                        Value::String(relation.relation_id.clone()),
+                    );
+                    details.insert("expectedBaseRevision".into(), json!(expected));
+                    return spoke_reject(
+                        SpokeRejectCode::StoredRevisionStale,
+                        format!("Relation not found for update: {}", relation.relation_id),
+                        Some(details),
+                    );
+                }
+                Some(stored) => {
+                    let current = stored.revision.unwrap_or(0);
+                    if current != expected {
+                        let mut details = Map::new();
+                        details.insert("expectedBaseRevision".into(), json!(expected));
+                        details.insert("storeRevision".into(), json!(current));
+                        return spoke_reject(
+                            SpokeRejectCode::StoredRevisionStale,
+                            format!(
+                                "Store revision {current} does not match expected base {expected}"
+                            ),
+                            Some(details),
+                        );
+                    }
+                    relation.revision = Some(current + 1);
+                }
+            },
+        }
         self.relations
             .insert(relation.relation_id.clone(), relation.clone());
         spoke_ok(relation)

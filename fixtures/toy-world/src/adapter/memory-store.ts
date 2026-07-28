@@ -147,9 +147,58 @@ export class MemoryStore {
     return spokeOk(entry);
   }
 
-  putRelation(relation: Relation): SpokeResult<Relation> {
-    this.relations.set(relation.relation_id, relation);
+  getRelation(relationId: string): SpokeResult<Relation> {
+    const relation = this.relations.get(relationId);
+    if (relation === undefined) {
+      return spokeReject(
+        SpokeRejectCode.RELATION_NOT_FOUND,
+        `Relation not found: ${relationId}`,
+        { relation_id: relationId },
+      );
+    }
     return spokeOk(relation);
+  }
+
+  /**
+   * Conditional put — `null` expectedBaseRevision means create (must be absent).
+   * Mirrors putKnowledgeEntry OCC, with the adapter owning revision assignment
+   * (seed 1 on create, bump +1 on accepted update) — parity with the Rust store.
+   */
+  putRelation(
+    relation: Relation,
+    expectedBaseRevision: number | null,
+  ): SpokeResult<Relation> {
+    const existing = this.relations.get(relation.relation_id);
+    if (expectedBaseRevision === null) {
+      if (existing !== undefined) {
+        return spokeReject(
+          SpokeRejectCode.RELATION_ALREADY_EXISTS,
+          `Relation already exists: ${relation.relation_id}`,
+          { relation_id: relation.relation_id },
+        );
+      }
+      const created: Relation = { ...relation, revision: 1 };
+      this.relations.set(relation.relation_id, created);
+      return spokeOk(created);
+    }
+    if (existing === undefined) {
+      return spokeReject(
+        SpokeRejectCode.STORED_REVISION_STALE,
+        `Relation not found for update: ${relation.relation_id}`,
+        { relation_id: relation.relation_id, expectedBaseRevision },
+      );
+    }
+    const currentRevision = existing.revision ?? 0;
+    if (currentRevision !== expectedBaseRevision) {
+      return spokeReject(
+        SpokeRejectCode.STORED_REVISION_STALE,
+        `Store revision ${currentRevision} does not match expected base ${expectedBaseRevision}`,
+        { expectedBaseRevision, storeRevision: currentRevision },
+      );
+    }
+    const updated: Relation = { ...relation, revision: currentRevision + 1 };
+    this.relations.set(relation.relation_id, updated);
+    return spokeOk(updated);
   }
 
   listKnowledgeEntries(): SpokeResult<KnowledgeEntry[]> {

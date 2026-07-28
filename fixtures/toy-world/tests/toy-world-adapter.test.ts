@@ -120,9 +120,11 @@ describe("ToyWorldAdapter baseline orchestration", () => {
   it("orchestrateRelate persists a Relation", () => {
     const adapter = new ToyWorldAdapter();
     const relation = loadFixture<Relation>("rel_tw_mira_harbor.json");
+    // Create path: revision must be absent/0; the adapter seeds revision 1.
+    const { revision: _stripForCreate, ...createCandidate } = relation;
     const request: RelateRequest = {
       relation: {
-        ...relation,
+        ...createCandidate,
         relation_id: "rel_tw_adapter_demo",
       },
     };
@@ -134,8 +136,9 @@ describe("ToyWorldAdapter baseline orchestration", () => {
       return;
     }
     expect(result.value.relation.relation_id).toBe("rel_tw_adapter_demo");
-    expect(adapter.store.relations.get("rel_tw_adapter_demo")).toEqual(
-      request.relation,
+    expect(result.value.relation.revision).toBe(1);
+    expect(adapter.store.relations.get("rel_tw_adapter_demo")?.revision).toBe(
+      1,
     );
   });
 
@@ -225,6 +228,20 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
+    }
+  });
+
+  it("putRelation rejects create when relation already exists (RELATION_ALREADY_EXISTS)", () => {
+    const existing = loadFixture<Relation>("rel_tw_mira_harbor.json");
+    const adapter = new ToyWorldAdapter({ relations: [existing] });
+
+    // Create path: expectedBaseRevision null, but the id already exists in the
+    // store — the adapter's CAS rejects with RELATION_ALREADY_EXISTS.
+    const result = adapter.putRelation(existing, null);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.RELATION_ALREADY_EXISTS);
     }
   });
 

@@ -16,7 +16,7 @@ Pure helpers keep lifecycle invariants consistent, but every product still inven
 4. **Sync `SpokeResult` ports** — normative methods return `SpokeResult<T>` directly; future async surfaces use distinct `Async*Port` names.
 5. **Missing optional ports** — dynamic boundaries return `CAPABILITY_PORT_MISSING` (not throw/panic).
 6. **Check injectee** — checkers remain product-owned via `CheckRunInput` + `runChecker` callback after ports load scoped data.
-7. **Knowledge entry OCC** — `putKnowledgeEntry(entry, expectedBaseRevision)` requires adapters to enforce compare-and-put: `null`/`None` means absent (create); non-null means the store’s current revision for `entry_id` must match before accepting the write (`STORED_REVISION_STALE` or `REVISION_CONFLICT` on mismatch). Orchestrators pass the loaded stored revision (or `null`/`None` on create).
+7. **Persisted-entity OCC** — both `KnowledgeEntryPort` and `RelationPort` require compare-and-put on their `put*` methods. `putKnowledgeEntry(entry, expectedBaseRevision)` and `putRelation(relation, expectedBaseRevision)` treat `null`/`None` as create (entity must be absent) and a non-null value as the store’s required current revision before accepting the write (`STORED_REVISION_STALE` or `REVISION_CONFLICT` on mismatch; `RELATION_ALREADY_EXISTS` / `KNOWLEDGE_ENTRY_ALREADY_EXISTS` when a create finds the id present). Orchestrators pass the loaded stored revision (or `null`/`None` on create). The two ports are full parity: the same load → validate → OCC → put sequence drives both entity lifecycles. See [`relation-occ-parity.md`](relation-occ-parity.md) for the focused Relation OCC pattern.
 
 ## Gotchas
 

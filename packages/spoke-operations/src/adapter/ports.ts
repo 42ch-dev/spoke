@@ -40,9 +40,24 @@ export interface KnowledgeEntryPort {
   ): SpokeResult<KnowledgeEntry>;
 }
 
-/** Relation persistence. */
+/** Relation persistence — get / put by relation id. */
 export interface RelationPort {
-  putRelation(relation: Relation): SpokeResult<Relation>;
+  getRelation(relationId: string): SpokeResult<Relation>;
+  /**
+   * Persist a Relation with optimistic concurrency control.
+   *
+   * Adapters MUST treat `expectedBaseRevision` as the store’s required current
+   * revision before accepting the write (conditional put / OCC / CAS).
+   * `null` means the relation must be absent (create). A non-null value means the
+   * store’s current revision for `relation.relation_id` MUST equal
+   * `expectedBaseRevision`; otherwise reject with `STORED_REVISION_STALE` or
+   * `REVISION_CONFLICT`. True concurrent safety requires atomic compare-and-put
+   * in the adapter; the library stays I/O-free.
+   */
+  putRelation(
+    relation: Relation,
+    expectedBaseRevision: number | null,
+  ): SpokeResult<Relation>;
 }
 
 /** Scope query for check / assemble — knowledge entries and timeline events. */

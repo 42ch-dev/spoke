@@ -6,6 +6,7 @@ import { SpokeRejectCode } from "../result.js";
 
 export type ValidateRelateRequestContext = {
   stored?: Relation;
+  mode?: "create" | "update";
 };
 
 function isNonEmptyTrimmedString(value: string | undefined): boolean {
@@ -80,12 +81,31 @@ function validateUpdatePath(
 
 /**
  * Validate Relation shape and lifecycle rules before persist; create vs update
- * inferred from stored presence. Mirrors validateUpsertKnowledgeEntry.
+ * inferred from stored presence unless `mode` makes the caller's intent
+ * explicit. Mirrors validateUpsertKnowledgeEntry.
  */
 export function validateRelateRequest(
   relation: Relation,
   context: ValidateRelateRequestContext = {},
 ): SpokeResult<void> {
+  const { stored, mode } = context;
+
+  if (mode === "update" && stored === undefined) {
+    return spokeReject(
+      SpokeRejectCode.RELATION_NOT_FOUND,
+      "Update path requires a stored Relation",
+      { relation_id: relation.relation_id },
+    );
+  }
+
+  if (mode === "create" && stored !== undefined) {
+    return spokeReject(
+      SpokeRejectCode.RELATION_ALREADY_EXISTS,
+      "Create path must not include a stored Relation",
+      { relation_id: stored.relation_id },
+    );
+  }
+
   if (!isNonEmptyTrimmedString(relation.from_id)) {
     return spokeReject(
       SpokeRejectCode.RELATION_MISSING_ENDPOINT,

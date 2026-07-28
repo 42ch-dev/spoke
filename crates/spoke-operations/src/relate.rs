@@ -9,15 +9,26 @@ fn is_non_empty_trimmed_string(value: &str) -> bool {
     !value.trim().is_empty()
 }
 
+/// Explicit relate path when caller supplies stored presence separately from inference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelateMode {
+    Create,
+    Update,
+}
+
 /// Context for [`validate_relate_request`].
 pub struct ValidateRelateRequestContext<'a> {
     pub stored: Option<&'a Relation>,
+    pub mode: Option<RelateMode>,
 }
 
 impl<'a> ValidateRelateRequestContext<'a> {
     #[must_use]
     pub const fn new() -> Self {
-        Self { stored: None }
+        Self {
+            stored: None,
+            mode: None,
+        }
     }
 }
 
@@ -78,11 +89,35 @@ fn validate_update_path(candidate: &Relation, stored: &Relation) -> SpokeResult<
 }
 
 /// Validate Relation shape and lifecycle rules before persist; create vs update
-/// inferred from stored presence. Mirrors validate_upsert_knowledge_entry.
+/// inferred from stored presence unless `mode` makes the caller's intent
+/// explicit. Mirrors validate_upsert_knowledge_entry.
 pub fn validate_relate_request(
     relation: &Relation,
     context: ValidateRelateRequestContext<'_>,
 ) -> SpokeResult<()> {
+    let ValidateRelateRequestContext { stored, mode } = context;
+
+    if mode == Some(RelateMode::Update) && stored.is_none() {
+        let mut details = Map::new();
+        details.insert("relation_id".into(), json!(relation.relation_id));
+        return spoke_reject(
+            SpokeRejectCode::RelationNotFound,
+            "Update path requires a stored Relation",
+            Some(details),
+        );
+    }
+
+    if mode == Some(RelateMode::Create) && stored.is_some() {
+        let stored = stored.expect("checked above");
+        let mut details = Map::new();
+        details.insert("relation_id".into(), json!(stored.relation_id));
+        return spoke_reject(
+            SpokeRejectCode::RelationAlreadyExists,
+            "Create path must not include a stored Relation",
+            Some(details),
+        );
+    }
+
     if !is_non_empty_trimmed_string(&relation.from_id) {
         let mut details = Map::new();
         details.insert("field".into(), Value::String("from_id".into()));
@@ -246,6 +281,39 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejects_update_path_without_stored_via_explicit_mode() {
+        let result = validate_relate_request(
+            &make_relation(|_| {}),
+            ValidateRelateRequestContext {
+                stored: None,
+                mode: Some(RelateMode::Update),
+            },
+        );
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::RelationNotFound);
+        }
+    }
+
+    #[test]
+    fn rejects_create_path_when_stored_is_provided_via_explicit_mode() {
+        let stored = stored_relation();
+        let result = validate_relate_request(
+            &make_relation(|_| {}),
+            ValidateRelateRequestContext {
+                stored: Some(&stored),
+                mode: Some(RelateMode::Create),
+            },
+        );
+
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::RelationAlreadyExists);
+        }
+    }
+
     fn stored_relation() -> Relation {
         make_relation(|relation| {
             relation.relation_id = "rel_stored".into();
@@ -265,6 +333,7 @@ mod tests {
             &candidate,
             ValidateRelateRequestContext {
                 stored: Some(&stored),
+                mode: None,
             },
         );
 
@@ -283,6 +352,7 @@ mod tests {
             &candidate,
             ValidateRelateRequestContext {
                 stored: Some(&stored),
+                mode: None,
             },
         );
 
@@ -304,6 +374,7 @@ mod tests {
             &candidate,
             ValidateRelateRequestContext {
                 stored: Some(&stored),
+                mode: None,
             },
         );
 
@@ -324,6 +395,7 @@ mod tests {
             &candidate,
             ValidateRelateRequestContext {
                 stored: Some(&stored),
+                mode: None,
             },
         );
 
@@ -345,6 +417,7 @@ mod tests {
             &candidate,
             ValidateRelateRequestContext {
                 stored: Some(&stored),
+                mode: None,
             },
         );
 

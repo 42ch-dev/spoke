@@ -76,6 +76,28 @@ describe("validateRelateRequest", () => {
     }
   });
 
+  it("rejects update path without stored via explicit mode", () => {
+    const result = validateRelateRequest(makeRelation(), { mode: "update" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.RELATION_NOT_FOUND);
+    }
+  });
+
+  it("rejects create path when stored is provided via explicit mode", () => {
+    const stored = makeRelation({ relation_id: "rel_stored", revision: 0 });
+    const result = validateRelateRequest(makeRelation(), {
+      stored,
+      mode: "create",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.RELATION_ALREADY_EXISTS);
+    }
+  });
+
   describe("update path", () => {
     const stored: Relation = {
       ...makeRelation({ relation_id: "rel_stored", revision: 3 }),

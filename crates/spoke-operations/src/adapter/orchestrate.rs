@@ -12,7 +12,7 @@ use crate::knowledge_entry::{
 };
 use crate::occ::assert_revision_match;
 use crate::promote::{apply_promote_acceptance, validate_promote_request};
-use crate::relate::{validate_relate_request, ValidateRelateRequestContext};
+use crate::relate::{validate_relate_request, RelateMode, ValidateRelateRequestContext};
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use crate::scope::{filter_knowledge_entries_by_scope, filter_timeline_events_by_scope};
 use crate::upsert::{validate_upsert_knowledge_entry, ValidateUpsertKnowledgeEntryContext};
@@ -317,6 +317,10 @@ pub fn orchestrate_relate(
         &relation,
         ValidateRelateRequestContext {
             stored: stored.as_ref(),
+            mode: match stored.as_ref() {
+                None => Some(RelateMode::Create),
+                Some(_) => Some(RelateMode::Update),
+            },
         },
     );
     if let SpokeResult::Reject(reject) = validation {

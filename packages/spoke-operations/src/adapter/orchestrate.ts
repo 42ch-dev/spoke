@@ -268,7 +268,10 @@ export function orchestrateRelate(
   }
   const stored = storedResult.value;
 
-  const validation = validateRelateRequest(request.relation, { stored });
+  const validation = validateRelateRequest(request.relation, {
+    stored,
+    mode: stored === undefined ? "create" : "update",
+  });
   if (!validation.ok) {
     return validation;
   }

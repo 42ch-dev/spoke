@@ -2021,6 +2021,124 @@ mod tests {
     }
 
     #[test]
+    fn orchestrate_relate_propagates_relation_already_exists_when_create_races_existing_id() {
+        // The create-path RelationAlreadyExists can only surface through a
+        // read-then-put CAS race: the orchestrator's get_relation snapshot
+        // missed a concurrently-inserted row, so validate routes to create and
+        // the adapter rejects put_relation(existing, None). The orchestrator
+        // must propagate it.
+        let stored = relation(json!({
+            "schema_version": 1,
+            "relation_id": "rel_race",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "revision": 1,
+            "extensions": {}
+        }));
+        let baseline = MemoryBaselinePorts::with_entry(serde_json::from_value(json!({
+            "schema_version": 1,
+            "entry_id": "kb_placeholder",
+            "entry_type": "character",
+            "canonical_name": "Placeholder",
+            "status": "provisional",
+            "body": { "summary": "placeholder" },
+            "extensions": {}
+        })).expect("placeholder KE"));
+        {
+            let mut store = baseline.store.lock().expect("store lock");
+            store.relations.insert(stored.relation_id.clone(), stored);
+        }
+
+        struct RelateCreateRacePorts {
+            baseline: MemoryBaselinePorts,
+        }
+        impl KnowledgeEntryPort for RelateCreateRacePorts {
+            fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+                self.baseline.get_knowledge_entry(entry_id)
+            }
+            fn put_knowledge_entry(
+                &self,
+                entry: KnowledgeEntry,
+                expected_base_revision: Option<u64>,
+            ) -> SpokeResult<KnowledgeEntry> {
+                self.baseline
+                    .put_knowledge_entry(entry, expected_base_revision)
+            }
+        }
+        impl RelationPort for RelateCreateRacePorts {
+            fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+                // Stale snapshot: pretend the row is absent so validate routes to
+                // create and the orchestrator passes expected_base_revision None.
+                let mut details = Map::new();
+                details.insert("relation_id".into(), json!(relation_id));
+                spoke_reject(
+                    SpokeRejectCode::RelationNotFound,
+                    format!("Stale snapshot missed: {relation_id}"),
+                    Some(details),
+                )
+            }
+            fn put_relation(
+                &self,
+                relation: Relation,
+                expected_base_revision: Option<u64>,
+            ) -> SpokeResult<Relation> {
+                // Delegate to the real baseline OCC store, which still holds the
+                // seeded relation and rejects create-when-exists.
+                self.baseline.put_relation(relation, expected_base_revision)
+            }
+        }
+        impl ScopeQueryPort for RelateCreateRacePorts {
+            fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+                self.baseline.list_knowledge_entries(scope)
+            }
+            fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+                self.baseline.list_timeline_events(scope)
+            }
+        }
+        impl FindingPort for RelateCreateRacePorts {
+            fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+                self.baseline.put_findings(findings)
+            }
+        }
+        impl RuleQueryPort for RelateCreateRacePorts {
+            fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+                self.baseline.list_rules(rule_refs)
+            }
+        }
+        impl HostManifestPort for RelateCreateRacePorts {
+            fn get_host_capability_manifest(
+                &self,
+            ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+                self.baseline.get_host_capability_manifest()
+            }
+            fn list_peer_host_capability_manifests(
+                &self,
+            ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
+                self.baseline.list_peer_host_capability_manifests()
+            }
+        }
+
+        let ports = RelateCreateRacePorts { baseline };
+
+        // Create candidate carries no revision so validate chooses create.
+        let candidate = json!({
+            "schema_version": 1,
+            "relation_id": "rel_race",
+            "relation_type": "related_to",
+            "from_id": "kb_a",
+            "to_id": "kb_b",
+            "extensions": {}
+        });
+
+        let result = orchestrate_relate(&ports, relate_request(candidate));
+        assert!(result.is_reject());
+        if let SpokeResult::Reject(reject) = result {
+            assert_eq!(reject.code, SpokeRejectCode::RelationAlreadyExists);
+        }
+    }
+
+    #[test]
     fn orchestrate_check_loads_scope_runs_checker_and_puts_findings() {
         let entry = ke(json!({
             "schema_version": 1,

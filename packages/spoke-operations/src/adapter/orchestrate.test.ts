@@ -738,6 +738,36 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.REVISION_CONFLICT);
   });
 
+  it("orchestrateRelate propagates RELATION_ALREADY_EXISTS when create races an existing id", () => {
+    // The create-path `RELATION_ALREADY_EXISTS` can only surface through a
+    // read-then-put CAS race: the orchestrator's `getRelation` snapshot missed
+    // a concurrently-inserted row, so validate routes to create and the adapter
+    // rejects `putRelation(existing, null)`. The orchestrator must propagate it.
+    const stored = makeRelation({ relation_id: "rel_race", revision: 1 });
+    const baseline = createMemoryBaselinePorts({ relations: [stored] });
+    const ports: BaselinePorts = {
+      ...baseline,
+      getRelation(relationId: string): SpokeResult<Relation> {
+        return spokeReject(
+          SpokeRejectCode.RELATION_NOT_FOUND,
+          `Stale snapshot missed: ${relationId}`,
+          { relation_id: relationId },
+        );
+      },
+    };
+    // Create candidate carries no revision so validate chooses the create path.
+    const candidate = makeRelation({ relation_id: "rel_race" });
+    const request: RelateRequest = { relation: candidate };
+
+    const result = orchestrateRelate(ports, request);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe(SpokeRejectCode.RELATION_ALREADY_EXISTS);
+  });
+
   it("orchestrateRelate persisted relation carries bumped revision on update", () => {
     const stored = makeRelation({ relation_id: "rel_bump", revision: 3 });
     const baseline = createMemoryBaselinePorts({ relations: [stored] });

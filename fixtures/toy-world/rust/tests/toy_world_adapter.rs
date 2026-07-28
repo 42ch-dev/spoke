@@ -8,7 +8,7 @@ use spoke_operations::{
     orchestrate_assemble, orchestrate_check, orchestrate_compute, orchestrate_fork_check,
     orchestrate_project, orchestrate_promote, orchestrate_relate, orchestrate_upsert, spoke_ok,
     CheckRunInput, ComputablePort, ForkTimelineQueryPort, FullAdapter, HostManifestPort,
-    KnowledgeEntryPort, SpokeRejectCode, SpokeResult,
+    KnowledgeEntryPort, RelationPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
     AssembleRequest, CheckRequest, ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest,
@@ -230,6 +230,23 @@ fn put_knowledge_entry_rejects_occ_mismatch() {
     assert!(result.is_reject());
     if let SpokeResult::Reject(reject) = result {
         assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
+    }
+}
+
+#[test]
+fn put_relation_rejects_create_when_relation_already_exists() {
+    let existing = load_fixture::<Relation>("rel_tw_mira_harbor.json");
+    let adapter = ToyWorldAdapter::new(Some(MemoryStoreSeed {
+        relations: vec![existing.clone()],
+        ..Default::default()
+    }));
+
+    // Create path: expected_base_revision None, but the id already exists in the
+    // store — the adapter's CAS rejects with RelationAlreadyExists.
+    let result = adapter.put_relation(existing, None);
+    assert!(result.is_reject());
+    if let SpokeResult::Reject(reject) = result {
+        assert_eq!(reject.code, SpokeRejectCode::RelationAlreadyExists);
     }
 }
 

@@ -231,6 +231,20 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     }
   });
 
+  it("putRelation rejects create when relation already exists (RELATION_ALREADY_EXISTS)", () => {
+    const existing = loadFixture<Relation>("rel_tw_mira_harbor.json");
+    const adapter = new ToyWorldAdapter({ relations: [existing] });
+
+    // Create path: expectedBaseRevision null, but the id already exists in the
+    // store — the adapter's CAS rejects with RELATION_ALREADY_EXISTS.
+    const result = adapter.putRelation(existing, null);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.RELATION_ALREADY_EXISTS);
+    }
+  });
+
   it("returns CAPABILITY_PORT_MISSING for baseline-only adapter at dynamic boundary", () => {
     const full = new ToyWorldAdapter();
     const baseline = asBaselineOnly(full);

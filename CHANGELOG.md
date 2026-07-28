@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.4.1] - 2026-07-28
+
+
+### Added
+
+- **fixtures:** Add Harbor ordered moment beat chain
+
+- **operations:** Add timeline sequence pure helpers
+
+- **operations:** Add Rust timeline sequence helpers
+
+
+### Documentation
+
+- **agents:** Require Conventional Commits for changelog generation
+
+- **readme:** Document adapter ports and orchestrate* integrator path
+
+- **specs:** Add narrative-structure Domain Profile for Beat assist
+
+
+### Fixed
+
+- **specs:** Correct Harbor fixture and ops helper claims in narrative profile
+
+- **operations:** Align precedes linked-set and UTF-8 tie-break
+
+- **operations:** Replace node:buffer UTF-8 compare with TextEncoder
+
+- **operations:** Reject duplicate input ids and self-loop precedes
+
+
+### Internal
+
+- **iteration:** Close beat-assist slice — compound and roadmap
+
 ## [0.4.0] - 2026-07-27
 
 

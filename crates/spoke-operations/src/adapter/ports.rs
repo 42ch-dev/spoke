@@ -38,6 +38,12 @@ pub trait RelationPort {
     /// `expected_base_revision`; otherwise reject with `STORED_REVISION_STALE` or
     /// `REVISION_CONFLICT`. True concurrent safety requires atomic compare-and-put
     /// in the adapter; the library stays I/O-free.
+    ///
+    /// Revision assignment is adapter-owned: on create
+    /// (`expected_base_revision` `None`) the adapter MUST seed `revision = 1`;
+    /// on an accepted update it MUST persist `revision = stored + 1`. The
+    /// returned Relation carries the assigned revision — callers must not set
+    /// it themselves.
     fn put_relation(
         &self,
         relation: Relation,

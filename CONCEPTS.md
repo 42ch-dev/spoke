@@ -38,7 +38,7 @@ L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrat
 
 ### Scope
 
-Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`). Product-local scope ids map via op `extensions` or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
+Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`, `extensions`). Optional `extensions` carries product-scoped query metadata; protocol matchers ignore it. Product-local scope ids map via op `extensions`, `Scope.extensions`, or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
 
 ### Domain Profile
 

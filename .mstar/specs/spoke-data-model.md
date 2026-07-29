@@ -732,7 +732,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 ## Vocabulary boundaries (CONCEPTS alignment)
 
 - **KnowledgeEntry** — atomic Knowledge Base entry in SPOKE wire form
-- **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; World/Book ids in `extensions` or adapters — see [`spoke-ops.md`](spoke-ops.md) §Scope
+- **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; optional `extensions` (`ExtensionMap`) carries product-scoped query metadata (matchers ignore); World/Book ids in op `extensions`, `Scope.extensions`, or adapters — full field table in [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
 - **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md)

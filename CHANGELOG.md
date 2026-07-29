@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.5.0] - 2026-07-29
+
+
+### Added
+
+- **schemas:** Add optional revision to Relation wire
+
+- **operations:** RelationPort OCC parity + relation error codes
+
+- **operations:** OrchestrateRelate deep OCC integration + relate gate
+
+- **toy-world:** Upgrade RelationPort to OCC-aware get/put with dual-language tests
+
+
+### Changed
+
+- **operations:** Assert RELATION_ALREADY_EXISTS on relate create path
+
+
+### Documentation
+
+- **specs:** Normative persisted-entity OCC parity guardrail for Relation
+
+- **knowledge:** Relation OCC parity + generalize persisted-entity OCC note
+
+- **knowledge:** Relation-occ-parity current facts only
+
+- **roadmap:** Record Relation OCC parity as delivered capability
+
+- **operations:** Document RelationPort revision assignment
+
+
+### Fixed
+
+- **operations:** Relate gate explicit mode + implicit-path errors
+
 ## [0.4.1] - 2026-07-28
 
 

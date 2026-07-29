@@ -1,6 +1,6 @@
 {
   "name": "@42ch/spoke-schemas",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "SPOKE wire types — TypeScript generated from JSON Schema",
   "license": "Apache-2.0",
   "repository": {

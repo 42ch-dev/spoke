@@ -1,0 +1,17 @@
+{
+  "scope": {
+    "scope_id": "toy-scope-check",
+    "entry_types": ["character"],
+    "fork_id": "fork_tw_storm_branch",
+    "extensions": {
+      "toy": {
+        "branch_id": "fork_tw_storm_branch"
+      },
+      "nexus": {
+        "text_search": "harbor",
+        "limit": 10
+      }
+    }
+  },
+  "checker_kinds": ["spoke-baseline"]
+}

@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  filterKnowledgeEntriesByScope,
   filterTimelineEventsByScope,
   preserveExtensionMaps,
   timelineEventMatchesScope,
@@ -11,6 +12,7 @@ import type {
   Finding,
   HostCapabilityManifest,
   KnowledgeEntry,
+  Scope,
   TimelineEvent,
 } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
@@ -211,5 +213,44 @@ describe("fixtures/toy-world schema conformance", () => {
         scope_id: "toy-scope-baseline",
       }),
     ).toEqual(events);
+  });
+
+  it("carries product query metadata on Scope.extensions through a check-request", () => {
+    const checkRequest = loadFixture<{ scope: Scope }>("op_tw_check_request.json");
+    const scope = checkRequest.scope;
+
+    // The selector carries product-scoped query metadata under extensions.<namespace>.
+    expect(scope.extensions).toEqual({
+      toy: { branch_id: "fork_tw_storm_branch" },
+      nexus: { text_search: "harbor", limit: 10 },
+    });
+
+    // Matching still selects on core fields (entry_types) using the real toy-world corpus.
+    const mira = loadFixture<KnowledgeEntry>("kb_tw_mira.json");
+    const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
+
+    const filtered = filterKnowledgeEntriesByScope([mira, harbor], scope);
+    expect(filtered.map((entry) => entry.entry_id)).toEqual([mira.entry_id]);
+
+    // Same core selection as an extensions-less scope.
+    const coreOnly: Scope = {
+      scope_id: scope.scope_id,
+      entry_types: scope.entry_types,
+    };
+    expect(
+      filterKnowledgeEntriesByScope([mira, harbor], coreOnly).map((entry) => entry.entry_id),
+    ).toEqual([mira.entry_id]);
+
+    // extensions are preserved verbatim — matchers neither consume nor alter them.
+    const snapshot = scope.extensions;
+    const baseline = loadFixture<TimelineEvent>("evt_tw_harbor_dawn.json");
+    const forked = loadFixture<TimelineEvent>("evt_tw_harbor_storm_delay.json");
+    filterTimelineEventsByScope([baseline, forked], scope);
+
+    expect(scope.extensions).toBe(snapshot);
+    expect(scope.extensions).toEqual({
+      toy: { branch_id: "fork_tw_storm_branch" },
+      nexus: { text_search: "harbor", limit: 10 },
+    });
   });
 });

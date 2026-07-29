@@ -119,7 +119,7 @@ Stack policy (priority across packs, override wins, soft-delete) is **product-lo
 |---------|------|
 | `extensions.<product>` on pack atoms | Importers **MUST** round-trip unknown product namespaces and unknown keys **verbatim** ([`spoke-extension-modules.md`](spoke-extension-modules.md) §Round-trip; helpers in [`spoke-operations.md`](spoke-operations.md)) |
 | **Proposed** `modules.pack` | Stage and re-export pack metadata with the handbook field names so hosts converge |
-| **Proposed** `modules.activation` on entries | Preserve fire conditions with each KnowledgeEntry ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)) |
+| **Proposed** `modules.activation` with entries | Preserve fire conditions beside each KnowledgeEntry in the pack companion ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)) |
 | Future shipped `modules` | When a demand-gated schema slice adds `modules`, adapters **MUST** round-trip the object the same way — unknown module keys and nested fields survive read/write |
 
 Unknown open-string values (`entry_type`, `relation_type`, tags) round-trip without normalization per baseline data-model rules.
@@ -151,42 +151,52 @@ Handbook + fixture samples are sufficient interchange documentation until the ga
 
 ## Activation cross-link
 
-Pack KnowledgeEntries **MAY** carry **proposed** `modules.activation` so fire conditions travel with the entry.
+Packs **MAY** transport **proposed** `modules.activation` with each KnowledgeEntry so fire conditions travel with the entry. The activation object stages in the **pack companion envelope** beside baseline-valid atoms — not as a property on the committed KnowledgeEntry schema (`additionalProperties: false` on KE root).
 
 | Concern | Home |
 |---------|------|
 | Field table (`keys`, `secondary_keys`, `logic`, `constant`, `order`, `priority`, `position_hint`, `outlet`, `match`) | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) |
 | Standalone-snippet invariant (`body.summary` / assemble `snippet`) | Lore-activation handbook |
-| Pack transport of activation | This handbook — preserve **proposed** `modules.activation` on each exported KE |
+| Pack transport of activation | This handbook — preserve **proposed** `modules.activation` beside each exported KE in the companion envelope |
 | Seed ↔ `constant` / Pool ↔ keyed | Short map in lore-activation; full assemble pattern **here** (§Seed vs Pool) |
 
 Importers map activation companion fields into product engines. Engines stay product-local; `spoke-operations` gains no matchers.
 
 ### Illustrative entry with activation (proposed companion)
 
+Baseline KnowledgeEntry atoms stay schema-valid. **Proposed** `modules.activation` stages **beside** those atoms in the pack companion envelope. Full Harbor sample: [`fixtures/toy-world/proposed/pack_tw_harbor_companion.json`](../../fixtures/toy-world/proposed/pack_tw_harbor_companion.json).
+
 ```text
-// KnowledgeEntry atom + proposed modules on a pack entry
+// 1) Baseline KnowledgeEntry atom (committed schema — no modules property)
 {
+  "schema_version": 1,
   "entry_id": "kb_tw_harbor_rules",
-  "entry_type": "concept",
+  "entry_type": "rule",
   "canonical_name": "Harbor standing rules",
-  "schema_version": "1.0.0",
+  "status": "confirmed",
   "body": {
     "summary": "Dockside law holds at dawn; captains answer to the harbor master."
   },
-  "extensions": {},
+  "extensions": {}
+}
+
+// 2) Proposed companion annotation staged beside the atom in the pack envelope
+//    (pack/companion level — not a KnowledgeEntry root field)
+{
+  "entry_id": "kb_tw_harbor_rules",
   "modules": {
     "activation": {
       "keys": [],
       "constant": true,
       "order": 0,
-      "priority": 100
+      "priority": 100,
+      "position_hint": "before_defs"
     }
   }
 }
 ```
 
-`modules` on the entry is a **proposed** companion shape. Baseline KnowledgeEntry validation uses committed schemas without a `modules` property; products stage the companion beside or around valid atoms until the demand gate.
+**Proposed** `modules.activation` is a companion shape staged **beside or around** valid KnowledgeEntry atoms until the demand gate. Baseline KnowledgeEntry validation uses committed schemas without a `modules` property.
 
 ---
 
@@ -253,7 +263,7 @@ An integrator can implement pack import/export from this handbook (and the lore-
 1. A pack is an ordered list of KnowledgeEntry + Relation + optional SourceAnchor atoms with **proposed** `modules.pack` metadata.
 2. Compose stacks world / character / session packs product-side; merge policy stays local.
 3. Unknown `extensions.<product>` on atoms survive import/export verbatim; **proposed** `modules.*` round-trip with handbook names.
-4. Pack entries **MAY** carry **proposed** `modules.activation`; field semantics live in the lore-activation handbook.
+4. Packs **MAY** stage **proposed** `modules.activation` beside exported KnowledgeEntry atoms in the companion envelope; field semantics live in the lore-activation handbook.
 5. Assemble callers build Seed then Pool, supply ordered candidates, and use `maxEntries` truncation on input order only.
 6. Engines and pack I/O stay in the product; `spoke-operations` stays pure wire helpers.
 7. Wire schemas remain closed; triad ADR governs promotion of pack envelope / `modules.pack` to schema.
@@ -287,4 +297,5 @@ An integrator can implement pack import/export from this handbook (and the lore-
 | [`spoke-ops.md`](spoke-ops.md) | `assemble` wire-only boundary; optional `max_entries` hint |
 | [`spoke-operations.md`](spoke-operations.md) | `buildAssemblePacket`, extension preserve; no activation engines |
 | [`fixtures/toy-world/`](../../fixtures/toy-world/) | Conformance atoms; optional companion pack samples |
+| [`fixtures/toy-world/proposed/pack_tw_harbor_companion.json`](../../fixtures/toy-world/proposed/pack_tw_harbor_companion.json) | Harbor Narrative Knowledge Pack companion sample (proposed `modules.pack` + `modules.activation`) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (proposed); Extensions |

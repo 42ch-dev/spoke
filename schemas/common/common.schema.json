@@ -89,6 +89,10 @@
         "fork_id": {
           "$ref": "#/definitions/ForkId",
           "description": "Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork)."
+        },
+        "extensions": {
+          "$ref": "#/definitions/ExtensionMap",
+          "description": "Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim."
         }
       },
       "additionalProperties": false

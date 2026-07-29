@@ -187,6 +187,7 @@ mod tests {
         Scope {
             entry_ids: Vec::new(),
             entry_types: Vec::new(),
+            extensions: HashMap::new(),
             fork_id: None,
             scope_id: "world_1".into(),
             source_id: None,
@@ -664,5 +665,69 @@ mod tests {
         let filtered = filter_timeline_events_by_scope(&timeline_events, &scope);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].timeline_event_id, "evt_1");
+    }
+
+    #[test]
+    fn scope_extensions_are_opaque_to_matchers() {
+        // Scope carries product-scoped query metadata under extensions.<namespace>.
+        // Protocol matchers match core Scope fields only and must neither consume nor
+        // alter extensions. Build via wire JSON to also exercise round-trip parsing.
+        let scope: Scope = serde_json::from_value(json!({
+            "scope_id": "world_1",
+            "entry_types": ["character"],
+            "extensions": {
+                "toy": { "branch_id": "fork_mainline_a" },
+                "nexus": { "text_search": "harbor", "limit": 10 }
+            }
+        }))
+        .expect("scope with extensions");
+
+        let matching_entry = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_1".into();
+            entry.entry_type = "character".into();
+        });
+        let non_matching_entry = make_knowledge_entry(|entry| {
+            entry.entry_id = "kb_other".into();
+            entry.entry_type = "location".into();
+        });
+
+        let mut core_scope = base_scope();
+        core_scope.entry_types = vec!["character".into()];
+
+        // (a) matching uses core fields — identical selection with or without extensions.
+        assert_eq!(
+            knowledge_entry_matches_scope(&matching_entry, &scope),
+            knowledge_entry_matches_scope(&matching_entry, &core_scope),
+        );
+        assert_eq!(
+            knowledge_entry_matches_scope(&non_matching_entry, &scope),
+            knowledge_entry_matches_scope(&non_matching_entry, &core_scope),
+        );
+        assert!(knowledge_entry_matches_scope(&matching_entry, &scope));
+        assert!(!knowledge_entry_matches_scope(&non_matching_entry, &scope));
+
+        // Timeline matchers also ignore extensions.
+        let mut event = make_timeline_event(|ev| {
+            ev.timeline_scale = Some("narrative".into());
+        });
+        assert!(timeline_event_matches_scope(&event, &scope));
+
+        // (b) extensions preserved verbatim after driving matcher + filter surfaces.
+        let snapshot = scope.extensions.clone();
+        let entries = [matching_entry, non_matching_entry];
+        let _ = filter_knowledge_entries_by_scope(&entries, &scope);
+        let _events = [event];
+        let _ = filter_timeline_events_by_scope(&_events, &scope);
+        assert_eq!(scope.extensions, snapshot);
+
+        // Product query metadata survives untouched (round-trip serialize the bag).
+        let extensions_wire = serde_json::to_value(&scope.extensions).expect("serialize extensions");
+        assert_eq!(
+            extensions_wire,
+            json!({
+                "toy": { "branch_id": "fork_mainline_a" },
+                "nexus": { "text_search": "harbor", "limit": 10 }
+            }),
+        );
     }
 }

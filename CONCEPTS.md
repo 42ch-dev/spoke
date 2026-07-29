@@ -42,7 +42,7 @@ Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-ne
 
 ### Domain Profile
 
-How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbook for narrative-structure / Beat mapping: [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md).
+How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (proposed `modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md).
 
 ### spoke-baseline
 
@@ -179,4 +179,5 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
 | [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
+| [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — proposed `modules.activation` |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |

@@ -21,7 +21,7 @@ export interface CheckRequest {
    * Optional checker kind filters.
    */
   checker_kinds?: string[];
-  extensions?: ExtensionMap1;
+  extensions?: ExtensionMap2;
 }
 /**
  * Checker scope selector.
@@ -55,6 +55,17 @@ export interface Scope {
    * Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork).
    */
   fork_id?: string;
+  extensions?: ExtensionMap;
+}
+/**
+ * Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim.
+ */
+export interface ExtensionMap {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
 }
 /**
  * Declarative constraint input to check — never checker output.
@@ -105,7 +116,7 @@ export interface Rule {
    * RFC 3339 UTC datetime string.
    */
   updated_at?: string;
-  extensions: ExtensionMap;
+  extensions: ExtensionMap1;
 }
 /**
  * Optional provenance pointer when rule is anchored to manuscript.
@@ -128,7 +139,7 @@ export interface SourceAnchor {
    * Optional MIME type of the referenced source.
    */
   mime_type?: string;
-  extensions: ExtensionMap;
+  extensions: ExtensionMap1;
 }
 /**
  * Optional byte or character span within the source.
@@ -146,7 +157,7 @@ export interface SourceSpan {
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
-export interface ExtensionMap {
+export interface ExtensionMap1 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;
@@ -156,7 +167,7 @@ export interface ExtensionMap {
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
-export interface ExtensionMap1 {
+export interface ExtensionMap2 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

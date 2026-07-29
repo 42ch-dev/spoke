@@ -633,6 +633,8 @@ Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_pos
 
 Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
+Bag placement for product `extensions` vs proposed cross-product `modules.*`: [`spoke-extension-modules.md`](spoke-extension-modules.md).
+
 ---
 
 ## Open vocabulary
@@ -768,6 +770,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing, extensions, codegen layout |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map, capability levels, Rule vs Finding |
+| [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / modules / extensions naming triad |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |

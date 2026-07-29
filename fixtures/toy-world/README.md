@@ -89,6 +89,8 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host) | `host_tw_primary` |
 | `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
 
+`proposed/pack_tw_harbor_companion.json` — companion sample showing **proposed** `modules.pack` / `modules.activation` shape (not validated by harness; baseline atoms within are valid).
+
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 
 ## Validate locally

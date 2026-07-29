@@ -40,7 +40,7 @@ Until the demand gate opens, readers treat every **proposed** `modules.activatio
 |-------|----------|------|-----------|
 | `keys` | **yes** | `string[]` | Primary activation triggers (aliases, names, phrases). Empty array is valid only when `constant` is `true` (always-on entry). |
 | `secondary_keys` | no | `string[]` | Secondary / selective triggers evaluated with `logic` against the primary set |
-| `logic` | no | enum string | How primary and secondary keys combine — see §Logic values |
+| `logic` | no | enum string | How primary and secondary keys combine — see §Logic values. Default integrator reading when omitted and secondary keys are present: `and_any` |
 | `constant` | no | `boolean` | When `true`, entry is an always-on **seed** candidate (see §Seed vs constant) |
 | `order` | no | `number` | Insertion / scan order hint (lower first is the common integrator convention; product engines define sort) |
 | `priority` | no | `number` | Tie-break or budget preference among activated entries (product-defined scale) |
@@ -130,7 +130,7 @@ This invariant raises check and assemble quality across products without schema 
 | `constant: true` | **Seed** — always-on candidates (world rules, POV, active scene anchors) |
 | Keyed entries (`keys` non-empty, `constant` false/absent) | **Pool** — activation- and relation-expand candidates |
 
-Full **Seed vs Pool** assemble pattern (caller sets, packet order, `maxEntries` truncation) lives in the Narrative Knowledge Pack handbook: [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md). This profile only maps `constant` ↔ seed and keyed entries ↔ pool so pack importers preserve the distinction.
+Full **Seed vs Pool** assemble pattern (caller sets, packet order, `maxEntries` truncation) lives in the companion Narrative Knowledge Pack handbook, `domain-profile-narrative-knowledge-pack.md`. This profile only maps `constant` ↔ seed and keyed entries ↔ pool so pack importers preserve the distinction.
 
 ---
 
@@ -171,7 +171,7 @@ An integrator can implement activation storage + pack mapping from this handbook
 3. `constant: true` entries feed the seed set; keyed entries feed the pool (pack handbook for full assemble recipe).
 4. Graph expansion uses `Relation` edges; key-mention recursion is migration-only.
 5. Engines stay in the product; `spoke-operations` gains no matchers.
-6. Wire schemas remain closed; triad ADR governs promotion of `modules` to schema.
+6. Wire schemas remain closed; triad ADR governs promotion of `modules.activation` (proposed) to schema.
 
 ---
 
@@ -192,7 +192,7 @@ An integrator can implement activation storage + pack mapping from this handbook
 | Doc | Topic |
 |-----|-------|
 | [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / proposed `modules.*` / `extensions.<product>` triad; demand gate |
-| [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md) | Knowledge Pack envelope; full Seed vs Pool assemble pattern; proposed `modules.pack` |
+| `domain-profile-narrative-knowledge-pack.md` (companion handbook) | Knowledge Pack envelope; full Seed vs Pool assemble pattern; proposed `modules.pack` |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Domain Profile principles; L8 AssemblePacket |
 | [`spoke-data-model.md`](spoke-data-model.md) | KnowledgeEntry, Relation, BodyAttribute, Extensions |

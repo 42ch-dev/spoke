@@ -2,7 +2,7 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-29  
+**Updated:** 2026-07-30  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
@@ -13,14 +13,21 @@
 
 **Persisted-entity OCC parity (durable invariant):** every entity with a write `*Port` and a create-or-update op carries structural `revision` and is persisted through `put*(entity, expectedBaseRevision)` (null/None on create, stored revision on update). `KnowledgeEntry` (upsert/promote) and `Relation` (relate) are the carriers; `Finding`, `Rule`, `HostCapabilityManifest`, `TimelineEvent`, `SourceAnchor`, and `AssemblePacket` are exempt by design (see `spoke-data-model.md` §Persisted-entity OCC parity). `orchestrateRelate` / `orchestrate_relate` deep-integrate load → validate(create/update) → OCC → put, symmetric with `orchestrateUpsert`. Relation error codes: `RELATION_NOT_FOUND`, `RELATION_ALREADY_EXISTS` (plus reused `STORED_REVISION_STALE` / `REVISION_CONFLICT`).
 
+**Naming triad + Scope.extensions + lore/pack handbooks (in delivery):** normative core / **proposed** `modules.*` / `extensions.<product>` triad; optional `Scope.extensions` (`ExtensionMap`) for product-scoped query metadata; Domain Profile handbooks for lore-activation and Narrative Knowledge Pack (proposed module shapes only — no `modules` on the wire until demand-gated).
+
 ---
 
 ## Up next (planned)
 
 | Slice | What ships | Notes |
 |-------|------------|-------|
+| **Naming triad (core / modules / extensions)** | Normative ADR + CONCEPTS: core fields; **proposed** `modules.*` (cross-product functional dialects); `extensions.<product>` (one adapter). Reject shared functional keys under `extensions.*`. Demand gate for wire `modules`: ≥2 consumers or Nexus + external host | Docs/specs only; no schema `modules` key |
+| **Scope.extensions wire** | Optional `extensions` (`ExtensionMap`) on `Scope`; codegen TS+Rust; pure matchers ignore + preserve; fixtures; data-model + CONCEPTS | Additive optional field; product-scoped query metadata (e.g. branch / search filters); unblocks consumer typed-carrier workarounds |
+| **Lore-activation Domain Profile** | Handbook proposing portable `modules.activation` + standalone-snippet invariant | **Proposed** shape only; engines stay product-local; no baseline wire change |
+| **Narrative Knowledge Pack handbook + fixture** | Pack dialect (KE+Relation bundle + proposed `modules.pack`) + toy-world example pack + Seed vs Pool assemble pattern | Conformance sample, not registry package; no pack envelope schema until demand gate |
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
-| **Registry release** (when convenient) | SemVer cut after beat-assist helpers land on `main` | Optional via **New release** when maintainers choose — not gated on docs site |
+| **Registry release** (when convenient) | SemVer cut when maintainers choose after additive wire lands on `main` | Optional via **New release** — not gated on docs site |
+| **Demand-gated `modules` schema + pack I/O** | Optional `modules` on KnowledgeEntry / AssemblePacket when gate met; Nexus pack import/export | Trigger: ≥2 consumers need identical `modules` on the wire, or Nexus + one external host; otherwise stay handbook-only |
 
 Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 

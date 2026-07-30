@@ -11,7 +11,7 @@ keywords = ["spoke", "knowledge-entry", "operations"]
 categories = ["data-structures"]
 
 [dependencies]
-spoke-schemas = { version = "0.6.0", path = "../spoke-schemas" }
+spoke-schemas = { version = "0.6.1", path = "../spoke-schemas" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

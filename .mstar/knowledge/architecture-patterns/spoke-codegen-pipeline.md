@@ -38,11 +38,11 @@ TypeScript (`jstt`) may emit parallel duplicate interfaces; import shared defs f
 
 ## Rust construction — exhaustive literals are source-breaking on new fields
 
-`rust-gen` enables typify `with_struct_builder(true)`, so every generated struct exposes a `Builder` (e.g. `Scope::builder().scope_id(...).build()`). **Downstream Rust consumers SHOULD construct generated types via the Builder**, which stays source-compatible when SPOKE adds optional fields.
+`rust-gen` enables typify `with_struct_builder(true)`, so every generated struct exposes a `Builder` (e.g. `Scope::builder().scope_id(...).try_into()`). **Downstream Rust consumers SHOULD construct generated types via the Builder**, which stays source-compatible when SPOKE adds optional fields.
 
 Raw struct literals (`Scope { scope_id: ..., ... }`) are **field-exhaustive by typify design**: every field — including optional ones like `entry_ids`, `entry_types`, `timeline_event_ids`, `fork_id`, `extensions` — is a concrete `Vec`/`HashMap`/`String` member (wire-optional only via `#[serde(default, skip_serializing_if = "...::is_empty")]`). **Adding any generated field is therefore a 0.x source-breaking change for downstream exhaustive `Scope` literals** — call sites must add the field or migrate to `Scope::builder()`. This is intentional and accepted as a 0.x breaking release (SPOKE is pre-1.0; wire JSON is unaffected — the field is optional on the wire, and TypeScript is unaffected).
 
-**Migration for Rust consumers hit by the `Scope.extensions` addition:** replace exhaustive literals with `Scope::builder().scope_id(...).build()`, or add `.extensions(HashMap::new())` to existing literals. It is **not** fixed by deriving `Default`: typify also generates enums (`BodyAttributeValue`, the `*Response` success|error `oneOf`s) with no `#[default]` variant, so a crate-wide `#[derive(Default)]` would not compile. Conventional Commits carrying a `BREAKING CHANGE:` footer flag these releases in the `CHANGELOG`.
+**Migration for Rust consumers hit by the `Scope.extensions` addition:** replace exhaustive literals with the typify Builder — `let scope: Scope = Scope::builder().scope_id(...).try_into()?;` (the Builder is terminated via `TryFrom`/`try_into()`, **not** `.build()`), or add `.extensions(HashMap::new())` to existing literals. It is **not** fixed by deriving `Default`: typify also generates enums (`BodyAttributeValue`, the `*Response` success|error `oneOf`s) with no `#[default]` variant, so a crate-wide `#[derive(Default)]` would not compile. Conventional Commits carrying a `BREAKING CHANGE:` footer flag these releases in the `CHANGELOG`.
 
 ## What not to do
 

@@ -26,6 +26,12 @@ export const SpokeRejectCode = {
   RELATION_NOT_FOUND: "RELATION_NOT_FOUND",
   RELATION_ALREADY_EXISTS: "RELATION_ALREADY_EXISTS",
   CAPABILITY_PORT_MISSING: "CAPABILITY_PORT_MISSING",
+  /**
+   * Unexpected internal / server-side failure (HTTP 500 class). Distinct from
+   * the 4xx validation codes; hosts raise it for storage or runtime errors
+   * that are not the caller's fault.
+   */
+  INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 
 export type SpokeRejectCode =

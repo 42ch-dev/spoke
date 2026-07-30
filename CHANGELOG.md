@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.6.1] - 2026-07-30
+
+
+### Added
+
+- **operations:** Add InternalError 500-class reject code
+
+
+### Changed
+
+- **operations:** Cover INTERNAL_ERROR in envelope round-trips
+
 ## [0.6.0] - 2026-07-30
 
 

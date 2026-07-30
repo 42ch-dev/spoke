@@ -205,6 +205,7 @@ mod tests {
             entry_id: "kb_new".into(),
             entry_type: "character".into(),
             extensions: HashMap::new(),
+            modules: HashMap::new(),
             revision: None,
             schema_version: NonZeroU64::new(1).unwrap(),
             source_anchor: None,

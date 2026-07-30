@@ -1,4 +1,4 @@
-import type { ExtensionMap } from "@42ch/spoke-schemas";
+import type { ExtensionMap, ModuleMap } from "@42ch/spoke-schemas";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -56,19 +56,38 @@ function deepMergeRecords(
   return result;
 }
 
-function mergeExtensionMapsInternal(
-  base: ExtensionMap,
-  overlay: ExtensionMap,
-): ExtensionMap {
+/**
+ * Merge two structured JSON values: deep-merge when both are plain objects;
+ * otherwise the overlay replaces the base (arrays/scalars are not element-merged).
+ * When the overlay is absent, the base is retained. Shared primitive for the
+ * generalized namespace merge below.
+ */
+function mergeJsonValues(base: unknown, overlay: unknown): unknown {
+  if (isPlainObject(base) && isPlainObject(overlay)) {
+    return deepMergeRecords(base, overlay);
+  }
+
+  return overlay !== undefined ? cloneValue(overlay) : cloneValue(base);
+}
+
+/**
+ * Generalized namespace merge: iterate the union of namespace keys and merge
+ * each value via `mergeJsonValues` (object deep-merge; arrays/other replaced by
+ * overlay). Shared core for extension and module map helpers — no duplicate
+ * merge logic.
+ */
+function mergeNamespaceMaps(
+  base: Record<string, unknown>,
+  overlay: Record<string, unknown>,
+): Record<string, unknown> {
   const namespaces = new Set([
     ...Object.keys(base),
     ...Object.keys(overlay),
   ]);
-  const result: ExtensionMap = {};
+  const result: Record<string, unknown> = {};
 
   for (const namespace of namespaces) {
-    const merged = deepMergeRecords(base[namespace], overlay[namespace]);
-    result[namespace] = merged;
+    result[namespace] = mergeJsonValues(base[namespace], overlay[namespace]);
   }
 
   return result;
@@ -81,7 +100,7 @@ export function mergeExtensionMaps(
   base: ExtensionMap,
   overlay: ExtensionMap,
 ): ExtensionMap {
-  return mergeExtensionMapsInternal(base, overlay);
+  return mergeNamespaceMaps(base, overlay) as ExtensionMap;
 }
 
 /**
@@ -92,5 +111,29 @@ export function preserveExtensionMaps(
   source: ExtensionMap,
   target: ExtensionMap,
 ): ExtensionMap {
-  return mergeExtensionMapsInternal(source, target);
+  return mergeNamespaceMaps(source, target) as ExtensionMap;
+}
+
+/**
+ * Deep-merge two module maps; object-valued namespaces are deep-merged while
+ * array-valued namespaces are replaced by the overlay. Round-trip only — no
+ * matching, activation, or scoring.
+ */
+export function mergeModuleMaps(
+  base: ModuleMap,
+  overlay: ModuleMap,
+): ModuleMap {
+  return mergeNamespaceMaps(base, overlay) as ModuleMap;
+}
+
+/**
+ * Merge module maps for round-trip preserve: target wins on known keys;
+ * unknown namespaces and keys from source are retained. Round-trip only — no
+ * matching, activation, or scoring.
+ */
+export function preserveModuleMaps(
+  source: ModuleMap,
+  target: ModuleMap,
+): ModuleMap {
+  return mergeNamespaceMaps(source, target) as ModuleMap;
 }

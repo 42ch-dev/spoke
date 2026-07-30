@@ -34,6 +34,7 @@ export interface AssemblePacket {
    */
   entries: AssembleEntry[];
   extensions: ExtensionMap;
+  modules?: ModuleMap;
 }
 /**
  * This interface was referenced by `AssemblePacket`'s JSON-Schema
@@ -65,6 +66,19 @@ export interface ExtensionMap {
     | {
         [k: string]: unknown | undefined;
       }
+    | undefined;
+}
+/**
+ * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries packet-level recipes (e.g. modules.placement, modules.activation_trace). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
+ */
+export interface ModuleMap {
+  [k: string]:
+    | (
+        | {
+            [k: string]: unknown | undefined;
+          }
+        | unknown[]
+      )
     | undefined;
 }
 /**

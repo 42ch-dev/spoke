@@ -58,6 +58,7 @@ Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five basel
 - Every op defines paired **request** and **response** schemas.
 - Ops MUST `$ref` data-layer types (`KnowledgeEntry`, `Relation`, `Finding`, `AssemblePacket`, `TimelineEvent`, `Rule`) — no duplicated inline copies of those objects.
 - Ops MAY include an optional top-level `extensions` object (same `ExtensionMap` as data layer) for transport metadata products choose to standardize later.
+- Nested data objects (`KnowledgeEntry`, `AssemblePacket`, …) MAY carry optional capability-flagged `modules` (`ModuleMap`) per [`spoke-extension-modules.md`](spoke-extension-modules.md) and [`spoke-protocol-layers.md`](spoke-protocol-layers.md) (`narrative-modules`).
 - Ops MUST NOT embed product-specific payloads as protocol siblings on nested data objects; use `extensions` on those objects.
 - **Error path:** every `*-response.schema.json` uses `oneOf` — **success variant** (op-specific payload) **or** **failure variant** (`error` → `$ref` `error-envelope.schema.json`). Success responses MUST NOT include `error`. Failure responses MUST NOT include success payload fields (`findings`, `packet`, `knowledge_entries`, …). Optional top-level `extensions` allowed on both branches.
 
@@ -74,7 +75,7 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
 | `fork_id` | no | `ForkId` | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match |
-| `extensions` | no | `ExtensionMap` | Product-scoped scope/query metadata (e.g. product filters such as branch/search limits). Protocol matchers ignore it; adapters round-trip unknown namespaces verbatim. Product data lives under `extensions.<product>`; functional dialects belong in proposed `modules.*` — see [`spoke-extension-modules.md`](spoke-extension-modules.md). Optional on `Scope` (unlike required `extensions` on durable data objects such as `KnowledgeEntry`). |
+| `extensions` | no | `ExtensionMap` | Product-scoped scope/query metadata (e.g. product filters such as branch/search limits). Protocol matchers ignore it; adapters round-trip unknown namespaces verbatim. Product data lives under `extensions.<product>`; functional dialects belong in `modules.*` on KnowledgeEntry / AssemblePacket — see [`spoke-extension-modules.md`](spoke-extension-modules.md). Optional on `Scope` (unlike required `extensions` on durable data objects such as `KnowledgeEntry`). |
 
 **Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use one of:
 
@@ -209,8 +210,9 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 
 1. **`assemble` response MUST NOT** require fields that imply compute products must implement (e.g. mandatory `rank_scores`, `embedding_model`, `retrieval_trace`).
 2. **Products MAY** place compute metadata under `AssemblePacket.extensions.<namespace>` — adapters MUST preserve unknown keys.
-3. **Conformance in v0.1** means a product can emit or consume a valid `AssemblePacket` on the wire, not that it runs assembly the same way as another product.
-4. **No `assemble` "engine" schema** — there is no `AssembleComputeRequest` or pipeline config in v0.1.
+3. **`AssemblePacket` MAY** carry optional `modules` (`ModuleMap`) — capability-flagged (`narrative-modules`); packet-level functional dialects (`placement`, `activation_trace`, …) live here; inner shapes handbook-defined ([`assemble-module-recipes.md`](assemble-module-recipes.md); bag authority [`spoke-extension-modules.md`](spoke-extension-modules.md)). Absent and empty `modules` are valid.
+4. **Conformance in v0.1** means a product can emit or consume a valid `AssemblePacket` on the wire, not that it runs assembly the same way as another product.
+5. **No `assemble` "engine" schema** — there is no `AssembleComputeRequest` or pipeline config in v0.1.
 
 ---
 

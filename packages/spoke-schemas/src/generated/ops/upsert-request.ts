@@ -68,6 +68,7 @@ export interface KnowledgeEntry {
    */
   updated_at?: string;
   extensions: ExtensionMap;
+  modules?: ModuleMap;
 }
 /**
  * ERC721-style trait item for KnowledgeEntry body.attributes. Duplicate trait_type allowed at array level.
@@ -128,6 +129,19 @@ export interface ExtensionMap {
     | {
         [k: string]: unknown | undefined;
       }
+    | undefined;
+}
+/**
+ * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation, modules.pack). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
+ */
+export interface ModuleMap {
+  [k: string]:
+    | (
+        | {
+            [k: string]: unknown | undefined;
+          }
+        | unknown[]
+      )
     | undefined;
 }
 /**

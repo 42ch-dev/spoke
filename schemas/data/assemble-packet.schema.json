@@ -22,6 +22,10 @@
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    },
+    "modules": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ModuleMap",
+      "description": "Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries packet-level recipes (e.g. modules.placement, modules.activation_trace). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim."
     }
   },
   "additionalProperties": false,

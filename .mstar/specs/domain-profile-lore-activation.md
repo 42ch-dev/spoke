@@ -193,6 +193,7 @@ An integrator can implement activation storage + pack mapping from this handbook
 |-----|-------|
 | [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / proposed `modules.*` / `extensions.<product>` triad; demand gate |
 | `domain-profile-narrative-knowledge-pack.md` (companion handbook) | Knowledge Pack envelope; full Seed vs Pool assemble pattern; proposed `modules.pack` |
+| [`assemble-module-recipes.md`](assemble-module-recipes.md) | Packet-level proposed `modules.placement` + `modules.activation_trace` (where/why companions to per-entry activation) |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Domain Profile principles; L8 AssemblePacket |
 | [`spoke-data-model.md`](spoke-data-model.md) | KnowledgeEntry, Relation, BodyAttribute, Extensions |

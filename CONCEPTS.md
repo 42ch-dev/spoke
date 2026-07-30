@@ -180,4 +180,5 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — proposed `modules.activation` |
+| [`.mstar/specs/assemble-module-recipes.md`](.mstar/specs/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (proposed `modules.placement` / `modules.activation_trace`) |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |

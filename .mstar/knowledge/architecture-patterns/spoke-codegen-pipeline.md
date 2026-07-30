@@ -36,6 +36,12 @@ Facts for Rust integrators:
 
 TypeScript (`jstt`) may emit parallel duplicate interfaces; import shared defs from `generated/common` the same way.
 
+## Rust construction — Builder is the non-breaking path
+
+`rust-gen` enables typify `with_struct_builder(true)`, so every generated struct exposes a `Builder` (e.g. `Scope::builder().scope_id(...).build()`). **Downstream Rust consumers construct generated types via the Builder**, which stays source-compatible when SPOKE adds optional fields — new fields default into the built value without touching call sites.
+
+Raw struct literals (`Scope { scope_id: ..., ... }`) are **field-exhaustive by typify design**: every field — including optional ones like `entry_ids`, `entry_types`, `timeline_event_ids`, `fork_id`, `extensions` — is a concrete `Vec`/`HashMap`/`String` member (wire-optional only via `#[serde(default, skip_serializing_if = "...::is_empty")]`). Adding any optional field therefore requires literal authors to supply it; this is a pre-existing characteristic of every optional `Scope` field since v0.1, not specific to `extensions`. It is **not** fixed by deriving `Default`: typify also generates enums (`BodyAttributeValue`, the `*Response` success|error `oneOf`s) that have no `#[default]` variant, so a crate-wide `#[derive(Default)]` would not compile. Use the Builder for stable construction across releases.
+
 ## What not to do
 
 - Do not invent a custom codegen engine.

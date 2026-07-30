@@ -13,7 +13,16 @@
 
 **Persisted-entity OCC parity (durable invariant):** every entity with a write `*Port` and a create-or-update op carries structural `revision` and is persisted through `put*(entity, expectedBaseRevision)` (null/None on create, stored revision on update). `KnowledgeEntry` (upsert/promote) and `Relation` (relate) are the carriers; `Finding`, `Rule`, `HostCapabilityManifest`, `TimelineEvent`, `SourceAnchor`, and `AssemblePacket` are exempt by design (see `spoke-data-model.md` §Persisted-entity OCC parity). `orchestrateRelate` / `orchestrate_relate` deep-integrate load → validate(create/update) → OCC → put, symmetric with `orchestrateUpsert`. Relation error codes: `RELATION_NOT_FOUND`, `RELATION_ALREADY_EXISTS` (plus reused `STORED_REVISION_STALE` / `REVISION_CONFLICT`).
 
-**Extension bags — core / modules / extensions triad (durable):** SPOKE carries two distinct product-facing bags. **Core fields** serve all baseline hosts. **`extensions.<product>`** is a product/adapter-owned namespace bag on durable data objects and on `Scope` (product-scoped query metadata, e.g. branch / search filters); adapters round-trip unknown namespaces verbatim. **`modules.*`** is the reserved home for cross-product **functional** dialects (e.g. activation, pack metadata) — **proposed** in Domain Profile handbooks, promoted to the wire only after a demand gate (≥2 consumers or Nexus + one external host). Functional dialects never live under `extensions.*` (see [`spoke-extension-modules.md`](specs/spoke-extension-modules.md)). `Scope.extensions` mirrors `KnowledgeEntry.extensions` (`ExtensionMap`); pure matchers ignore it.
+**Extension bags — core / modules / extensions triad (durable):** SPOKE carries three placement homes. **Core fields** serve all baseline hosts. **`extensions.<product>`** is a product/adapter-owned namespace bag on durable data objects and on `Scope` (product-scoped query metadata, e.g. branch / search filters); adapters round-trip unknown namespaces verbatim. **`modules.*`** is the reserved home for cross-product **functional** dialects (activation, pack metadata, assemble placement / activation_trace). Functional dialects never live under `extensions.*` (see [`spoke-extension-modules.md`](specs/spoke-extension-modules.md)). `Scope.extensions` mirrors `KnowledgeEntry.extensions` (`ExtensionMap`); pure matchers ignore it.
+
+**Assemble recipes + capability-flagged `modules` wire (in progress):** finish the narrative-dialect foundation for multi-host lore interchange:
+
+| Slice | What ships | Notes |
+|-------|------------|-------|
+| **AssemblePacket module recipes** | Handbook for packet-level `modules.placement` + `modules.activation_trace` (presentation / provenance only) | Field names align with lore-activation `position_hint` / `outlet` / seed-vs-key reasons; no ranking or budget on assemble wire |
+| **Optional `modules` on wire** | `ModuleMap` (same shape as `ExtensionMap`) as optional `modules` on `KnowledgeEntry` + `AssemblePacket`; codegen TS/Rust; pure merge/preserve helpers; capability flag **`narrative-modules`** (opt-in, same pattern as `l2-computable` / `l5-fork`) | Baseline non-breaking — absent/empty `modules` valid; no engine/matcher in `spoke-operations`; inner dialect field tables stay handbook-defined |
+
+After this ships, triad ADR + CONCEPTS state **`modules` shipped (capability-flagged)**; consumer narrative hosts (e.g. Nexus) consume the standard envelope without interim product activation bags.
 
 ---
 
@@ -23,7 +32,7 @@
 |-------|------------|-------|
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
 | **Registry release** (when convenient) | SemVer cut when maintainers choose after additive wire lands on `main` | Optional via **New release** — not gated on docs site |
-| **Demand-gated `modules` schema + pack I/O** | Optional `modules` on KnowledgeEntry / AssemblePacket when gate met; Nexus pack import/export | Trigger: ≥2 consumers need identical `modules` on the wire, or Nexus + one external host; otherwise stay handbook-only |
+| **Consumer pack I/O + activation engines** | Narrative hosts implement pack import/export, keyword/hop activation, assemble inspectors against handbooks + optional `modules` wire | Product-local engines and UX — **outside** this protocol repository; protocol stays wire + pure helpers only |
 
 Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 

@@ -28,6 +28,10 @@ pub enum SpokeRejectCode {
     RelationNotFound,
     RelationAlreadyExists,
     CapabilityPortMissing,
+    /// Unexpected internal / server-side failure (HTTP 500 class). Distinct from
+    /// the 4xx validation codes above; hosts raise it for storage or runtime
+    /// errors that are not the caller's fault.
+    InternalError,
 }
 
 impl SpokeRejectCode {
@@ -59,6 +63,7 @@ impl SpokeRejectCode {
             Self::RelationNotFound => "RELATION_NOT_FOUND",
             Self::RelationAlreadyExists => "RELATION_ALREADY_EXISTS",
             Self::CapabilityPortMissing => "CAPABILITY_PORT_MISSING",
+            Self::InternalError => "INTERNAL_ERROR",
         }
     }
 
@@ -90,6 +95,7 @@ impl SpokeRejectCode {
             "RELATION_NOT_FOUND" => Some(Self::RelationNotFound),
             "RELATION_ALREADY_EXISTS" => Some(Self::RelationAlreadyExists),
             "CAPABILITY_PORT_MISSING" => Some(Self::CapabilityPortMissing),
+            "INTERNAL_ERROR" => Some(Self::InternalError),
             _ => None,
         }
     }
@@ -180,6 +186,7 @@ mod tests {
             "RELATION_NOT_FOUND",
             "RELATION_ALREADY_EXISTS",
             "CAPABILITY_PORT_MISSING",
+            "INTERNAL_ERROR",
         ];
 
         let rust_codes = [
@@ -205,9 +212,10 @@ mod tests {
             SpokeRejectCode::RelationNotFound,
             SpokeRejectCode::RelationAlreadyExists,
             SpokeRejectCode::CapabilityPortMissing,
+            SpokeRejectCode::InternalError,
         ];
 
-        assert_eq!(TS_SPOKE_REJECT_CODES.len(), 22);
+        assert_eq!(TS_SPOKE_REJECT_CODES.len(), 23);
         assert_eq!(rust_codes.len(), TS_SPOKE_REJECT_CODES.len());
 
         for (code, expected) in rust_codes.into_iter().zip(TS_SPOKE_REJECT_CODES.iter()) {

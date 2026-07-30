@@ -6,6 +6,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.6.0] - 2026-07-30
+
+
+### Added
+
+- **schemas:** Add optional extensions to Scope (product query metadata)
+
+- **schemas:** Add optional capability-flagged modules (ModuleMap) to KnowledgeEntry + AssemblePacket
+
+- **operations:** Add module map merge/preserve helpers + narrative-modules capability
+
+
+### Changed
+
+- **operations:** Assert Scope.extensions preserved and ignored by matchers
+
+- **toy-world:** Scope extensions conformance sample
+
+- **toy-world:** Narrative Knowledge Pack companion fixture (proposed modules)
+
+- **schemas:** Smoke-test canonical Scope::builder() + extensions round-trip
+
+
+### Documentation
+
+- **roadmap:** Plan naming triad, Scope.extensions, lore/pack handbooks
+
+- **specs:** Add core/modules/extensions naming triad ADR
+
+- **concepts:** Add Modules (proposed) concept + triad ADR cross-link
+
+- **specs:** Document optional Scope.extensions (product query metadata)
+
+- **specs:** Add lore-activation Domain Profile handbook (proposed modules.activation)
+
+- **concepts:** Cross-link lore-activation Domain Profile handbook
+
+- **specs:** Lore-activation handbook discoverability + robust pack forward-ref
+
+- **specs:** Add Narrative Knowledge Pack handbook + Seed/Pool pattern
+
+- **specs:** Fix Knowledge Pack illustrative example accuracy (schema_version, entry_type, modules placement)
+
+- **knowledge:** Document Rust Builder as non-breaking construction path
+
+- **knowledge:** **BREAKING:** Classify Scope.extensions as 0.x Rust-source breaking change
+
+- **roadmap:** Schedule Phase A close — assemble recipes + capability-flagged modules
+
+- **specs:** Add AssemblePacket module recipes (placement + activation_trace)
+
+- **concepts:** Cross-link AssemblePacket module recipes handbook
+
+- **specs:** Mark modules shipped (capability-flagged) across ADR/CONCEPTS/handbooks/ops
+
+- **specs:** Align lore-activation labels to shipped capability-flagged modules
+
+
+### Fixed
+
+- **docs:** Correct Scope builder migration to try_into() + lock full chain in smoke test
+
+
+### Internal
+
+- **harness:** Ignore .mstar/references/ (process research)
+
 ## [0.5.0] - 2026-07-29
 
 

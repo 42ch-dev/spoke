@@ -271,3 +271,90 @@ describe("filterTimelineEventsByScope", () => {
     expect(filtered[0]?.timeline_event_id).toBe("evt_1");
   });
 });
+
+describe("Scope.extensions is opaque to matchers", () => {
+  // Product-scoped query metadata lives under extensions.<namespace>; protocol matchers
+  // match core Scope fields only and must neither consume nor alter extensions.
+  const extensions: NonNullable<Scope["extensions"]> = {
+    toy: { branch_id: "fork_mainline_a" },
+    nexus: { text_search: "harbor", limit: 10 },
+  };
+
+  it("matches on core fields identically whether or not extensions are present", () => {
+    const matching = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      entry_type: "character",
+      source_anchor: {
+        schema_version: 1,
+        source_id: "manuscript_1",
+        extensions: {},
+      },
+    });
+    const nonMatching = makeKnowledgeEntry({
+      entry_id: "kb_other",
+      entry_type: "location",
+    });
+
+    const coreRefinements = {
+      ...baseScope,
+      entry_ids: ["kb_1"],
+      entry_types: ["character"],
+      source_id: "manuscript_1",
+    } satisfies Scope;
+
+    expect(knowledgeEntryMatchesScope(matching, coreRefinements)).toBe(true);
+    expect(knowledgeEntryMatchesScope(nonMatching, coreRefinements)).toBe(false);
+
+    // Same core refinements, now carrying product query metadata in extensions.
+    const withExtensions: Scope = { ...coreRefinements, extensions };
+
+    expect(knowledgeEntryMatchesScope(matching, withExtensions)).toBe(
+      knowledgeEntryMatchesScope(matching, coreRefinements),
+    );
+    expect(knowledgeEntryMatchesScope(nonMatching, withExtensions)).toBe(
+      knowledgeEntryMatchesScope(nonMatching, coreRefinements),
+    );
+
+    // Timeline matchers also ignore extensions.
+    const event = makeTimelineEvent({
+      timeline_event_id: "evt_1",
+      timeline_scale: "narrative",
+    });
+    const timelineCore: Scope = { ...baseScope, timeline_scale: "narrative" };
+    const timelineWithExtensions: Scope = { ...timelineCore, extensions };
+
+    expect(timelineEventMatchesScope(event, timelineWithExtensions)).toBe(
+      timelineEventMatchesScope(event, timelineCore),
+    );
+  });
+
+  it("preserves extensions verbatim (not consumed or altered) across match + filter", () => {
+    const knowledgeEntries = [
+      makeKnowledgeEntry({ entry_id: "kb_1", entry_type: "character" }),
+      makeKnowledgeEntry({ entry_id: "kb_2", entry_type: "location" }),
+    ];
+    const timelineEvents = [
+      makeTimelineEvent({ timeline_event_id: "evt_1", timeline_scale: "narrative" }),
+    ];
+
+    const scope: Scope = {
+      ...baseScope,
+      entry_types: ["character"],
+      timeline_scale: "narrative",
+      extensions,
+    };
+
+    // Drive every matcher + filter surface.
+    knowledgeEntryMatchesScope(knowledgeEntries[0]!, scope);
+    filterKnowledgeEntriesByScope(knowledgeEntries, scope);
+    timelineEventMatchesScope(timelineEvents[0]!, scope);
+    filterTimelineEventsByScope(timelineEvents, scope);
+
+    // Referential identity + deep equality: the bag survived untouched.
+    expect(scope.extensions).toBe(extensions);
+    expect(scope.extensions).toEqual({
+      toy: { branch_id: "fork_mainline_a" },
+      nexus: { text_search: "harbor", limit: 10 },
+    });
+  });
+});

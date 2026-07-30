@@ -633,6 +633,8 @@ Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_pos
 
 Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
+Bag placement for product `extensions` vs proposed cross-product `modules.*`: [`spoke-extension-modules.md`](spoke-extension-modules.md).
+
 ---
 
 ## Open vocabulary
@@ -730,10 +732,10 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 ## Vocabulary boundaries (CONCEPTS alignment)
 
 - **KnowledgeEntry** — atomic Knowledge Base entry in SPOKE wire form
-- **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; World/Book ids in `extensions` or adapters — see [`spoke-ops.md`](spoke-ops.md) §Scope
+- **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; optional `extensions` (`ExtensionMap`) carries product-scoped query metadata (matchers ignore); World/Book ids in op `extensions`, `Scope.extensions`, or adapters — full field table in [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
-- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md)
+- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (proposed `modules.activation`) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
 - **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body
 - **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`
@@ -768,6 +770,9 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 |-----|-------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella framing, extensions, codegen layout |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map, capability levels, Rule vs Finding |
+| [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / modules / extensions naming triad |
+| [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping |
+| [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — proposed `modules.activation` |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |

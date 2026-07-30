@@ -2,7 +2,7 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-29  
+**Updated:** 2026-07-30  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
@@ -13,6 +13,8 @@
 
 **Persisted-entity OCC parity (durable invariant):** every entity with a write `*Port` and a create-or-update op carries structural `revision` and is persisted through `put*(entity, expectedBaseRevision)` (null/None on create, stored revision on update). `KnowledgeEntry` (upsert/promote) and `Relation` (relate) are the carriers; `Finding`, `Rule`, `HostCapabilityManifest`, `TimelineEvent`, `SourceAnchor`, and `AssemblePacket` are exempt by design (see `spoke-data-model.md` §Persisted-entity OCC parity). `orchestrateRelate` / `orchestrate_relate` deep-integrate load → validate(create/update) → OCC → put, symmetric with `orchestrateUpsert`. Relation error codes: `RELATION_NOT_FOUND`, `RELATION_ALREADY_EXISTS` (plus reused `STORED_REVISION_STALE` / `REVISION_CONFLICT`).
 
+**Extension bags — core / modules / extensions triad (durable):** SPOKE carries two distinct product-facing bags. **Core fields** serve all baseline hosts. **`extensions.<product>`** is a product/adapter-owned namespace bag on durable data objects and on `Scope` (product-scoped query metadata, e.g. branch / search filters); adapters round-trip unknown namespaces verbatim. **`modules.*`** is the reserved home for cross-product **functional** dialects (e.g. activation, pack metadata) — **proposed** in Domain Profile handbooks, promoted to the wire only after a demand gate (≥2 consumers or Nexus + one external host). Functional dialects never live under `extensions.*` (see [`spoke-extension-modules.md`](specs/spoke-extension-modules.md)). `Scope.extensions` mirrors `KnowledgeEntry.extensions` (`ExtensionMap`); pure matchers ignore it.
+
 ---
 
 ## Up next (planned)
@@ -20,7 +22,8 @@
 | Slice | What ships | Notes |
 |-------|------------|-------|
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
-| **Registry release** (when convenient) | SemVer cut after beat-assist helpers land on `main` | Optional via **New release** when maintainers choose — not gated on docs site |
+| **Registry release** (when convenient) | SemVer cut when maintainers choose after additive wire lands on `main` | Optional via **New release** — not gated on docs site |
+| **Demand-gated `modules` schema + pack I/O** | Optional `modules` on KnowledgeEntry / AssemblePacket when gate met; Nexus pack import/export | Trigger: ≥2 consumers need identical `modules` on the wire, or Nexus + one external host; otherwise stay handbook-only |
 
 Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 
@@ -32,6 +35,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-07-30 | Naming triad + Scope.extensions + W1 handbooks | Core / **proposed** `modules.*` / `extensions.<product>` triad ADR ([spoke-extension-modules.md](specs/spoke-extension-modules.md)) + CONCEPTS; optional `Scope.extensions` (`ExtensionMap`) wire + codegen TS/Rust + matcher-ignore preserve tests + fixture (unblocks consumer product query metadata); lore-activation Domain Profile ([domain-profile-lore-activation.md](specs/domain-profile-lore-activation.md), proposed `modules.activation`); Narrative Knowledge Pack handbook ([domain-profile-narrative-knowledge-pack.md](specs/domain-profile-narrative-knowledge-pack.md)) + Seed/Pool pattern + toy-world companion fixture; knowledge `proposed-wire-shape-companion-fixture` |
 | 2026-07-29 | Relation OCC parity | `Relation.revision` wire (optional, integer ≥ 0); `RelationPort` OCC parity (`getRelation` + `putRelation(relation, expectedBaseRevision)`, TS+Rust); `orchestrateRelate` deep-integrated load→validate(create/update)→OCC→put; relate gate create/update rules; `RELATION_NOT_FOUND`/`RELATION_ALREADY_EXISTS`; toy-world OCC-aware adapter; dual-language tests; normative persisted-entity OCC-parity guardrail; knowledge `relation-occ-parity` |
 | 2026-07-28 | Beat-assist protocol slice | Domain Profile handbook [`domain-profile-narrative-structure.md`](specs/domain-profile-narrative-structure.md); Harbor ordered-moment beat chain + KE-scoped `precedes`; pure timeline sequence helpers (TS + Rust); knowledge `beat-assist-moment-sequence` |
 | 2026-07-27 | Host capability collaboration | `HostCapabilityManifest` schema + codegen (inventory **24**); five-role / ns-exclusivity / authority normative specs; baseline-required `HostManifestPort` (TS+Rust); toy-world dual manifests + fixture-backed adapters |

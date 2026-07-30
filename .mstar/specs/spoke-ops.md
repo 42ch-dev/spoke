@@ -15,7 +15,7 @@ Define transport-agnostic **request/response** wire shapes for core KnowledgeEnt
 | Principle | Meaning |
 |-----------|---------|
 | **Check ≠ Assemble** | `check` runs checkers and returns `Finding[]`; `assemble` returns `AssemblePacket` only. No merged op, no ranking fields in assemble wire. |
-| **Scope neutrality** | Shared `Scope` def in `common.schema.json`; required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions` or adapters. Scope match helpers live in [`spoke-operations.md`](spoke-operations.md) §Scope match. |
+| **Scope neutrality** | Shared `Scope` def in `common.schema.json`; required `scope_id` (opaque protocol-neutral string). World/Book/product scope ids go in op `extensions`, optional `Scope.extensions`, or adapters. Scope match helpers live in [`spoke-operations.md`](spoke-operations.md) §Scope match. |
 | **One failure dialect** | All ops responses use `oneOf` success branch **or** `{ "error": ErrorEnvelope }` — same attachment as v0.1 `assemble-response` (R3 closed). |
 
 **Transport note:** SPOKE ops are **not** HTTP routes, gRPC services, or MCP tools. They are JSON payloads products may carry over any transport (in-process function args, message queue, future REST mapping). Binding to HTTP paths, status codes, or auth headers is explicitly out of scope.
@@ -67,18 +67,20 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
-| `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters or op `extensions` — **not** as required `Scope` siblings. |
+| `scope_id` | **yes** | string | Protocol-neutral opaque selector. Products map World/Book/chapter/manuscript ids via adapters, op `extensions`, or optional `Scope.extensions` — **not** as required `Scope` siblings. |
 | `entry_ids` | no | string[] | Narrow scope to explicit KnowledgeEntries |
 | `entry_types` | no | string[] | Filter by open `entry_type` vocabulary |
 | `timeline_event_ids` | no | string[] | Narrow to explicit L5 `TimelineEvent` ids |
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
 | `fork_id` | no | `ForkId` | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match |
+| `extensions` | no | `ExtensionMap` | Product-scoped scope/query metadata (e.g. product filters such as branch/search limits). Protocol matchers ignore it; adapters round-trip unknown namespaces verbatim. Product data lives under `extensions.<product>`; functional dialects belong in proposed `modules.*` — see [`spoke-extension-modules.md`](spoke-extension-modules.md). Optional on `Scope` (unlike required `extensions` on durable data objects such as `KnowledgeEntry`). |
 
-**Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use either:
+**Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use one of:
 
-1. `request.extensions.<namespace>.world_id` (or equivalent), or  
-2. Adapter-side resolution from `scope_id` to product stores.
+1. `request.extensions.<namespace>.world_id` (or equivalent),  
+2. `scope.extensions.<namespace>.world_id` (or equivalent), or  
+3. Adapter-side resolution from `scope_id` to product stores.
 
 Core ops schemas MUST NOT add `world_id`, `book_id`, `manuscript_id`, or product-prefixed ids as required `Scope` fields.
 

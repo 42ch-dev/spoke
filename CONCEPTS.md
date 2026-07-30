@@ -38,11 +38,11 @@ L5 Timeline projection tier vocabulary on the wire: core values `brief`, `narrat
 
 ### Scope
 
-Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`). Product-local scope ids map via op `extensions` or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
+Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-neutral opaque string) plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`, `extensions`). Optional `extensions` carries product-scoped query metadata; protocol matchers ignore it. Product-local scope ids map via op `extensions`, `Scope.extensions`, or adapters — not required `Scope` fields. `fork_id` matches `TimelineEvent.fork_id` by strict equality (`l5-fork`); events without `fork_id` do not match.
 
 ### Domain Profile
 
-How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbook for narrative-structure / Beat mapping: [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md).
+How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (proposed `modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md).
 
 ### spoke-baseline
 
@@ -98,7 +98,13 @@ Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_t
 
 ### Extensions (`extensions.<namespace>`)
 
-Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim.
+Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim. Product and adapter data live here; cross-product functional dialects use proposed `modules.*` — triad authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+
+### Modules (proposed)
+
+`modules.*` is a **proposed** sibling bag for **cross-product functional** dialects (for example activation and pack metadata), distinct from product-owned `extensions.<namespace>`. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+
+`modules` remains a proposed companion shape — it is **not on the wire** until a demand gate opens (≥2 consumers need an identical shape, or Nexus plus one external host). Until then, Domain Profile handbooks document proposed `modules.*` field tables. Shared functional dialects stage under `modules.*`; product bags stay in `extensions.<namespace>`.
 
 ---
 
@@ -171,5 +177,7 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella spec |
 | [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | L0–L8, capability levels, Timeline tiers |
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
+| [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
+| [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — proposed `modules.activation` |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |

@@ -157,6 +157,7 @@ target/
 .mstar/iterations/
 .mstar/plans/
 .mstar/sdd/
+.mstar/references/
 .mstar/notes.json
 .mstar/status.json
 .worktrees/

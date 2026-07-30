@@ -13,7 +13,7 @@ export interface AssembleRequest {
    * Optional entry limit hint (not enforced by protocol).
    */
   max_entries?: number;
-  extensions?: ExtensionMap;
+  extensions?: ExtensionMap1;
 }
 /**
  * Assembly scope selector.
@@ -47,11 +47,22 @@ export interface Scope {
    * Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork).
    */
   fork_id?: string;
+  extensions?: ExtensionMap;
+}
+/**
+ * Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim.
+ */
+export interface ExtensionMap {
+  [k: string]:
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | undefined;
 }
 /**
  * Optional transport metadata.
  */
-export interface ExtensionMap {
+export interface ExtensionMap1 {
   [k: string]:
     | {
         [k: string]: unknown | undefined;

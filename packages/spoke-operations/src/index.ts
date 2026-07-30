@@ -8,6 +8,8 @@ export {
 export {
   mergeExtensionMaps,
   preserveExtensionMaps,
+  mergeModuleMaps,
+  preserveModuleMaps,
 } from "./extensions/merge.js";
 
 export {

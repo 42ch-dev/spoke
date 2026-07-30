@@ -398,6 +398,7 @@ Every durable data object schema MUST:
 | `source_anchor` | `SourceAnchor` | Provenance pointer (`$ref` to data schema) |
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
+| `modules` | `ModuleMap` | Optional cross-product functional-dialect bag; capability-flagged (`narrative-modules`); see §Modules |
 
 ### Body rules
 
@@ -596,6 +597,7 @@ Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_pos
 | `packet_id` | yes | string |
 | `entries` | yes | array of `AssembleEntry` |
 | `extensions` | yes | object |
+| `modules` | no | `ModuleMap` — optional cross-product functional-dialect bag; capability-flagged (`narrative-modules`); see §Modules |
 
 ### AssembleEntry (inline definition)
 
@@ -633,7 +635,30 @@ Optional: `kind`, `target_entry_id`, `source_anchor`, `suggested_fix`, `text_pos
 
 Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
-Bag placement for product `extensions` vs proposed cross-product `modules.*`: [`spoke-extension-modules.md`](spoke-extension-modules.md).
+## Modules (normative)
+
+Optional cross-product **functional-dialect** bag on `KnowledgeEntry` and `AssemblePacket`. Distinct from product-owned `extensions`.
+
+```json
+"modules": {
+  "activation": { },
+  "placement": [ ]
+}
+```
+
+| Rule | Requirement |
+|------|-------------|
+| Presence | Optional on KnowledgeEntry + AssemblePacket; **not** required; absent and empty valid |
+| Capability | Opt-in via `narrative-modules` ([`spoke-protocol-layers.md`](spoke-protocol-layers.md)) |
+| Namespace keys | Functional-dialect ids — `^[a-z][a-z0-9_-]*$` (e.g. `activation`, `pack`, `placement`, `activation_trace`) |
+| Values | Structured JSON — object **or** array (`ModuleMap` `anyOf`); inner field tables handbook-defined |
+| Unknown namespaces | Adapters MUST preserve on round-trip |
+| Merge / preserve semantics | [`spoke-operations.md`](spoke-operations.md) (`mergeModuleMaps`, `preserveModuleMaps`) |
+| Category | Functional dialects ∈ `modules.*`; product bags ∈ `extensions.<product>` |
+
+Shared JSON Schema fragment: `common.schema.json#/definitions/ModuleMap`.
+
+Bag placement for product `extensions` vs cross-product `modules.*`: [`spoke-extension-modules.md`](spoke-extension-modules.md).
 
 ---
 
@@ -735,7 +760,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; optional `extensions` (`ExtensionMap`) carries product-scoped query metadata (matchers ignore); World/Book ids in op `extensions`, `Scope.extensions`, or adapters — full field table in [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
-- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (proposed `modules.activation`) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)
+- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
 - **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body
 - **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`
@@ -772,7 +797,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map, capability levels, Rule vs Finding |
 | [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / modules / extensions naming triad |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping |
-| [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — proposed `modules.activation` |
+| [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |

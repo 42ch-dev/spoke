@@ -126,13 +126,19 @@ Four families. Export names below are **normative** for the first slice; module 
 |-------------------|---------|--------|
 | `mergeExtensionMaps(base, overlay)` | Deep-merge two `ExtensionMap`s; overlay wins on scalar conflicts; all namespace keys from both inputs appear in output | Pure, non-mutating |
 | `preserveExtensionMaps(source, target)` | Produce merged map: `target` fields win for known keys; **unknown namespaces and unknown keys inside a namespace** from `source` are retained | Pure, non-mutating |
+| `mergeModuleMaps(base, overlay)` | Deep-merge two `ModuleMap`s with the same namespace-merge core; object values deep-merge; array/other values overlay-replace base | Pure, non-mutating |
+| `preserveModuleMaps(source, target)` | Produce merged map: `target` wins for known keys; **unknown module namespaces** (object or array values) from `source` are retained | Pure, non-mutating |
 
 **Product rules encoded:**
 
-- Unknown namespace keys MUST survive round-trip (aligns with [`spoke-data-model.md` §Extensions](spoke-data-model.md#extensions-normative)).
+- Unknown namespace keys MUST survive round-trip (aligns with [`spoke-data-model.md` §Extensions](spoke-data-model.md#extensions-normative) and §Modules).
 - Empty namespace objects `{}` are valid and MUST NOT be dropped.
+- `ModuleMap` values may be objects **or** arrays; merge deep-merges objects and replaces arrays (no element-wise merge).
+- Extension and module helpers share one internal namespace-merge core; thin wrappers preserve separate public names.
 
-**Tests must cover:** unknown keys under two distinct namespaces preserved; overlay does not delete sibling namespaces.
+**Tests must cover:** unknown keys under two distinct namespaces preserved; overlay does not delete sibling namespaces; module object-valued and array-valued namespaces round-trip; empty/absent `modules` valid.
+
+Bag placement: [`spoke-extension-modules.md`](spoke-extension-modules.md). Capability flag: `narrative-modules` in [`spoke-protocol-layers.md`](spoke-protocol-layers.md).
 
 ---
 

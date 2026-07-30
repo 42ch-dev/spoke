@@ -42,7 +42,7 @@ Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-ne
 
 ### Domain Profile
 
-How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (proposed `modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md).
+How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md).
 
 ### spoke-baseline
 
@@ -94,17 +94,17 @@ Optional L5 branch identity on `TimelineEvent` under `l5-fork` via wire fields *
 
 ### AssemblePacket
 
-Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
+Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`), required `extensions`, and optional capability-flagged `modules` (`ModuleMap`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
 
 ### Extensions (`extensions.<namespace>`)
 
-Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim. Product and adapter data live here; cross-product functional dialects use proposed `modules.*` — triad authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+Product-specific bag on durable data objects and ops envelopes. On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields. Namespace keys are opaque product / integrator ids. Adapters MUST round-trip unknown namespaces and keys verbatim. Product and adapter data live here; cross-product functional dialects use `modules.*` — triad authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
 
-### Modules (proposed)
+### Modules (capability-flagged)
 
-`modules.*` is a **proposed** sibling bag for **cross-product functional** dialects (for example activation and pack metadata), distinct from product-owned `extensions.<namespace>`. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+Optional `ModuleMap` on KnowledgeEntry + AssemblePacket; capability-flagged (`narrative-modules`); inner dialect shapes stay handbook-defined. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
 
-`modules` remains a proposed companion shape — it is **not on the wire** until a demand gate opens (≥2 consumers need an identical shape, or Nexus plus one external host). Until then, Domain Profile handbooks document proposed `modules.*` field tables. Shared functional dialects stage under `modules.*`; product bags stay in `extensions.<namespace>`.
+`modules.*` carries **cross-product functional** dialects (for example activation, pack, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`.
 
 ---
 
@@ -179,6 +179,6 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects, Rule, TimelineEvent, TimelineScale |
 | [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
-| [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — proposed `modules.activation` |
-| [`.mstar/specs/assemble-module-recipes.md`](.mstar/specs/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (proposed `modules.placement` / `modules.activation_trace`) |
+| [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
+| [`.mstar/specs/assemble-module-recipes.md`](.mstar/specs/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (`modules.placement` / `modules.activation_trace`) |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |

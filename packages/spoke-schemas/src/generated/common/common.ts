@@ -58,6 +58,22 @@ export interface ExtensionMap {
     | undefined;
 }
 /**
+ * Cross-product functional-dialect bag (modules.*). Namespace keys are functional-dialect ids matching ^[a-z][a-z0-9_-]*$ (e.g. activation, pack, placement, activation_trace). Values are structured JSON — object (e.g. modules.activation) or array (e.g. modules.placement) — inner shapes are handbook-defined, not hard-coded here. Adapters MUST round-trip unknown module namespaces verbatim.
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "ModuleMap".
+ */
+export interface ModuleMap {
+  [k: string]:
+    | (
+        | {
+            [k: string]: unknown | undefined;
+          }
+        | unknown[]
+      )
+    | undefined;
+}
+/**
  * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
  * via the `definition` "SourceSpan".
  */

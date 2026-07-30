@@ -30,7 +30,10 @@ pub use computable::{
     validate_compute_request_wire, validate_project_request, validate_project_request_wire,
 };
 pub use error::{from_error_envelope, to_error_envelope};
-pub use extensions::{merge_extension_maps, preserve_extension_maps, ExtensionMap};
+pub use extensions::{
+    merge_extension_maps, merge_module_maps, preserve_extension_maps, preserve_module_maps,
+    ExtensionMap, ModuleMap,
+};
 pub use finding::{is_valid_finding_status_transition, transition_finding_status};
 pub use knowledge_entry::{
     assert_unique_active_knowledge_entry, is_valid_knowledge_entry_status_transition,

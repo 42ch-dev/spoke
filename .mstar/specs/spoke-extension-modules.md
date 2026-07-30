@@ -3,20 +3,20 @@
 > **Status:** Normative ADR  
 > **Document class:** Normative — bag placement authority  
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
-> **Wire SSOT:** `schemas/` (this document does not change schema files)
+> **Wire SSOT:** `schemas/` (optional `modules` / `ModuleMap` on KnowledgeEntry + AssemblePacket)
 
 ## Purpose
 
-State the three bags that place fields on SPOKE durable objects and ops envelopes, and the demand gate that promotes a proposed cross-product dialect onto the wire.
+State the three bags that place fields on SPOKE durable objects and ops envelopes, and the rule that keeps cross-product functional dialects in `modules.*` while product bags stay in `extensions.<product>`.
 
-Integrators use this ADR to choose **core**, **proposed `modules.*`**, or **`extensions.<product>`** for every new field. Handbook authors cite it when documenting companion shapes that are not yet schema.
+Integrators use this ADR to choose **core**, **`modules.*`**, or **`extensions.<product>`** for every new field. Handbook authors cite it when documenting inner dialect field tables under the shipped `modules` envelope.
 
 ## The triad
 
 | Bag | Audience | Wire today | Examples |
 |-----|----------|------------|----------|
 | **Core fields** | All baseline hosts | On the wire — closed protocol objects | `entry_id`, `body.summary`, `canonical_name`, `schema_version` |
-| **Optional modules (`modules.*`)** | Cross-product **functional** dialects | **Proposed** — handbook companion shapes only until the demand gate | Proposed `modules.activation`, proposed `modules.pack` |
+| **Optional modules (`modules.*`)** | Cross-product **functional** dialects | **Optional, capability-flagged (`narrative-modules`)** — open `ModuleMap` on KnowledgeEntry + AssemblePacket | `modules.activation`, `modules.pack`, `modules.placement`, `modules.activation_trace` |
 | **`extensions.<product>`** | One product / adapter | On the wire — required `ExtensionMap` on durable data objects | `extensions.nexus.world_id`, `extensions.toy.display_hint` |
 
 ### Core fields
@@ -25,16 +25,18 @@ Protocol-owned keys on closed objects (`additionalProperties: false` on the prot
 
 Field tables: [`spoke-data-model.md`](spoke-data-model.md), [`spoke-ops.md`](spoke-ops.md). Layer map: [`spoke-protocol-layers.md`](spoke-protocol-layers.md).
 
-### Optional modules (`modules.*`) — proposed
+### Optional modules (`modules.*`) — capability-flagged
 
-Cross-product **functional** dialects shared by narrative hosts that need the same activation, pack, or similar companion shape. Examples under active handbook design:
+Cross-product **functional** dialects shared by narrative hosts that need the same activation, pack, placement, or similar companion shape. Examples under handbook-defined inner shapes:
 
-| Proposed path | Role |
-|---------------|------|
+| Path | Role |
+|------|------|
 | `modules.activation` | Lore / knowledge activation keys, scan depth, and related trigger metadata |
 | `modules.pack` | Narrative Knowledge Pack envelope metadata (title, version, creator) |
+| `modules.placement` | Packet-level injection placement hints |
+| `modules.activation_trace` | Packet-level activation provenance |
 
-**Status on the wire:** `modules` is **proposed**. No `modules` key exists on any committed schema. Handbooks document companion field tables under `modules.*` so integrators implement identical shapes before a schema slice. Until the demand gate ships a schema property, readers treat every `modules.*` mention as a **proposed companion shape**, not an optional JSON property available now.
+**Status on the wire:** optional `modules` (`ModuleMap`) is **shipped** on `KnowledgeEntry` and `AssemblePacket`. The bag is **capability-flagged** (`narrative-modules` in [`spoke-protocol-layers.md`](spoke-protocol-layers.md)): opt-in; absent and empty `modules` are valid; baseline hosts need not emit or parse it. Inner dialect field tables stay **handbook-defined** (open bag — unknown module keys round-trip). Schema fragment: [`schemas/common/common.schema.json#/definitions/ModuleMap`](../../schemas/common/common.schema.json).
 
 ### `extensions.<product>`
 
@@ -46,28 +48,25 @@ On `HostCapabilityManifest`, `extensions` holds deployment metadata only — rol
 
 ## Demand gate — promoting `modules` to the wire
 
-A proposed `modules.*` dialect ships as a schema property **only when**:
+**Resolved — shipped as optional capability-flagged envelope; demand gate satisfied.**
 
-1. **≥2 consumers** need an **identical** `modules` shape on the wire, **or**
-2. **Nexus + one external host** both require the same shipped shape.
-
-Until that gate opens:
+Optional `modules` (`ModuleMap`) is on the wire under capability flag **`narrative-modules`** (same opt-in pattern as `l2-computable` / `l5-fork`). Baseline hosts ignore the bag unless they declare the flag.
 
 | Surface | Expectation |
 |---------|-------------|
-| Handbooks | Publish proposed `modules.*` field tables and examples |
-| `schemas/` | No `modules` property |
-| Integrators | Stage functional dialects with the handbook shape; product-only query metadata stays in `extensions.<product>` |
-| Capability flags | No baseline requirement to emit or parse `modules` |
+| Handbooks | Publish `modules.*` **inner** field tables and examples (activation, pack, placement, activation_trace, …) |
+| `schemas/` | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket; not required; open bag |
+| Integrators | Emit/parse `modules.<functional-ns>` when declaring `narrative-modules`; product-only query metadata stays in `extensions.<product>` |
+| Capability flags | `narrative-modules` — opt-in; no baseline requirement to emit or parse `modules` |
 
-When the gate opens, a later schema slice adds `modules` (capability or profile flag as designed then) and adapters round-trip the object per §Round-trip.
+Inner dialect shapes remain handbook-defined. Freezing a specific inner field table into schema is a separate, later decision when consumers need a closed dialect.
 
 ## Functional dialects vs product bags
 
 | Placement | Correct for | Incorrect for |
 |-----------|-------------|---------------|
 | Core fields | Cross-host protocol identity and closed body envelope | Product DTO keys, one-host query filters |
-| Proposed `modules.*` | Shared functional dialects (activation, pack, …) | One product’s private adapter state |
+| `modules.*` | Shared functional dialects (activation, pack, placement, activation_trace, …) | One product’s private adapter state |
 | `extensions.<product>` | One adapter’s product bag and product-local query metadata | Cross-product functional dialects shared by many hosts |
 
 **Category rule:** a cross-product functional dialect uses **`modules.*`**. Product data uses **`extensions.<product>`**.
@@ -78,37 +77,38 @@ Publishing a shared functional key under `extensions.*` (for example treating `a
 |-----|--------|
 | Namespace exclusivity | `HostCapabilityManifest.namespaces[]` grants each product namespace to **at most one** `host_id` in a collaboration context. A shared functional name is not a product id and cannot own exclusivity the way `nexus` or `toy` does. |
 | Reader expectation | `extensions.<ns>` reads as a **product / adapter** id. Functional dialect names collide with that reading. |
-| Correct home | Functional dialects → proposed `modules.*`; product bags → `extensions.<product>`. |
+| Correct home | Functional dialects → `modules.*`; product bags → `extensions.<product>`. |
 
-Product interim storage of activation-like data under a **true product namespace** (e.g. `extensions.nexus.*`) remains product-local folklore until a shipped `modules` object exists; handbook shapes are the preferred staging path so multiple hosts converge on one companion layout.
+Product interim storage of activation-like data under a **true product namespace** (e.g. `extensions.nexus.*`) remains product-local; the shipped `modules` bag is the preferred home so multiple hosts converge on one layout.
 
 ## Round-trip / preserve
 
 | Object | Rule |
 |--------|------|
 | `extensions.<product>` | Adapters **MUST** round-trip unknown namespaces and unknown keys inside a namespace **verbatim**. Merge/preserve helpers: [`spoke-operations.md`](spoke-operations.md) (`mergeExtensionMaps`, `preserveExtensionMaps`). |
-| Future shipped `modules` | When a demand-gated schema slice adds `modules`, adapters **MUST** round-trip the `modules` object the same way — unknown module keys and nested fields survive read/write. |
+| Shipped `modules` (capability-flagged) | Adapters **MUST** round-trip the `modules` object the same way — unknown module keys and nested fields survive read/write. Helpers: `mergeModuleMaps`, `preserveModuleMaps`. |
 
-Empty `extensions: {}` is valid. Core fields stay closed; extensions (and a future `modules` object) are the open product / dialect bags.
+Empty `extensions: {}` is valid. Absent or empty `modules` is valid. Core fields stay closed; extensions and `modules` are the open product / dialect bags.
 
 ## Scope of authority
 
 | This ADR owns | This ADR does not |
 |---------------|-------------------|
-| Normative **prose** placement of core / modules / extensions | Any new key in `schemas/**/*.json` |
-| Demand gate for wire promotion of `modules` | Schema `description` field edits |
+| Normative **prose** placement of core / modules / extensions | Hard-coding inner dialect field tables into `schemas/**/*.json` |
+| Demand-gate resolution for the optional `modules` envelope | Schema `description` field edits |
 | Reject shared functional keys under `extensions.*` | Lore-activation or Knowledge Pack handbook field tables (sibling handbooks) |
-| Round-trip expectation for extensions and future `modules` | Engines, pack I/O, registry behavior |
+| Round-trip expectation for extensions and shipped `modules` | Engines, pack I/O, registry behavior |
 
-`extensions` on data objects is defined by `schemas/common/common.schema.json#/definitions/ExtensionMap`. Wire truth remains `schemas/`; this file is bag-placement authority only.
+`extensions` on data objects is defined by `schemas/common/common.schema.json#/definitions/ExtensionMap`. `modules` is defined by `schemas/common/common.schema.json#/definitions/ModuleMap`. Wire truth remains `schemas/`; this file is bag-placement authority only.
 
 ## Placement quick reference
 
 | Need | Place it |
 |------|----------|
 | Identity / closed body / protocol selector | Core field (existing schema) |
-| Lore activation keys shared across narrative hosts | Proposed `modules.activation` (handbook until demand gate) |
-| Portable Knowledge Pack metadata | Proposed `modules.pack` (handbook until demand gate) |
+| Lore activation keys shared across narrative hosts | `modules.activation` (inner shape handbook-defined) |
+| Portable Knowledge Pack metadata | `modules.pack` (inner shape handbook-defined) |
+| Packet placement / activation provenance | `modules.placement` / `modules.activation_trace` (inner shapes handbook-defined) |
 | Product world id, UI hint, adapter DTO | `extensions.<your-product>` |
 | Host roles / owned namespaces | `HostCapabilityManifest` core fields (`roles`, `namespaces[]`) |
 | Deployment metadata on a host | `HostCapabilityManifest.extensions` |
@@ -117,11 +117,12 @@ Empty `extensions: {}` is valid. Core fields stay closed; extensions (and a futu
 
 | Doc | Topic |
 |-----|-------|
-| [`CONCEPTS.md`](../../CONCEPTS.md) | Vocabulary index — Extensions entry; Modules (proposed) when present |
-| [`spoke-data-model.md`](spoke-data-model.md) | Data objects; §Extensions (normative); HostCapabilityManifest namespace exclusivity |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Vocabulary index — Extensions; Modules (capability-flagged) |
+| [`spoke-data-model.md`](spoke-data-model.md) | Data objects; §Extensions; ModuleMap; HostCapabilityManifest namespace exclusivity |
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella; §Extensions |
-| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8; Domain Profile vs core |
-| [`spoke-ops.md`](spoke-ops.md) | Ops envelopes; optional top-level `extensions` |
-| [`spoke-operations.md`](spoke-operations.md) | Extension merge/preserve helpers; host collaboration |
-| Lore-activation handbook | Proposed `modules.activation` field tables (sibling handbook) |
-| Narrative Knowledge Pack handbook | Proposed `modules.pack` + KE/Relation bundle (sibling handbook) |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8; Domain Profile vs core; `narrative-modules` capability |
+| [`spoke-ops.md`](spoke-ops.md) | Ops envelopes; optional top-level `extensions`; AssemblePacket `modules` |
+| [`spoke-operations.md`](spoke-operations.md) | Extension + module merge/preserve helpers; host collaboration |
+| Lore-activation handbook | `modules.activation` field tables (sibling handbook) |
+| Narrative Knowledge Pack handbook | `modules.pack` + KE/Relation bundle (sibling handbook) |
+| Assemble module recipes handbook | `modules.placement` + `modules.activation_trace` (sibling handbook) |

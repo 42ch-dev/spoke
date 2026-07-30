@@ -6,6 +6,11 @@ use std::collections::{HashMap, HashSet};
 /// Product extension namespace map (`ExtensionMap` wire shape).
 pub type ExtensionMap = HashMap<String, Map<String, Value>>;
 
+/// Cross-product functional-dialect module map (`ModuleMap` wire shape).
+/// Namespace values are structured JSON — object or array — so they map to
+/// `serde_json::Value` (mirrors the generated `ModuleMap` resolving to `Value`).
+pub type ModuleMap = HashMap<String, Value>;
+
 fn is_plain_object(value: &Value) -> bool {
     value.is_object() && !value.is_null()
 }
@@ -84,6 +89,51 @@ pub fn preserve_extension_maps(source: &ExtensionMap, target: &ExtensionMap) -> 
     merge_extension_maps_internal(source, target)
 }
 
+/// Merge two structured JSON values: deep-merge when both are plain objects;
+/// otherwise the overlay replaces the base (arrays/scalars are not element-merged).
+/// When the overlay is absent, the base is retained. Shared primitive for the
+/// module namespace merge — the object deep-merge itself is `deep_merge_records`,
+/// single-sourced with the extension helpers.
+fn merge_json_values(base: Option<&Value>, overlay: Option<&Value>) -> Value {
+    match (base, overlay) {
+        (Some(b), Some(o)) if is_plain_object(b) && is_plain_object(o) => {
+            Value::Object(deep_merge_records(b.as_object(), o.as_object()))
+        }
+        (_, Some(o)) => clone_value(o),
+        (Some(b), None) => clone_value(b),
+        // Unreachable: namespace keys come from the union of both maps.
+        (None, None) => Value::Null,
+    }
+}
+
+fn merge_module_maps_internal(base: &ModuleMap, overlay: &ModuleMap) -> ModuleMap {
+    let namespaces: HashSet<&String> = base.keys().chain(overlay.keys()).collect();
+    let mut result = ModuleMap::new();
+
+    for namespace in namespaces {
+        let merged = merge_json_values(base.get(namespace), overlay.get(namespace));
+        result.insert(namespace.clone(), merged);
+    }
+
+    result
+}
+
+/// Deep-merge two module maps; object-valued namespaces are deep-merged while
+/// array-valued namespaces are replaced by the overlay. Round-trip only — no
+/// matching, activation, or scoring.
+#[must_use]
+pub fn merge_module_maps(base: &ModuleMap, overlay: &ModuleMap) -> ModuleMap {
+    merge_module_maps_internal(base, overlay)
+}
+
+/// Merge module maps for round-trip preserve: target wins on known keys; unknown
+/// namespaces/keys from source are retained. Round-trip only — no matching,
+/// activation, or scoring.
+#[must_use]
+pub fn preserve_module_maps(source: &ModuleMap, target: &ModuleMap) -> ModuleMap {
+    merge_module_maps_internal(source, target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +153,15 @@ mod tests {
                     .collect();
                 (key.clone(), namespace)
             })
+            .collect()
+    }
+
+    fn module_map_from_json(value: serde_json::Value) -> ModuleMap {
+        value
+            .as_object()
+            .expect("module map object")
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
             .collect()
     }
 
@@ -256,6 +315,130 @@ mod tests {
         assert_eq!(
             result.get("creader").unwrap().get("b").unwrap(),
             &json!(2)
+        );
+    }
+
+    #[test]
+    fn module_deep_merges_object_valued_namespaces() {
+        let base = module_map_from_json(json!({ "activation": { "state": "idle", "fuel": 10 } }));
+        let overlay = module_map_from_json(json!({ "activation": { "state": "active" } }));
+
+        let result = merge_module_maps(&base, &overlay);
+
+        assert_eq!(
+            result.get("activation").unwrap(),
+            &json!({ "state": "active", "fuel": 10 })
+        );
+    }
+
+    #[test]
+    fn module_replaces_array_valued_namespaces() {
+        let base = module_map_from_json(json!({ "placement": [{ "entry_id": "a", "position_hint": 0 }] }));
+        let overlay = module_map_from_json(json!({ "placement": [{ "entry_id": "b", "position_hint": 1 }] }));
+
+        let result = merge_module_maps(&base, &overlay);
+
+        assert_eq!(
+            result.get("placement").unwrap(),
+            &json!([{ "entry_id": "b", "position_hint": 1 }])
+        );
+    }
+
+    #[test]
+    fn module_preserves_unknown_namespaces_object_and_array() {
+        let base = module_map_from_json(json!({
+            "activation": { "state": "idle" },
+            "custom_obj": { "k": 1 }
+        }));
+        let overlay = module_map_from_json(json!({
+            "placement": [{ "p": 1 }],
+            "custom_arr": [9]
+        }));
+
+        let result = merge_module_maps(&base, &overlay);
+
+        assert_eq!(result.get("activation").unwrap(), &json!({ "state": "idle" }));
+        assert_eq!(result.get("custom_obj").unwrap(), &json!({ "k": 1 }));
+        assert_eq!(result.get("placement").unwrap(), &json!([{ "p": 1 }]));
+        assert_eq!(result.get("custom_arr").unwrap(), &json!([9]));
+    }
+
+    #[test]
+    fn module_treats_empty_maps_and_namespaces_as_valid() {
+        assert!(merge_module_maps(&ModuleMap::new(), &ModuleMap::new()).is_empty());
+
+        let base = module_map_from_json(json!({ "activation": {} }));
+        let overlay = module_map_from_json(json!({ "placement": [] }));
+
+        let result = merge_module_maps(&base, &overlay);
+
+        assert_eq!(result.get("activation").unwrap(), &json!({}));
+        assert_eq!(result.get("placement").unwrap(), &json!([]));
+    }
+
+    #[test]
+    fn module_does_not_alias_arrays_from_inputs() {
+        let base = module_map_from_json(json!({ "placement": [{ "entry_id": "a" }] }));
+        let overlay = module_map_from_json(json!({ "activation": { "state": "x" } }));
+
+        let mut result = merge_module_maps(&base, &overlay);
+
+        result
+            .get_mut("placement")
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "entry_id": "z" }));
+
+        assert_eq!(base.get("placement").unwrap(), &json!([{ "entry_id": "a" }]));
+    }
+
+    #[test]
+    fn module_preserve_retains_unknown_namespaces_from_source() {
+        let source = module_map_from_json(json!({
+            "activation": { "legacy": true, "mode": "old" },
+            "placement": [{ "entry_id": "old" }],
+            "custom": { "only_source": 1 }
+        }));
+        let target = module_map_from_json(json!({ "activation": { "mode": "new" } }));
+
+        let result = preserve_module_maps(&source, &target);
+
+        assert_eq!(
+            result.get("activation").unwrap(),
+            &json!({ "legacy": true, "mode": "new" })
+        );
+        assert_eq!(
+            result.get("placement").unwrap(),
+            &json!([{ "entry_id": "old" }])
+        );
+        assert_eq!(result.get("custom").unwrap(), &json!({ "only_source": 1 }));
+    }
+
+    #[test]
+    fn module_preserve_does_not_delete_sibling_namespaces() {
+        let source = module_map_from_json(json!({
+            "activation": { "a": 1 },
+            "placement": [{ "p": 1 }]
+        }));
+        let target = module_map_from_json(json!({ "activation": { "c": 3 } }));
+
+        let result = preserve_module_maps(&source, &target);
+
+        assert_eq!(result.get("activation").unwrap(), &json!({ "a": 1, "c": 3 }));
+        assert_eq!(result.get("placement").unwrap(), &json!([{ "p": 1 }]));
+    }
+
+    #[test]
+    fn module_preserve_lets_target_replace_array_namespace() {
+        let source = module_map_from_json(json!({ "placement": [{ "entry_id": "old" }] }));
+        let target = module_map_from_json(json!({ "placement": [{ "entry_id": "new" }] }));
+
+        let result = preserve_module_maps(&source, &target);
+
+        assert_eq!(
+            result.get("placement").unwrap(),
+            &json!([{ "entry_id": "new" }])
         );
     }
 }

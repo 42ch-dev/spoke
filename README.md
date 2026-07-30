@@ -29,7 +29,7 @@ Published consumer packages share one **lockstep SemVer**.
 | [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | Generated Rust wire types |
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
 
-Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids).
+Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [`spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
 
 ## Install
 
@@ -174,6 +174,7 @@ cargo test -p spoke-fixture-toy-world
 | **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
 | **HostCapabilityManifest** | Host roles, capabilities, and owned `namespaces[]` for in-process collaboration |
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
+| **Modules** | Optional cross-product functional-dialect bag on KnowledgeEntry + AssemblePacket (capability-flagged `narrative-modules`) |
 | **Adapter ports** | Injected read/write surfaces (`KnowledgeEntryPort`, `HostManifestPort`, …) that own persistence |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` sequences that load scope, apply gates, and persist via ports |
 
@@ -188,7 +189,7 @@ Products that need programmable KnowledgeEntry body state may declare **`l2-comp
 - **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
 - **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
 
-Products that need fork-scoped timeline queries may declare **`l5-fork`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
+Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry and AssemblePacket carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
 
 Baseline integrators use core schemas; optional capabilities are opt-in. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
 
@@ -199,7 +200,7 @@ Baseline integrators use core schemas; optional capabilities are opt-in. Normati
 - **Baseline orchestrators:** `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble`
 - **Optional orchestrators:** `orchestrateProject`, `orchestrateCompute`, `orchestrateForkCheck`, `orchestrateForkAssemble`
 - Capability-sliced ports and composed aliases (`BaselineAdapter` … `FullAdapter`)
-- Extension map merge and round-trip preservation
+- Extension and module map merge and round-trip preservation (`mergeExtensionMaps` / `mergeModuleMaps`, `preserveExtensionMaps` / `preserveModuleMaps`)
 - Finding / KnowledgeEntry `status` transition helpers
 - Promote acceptance and upsert/relate validators
 - AssemblePacket builders from KnowledgeEntries
@@ -220,6 +221,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operat
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects and open vocabulary |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Ops wire request/response envelopes |
 | [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md) | Operations library behavior |
+| [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad (bag placement) |
 
 ## Contributing
 

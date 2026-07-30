@@ -29,7 +29,7 @@
 | [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | 生成的 Rust 线上类型 |
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数辅助、adapter ports 与编排 — 与 `@42ch/spoke-operations` 行为对齐 |
 
-产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。
+产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry 与 AssemblePacket 上一个可选、按能力启用的字段袋。见 [`spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md)。
 
 ## 安装
 
@@ -174,6 +174,7 @@ cargo test -p spoke-fixture-toy-world
 | **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
 | **HostCapabilityManifest** | 主机角色、能力与所拥有的 `namespaces[]`，用于进程内协作 |
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
+| **Modules** | KnowledgeEntry + AssemblePacket 上的可选跨产品功能方言字段袋（按能力启用 `narrative-modules`） |
 | **Adapter ports** | 注入式读写面（`KnowledgeEntryPort`、`HostManifestPort` 等），由产品负责持久化 |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` 序列：加载 scope、执行门控、经 ports 持久化 |
 
@@ -188,7 +189,7 @@ cargo test -p spoke-fixture-toy-world
 - **`TimelineEvent.computable_logs`** — Moment 层级字段变更展示
 - **`project` / `compute` ops** — 初始化/投影与应用/结算 I/O 信封
 
-需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
+需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。需要交换跨产品功能方言（lore 激活、知识包、assemble 摆放 / 激活轨迹）的产品可声明 **`narrative-modules`**：KnowledgeEntry 与 AssemblePacket 上的可选 `modules`（`ModuleMap`）字段袋承载这些方言，适配器对未知 module namespace 原样往返保留。内部形状由 Domain Profile 手册定义。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
 
 基线集成方使用核心 schema；可选能力按需启用。规范细节：[`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels。
 
@@ -199,7 +200,7 @@ cargo test -p spoke-fixture-toy-world
 - **基线编排：** `orchestrateUpsert`、`orchestratePromote`、`orchestrateRelate`、`orchestrateCheck`、`orchestrateAssemble`
 - **可选编排：** `orchestrateProject`、`orchestrateCompute`、`orchestrateForkCheck`、`orchestrateForkAssemble`
 - 按能力切片的 ports 与组合别名（`BaselineAdapter` … `FullAdapter`）
-- 扩展映射合并与往返保留
+- 扩展与模块映射合并及往返保留（`mergeExtensionMaps` / `mergeModuleMaps`、`preserveExtensionMaps` / `preserveModuleMaps`）
 - Finding / KnowledgeEntry `status` 迁移辅助
 - 晋升接受与 upsert/relate 校验
 - 由 KnowledgeEntry 构建 AssemblePacket
@@ -220,6 +221,7 @@ cargo test -p spoke-fixture-toy-world
 | [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | 数据对象与开放词汇 |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Ops 线上请求/响应信封 |
 | [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md) | 操作库行为 |
+| [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions 三分法（字段袋归属） |
 
 ## 贡献
 

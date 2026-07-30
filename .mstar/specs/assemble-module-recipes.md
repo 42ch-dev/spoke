@@ -1,14 +1,14 @@
 # AssemblePacket Module Recipes — Placement + Activation Trace
 
-> **Status:** Domain Profile handbook (tracked result) — companion shapes **proposed**  
+> **Status:** Domain Profile handbook (tracked result) — inner dialect shapes handbook-defined under shipped `modules`  
 > **Document class:** Domain Profile — packet-level presentation and provenance recipes over closed AssemblePacket wire  
 > **Parent:** [`spoke-protocol-layers.md`](spoke-protocol-layers.md) §L8 Context  
 > **Bag placement authority:** [`spoke-extension-modules.md`](spoke-extension-modules.md)  
-> **Wire SSOT:** `schemas/data/assemble-packet.schema.json` (unchanged by this handbook — no `modules` property on the wire)
+> **Wire SSOT:** `schemas/data/assemble-packet.schema.json` — optional `modules` (`ModuleMap`) shipped on AssemblePacket
 
 ## Purpose
 
-This handbook documents two **packet-level** companion recipes under **proposed** `AssemblePacket.modules`:
+This handbook documents two **packet-level** companion recipes under `AssemblePacket.modules`:
 
 | Module key | Role |
 |------------|------|
@@ -17,7 +17,7 @@ This handbook documents two **packet-level** companion recipes under **proposed*
 
 Integrators implement emit and consume of these arrays from this handbook alone. Field names reuse the lore-activation vocabulary (`position_hint`, `outlet`, constant/key reasons) so authors learn one dialect across KnowledgeEntry fire conditions and AssemblePacket provenance.
 
-Baseline `AssemblePacket` remains wire-only slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`) plus required `extensions`. Ranking, retrieval, token budget, and matching stay **product-local**. The open `modules` envelope on the packet ships when the demand gate opens ([`spoke-extension-modules.md`](spoke-extension-modules.md)); inner array shapes stay handbook-defined (open bag).
+Baseline `AssemblePacket` remains wire-only slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`) plus required `extensions`. Ranking, retrieval, token budget, and matching stay **product-local**. `modules` is an optional, capability-flagged `ModuleMap` on `AssemblePacket` ([`spoke-extension-modules.md`](spoke-extension-modules.md)); inner array shapes stay handbook-defined (open bag).
 
 ---
 
@@ -26,35 +26,34 @@ Baseline `AssemblePacket` remains wire-only slim entries (`entry_id`, `entry_typ
 | Bag | Role for assemble recipes |
 |-----|---------------------------|
 | **Core fields** | `packet_id`, `entries[]` (`AssembleEntry`), `schema_version` — closed protocol objects |
-| **Proposed `modules.placement` / `modules.activation_trace`** | Cross-product **functional** dialects: injection placement and activation provenance at packet scope |
+| **`modules.placement` / `modules.activation_trace`** | Cross-product **functional** dialects: injection placement and activation provenance at packet scope |
 | **`extensions.<product>`** | One product’s private assemble telemetry, host-only debug columns, interim staging |
 
-Category rule (normative triad ADR): shared functional dialects use **proposed** `modules.*`. Product data uses `extensions.<product>`. Publishing placement or activation-trace as a shared key under `extensions.*` is a category error — see [`spoke-extension-modules.md`](spoke-extension-modules.md).
+Category rule (normative triad ADR): shared functional dialects use `modules.*`. Product data uses `extensions.<product>`. Publishing placement or activation-trace as a shared key under `extensions.*` is a category error — see [`spoke-extension-modules.md`](spoke-extension-modules.md).
 
-Until the demand gate opens, readers treat every **proposed** `AssemblePacket.modules` mention as a **handbook companion shape**, not an optional JSON property on committed schemas.
+`ModuleMap` is shipped; inner shapes (field tables) remain handbook-defined. Capability-flagged hosts emit/parse `AssemblePacket.modules`; baseline hosts leave `modules` absent.
 
 ---
 
-## Envelope home — proposed `AssemblePacket.modules`
+## Envelope home — `AssemblePacket.modules`
 
-**Status:** **Proposed** companion bag on the packet. Not present on any committed schema.
+**Status:** Optional, capability-flagged `ModuleMap` on `AssemblePacket`. Opt-in via `narrative-modules`.
 
 | Fact | Contract |
 |------|----------|
-| Outer bag | **Proposed** `modules` on `AssemblePacket` (ModuleMap-style open object) |
+| Outer bag | Optional `modules` on `AssemblePacket` (capability-flagged `ModuleMap`) |
 | This handbook’s keys | `placement` → array; `activation_trace` → array |
-| Sibling dialects | **Proposed** `modules.activation` on KnowledgeEntry / pack companions ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)); **proposed** `modules.pack` ([`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md)) |
-| Wire envelope | Lands with the demand-gated `modules` schema slice; capability / profile flag as designed then |
-| Inner shapes | Remain handbook-defined after the envelope ships (open bag — unknown module keys round-trip) |
+| Sibling dialects | `modules.activation` on KnowledgeEntry ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)); `modules.pack` ([`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md)) |
+| Wire envelope | Shipped optional `modules`; capability flag `narrative-modules` |
+| Inner shapes | Handbook-defined (open bag — unknown module keys round-trip) |
 | Scope | **Packet-level lists** first; per-entry `AssembleEntry.modules` is backlog only if packet lists fail product needs |
 
-Integrators stage the companion beside a baseline-valid `AssemblePacket` (product storage, debug sidecars, or a future inspector payload) so hosts converge before a schema slice.
+Integrators emit `modules` on a baseline-valid `AssemblePacket` when declaring `narrative-modules`. Absent and empty `modules` remain valid.
 
-### Illustrative packet companion (proposed — not wire schema)
+### Illustrative packet with modules (handbook-defined inner dialects)
 
 ```text
-// Baseline AssemblePacket atoms stay schema-valid (no modules property).
-// Proposed companion bag stages beside or around the packet:
+// AssemblePacket with optional modules (capability-flagged)
 {
   "schema_version": 1,
   "packet_id": "pkt_tw_harbor_dawn",
@@ -101,9 +100,9 @@ Integrators stage the companion beside a baseline-valid `AssemblePacket` (produc
 
 ---
 
-## Proposed `modules.placement`
+## `modules.placement`
 
-**Status:** **Proposed** companion array under `AssemblePacket.modules.placement`. Describes **where** each entry is injected. Caller-supplied array order is the interchange order; hosts apply product layout after reading the hints.
+**Status:** Handbook-defined companion array under shipped optional `AssemblePacket.modules.placement`. Describes **where** each entry is injected. Caller-supplied array order is the interchange order; hosts apply product layout after reading the hints.
 
 ### Field table (per array element)
 
@@ -133,12 +132,12 @@ Identical to [`domain-profile-lore-activation.md`](domain-profile-lore-activatio
 | Coverage | An entry **MAY** omit a placement row; hosts apply a local default |
 | Multiplicity | At most one placement row per `entry_id` in a well-formed packet companion (hosts that emit duplicates define last-wins or reject) |
 | Order | Array order is caller-supplied presentation order for the placement list; it does not replace `entries[]` order as the assemble candidate order |
-| Source of truth for preference | Entry-level **proposed** `modules.activation.position_hint` / `outlet` (lore-activation) is the durable authoring home; packet `placement[]` is the **assembled snapshot** for this packet |
+| Source of truth for preference | Entry-level `modules.activation.position_hint` / `outlet` (lore-activation) is the durable authoring home; packet `placement[]` is the **assembled snapshot** for this packet |
 
 ### Illustrative shape
 
 ```text
-// proposed modules.placement — handbook companion only
+// modules.placement — handbook-defined inner array under shipped ModuleMap
 [
   {
     "entry_id": "kb_tw_harbor_rules",
@@ -159,9 +158,9 @@ Identical to [`domain-profile-lore-activation.md`](domain-profile-lore-activatio
 
 ---
 
-## Proposed `modules.activation_trace`
+## `modules.activation_trace`
 
-**Status:** **Proposed** companion array under `AssemblePacket.modules.activation_trace`. Explains **why** each entry is in the packet — debug and observability provenance. It is **not** a ranking score, priority, or budget column.
+**Status:** Handbook-defined companion array under shipped optional `AssemblePacket.modules.activation_trace`. Explains **why** each entry is in the packet — debug and observability provenance. It is **not** a ranking score, priority, or budget column.
 
 ### Field table (per array element)
 
@@ -194,7 +193,7 @@ Identical to [`domain-profile-lore-activation.md`](domain-profile-lore-activatio
 ### Illustrative shape
 
 ```text
-// proposed modules.activation_trace — handbook companion only
+// modules.activation_trace — handbook-defined inner array under shipped ModuleMap
 [
   {
     "entry_id": "kb_tw_harbor_rules",
@@ -237,7 +236,7 @@ Caller recipe (summary — full steps in Knowledge Pack handbook):
 3. Concatenate candidates in **caller-chosen order** (common convention: Seed first, then Pool).  
 4. Optional product budget trim **before** pure packet build.  
 5. `buildAssemblePacket` — order-preserving wire shape only.  
-6. Emit **proposed** `modules.placement` + `modules.activation_trace` companions for the same `entry_id` set when hosts need interchange of where/why.
+6. Emit `modules.placement` + `modules.activation_trace` under optional `AssemblePacket.modules` for the same `entry_id` set when hosts need interchange of where/why.
 
 ---
 
@@ -249,25 +248,25 @@ Caller recipe (summary — full steps in Knowledge Pack handbook):
 | Relation hop expand, scan window, depth scale | **Product-local** |
 | Token budget, ranking, embedding retrieval | **Product-local** |
 | Candidate order + `maxEntries` truncate | Caller order + pure `buildAssemblePacket` ([`spoke-operations.md`](spoke-operations.md)) |
-| Packet **placement** / **activation_trace** field names | **This handbook** (proposed companions) |
+| Packet **placement** / **activation_trace** field names | **This handbook** (inner shapes under shipped envelope) |
 | Pure library helpers | `@42ch/spoke-operations` / `spoke-operations` — **no** matching, scoring, ranking, or activation code |
-| Baseline `AssemblePacket` | Slim entries + `extensions`; **proposed** module fields are **never required** |
+| Baseline `AssemblePacket` | Slim entries + `extensions`; optional `modules` is **never required** |
 
 Recipes are **presentation and provenance only**. They document how hosts describe injection layout and fire-path debug on the packet. They do not add ranking scores, token budgets, or retrieval metadata to baseline assemble wire ([`spoke-ops.md`](spoke-ops.md) §assemble wire-only; [`spoke-data-model.md`](spoke-data-model.md) §AssemblePacket).
 
-Product-private assemble telemetry continues under `AssemblePacket.extensions.<product>`. Cross-product where/why dialects use **proposed** `modules.placement` and `modules.activation_trace`.
+Product-private assemble telemetry continues under `AssemblePacket.extensions.<product>`. Cross-product where/why dialects use `modules.placement` and `modules.activation_trace`.
 
 ---
 
-## Relationship to wire and demand gate
+## Relationship to wire
 
 | Surface | Expectation |
 |---------|-------------|
-| `schemas/data/assemble-packet.schema.json` | Closed object: `schema_version`, `packet_id`, `entries`, `extensions` — no `modules` |
+| `schemas/data/assemble-packet.schema.json` | Closed object: `schema_version`, `packet_id`, `entries`, `extensions`, optional `modules` (`ModuleMap`) |
 | This handbook | Packet-level `placement[]` + `activation_trace[]` field tables and examples |
-| Demand gate | [`spoke-extension-modules.md`](spoke-extension-modules.md) §Demand gate — ≥2 consumers with identical shape, or Nexus + one external host |
-| After envelope ships | Outer `modules` becomes an optional wire bag; **inner** recipe shapes remain handbook-defined until a later slice freezes them |
-| Capability flags | No baseline requirement to emit or parse these companions until the gated schema slice |
+| Envelope status | Shipped optional, capability-flagged (`narrative-modules`) — [`spoke-extension-modules.md`](spoke-extension-modules.md) |
+| Inner shapes | Handbook-defined; unknown module keys round-trip |
+| Capability flags | `narrative-modules` opt-in; no baseline requirement to emit or parse these companions |
 
 ---
 
@@ -275,26 +274,26 @@ Product-private assemble telemetry continues under `AssemblePacket.extensions.<p
 
 An integrator can implement packet placement + activation-trace emit/consume from this handbook alone when:
 
-1. Packet companions stage as **proposed** `modules.placement` (array) and **proposed** `modules.activation_trace` (array) under **proposed** `AssemblePacket.modules`.
+1. Packet companions live as `modules.placement` (array) and `modules.activation_trace` (array) under optional `AssemblePacket.modules`.
 2. `position_hint` / `outlet` values match the lore-activation handbook verbatim (`before_defs` \| `after_defs` \| `depth` \| `outlet`).
 3. `activation_trace.reason` uses `"constant"` \| `"key"` \| `"relation_hop"` \| `"seed"`; optional `matched_key` / `hop_count` follow the field table.
 4. Seed ↔ `constant`/`seed` and Pool ↔ `key`/`relation_hop` follow the Knowledge Pack Seed vs Pool pattern (cross-link only; full recipe there).
 5. Arrays are presentation/provenance — no ranking scores or token budgets on the recipes.
 6. Engines stay in the product; `spoke-operations` gains no matchers or scorers.
-7. Wire schemas remain closed; triad ADR governs promotion of the `modules` envelope; inner shapes stay handbook-defined.
+7. Optional `modules` is capability-flagged (`narrative-modules`); inner shapes stay handbook-defined.
 
 ---
 
 ## Acceptance (profile handbook)
 
-- [x] **Proposed** `modules.placement` array documented (`entry_id`, `position_hint`, optional `depth` / `outlet`)
-- [x] **Proposed** `modules.activation_trace` array documented (`entry_id`, `reason`, optional `matched_key` / `hop_count`)
+- [x] `modules.placement` array documented (`entry_id`, `position_hint`, optional `depth` / `outlet`)
+- [x] `modules.activation_trace` array documented (`entry_id`, `reason`, optional `matched_key` / `hop_count`)
 - [x] Position-hint vocabulary aligned with lore-activation (`before_defs` / `after_defs` / `depth` / `outlet`)
 - [x] Seed vs Pool cross-link to Knowledge Pack handbook; reason map stated
 - [x] Engine boundary: presentation/provenance only; product-local match/scan/budget/rank; no ops matchers
-- [x] Envelope home under **proposed** `AssemblePacket.modules`; inner shapes handbook-defined; demand gate cited
-- [x] Triad ADR cited; every envelope-level `modules` mention marked **proposed**
-- [x] No schema edits; no iteration ids; mechanisms only (clean-room public patterns)
+- [x] Envelope home under shipped optional `AssemblePacket.modules`; inner shapes handbook-defined
+- [x] Triad ADR cited; envelope capability-flagged (`narrative-modules`)
+- [x] No field-table rewrite beyond status framing; no iteration ids; mechanisms only (clean-room public patterns)
 
 ---
 
@@ -302,12 +301,12 @@ An integrator can implement packet placement + activation-trace emit/consume fro
 
 | Doc | Topic |
 |-----|-------|
-| [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / proposed `modules.*` / `extensions.<product>` triad; demand gate; round-trip |
-| [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | **Proposed** `modules.activation` field table; `position_hint` / `outlet`; constant ↔ Seed pointer |
-| [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md) | Knowledge Pack envelope; **primary** Seed vs Pool assemble pattern; proposed `modules.pack` |
+| [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / `modules.*` / `extensions.<product>` triad; capability-flagged envelope; round-trip |
+| [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | `modules.activation` field table; `position_hint` / `outlet`; constant ↔ Seed pointer |
+| [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md) | Knowledge Pack envelope; **primary** Seed vs Pool assemble pattern; `modules.pack` |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
-| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Domain Profile principles; L8 AssemblePacket |
-| [`spoke-data-model.md`](spoke-data-model.md) | AssemblePacket / AssembleEntry wire fields |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Domain Profile principles; L8 AssemblePacket; `narrative-modules` |
+| [`spoke-data-model.md`](spoke-data-model.md) | AssemblePacket / AssembleEntry wire fields; ModuleMap |
 | [`spoke-ops.md`](spoke-ops.md) | `assemble` wire-only boundary |
-| [`spoke-operations.md`](spoke-operations.md) | `buildAssemblePacket`; pure helpers; no activation engines |
-| [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (proposed); Extensions; AssemblePacket |
+| [`spoke-operations.md`](spoke-operations.md) | `buildAssemblePacket`; extension + module merge/preserve; no activation engines |
+| [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (capability-flagged); Extensions; AssemblePacket |

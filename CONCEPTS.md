@@ -106,6 +106,22 @@ Optional `ModuleMap` on KnowledgeEntry + AssemblePacket; capability-flagged (`na
 
 `modules.*` carries **cross-product functional** dialects (for example activation, pack, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`.
 
+### spoke-connect
+
+Optional capability flag: a product declaring it implements the connect envelope family (`schemas/connect/`), per-session ordering, and the `noise-peerid` auth model documented in [`spoke-connect.md`](.mstar/specs/spoke-connect.md). Not part of `spoke-baseline`. Hosts that speak connect SHOULD list `spoke-connect` in `HostCapabilityManifest.capabilities`.
+
+### Connect envelope family
+
+Six opt-in interaction envelopes in `schemas/connect/`: `ConnectHello` (signed manifest exchange), `ConnectSession` (session context snapshot), `ConnectInvokeRequest` / `ConnectInvokeResponse` (remote op call wrapping existing ops envelopes as opaque `payload`; failure reuses the shared `ErrorEnvelope`), `ConnectAuthChallenge` / `ConnectAuthResponse` (extensible `method` auth). Closed envelopes with required `extensions`; hello embeds `HostCapabilityManifest` by `$ref`. Normative semantics: [`spoke-connect.md`](.mstar/specs/spoke-connect.md).
+
+### Session (connect)
+
+Established cross-process invocation context: `session_id`, `initiator_peer_id` / `responder_peer_id`, `opened_at`, `negotiated_capabilities` (MUST include `spoke-connect` when both hosts declare it), `initial_sequence` (0 for protocol version 1). Per-session monotonic `sequence` ordering with `request_id` correlation; each peer keeps its own outbound counter. Distinct from [Session (computable lifecycle)](#session-computable-lifecycle) — the `l2-computable` projection lifecycle on `body.state` / `body.computable`.
+
+### peer_id
+
+Opaque network peer identity string on connect envelopes — the **trust root** for `noise-peerid` authorization (deployment-configured allowlist). Distinct from `host_id` (advisory application-host label inside the embedded `HostCapabilityManifest`): receivers authorize on `peer_id` + signature, then consume `host` for roles/capabilities.
+
 ---
 
 ## Core `entry_type` vocabulary (documented, not enforced)
@@ -182,3 +198,4 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
 | [`.mstar/specs/assemble-module-recipes.md`](.mstar/specs/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (`modules.placement` / `modules.activation_trace`) |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |
+| [`.mstar/specs/spoke-connect.md`](.mstar/specs/spoke-connect.md) | Connect envelope family, session ordering, auth model (opt-in `spoke-connect`) |

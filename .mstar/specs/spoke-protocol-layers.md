@@ -80,8 +80,8 @@ Required for “SPOKE baseline” claims:
 | L6 `Rule` wire object | Adapter packages |
 | L7 Finding + core status vocabulary | Shared runtime / daemon |
 | L8 AssemblePacket wire shape | Ranking/retrieval in assemble protocol fields |
-| Five ops wire families + `error-envelope` on failures | Transport bindings (HTTP/MCP) |
-| `HostCapabilityManifest` wire + baseline `HostManifestPort` | Network discovery / cross-process manifest transport |
+| Five ops wire families + `error-envelope` on failures | Transport bindings (HTTP/MCP) — cross-process interaction envelopes are opt-in via `spoke-connect`, not baseline |
+| `HostCapabilityManifest` wire + baseline `HostManifestPort` | Network discovery / cross-process manifest transport — `spoke-connect` peering envelopes are opt-in, not baseline |
 
 **Host collaboration (baseline):** each `spoke-baseline` adapter exposes `HostCapabilityManifest` via `HostManifestPort` (`getHostCapabilityManifest`, `listPeerHostCapabilityManifests`). Manifest carries `host_id`, `roles`, `capabilities`, and exclusive `namespaces[]` ownership — not KnowledgeEntry `extensions.<ns>`. Field tables: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest; port contract: [`spoke-operations.md`](spoke-operations.md) §Host collaboration.
 
@@ -92,6 +92,7 @@ Required for “SPOKE baseline” claims:
 | `l2-computable` | L2 + L5 + ops | Optional `body.state` / `body.computable` on KnowledgeEntry; optional `computable_logs` on TimelineEvent; optional `project` / `compute` op families — Session lifecycle is normative prose + op I/O, not a durable Session wire object |
 | `l5-fork` | L5 | Optional world-history branch metadata on `TimelineEvent` via `fork_id` and `parent_fork_id` (`ForkId` in `common.schema.json`); optional `Scope.fork_id` filter — not `spoke-baseline` |
 | `narrative-modules` | KnowledgeEntry + L8 | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket carrying cross-product functional dialects (`activation`, `pack`, `placement`, `activation_trace`). Adapters round-trip unknown module namespaces verbatim; pure ops `mergeModuleMaps` / `preserveModuleMaps` round-trip only — no engine. Not `spoke-baseline` |
+| `spoke-connect` | Interaction (cross-process) | Optional connect envelope family (`schemas/connect/`): signed hello (manifest exchange), session, invoke request/response, auth challenge/response; per-session ordering, `noise-peerid` auth, explicit-peering discovery — see [`spoke-connect.md`](spoke-connect.md). Hosts SHOULD list `spoke-connect` in `HostCapabilityManifest.capabilities`. Not `spoke-baseline` |
 
 Baseline compliance MUST NOT require any of these flags.
 
@@ -162,6 +163,7 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`spoke-data-model.md`](spoke-data-model.md) | Data object field detail |
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + Scope + error envelope |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
+| [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — session ordering, auth model, discovery boundary (opt-in `spoke-connect`) |
 | [`.mstar/roadmap.md`](../roadmap.md) | Thrust B — nine layers on the wire |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule, HostCapabilityManifest vocabulary |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping handbook |

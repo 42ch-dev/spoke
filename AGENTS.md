@@ -48,6 +48,7 @@ Do not put plan progress or residual detail in this file.
 - SPOKE is a **protocol repo**, not a product runtime, daemon, or shared database.
 - Reference `ToyWorldAdapter` examples live under `fixtures/toy-world/` (TypeScript `src/adapter/`; Rust crate `spoke-fixture-toy-world` in `rust/`, `publish = false`). Product binding packages ship in consumer repositories when scheduled.
 - Core interchange owns wire shapes only — world history, fork semantics, checker engines, ranking, and retrieval stay in products.
+- Connect (`schemas/connect/` + `spoke-connect` flag) is **wire + normative spec only**: no daemon, no runtime, no published connect package; a `crates/spoke-connect` reference spike stays unpublished (`publish = false`); product connect bindings ship in consumer repositories.
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
 - Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm), and `spoke-schemas`, `spoke-operations` (crates.io) publish on stable tagged releases via CI Trusted Publishing only (npm OIDC + crates.io OIDC); fixture and codegen packages remain workspace-private.

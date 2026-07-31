@@ -76,6 +76,9 @@ pub(crate) fn gate_hello(
 
 #[cfg(test)]
 mod tests {
+    // Deterministic test vectors: the fixed nonce strings in these tests are
+    // reproducible fixtures, not production CSPRNG output (production nonces
+    // come from `generate_nonce`).
     use super::*;
     use crate::hello::{generate_nonce, sign_hello};
     use libp2p::identity::Keypair;

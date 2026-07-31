@@ -48,7 +48,7 @@ The protocol does **not** require `peer_id == host_id`. Deployments SHOULD docum
 
 ## Envelope family (`schemas/connect/`)
 
-Six envelopes — all `type: object`, `additionalProperties: false`, required `extensions` → `$ref` `ExtensionMap`. `$id` base: `https://spoke42.invalid/schemas/` (same as the other families).
+Six envelopes — all `type: object`, `additionalProperties: false`, required `extensions` → `$ref` `ExtensionMap`. `$id` base: `https://spoke42.invalid/schemas/` (same as the other families). Connect schemas evolve in place: breaking shape changes bump `protocol_version`, which peers negotiate via hello.
 
 | File | `title` | `$id` suffix |
 |------|---------|--------------|
@@ -81,10 +81,12 @@ Six envelopes — all `type: object`, `additionalProperties: false`, required `e
 | `responder_peer_id` | yes | string, minLength 1 | Peer that accepted. |
 | `opened_at` | yes | Timestamp (RFC 3339) | Session open time (UTC). |
 | `negotiated_capabilities` | yes | string[], minItems 1, uniqueItems | Intersection (or agreed subset) of both hosts' `capabilities[]`; MUST include `spoke-connect` when both declare it. |
-| `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol_version 1 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). |
+| `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol_version 1 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). Runtime validators MUST enforce the `const 0` rule at the wire boundary; generated Rust types do not encode it. |
 | `extensions` | yes | ExtensionMap | |
 
 Session is a **wire-visible snapshot** (fixtures + optional session-announce messages). A runtime may keep richer local state; the public wire shape stays this table.
+
+`initiator_peer_id` and `responder_peer_id` MUST equal the authenticated hello `peer_id` values of the two session peers; receivers MUST reject session snapshots whose peer ids do not match the authenticated hellos.
 
 ### ConnectInvokeRequest — remote op call
 
@@ -94,7 +96,7 @@ Session is a **wire-visible snapshot** (fixtures + optional session-announce mes
 | `sequence` | yes | integer, minimum 0, maximum 2⁵³−1 (JSON-safe); logical u64 | Monotonic per session **outbound** from this sender (see [§Ordering semantics](#ordering-semantics)). |
 | `request_id` | yes | string, minLength 1 | Caller-generated correlation id (UUID recommended). |
 | `op` | yes | string, minLength 1 | Open vocabulary — see [§`op` core vocabulary](#op-core-vocabulary). |
-| `payload` | yes | `$ref` OpaqueJson | Opaque JSON — MUST be a full existing ops **request** envelope for the named `op` when targeting SPOKE ops. |
+| `payload` | yes | `$ref` OpaqueJson | Opaque JSON — MUST be a full existing ops **request** envelope for the named `op` when targeting SPOKE ops. Dispatchers MUST validate the payload against the named `op`'s ops request schema. |
 | `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary auth is hello. Shape method-specific when used. |
 | `extensions` | yes | ExtensionMap | |
 
@@ -137,7 +139,7 @@ Branches MUST NOT include both `payload` and `error`.
 |-------|-----|------|-------|
 | `challenge_id` | yes | string | Echo. |
 | `method` | yes | string | MUST match challenge `method`. |
-| `proof` | yes | OpaqueJson | Method-specific proof (signature bundle, token, …). |
+| `proof` | yes | OpaqueJson | Method-specific proof (signature bundle, token, …). Unused for `noise-peerid` — hello is the proof; other methods validate `proof` per method. |
 | `extensions` | yes | ExtensionMap | |
 
 ## Signature canonicalization (hello)
@@ -163,6 +165,8 @@ Branches MUST NOT include both `payload` and `error`.
 
 **Excluded from signature:** top-level hello `extensions`, and the `signature` field itself.
 
+Receivers MUST NOT use top-level hello `extensions` for authorization or trust decisions; only the signed fields and the embedded `host` manifest participate in `noise-peerid` accept/reject.
+
 **Verify:** recompute JCS over the same four fields from the received hello; verify the signature with the public key derived from / bound to `peer_id`; reject on mismatch.
 
 **Why JCS:** multi-language SDKs (Rust / future uniffi targets) need one deterministic byte sequence; JCS is standardized (RFC 8785) and library-backed. Implementations MUST NOT invent field-order rules.
@@ -171,7 +175,7 @@ Branches MUST NOT include both `payload` and `error`.
 
 | Rule | Value |
 |------|-------|
-| `nonce` entropy | minLength 16 on wire; generators SHOULD use ≥128 bits CSPRNG |
+| `nonce` entropy | minLength 16 is a wire floor; generators SHOULD use ≥128 bits CSPRNG (encoded output typically exceeds 16 chars) |
 | Scope | Per `peer_id` of the **sender** |
 | Uniqueness | Receiver MUST reject a hello whose `(peer_id, nonce)` pair was already accepted |
 | Replay window | In-memory set for the life of the process is sufficient for the reference spike; products MAY persist nonces with TTL — not specified in this protocol version |
@@ -188,6 +192,7 @@ Branches MUST NOT include both `payload` and `error`.
 | Increment | Each new **outbound** `ConnectInvokeRequest` from a peer in a session uses `last_sequence + 1` |
 | Direction | Each peer maintains its **own** outbound counter; sequences are not a single shared total-order across both directions |
 | Correlation | Response MUST echo `sequence` and `request_id` from the request |
+| Timeout / retry | Timeout, retry, and duplicate detection are adapter-owned; `request_id` is the correlation handle for retries — protocol v1 defines no retry semantics |
 | Concurrent invokes | Allowed. Assign sequence atomically at send time. Completions MAY arrive out of order; apps that need FIFO processing sort/buffer by `sequence` |
 | Overflow | When next sequence would exceed **2⁵³−1** (the JSON-safe wire maximum in the [§ConnectInvokeRequest](#connectinvokerequest--remote-op-call) field table) or the implementation counter limit, peer MUST close the session and open a new one — **no wrap-around** |
 | Guarantee scope | Per-session message-layer only — **not** global consensus, not cross-session ordering |
@@ -210,7 +215,7 @@ Open string (documented, not JSON Schema enum):
 | `project` | project-* | Optional; meaningful when remote declares `l2-computable` |
 | `compute` | compute-* | Optional; same |
 
-Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary.
+Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. This vocabulary MUST stay in sync with the schema `description` fields.
 
 ## `method` core vocabulary
 
@@ -222,11 +227,13 @@ Open string (documented, not enum):
 | `capability-token` | Reserved name only — not implemented |
 | `did` | Reserved name only — not implemented |
 
+This vocabulary MUST stay in sync with the schema `description` fields.
+
 ## Auth model
 
-**Core method — `noise-peerid`:** the trust root is a deployment-configured `PeerId` allowlist. Authentication happens at hello: the sender signs the canonicalized signed object with the key bound to `peer_id`; the receiver accepts only when (a) `peer_id` is on the allowlist and (b) the signature verifies. `ConnectAuthChallenge` / `ConnectAuthResponse` exist so future methods (reserved names: `capability-token`, `did`) and step-up auth share one shape; `method` is an open string and `proof` is opaque.
+**Core method — `noise-peerid`:** the trust root is a deployment-configured `PeerId` allowlist. Authentication happens at hello: the sender signs the canonicalized signed object with the key bound to `peer_id`; the receiver accepts only when (a) `peer_id` is on the allowlist and (b) the signature verifies. `ConnectAuthChallenge` / `ConnectAuthResponse` exist so future methods (reserved names: `capability-token`, `did`) and step-up auth share one shape; `method` is an open string and `proof` is opaque. Accept/reject decisions use only the signed fields and the embedded `host` manifest; top-level hello `extensions` MUST NOT influence authorization.
 
-A handshake MAY complete with hello alone — no extra auth round-trip — when allowlist + signature verification succeed. The challenge/response pair is not required for `noise-peerid` sessions.
+A handshake MAY complete with hello alone — no extra auth round-trip — when allowlist + signature verification succeed. The challenge/response pair is not required for `noise-peerid` sessions. In protocol v1, handshake rejection closes the connection or stream; there is no hello error envelope.
 
 ## Discovery boundary
 
@@ -236,7 +243,7 @@ A handshake MAY complete with hello alone — no extra auth round-trip — when 
 
 ## Reference stack
 
-The reference stack maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. `peer_id` uses the libp2p PeerId multibase encoding; other stacks map peer identity, sessions, and ordering equivalently. The reference spike lives in `crates/spoke-connect` (unpublished, `publish = false`) and demonstrates the mapping; it is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
+The reference stack maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. `peer_id` uses the libp2p PeerId multibase encoding; other stacks map peer identity, sessions, and ordering equivalently. The reference spike will live in `crates/spoke-connect` (unpublished, `publish = false`) when it lands and demonstrates the mapping; it is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
 
 ## Hard boundaries
 
@@ -247,6 +254,8 @@ The reference stack maps these envelopes onto rust-libp2p: **noise** for authent
 | DHT / NAT traversal (Kademlia, Gossipsub, circuit relay) | Not in this protocol version; wire carries no multiaddr/DHT fields |
 | Op semantics (upsert/check/assemble fields) | Ops wire (`schemas/ops/`) — invoke `payload` is opaque |
 | Session / nonce / dispatch persistence | Adapter-owned — wire defines envelope shapes and ordering rules, not storage |
+| Invoke timeout / retry / duplicate detection | Adapter-owned; `request_id` is the correlation handle for retries; protocol v1 defines no retry semantics |
+| Payload size / flow control | Wire imposes no payload size limit; size bounding and flow control are transport-adapter-owned |
 
 **Design rules (hard):**
 

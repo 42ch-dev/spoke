@@ -2,7 +2,7 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-30  
+**Updated:** 2026-07-31  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
@@ -26,11 +26,6 @@
 | Slice | What ships | Notes |
 |-------|------------|-------|
 | **spoke-connect multi-language SDK** | uniffi bindings (target-language matrix) + TS connectivity route decision (js-libp2p vs WASM) + capability-token auth model + mDNS/DHT discovery | Triggered by spoke-connect wire + Rust core delivery; async-FFI design + facade stability are preconditions |
-| **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
-| **Registry release** (when convenient) | SemVer cut when maintainers choose after additive wire lands on `main` | Optional via **New release** — not gated on docs site |
-| **Consumer pack I/O + activation engines** | Narrative hosts implement pack import/export, keyword/hop activation, assemble inspectors against handbooks + optional `modules` wire | Product-local engines and UX — **outside** this protocol repository; protocol stays wire + pure helpers only |
-
-Consumer-repo multi-adapter composition using manifests for in-process discovery remains product-side work outside this protocol repository.
 
 ---
 
@@ -50,11 +45,6 @@ Newest first. Dates are delivery dates on `main`.
 | 2026-07-27 | Adapter aliases | `*Adapter` composed-port aliases in TS/Rust ops; integrator docs point to operations + `fixtures/toy-world/` |
 | 2026-07-26 | Adapter interfaces + injection orchestration | Capability-sliced ports + `orchestrate*` / `orchestrate_*` in TS and Rust ops packages; `CAPABILITY_PORT_MISSING`; mock-backed orchestration tests; normative matrix in [spoke-operations.md](specs/spoke-operations.md) |
 | 2026-07-26 | L2 typed closed body + trait helpers | Closed `body` with optional `summary` / `tags` / `BodyAttribute[]`; codegen; Mira traits fixture; pure TS/Rust trait read helpers; SemVer-agnostic `bump-version` tests; knowledge `l2-closed-body-and-traits` + `release-bump-tests-version-agnostic` |
-| 2026-07-25 | CI / codegen harden | `OpaqueJson` empty schema for opaque log fields; TS/Rust regen; Rust typify duplication strategy A + import guide; schema-count surfaces at **23**; `test:release` lockstep assert/bump unit tests in CI |
-| 2026-07-25 | Rust ops CI + publish | CI/release verify `cargo test -p spoke-operations`; lockstep assert for ops crate; crates.io `spoke-operations` after `spoke-schemas`; README EN/CN Rust ops pin/install |
-| 2026-07-25 | Registry publish | CI `publish-npm` + `publish-crates` on stable tags after verify; npm `@42ch/spoke-schemas` / `@42ch/spoke-operations`; crates.io `spoke-schemas`; skip `-rc.` tags |
-| 2026-07-25 | CHANGELOG release notes | `CHANGELOG.md` via git-cliff; bump regenerates sections; GitHub Release body prefers changelog section over tag annotation |
-| 2026-07-25 | Unified version release | Lockstep assert + `release:bump` tooling; CI `verify-version` + tag-gated `release.yml`; README EN/CN pinning + maintainer how-to; [spoke-version-release.md](specs/spoke-version-release.md) |
 | 2026-07-24 | Optional Fork (`l5-fork`) | `ForkId`; TimelineEvent `fork_id` / `parent_fork_id`; `Scope.fork_id` + matcher; fixtures; Moment `computable_logs` schema example; schema-count **23** |
 | 2026-07-24 | Optional Computable (`l2-computable`) | `body.state` / `body.computable`, Moment `computable_logs`, Session lifecycle normative; optional `project`/`compute` ops; pure validators; fixtures; schema-count **23** |
 | 2026-07-23 | KnowledgeEntry / TimelineEvent terminology | Wire locks `KnowledgeEntry` / `TimelineEvent`; ops API + `*KNOWLEDGE_ENTRY*` error codes; fixtures dual-concern pair; product expand **Standardized Programmable Ontology Knowledge Engine** (SPOKE acronym kept) |

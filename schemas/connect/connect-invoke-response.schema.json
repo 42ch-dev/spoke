@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/connect/connect-invoke-response.schema.json",
+  "title": "ConnectInvokeResponse",
+  "description": "Remote op reply. Use payload (success) OR error — not both.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["session_id", "sequence", "request_id", "payload", "extensions"],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Echo of request session_id."
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Echo of request sequence."
+        },
+        "request_id": {
+          "type": "string",
+          "description": "Echo of request request_id."
+        },
+        "payload": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+          "description": "Ops response success envelope (or product-defined success body for non-core op)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Product namespace bag."
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["session_id", "sequence", "request_id", "error", "extensions"],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Echo of request session_id."
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Echo of request sequence."
+        },
+        "request_id": {
+          "type": "string",
+          "description": "Echo of request request_id."
+        },
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Product namespace bag."
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

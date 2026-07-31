@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/connect/connect-auth-response.schema.json",
+  "title": "ConnectAuthResponse",
+  "description": "Auth challenge reply envelope; proof is method-specific.",
+  "type": "object",
+  "required": ["challenge_id", "method", "proof", "extensions"],
+  "properties": {
+    "challenge_id": {
+      "type": "string",
+      "description": "Echo of challenge challenge_id."
+    },
+    "method": {
+      "type": "string",
+      "description": "MUST match challenge method."
+    },
+    "proof": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+      "description": "Method-specific proof (signature bundle, token, ...)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Product namespace bag."
+    }
+  },
+  "additionalProperties": false
+}

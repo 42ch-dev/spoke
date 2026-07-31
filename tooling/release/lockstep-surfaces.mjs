@@ -31,7 +31,10 @@ export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
 /** @type {string} Rust operations crate manifest (row 8). */
 export const CARGO_OPS_CRATE_PATH = "crates/spoke-operations/Cargo.toml";
 
-/** @type {string} Cargo lockfile — workspace member package versions (row 11). */
+/** @type {string} Rust connect spike crate manifest (row 9; private, not published). */
+export const CARGO_CONNECT_CRATE_PATH = "crates/spoke-connect/Cargo.toml";
+
+/** @type {string} Cargo lockfile — workspace member package versions (row 10). */
 export const CARGO_LOCK_PATH = "Cargo.lock";
 
 /**
@@ -43,13 +46,14 @@ export const CARGO_LOCK_PACKAGE_NAMES = [
   "spoke-schemas",
   "spoke-operations",
   "spoke-fixture-toy-world",
+  "spoke-connect",
 ];
 
 /**
  * @param {string} version
  * @returns {string}
  */
-export function formatOpsSpokeSchemasDependency(version) {
+export function formatSpokeSchemasPathDependency(version) {
   return `spoke-schemas = { version = "${version}", path = "../spoke-schemas" }`;
 }
 
@@ -57,7 +61,7 @@ export function formatOpsSpokeSchemasDependency(version) {
  * @param {string} contents
  * @returns {string | null}
  */
-export function parseOpsSpokeSchemasDependencyVersion(contents) {
+export function parseSpokeSchemasPathDependencyVersion(contents) {
   const match = contents.match(
     /^spoke-schemas\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
   );
@@ -67,16 +71,21 @@ export function parseOpsSpokeSchemasDependencyVersion(contents) {
 /**
  * @param {string} contents
  * @param {string} version
+ * @param {string} manifestPath Used in the error message.
  * @returns {string}
  */
-export function replaceOpsSpokeSchemasDependencyVersion(contents, version) {
+export function replaceSpokeSchemasPathDependencyVersion(
+  contents,
+  version,
+  manifestPath,
+) {
   const updated = contents.replace(
     /^spoke-schemas\s*=\s*\{[^}]*\}/m,
-    formatOpsSpokeSchemasDependency(version),
+    formatSpokeSchemasPathDependency(version),
   );
   if (updated === contents) {
     throw new Error(
-      `${CARGO_OPS_CRATE_PATH}: could not update spoke-schemas path dependency`,
+      `${manifestPath}: could not update spoke-schemas path dependency`,
     );
   }
   return updated;

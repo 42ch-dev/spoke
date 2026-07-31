@@ -243,7 +243,7 @@ A handshake MAY complete with hello alone — no extra auth round-trip — when 
 
 ## Reference stack
 
-The reference stack maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. `peer_id` uses the libp2p PeerId multibase encoding; other stacks map peer identity, sessions, and ordering equivalently. The reference spike will live in `crates/spoke-connect` (unpublished, `publish = false`) when it lands and demonstrates the mapping; it is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
+The reference stack maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. `peer_id` uses the libp2p PeerId multibase encoding; other stacks map peer identity, sessions, and ordering equivalently. The reference spike lives in `crates/spoke-connect` (unpublished, `publish = false`) and demonstrates the mapping; it is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
 
 ## Hard boundaries
 

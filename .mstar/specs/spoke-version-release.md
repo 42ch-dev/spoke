@@ -29,9 +29,10 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 6 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
 | 7 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
 | 8 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
-| 9 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas` and `spoke-operations` | TOML package version entries |
-| 10 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
-| 11 | README CN badge | `README_CN.md` | Same as row 10 |
+| 9 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 (workspace-private spike crate; not published) |
+| 10 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
+| 11 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
+| 12 | README CN badge | `README_CN.md` | Same as row 11 |
 
 **Canonical version source:** row 1 (`package.json` → `version`). The assert script compares every other row to that string.
 
@@ -42,7 +43,7 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | `tooling/codegen/rust-gen/Cargo.toml` | Standalone `[workspace]` bin crate (`spoke-rust-gen`); not a consumer pin surface; version is local to the codegen tool |
 | `pnpm-lock.yaml` | Workspace packages use `link:` protocol; lockfile does not embed package SemVer |
 
-CI **lockstep assert** MUST cover rows 1–11. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
+CI **lockstep assert** MUST cover rows 1–12. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
 
 ## SemVer usage (monorepo)
 
@@ -128,7 +129,7 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Registry auth | npm and crates.io: Trusted Publishing only (org `42ch-dev`, repo `spoke`, workflow **`release.yml`** as top-level filename) |
 | Operator cut | `new-release.yml` opens labeled PR with GraphQL-signed bump; merge triggers this workflow’s `tag` job |
 
-**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `pnpm run test:release` (lockstep assert/bump unit tests), `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `cargo test -p spoke-fixture-toy-world` (private fixture crate; excluded from `publish-crates`), `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
+**Verify-equivalent gates** (minimum, shared by `ci.yml` and `release.yml`): `pnpm run verify-codegen`, TypeScript typecheck/build/test for `@42ch/spoke-schemas` and `@42ch/spoke-operations`, `pnpm run test:fixtures`, `pnpm run test:release` (lockstep assert/bump unit tests), `cargo check -p spoke-schemas`, `cargo test -p spoke-operations`, `cargo test -p spoke-fixture-toy-world` (private fixture crate; excluded from `publish-crates`), `cargo test -p spoke-connect` (private spike crate; excluded from `publish-crates`), `pnpm run verify:version` (lockstep assert via `tooling/release/assert-lockstep-version.mjs`).
 
 ### README version badge assert
 
@@ -182,7 +183,7 @@ Both `README.md` and `README_CN.md` MUST contain a dynamic shields.io GitHub Rel
 | pnpm workspace | `"@42ch/spoke-schemas": "file:../spoke/packages/spoke-schemas"` at checked-out tag |
 | Git dependency | `"@42ch/spoke-schemas": "github:42ch-dev/spoke#vX.Y.Z"` (org/repo as applicable) |
 
-Package names: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crates `spoke-schemas`, `spoke-operations`.
+Package names: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crates `spoke-schemas`, `spoke-operations` (published), `spoke-fixture-toy-world` and `spoke-connect` (workspace-private; lockstep version asserted, never published).
 
 ## Orthogonality — package SemVer vs wire `schema_version`
 

@@ -13,12 +13,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PATH,
   CARGO_OPS_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   replaceCargoLockPackageVersions,
-  replaceOpsSpokeSchemasDependencyVersion,
+  replaceSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
@@ -478,11 +479,17 @@ writeRepoFile(
   replaceWorkspacePackageVersion(cargoContents, targetVersion),
 );
 
-const opsCrateContents = readRepoFile(CARGO_OPS_CRATE_PATH);
-writeRepoFile(
-  CARGO_OPS_CRATE_PATH,
-  replaceOpsSpokeSchemasDependencyVersion(opsCrateContents, targetVersion),
-);
+for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
+  const crateContents = readRepoFile(cratePath);
+  writeRepoFile(
+    cratePath,
+    replaceSpokeSchemasPathDependencyVersion(
+      crateContents,
+      targetVersion,
+      cratePath,
+    ),
+  );
+}
 
 const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
 writeRepoFile(

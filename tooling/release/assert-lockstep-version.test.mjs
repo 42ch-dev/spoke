@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { CARGO_CONNECT_CRATE_PATH } from "./lockstep-surfaces.mjs";
 import {
   cleanupTempRepo,
   createTempRepo,
@@ -59,5 +60,37 @@ describe("assert-lockstep-version.mjs", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Lockstep version mismatch/);
     assert.match(result.stderr, /packages\/spoke-schemas\/package\.json/);
+  });
+
+  it("rejects when the spoke-connect crate drifts from lockstep", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    // Synthetic drift — must not equal the live lockstep SemVer.
+    const drifted = `${current}-drift.test`;
+    assert.notEqual(drifted, current);
+
+    const cratePath = join(repoRoot, CARGO_CONNECT_CRATE_PATH);
+    const crate = readFileSync(cratePath, "utf8");
+    const driftedCrate = crate.replace(
+      /^spoke-schemas\s*=\s*\{[^}]*version\s*=\s*"[^"]+"/m,
+      `spoke-schemas = { version = "${drifted}", path = "../spoke-schemas" }`,
+    );
+    assert.notEqual(driftedCrate, crate, "fixture must contain the dependency");
+    writeFileSync(cratePath, driftedCrate, "utf8");
+
+    const result = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Lockstep version mismatch/);
+    assert.match(
+      result.stderr,
+      new RegExp(CARGO_CONNECT_CRATE_PATH.replace("/", "\\/")),
+    );
   });
 });

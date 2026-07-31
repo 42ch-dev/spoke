@@ -37,7 +37,17 @@ Rust crates (from repo root):
 cargo check -p spoke-schemas
 cargo test -p spoke-operations
 cargo test -p spoke-fixture-toy-world
+cargo test -p spoke-connect
 ```
+
+If `~/.cargo/config.toml` sets `-Zno-embed-metadata` (an unstable flag
+incompatible with stable rustc), prefix cargo commands with `RUSTFLAGS=""`:
+
+```bash
+RUSTFLAGS="" cargo test -p spoke-connect
+```
+
+CI does not need this workaround.
 
 ### Workspace / path dependencies
 

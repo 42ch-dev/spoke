@@ -1,0 +1,20 @@
+{
+  "protocol_version": 1,
+  "peer_id": "peer_tw_primary",
+  "nonce": "nonce_tw_primary_0001",
+  "host": {
+    "schema_version": 1,
+    "host_id": "host_tw_primary",
+    "roles": ["data-store", "checker", "assembler", "input-source"],
+    "capabilities": ["spoke-baseline", "spoke-connect"],
+    "namespaces": ["toy_world"],
+    "authority": { "scope_key": "collab_toy_world" },
+    "extensions": {
+      "toy_world": { "display_name": "Toy World primary host" }
+    }
+  },
+  "signature": "7JH6KIe2ioe1hacT7GGd8xQktVmLAh5Rbo-Kw_lfEfy0XCF25g7_gdeOX_QMOnZvtFk9ODMo65yzZpR1LyEeAg",
+  "extensions": {
+    "toy_world": { "display_name": "Toy World primary host" }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "peer_id": "peer_tw_peer",
+  "nonce": "nonce_tw_peer_000001",
+  "host": {
+    "schema_version": 1,
+    "host_id": "host_tw_peer",
+    "roles": ["checker", "input-source"],
+    "capabilities": ["spoke-baseline", "spoke-connect"],
+    "namespaces": ["peer_demo"],
+    "extensions": {
+      "peer_demo": { "display_name": "Toy World peer checker host" }
+    }
+  },
+  "signature": "Rhk22a9q-BzyWi4m8OyPobFM50JZoOmRcLu9c3eq3DtMRfDkj-zl857WoNqB8vUfT39O_FN09E9-4pj8nmCdnA",
+  "extensions": {
+    "peer_demo": { "display_name": "Toy World peer checker host" }
+  }
+}

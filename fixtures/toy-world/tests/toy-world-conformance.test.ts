@@ -9,6 +9,7 @@ import {
 } from "@42ch/spoke-operations";
 import type {
   AssemblePacket,
+  ConnectHello,
   Finding,
   HostCapabilityManifest,
   KnowledgeEntry,
@@ -213,6 +214,58 @@ describe("fixtures/toy-world schema conformance", () => {
         scope_id: "toy-scope-baseline",
       }),
     ).toEqual(events);
+  });
+
+  it("illustrates connect dual identity and structural hello signatures", () => {
+    const primary = loadFixture<ConnectHello>("conn_tw_hello_primary_to_peer.json");
+    const peer = loadFixture<ConnectHello>("conn_tw_hello_peer_to_primary.json");
+
+    // peer_id (network identity, trust root) is distinct from the embedded
+    // host_id (application identity) — the protocol does not require equality.
+    expect(primary.peer_id).toBe("peer_tw_primary");
+    expect(primary.host.host_id).toBe("host_tw_primary");
+    expect(primary.peer_id).not.toBe(primary.host.host_id);
+    expect(peer.peer_id).toBe("peer_tw_peer");
+    expect(peer.host.host_id).toBe("host_tw_peer");
+
+    // Nonces are single-use replay guards (>= 16 chars on the wire).
+    expect(primary.nonce.length).toBeGreaterThanOrEqual(16);
+    expect(peer.nonce).not.toBe(primary.nonce);
+
+    // Structural conformance only: signatures are valid-shaped base64url test
+    // vectors (no padding), not cryptographically real. JCS signing + verify is
+    // the responsibility of the reference stack (spoke-connect spike).
+    expect(primary.signature).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(primary.signature.length % 4).not.toBe(1); // base64url has no padding; len % 4 == 1 is impossible for unpadded base64
+    expect(peer.signature).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(peer.signature).not.toBe(primary.signature);
+
+    // Embedded manifests are adapted from the committed baseline hosts with the
+    // optional spoke-connect capability added; the standalone manifests stay
+    // baseline (spoke-connect is opt-in).
+    expect(primary.host.capabilities).toEqual(["spoke-baseline", "spoke-connect"]);
+    expect(peer.host.capabilities).toEqual(["spoke-baseline", "spoke-connect"]);
+  });
+
+  it("echoes session and request correlation on connect invoke responses", () => {
+    const request = loadFixture<{ session_id: string; sequence: number; request_id: string }>(
+      "conn_tw_invoke_check_request.json",
+    );
+    const success = loadFixture<{ session_id: string; sequence: number; request_id: string }>(
+      "conn_tw_invoke_check_response.json",
+    );
+    const error = loadFixture<{ session_id: string; sequence: number; request_id: string }>(
+      "conn_tw_invoke_error_response.json",
+    );
+
+    expect(success.session_id).toBe(request.session_id);
+    expect(success.sequence).toBe(request.sequence);
+    expect(success.request_id).toBe(request.request_id);
+
+    // Error branch echoes the failing invoke (a second, malformed request).
+    expect(error.session_id).toBe(request.session_id);
+    expect(error.sequence).toBe(1);
+    expect(error.request_id).toBe("req_tw_check_0002");
   });
 
   it("carries product query metadata on Scope.extensions through a check-request", () => {

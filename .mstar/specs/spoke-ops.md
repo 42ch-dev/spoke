@@ -273,7 +273,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 ## Acceptance (ops layer)
 
 - [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
-- [x] Optional `project` / `compute` ops documented when `l2-computable` ships (4 optional ops schemas; protocol inventory **24** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
+- [x] Optional `project` / `compute` ops documented when `l2-computable` ships (4 optional ops schemas; protocol inventory **30** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
 - [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 2 optional)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)

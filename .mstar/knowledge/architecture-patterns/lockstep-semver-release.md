@@ -54,6 +54,10 @@ Tag push re-runs verify-equivalent gates; on success, workflow creates the GitHu
 - Do not conflate package SemVer with wire `schema_version` in docs or tooling.
 - Do not hardcode live lockstep SemVer in `bump-version` unit tests that seed fixtures from `package.json` — see `testing-patterns/release-bump-tests-version-agnostic.md`.
 
+## Private workspace crates in the lockstep surface
+
+Private (unpublished) workspace crates participate in lockstep version assertions and bumps alongside published crates. Both `spoke-fixture-toy-world` and `spoke-connect` (`publish = false`) are registered in `tooling/release/lockstep-surfaces.mjs` `CARGO_LOCK_PACKAGE_NAMES` and `assert-lockstep-version.mjs` manifest coverage; `bump-version.mjs` generalizes path-dependency version rewriting so a private crate's `spoke-schemas` path-dep requirement advances with the workspace bump. Release tests include a fixture containing the private crate and assert both bump and drift detection. Rationale: a private crate drifting from the workspace version silently breaks path-dep resolution on a future minor bump and leaves the lockfile stale; the same lockstep discipline that protects published crates protects the workspace graph.
+
 ## Related
 
 - Normative policy: `.mstar/specs/spoke-version-release.md`

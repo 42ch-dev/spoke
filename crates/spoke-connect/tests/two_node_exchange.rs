@@ -1,0 +1,741 @@
+//! Two-node loopback exchange — DoD integration coverage for
+//! `crates/spoke-connect` (default features).
+//!
+//! Scenarios:
+//! (a) both nodes exchange signed hellos; remote manifests round-trip intact
+//!     in both directions (role reversal);
+//! (b) one `check` op invoke closes the loop — sequence 0 + request_id echo;
+//! (c) a second invoke uses sequence 1;
+//! (d) a third node not on the allowlist is rejected at the handshake and
+//!     observes no session; the allowlisted pair keeps working;
+//! (e) a stub handler returning an error envelope surfaces as
+//!     `InvokeError::Wire(ErrorEnvelope)`;
+//! (f) a dial that stalls at the noise handshake fails deterministically at
+//!     the handshake deadline, and a concurrent inbound session cannot
+//!     consume the pending dial; a retry to a live peer succeeds;
+//! (g) an unreachable address fails the pending dial and a retry succeeds;
+//! (h) a duplicate dial to a sessioned peer completes with the existing
+//!     session and the surplus connection is closed;
+//! (i) when the peer shuts down, the session is observed closed and a
+//!     reconnecting peer (same identity) establishes a fresh session;
+//! (j) a panicking handler is contained (internal_error wire envelope) and
+//!     the node stays alive.
+//!
+//! All waits are bounded event waits (timeouts on `connect` / `invoke`
+//! futures) — no sleep-based synchronization.
+
+use libp2p::identity::Keypair;
+use libp2p::{Multiaddr, PeerId};
+use spoke_connect::{parse_multiaddr, ConnectConfig, ConnectError, InvokeError, SpokeConnectNode};
+use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
+use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
+use std::sync::Arc;
+use std::time::Duration;
+
+/// Serializes the network scenarios: every node binds a SO_REUSEPORT loopback
+/// listener, and macOS's SO_REUSEPORT port allocation can collide across
+/// concurrently running tests in one process (repeat dials fail with
+/// EADDRINUSE / connect timeouts). Running the scenarios one at a time keeps
+/// them deterministic on all platforms; each test still uses only bounded
+/// event waits — no sleeps.
+static NETWORK_TEST_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+async fn network_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    NETWORK_TEST_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
+}
+
+/// Handshake / invoke timeout for the test nodes (≥ 5s keeps loopback CI
+/// reliable; every wait in these tests is bounded by it).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Short handshake timeout for stall/reject tests (generous enough to stay
+/// green under parallel test load on loopback; keeps the deterministic
+/// deadline sweeps fast).
+const SHORT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
+const LISTEN: &str = "/ip4/127.0.0.1/tcp/0";
+
+fn manifest(host_id: &str, roles: &[&str]) -> HostCapabilityManifest {
+    HostCapabilityManifest {
+        authority: None,
+        capabilities: vec!["spoke-connect".into(), "spoke-baseline".into()],
+        extensions: Default::default(),
+        host_id: host_id.parse().expect("host id parses"),
+        namespaces: Vec::new(),
+        roles: roles.iter().map(|r| (*r).to_string()).collect(),
+        schema_version: std::num::NonZeroU64::new(1).expect("non-zero"),
+    }
+}
+
+fn config(
+    identity: Keypair,
+    allowlist: Vec<PeerId>,
+    local_manifest: HostCapabilityManifest,
+    timeout: Duration,
+) -> ConnectConfig {
+    ConnectConfig {
+        identity,
+        peer_allowlist: allowlist,
+        listen_addrs: vec![parse_multiaddr(LISTEN).expect("multiaddr")],
+        local_manifest,
+        handshake_timeout: Some(timeout),
+        invoke_handler: None,
+    }
+}
+
+async fn start(
+    identity: Keypair,
+    allowlist: Vec<PeerId>,
+    local_manifest: HostCapabilityManifest,
+) -> SpokeConnectNode {
+    SpokeConnectNode::start(config(
+        identity,
+        allowlist,
+        local_manifest,
+        HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("node starts")
+}
+
+/// A realistic `CheckRequest` envelope (opaque invoke payload).
+fn check_request() -> serde_json::Value {
+    serde_json::json!({
+        "scope": { "scope_id": "spike-scope-1", "entry_ids": ["entry-1"] },
+        "checker_kinds": ["baseline"],
+        "extensions": {}
+    })
+}
+
+/// A realistic `CheckResponse` success envelope (findings branch).
+fn check_response() -> serde_json::Value {
+    serde_json::json!({
+        "findings": [{
+            "schema_version": 1,
+            "finding_id": "finding-spike-001",
+            "severity": "info",
+            "status": "open",
+            "title": "spike check ok",
+            "description": "baseline checker ran clean",
+            "extensions": {}
+        }],
+        "extensions": {}
+    })
+}
+
+/// A TCP listener that accepts and holds connections without ever answering:
+/// a dial to it completes TCP but stalls at the noise handshake, so neither
+/// identify nor hello can ever arrive (the pending dial is only resolvable
+/// by the event loop's deadline sweep).
+fn stall_listener() -> Multiaddr {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stall listener");
+    let port = listener.local_addr().expect("stall port").port();
+    let held = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let held_thread = held.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(s) => held_thread.lock().expect("held lock").push(s),
+                Err(_) => break,
+            }
+        }
+    });
+    let _ = held;
+    format!("/ip4/127.0.0.1/tcp/{port}")
+        .parse::<Multiaddr>()
+        .expect("stall multiaddr")
+}
+
+/// Wait until `session` reports its connection as closed (bounded event
+/// wait; each iteration is a real network round trip, no sleeps).
+async fn wait_until_closed(session: &spoke_connect::PeerSession, bound: Duration) {
+    let deadline = std::time::Instant::now() + bound;
+    loop {
+        if session.invoke("check", check_request()).await.is_err() {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "session did not close within {bound:?}"
+        );
+        tokio::task::yield_now().await;
+    }
+}
+
+/// (a) Two nodes on loopback complete the authenticated hello handshake and
+/// both sides' manifests round-trip through the generated wire type — in
+/// both directions: B dials A (B observes A's manifest) and A dials B (A
+/// observes B's manifest, roles + capabilities included).
+#[tokio::test]
+async fn hello_exchange_round_trips_manifests_both_ways() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+    let manifest_a = manifest("host-a", &["data-store", "checker"]);
+    let manifest_b = manifest("host-b", &["input-source", "assembler"]);
+
+    let node_a = start(key_a, vec![peer_b], manifest_a.clone()).await;
+    let node_b = start(key_b, vec![peer_a], manifest_b.clone()).await;
+
+    // B dials A (plan test strategy); handshake succeeds both directions.
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    assert_eq!(session.remote_peer_id(), peer_a);
+    assert!(!session.session_id().is_empty());
+    assert_eq!(session.next_sequence(), 0);
+
+    // Remote manifest arrives intact (round-trip through generated types).
+    let wire = serde_json::to_value(session.remote_manifest()).expect("serialize");
+    assert_eq!(wire, serde_json::to_value(&manifest_a).expect("serialize"));
+    assert_eq!(wire["host_id"], serde_json::json!("host-a"));
+    assert_eq!(wire["roles"], serde_json::json!(["data-store", "checker"]));
+    assert_eq!(
+        wire["capabilities"],
+        serde_json::json!(["spoke-connect", "spoke-baseline"])
+    );
+
+    // Role reversal: A dials B and observes B's manifest through A's own
+    // dialer session — the responder-side manifest is visible on both sides.
+    let session_a = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("a dials b");
+    assert_eq!(session_a.remote_peer_id(), peer_b);
+    let wire_b = serde_json::to_value(session_a.remote_manifest()).expect("serialize");
+    assert_eq!(
+        wire_b,
+        serde_json::to_value(&manifest_b).expect("serialize")
+    );
+    assert_eq!(wire_b["host_id"], serde_json::json!("host-b"));
+    assert_eq!(
+        wire_b["roles"],
+        serde_json::json!(["input-source", "assembler"])
+    );
+    assert_eq!(
+        wire_b["capabilities"],
+        serde_json::json!(["spoke-connect", "spoke-baseline"])
+    );
+    // The returned session routes invokes (B has no handler: the wire
+    // op_unsupported error proves the session round-trip works).
+    match session_a.invoke("check", check_request()).await {
+        Err(InvokeError::Wire(envelope)) => assert_eq!(envelope.code, "op_unsupported"),
+        other => panic!("expected op_unsupported wire error, got {other:?}"),
+    }
+
+    node_a.shutdown().await.expect("a shuts down");
+    node_b.shutdown().await.expect("b shuts down");
+}
+
+/// (b) One `check` op invoke closes the loop: A answers through a stub
+/// handler returning a real check-response envelope; the caller sees
+/// `sequence == 0` and the request_id echo (asserted by the correlation
+/// gate; `InvokeSuccess.request_id` is the echoed id).
+#[tokio::test]
+async fn check_op_invoke_round_trips_with_sequence_zero() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let response = check_response();
+    let handler = {
+        let response = response.clone();
+        Arc::new(move |op: &str, _payload: serde_json::Value| {
+            assert_eq!(op, "check", "handler sees the requested op");
+            Ok(response.clone())
+        })
+    };
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["data-store", "checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(
+        key_b,
+        vec![peer_a],
+        manifest("host-b", &["input-source", "assembler"]),
+    )
+    .await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    let success = session
+        .invoke("check", check_request())
+        .await
+        .expect("invoke succeeds");
+
+    assert_eq!(success.sequence, 0, "first invoke uses sequence 0");
+    assert!(!success.request_id.is_empty(), "request_id is generated");
+    assert_eq!(
+        success.payload, response,
+        "stub handler payload arrives intact"
+    );
+    assert_eq!(session.next_sequence(), 1);
+
+    node_a.shutdown().await.expect("a shuts down");
+    node_b.shutdown().await.expect("b shuts down");
+}
+
+/// (c) A second invoke on the same session uses sequence 1; request ids are
+/// unique per invoke.
+#[tokio::test]
+async fn second_invoke_uses_sequence_one() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let handler = Arc::new(|_op: &str, _payload: serde_json::Value| {
+        Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+    });
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    let first = session
+        .invoke("check", check_request())
+        .await
+        .expect("first invoke");
+    let second = session
+        .invoke("check", check_request())
+        .await
+        .expect("second invoke");
+
+    assert_eq!(first.sequence, 0);
+    assert_eq!(second.sequence, 1, "second invoke increments the sequence");
+    assert_ne!(
+        first.request_id, second.request_id,
+        "fresh request id per invoke"
+    );
+    assert_eq!(session.next_sequence(), 2);
+
+    node_a.shutdown().await.expect("a shuts down");
+    node_b.shutdown().await.expect("b shuts down");
+}
+
+/// (d) A third node not on the allowlist is rejected at the handshake — no
+/// session is established, and the allowlisted pair keeps working afterwards.
+/// The early allowlist gate (at `ConnectionEstablished`) makes the rejection
+/// deterministic from the dialer's perspective: C's own gate rejects A with
+/// `NotAllowlisted` before any hello traffic flows.
+#[tokio::test]
+async fn non_allowlisted_third_node_is_rejected() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let key_c = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+
+    let node_a = start(
+        key_a,
+        vec![key_b.public().to_peer_id()],
+        manifest("host-a", &["data-store"]),
+    )
+    .await;
+    let node_c = start(key_c, Vec::new(), manifest("host-c", &["data-store"])).await;
+
+    let err = node_c
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect_err("c must not establish a session");
+    assert!(
+        matches!(err, ConnectError::NotAllowlisted { peer_id } if peer_id == peer_a),
+        "expected NotAllowlisted for peer_a, got {err:?}"
+    );
+
+    // The allowlisted pair is unaffected: B dials A and gets a live session.
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("allowlisted b connects after rejection");
+    assert_eq!(session.remote_peer_id(), peer_a);
+
+    node_c.shutdown().await.expect("c shuts down");
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (e) A stub handler returning a wire error envelope surfaces on the caller
+/// as `InvokeError::Wire(ErrorEnvelope)` — the remote-failure path, distinct
+/// from transport/session failures.
+#[tokio::test]
+async fn remote_error_envelope_surfaces_as_invoke_error_wire() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let envelope = ErrorEnvelope {
+        code: "check_failed".into(),
+        details: Default::default(),
+        extensions: Default::default(),
+        message: "spike check failed".into(),
+    };
+    let handler = {
+        let envelope = envelope.clone();
+        Arc::new(move |_op: &str, _payload: serde_json::Value| Err(envelope.clone()))
+    };
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    let err = session
+        .invoke("check", check_request())
+        .await
+        .expect_err("remote failure is an invoke error");
+    match err {
+        InvokeError::Wire(remote) => {
+            assert_eq!(remote.code, "check_failed");
+            assert_eq!(remote.message, "spike check failed");
+        }
+        other => panic!("expected InvokeError::Wire, got {other:?}"),
+    }
+    // The failed invoke still consumed its sequence.
+    assert_eq!(session.next_sequence(), 1);
+
+    node_a.shutdown().await.expect("a shuts down");
+    node_b.shutdown().await.expect("b shuts down");
+}
+
+/// (f) A pending dial is bound to its own connection:
+/// 1. A dials an address that stalls at the noise handshake — the dial can
+///    only be resolved by the event loop's deadline sweep (identify never
+///    arrives, no failure event fires).
+/// 2. While that dial is pending, C completes an inbound handshake with A.
+///    A's responder session for C must NOT consume A's pending dial.
+/// 3. After the stall timeout, A's connect fails and the entry is cleared;
+///    a retry against a live peer succeeds with that peer's session.
+#[tokio::test]
+async fn concurrent_inbound_session_does_not_consume_pending_dial() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let key_c = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+    let peer_c = key_c.public().to_peer_id();
+    let manifest_a = manifest("host-a", &["data-store"]);
+    let manifest_b = manifest("host-b", &["input-source"]);
+    let manifest_c = manifest("host-c", &["assembler"]);
+
+    let node_a = SpokeConnectNode::start(config(
+        key_a,
+        vec![peer_b, peer_c],
+        manifest_a.clone(),
+        SHORT_HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("a starts");
+    let node_b = SpokeConnectNode::start(config(
+        key_b,
+        vec![peer_a],
+        manifest_b.clone(),
+        SHORT_HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("b starts");
+    let node_c = SpokeConnectNode::start(config(
+        key_c,
+        vec![peer_a],
+        manifest_c.clone(),
+        SHORT_HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("c starts");
+
+    // A's dial to the stall address stays pending while C connects to A
+    // (polled concurrently via join!, no sleeps).
+    let stall_addr = stall_listener();
+    let (c_result, stall_result) = tokio::join!(
+        node_c.connect(node_a.listen_addrs()[0].clone()),
+        node_a.connect(stall_addr),
+    );
+
+    let err = stall_result.expect_err("stalled dial must fail deterministically");
+    assert!(
+        matches!(
+            err,
+            ConnectError::Timeout(_)
+                | ConnectError::Transport(_)
+                | ConnectError::HandshakeFailed { .. }
+        ),
+        "unexpected stalled-dial error: {err:?}"
+    );
+
+    // C's inbound session completed during the pending dial.
+    let c_session = c_result.expect("c connects");
+    assert_eq!(c_session.remote_peer_id(), peer_a);
+
+    // The pending entry was cleared: a retry against a live peer succeeds and
+    // returns that peer's session (not C's).
+    let session_b = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("retry succeeds");
+    assert_eq!(session_b.remote_peer_id(), peer_b);
+    assert_eq!(
+        serde_json::to_value(session_b.remote_manifest()).expect("serialize"),
+        serde_json::to_value(&manifest_b).expect("serialize"),
+    );
+
+    node_c.shutdown().await.expect("c shuts down");
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (g) An unreachable known-peer multiaddr fails the pending dial fast (dial
+/// error) and clears the entry: a retry against a live peer succeeds.
+#[tokio::test]
+async fn unreachable_peer_dial_fails_and_retry_succeeds() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let node_a = SpokeConnectNode::start(config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["data-store"]),
+        SHORT_HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("a starts");
+    let node_b = SpokeConnectNode::start(config(
+        key_b,
+        vec![peer_a],
+        manifest("host-b", &["input-source"]),
+        SHORT_HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("b starts");
+
+    // A loopback port with nothing listening.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("bind probe");
+    let port = closed.local_addr().expect("probe port").port();
+    drop(closed);
+    let closed_addr = format!("/ip4/127.0.0.1/tcp/{port}")
+        .parse::<Multiaddr>()
+        .expect("closed multiaddr");
+
+    // The dial never establishes (connection refused); the event loop
+    // resolves it deterministically at the handshake deadline.
+    let err = node_a
+        .connect(closed_addr)
+        .await
+        .expect_err("unreachable dial fails");
+    assert!(
+        matches!(
+            err,
+            ConnectError::Timeout(_)
+                | ConnectError::Transport(_)
+                | ConnectError::HandshakeFailed { .. }
+        ),
+        "unexpected unreachable-dial error: {err:?}"
+    );
+
+    let session = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("retry succeeds");
+    assert_eq!(session.remote_peer_id(), peer_b);
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (h) A duplicate dial to an already-sessioned peer completes immediately
+/// with a clone of the existing session; the surplus connection is closed
+/// without killing the session.
+#[tokio::test]
+async fn duplicate_dial_completes_with_existing_session() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let handler = Arc::new(|_op: &str, _payload: serde_json::Value| {
+        Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+    });
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+
+    let addr = node_a.listen_addrs()[0].clone();
+    let session1 = node_b.connect(addr.clone()).await.expect("first dial");
+    let session2 = node_b.connect(addr.clone()).await.expect("duplicate dial");
+
+    // Same underlying session: duplicate dial completes with the existing
+    // handle (one sequence counter).
+    assert_eq!(session1.session_id(), session2.session_id());
+
+    // The surplus connection was closed without killing the session: invokes
+    // keep working on both handles (one shared sequence counter).
+    let first = session1
+        .invoke("check", check_request())
+        .await
+        .expect("invoke 1");
+    let second = session2
+        .invoke("check", check_request())
+        .await
+        .expect("invoke 2");
+    assert_eq!(first.sequence, 0);
+    assert_eq!(second.sequence, 1);
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (i) Session lifecycle: when the peer's node shuts down, the connection
+/// closes, the session is marked closed, and a reconnecting peer with the
+/// same identity establishes a fresh session.
+#[tokio::test]
+async fn reconnect_after_shutdown_establishes_fresh_session() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+    let manifest_a = manifest("host-a", &["input-source"]);
+    let manifest_b = manifest("host-b", &["checker"]);
+
+    // The responder (B) carries the invoke handler; A dials B.
+    let handler = Arc::new(|_op: &str, _payload: serde_json::Value| {
+        Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+    });
+    let mut cfg_b = config(
+        key_b.clone(),
+        vec![peer_a],
+        manifest_b.clone(),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_b.invoke_handler = Some(handler);
+    let node_a = start(key_a, vec![peer_b], manifest_a).await;
+    let node_b = SpokeConnectNode::start(cfg_b).await.expect("b starts");
+
+    let session1 = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("a dials b");
+    session1
+        .invoke("check", check_request())
+        .await
+        .expect("invoke while connected");
+
+    // B shuts down: A observes the connection close and closes the session.
+    node_b.shutdown().await.expect("b shuts down");
+    wait_until_closed(&session1, HANDSHAKE_TIMEOUT).await;
+
+    // A reconnecting node with the same identity establishes a fresh session.
+    let mut cfg_b2 = config(key_b, vec![peer_a], manifest_b, HANDSHAKE_TIMEOUT);
+    cfg_b2.invoke_handler = Some(Arc::new(|_op: &str, _payload: serde_json::Value| {
+        Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+    }));
+    let node_b2 = SpokeConnectNode::start(cfg_b2).await.expect("b2 starts");
+    let session2 = node_a
+        .connect(node_b2.listen_addrs()[0].clone())
+        .await
+        .expect("reconnect succeeds");
+    assert_ne!(
+        session1.session_id(),
+        session2.session_id(),
+        "reconnect must create a fresh session, not resurrect the closed one"
+    );
+    session2
+        .invoke("check", check_request())
+        .await
+        .expect("invoke after reconnect");
+
+    node_b2.shutdown().await.expect("b2 shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (j) A panicking handler is contained: the invoke is answered with an
+/// `internal_error` wire envelope and the node keeps serving.
+#[tokio::test]
+async fn panicking_handler_is_contained_and_node_survives() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let handler = Arc::new(
+        |_op: &str, _payload: serde_json::Value| -> Result<serde_json::Value, ErrorEnvelope> {
+            panic!("spike handler panic");
+        },
+    );
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    for _ in 0..2 {
+        let err = session
+            .invoke("check", check_request())
+            .await
+            .expect_err("panic surfaces as a wire error");
+        match err {
+            InvokeError::Wire(envelope) => assert_eq!(envelope.code, "internal_error"),
+            other => panic!("expected internal_error wire error, got {other:?}"),
+        }
+    }
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}

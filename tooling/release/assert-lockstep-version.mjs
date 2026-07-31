@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PACKAGE_NAMES,
   CARGO_LOCK_PATH,
   CARGO_OPS_CRATE_PATH,
@@ -33,7 +34,7 @@ import {
   README_RELEASE_BADGE_MARKER,
   hasReadmeReleaseBadge,
   parseCargoLockPackageVersion,
-  parseOpsSpokeSchemasDependencyVersion,
+  parseSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
@@ -212,23 +213,30 @@ assertWorkspaceCrateVersion(
   canonicalVersion,
   cargoWorkspaceVersion,
 );
+assertWorkspaceCrateVersion(
+  CARGO_CONNECT_CRATE_PATH,
+  "crates/spoke-connect/Cargo.toml",
+  canonicalVersion,
+  cargoWorkspaceVersion,
+);
 
-const opsCrateContents = readRepoFile(CARGO_OPS_CRATE_PATH);
-const opsSchemasDepVersion =
-  parseOpsSpokeSchemasDependencyVersion(opsCrateContents);
-if (opsSchemasDepVersion === null) {
-  recordFailure(
-    `${CARGO_OPS_CRATE_PATH} (spoke-schemas dependency)`,
-    `version = "${canonicalVersion}" with path`,
-    "(missing version in path dependency)",
-    "spoke-operations must declare spoke-schemas with version + path for cargo publish",
-  );
-} else {
-  assertEqual(
-    `${CARGO_OPS_CRATE_PATH} (spoke-schemas dependency)`,
-    canonicalVersion,
-    opsSchemasDepVersion,
-  );
+for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
+  const crateContents = readRepoFile(cratePath);
+  const schemasDepVersion = parseSpokeSchemasPathDependencyVersion(crateContents);
+  if (schemasDepVersion === null) {
+    recordFailure(
+      `${cratePath} (spoke-schemas dependency)`,
+      `version = "${canonicalVersion}" with path`,
+      "(missing version in path dependency)",
+      "Workspace crates must declare spoke-schemas with version + path (lockstep; published crates require it for cargo publish)",
+    );
+  } else {
+    assertEqual(
+      `${cratePath} (spoke-schemas dependency)`,
+      canonicalVersion,
+      schemasDepVersion,
+    );
+  }
 }
 
 const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);

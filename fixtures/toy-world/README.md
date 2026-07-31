@@ -15,6 +15,21 @@ Committed `HostCapabilityManifest` JSON describes two toy-world hosts with **pai
 
 Both declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fixture JSON; peer hosts resolve through product-supplied in-memory listing.
 
+## Connect envelope samples (opt-in `spoke-connect`)
+
+Committed `conn_tw_*` JSON demonstrates a two-host connect exchange between the toy-world hosts under the optional `spoke-connect` capability:
+
+| Fixture | Envelope | Story |
+|---------|----------|-------|
+| `conn_tw_hello_primary_to_peer.json` | ConnectHello | Primary → peer handshake; `peer_id: peer_tw_primary` |
+| `conn_tw_hello_peer_to_primary.json` | ConnectHello | Peer → primary handshake; `peer_id: peer_tw_peer` |
+| `conn_tw_session.json` | ConnectSession | Established session snapshot (`initial_sequence: 0`, negotiated `spoke-connect`) |
+| `conn_tw_invoke_check_request.json` | ConnectInvokeRequest | Remote `check` call wrapping the real `op_tw_check_request` payload |
+| `conn_tw_invoke_check_response.json` | ConnectInvokeResponse | Success branch wrapping a real check-response envelope (embedded `fnd_tw_open`) |
+| `conn_tw_invoke_error_response.json` | ConnectInvokeResponse | Error branch reusing the shared `error-envelope` (`INVALID_INPUT`) |
+
+Dual identity: each hello carries an opaque `peer_id` (network identity, trust root) distinct from the embedded manifest's `host_id` (application identity). Embedded manifests are adapted from the committed `host_tw_*` hosts with the optional `spoke-connect` capability added — the standalone manifests stay baseline. Hello `signature` fields are **structural test vectors only**: valid-shaped base64url strings (no padding, non-cryptographic) for schema conformance; JCS canonicalization and cryptographic verification belong to the reference stack. Invoke responses echo `session_id` / `sequence` / `request_id` from the request; the error branch echoes a second, malformed invoke (`req_tw_check_0002`).
+
 ## Integrator path (TypeScript)
 
 One adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations`:
@@ -88,6 +103,12 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host) | `host_tw_primary` |
 | `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
+| `conn_tw_hello_primary_to_peer.json` | ConnectHello (opt-in `spoke-connect` handshake) | `peer_tw_primary` / `host_tw_primary` |
+| `conn_tw_hello_peer_to_primary.json` | ConnectHello (opt-in `spoke-connect` handshake) | `peer_tw_peer` / `host_tw_peer` |
+| `conn_tw_session.json` | ConnectSession (established session snapshot) | `sess_tw_connect_0001` |
+| `conn_tw_invoke_check_request.json` | ConnectInvokeRequest (remote `check`) | `sess_tw_connect_0001` / `req_tw_check_0001` |
+| `conn_tw_invoke_check_response.json` | ConnectInvokeResponse (success branch) | `sess_tw_connect_0001` / `req_tw_check_0001` |
+| `conn_tw_invoke_error_response.json` | ConnectInvokeResponse (error branch, `INVALID_INPUT`) | `sess_tw_connect_0001` / `req_tw_check_0002` |
 
 `proposed/pack_tw_harbor_companion.json` — companion sample showing **proposed** `modules.pack` / `modules.activation` shape (not validated by harness; baseline atoms within are valid).
 

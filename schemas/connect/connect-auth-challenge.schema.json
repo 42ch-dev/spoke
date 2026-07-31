@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/connect/connect-auth-challenge.schema.json",
+  "title": "ConnectAuthChallenge",
+  "description": "Extensible auth challenge envelope. Core method: noise-peerid.",
+  "type": "object",
+  "required": ["challenge_id", "method", "challenge", "extensions"],
+  "properties": {
+    "challenge_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Correlation id for the response."
+    },
+    "method": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open vocabulary. Core (documented, not enforced): noise-peerid. Reserved names: capability-token, did."
+    },
+    "challenge": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque challenge material (nonce / method-specific)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Product namespace bag."
+    }
+  },
+  "additionalProperties": false
+}

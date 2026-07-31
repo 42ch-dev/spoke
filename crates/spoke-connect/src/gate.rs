@@ -17,7 +17,7 @@ use spoke_schemas::connect::ConnectHello;
 use std::collections::HashSet;
 /// Whether `peer` is on the allowlist. An empty allowlist rejects every peer.
 #[must_use]
-pub fn is_allowlisted(allowlist: &[PeerId], peer: &PeerId) -> bool {
+pub(crate) fn is_allowlisted(allowlist: &[PeerId], peer: &PeerId) -> bool {
     // simplify: linear scan. Switch to a HashSet if allowlists grow past a
     // handful of peers.
     allowlist.contains(peer)
@@ -25,20 +25,20 @@ pub fn is_allowlisted(allowlist: &[PeerId], peer: &PeerId) -> bool {
 
 /// In-memory `(peer_id, nonce)` store of accepted hellos.
 #[derive(Debug, Default)]
-pub struct NonceStore {
+pub(crate) struct NonceStore {
     seen: HashSet<(PeerId, String)>,
 }
 
 impl NonceStore {
     /// Creates an empty store.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Records `(peer, nonce)` unless it was already accepted; returns `false`
     /// on replay.
-    pub fn check_and_record(&mut self, peer: &PeerId, nonce: &str) -> bool {
+    pub(crate) fn check_and_record(&mut self, peer: &PeerId, nonce: &str) -> bool {
         self.seen.insert((*peer, nonce.to_owned()))
     }
 }
@@ -47,7 +47,7 @@ impl NonceStore {
 ///
 /// Order: protocol version and claimed-peer binding → allowlist → signature →
 /// nonce. A returned [`ConnectError`] identifies the exact rejection reason.
-pub fn gate_hello(
+pub(crate) fn gate_hello(
     authenticated_peer: &PeerId,
     public_key: &PublicKey,
     allowlist: &[PeerId],
@@ -206,5 +206,23 @@ mod tests {
 
         gate_hello(&peer_id, &keypair.public(), &[peer_id], &mut nonces, &hello)
             .expect("same hello accepted once allowlisted");
+    }
+
+    #[test]
+    fn gate_rejects_key_not_deriving_the_authenticated_peer() {
+        // Defense in depth: the verify key must derive the noise-authenticated
+        // peer id, otherwise a remote stack could attest a different identity
+        // key for an allowlisted peer (spoof of the hello signature as an
+        // identity attestation).
+        let signer = Keypair::generate_ed25519();
+        let other = Keypair::generate_ed25519();
+        let peer_id = signer.public().to_peer_id();
+        let hello =
+            sign_hello(&signer, "bind-nonce-12345", &manifest("host-a")).expect("sign hello");
+        let mut nonces = NonceStore::new();
+
+        let err = gate_hello(&peer_id, &other.public(), &[peer_id], &mut nonces, &hello)
+            .expect_err("unbound verify key");
+        assert!(matches!(err, ConnectError::HandshakeFailed { .. }));
     }
 }

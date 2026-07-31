@@ -33,7 +33,7 @@ struct SignedHello<'a> {
 
 /// Generate a single-use hello nonce: 128 bits of CSPRNG entropy, base64url
 /// encoded (22 characters, above the wire floor of 16).
-pub fn generate_nonce() -> Result<String, ConnectError> {
+pub(crate) fn generate_nonce() -> Result<String, ConnectError> {
     let mut bytes = [0u8; 16];
     getrandom::getrandom(&mut bytes)
         .map_err(|e| ConnectError::Transport(format!("CSPRNG failure: {e}")))?;
@@ -48,7 +48,7 @@ fn protocol_version() -> std::num::NonZeroU64 {
 ///
 /// `peer_id` on the wire is `identity.public().to_peer_id().to_string()`
 /// (libp2p PeerId base58btc multihash form).
-pub fn sign_hello(
+pub(crate) fn sign_hello(
     identity: &Keypair,
     nonce: &str,
     manifest: &HostCapabilityManifest,
@@ -87,12 +87,16 @@ pub fn sign_hello(
 ///
 /// Checks, in order:
 /// 1. `protocol_version` equals [`PROTOCOL_VERSION`] (`HandshakeFailed`).
-/// 2. The claimed `peer_id` parses and equals `expected_peer_id` — the
-///    noise-authenticated remote peer (`HandshakeFailed`).
-/// 3. The signature verifies against `public_key` (`InvalidHelloSignature`).
+/// 2. `public_key` derives `expected_peer_id` — the noise-authenticated
+///    remote peer. A key that does not derive the authenticated peer id
+///    cannot attest that peer's identity, so the hello is rejected
+///    (`HandshakeFailed`).
+/// 3. The claimed `peer_id` parses and equals `expected_peer_id`
+///    (`HandshakeFailed`).
+/// 4. The signature verifies against `public_key` (`InvalidHelloSignature`).
 ///
 /// Allowlist and nonce gates are applied by [`crate::gate`] around this check.
-pub fn verify_hello(
+pub(crate) fn verify_hello(
     public_key: &PublicKey,
     expected_peer_id: &PeerId,
     hello: &ConnectHello,
@@ -102,6 +106,18 @@ pub fn verify_hello(
             reason: format!(
                 "unsupported protocol_version {} (expected {PROTOCOL_VERSION})",
                 hello.protocol_version
+            ),
+        });
+    }
+
+    // The verify key must be *bound* to the noise-authenticated peer id: the
+    // hello signature attests that peer's identity key, so a key deriving a
+    // different peer id must not be usable here.
+    if public_key.to_peer_id() != *expected_peer_id {
+        return Err(ConnectError::HandshakeFailed {
+            reason: format!(
+                "identify public key derives peer id {} instead of the noise-authenticated peer {expected_peer_id}",
+                public_key.to_peer_id()
             ),
         });
     }
@@ -198,17 +214,21 @@ mod tests {
     }
 
     #[test]
-    fn wrong_key_fails_verification() {
+    fn verify_key_must_derive_the_expected_peer_id() {
+        // A key that does not derive the noise-authenticated peer id is
+        // rejected at the binding check, before any signature work: the hello
+        // signature must attest the authenticated peer's own identity key.
         let signer = Keypair::generate_ed25519();
         let other = Keypair::generate_ed25519();
         let hello =
             sign_hello(&signer, "wrong-key-nonce-12", &manifest("host-a")).expect("sign hello");
 
-        // Same claimed/expected peer id, but the *wrong* public key: only the
-        // signature check can catch this.
         let err = verify_hello(&other.public(), &signer.public().to_peer_id(), &hello)
-            .expect_err("wrong key");
-        assert!(matches!(err, ConnectError::InvalidHelloSignature));
+            .expect_err("unbound verify key");
+        assert!(
+            matches!(err, ConnectError::HandshakeFailed { .. }),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

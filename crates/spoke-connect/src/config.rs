@@ -20,12 +20,21 @@ pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// dispatcher is **adapter-owned** per the connect spec — this hook exists so
 /// the reference spike and its tests can close the invoke loop; it is not
 /// part of the locked uniffi-facing surface.
+///
+/// Execution contract: the hook runs **synchronously on the node's network
+/// event loop**. It must return promptly and must not block on I/O — every
+/// handshake, invoke response, and timeout sweep on the node stalls behind
+/// it. Panics are contained (the invoke is answered with an `internal_error`
+/// wire envelope and the node keeps running) but remain a caller bug.
+/// (simplify: the spike dispatches inline on the loop; products should
+/// dispatch off-loop — e.g. `tokio::task::spawn_blocking` or an adapter task
+/// pool — once handler latency matters.)
 pub type InvokeHandler =
     dyn Fn(&str, serde_json::Value) -> Result<serde_json::Value, ErrorEnvelope> + Send + Sync;
 
 /// Node configuration.
 ///
-/// All fields are public; [`SpokeConnectNode::start`] validates the
+/// All fields are public; [`crate::SpokeConnectNode::start`] validates the
 /// combination (see [`ConnectConfig::validate`]).
 pub struct ConnectConfig {
     /// libp2p identity keypair (Ed25519). The derived `PeerId` is this node's

@@ -5,23 +5,26 @@
 //! envelopes (`.mstar/specs/spoke-connect.md`) onto rust-libp2p: **noise**
 //! authenticated transport + **yamux** multiplexing + **request-response**
 //! for the signed hello exchange and op invocation + **identify** for peer
-//! metadata. Discovery defaults to **explicit peering**; mDNS is a
-//! non-default cargo feature (`mdns`) for same-LAN development only.
+//! metadata. Discovery is **explicit peering**: nodes are configured with
+//! static listen addresses and dial each other directly; LAN discovery is a
+//! future discovery iteration.
 //!
-//! The crate is a workspace-private spike (`publish = false`): a library
-//! that embedders bind against, not a daemon and not a published SDK. All
-//! wire types come from `spoke-schemas` generated modules — no parallel
+//! The crate is a workspace-private library (`publish = false`) with a
+//! library-only target; embedders integrate it as a Cargo path dependency.
+//! All wire types come from `spoke-schemas` generated modules — no parallel
 //! hand-written envelopes.
 //!
 //! # Hello handshake
 //!
-//! Both sides of a connection exchange a signed [`ConnectHello`]
-//! (`spoke-connect-hello-jcs-v1`: RFC 8785 JCS over
-//! `{protocol_version, peer_id, nonce, host}`, Ed25519 via the libp2p
-//! identity keypair, base64url signature). A hello is accepted only when the
-//! noise-authenticated peer is allowlisted and the signature verifies, and
-//! each `(peer_id, nonce)` pair is single-use. Rejection closes the stream —
-//! protocol v1 has no hello error envelope.
+//! Both sides of a connection exchange a signed
+//! [`spoke_schemas::connect::ConnectHello`] (`spoke-connect-hello-jcs-v1`:
+//! RFC 8785 JCS over `{protocol_version, peer_id, nonce, host}`, Ed25519 via
+//! the libp2p identity keypair, base64url signature). A hello is accepted
+//! only when the noise-authenticated peer is allowlisted, the identify
+//! public key derives that peer id, the signature verifies, and each
+//! `(peer_id, nonce)` pair is single-use. Protocol v1 acknowledges accepted
+//! hellos with an ack response; a rejected hello is answered by closing the
+//! stream.
 //!
 //! # Sessions and op invocation
 //!
@@ -38,8 +41,13 @@
 //! transport / session failures use the other `InvokeError` variants.
 //!
 //! The accept path answers inbound invokes through the configured
-//! [`ConnectConfig::invoke_handler`] hook (spike-scoped; the dispatcher is
-//! adapter-owned in products).
+//! [`ConnectConfig::invoke_handler`] hook. The hook runs **synchronously on
+//! the node's network event loop**: it must return promptly and must not
+//! block on I/O. Panics are contained — the invoke is answered with an
+//! `internal_error` wire envelope and the node keeps running.
+//! (simplify: dispatch off-loop, e.g. `spawn_blocking`, when handler latency
+//! matters.) The hook is spike-scoped; the dispatcher is adapter-owned in
+//! products.
 //!
 //! # Generated wire types
 //!
@@ -50,22 +58,27 @@
 //! inline `spoke_schemas::connect::connect_invoke_response::ErrorEnvelope`.
 //! `ConnectConfig.local_manifest`, `PeerSession::remote_manifest`, and
 //! `InvokeError::Wire` use exactly those wire types — zero conversion.
+//!
+//! # Public surface
+//!
+//! The locked facade is [`ConnectConfig`], [`ConnectError`], [`InvokeError`],
+//! [`SpokeConnectNode`], [`PeerSession`], and [`InvokeSuccess`], plus
+//! [`parse_multiaddr`] (test/example convenience) and the spike dispatch
+//! hook [`ConnectConfig::invoke_handler`]. Transport internals — hello and
+//! gate modules, protocol constants, the transport `HelloAck`, and session
+//! plumbing — are crate-private.
 
-pub mod config;
-pub mod error;
-pub mod gate;
-pub mod hello;
-pub mod node;
-pub mod protocol;
-pub mod session;
+mod config;
+mod error;
+mod gate;
+mod hello;
+mod node;
+mod protocol;
+mod runtime;
+mod session;
 
-pub use config::{ConnectConfig, DEFAULT_HANDSHAKE_TIMEOUT};
+pub use config::{ConnectConfig, InvokeHandler, DEFAULT_HANDSHAKE_TIMEOUT};
 pub use error::{ConnectError, InvokeError};
-pub use gate::{gate_hello, is_allowlisted, NonceStore};
-pub use hello::{generate_nonce, sign_hello, verify_hello};
 pub use node::{parse_multiaddr, SpokeConnectNode};
-pub use protocol::{
-    HelloAck, HELLO_PROTOCOL, HELLO_SIGNATURE_ALGORITHM, INVOKE_PROTOCOL, MAX_SEQUENCE,
-    PROTOCOL_VERSION,
-};
-pub use session::{InvokeSuccess, PeerSession};
+pub use runtime::InvokeSuccess;
+pub use session::PeerSession;

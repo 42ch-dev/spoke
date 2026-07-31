@@ -1,0 +1,26 @@
+[package]
+name = "spoke-connect"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SPOKE Connect reference spike — libp2p transport, noise-peerid authenticated hello, explicit peering"
+publish = false
+
+[features]
+default = []
+# Same-LAN development convenience only; production discovery is explicit peering.
+mdns = ["libp2p/mdns"]
+
+[dependencies]
+spoke-schemas = { version = "0.6.1", path = "../spoke-schemas" }
+libp2p.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
+futures = "0.3"
+serde_jcs = "0.2"
+base64 = "0.22"
+getrandom = "0.2"

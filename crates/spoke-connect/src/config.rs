@@ -1,0 +1,113 @@
+//! [`ConnectConfig`] — node configuration and validation.
+
+use crate::error::ConnectError;
+use libp2p::identity::Keypair;
+use libp2p::{Multiaddr, PeerId};
+use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
+use std::time::Duration;
+
+/// Default dial / handshake timeout when [`ConnectConfig::handshake_timeout`]
+/// is not set. ≥ 5s keeps loopback CI reliable.
+pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Node configuration.
+///
+/// All fields are public; [`SpokeConnectNode::start`] validates the
+/// combination (see [`ConnectConfig::validate`]).
+#[derive(Debug, Clone)]
+pub struct ConnectConfig {
+    /// libp2p identity keypair (Ed25519). The derived `PeerId` is this node's
+    /// network identity and the local hello signer. Rust-only this iteration;
+    /// a uniffi binding surface will construct keypairs from byte seeds
+    /// instead of exposing `Keypair`.
+    pub identity: Keypair,
+
+    /// PeerId allowlist (trust root). Empty allowlist = reject all remote
+    /// peers (fail-closed).
+    pub peer_allowlist: Vec<PeerId>,
+
+    /// Listen multiaddrs (loopback tests use `127.0.0.1/tcp/0`).
+    pub listen_addrs: Vec<Multiaddr>,
+
+    /// Local `HostCapabilityManifest` advertised in the signed hello
+    /// (spoke-schemas type).
+    pub local_manifest: HostCapabilityManifest,
+
+    /// Dial / handshake timeout. `None` applies
+    /// [`DEFAULT_HANDSHAKE_TIMEOUT`].
+    pub handshake_timeout: Option<Duration>,
+}
+
+impl ConnectConfig {
+    /// Effective handshake timeout (`handshake_timeout` or the default).
+    #[must_use]
+    pub fn effective_handshake_timeout(&self) -> Duration {
+        self.handshake_timeout.unwrap_or(DEFAULT_HANDSHAKE_TIMEOUT)
+    }
+
+    /// Validate the configuration.
+    ///
+    /// Checks: at least one listen address. An empty allowlist is **valid**
+    /// (fail-closed semantics); the manifest's `schema_version` is enforced
+    /// by its `NonZeroU64` type.
+    pub fn validate(&self) -> Result<(), ConnectError> {
+        if self.listen_addrs.is_empty() {
+            return Err(ConnectError::Config(
+                "listen_addrs must not be empty".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libp2p::identity::Keypair;
+
+    fn manifest() -> HostCapabilityManifest {
+        HostCapabilityManifest {
+            authority: None,
+            capabilities: vec!["spoke-baseline".into()],
+            extensions: Default::default(),
+            host_id: "test-host".parse().expect("host id parses"),
+            namespaces: Vec::new(),
+            roles: vec!["data-store".into()],
+            schema_version: std::num::NonZeroU64::new(1).expect("non-zero"),
+        }
+    }
+
+    fn config() -> ConnectConfig {
+        ConnectConfig {
+            identity: Keypair::generate_ed25519(),
+            peer_allowlist: Vec::new(),
+            listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().expect("multiaddr")],
+            local_manifest: manifest(),
+            handshake_timeout: None,
+        }
+    }
+
+    #[test]
+    fn empty_listen_addrs_rejected() {
+        let mut cfg = config();
+        cfg.listen_addrs.clear();
+        assert!(matches!(cfg.validate(), Err(ConnectError::Config(_))));
+    }
+
+    #[test]
+    fn empty_allowlist_is_valid_fail_closed_config() {
+        // Empty allowlist is a *valid* configuration: it rejects all peers.
+        assert!(config().validate().is_ok());
+    }
+
+    #[test]
+    fn default_handshake_timeout_applied() {
+        assert_eq!(
+            config().effective_handshake_timeout(),
+            DEFAULT_HANDSHAKE_TIMEOUT
+        );
+        let mut cfg = config();
+        cfg.handshake_timeout = Some(Duration::from_secs(30));
+        assert_eq!(cfg.effective_handshake_timeout(), Duration::from_secs(30));
+    }
+}

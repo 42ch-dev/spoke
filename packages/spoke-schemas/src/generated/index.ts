@@ -5,5 +5,6 @@
  */
 
 export * from './common';
+export * from './connect';
 export * from './data';
 export * from './ops';

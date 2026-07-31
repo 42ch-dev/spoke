@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use typify::{TypeSpace, TypeSpaceSettings};
 
-const EXPECTED_SCHEMA_COUNT: usize = 24;
+const EXPECTED_SCHEMA_COUNT: usize = 30;
 
 struct GeneratedModule {
     rust_mod: String,
@@ -236,7 +236,7 @@ fn main() {
         process::exit(1);
     }
 
-    for sub in ["", "common", "data", "ops"] {
+    for sub in ["", "common", "connect", "data", "ops"] {
         let dir = if sub.is_empty() {
             out_root.clone()
         } else {

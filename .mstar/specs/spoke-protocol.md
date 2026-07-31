@@ -22,21 +22,23 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types, including capability-sliced adapter ports and injection orchestration. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer. Adapter interfaces are defined in [`spoke-operations.md` §Adapter Interfaces](spoke-operations.md#adapter-interfaces-normative); per-operation orchestration sequences in [`§Injection Orchestration`](spoke-operations.md#injection-orchestration-normative).
 
-**Protocol layers (Rule + TimelineEvent + HostCapabilityManifest):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; `HostCapabilityManifest` for in-process host collaboration (baseline `HostManifestPort`); field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **24** hand-authored schema files (baseline + optional `l2-computable` ops).
+**Connect family (opt-in `spoke-connect`):** cross-process interaction envelopes — hello (signed manifest exchange), session, invoke request/response, auth challenge/response — live in `schemas/connect/` under the optional `spoke-connect` capability flag. Connect reuses `HostCapabilityManifest` (hello embeds it by `$ref`) and `error-envelope` (invoke failures), wraps existing ops envelopes as opaque JSON, and keeps peer identity opaque (`peer_id`). Normative interaction semantics: [`spoke-connect.md`](spoke-connect.md).
+
+**Protocol layers (Rule + TimelineEvent + HostCapabilityManifest):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; `HostCapabilityManifest` for in-process host collaboration (baseline `HostManifestPort`); field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **30** hand-authored schema files (24 data/ops + 6 opt-in connect envelopes).
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). **`l5-fork`** covers optional `TimelineEvent.fork_id` / `parent_fork_id` and optional `Scope.fork_id` filter (`ForkId` in `common.schema.json`). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op).
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** / **`spoke-connect`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). **`l5-fork`** covers optional `TimelineEvent.fork_id` / `parent_fork_id` and optional `Scope.fork_id` filter (`ForkId` in `common.schema.json`). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op). **`spoke-connect`** covers the opt-in interaction envelopes in `schemas/connect/` — see [`spoke-connect.md`](spoke-connect.md).
 
 **Schema file count:**
 
 | Inventory | Count | Breakdown |
 |-----------|-------|-----------|
-| **Committed `*.schema.json` files** | **24** | 2 common + 8 data + 14 ops (10 baseline + 4 optional `l2-computable` `project` / `compute`) |
+| **Committed `*.schema.json` files** | **30** | 2 common + 8 data + 14 ops (10 baseline + 4 optional `l2-computable` `project` / `compute`) + 6 connect (opt-in `spoke-connect`) |
 
-Protocol wire inventory is **24** files. `schemas/README.md`, `EXPECTED_SCHEMA_COUNT`, and generated output must match in the same commit when `host-capability-manifest.schema.json` lands.
+Protocol wire inventory is **30** files. `schemas/README.md`, `EXPECTED_SCHEMA_COUNT`, and generated output must match in the same commit as schema changes.
 
-Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first **20** schema files (2 common + 8 data + 10 baseline ops); optional `l2-computable` adds four ops schemas for **24** total.
+Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first **20** schema files (2 common + 8 data + 10 baseline ops); optional `l2-computable` adds four ops schemas, and the opt-in `spoke-connect` family adds six connect envelopes for **30** total.
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema changes.
 
@@ -87,7 +89,8 @@ spoke/
 │       └── generated/           # COMMITTED; mirrors schemas/ tree
 │           ├── common/
 │           ├── data/
-│           └── ops/
+│           ├── ops/
+│           └── connect/
 └── crates/spoke-schemas/
     ├── Cargo.toml
     └── src/
@@ -96,7 +99,8 @@ spoke/
             ├── mod.rs
             ├── common/
             ├── data/
-            └── ops/
+            ├── ops/
+            └── connect/
 └── crates/spoke-operations/
     ├── Cargo.toml
     └── src/
@@ -116,9 +120,9 @@ spoke/
 | Verify | `pnpm run verify-codegen` → non-zero if generated tree differs from `schemas/` |
 | Commit policy | Schema change + regenerated output in the **same commit** |
 | Edit policy | Never hand-edit `*/generated/**` |
-| Module mirror | Generated folder names mirror `schemas/{common,data,ops}` |
+| Module mirror | Generated folder names mirror `schemas/{common,data,ops,connect}` |
 | Public API | Both packages re-export all leaf types from `index.ts` / `lib.rs` |
-| Schema inventory | **24** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
+| Schema inventory | **30** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
 | Opaque JSON fields | Wire shape: `#/definitions/OpaqueJson` (empty schema `{}`) with `$ref` from consuming properties (e.g. `ComputableLogChange.previous` / `.next`). Generators MUST emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust) — not object-index maps |
 | Duplicate generated types | typify and jstt may emit duplicate nominal types across `common/` and `data/` modules after `$ref` dereference. Integrators import canonical types from `generated/common` (TS barrel or `spoke_schemas::generated::common` / crate root re-exports). Duplicates are generator output, not separate wire shapes |
 | Release script tests | `pnpm run test:release` exercises `tooling/release/` assert/bump scripts (pure fixtures; no registry I/O). CI runs it in the `typescript` job |
@@ -140,7 +144,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Current wire bar: eight data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`), five baseline ops plus optional `project` / `compute`, **24** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
+Current wire bar: eight data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`), five baseline ops plus optional `project` / `compute`, six opt-in connect envelopes (`spoke-connect`), **30** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
 
 **CI + inventory (required):**
 
@@ -196,8 +200,9 @@ Current wire bar: eight data objects (including `HostCapabilityManifest`, `Rule`
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects, extensions, open vocabulary, Rule/TimelineEvent |
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — pure helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
+| [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — session ordering, auth model, discovery boundary (opt-in `spoke-connect`) |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` (capability-flagged) |
-| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (24 files committed) |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (30 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

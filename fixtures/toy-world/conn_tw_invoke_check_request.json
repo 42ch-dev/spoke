@@ -1,0 +1,26 @@
+{
+  "session_id": "sess_tw_connect_0001",
+  "sequence": 0,
+  "request_id": "req_tw_check_0001",
+  "op": "check",
+  "payload": {
+    "scope": {
+      "scope_id": "toy-scope-check",
+      "entry_types": ["character"],
+      "fork_id": "fork_tw_storm_branch",
+      "extensions": {
+        "toy": {
+          "branch_id": "fork_tw_storm_branch"
+        },
+        "nexus": {
+          "text_search": "harbor",
+          "limit": 10
+        }
+      }
+    },
+    "checker_kinds": ["spoke-baseline"]
+  },
+  "extensions": {
+    "toy_world": { "display_name": "Toy World primary host" }
+  }
+}

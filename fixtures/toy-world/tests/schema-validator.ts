@@ -82,6 +82,12 @@ export const SCHEMA_IDS = {
   computeResponse: "https://spoke42.invalid/schemas/ops/compute-response.schema.json",
   hostCapabilityManifest:
     "https://spoke42.invalid/schemas/data/host-capability-manifest.schema.json",
+  connectHello: "https://spoke42.invalid/schemas/connect/connect-hello.schema.json",
+  connectSession: "https://spoke42.invalid/schemas/connect/connect-session.schema.json",
+  connectInvokeRequest:
+    "https://spoke42.invalid/schemas/connect/connect-invoke-request.schema.json",
+  connectInvokeResponse:
+    "https://spoke42.invalid/schemas/connect/connect-invoke-response.schema.json",
 } as const;
 
 export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
@@ -112,6 +118,12 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "op_tw_compute_settle_response.json": SCHEMA_IDS.computeResponse,
   "host_tw_primary.json": SCHEMA_IDS.hostCapabilityManifest,
   "host_tw_peer.json": SCHEMA_IDS.hostCapabilityManifest,
+  "conn_tw_hello_primary_to_peer.json": SCHEMA_IDS.connectHello,
+  "conn_tw_hello_peer_to_primary.json": SCHEMA_IDS.connectHello,
+  "conn_tw_session.json": SCHEMA_IDS.connectSession,
+  "conn_tw_invoke_check_request.json": SCHEMA_IDS.connectInvokeRequest,
+  "conn_tw_invoke_check_response.json": SCHEMA_IDS.connectInvokeResponse,
+  "conn_tw_invoke_error_response.json": SCHEMA_IDS.connectInvokeResponse,
 };
 
 export const FIXTURES_ROOT = join(REPO_ROOT, "fixtures/toy-world");

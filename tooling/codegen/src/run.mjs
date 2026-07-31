@@ -132,10 +132,10 @@ async function generateTypeScript(schemaPaths) {
 
   fs.writeFileSync(
     path.join(TS_OUT, "index.ts"),
-    `${BANNER}\nexport * from './common';\nexport * from './data';\nexport * from './ops';\n`,
+    `${BANNER}\nexport * from './common';\nexport * from './connect';\nexport * from './data';\nexport * from './ops';\n`,
   );
 
-  for (const subdir of ["common", "data", "ops"]) {
+  for (const subdir of ["common", "connect", "data", "ops"]) {
     const dirPath = path.join(TS_OUT, subdir);
     if (!fs.existsSync(dirPath)) continue;
     const files = fs

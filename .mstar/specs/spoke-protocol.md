@@ -79,7 +79,7 @@ spoke/
 ├── Cargo.toml                   # workspace; members include crates/* and fixtures/toy-world/rust (private)
 ├── schemas/                     # SSOT (hand-authored)
 ├── tooling/codegen/             # orchestrates jstt + typify (private package)
-├── packages/spoke-schemas/       # @42ch/spoke-schemas (published path TBD)
+├── packages/spoke-schemas/       # @42ch/spoke-schemas (npm; stable-tag releases)
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── src/

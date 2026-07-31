@@ -23,8 +23,6 @@ Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schemas`) a
 
 The repository maintains **30** hand-authored `schemas/**/*.schema.json` files (includes `HostCapabilityManifest`). `assert-schema-count.mjs` and `rust-gen` both assert exactly **30** generated output files — bump both constants in the same commit when the inventory changes.
 
-> 2026-07-31: 24 → 30 with opt-in `spoke-connect` family (6 envelopes)
-
 ## Rust typify nominal duplication (strategy A)
 
 typify dereferences `$ref` into each per-schema output module. When a shared definition from `common/` is inlined into a `data/` or `ops/` module, typify emits a **second nominal struct** with the same field layout (for example `SourceAnchor` inside `generated/data/timeline_event.rs` alongside the canonical `generated/data/source_anchor.rs`).

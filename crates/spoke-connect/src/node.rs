@@ -35,10 +35,15 @@
 //! request-response id, their wire echo (`session_id`, `sequence`,
 //! `request_id`) is verified, and the caller receives `InvokeSuccess` or
 //! `InvokeError` (wire error branch → `InvokeError::Wire`). Inbound invokes
-//! are dispatched to the configured `invoke_handler` (spike-scoped dispatcher
-//! hook; adapter-owned in products). When a peer's last connection closes,
-//! live session handles are marked closed and their pending invokes fail
-//! fast.
+//! are checked for per-session monotonicity before dispatch: the loop tracks
+//! the next expected inbound sequence (starts at 0) per sessioned peer and
+//! answers a replayed or out-of-order sequence with an `invalid_sequence`
+//! wire envelope — no handler side effect runs for it (normative ordering
+//! rule, `.mstar/specs/spoke-connect.md` §Ordering semantics). Accepted
+//! invokes are dispatched to the configured `invoke_handler` (spike-scoped
+//! dispatcher hook; adapter-owned in products). When a peer's last
+//! connection closes, live session handles are marked closed and their
+//! pending invokes fail fast.
 
 use crate::config::ConnectConfig;
 use crate::error::{ConnectError, InvokeError};
@@ -187,6 +192,12 @@ struct EventLoop {
     handshakes: HashMap<PeerId, PeerHandshake>,
     /// Established sessions per peer (created once both hellos confirm).
     sessions: HashMap<PeerId, Arc<SessionHandle>>,
+    /// Next expected inbound invoke sequence per sessioned peer (receiver-side
+    /// monotonicity; starts at 0 per session — normative ordering rule).
+    /// Maintained in lockstep with `sessions`: created in
+    /// `maybe_complete_session`, removed when the peer's last connection
+    /// closes.
+    inbound_sequences: HashMap<PeerId, u64>,
     /// The dial address each live session was established through (dialer
     /// side only). Used to complete duplicate `connect` calls against the
     /// same address without opening a surplus connection.
@@ -280,6 +291,7 @@ impl EventLoop {
                 self.remote_keys.remove(&peer_id);
                 self.pending_hellos.remove(&peer_id);
                 self.handshakes.remove(&peer_id);
+                self.inbound_sequences.remove(&peer_id);
                 if let Some(handle) = self.sessions.remove(&peer_id) {
                     // Mark the handle closed before removal: live session
                     // clones fail fast instead of enqueueing on a dead
@@ -541,45 +553,76 @@ impl EventLoop {
             )
         } else {
             match self.sessions.get(&peer) {
-                Some(_session) => match &self.config.invoke_handler {
-                    None => self.error_response(
-                        &request,
-                        "op_unsupported",
-                        "no invoke handler configured on this node".into(),
-                    ),
-                    Some(handler) => {
-                        // The handler runs synchronously on the event loop:
-                        // it must return promptly and must not block on I/O
-                        // (see ConnectConfig::invoke_handler). Panics are
-                        // contained so a misbehaving adapter cannot kill the
-                        // node; the invoke is answered with an
-                        // `internal_error` wire envelope.
-                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            handler(&request.op, request.payload.clone())
-                        }));
-                        match result {
-                            Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
-                                session_id: request.session_id.to_string(),
-                                sequence: request.sequence,
-                                request_id: request.request_id.to_string(),
-                                payload,
-                                extensions: Default::default(),
-                            },
-                            Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
-                                session_id: request.session_id.to_string(),
-                                sequence: request.sequence,
-                                request_id: request.request_id.to_string(),
-                                error,
-                                extensions: Default::default(),
-                            },
-                            Err(_) => self.error_response(
-                                &request,
-                                "internal_error",
-                                "invoke handler panicked".into(),
+                Some(_session) => {
+                    // Inbound monotonicity (normative ordering rule): the
+                    // receiver tracks the next expected inbound sequence per
+                    // session, starting at 0. A replayed or out-of-order
+                    // sequence is answered with a wire `invalid_sequence`
+                    // envelope and is never dispatched — no duplicate or
+                    // reordered handler side effects.
+                    let expected = *self
+                        .inbound_sequences
+                        .get(&peer)
+                        .expect("session and its inbound sequence state are created and removed together");
+                    match inbound_sequence_advance(request.sequence, expected) {
+                        None => self.error_response(
+                            &request,
+                            "invalid_sequence",
+                            format!(
+                                "sequence {} is not the next expected inbound sequence {expected} (replay or out-of-order)",
+                                request.sequence
                             ),
+                        ),
+                        Some(next) => {
+                            // The sequence is consumed once accepted, whatever
+                            // the response outcome (mirrors the outbound
+                            // direction: a failed invoke still consumes its
+                            // sequence).
+                            self.inbound_sequences.insert(peer, next);
+                            match &self.config.invoke_handler {
+                                None => self.error_response(
+                                    &request,
+                                    "op_unsupported",
+                                    "no invoke handler configured on this node".into(),
+                                ),
+                                Some(handler) => {
+                                    // The handler runs synchronously on the
+                                    // event loop: it must return promptly and
+                                    // must not block on I/O (see
+                                    // ConnectConfig::invoke_handler). Panics
+                                    // are contained so a misbehaving adapter
+                                    // cannot kill the node; the invoke is
+                                    // answered with an `internal_error` wire
+                                    // envelope.
+                                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                        || handler(&request.op, request.payload.clone()),
+                                    ));
+                                    match result {
+                                        Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
+                                            session_id: request.session_id.to_string(),
+                                            sequence: request.sequence,
+                                            request_id: request.request_id.to_string(),
+                                            payload,
+                                            extensions: Default::default(),
+                                        },
+                                        Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
+                                            session_id: request.session_id.to_string(),
+                                            sequence: request.sequence,
+                                            request_id: request.request_id.to_string(),
+                                            error,
+                                            extensions: Default::default(),
+                                        },
+                                        Err(_) => self.error_response(
+                                            &request,
+                                            "internal_error",
+                                            "invoke handler panicked".into(),
+                                        ),
+                                    }
+                                }
+                            }
                         }
                     }
-                },
+                }
                 _ => self.error_response(
                     &request,
                     "session_not_found",
@@ -680,6 +723,9 @@ impl EventLoop {
             self.cmd_tx.clone(),
         ));
         self.sessions.insert(*peer, handle.clone());
+        // The receiver-side inbound expectation starts at 0 with the session
+        // (lockstep with `sessions`; removed together on connection close).
+        self.inbound_sequences.insert(*peer, 0);
         if is_pending_peer {
             if let Some(pending) = self.pending_connect.take() {
                 self.peer_listen_addrs.insert(*peer, pending.addr.clone());
@@ -875,6 +921,19 @@ fn inbound_sequence_valid(sequence: i64) -> bool {
     sequence >= 0 && (sequence as u64) <= MAX_SEQUENCE
 }
 
+/// Inbound monotonicity gate: returns the advanced next-expected value when
+/// `sequence` equals `next_expected` (the sequential case), or `None` for a
+/// replayed or out-of-order sequence.
+///
+/// The receiver tracks one expectation per session (starts at 0); a
+/// replayed sequence (already consumed) and an out-of-order sequence
+/// (skipping ahead) both fail the gate and must be rejected with a wire
+/// `invalid_sequence` envelope — never dispatched. On `Some`, the sequence
+/// is consumed exactly once.
+fn inbound_sequence_advance(sequence: i64, next_expected: u64) -> Option<u64> {
+    (sequence >= 0 && (sequence as u64) == next_expected).then_some(next_expected + 1)
+}
+
 /// Whether another pending hello may be buffered for a peer.
 fn pending_hello_capacity_available(pending: usize) -> bool {
     pending < MAX_PENDING_HELLOS_PER_PEER
@@ -947,6 +1006,7 @@ impl SpokeConnectNode {
             pending_connect: None,
             handshakes: HashMap::new(),
             sessions: HashMap::new(),
+            inbound_sequences: HashMap::new(),
             peer_listen_addrs: HashMap::new(),
             pending_invokes: HashMap::new(),
         };
@@ -1161,6 +1221,25 @@ mod tests {
         assert!(inbound_sequence_valid(MAX_SEQUENCE as i64));
         assert!(!inbound_sequence_valid(-1));
         assert!(!inbound_sequence_valid((MAX_SEQUENCE + 1) as i64));
+    }
+
+    #[test]
+    fn inbound_sequence_gate_rejects_replay_and_out_of_order() {
+        // Sequential 0, 1, 2 advance the expectation (the wire path accepts
+        // them; covered end-to-end by the two-node integration tests).
+        let mut next_expected = 0;
+        for sequence in 0..=2 {
+            next_expected = inbound_sequence_advance(sequence, next_expected)
+                .expect("sequential inbound sequences are accepted");
+        }
+        assert_eq!(next_expected, 3);
+        // A replayed sequence (already consumed) is rejected.
+        assert!(inbound_sequence_advance(1, next_expected).is_none());
+        // An out-of-order sequence (skipping ahead) is rejected.
+        assert!(inbound_sequence_advance((next_expected + 1) as i64, next_expected).is_none());
+        // Negative sequences never advance (defense in depth; the range
+        // check rejects them first on the wire path).
+        assert!(inbound_sequence_advance(-1, 0).is_none());
     }
 
     #[test]

@@ -70,6 +70,10 @@ remote acknowledged ours and we accepted theirs). Each session:
   are allowed) and generates a UUID v4 `request_id`;
 - requires the response to **echo** `session_id`, `sequence`, and
   `request_id` — any mismatch fails with `InvokeError::CorrelationMismatch`;
+- enforces **inbound** sequence monotonicity on the accept path: the
+  receiver tracks the next expected inbound sequence per session (starts at
+  0) and answers a replayed or out-of-order sequence with an
+  `invalid_sequence` wire envelope — no handler side effect runs for it;
 - returns `InvokeSuccess { sequence, request_id, payload }` on success;
   remote application failures arrive as `InvokeError::Wire(ErrorEnvelope)`;
   transport / session failures use the other `InvokeError` variants.

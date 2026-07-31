@@ -4,10 +4,12 @@
 //! A [`PeerSession`] is created by [`crate::SpokeConnectNode::connect`] once
 //! both sides of a connection have completed the authenticated hello exchange
 //! (see [`crate::node`]). The shared state itself — the per-session outbound
-//! sequence counter (starts at 0, one counter per direction, never wraps),
-//! the invoke command channel, and the response correlation rules — lives in
+//! sequence counter (starts at 0, never wraps), the invoke command channel,
+//! and the response correlation rules — lives in
 //! [`crate::runtime::SessionHandle`], which the node event loop and the
-//! session share.
+//! session share. The receiver-side inbound expectation (next expected
+//! inbound sequence per session, also starting at 0) is tracked by the node
+//! event loop alongside its sessions — see [`crate::node`].
 //!
 //! Wire types are the generated `spoke-schemas` connect envelopes only. The
 //! `ConnectInvokeResponse` error branch carries the codegen-*inline*

@@ -8,10 +8,12 @@
   "properties": {
     "challenge_id": {
       "type": "string",
+      "minLength": 1,
       "description": "Echo of challenge challenge_id."
     },
     "method": {
       "type": "string",
+      "minLength": 1,
       "description": "MUST match challenge method."
     },
     "proof": {

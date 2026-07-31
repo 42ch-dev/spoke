@@ -4,17 +4,29 @@ use crate::error::ConnectError;
 use libp2p::identity::Keypair;
 use libp2p::{Multiaddr, PeerId};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
+use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Default dial / handshake timeout when [`ConnectConfig::handshake_timeout`]
 /// is not set. ≥ 5s keeps loopback CI reliable.
 pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Remote op dispatcher hook (spike-scoped).
+///
+/// Called by the accept path for every inbound invoke: `(op, payload)` →
+/// opaque ops response success body or a wire [`ErrorEnvelope`]. The
+/// dispatcher is **adapter-owned** per the connect spec — this hook exists so
+/// the reference spike and its tests can close the invoke loop; it is not
+/// part of the locked uniffi-facing surface.
+pub type InvokeHandler =
+    dyn Fn(&str, serde_json::Value) -> Result<serde_json::Value, ErrorEnvelope> + Send + Sync;
+
 /// Node configuration.
 ///
 /// All fields are public; [`SpokeConnectNode::start`] validates the
 /// combination (see [`ConnectConfig::validate`]).
-#[derive(Debug, Clone)]
 pub struct ConnectConfig {
     /// libp2p identity keypair (Ed25519). The derived `PeerId` is this node's
     /// network identity and the local hello signer. Rust-only this iteration;
@@ -36,6 +48,37 @@ pub struct ConnectConfig {
     /// Dial / handshake timeout. `None` applies
     /// [`DEFAULT_HANDSHAKE_TIMEOUT`].
     pub handshake_timeout: Option<Duration>,
+
+    /// Optional remote op dispatcher for inbound invokes. `None` answers
+    /// every inbound invoke with an `op_unsupported` error envelope.
+    pub invoke_handler: Option<Arc<InvokeHandler>>,
+}
+
+impl fmt::Debug for ConnectConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The handler closure is not Debug; render it as an opaque marker.
+        f.debug_struct("ConnectConfig")
+            .field("identity", &self.identity)
+            .field("peer_allowlist", &self.peer_allowlist)
+            .field("listen_addrs", &self.listen_addrs)
+            .field("local_manifest", &self.local_manifest)
+            .field("handshake_timeout", &self.handshake_timeout)
+            .field("invoke_handler", &"<handler>")
+            .finish()
+    }
+}
+
+impl Clone for ConnectConfig {
+    fn clone(&self) -> Self {
+        Self {
+            identity: self.identity.clone(),
+            peer_allowlist: self.peer_allowlist.clone(),
+            listen_addrs: self.listen_addrs.clone(),
+            local_manifest: self.local_manifest.clone(),
+            handshake_timeout: self.handshake_timeout,
+            invoke_handler: self.invoke_handler.clone(),
+        }
+    }
 }
 
 impl ConnectConfig {
@@ -84,6 +127,7 @@ mod tests {
             listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().expect("multiaddr")],
             local_manifest: manifest(),
             handshake_timeout: None,
+            invoke_handler: None,
         }
     }
 

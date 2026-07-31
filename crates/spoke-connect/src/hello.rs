@@ -69,7 +69,11 @@ pub fn sign_hello(
     Ok(ConnectHello {
         protocol_version: protocol_version(),
         peer_id: peer_id.to_string().parse().expect("peer id string parses"),
-        nonce: nonce.parse().expect("nonce meets wire constraints"),
+        nonce: nonce.parse().map_err(|e| {
+            ConnectError::Config(format!(
+                "nonce {nonce:?} does not meet wire constraints: {e}"
+            ))
+        })?,
         host: manifest.clone(),
         signature: URL_SAFE_NO_PAD
             .encode(raw_signature)
@@ -158,6 +162,15 @@ mod tests {
         let b = generate_nonce().expect("nonce");
         assert!(a.len() >= 16, "nonce below wire minLength: {}", a.len());
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn short_caller_supplied_nonce_is_an_error_not_a_panic() {
+        // The wire floor is 16 characters; a caller-supplied nonce below it
+        // must surface as an error from the public signing API.
+        let keypair = Keypair::generate_ed25519();
+        let err = sign_hello(&keypair, "short", &manifest("host-a")).expect_err("short nonce");
+        assert!(matches!(err, ConnectError::Config(_)));
     }
 
     #[test]

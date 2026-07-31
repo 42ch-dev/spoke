@@ -26,6 +26,7 @@
 | Slice | What ships | Notes |
 |-------|------------|-------|
 | **spoke-connect multi-language SDK** | uniffi bindings (target-language matrix) + TS connectivity route decision (js-libp2p vs WASM) + capability-token auth model + mDNS/DHT discovery | Triggered by spoke-connect wire + Rust core delivery; async-FFI design + facade stability are preconditions |
+| **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
 
 ---
 

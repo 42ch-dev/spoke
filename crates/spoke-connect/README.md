@@ -79,6 +79,8 @@ The accept path answers inbound invokes through the `invoke_handler`
 configuration hook (`(op, payload) -> Result<payload, ErrorEnvelope>`).
 This hook is spike-scoped — the op dispatcher is adapter-owned in products;
 without a handler, inbound invokes receive an `op_unsupported` error envelope.
+The wire imposes no payload size limit; size bounding and flow control are
+transport/adapter-owned (see the spoke-connect spec §Hard boundaries).
 
 Wire note: codegen inlines `$ref` types. `ConnectHello.host` is the file-local
 `spoke_schemas::connect::connect_hello::HostCapabilityManifest`

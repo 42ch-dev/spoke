@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
+  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PATH,
   CARGO_OPS_CRATE_PATH,
   CARGO_SCHEMA_CRATE_PATH,
@@ -28,6 +29,7 @@ export const LOCKSTEP_FIXTURE_PATHS = [
   CARGO_WORKSPACE_PATH,
   CARGO_SCHEMA_CRATE_PATH,
   CARGO_OPS_CRATE_PATH,
+  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PATH,
   ...README_BADGE_PATHS,
   "cliff.toml",

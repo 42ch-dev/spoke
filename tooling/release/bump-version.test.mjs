@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { CANONICAL_PATH } from "./lockstep-surfaces.mjs";
+import {
+  CARGO_CONNECT_CRATE_PATH,
+  CANONICAL_PATH,
+} from "./lockstep-surfaces.mjs";
 import { parseSemVer } from "./semver.mjs";
 import {
   cleanupTempRepo,
@@ -92,6 +95,28 @@ describe("bump-version.mjs", () => {
       readFileSync(join(repoRoot, CANONICAL_PATH), "utf8"),
     );
     assert.equal(bumped.version, target);
+
+    // The private connect crate advances with the workspace: its
+    // `spoke-schemas` path dependency and its Cargo.lock entry.
+    const connectCrate = readFileSync(
+      join(repoRoot, CARGO_CONNECT_CRATE_PATH),
+      "utf8",
+    );
+    assert.match(
+      connectCrate,
+      new RegExp(
+        `^spoke-schemas = \\{ version = "${target}", path = "../spoke-schemas" }`,
+        "m",
+      ),
+    );
+    const cargoLock = readFileSync(join(repoRoot, "Cargo.lock"), "utf8");
+    assert.match(
+      cargoLock,
+      new RegExp(
+        `\\[\\[package\\]\\]\\s*\\nname = "spoke-connect"\\s*\\nversion = "${target}"`,
+      ),
+      "Cargo.lock spoke-connect entry must be bumped",
+    );
 
     const assertResult = runReleaseScript(
       "assert-lockstep-version.mjs",

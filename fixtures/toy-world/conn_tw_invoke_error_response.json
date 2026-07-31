@@ -1,0 +1,17 @@
+{
+  "session_id": "sess_tw_connect_0001",
+  "sequence": 1,
+  "request_id": "req_tw_check_0002",
+  "error": {
+    "code": "INVALID_INPUT",
+    "message": "check request scope missing required field scope_id",
+    "details": {
+      "field": "payload.scope.scope_id",
+      "op": "check"
+    },
+    "extensions": {}
+  },
+  "extensions": {
+    "peer_demo": { "display_name": "Toy World peer checker host" }
+  }
+}

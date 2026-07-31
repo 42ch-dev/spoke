@@ -1,0 +1,11 @@
+{
+  "session_id": "sess_tw_connect_0001",
+  "initiator_peer_id": "peer_tw_primary",
+  "responder_peer_id": "peer_tw_peer",
+  "opened_at": "2026-07-31T08:00:00Z",
+  "negotiated_capabilities": ["spoke-baseline", "spoke-connect"],
+  "initial_sequence": 0,
+  "extensions": {
+    "toy_world": { "display_name": "Toy World primary host" }
+  }
+}

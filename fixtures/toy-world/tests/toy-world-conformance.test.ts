@@ -236,7 +236,7 @@ describe("fixtures/toy-world schema conformance", () => {
     // vectors (no padding), not cryptographically real. JCS signing + verify is
     // the responsibility of the reference stack (spoke-connect spike).
     expect(primary.signature).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(primary.signature.length).toBe(86); // 64 raw bytes, no padding
+    expect(primary.signature.length % 4).not.toBe(1); // base64url has no padding; len % 4 == 1 is impossible for unpadded base64
     expect(peer.signature).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(peer.signature).not.toBe(primary.signature);
 

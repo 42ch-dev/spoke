@@ -70,6 +70,12 @@ Do not put plan progress or residual detail in this file.
 - **Extensions:** `extensions.<namespace>` only; core fields closed
 - **Adapters:** reference examples in `fixtures/toy-world/`; product bindings in consumer repos
 
+## Local Rust toolchain (dev environment)
+
+- The local `~/.cargo/config.toml` sets `[build] rustflags = ["-Zno-embed-metadata"]` (nightly-only).
+- Run local cargo/codegen commands with the **nightly toolchain** (`cargo +nightly …`, `rustup run nightly cargo …`, or `rustup override set nightly` in this repo) — do **not** work around the flag with `RUSTFLAGS=""` overrides.
+- CI remains on the stable toolchain (`dtolnay/rust-toolchain@stable`); the nightly convention is local-only.
+
 ## Conflict priority
 
 1. Current user instruction  

@@ -168,6 +168,7 @@ mod tests {
         0x96, 0x64,
     ];
     const GOLDEN_PEER_ID: &str = "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
+    // codeql[rust/hard-coded-cryptographic-value]
     const GOLDEN_NONCE: &str = "golden-nonce-000000000001";
     /// RFC 8785 JCS bytes of the signed object, captured from the libp2p
     /// hello path (`serde_jcs` over `{protocol_version, peer_id, nonce,
@@ -231,6 +232,7 @@ mod tests {
         let secret = [7u8; 32];
         let public_key = SigningKey::from_bytes(&secret).verifying_key().to_bytes();
         let peer_id = derive_peer_id_from_ed25519_pubkey(&public_key);
+        // codeql[rust/hard-coded-cryptographic-value]
         let hello = sign_hello_ed25519(&secret, "round-trip-nonce-123", &golden_manifest())
             .expect("sign hello");
         assert_eq!(hello.peer_id.as_str(), peer_id);
@@ -241,6 +243,7 @@ mod tests {
     fn short_nonce_is_an_error_not_a_panic() {
         let secret = [8u8; 32];
         let err =
+            // codeql[rust/hard-coded-cryptographic-value]
             sign_hello_ed25519(&secret, "short", &golden_manifest()).expect_err("short nonce");
         assert!(matches!(err, CoreError::InvalidNonce(_)));
     }
@@ -312,8 +315,10 @@ mod tests {
         let secret_a = [11u8; 32];
         let secret_b = [12u8; 32];
         let hello_a =
+            // codeql[rust/hard-coded-cryptographic-value]
             sign_hello_ed25519(&secret_a, "jcs-nonce-1234567", &golden_manifest()).expect("sign a");
         let hello_b =
+            // codeql[rust/hard-coded-cryptographic-value]
             sign_hello_ed25519(&secret_b, "jcs-nonce-1234567", &golden_manifest()).expect("sign b");
 
         assert_eq!(

@@ -1808,6 +1808,30 @@ mod tests {
         ));
     }
 
+    /// Config gating (AD-P3-3/AD-P3-5): the `mdns` feature is non-default.
+    /// This module compiles only in default builds — there is no
+    /// `mdns_autodial` config field and no mdns behaviour member to
+    /// reference (touching them here would not compile). If `mdns` became a
+    /// default feature, this module disappears from the default suite; the
+    /// feature-on `mdns_tests` module asserts the other side of the gate.
+    #[cfg(not(feature = "mdns"))]
+    mod no_mdns_tests {
+        use super::*;
+
+        #[test]
+        fn default_build_has_no_mdns_surface() {
+            assert!(
+                !cfg!(feature = "mdns"),
+                "mdns must stay a non-default feature"
+            );
+            // The default facade is unchanged: the config builds without any
+            // mdns field and the node machinery is the explicit-peering
+            // baseline.
+            let cfg = config(Keypair::generate_ed25519(), Vec::new());
+            assert!(cfg.peer_allowlist.is_empty());
+        }
+    }
+
     /// Deterministic mDNS wiring tests (AD-P3-5): no real multicast, no
     /// timing assertions. The behaviour and the event loop construct
     /// without network I/O (multicast queries only start once the behaviour
@@ -1847,6 +1871,25 @@ mod tests {
             SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(mdns::Event::Discovered(vec![
                 (peer, addr),
             ])))
+        }
+
+        fn established_event(peer: PeerId, addr: Multiaddr) -> SwarmEvent<ConnectBehaviourEvent> {
+            // A fabricated transport-level success for the auto-dial: the
+            // noise-authenticated connection is up. Fully deterministic — no
+            // sockets, no polling; `handle_event` processes it like any swarm
+            // event.
+            SwarmEvent::ConnectionEstablished {
+                peer_id: peer,
+                connection_id: ConnectionId::new_unchecked(1),
+                endpoint: libp2p::core::connection::ConnectedPoint::Dialer {
+                    address: addr,
+                    role_override: libp2p::core::connection::Endpoint::Dialer,
+                    port_use: libp2p::core::transport::PortUse::New,
+                },
+                num_established: std::num::NonZeroU32::new(1).expect("non-zero"),
+                concurrent_dial_errors: None,
+                established_in: Duration::ZERO,
+            }
         }
 
         #[test]
@@ -1922,6 +1965,57 @@ mod tests {
         }
 
         #[test]
+        fn mdns_take_drains_the_candidate_store() {
+            // Pure helper semantics (AD-P3-3): `take_mdns_discoveries` drains
+            // the store — taking on an empty store is empty, a second take
+            // after a first is empty (nothing re-appears), and discoveries
+            // made after a drain are recorded again (dedupe runs against the
+            // live store, not against history).
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            assert!(loop_.take_mdns_discoveries().is_empty());
+
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr.clone())]);
+            assert!(
+                loop_.take_mdns_discoveries().is_empty(),
+                "drained: a second take returns nothing"
+            );
+
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(
+                loop_.take_mdns_discoveries(),
+                vec![(peer, addr)],
+                "post-drain discoveries are recorded again"
+            );
+        }
+
+        #[test]
+        fn mdns_candidate_cap_resets_after_drain() {
+            // Cap interplay: `MAX_MDNS_CANDIDATES` bounds the live store, not
+            // cumulative discoveries — a drain resets the accounting, so a
+            // post-drain discovery is accepted again (and a fresh flood would
+            // be capped anew).
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            for i in 0..MAX_MDNS_CANDIDATES {
+                let addr: Multiaddr = format!("/ip4/192.168.1.42/tcp/{}", 40_000 + i)
+                    .parse()
+                    .expect("multiaddr");
+                loop_.handle_event(discovered_event(peer, addr));
+            }
+            assert_eq!(loop_.take_mdns_discoveries().len(), MAX_MDNS_CANDIDATES);
+
+            // After the drain the store is empty and accepts new candidates.
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/50000".parse().expect("multiaddr");
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[test]
         fn mdns_autodial_skips_non_allowlisted_discoveries() {
             // AD-P3-4 + AD-P3-5(b): an empty allowlist is fail-closed — the
             // discovered peer is recorded as a candidate but never dialed (no
@@ -1956,6 +2050,46 @@ mod tests {
             let pending = loop_.pending_connect.as_ref().expect("auto-dial pending");
             assert_eq!(pending.addr, addr);
             assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_allowlisted_peer_is_not_admitted_without_signed_hello() {
+            // AD-P3-4: mDNS grants addresses, never trust. An allowlisted
+            // discovered peer is auto-dialed through the shared connect
+            // machinery, but admission still requires the signed-hello
+            // exchange: even after the connection is established, no session
+            // exists until `gate_hello` accepts the peer's hello. (The hello
+            // gate itself is exercised end-to-end by the two-node tests.)
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert!(
+                loop_.pending_connect.is_some(),
+                "allowlisted discovery auto-dials"
+            );
+
+            // The transport layer "succeeds": the auto-dial's connection is
+            // established. The node binds the pending dial, passes the
+            // allowlist gate, and starts the hello exchange — but the peer
+            // never returns a valid signed hello, so no session is admitted.
+            loop_.handle_event(established_event(peer, addr));
+            let pending = loop_.pending_connect.as_ref().expect("dial still pending");
+            assert_eq!(
+                pending.peer,
+                Some(peer),
+                "dial bound to the discovered peer"
+            );
+            assert_eq!(
+                pending.connection,
+                Some(ConnectionId::new_unchecked(1)),
+                "dial bound through the shared connect machinery"
+            );
+            assert!(
+                loop_.sessions.is_empty(),
+                "no session before a valid signed hello exchange"
+            );
         }
 
         #[test]

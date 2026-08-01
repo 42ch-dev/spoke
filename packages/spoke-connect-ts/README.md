@@ -1,8 +1,8 @@
 # @42ch/spoke-connect-ts
 
-SPOKE connect client library (TypeScript, first slice) — peer identity derivation, Ed25519 hello signing, RFC 8785 JCS canonicalization, one-JSON-per-message WebSocket framing, and the pure session-core port (sequence, correlation, dispatch gate, nonce store, allowlist).
+SPOKE connect client library (TypeScript) — peer identity derivation, Ed25519 hello signing, RFC 8785 JCS canonicalization, one-JSON-per-message WebSocket framing, and the pure session-core port (sequence, correlation, dispatch gate, nonce store, allowlist).
 
-Workspace-private package: the version tracks the monorepo lockstep SemVer and there is no registry publish surface. The transport is a direct WebSocket ordered reliable stream. The slice uses only plain JSON + WebSocket framing; transport and crypto are dependency-light by design.
+Workspace-private package: the version tracks the monorepo lockstep SemVer (asserted by `verify:version`, bumped by `release:bump`). The transport is a direct WebSocket ordered reliable stream using plain JSON + WebSocket framing; transport and crypto are dependency-light by design.
 
 ## What it provides
 
@@ -61,12 +61,12 @@ pnpm test
 pnpm run typecheck
 ```
 
-The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` server and client over `127.0.0.1:<ephemeral>` with bounded waits only. CI runs the suite on Node 20 (the `@noble` fallback path).
+The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` server and client over `127.0.0.1:<ephemeral>` with bounded waits only. CI runs the suite on Node 20.x — Node ≥ 20.19 takes the WebCrypto Ed25519 path; older patches fall back to `@noble/ed25519`. The package engine floor is Node ≥ 20.19.0 (`@noble/hashes` floor, and the first Node line that accepts WebCrypto Ed25519).
 
 ## Scope
 
-- Workspace-private (`"private": true`, no publish surface) — this slice ships inside the monorepo.
+- Workspace-private (`"private": true`) package shipping inside the monorepo.
 - The package consumes the existing connect schemas as-is (`@42ch/spoke-schemas`, workspace dependency, types only); the schema inventory is unchanged.
-- This slice does not require libp2p — envelope-level interop over any ordered reliable stream; framing is direct WebSocket per `.mstar/specs/spoke-connect.md` § Transport framing.
-- The js-libp2p mesh fallback remains an optional future path when direct Noise/yamux interop is needed; the client targets the direct ordered-stream transport.
-- `connectClient` is Node-only (`src/node/` subpath); browser builds swap in the native WebSocket against the isomorphic `src/` modules.
+- Envelope-level interop over any ordered reliable stream; framing is direct WebSocket per `.mstar/specs/spoke-connect.md` § Transport framing.
+- The client targets the direct ordered-stream transport.
+- `connectClient` lives in the Node `src/node/` subpath (uses `ws`); the isomorphic `src/` modules are browser-swappable with the native WebSocket.

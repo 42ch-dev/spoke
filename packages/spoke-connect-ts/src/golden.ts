@@ -68,3 +68,25 @@ export function goldenManifest(): HostCapabilityManifest {
     schema_version: 1,
   };
 }
+
+/**
+ * Schema-conformant host manifest fixture for live wire / interop tests.
+ *
+ * Unlike `goldenManifest()`, this manifest satisfies the generated
+ * `HostCapabilityManifest` type and the JSON Schema as-is: `namespaces`
+ * minItems 1 (`^[a-z][a-z0-9_-]*$`), non-empty unique `roles` /
+ * `capabilities`, no type casts. The golden manifest above is the pinned
+ * **byte contract** (`GOLDEN_JCS_HEX` captures its historical Rust bytes and
+ * must never change); this one is the schema-valid fixture for tests that
+ * put a hello on the wire or claim wire/schema conformance.
+ */
+export function schemaConformantManifest(): HostCapabilityManifest {
+  return {
+    capabilities: ["spoke-baseline"],
+    extensions: {},
+    host_id: "test-host",
+    namespaces: ["toy_world"],
+    roles: ["data-store"],
+    schema_version: 1,
+  };
+}

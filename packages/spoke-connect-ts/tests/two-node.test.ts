@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { WebSocketServer } from "ws";
+import { createServer } from "node:net";
 
 import type { ConnectSession } from "@42ch/spoke-schemas";
 
@@ -9,7 +10,7 @@ import { isAllowlisted } from "../src/core/allowlist.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../src/core/hello.js";
 import { NonceStore } from "../src/core/nonce.js";
 import { negotiatedCapabilities, Session } from "../src/core/session.js";
-import { goldenManifest } from "../src/golden.js";
+import { schemaConformantManifest } from "../src/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../src/identity.js";
 import {
   connectClient,
@@ -27,6 +28,77 @@ const SESSION_ID = "test-session-0000000001";
 /** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
 function seed(base: number): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, i) => base + i);
+}
+
+/**
+ * Minimal handshake server for robustness tests: answers the client's
+ * signed hello with its own signed hello + `ConnectSession` snapshot, then
+ * routes every later frame to `onMessage`. The hello verification gates are
+ * intentionally skipped — these tests exercise the client transport, not
+ * the server-side hello path (covered by the interop test above).
+ */
+async function startHandshakeServer(options: {
+  seed: Uint8Array;
+  peerId: string;
+  onMessage: (socket: WebSocket, doc: unknown) => void;
+}): Promise<{
+  port: number;
+  connections: WebSocket[];
+  close: () => Promise<void>;
+}> {
+  const { seed: seedA, peerId: peerIdA, onMessage } = options;
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  const port = await new Promise<number>((resolve, reject) => {
+    server.once("error", reject);
+    server.once("listening", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("unexpected server address"));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+
+  const connections: WebSocket[] = [];
+  server.on("connection", (socket) => {
+    connections.push(socket);
+    let phase: "hello" | "invoke" = "hello";
+    onJsonMessage(socket, (doc) => {
+      const task =
+        phase === "hello"
+          ? (async () => {
+              if (!isConnectHello(doc)) {
+                throw new Error("expected ConnectHello");
+              }
+              sendJsonMessage(
+                socket,
+                await signHelloEd25519(seedA, NONCE_A, schemaConformantManifest()),
+              );
+              const snapshot: ConnectSession = {
+                session_id: SESSION_ID,
+                initiator_peer_id: doc.peer_id,
+                responder_peer_id: peerIdA,
+                opened_at: new Date().toISOString(),
+                negotiated_capabilities: ["spoke-baseline"],
+                initial_sequence: 0,
+                extensions: {},
+              };
+              sendJsonMessage(socket, snapshot);
+            })()
+          : (async () => onMessage(socket, doc))();
+      phase = "invoke";
+      void task.catch((error) => {
+        socket.close(1002, error instanceof Error ? error.message : String(error));
+      });
+    });
+  });
+
+  return {
+    port,
+    connections,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
 }
 
 /**
@@ -86,16 +158,19 @@ describe("two-node local WebSocket interop", () => {
           session_id: SESSION_ID,
           initiator_peer_id: peerIdB,
           responder_peer_id: peerIdA,
-          // The golden manifests on both sides advertise exactly
+          // The schema-conformant manifests on both sides advertise exactly
           // `spoke-baseline`, so the agreed subset is this single capability.
           negotiated_capabilities: negotiatedCapabilities(
-            goldenManifest().capabilities,
+            schemaConformantManifest().capabilities,
             doc.host.capabilities,
           ),
         });
 
         // A answers with its own signed hello, then assigns the session.
-        sendJsonMessage(socket, await signHelloEd25519(seedA, NONCE_A, goldenManifest()));
+        sendJsonMessage(
+          socket,
+          await signHelloEd25519(seedA, NONCE_A, schemaConformantManifest()),
+        );
         const snapshot: ConnectSession = {
           session_id: SESSION_ID,
           initiator_peer_id: peerIdB,
@@ -191,7 +266,7 @@ describe("two-node local WebSocket interop", () => {
         client = await connectClient({
           url: `ws://127.0.0.1:${port}`,
           identity: { seed: seedB },
-          manifest: goldenManifest(),
+          manifest: schemaConformantManifest(),
           remotePubkey: pubkeyA,
           allowlist: [peerIdA],
           timeoutMs: 5000,
@@ -200,7 +275,7 @@ describe("two-node local WebSocket interop", () => {
         // Session established: both hellos accepted, A's snapshot validated.
         expect(client.sessionId).toBe(SESSION_ID);
         expect(client.remotePeerId).toBe(peerIdA);
-        expect(client.remoteManifest.host_id).toBe("golden-host");
+        expect(client.remoteManifest.host_id).toBe("test-host");
 
         // Invoke 1 — outbound sequence 0 → success branch, correlation echo.
         const res1 = await client.invoke("check", { findings: [] });
@@ -272,7 +347,7 @@ describe("two-node local WebSocket interop", () => {
           connectClient({
             url: `ws://127.0.0.1:${port}`,
             identity: { seed: seedB },
-            manifest: goldenManifest(),
+            manifest: schemaConformantManifest(),
             remotePubkey: pubkeyA,
             allowlist: [peerIdA],
             timeoutMs: 5000,
@@ -283,6 +358,160 @@ describe("two-node local WebSocket interop", () => {
       } finally {
         for (const c of connections) c.close();
         await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+    15000,
+  );
+});
+
+describe("connectClient transport robustness", () => {
+  it(
+    "closes the socket when the dial times out (no leaked connection)",
+    async () => {
+      // A TCP server that accepts connections but never completes the
+      // WebSocket upgrade: the client's dial never opens and must time out —
+      // and the client must close its socket so the server observes the
+      // disconnect (the leak this guards: the connection staying
+      // established with no cleanup). `resume()` keeps the stream flowing —
+      // a paused socket defers `end`/`close` until its data is consumed,
+      // which would hide the client's FIN.
+      const server = createServer((sock) => {
+        sock.resume(); // Swallow the upgrade request — no response ever arrives.
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("unexpected server address");
+      }
+      const serverSideClosed = new Promise<void>((resolve) => {
+        server.on("connection", (sock) => sock.once("close", () => resolve()));
+      });
+
+      try {
+        const seedB = seed(0x40);
+        const remotePubkey = getPublicKeyEd25519(seed(0xc0));
+        const remotePeerId = derivePeerIdFromEd25519Pubkey(remotePubkey);
+        const started = Date.now();
+        await expect(
+          connectClient({
+            url: `ws://127.0.0.1:${address.port}`,
+            identity: { seed: seedB },
+            manifest: schemaConformantManifest(),
+            remotePubkey,
+            allowlist: [remotePeerId],
+            timeoutMs: 400,
+          }),
+        ).rejects.toThrow(/dial .* timed out/);
+        // The dial really timed out (nothing rejects it sooner on this path).
+        expect(Date.now() - started).toBeGreaterThanOrEqual(350);
+
+        // The client released its socket after the dial failure: the server
+        // must observe the TCP disconnect (bounded race, no bare sleep).
+        await Promise.race([
+          serverSideClosed,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("server never observed the client socket close")),
+              2000,
+            ),
+          ),
+        ]);
+      } finally {
+        server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "fails fast on a malformed JSON frame (no crash, no hang until timeout)",
+    async () => {
+      const seedA = seed(0xd0);
+      const pubkeyA = getPublicKeyEd25519(seedA);
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+      const seedB = seed(0x50);
+
+      const server = await startHandshakeServer({
+        seed: seedA,
+        peerId: peerIdA,
+        onMessage: (socket) => {
+          // Raw malformed text frame — not a JSON document at all. The
+          // decode must fail at the transport boundary: the client rejects
+          // fast and the host process must not crash (a JSON.parse throw
+          // inside the ws listener would surface as an uncaught exception
+          // and fail this suite).
+          socket.send("not-json{{{");
+        },
+      });
+
+      let client: ConnectClient | null = null;
+      try {
+        client = await connectClient({
+          url: `ws://127.0.0.1:${server.port}`,
+          identity: { seed: seedB },
+          manifest: schemaConformantManifest(),
+          remotePubkey: pubkeyA,
+          allowlist: [peerIdA],
+          timeoutMs: 5000,
+        });
+
+        const started = Date.now();
+        await expect(client.invoke("check", {})).rejects.toThrow(
+          /malformed JSON frame/,
+        );
+        // Fail-fast: well under the 5 s invoke timeout.
+        expect(Date.now() - started).toBeLessThan(2000);
+      } finally {
+        client?.close();
+        for (const c of server.connections) c.close();
+        await server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects an invoke immediately when the send fails (encode error; no timeout wait, no dead entry)",
+    async () => {
+      const seedA = seed(0xe0);
+      const pubkeyA = getPublicKeyEd25519(seedA);
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+      const seedB = seed(0x60);
+
+      const server = await startHandshakeServer({
+        seed: seedA,
+        peerId: peerIdA,
+        onMessage: () => {
+          // Unreachable in this test: the client's invoke never reaches the
+          // wire (its frame cannot be encoded).
+        },
+      });
+
+      let client: ConnectClient | null = null;
+      try {
+        client = await connectClient({
+          url: `ws://127.0.0.1:${server.port}`,
+          identity: { seed: seedB },
+          manifest: schemaConformantManifest(),
+          remotePubkey: pubkeyA,
+          allowlist: [peerIdA],
+          timeoutMs: 5000,
+        });
+
+        // A payload that is not JSON-serializable makes `sendJsonMessage`
+        // throw synchronously inside `invoke` (`encodeJsonMessage` fails).
+        // The pending entry + timer must be cleaned up and the invoke must
+        // reject with the send error immediately — not wait out the 5 s
+        // timeout and not leave a dead entry for failAll to trip over.
+        const started = Date.now();
+        await expect(
+          client.invoke("check", { findings: [1n] }),
+        ).rejects.toThrow(/BigInt|JSON|serializable/);
+        expect(Date.now() - started).toBeLessThan(2000);
+      } finally {
+        client?.close();
+        for (const c of server.connections) c.close();
+        await server.close();
       }
     },
     15000,

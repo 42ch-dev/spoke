@@ -423,12 +423,9 @@ mod tests {
         // (sign_hello_ed25519 also returns HandshakeFailed for unparseable
         // JSON), so sign and verify are consistent.
         for malformed in ["not json".to_owned(), r#"{"not":"a-hello"}"#.to_owned()] {
-            let err = verify_hello_ed25519(
-                GOLDEN_PUBKEY.to_vec(),
-                GOLDEN_PEER_ID.to_owned(),
-                malformed,
-            )
-            .expect_err("malformed hello");
+            let err =
+                verify_hello_ed25519(GOLDEN_PUBKEY.to_vec(), GOLDEN_PEER_ID.to_owned(), malformed)
+                    .expect_err("malformed hello");
             assert!(matches!(err, CoreError::HandshakeFailed { .. }));
         }
     }

@@ -261,6 +261,10 @@ struct PendingConnect {
     deadline: Instant,
     addr: Multiaddr,
     reply: oneshot::Sender<Result<Arc<SessionHandle>, ConnectError>>,
+    /// Whether this dial was started by mDNS auto-dial (no live caller —
+    /// the reply receiver is already dropped). An explicit `connect` replaces
+    /// such a dial instead of being rejected with "already in progress".
+    autodial: bool,
 }
 
 struct EventLoop {
@@ -308,11 +312,14 @@ struct EventLoop {
     /// peer in the spike), keyed by the challenged peer.
     pending_challenges: HashMap<PeerId, PendingChallenge>,
     /// Dial candidates recorded from mDNS `Discovered` events (same-LAN
-    /// discovery only; drained by `take_mdns_discoveries`). mDNS records
-    /// addresses — it never grants trust: auto-dials still pass the
-    /// `ConnectionEstablished` allowlist gate.
+    /// discovery only; drained by `take_mdns_discoveries`). Each entry
+    /// carries the auto-dial attempted flag (false = not yet dialed, or
+    /// reset by a re-emission): candidates skipped while the single-flight
+    /// slot is busy stay un-attempted and are dialed when the slot frees.
+    /// mDNS records addresses — it never grants trust: auto-dials still pass
+    /// the `ConnectionEstablished` allowlist gate.
     #[cfg(feature = "mdns")]
-    mdns_candidates: Vec<(PeerId, Multiaddr)>,
+    mdns_candidates: Vec<(PeerId, Multiaddr, bool)>,
 }
 
 impl EventLoop {
@@ -459,7 +466,7 @@ impl EventLoop {
 
     fn handle_command(&mut self, cmd: LoopCommand) {
         match cmd {
-            LoopCommand::Connect { addr, reply } => self.handle_connect(addr, reply),
+            LoopCommand::Connect { addr, reply } => self.handle_connect(addr, reply, false),
             LoopCommand::Invoke {
                 peer,
                 request,
@@ -472,14 +479,31 @@ impl EventLoop {
         &mut self,
         addr: Multiaddr,
         reply: oneshot::Sender<Result<Arc<SessionHandle>, ConnectError>>,
+        autodial: bool,
     ) {
         // simplify: single-flight dials. Parallel connects would need a
         // pending-connect map keyed by address; the spike is serial.
-        if self.pending_connect.is_some() {
-            let _ = reply.send(Err(ConnectError::Transport(
-                "a connect is already in progress (spike: single-flight dials)".into(),
-            )));
-            return;
+        //
+        // An explicit connect replaces an in-flight auto-dial (the auto-dial
+        // has no live caller — its reply receiver is already dropped): the
+        // replaced dial's connection is closed, its candidate is reset so the
+        // slot-free drain retries it, and the explicit dial proceeds. A
+        // second explicit connect during an explicit dial is still rejected.
+        if let Some(pending) = self.pending_connect.take() {
+            if pending.autodial && !autodial {
+                if let Some(connection) = pending.connection {
+                    let _ = self.swarm.close_connection(connection);
+                }
+                drop(pending.reply);
+                #[cfg(feature = "mdns")]
+                self.reset_mdns_candidate(&pending.addr);
+            } else {
+                self.pending_connect = Some(pending);
+                let _ = reply.send(Err(ConnectError::Transport(
+                    "a connect is already in progress (spike: single-flight dials)".into(),
+                )));
+                return;
+            }
         }
         // Already-connected fast path: connecting to the recorded listen
         // address of a live session completes with that session (duplicate
@@ -519,6 +543,7 @@ impl EventLoop {
             deadline: Instant::now() + self.config.effective_handshake_timeout(),
             addr,
             reply,
+            autodial,
         });
     }
 
@@ -693,15 +718,22 @@ impl EventLoop {
     /// Record mDNS discovery events as dial candidates.
     ///
     /// `Discovered` entries are appended to the internal candidate list
-    /// (deduplicated, bounded by [`MAX_MDNS_CANDIDATES`]) and — when
-    /// [`ConnectConfig::mdns_autodial`] is set and the peer is allowlisted —
-    /// dialed through the **same** single-flight pending-connect machinery as
-    /// an explicit `connect(addr)`: there is no separate "trusted because
-    /// discovered" branch (AD-P3-4). The auto-dial carries a dropped reply
-    /// sender — the caller-less dial still binds the pending entry, passes
-    /// the `ConnectionEstablished` allowlist gate, and creates the session
-    /// like any user-initiated connect; completion or failure simply resolves
-    /// to nothing.
+    /// (deduplicated, bounded by [`MAX_MDNS_CANDIDATES`]); a re-emitted
+    /// `(peer, addr)` pair resets its attempted flag so the slot-free drain
+    /// gives the peer another auto-dial chance. When
+    /// [`ConnectConfig::mdns_autodial`] is set, the first eligible
+    /// allowlisted candidate is dialed through the **same** single-flight
+    /// pending-connect machinery as an explicit `connect(addr)`: there is no
+    /// separate "trusted because discovered" branch (AD-P3-4). The
+    /// allowlist pre-filter here only spares the single-flight slot — the
+    /// trust anchor stays the `ConnectionEstablished` allowlist and
+    /// signed-hello (`noise-peerid`) gates. Candidates that cannot dial yet
+    /// (slot busy) stay un-attempted and are dialed when the slot frees. The
+    /// auto-dial carries a dropped reply sender — the caller-less dial still
+    /// binds the pending entry, passes the `ConnectionEstablished` allowlist
+    /// gate, and creates the session like any user-initiated connect;
+    /// completion or failure simply resolves to nothing. An explicit
+    /// `connect` replaces an in-flight auto-dial instead of being rejected.
     ///
     /// `Expired` entries are removed from the candidate list (TTL
     /// bookkeeping mirroring the behaviour's own expiry).
@@ -710,36 +742,103 @@ impl EventLoop {
         match event {
             mdns::Event::Discovered(list) => {
                 for (peer, addr) in list {
-                    let seen =
-                        self.mdns_candidates
-                            .iter()
-                            .any(|(candidate_peer, candidate_addr)| {
-                                *candidate_peer == peer && *candidate_addr == addr
-                            });
-                    if seen {
-                        continue;
-                    }
-                    if self.mdns_candidates.len() >= MAX_MDNS_CANDIDATES {
-                        // mDNS is unauthenticated: drop new candidates beyond
-                        // the cap instead of unbounded growth; dials stay
-                        // fail-closed (nothing is dialed here either).
-                        continue;
-                    }
-                    self.mdns_candidates.push((peer, addr.clone()));
-                    if self.config.mdns_autodial
-                        && is_allowlisted(&self.config.peer_allowlist, &peer)
-                    {
-                        let (reply, receiver) =
-                            oneshot::channel::<Result<Arc<SessionHandle>, ConnectError>>();
-                        drop(receiver);
-                        self.handle_connect(addr, reply);
-                    }
+                    self.record_mdns_candidate(peer, addr);
                 }
+                // Attempt the first eligible auto-dial now; candidates that
+                // cannot dial (slot busy) stay un-attempted and are picked
+                // up by `maybe_autodial_next` when the slot frees.
+                self.maybe_autodial_next();
             }
             mdns::Event::Expired(list) => {
-                self.mdns_candidates
-                    .retain(|(peer, addr)| !list.iter().any(|(p, a)| *p == *peer && *a == *addr));
+                self.mdns_candidates.retain(|(peer, addr, _)| {
+                    !list.iter().any(|(p, a)| *p == *peer && *a == *addr)
+                });
             }
+        }
+    }
+
+    /// Record (or refresh) one mDNS dial candidate.
+    ///
+    /// New `(peer, addr)` pairs are appended (deduplicated, bounded by
+    /// [`MAX_MDNS_CANDIDATES`]); a re-emitted pair resets its attempted flag
+    /// so a later drain can retry it. Recording never dials — eligibility is
+    /// decided by [`EventLoop::maybe_autodial_next`].
+    #[cfg(feature = "mdns")]
+    fn record_mdns_candidate(&mut self, peer: PeerId, addr: Multiaddr) {
+        let existing =
+            self.mdns_candidates
+                .iter()
+                .position(|(candidate_peer, candidate_addr, _)| {
+                    *candidate_peer == peer && *candidate_addr == addr
+                });
+        match existing {
+            Some(index) => {
+                // TTL re-emission: reset the attempted flag — the peer gets
+                // another auto-dial chance (even if a previous dial failed).
+                self.mdns_candidates[index].2 = false;
+            }
+            None => {
+                if self.mdns_candidates.len() >= MAX_MDNS_CANDIDATES {
+                    // mDNS is unauthenticated: drop new candidates beyond
+                    // the cap instead of unbounded growth; dials stay
+                    // fail-closed (nothing is dialed here either).
+                    return;
+                }
+                self.mdns_candidates.push((peer, addr, false));
+            }
+        }
+    }
+
+    /// Reset the attempted flag of the candidate recorded for `addr`, if
+    /// any. Used when an explicit `connect` replaces an in-flight auto-dial,
+    /// so the replaced candidate is retried once the slot frees.
+    #[cfg(feature = "mdns")]
+    fn reset_mdns_candidate(&mut self, addr: &Multiaddr) {
+        if let Some(entry) = self
+            .mdns_candidates
+            .iter_mut()
+            .find(|(_, candidate_addr, _)| candidate_addr == addr)
+        {
+            entry.2 = false;
+        }
+    }
+
+    /// Dial the next eligible auto-dial candidate, if any.
+    ///
+    /// Runs when the single-flight slot is free (after a pending connect
+    /// resolves — success, failure, or timeout — and at the end of a
+    /// `Discovered` burst). Eligibility: `mdns_autodial` enabled, and a
+    /// recorded candidate that is allowlisted, not yet attempted, and
+    /// without a live session. The dial goes through the same
+    /// [`EventLoop::handle_connect`] machinery as an explicit connect;
+    /// best-effort — a synchronous dial failure simply moves the loop to the
+    /// next candidate (each iteration marks one candidate attempted, so the
+    /// loop is bounded by the candidate cap).
+    #[cfg(feature = "mdns")]
+    fn maybe_autodial_next(&mut self) {
+        if !self.config.mdns_autodial || self.pending_connect.is_some() {
+            return;
+        }
+        while self.pending_connect.is_none() {
+            let Some(index) = self
+                .mdns_candidates
+                .iter()
+                .position(|(peer, _addr, attempted)| {
+                    !*attempted
+                        && is_allowlisted(&self.config.peer_allowlist, peer)
+                        && !self.sessions.contains_key(peer)
+                })
+            else {
+                return;
+            };
+            let (_, addr, _) = self.mdns_candidates[index].clone();
+            self.mdns_candidates[index].2 = true;
+            let (reply, receiver) = oneshot::channel::<Result<Arc<SessionHandle>, ConnectError>>();
+            drop(receiver);
+            self.handle_connect(addr, reply, true);
+            // Loop while the dial did not claim the slot (already-connected
+            // fast path or a synchronous dial failure): the next candidate
+            // gets its chance.
         }
     }
 
@@ -752,6 +851,9 @@ impl EventLoop {
     #[cfg_attr(not(test), allow(dead_code))] // test hook; no lib callers yet
     fn take_mdns_discoveries(&mut self) -> Vec<(PeerId, Multiaddr)> {
         std::mem::take(&mut self.mdns_candidates)
+            .into_iter()
+            .map(|(peer, addr, _attempted)| (peer, addr))
+            .collect()
     }
 
     /// Answer a received `capability-token` challenge with this node's proof.
@@ -1201,6 +1303,10 @@ impl EventLoop {
                         }
                     }
                     let _ = pending.reply.send(Ok(existing.clone()));
+                    // The single-flight slot is free again: give the next
+                    // un-attempted auto-dial candidate its chance.
+                    #[cfg(feature = "mdns")]
+                    self.maybe_autodial_next();
                 }
             }
             return;
@@ -1273,6 +1379,10 @@ impl EventLoop {
             if let Some(pending) = self.pending_connect.take() {
                 self.peer_listen_addrs.insert(*peer, pending.addr.clone());
                 let _ = pending.reply.send(Ok(handle));
+                // The single-flight slot is free again: give the next
+                // un-attempted auto-dial candidate its chance.
+                #[cfg(feature = "mdns")]
+                self.maybe_autodial_next();
             }
         }
     }
@@ -1305,6 +1415,10 @@ impl EventLoop {
         if matches {
             if let Some(pending) = self.pending_connect.take() {
                 let _ = pending.reply.send(Err(err));
+                // The single-flight slot is free again: give the next
+                // un-attempted auto-dial candidate its chance.
+                #[cfg(feature = "mdns")]
+                self.maybe_autodial_next();
             }
         }
     }
@@ -1442,6 +1556,10 @@ impl EventLoop {
             let _ = self.swarm.close_connection(connection);
         }
         let _ = entry.reply.send(Err(err));
+        // The single-flight slot is free again: give the next un-attempted
+        // auto-dial candidate its chance.
+        #[cfg(feature = "mdns")]
+        self.maybe_autodial_next();
     }
 
     fn send_hello(&mut self, peer: &PeerId) {
@@ -2105,6 +2223,214 @@ mod tests {
             loop_.handle_event(discovered_event(peer, addr.clone()));
             assert!(loop_.pending_connect.is_none(), "autodial disabled");
             assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_explicit_connect_preempts_inflight_autodial() {
+            // F-1: an explicit connect replaces an in-flight auto-dial
+            // instead of being rejected with "already in progress". The
+            // replaced dial's candidate is reset, so the slot-free drain
+            // retries it once the explicit dial resolves.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            assert!(
+                loop_.pending_connect.as_ref().is_some_and(|p| p.autodial),
+                "auto-dial holds the slot"
+            );
+
+            let (reply, receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial pending");
+            assert!(!pending.autodial, "explicit connect replaced the auto-dial");
+            assert_eq!(pending.addr, explicit_addr);
+
+            // The explicit dial fails: the slot frees and the replaced
+            // auto-dial candidate is retried through the drain.
+            loop_.handle_event(established_event(peer, explicit_addr.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            let retried = loop_.pending_connect.as_ref().expect("candidate retried");
+            assert!(retried.autodial, "retried dial is an auto-dial");
+            assert_eq!(retried.addr, auto_addr);
+            assert!(
+                matches!(receiver.await, Ok(Err(_))),
+                "the explicit connect reports its own failure"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_candidate_is_retried_when_slot_frees() {
+            // F-2: a candidate discovered while the slot is busy is not
+            // permanently skipped — when the first dial resolves, the
+            // slot-free drain dials the next un-attempted candidate.
+            let identity = Keypair::generate_ed25519();
+            let peer1 = Keypair::generate_ed25519().public().to_peer_id();
+            let peer2 = Keypair::generate_ed25519().public().to_peer_id();
+            let addr1: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let addr2: Multiaddr = "/ip4/192.168.1.43/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer1, peer2]));
+
+            loop_.handle_event(discovered_event(peer1, addr1.clone()));
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr1),
+                "first discovery auto-dials"
+            );
+
+            // Second peer discovered while the slot is busy: recorded, not
+            // dialed, not lost.
+            loop_.handle_event(discovered_event(peer2, addr2.clone()));
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr1),
+                "slot still busy — peer2 waits"
+            );
+
+            // First dial fails → slot frees → peer2 is dialed.
+            loop_.handle_event(established_event(peer1, addr1.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer1),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            let pending = loop_.pending_connect.as_ref().expect("peer2 auto-dialed");
+            assert!(pending.autodial);
+            assert_eq!(pending.addr, addr2);
+            assert_eq!(
+                loop_.take_mdns_discoveries(),
+                vec![(peer1, addr1), (peer2, addr2)],
+                "both peers were recorded as candidates"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_multi_peer_autodials_are_serialized_as_slot_frees() {
+            // F-3(c): allowlisted candidates are dialed one at a time, in
+            // candidate order, as the single-flight slot frees.
+            let identity = Keypair::generate_ed25519();
+            let peer1 = Keypair::generate_ed25519().public().to_peer_id();
+            let peer2 = Keypair::generate_ed25519().public().to_peer_id();
+            let peer3 = Keypair::generate_ed25519().public().to_peer_id();
+            let addr1: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let addr2: Multiaddr = "/ip4/192.168.1.43/tcp/4242".parse().expect("multiaddr");
+            let addr3: Multiaddr = "/ip4/192.168.1.44/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(
+                identity.clone(),
+                config(identity, vec![peer1, peer2, peer3]),
+            );
+
+            // One burst discovers all three allowlisted peers: only the
+            // first is dialed (serialized), the rest wait for the slot.
+            loop_.handle_event(SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(
+                mdns::Event::Discovered(vec![
+                    (peer1, addr1.clone()),
+                    (peer2, addr2.clone()),
+                    (peer3, addr3.clone()),
+                ]),
+            )));
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr1),
+                "first candidate dialed first"
+            );
+
+            // Resolve each dial as a failure in turn: the slot frees and the
+            // next candidate is dialed serially.
+            loop_.handle_event(established_event(peer1, addr1.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer1),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr2),
+                "second candidate dialed after the first failed"
+            );
+
+            loop_.handle_event(established_event(peer2, addr2.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer2),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr3),
+                "third candidate dialed after the second failed"
+            );
+
+            loop_.handle_event(established_event(peer3, addr3.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer3),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_.pending_connect.is_none(),
+                "all candidates attempted — no further dials"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_rediscovery_resets_attempted_for_retry() {
+            // F-2: TTL re-emission resets the attempted flag — a failed
+            // auto-dial candidate gets another chance on re-Discovery.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            loop_.handle_event(established_event(peer, addr.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_.pending_connect.is_none(),
+                "failed candidate is not re-dialed by the drain (attempted)"
+            );
+
+            // Re-emission resets the attempted flag: the drain dials again.
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            let pending = loop_.pending_connect.as_ref().expect("re-dialed");
+            assert!(pending.autodial);
+            assert_eq!(pending.addr, addr);
         }
     }
 }

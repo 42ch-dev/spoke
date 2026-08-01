@@ -254,8 +254,8 @@ mod tests {
 
     #[test]
     fn golden_canonical_bytes_match_libp2p_captured_vector() {
-        let bytes =
-            canonical_hello_bytes(GOLDEN_PEER_ID, &golden_nonce(), &golden_manifest()).expect("jcs");
+        let bytes = canonical_hello_bytes(GOLDEN_PEER_ID, &golden_nonce(), &golden_manifest())
+            .expect("jcs");
         assert_eq!(hex(&bytes), GOLDEN_JCS_HEX);
     }
 

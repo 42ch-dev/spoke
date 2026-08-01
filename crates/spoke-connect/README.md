@@ -198,7 +198,7 @@ node_b.shutdown().await.expect("shutdown b");
 field type of `ConnectHello.host` and `ConnectConfig.local_manifest` (see
 [Sessions and op invocation](#sessions-and-op-invocation)).
 
-## Binding facade (no uniffi yet)
+## Binding facade
 
 The session core (`src/core/`) is the pure, synchronous, language-portable
 layer of this crate: it owns the session rules — `peer_id` derivation, hello
@@ -212,52 +212,68 @@ calls into the core.
 This section records the binding facade decision for the spec's Path B
 (shared core bindings, `.mstar/specs/spoke-connect.md` §Embedding model):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
-first binding skeleton exposes, and which languages are targeted. The
-deliverable here is the facade decision and the stable sync core surface —
-**no real uniffi bindings ship with this plan**; language skeletons land in
-the next iteration once the sync surface stabilizes.
+first binding skeleton exposes, and which languages are targeted. A **Swift
+sync-core skeleton is landed**: the exported surface below ships through
+uniffi behind the non-default `ffi` feature as a `cdylib`, Swift bindings
+generate from that library, and a macOS-local smoke asserts golden-vector
+parity from the Swift side. The node lifecycle stays Rust-side — the async
+surface is not part of the binding.
 
 ### Sync vs async boundary
 
 | Concern | Sync or async | FFI implication |
 |---------|---------------|-----------------|
 | `peer_id` derive, hello sign/verify, allowlist, nonce, sequence allocate/advance, correlation, dispatch gate | **Sync** — pure, fast | First binding surface: exported as synchronous FFI functions / objects; safe on any foreign caller thread, no tokio |
-| Node start, listen, shutdown | **Async** (tokio today) | Do not block foreign UI threads on the swarm loop; next iteration chooses between host-language transport + Rust core-only bindings (preferred default) and a uniffi async/foreign-runtime bridge for a thin `SpokeConnectNode` |
+| Node start, listen, shutdown | **Async** (tokio today) | Do not block foreign UI threads on the swarm loop; the landed binding is core-only (host-language transport + Rust core); a uniffi async/foreign-runtime bridge for a thin `SpokeConnectNode` is a deferred option |
 | `connect(addr)` / session establishment | **Async** | Transport-owned, same as the node surface |
 | `invoke` wait for response | **Async** today | Foreign side uses an async binding or a callback/channel; the core only assigns the sequence and checks correlation on bytes already received |
 | `invoke_handler` | Sync **on the event loop** today | Product handlers must return promptly and must not block on I/O; before exposing handlers over FFI, dispatch moves off the loop (`spawn_blocking`) |
 
-### Sync core surface (first-binding candidates)
+### Exported surface (Swift skeleton, landed)
 
-| API | Role |
-|-----|------|
-| `derive_peer_id_from_ed25519_pubkey(&[u8; 32]) -> String` | Ed25519 public key → `peer_id` string (spec §Identity binding) |
-| `sign_hello_ed25519(secret, nonce, manifest) -> Result<ConnectHello, CoreError>` | JCS-canonicalized, Ed25519-signed hello envelope |
-| `verify_hello_ed25519(public_key, expected_peer_id, hello) -> Result<(), CoreError>` | Signature and peer-id binding checks |
-| `NonceStore::check_and_record(peer_id, nonce) -> bool` | Single-use `(peer_id, nonce)` gate |
-| `is_allowlisted(allowlist, peer_id) -> bool` | Fail-closed allowlist check |
-| `OutboundSequence::allocate() -> Result<u64, CoreInvokeError>` | Outbound sequence from 0, no wrap (2⁵³−1) |
-| `InboundSequence::advance(sequence) -> Result<u64, CoreInvokeError>` | Strict next-expected inbound check |
-| `check_response_correlation(expected, actual) -> Result<(), CoreInvokeError>` | Echo check on `session_id` / `sequence` / `request_id` |
-| `dispatch_allowed(op, negotiated_capabilities) -> bool` | Op capability ⊆ negotiated capabilities (core-op table) |
-| `CoreError` / `CoreInvokeError` | Pure error enums, no transport types |
+Eight functions and three objects are exported; uniffi renames them to Swift
+camelCase with `Data` keys:
 
-Keys cross the boundary as raw bytes (`&[u8; 32]`), peer ids as strings, and
-payloads as `serde_json::Value` — no `Multiaddr`, swarm, or libp2p types are
-exposed. The next iteration's binding plan maps `CoreError` /
-`CoreInvokeError` variants to foreign-language error enums.
+| Rust (FFI) | Swift | Behavior |
+|------------|-------|----------|
+| `derive_peer_id_from_ed25519_pubkey(pubkey: Vec<u8>) -> Result<String, CoreError>` | `derivePeerIdFromEd25519Pubkey(pubkey: Data) throws -> String` | Wire `peer_id` for a 32-byte Ed25519 public key |
+| `sign_hello_ed25519(secret: Vec<u8>, nonce: String, host_json: String) -> Result<String, CoreError>` | `signHelloEd25519(secret: Data, nonce: String, hostJson: String) throws -> String` | JCS-canonicalized, Ed25519-signed hello; returns the `ConnectHello` envelope as JSON |
+| `verify_hello_ed25519(public_key: Vec<u8>, expected_peer_id: String, hello_json: String) -> Result<(), CoreError>` | `verifyHelloEd25519(publicKey: Data, expectedPeerId: String, helloJson: String) throws` | Signature and peer-id binding checks |
+| `is_allowlisted(allowlist: Vec<String>, peer_id: String) -> bool` | `isAllowlisted(allowlist: [String], peerId: String) -> Bool` | Fail-closed allowlist check |
+| `check_response_correlation(expected_…, actual_…) -> Result<(), CoreInvokeError>` | `checkResponseCorrelation(expectedSessionId:expectedSequence:expectedRequestId:actual…:) throws` | Echo check on `session_id` / `sequence` / `request_id`, flattened to primitives |
+| `dispatch_allowed(op: String, negotiated_capabilities: Vec<String>) -> bool` | `dispatchAllowed(op: String, negotiatedCapabilities: [String]) -> Bool` | Op capability ⊆ negotiated capabilities (core-op table), fails closed |
+| `required_capability(op: String) -> Option<String>` | `requiredCapability(op: String) -> String?` | Capability required by the core-op table; `nil` for product-defined ops |
+| `protocol_version() -> u64` | `protocolVersion() -> UInt64` | Connect protocol version (1) |
+
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `NonceStore` | `NonceStore()` | `checkAndRecord(peerId: String, nonce: String) -> Bool` — single-use `(peer_id, nonce)` gate |
+| `OutboundSequence` | `OutboundSequence()` | `allocate() throws -> UInt64` — outbound sequence from 0, no wrap (2⁵³−1) |
+| `InboundSequence` | `InboundSequence()` | `advance(sequence: Int64) throws -> UInt64` — strict next-expected inbound check |
+
+Errors map variant-for-variant onto two uniffi enums:
+
+- `CoreError` → Swift `CoreError`: `InvalidHelloSignature`, `NonceReplay`,
+  `HandshakeFailed(reason: String)`, `InvalidNonce(message: String)`,
+  `Crypto(message: String)`, `Jcs(message: String)`.
+- `CoreInvokeError` → Swift `CoreInvokeError`: `SequenceExhausted`,
+  `InboundSequenceMismatch(expected: UInt64, actual: Int64)`,
+  `CorrelationMismatch`.
+
+Keys cross the boundary as raw bytes (validated to exactly 32 bytes inside
+the wrapper), peer ids as strings, and the host manifest / hello envelope as
+JSON strings deserialized with `serde_json` inside Rust — no `Multiaddr`,
+swarm, or libp2p types are exposed, and no generated schema types appear on
+the FFI surface.
 
 ### Path B scope for the first language
 
-The next iteration's binding plan chooses between two Path B shapes:
-
-- **Core-only (preferred default)** — bind the sync surface above; the host
-  language implements its own transport adapter (hello exchange, session
-  establishment, invoke round-trip) against the wire contract.
-- **Core + async node** — additionally bridge a thin `SpokeConnectNode`
-  lifecycle over the uniffi async/foreign-runtime mechanism.
-
-The first skeleton requires no `Multiaddr` / swarm types on FFI.
+**Core-only** is the landed shape: the sync surface above is bound, and the
+host language implements its own transport adapter (hello exchange, session
+establishment, invoke round-trip) against the wire contract. The **core +
+async node** option — additionally bridging a thin `SpokeConnectNode`
+lifecycle over the uniffi async/foreign-runtime mechanism — is deferred:
+node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 ### Target-language matrix
 
@@ -269,17 +285,69 @@ The first skeleton requires no `Multiaddr` / swarm types on FFI.
 | Python | Path B uniffi | Later | Async FFI / asyncio historically finicky — only after the sync core is proven, preferring core-only first |
 | TypeScript (browser / Node) | **Path A** (language-direct) | Parallel track | The TypeScript route decision lives with the TS identity proof; uniffi/WASM is not assumed for this path |
 
-### Next-iteration binding checklist
+### Binding checklist
 
-1. Stable sync core API list (this section) with string peer ids and
-   byte-oriented keys.
-2. Error code mapping table (`CoreError` → foreign enum).
-3. Path B choice: core-only vs core + async node for the first language
-   (core-only preferred default).
-4. Golden hello vector — JCS bytes + signature + `peer_id` for a known
-   Ed25519 keypair — shared with the TypeScript identity proof so both
-   paths agree byte-for-byte.
-5. No `Multiaddr` / swarm types on FFI in the first skeleton.
+- [x] 1. Stable sync core API list (the exported surface above) with string
+     peer ids and byte-oriented keys.
+- [x] 2. Error code mapping table (`CoreError` / `CoreInvokeError` →
+     foreign enums).
+- [ ] 3. Path B choice for a second language — core-only is landed for
+     Swift; the core + async-node option stays open for a later iteration.
+- [ ] 4. Golden hello vector — JCS bytes + signature + `peer_id` for a known
+     Ed25519 keypair — shared with the TypeScript identity proof so both
+     paths agree byte-for-byte. The Swift smoke asserts the golden peer id
+     and signature locally; cross-language sharing is a follow-up.
+- [x] 5. No `Multiaddr` / swarm types on FFI — satisfied by the landed
+     surface.
+
+### Swift smoke (macOS)
+
+The macOS-local smoke (`bindings/swift/Smoke/main.swift`) derives the golden
+peer id from the golden Ed25519 seed, signs and verifies the golden hello
+(asserting base64url signature parity with the Rust core), and exercises the
+rest of the exported surface — allowlist, sequences, nonce store, dispatch
+gate, correlation, protocol version — with the mapped error cases. Every
+check prints `PASS`.
+
+> **Swift smoke: maintainer macOS** — CI exercises the Rust export surface
+> (`cargo build` / `cargo test -p spoke-connect --features ffi`) on ubuntu;
+> the Swift toolchain and this smoke stay macOS-local.
+
+Run from the repository root (exact working forms; the generated bindings
+live in `bindings/swift/generated/`, gitignored and regenerated by step 2):
+
+```bash
+# 1. Build the cdylib that carries the exported-surface metadata.
+cargo build -p spoke-connect --features ffi
+
+# 2. Regenerate the Swift bindings from the cdylib.
+cargo run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+  generate --library target/debug/libspoke_connect.dylib \
+  --language swift --out-dir crates/spoke-connect/bindings/swift/generated
+
+# 3. Point the dylib install name at @rpath (cargo bakes in the absolute
+#    deps-dir path, which would pin the smoke to one machine).
+install_name_tool -id @rpath/libspoke_connect.dylib target/debug/libspoke_connect.dylib
+
+# 4. Compile the smoke (Swift 5 language mode keeps top-level code simple;
+#    `-fmodule-map-file` is required — the Clang importer does not discover
+#    the uniffi module map from `-I` alone).
+swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generated/spoke_connectFFI.modulemap" \
+  -L target/debug -lspoke_connect \
+  -Xlinker -rpath -Xlinker "$PWD/target/debug" \
+  -swift-version 5 \
+  -o crates/spoke-connect/bindings/swift/Smoke/smoke \
+  crates/spoke-connect/bindings/swift/Smoke/main.swift \
+  crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
+
+# 5. Run it — every line must print PASS.
+./crates/spoke-connect/bindings/swift/Smoke/smoke
+```
+
+Local env quirk: if `cargo` fails with `error: the option Z is only accepted
+on the nightly compiler` — a nightly-only `-Z` flag set in
+`~/.cargo/config.toml` `[build] rustflags` — run the cargo steps with
+`RUSTFLAGS=""` (it overrides the config; this repo builds on stable).
 
 ## Testing
 

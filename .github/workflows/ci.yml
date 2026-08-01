@@ -130,6 +130,12 @@ jobs:
       - name: Test spoke-connect crate
         run: cargo test -p spoke-connect
 
+      - name: Build spoke-connect FFI facade (ffi feature)
+        run: cargo build -p spoke-connect --features ffi
+
+      - name: Test spoke-connect FFI facade (ffi feature)
+        run: cargo test -p spoke-connect --features ffi
+
   verify-version:
     name: verify-version
     runs-on: ubuntu-latest

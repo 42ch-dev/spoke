@@ -78,6 +78,15 @@
 
 pub mod core;
 
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
+// uniffi scaffolding for the `ffi` feature: registers the crate's metadata
+// and buffer support so `uniffi-bindgen generate --library` can read the
+// exported surface from the cdylib. Compiled only when `--features ffi`.
+#[cfg(feature = "ffi")]
+uniffi::setup_scaffolding!();
+
 mod config;
 mod error;
 mod gate;

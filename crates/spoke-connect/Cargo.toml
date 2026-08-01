@@ -21,4 +21,27 @@ base64 = "0.22"
 ed25519-dalek = "2"
 getrandom = "0.2"
 uuid = { version = "1", features = ["v4"] }
+# FFI facade only — pulled in by the non-default `ffi` feature so default
+# builds and tests stay lean (no binding surface in the default artifact).
+uniffi = { version = "0.32.0", optional = true }
+
+[features]
+default = []
+# Exports the sync-core facade through uniffi (see src/ffi.rs). Non-default:
+# `cargo test -p spoke-connect` keeps compiling without the binding surface.
+ffi = ["dep:uniffi"]
+# Builds the crate-local `uniffi-bindgen` CLI binary (uniffi 0.32 pattern —
+# no installable CLI crate on this line). Generation target only; the
+# exported-surface metadata is read from the cdylib built with `ffi`.
+bindgen-cli = ["uniffi/cli"]
+
+[lib]
+# The cdylib target feeds `uniffi-bindgen generate --library` (Swift first);
+# `publish = false` keeps it a local-only binding artifact.
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["bindgen-cli"]
 

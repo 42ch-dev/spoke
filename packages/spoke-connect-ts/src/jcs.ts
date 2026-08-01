@@ -23,8 +23,7 @@
 import canonicalize from "canonicalize";
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
-/** Connect protocol version (not data `schema_version`); protocol version 1 is current. */
-const PROTOCOL_VERSION = 1;
+import { PROTOCOL_VERSION } from "./core/version.js";
 
 /**
  * Canonicalize the signed hello object (`{protocol_version, peer_id, nonce,

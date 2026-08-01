@@ -179,6 +179,15 @@ mod tests {
     const GOLDEN_SIGNATURE: &str =
         "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg";
 
+    /// Golden manifest — `authority` is `None`. JCS serialization **omits**
+    /// absent optional fields: the canonical bytes in `GOLDEN_JCS_HEX`
+    /// contain no `"authority"` member at all (the generated
+    /// `HostCapabilityManifest` carries `skip_serializing_if =
+    /// "Option::is_none"` on `authority`, the only non-required manifest
+    /// field). Path A porters must not emit `"authority": null` — an
+    /// explicit null serializes as a `null` member, which canonicalizes to
+    /// different bytes (and therefore a different signature) than the
+    /// omitted form.
     fn golden_manifest() -> HostCapabilityManifest {
         HostCapabilityManifest {
             authority: None,

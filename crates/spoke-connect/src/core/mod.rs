@@ -1,9 +1,10 @@
 //! Pure session core — the language-portable session rules of the connect
 //! wire family (`.mstar/specs/spoke-connect.md` §Session-core state machine).
 //!
-//! This module has **no** `libp2p`, `tokio`, or I/O dependencies: it operates
-//! on `spoke-schemas` connect types, plain `String` peer ids, and
-//! `serde_json` opaque payloads only. The transport layer converts
+//! This module has **no** transport or runtime dependencies: no `libp2p`,
+//! `tokio`, `Multiaddr`, swarm, `request-response` protocol types, or any
+//! I/O — it operates on `spoke-schemas` connect types, plain `String` peer
+//! ids, and `serde_json` opaque payloads only. The transport layer converts
 //! `libp2p::PeerId` ↔ `String` at the boundary and calls into this module.
 //!
 //! Everything here is synchronous and pure, which is what makes it the

@@ -920,13 +920,15 @@ impl EventLoop {
     }
 }
 
-/// Whether an inbound invoke's wire `sequence` is within the schema range.
+/// Wire-range gate for an inbound invoke's `sequence`.
 ///
-/// The generated `ConnectInvokeRequest.sequence` is a bare `i64` — typify
-/// does not enforce the schema's `minimum: 0` / JSON-safe maximum. The wire
-/// path validates before delegating the monotonicity rule to
-/// [`InboundSequence`] (core), so out-of-range sequences get their own
-/// envelope message.
+/// Required because the generated `ConnectInvokeRequest.sequence` is a bare
+/// `i64` — typify does not enforce the schema's `minimum: 0` / JSON-safe
+/// maximum, so this check is what keeps out-of-range values off the wire
+/// path. `core::InboundSequence` would also reject them, but only with a
+/// generic `InboundSequenceMismatch`; this gate lets the wire path answer
+/// with the distinct `invalid_sequence` envelope per spec §Ordering
+/// semantics.
 fn inbound_sequence_valid(sequence: i64) -> bool {
     sequence >= 0 && (sequence as u64) <= MAX_SEQUENCE
 }

@@ -21,7 +21,8 @@ const BITCOIN_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghi
 /// Derive the wire `peer_id` string for an Ed25519 public key.
 #[must_use]
 pub fn derive_peer_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> String {
-    // Protobuf `PublicKey` message for Ed25519, hand-encoded (fixed layout):
+    // Spec §Identity binding, step 1 (protobuf `PublicKey` message),
+    // hand-encoded (fixed layout):
     //   field 1, varint Type = 1 (Ed25519):    tag 0x08, value 0x01
     //   field 2, bytes Data (32-byte key):     tag 0x12, length 0x20, key
     // 36 bytes total — always ≤ 42, so the identity multihash branch applies.
@@ -32,9 +33,9 @@ pub fn derive_peer_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> String {
     pk_bytes[3] = 0x20;
     pk_bytes[4..].copy_from_slice(pubkey);
 
-    // Identity multihash (code 0x00): code-varint 0x00, length-varint 36
-    // (0x24) — both single-byte varints for this digest size — then the
-    // protobuf bytes as the digest.
+    // Spec §Identity binding, step 3 (identity multihash): code-varint 0x00,
+    // length-varint 36 (0x24) — both single-byte varints for this digest
+    // size — then the protobuf bytes as the digest.
     let mut multihash = [0u8; 38];
     multihash[0] = 0x00;
     multihash[1] = 0x24;
@@ -43,7 +44,8 @@ pub fn derive_peer_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> String {
     base58_encode(&multihash)
 }
 
-/// Base58btc (Bitcoin alphabet) encode `input` with pure `std` arithmetic.
+/// Spec §Identity binding, step 4: base58btc (Bitcoin alphabet) encode
+/// `input` with pure `std` arithmetic.
 ///
 /// Leading zero bytes map to leading `1` characters (base58 convention).
 /// Matches `bs58`'s default alphabet, which is what libp2p uses for

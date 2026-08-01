@@ -67,7 +67,9 @@ remote acknowledged ours and we accepted theirs). Each session:
   (each peer numbers its own requests; sequences never wrap — exhaustion
   closes the session with `InvokeError::SequenceExhausted`);
 - assigns the next sequence **atomically** per `invoke` (concurrent invokes
-  are allowed) and generates a UUID v4 `request_id`;
+  are allowed) and generates a UUID v4 `request_id`; the outbound counter is
+  the mutex-guarded core `OutboundSequence` — concurrent `invoke` calls
+  receive distinct sequences and `next_sequence` observation is synchronous;
 - requires the response to **echo** `session_id`, `sequence`, and
   `request_id` — any mismatch fails with `InvokeError::CorrelationMismatch`;
 - enforces **inbound** sequence monotonicity on the accept path: the

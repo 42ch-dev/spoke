@@ -26,13 +26,14 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 3 | TypeScript operations | `packages/spoke-operations/package.json` → `version` | JSON `version` field |
 | 4 | Fixture harness | `fixtures/toy-world/package.json` → `version` | JSON `version` field |
 | 5 | Codegen runner | `tooling/codegen/package.json` → `version` | JSON `version` field |
-| 6 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
-| 7 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
-| 8 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 |
-| 9 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 6 (workspace-private spike crate; not published) |
-| 10 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
-| 11 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
-| 12 | README CN badge | `README_CN.md` | Same as row 11 |
+| 6 | TypeScript connect library | `packages/spoke-connect-ts/package.json` → `version` | JSON `version` field (workspace-private TS package; asserted by `verify:version`, bumped by `release:bump`; not published) |
+| 7 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
+| 8 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 |
+| 9 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 |
+| 10 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 (workspace-private spike crate; not published) |
+| 11 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
+| 12 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
+| 13 | README CN badge | `README_CN.md` | Same as row 12 |
 
 **Canonical version source:** row 1 (`package.json` → `version`). The assert script compares every other row to that string.
 
@@ -43,7 +44,7 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | `tooling/codegen/rust-gen/Cargo.toml` | Standalone `[workspace]` bin crate (`spoke-rust-gen`); not a consumer pin surface; version is local to the codegen tool |
 | `pnpm-lock.yaml` | Workspace packages use `link:` protocol; lockfile does not embed package SemVer |
 
-CI **lockstep assert** MUST cover rows 1–12. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
+CI **lockstep assert** MUST cover rows 1–13. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
 
 ## SemVer usage (monorepo)
 

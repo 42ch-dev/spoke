@@ -27,6 +27,12 @@ uniffi = { version = "0.32.0", optional = true }
 
 [features]
 default = []
+# Same-LAN discovery convenience (non-default): wires libp2p's mDNS
+# behaviour into the node. Discovery only — it never grants trust:
+# discovered peers still pass the allowlist + signed-hello gates, and
+# auto-dials reuse the same pending-connect machinery as explicit
+# `connect(addr)` calls.
+mdns = ["libp2p/mdns"]
 # Exports the sync-core facade through uniffi (see src/ffi.rs). Non-default:
 # `cargo test -p spoke-connect` keeps compiling without the binding surface.
 ffi = ["dep:uniffi"]

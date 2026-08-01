@@ -121,6 +121,8 @@ fn config(
         trusted_issuers: Vec::new(),
         require_capability_token: false,
         capability_token_provider: None,
+        #[cfg(feature = "mdns")]
+        mdns_autodial: true,
     }
 }
 

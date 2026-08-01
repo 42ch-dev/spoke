@@ -5,8 +5,10 @@
 //! (multiplexing) + **request-response** (hello exchange and op invocation) +
 //! **identify** (peer metadata — carries the remote public key used to verify
 //! hello signatures). Discovery is **explicit peering**: nodes are configured
-//! with static listen addresses and dial each other directly; LAN discovery
-//! is a future discovery iteration.
+//! with static listen addresses and dial each other directly. The non-default
+//! `mdns` cargo feature adds same-LAN peer discovery via libp2p's mDNS
+//! behaviour — address discovery only, never a trust grant: discovered peers
+//! still pass the allowlist + signed-hello gates.
 //!
 //! Hello flow: on connection establishment both sides send their signed
 //! `ConnectHello` (fresh nonce per send). The allowlist gate runs at
@@ -71,6 +73,8 @@ use crate::runtime::{
 use crate::session::PeerSession;
 use futures::StreamExt;
 use libp2p::identity::{Keypair, PublicKey};
+#[cfg(feature = "mdns")]
+use libp2p::mdns;
 use libp2p::request_response::{self, InboundRequestId, OutboundRequestId, ResponseChannel};
 use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{ConnectionId, NetworkBehaviour, Swarm, SwarmEvent};
@@ -110,10 +114,14 @@ struct ConnectBehaviour {
     hello: request_response::json::Behaviour<ConnectHello, HelloAck>,
     invoke: request_response::json::Behaviour<ConnectInvokeRequest, ConnectInvokeResponse>,
     auth: request_response::json::Behaviour<ConnectAuthChallenge, ConnectAuthResponse>,
+    /// Same-LAN discovery (non-default `mdns` feature): emits `Discovered`
+    /// peer addresses; never grants trust.
+    #[cfg(feature = "mdns")]
+    mdns: mdns::tokio::Behaviour,
 }
 
 impl ConnectBehaviour {
-    fn new(keypair: &Keypair, config: &ConnectConfig) -> Self {
+    fn new(keypair: &Keypair, config: &ConnectConfig) -> Result<Self, ConnectError> {
         let identify = identify::Behaviour::new(identify::Config::new(
             format!("spoke-connect/{}", env!("CARGO_PKG_VERSION")),
             keypair.public(),
@@ -142,13 +150,48 @@ impl ConnectBehaviour {
                 )],
                 request_response::Config::default().with_request_timeout(timeout),
             );
-        Self {
+        // 0.56 constructor form (verified at impl): mdns 0.48's
+        // `Behaviour::new(Config, PeerId)` returns `io::Result` — the
+        // interface watcher creation is the only fallible step; multicast
+        // traffic only starts once the behaviour is polled.
+        #[cfg(feature = "mdns")]
+        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), keypair.public().to_peer_id())
+            .map_err(|e| ConnectError::Transport(format!("mdns setup failed: {e}")))?;
+        Ok(Self {
             identify,
             hello,
             invoke,
             auth,
-        }
+            #[cfg(feature = "mdns")]
+            mdns,
+        })
     }
+}
+
+/// Compose the libp2p transport and behaviour stack for a connect node.
+///
+/// Shared by [`SpokeConnectNode::start`] and the mdns unit tests (which
+/// build a loop without running it — no network I/O happens at this stage).
+fn build_swarm(
+    identity: &Keypair,
+    config: &ConnectConfig,
+) -> Result<Swarm<ConnectBehaviour>, ConnectError> {
+    Ok(SwarmBuilder::with_existing_identity(identity.clone())
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
+        .map_err(|e| ConnectError::Transport(format!("transport setup failed: {e}")))?
+        .with_behaviour(|keypair| {
+            ConnectBehaviour::new(keypair, config)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
+        .map_err(|e| ConnectError::Transport(format!("behaviour setup failed: {e}")))?
+        .with_swarm_config(|cfg| cfg)
+        .with_connection_timeout(config.effective_handshake_timeout())
+        .build())
 }
 
 /// A buffered inbound hello awaiting the remote public key.
@@ -257,6 +300,12 @@ struct EventLoop {
     /// Outstanding capability-token challenges sent to each peer (one per
     /// peer in the spike), keyed by the challenged peer.
     pending_challenges: HashMap<PeerId, PendingChallenge>,
+    /// Dial candidates recorded from mDNS `Discovered` events (same-LAN
+    /// discovery only; drained by `take_mdns_discoveries`). mDNS records
+    /// addresses — it never grants trust: auto-dials still pass the
+    /// `ConnectionEstablished` allowlist gate.
+    #[cfg(feature = "mdns")]
+    mdns_candidates: Vec<(PeerId, Multiaddr)>,
 }
 
 impl EventLoop {
@@ -390,6 +439,10 @@ impl EventLoop {
             }
             SwarmEvent::Behaviour(ConnectBehaviourEvent::Auth(event)) => {
                 self.handle_auth_event(event);
+            }
+            #[cfg(feature = "mdns")]
+            SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(event)) => {
+                self.handle_mdns_event(event);
             }
             // Listener errors, dial failures, address churn, bandwidth and
             // other identify events are not part of the hello/invoke path.
@@ -628,6 +681,63 @@ impl EventLoop {
             request_response::Event::InboundFailure { .. }
             | request_response::Event::ResponseSent { .. } => {}
         }
+    }
+
+    /// Record mDNS discovery events as dial candidates.
+    ///
+    /// `Discovered` entries are appended to the internal candidate list
+    /// (deduplicated) and — when [`ConnectConfig::mdns_autodial`] is set and
+    /// the peer is allowlisted — dialed through the **same** single-flight
+    /// pending-connect machinery as an explicit `connect(addr)`: there is no
+    /// separate "trusted because discovered" branch (AD-P3-4). The auto-dial
+    /// carries a dropped reply sender — the caller-less dial still binds the
+    /// pending entry, passes the `ConnectionEstablished` allowlist gate, and
+    /// creates the session like any user-initiated connect; completion or
+    /// failure simply resolves to nothing.
+    ///
+    /// `Expired` entries are removed from the candidate list (TTL
+    /// bookkeeping mirroring the behaviour's own expiry).
+    #[cfg(feature = "mdns")]
+    fn handle_mdns_event(&mut self, event: mdns::Event) {
+        match event {
+            mdns::Event::Discovered(list) => {
+                for (peer, addr) in list {
+                    let seen = self
+                        .mdns_candidates
+                        .iter()
+                        .any(|(candidate_peer, candidate_addr)| {
+                            *candidate_peer == peer && *candidate_addr == addr
+                        });
+                    if seen {
+                        continue;
+                    }
+                    self.mdns_candidates.push((peer, addr.clone()));
+                    if self.config.mdns_autodial
+                        && is_allowlisted(&self.config.peer_allowlist, &peer)
+                    {
+                        let (reply, receiver) =
+                            oneshot::channel::<Result<Arc<SessionHandle>, ConnectError>>();
+                        drop(receiver);
+                        self.handle_connect(addr, reply);
+                    }
+                }
+            }
+            mdns::Event::Expired(list) => {
+                self.mdns_candidates
+                    .retain(|(peer, addr)| !list.iter().any(|(p, a)| *p == *peer && *a == *addr));
+            }
+        }
+    }
+
+    /// Drain the recorded mDNS dial candidates.
+    ///
+    /// Unit-test hook (no live multicast required): feeding a fabricated
+    /// `Discovered` event to [`EventLoop::handle_event`] exercises the
+    /// `Discovered` → candidate mapping deterministically.
+    #[cfg(feature = "mdns")]
+    #[cfg_attr(not(test), allow(dead_code))] // test hook; no lib callers yet
+    fn take_mdns_discoveries(&mut self) -> Vec<(PeerId, Multiaddr)> {
+        std::mem::take(&mut self.mdns_candidates)
     }
 
     /// Answer a received `capability-token` challenge with this node's proof.
@@ -1390,19 +1500,7 @@ impl SpokeConnectNode {
         let (listen_tx, mut listen_rx) = mpsc::channel::<Multiaddr>(16);
         let (cmd_tx, cmd_rx) = mpsc::channel::<LoopCommand>(32);
 
-        let swarm = SwarmBuilder::with_existing_identity(config.identity.clone())
-            .with_tokio()
-            .with_tcp(
-                tcp::Config::default(),
-                noise::Config::new,
-                yamux::Config::default,
-            )
-            .map_err(|e| ConnectError::Transport(format!("transport setup failed: {e}")))?
-            .with_behaviour(|keypair| ConnectBehaviour::new(keypair, &config))
-            .map_err(|e| ConnectError::Transport(format!("behaviour setup failed: {e}")))?
-            .with_swarm_config(|cfg| cfg)
-            .with_connection_timeout(config.effective_handshake_timeout())
-            .build();
+        let swarm = build_swarm(&config.identity, &config)?;
 
         let mut swarm = swarm;
         for addr in &config.listen_addrs {
@@ -1429,6 +1527,8 @@ impl SpokeConnectNode {
             session_connections: HashMap::new(),
             pending_invokes: HashMap::new(),
             pending_challenges: HashMap::new(),
+            #[cfg(feature = "mdns")]
+            mdns_candidates: Vec::new(),
         };
         let requested_listeners = event_loop.config.listen_addrs.len();
         let task = tokio::spawn(event_loop.run(shutdown_rx));
@@ -1595,6 +1695,8 @@ mod tests {
             trusted_issuers: Vec::new(),
             require_capability_token: false,
             capability_token_provider: None,
+            #[cfg(feature = "mdns")]
+            mdns_autodial: true,
         }
     }
 
@@ -1690,5 +1792,146 @@ mod tests {
         assert!(!pending_hello_capacity_available(
             MAX_PENDING_HELLOS_PER_PEER
         ));
+    }
+
+    /// Deterministic mDNS wiring tests (AD-P3-5): no real multicast, no
+    /// timing assertions. The behaviour and the event loop construct
+    /// without network I/O (multicast queries only start once the behaviour
+    /// is polled with an interface-up event), so fabricated `Discovered` /
+    /// `Expired` events can be fed to `handle_event` directly.
+    #[cfg(feature = "mdns")]
+    mod mdns_tests {
+        use super::*;
+
+    fn event_loop(identity: Keypair, cfg: ConnectConfig) -> EventLoop {
+        let (listen_tx, _listen_rx) = mpsc::channel(16);
+        let (cmd_tx, cmd_rx) = mpsc::channel(32);
+        let swarm = build_swarm(&identity, &cfg).expect("swarm builds without network I/O");
+        EventLoop {
+            swarm,
+            identity,
+            config: cfg,
+            remote_keys: HashMap::new(),
+            pending_hellos: HashMap::new(),
+            nonces: NonceStore::new(),
+            listen_tx,
+            cmd_rx,
+            cmd_tx,
+            pending_connect: None,
+            handshakes: HashMap::new(),
+            sessions: HashMap::new(),
+            inbound_sequences: HashMap::new(),
+            peer_listen_addrs: HashMap::new(),
+            session_connections: HashMap::new(),
+            pending_invokes: HashMap::new(),
+            pending_challenges: HashMap::new(),
+            mdns_candidates: Vec::new(),
+        }
+    }
+
+    fn discovered_event(peer: PeerId, addr: Multiaddr) -> SwarmEvent<ConnectBehaviourEvent> {
+        SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(mdns::Event::Discovered(vec![(
+            peer, addr,
+        )])))
+    }
+
+    #[test]
+    fn mdns_behaviour_constructs_without_live_multicast() {
+        // AD-P3-5(a): the feature-gated wiring compiles and `new` succeeds
+        // without any multicast traffic (construction only creates the
+        // interface watcher; queries start on poll).
+        let identity = Keypair::generate_ed25519();
+        let behaviour =
+            ConnectBehaviour::new(&identity, &config(identity.clone(), Vec::new()))
+                .expect("mdns behaviour construction succeeds");
+        let _ = behaviour;
+    }
+
+    #[test]
+    fn mdns_discovered_event_records_dial_candidates() {
+        let identity = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+        let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+    }
+
+    #[test]
+    fn mdns_repeated_discovery_is_deduplicated() {
+        let identity = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+        let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+    }
+
+    #[test]
+    fn mdns_expired_event_removes_candidates() {
+        let identity = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+        let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        loop_.handle_event(SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(
+            mdns::Event::Expired(vec![(peer, addr.clone())]),
+        )));
+        assert!(
+            loop_.take_mdns_discoveries().is_empty(),
+            "expired candidates are dropped"
+        );
+    }
+
+    #[test]
+    fn mdns_autodial_skips_non_allowlisted_discoveries() {
+        // AD-P3-4 + AD-P3-5(b): an empty allowlist is fail-closed — the
+        // discovered peer is recorded as a candidate but never dialed, and
+        // it fails the allowlist predicate. mDNS is discovery only, never a
+        // trust grant.
+        let identity = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+        let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        assert!(
+            loop_.pending_connect.is_none(),
+            "non-allowlisted discovery must not start a dial"
+        );
+        assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        let allowlist: Vec<String> = Vec::new();
+        assert!(!crate::core::is_allowlisted(&allowlist, &peer.to_string()));
+    }
+
+    #[tokio::test]
+    async fn mdns_autodial_dials_allowlisted_discoveries_through_connect_machinery() {
+        // The auto-dial reuses the same single-flight machinery as an
+        // explicit `connect(addr)`: a pending dial bound to the discovered
+        // address is created (no parallel trusted branch). A tokio runtime
+        // is required for `swarm.dial` to enqueue; no poll or socket I/O
+        // happens, so the test stays deterministic.
+        let identity = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+        let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        let pending = loop_.pending_connect.as_ref().expect("auto-dial pending");
+        assert_eq!(pending.addr, addr);
+        assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+    }
+
+    #[test]
+    fn mdns_autodial_off_records_candidates_without_dialing() {
+        let identity = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+        let mut cfg = config(identity.clone(), vec![peer]);
+        cfg.mdns_autodial = false;
+        let mut loop_ = event_loop(identity, cfg);
+        loop_.handle_event(discovered_event(peer, addr.clone()));
+        assert!(loop_.pending_connect.is_none(), "autodial disabled");
+        assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+    }
     }
 }

@@ -51,6 +51,8 @@ async fn main() {
         trusted_issuers: Vec::new(),
         require_capability_token: false,
         capability_token_provider: None,
+        #[cfg(feature = "mdns")]
+        mdns_autodial: true,
     };
     let node_a = SpokeConnectNode::start(config_a).await.expect("start a");
 
@@ -66,6 +68,8 @@ async fn main() {
         trusted_issuers: Vec::new(),
         require_capability_token: false,
         capability_token_provider: None,
+        #[cfg(feature = "mdns")]
+        mdns_autodial: true,
     };
     let node_b = SpokeConnectNode::start(config_b).await.expect("start b");
 

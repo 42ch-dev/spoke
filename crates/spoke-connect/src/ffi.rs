@@ -183,9 +183,11 @@ impl NonceStore {
     /// gate (allowlist, signature) so a rejected hello is not burned.
     #[must_use]
     pub fn check_and_record(&self, peer_id: String, nonce: String) -> bool {
+        // Poisoning is unreachable today (no panicking payloads), but a
+        // poisoned lock must not permanently brick the FFI object.
         self.inner
             .lock()
-            .expect("nonce store lock poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .check_and_record(&peer_id, &nonce)
     }
 }
@@ -219,9 +221,11 @@ impl OutboundSequence {
     /// wire maximum) `SequenceExhausted` is returned and the counter stays
     /// exhausted — sequences never wrap. The caller must close the session.
     pub fn allocate(&self) -> Result<u64, CoreInvokeError> {
+        // Poisoning is unreachable today (no panicking payloads), but a
+        // poisoned lock must not permanently brick the FFI object.
         self.inner
             .lock()
-            .expect("outbound sequence lock poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .allocate()
             .map_err(CoreInvokeError::from)
     }
@@ -250,9 +254,11 @@ impl InboundSequence {
     /// `InboundSequenceMismatch` and the expectation is left unchanged — the
     /// caller must reject the invoke without dispatching it.
     pub fn advance(&self, sequence: i64) -> Result<u64, CoreInvokeError> {
+        // Poisoning is unreachable today (no panicking payloads), but a
+        // poisoned lock must not permanently brick the FFI object.
         self.inner
             .lock()
-            .expect("inbound sequence lock poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .advance(sequence)
             .map_err(CoreInvokeError::from)
     }
@@ -407,6 +413,24 @@ mod tests {
         let err = verify_hello_ed25519(GOLDEN_PUBKEY.to_vec(), GOLDEN_PEER_ID.to_owned(), tampered)
             .expect_err("tampered host");
         assert!(matches!(err, CoreError::InvalidHelloSignature));
+    }
+
+    #[test]
+    fn malformed_hello_json_fails_verification_with_mapped_error() {
+        // Non-JSON input and valid JSON with the wrong shape both fail
+        // serde parsing, which the wrapper maps to a handshake failure —
+        // the same mapping as malformed host manifest JSON on the sign path
+        // (sign_hello_ed25519 also returns HandshakeFailed for unparseable
+        // JSON), so sign and verify are consistent.
+        for malformed in ["not json".to_owned(), r#"{"not":"a-hello"}"#.to_owned()] {
+            let err = verify_hello_ed25519(
+                GOLDEN_PUBKEY.to_vec(),
+                GOLDEN_PEER_ID.to_owned(),
+                malformed,
+            )
+            .expect_err("malformed hello");
+            assert!(matches!(err, CoreError::HandshakeFailed { .. }));
+        }
     }
 
     #[test]

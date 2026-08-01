@@ -12,7 +12,8 @@
 export const CANONICAL_PATH = "package.json";
 
 /**
- * package.json files whose top-level `version` must match canonical (rows 2–5).
+ * package.json files whose top-level `version` must match canonical (rows 2–5
+ * plus the workspace-private connect TS package).
  * @type {readonly string[]}
  */
 export const JSON_VERSION_PATHS = [
@@ -20,6 +21,7 @@ export const JSON_VERSION_PATHS = [
   "packages/spoke-operations/package.json",
   "fixtures/toy-world/package.json",
   "tooling/codegen/package.json",
+  "packages/spoke-connect-ts/package.json",
 ];
 
 /** @type {string} Cargo workspace version (row 6). */

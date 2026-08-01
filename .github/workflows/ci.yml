@@ -91,6 +91,9 @@ jobs:
       - name: Test toy-world fixtures
         run: pnpm run test:fixtures
 
+      - name: Test @42ch/spoke-connect-ts
+        run: pnpm run test:connect-ts
+
       - name: Build @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations build
 

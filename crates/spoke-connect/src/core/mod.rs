@@ -6,9 +6,10 @@
 //! `serde_json` opaque payloads only. The transport layer converts
 //! `libp2p::PeerId` ↔ `String` at the boundary and calls into this module.
 //!
-//! Everything here is synchronous and pure, which is what makes it a
-//! candidate for future foreign-language bindings (the sync/async binding
-//! facade decision is recorded in the crate README).
+//! Everything here is synchronous and pure, which is what makes it the
+//! first-binding surface for future foreign-language bindings; the sync vs
+//! async facade decision is recorded in the crate README ("Binding facade
+//! (no uniffi yet)").
 
 /// Connect protocol version exchanged in `ConnectHello` (not the data
 /// `schema_version`). Protocol version **1** is current.

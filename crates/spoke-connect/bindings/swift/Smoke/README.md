@@ -6,9 +6,11 @@ signs and verifies the golden hello (asserting base64url signature parity), and
 exercises the rest of the exported surface (allowlist, sequences, nonce store,
 dispatch gate, correlation, protocol version) with the mapped error cases.
 
-> Local env quirk: if `cargo` fails with `error: the option Z is only accepted
-> on the nightly compiler` (a nightly `-Z` flag in `RUSTFLAGS`), run the cargo
-> steps with `RUSTFLAGS=""` — this repo builds on stable.
+> Local env quirk: this machine's `~/.cargo/config.toml` sets
+> `[build] rustflags = ["-Zno-embed-metadata"]` (a nightly-only flag). If
+> `cargo` fails with `error: the option Z is only accepted on the nightly
+> compiler`, run the cargo steps with `RUSTFLAGS=""` — that overrides the
+> config, and this repo builds on stable.
 
 Run from the repository root:
 

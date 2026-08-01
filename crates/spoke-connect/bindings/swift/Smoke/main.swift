@@ -35,6 +35,11 @@
 //   ./crates/spoke-connect/bindings/swift/Smoke/smoke
 //
 // See README.md in this directory for the same sequence.
+//
+// Note: a plain `cargo build` (default features) between steps replaces the
+// ffi cdylib in the shared `target/debug`. If the smoke fails with
+// `dyld: Symbol not found: _ffi_spoke_connect_rustbuffer_free`, re-run step 1
+// (`cargo build -p spoke-connect --features ffi`) before recompiling.
 
 import Foundation
 

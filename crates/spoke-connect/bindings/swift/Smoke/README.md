@@ -12,6 +12,11 @@ dispatch gate, correlation, protocol version) with the mapped error cases.
 > compiler`, run the cargo steps with `RUSTFLAGS=""` — that overrides the
 > config, and this repo builds on stable.
 
+> Footgun: a plain `cargo build` (default features) between steps replaces the
+> ffi cdylib in the shared `target/debug`. If the next smoke run fails with
+> `dyld: Symbol not found: _ffi_spoke_connect_rustbuffer_free`, re-run step 1
+> (`cargo build -p spoke-connect --features ffi`) before recompiling the smoke.
+
 Run from the repository root:
 
 ```bash

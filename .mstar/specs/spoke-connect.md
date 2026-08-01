@@ -46,7 +46,7 @@ Both paths MUST produce the same signed hello bytes, the same `peer_id` derivati
 | Without this spec | With this spec |
 |-------------------|----------------|
 | Multi-adapter client interaction has no standard wire | Integrators build connect adapters against a dual-language contract (`schemas/connect/` + generated types) |
-| Ordering, auth, and discovery are invented per product | Per-session ordering, `noise-peerid` auth, and explicit peering are normative |
+| Ordering, auth, and discovery are invented per product | Per-session ordering, `noise-peerid` + `capability-token` auth, and explicit peering are normative |
 | Non-Rust clients reverse-engineer a single stack | Identity, framing, and session-core rules are stack-agnostic and implementable from this spec alone |
 | Baseline-only hosts are forced to change | `spoke-connect` is an optional flag; baseline compliance is unchanged |
 
@@ -179,7 +179,7 @@ Session is a **wire-visible snapshot** (fixtures + optional session-announce mes
 | `request_id` | yes | string, minLength 1 | Caller-generated correlation id (UUID recommended). |
 | `op` | yes | string, minLength 1 | Open vocabulary — see [§`op` core vocabulary](#op-core-vocabulary). |
 | `payload` | yes | `$ref` OpaqueJson | Opaque JSON — MUST be a full existing ops **request** envelope for the named `op` when targeting SPOKE ops. Dispatchers MUST validate the payload against the named `op`'s ops request schema. |
-| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary auth is hello. Shape method-specific when used. |
+| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary session identity is hello (`noise-peerid`). For `capability-token`, same proof object as auth response (see [§Method — capability-token](#method--capability-token)). |
 | `extensions` | yes | ExtensionMap | |
 
 ### ConnectInvokeResponse — remote op reply
@@ -211,7 +211,7 @@ Branches MUST NOT include both `payload` and `error`.
 | Field | Req | Type | Notes |
 |-------|-----|------|-------|
 | `challenge_id` | yes | string, minLength 1 | Correlation id for the response. |
-| `method` | yes | string, minLength 1 | Open vocabulary — core: `noise-peerid` (see [§`method` core vocabulary](#method-core-vocabulary)). |
+| `method` | yes | string, minLength 1 | Open vocabulary — core: `noise-peerid`, `capability-token` (see [§`method` core vocabulary](#method-core-vocabulary)). |
 | `challenge` | yes | string, minLength 1 | Opaque challenge material (nonce / method-specific). |
 | `extensions` | yes | ExtensionMap | |
 
@@ -221,7 +221,7 @@ Branches MUST NOT include both `payload` and `error`.
 |-------|-----|------|-------|
 | `challenge_id` | yes | string | Echo. |
 | `method` | yes | string | MUST match challenge `method`. |
-| `proof` | yes | OpaqueJson | Method-specific proof (signature bundle, token, …). Unused for `noise-peerid` — hello is the proof; other methods validate `proof` per method. |
+| `proof` | yes | OpaqueJson | Method-specific proof. Unused for `noise-peerid` (hello is the proof). For `capability-token`: `{ v, claims, sig }` object (see [§Method — capability-token](#method--capability-token)). |
 | `extensions` | yes | ExtensionMap | |
 
 ## Signature canonicalization (hello)
@@ -363,21 +363,129 @@ Connect schemas and the six envelope shapes stay closed; extensibility is vocabu
 
 ## `method` core vocabulary
 
-Open string (documented, not enum). Schema `description` on `ConnectAuthChallenge.method`: core `noise-peerid`; reserved names `capability-token`, `did`.
+Open string (documented, not enum). Schema `description` on `ConnectAuthChallenge.method`: core `noise-peerid`, `capability-token`; reserved name `did`.
 
 | `method` | Status |
 |----------|--------|
-| `noise-peerid` | **Normative core** — PeerId allowlist + signed hello |
-| `capability-token` | Reserved name only — not implemented |
+| `noise-peerid` | **Normative** — PeerId allowlist + signed hello |
+| `capability-token` | **Normative** — signed capability token proof + validation rules (see [§Method — capability-token](#method--capability-token)) |
 | `did` | Reserved name only — not implemented |
 
 This vocabulary MUST stay in sync with the schema `description` fields.
 
 ## Auth model
 
-**Core method — `noise-peerid`:** the trust root is a deployment-configured `PeerId` allowlist. Authentication happens at hello: the sender signs the canonicalized signed object with the Ed25519 key bound to `peer_id` (see §[Identity binding](#identity-binding)); the receiver accepts only when (a) `peer_id` is on the allowlist and (b) the signature verifies against the public key that derives that `peer_id`. `ConnectAuthChallenge` / `ConnectAuthResponse` exist so future methods (reserved names: `capability-token`, `did`) and step-up auth share one shape; `method` is an open string and `proof` is opaque. Accept/reject decisions use only the signed fields and the embedded `host` manifest; top-level hello `extensions` MUST NOT influence authorization.
+Connect authentication is **method-extensible**: `ConnectAuthChallenge` / `ConnectAuthResponse` share one envelope shape (`method` open string, `proof` opaque). Protocol_version 1 defines two normative methods — `noise-peerid` (session identity at hello) and `capability-token` (step-up / delegated capability grant). Reserved name `did` stays unimplemented. Accept/reject for hello uses only the signed fields and the embedded `host` manifest; top-level hello `extensions` MUST NOT influence authorization.
 
-A handshake MAY complete with hello alone — no extra auth round-trip — when allowlist + signature verification succeed. The challenge/response pair is not required for `noise-peerid` sessions. In protocol v1, handshake rejection closes the connection or stream; there is no hello error envelope.
+### Method — noise-peerid
+
+The trust root is a deployment-configured `PeerId` allowlist. Authentication happens at hello: the sender signs the canonicalized signed object with the Ed25519 key bound to `peer_id` (see §[Identity binding](#identity-binding)); the receiver accepts only when (a) `peer_id` is on the allowlist and (b) the signature verifies against the public key that derives that `peer_id`.
+
+A handshake MAY complete with hello alone — no extra auth round-trip — when allowlist + signature verification succeed. The challenge/response pair is not required for `noise-peerid` sessions. In protocol v1, handshake rejection closes the connection or stream; there is no hello error envelope. `capability-token` is **step-up / mid-session** authorization on top of an established `noise-peerid` session; it does not replace the hello identity gate.
+
+### Method — capability-token
+
+`capability-token` authenticates a **short-lived, capability-scoped grant** issued by a trusted issuer. The wire carries the token as the opaque `proof` on `ConnectAuthResponse` and optionally on `ConnectInvokeRequest.auth`. Token validation is **offline**: signature + trusted-issuer list + subject/audience/expiry + capability membership. There is no revocation list, no refresh token, and no `/token` issuance endpoint in this protocol version.
+
+#### Token claim set
+
+The **signed claims object** is canonicalized with **RFC 8785 JCS** → UTF-8 bytes, then signed with the **issuer** Ed25519 private key (same key class as hello: raw 64-byte Ed25519 signature → base64url without padding). Signature covers **only** JCS(`claims`) — not the wire wrapper.
+
+| Field | Req | Type | Semantics |
+|-------|-----|------|-----------|
+| `iss` | yes | string | Issuer `peer_id` (same string form as hello `peer_id`) |
+| `sub` | yes | string | Subject `peer_id` — who may present the token |
+| `aud` | yes | string | Audience — reference: **receiver `peer_id`** (the verifying node’s network id); products MAY document a `host_id` synonym |
+| `capabilities` | yes | string[] | Capability names granted to `sub` (e.g. `spoke-baseline`, `l2-computable`) |
+| `exp` | yes | number (JSON integer) | Expiry as **Unix time seconds** (UTC); reject if `now >= exp` |
+| `iat` | no | number | Issued-at Unix seconds; if present, reject if `now < iat` (reference implementations SHOULD allow ±60s clock skew on both sides) |
+| `jti` | no | string | Unique id; if present, MUST be non-empty. Not consulted by protocol_version 1 validation — reserved for a future revocation design |
+
+**No other claim keys** in protocol_version 1. Unknown claim keys in the signed object: **reject** (fail closed) so JCS bytes stay intentional.
+
+#### Wire `proof` wrapper
+
+`proof` is an **OpaqueJson object** (not a bare string):
+
+```json
+{
+  "v": 1,
+  "claims": {
+    "iss": "…",
+    "sub": "…",
+    "aud": "…",
+    "capabilities": ["…"],
+    "exp": 0
+  },
+  "sig": "<base64url-no-pad Ed25519 over JCS(claims)>"
+}
+```
+
+| Field | Req | Semantics |
+|-------|-----|-----------|
+| `v` | yes | Token format version; protocol_version 1 uses **`1`** |
+| `claims` | yes | Signed claims object (table above) |
+| `sig` | yes | base64url (no padding) of the 64 raw Ed25519 signature bytes over JCS(`claims`) only |
+
+Issuance MUST bind the issuer key to `claims.iss`: the Ed25519 public key used to sign MUST derive `claims.iss` per §[Identity binding](#identity-binding).
+
+#### Trust root and validation rules
+
+| Check | Requirement |
+|-------|-------------|
+| Trust root | Deployment-configured **`trusted_issuers`** list of issuer `peer_id` strings (parallel to the `noise-peerid` allowlist). **Empty list ⇒ method disabled**: challenges for `capability-token` MUST NOT be offered; proofs MUST be rejected. |
+| Signature | Recompute JCS over `claims`; verify `sig` with the public key that derives `claims.iss`. |
+| Issuer | After sig verify: `claims.iss` MUST be an exact-string member of `trusted_issuers`. |
+| Subject | `claims.sub` MUST equal the authenticated session peer’s `peer_id` (the peer that passed `noise-peerid` hello). Tokens are not transferable across peers. |
+| Audience | `claims.aud` MUST equal **this node’s** `peer_id` string. |
+| Expiry / iat | `exp` required; reject expired. Apply `iat` and clock-skew rules when `iat` is present. |
+| Malformed proof | Missing required wrapper/claim fields, wrong `v`, non-object `proof`, or unknown claim keys → reject. |
+
+#### Capability matching
+
+For an invoke, let `required = required_capability(op)` from the core table in §[Op dispatch gate](#op-dispatch-gate) (or product-documented `op` → capability mapping).
+
+The token authorizes the op iff **`required` ∈ `claims.capabilities`** (membership / subset-of-grant). Extra capabilities on the token are ignored when unused. Matching is **not** exact-list equality between `claims.capabilities` and `negotiated_capabilities`.
+
+The token does **not** replace `negotiated_capabilities`. Dispatch order when the method is in use:
+
+1. Sequence / correlation checks (§[Session-core state machine](#session-core-state-machine))
+2. **Optional capability-token gate** when policy requires a valid token (config or present `auth`)
+3. `dispatch_allowed(op, negotiated_capabilities)` (§[Op dispatch gate](#op-dispatch-gate))
+4. Handler
+
+Both the token grant and the negotiated set MUST allow the op when the token gate is active.
+
+#### Challenge / response and invoke `auth`
+
+| Item | Rule |
+|------|------|
+| Hello | Unchanged `noise-peerid`. capability-token is step-up, not a hello replacement. |
+| Config | Reference deployments expose `require_capability_token` (bool, default **`false`**) beside `trusted_issuers`. |
+| When server challenges | If `trusted_issuers` is non-empty **and** `require_capability_token == true`: after both hellos are accepted (session would become Established), the server sends `ConnectAuthChallenge` before treating the session as fully authorized for invokes. If `require_capability_token == false`: no automatic challenge; token is validated when the client attaches invoke `auth` (and when a product defines additional per-op policy). |
+| Challenge envelope | `method: "capability-token"`; `challenge_id` fresh unique string; `challenge` = opaque random nonce string (minLength ≥ 16). The server binds the nonce to `challenge_id` in a pending map (anti-replay for the challenge slot). Protocol_version 1 does **not** require the client to embed challenge bytes inside token claims. |
+| Response | `ConnectAuthResponse { challenge_id, method: "capability-token", proof: <wrapper above>, extensions }`. Server validates `proof` per the rules above; on success the session records capability-token authorization (`capability_token_ok`); on failure the session remains unauthorized for invokes when the require flag is set. |
+| Invoke `auth` | Optional `ConnectInvokeRequest.auth` carries the **same** proof object. When present, the receiver validates it on **every** invoke (expiry still valid; same subject/audience/issuer rules). When `require_capability_token` is true, the session is not token-ok, and `auth` is absent → reject the invoke. |
+| Require flag false | When `require_capability_token` is false and no `auth` is attached, behavior matches `noise-peerid` alone (hello allowlist + signature). |
+
+#### Error mapping
+
+`ErrorEnvelope.code` remains an open string. No new error-envelope schema properties. Documented connect auth vocabulary:
+
+| Condition | `code` |
+|-----------|--------|
+| Missing or invalid token when required; signature / issuer / audience / subject / expiry / malformed proof failure; unknown `method` on an auth response | `auth_failed` |
+| Token valid but capability not granted for the requested `op` | `op_unsupported` (same path as dispatch-deny when the required capability is absent from the effective grant) |
+
+Implementations MAY distinguish failure reasons in `message` and optional `details`; the machine code stays as above.
+
+#### Non-goals (capability-token)
+
+- Revocation lists / CRL / online status checks
+- Refresh tokens or sliding expiry protocols
+- A protocol-level token issuance HTTP (or RPC) endpoint
+- Using `jti` for uniqueness enforcement in protocol_version 1 (field reserved only)
+- Replacing `noise-peerid` hello identity with a token-only handshake
 
 ## Discovery boundary
 
@@ -443,7 +551,8 @@ The reference stack maps these envelopes onto rust-libp2p: **noise** for authent
 ## Non-goals (connect)
 
 - Runtime / networking code (reference-stack spike is separate and unpublished)
-- `capability-token` / DID auth methods (envelope reserves `method`; only `noise-peerid` is normative)
+- `did` auth method (reserved `method` name only)
+- Capability-token revocation lists, refresh tokens, and protocol-level token issuance endpoints (offline validation only — see [§Method — capability-token](#method--capability-token))
 - Kademlia / DHT discovery, Gossipsub, circuit relay / NAT traversal on the wire
 - mDNS as a wire concept or default discovery mechanism
 - TypeScript connectivity SDK or binding decisions

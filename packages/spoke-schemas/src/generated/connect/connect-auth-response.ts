@@ -5,7 +5,7 @@
  */
 
 /**
- * Auth challenge reply envelope; proof is method-specific.
+ * Auth challenge reply envelope; proof is method-specific (core methods: noise-peerid, capability-token).
  */
 export interface ConnectAuthResponse {
   /**
@@ -13,11 +13,11 @@ export interface ConnectAuthResponse {
    */
   challenge_id: string;
   /**
-   * MUST match challenge method.
+   * MUST match challenge method. Core (documented, not enforced): noise-peerid, capability-token. Reserved name: did.
    */
   method: string;
   /**
-   * Method-specific proof (signature bundle, token, ...).
+   * Method-specific proof. For capability-token: object { v, claims, sig } (sig over JCS(claims) only).
    */
   proof: {
     [k: string]: unknown | undefined;

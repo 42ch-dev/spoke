@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/connect/connect-auth-challenge.schema.json",
   "title": "ConnectAuthChallenge",
-  "description": "Extensible auth challenge envelope. Core method: noise-peerid.",
+  "description": "Extensible auth challenge envelope. Core methods: noise-peerid, capability-token.",
   "type": "object",
   "required": ["challenge_id", "method", "challenge", "extensions"],
   "properties": {
@@ -14,7 +14,7 @@
     "method": {
       "type": "string",
       "minLength": 1,
-      "description": "Open vocabulary. Core (documented, not enforced): noise-peerid. Reserved names: capability-token, did."
+      "description": "Open vocabulary. Core (documented, not enforced): noise-peerid, capability-token. Reserved name: did."
     },
     "challenge": {
       "type": "string",

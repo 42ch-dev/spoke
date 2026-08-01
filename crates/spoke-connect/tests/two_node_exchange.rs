@@ -121,8 +121,14 @@ fn config(
         trusted_issuers: Vec::new(),
         require_capability_token: false,
         capability_token_provider: None,
+        // Two-node exchange tests exercise explicit peering. With the mdns
+        // feature on, the nodes also join the real multicast group; a live
+        // LAN could discover the sibling test node asynchronously and an
+        // auto-dial would race the test's explicit connect (nondeterministic
+        // per AD-P3-5). Autodial is covered deterministically by the mdns
+        // unit tests instead.
         #[cfg(feature = "mdns")]
-        mdns_autodial: true,
+        mdns_autodial: false,
     }
 }
 

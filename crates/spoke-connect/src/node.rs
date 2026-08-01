@@ -2012,8 +2012,8 @@ mod tests {
             }
         }
 
-        #[test]
-        fn mdns_behaviour_constructs_without_live_multicast() {
+        #[tokio::test]
+        async fn mdns_behaviour_constructs_without_live_multicast() {
             // AD-P3-5(a): the feature-gated wiring compiles and `new` succeeds
             // without any multicast traffic (construction only creates the
             // interface watcher; queries start on poll).
@@ -2023,8 +2023,8 @@ mod tests {
             let _ = behaviour;
         }
 
-        #[test]
-        fn mdns_discovered_event_records_dial_candidates() {
+        #[tokio::test]
+        async fn mdns_discovered_event_records_dial_candidates() {
             let identity = Keypair::generate_ed25519();
             let peer = Keypair::generate_ed25519().public().to_peer_id();
             let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
@@ -2033,8 +2033,8 @@ mod tests {
             assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
         }
 
-        #[test]
-        fn mdns_repeated_discovery_is_deduplicated() {
+        #[tokio::test]
+        async fn mdns_repeated_discovery_is_deduplicated() {
             let identity = Keypair::generate_ed25519();
             let peer = Keypair::generate_ed25519().public().to_peer_id();
             let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
@@ -2044,8 +2044,8 @@ mod tests {
             assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
         }
 
-        #[test]
-        fn mdns_expired_event_removes_candidates() {
+        #[tokio::test]
+        async fn mdns_expired_event_removes_candidates() {
             let identity = Keypair::generate_ed25519();
             let peer = Keypair::generate_ed25519().public().to_peer_id();
             let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
@@ -2060,8 +2060,8 @@ mod tests {
             );
         }
 
-        #[test]
-        fn mdns_candidate_store_is_bounded() {
+        #[tokio::test]
+        async fn mdns_candidate_store_is_bounded() {
             // Forged-discovery flood safety (AD-P3-6): mDNS is unauthenticated,
             // so entries beyond the cap are dropped instead of growing the store
             // without bound. Deterministic — no multicast, no dials (empty
@@ -2084,8 +2084,8 @@ mod tests {
             );
         }
 
-        #[test]
-        fn mdns_take_drains_the_candidate_store() {
+        #[tokio::test]
+        async fn mdns_take_drains_the_candidate_store() {
             // Pure helper semantics (AD-P3-3): `take_mdns_discoveries` drains
             // the store — taking on an empty store is empty, a second take
             // after a first is empty (nothing re-appears), and discoveries
@@ -2112,8 +2112,8 @@ mod tests {
             );
         }
 
-        #[test]
-        fn mdns_candidate_cap_resets_after_drain() {
+        #[tokio::test]
+        async fn mdns_candidate_cap_resets_after_drain() {
             // Cap interplay: `MAX_MDNS_CANDIDATES` bounds the live store, not
             // cumulative discoveries — a drain resets the accounting, so a
             // post-drain discovery is accepted again (and a fresh flood would
@@ -2135,8 +2135,8 @@ mod tests {
             assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
         }
 
-        #[test]
-        fn mdns_autodial_skips_non_allowlisted_discoveries() {
+        #[tokio::test]
+        async fn mdns_autodial_skips_non_allowlisted_discoveries() {
             // AD-P3-4 + AD-P3-5(b): an empty allowlist is fail-closed — the
             // discovered peer is recorded as a candidate but never dialed (no
             // pending dial is created). mDNS is discovery only, never a trust
@@ -2212,8 +2212,8 @@ mod tests {
             );
         }
 
-        #[test]
-        fn mdns_autodial_off_records_candidates_without_dialing() {
+        #[tokio::test]
+        async fn mdns_autodial_off_records_candidates_without_dialing() {
             let identity = Keypair::generate_ed25519();
             let peer = Keypair::generate_ed25519().public().to_peer_id();
             let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");

@@ -20,13 +20,6 @@ use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
 /// canonicalization failures on the wire path) map to `Transport`.
 pub(crate) fn map_core_error(err: CoreError) -> ConnectError {
     match err {
-        CoreError::NotAllowlisted { peer_id } => ConnectError::NotAllowlisted {
-            // Core errors never carry a peer id the transport did not first
-            // supply as a `PeerId::to_string()`, so the parse is infallible.
-            peer_id: peer_id
-                .parse()
-                .expect("allowlist error carries a valid PeerId"),
-        },
         CoreError::InvalidHelloSignature => ConnectError::InvalidHelloSignature,
         CoreError::NonceReplay => ConnectError::NonceReplay,
         CoreError::HandshakeFailed { reason } => ConnectError::HandshakeFailed { reason },

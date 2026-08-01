@@ -8,10 +8,6 @@
 /// Errors from identity derivation, hello verification, and the accept gate.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CoreError {
-    /// The remote peer's `peer_id` string is not on the allowlist.
-    #[error("peer not in allowlist: {peer_id}")]
-    NotAllowlisted { peer_id: String },
-
     /// The hello signature did not verify against the peer's public key
     /// (or the signature is not valid base64url / not 64 bytes).
     #[error("hello signature invalid")]

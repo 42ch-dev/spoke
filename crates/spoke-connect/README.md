@@ -32,8 +32,8 @@ libp2p is pinned to a single version (`=0.56.0`) with a minimal feature set:
 
 **Explicit peering** is the default discovery mechanism: nodes are configured
 with static listen addresses and dial each other directly. Same-LAN mDNS
-discovery is additionally available through the non-default `mdns` cargo
-feature, which wires libp2p's mDNS behaviour into the node and announces its
+discovery is additionally available through the `mdns` cargo feature (off by
+default), which wires libp2p's mDNS behaviour into the node and announces its
 listen addresses on the local network:
 
 ```shell
@@ -43,12 +43,13 @@ cargo test -p spoke-connect --features mdns
 With the feature enabled, a node records mDNS `Discovered` peers as dial
 candidates. Auto-dial of discovered peers is on by default
 (`ConnectConfig::mdns_autodial`, default `true`; set `false` to record
-candidates without dialing) and only allowlisted discoveries are dialed.
+candidates only) and only allowlisted discoveries are dialed.
 The mDNS allowlist check is a scheduling pre-filter — it only spares the
-node's single-flight dial slot. The trust anchor stays the same
-`ConnectionEstablished` allowlist and signed-hello (`noise-peerid`) gates an
-explicit `connect(addr)` passes. **mDNS never grants trust: discovered peers
-must still pass noise-peerid.**
+node's single-flight dial slot. Admission applies the same
+`ConnectionEstablished` allowlist and signed-hello (`noise-peerid`) gates as
+an explicit `connect(addr)` does. **mDNS discovery only supplies candidate
+addresses: discovered peers are admitted through the same allowlist and
+signed-hello gates as explicitly dialed peers.**
 
 Dial scheduling: auto-dials are serialized through the same single-flight
 pending-connect machinery as explicit connects, one at a time and
@@ -59,16 +60,17 @@ and a failed auto-dial is retried when the mDNS behaviour re-emits the peer
 as `Discovered` after its TTL expires. A second explicit connect during an
 explicit dial is rejected with a `connect is already in progress` error.
 
-The recorded candidate store is memory-bounded (256 entries; further
-`Discovered` events are dropped and never dialed). Dial rate is bounded by
-the single-flight slot, `(peer, addr)` dedupe, and TTL re-emission; mDNS is
-LAN-scoped and session admission stays fully gated by the allowlist and
-signed hello. The feature-gated internal `take_mdns_discoveries` drain hook
-exposes the recorded candidates — the deterministic unit tests feed
-fabricated `Discovered` / `Expired` events through it without live multicast.
-mDNS addresses are discovery only: the connect wire carries no
-mDNS/DHT/multiaddr fields (see the [spoke-connect spec §Discovery
-boundary](.mstar/specs/spoke-connect.md)). The [Usage](#usage) example
+The recorded candidate store is memory-bounded (256 entries; `Discovered`
+events beyond the bound are not admitted to the dial queue). Dial rate is
+bounded by the single-flight slot, `(peer, addr)` dedupe, and TTL
+re-emission; mDNS is LAN-scoped and session admission stays fully gated by
+the allowlist and signed hello. The feature-gated internal
+`take_mdns_discoveries` drain hook exposes the recorded candidates — the
+deterministic unit tests drive fabricated `Discovered` / `Expired` events
+through it. mDNS addresses serve discovery only: the connect wire carries
+only the six envelope families; discovery is transport-side (see the
+[spoke-connect spec §Discovery
+boundary](../../.mstar/specs/spoke-connect.md)). The [Usage](#usage) example
 compiles as-is in default builds; with the feature enabled, `ConnectConfig`
 gains the `mdns_autodial` field.
 

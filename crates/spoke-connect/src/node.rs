@@ -182,8 +182,8 @@ struct PendingInvoke {
 /// for the challenge slot; protocol_version 1 does not require the client to
 /// embed challenge bytes inside token claims). One outstanding challenge per
 /// peer in the spike; the entry is removed when the peer answers, when the
-/// peer's last connection closes, or implicitly when the challenge times out
-/// (the peer simply never answers and the session stays unauthorized).
+/// outbound challenge fails (timeout, dropped stream, or connection error),
+/// or when the peer's last connection closes.
 #[derive(Clone)]
 struct PendingChallenge {
     challenge_id: String,
@@ -616,11 +616,14 @@ impl EventLoop {
                     },
                 ..
             } => self.handle_challenge_response(peer, response),
-            request_response::Event::OutboundFailure { .. } => {
+            request_response::Event::OutboundFailure { peer, .. } => {
                 // The peer did not answer our challenge (unknown method, no
                 // token provider, or a dropped stream). The session stays
                 // unauthorized for invokes — fail closed, per the spec's
-                // "kept established but restricted" reference behavior.
+                // "kept established but restricted" reference behavior. The
+                // challenge slot is one-shot per peer, so the failure
+                // consumes it exactly like the response path does.
+                self.pending_challenges.remove(&peer);
             }
             request_response::Event::InboundFailure { .. }
             | request_response::Event::ResponseSent { .. } => {}

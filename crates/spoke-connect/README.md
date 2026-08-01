@@ -1,6 +1,6 @@
 # spoke-connect
 
-Reference spike for the SPOKE Connect wire family (`.mstar/specs/spoke-connect.md`):
+Reference spike for the SPOKE Connect wire family (`../../.mstar/specs/spoke-connect.md`):
 an embeddable Rust library that maps the connect envelopes onto rust-libp2p and
 demonstrates the `noise-peerid` authenticated hello handshake, the
 `capability-token` step-up auth method, per-session ordering, and op
@@ -478,6 +478,6 @@ the `connect` / `invoke` futures) — no sleep-based synchronization.
 
 ## Normative reference
 
-- `.mstar/specs/spoke-connect.md` — envelope field tables, JCS rules, nonce /
+- `../../.mstar/specs/spoke-connect.md` — envelope field tables, JCS rules, nonce /
   replay, ordering, auth model, discovery boundary.
 - `schemas/connect/` — the JSON Schema SSOT for the six connect envelopes.

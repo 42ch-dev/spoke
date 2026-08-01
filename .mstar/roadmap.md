@@ -2,7 +2,7 @@
 
 > Living **project** roadmap (tracked result). Strategy and architecture live in [`STRATEGY.md`](../STRATEGY.md) and [`.mstar/specs/`](specs/). Per-slice execution detail stays in local `delivery-compass.md` (process; gitignored).
 
-**Updated:** 2026-07-31  
+**Updated:** 2026-08-01  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.
 
 ---
@@ -25,7 +25,8 @@
 
 | Slice | What ships | Notes |
 |-------|------------|-------|
-| **spoke-connect multi-language SDK** | uniffi bindings (target-language matrix) + TS connectivity route decision (js-libp2p vs WASM) + capability-token auth model + mDNS/DHT discovery | Triggered by spoke-connect wire + Rust core delivery; async-FFI design + facade stability are preconditions |
+| **spoke-connect TS first slice (pure-TS-minimal)** | Thin Path A helpers: WebSocket ordered-stream framing + WebCrypto/`@noble` Ed25519 + RFC 8785 JCS hello + `peer_id` derivation + minimal session-core port; identity golden-vector check | Route locked in [spoke-connect-ts-route.md](specs/spoke-connect-ts-route.md); js-libp2p is the mesh fallback; WASM deferred; no published connect daemon |
+| **spoke-connect multi-language SDK** | uniffi bindings (target-language matrix) + capability-token auth model + mDNS/DHT discovery | Triggered by spoke-connect wire + Rust core + TS route lock; async-FFI design + facade stability are preconditions |
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
 
 ---

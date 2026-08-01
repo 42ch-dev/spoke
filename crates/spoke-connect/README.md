@@ -101,7 +101,7 @@ multihash form.
 ## Capability-token auth (`capability-token`)
 
 The `capability-token` method (normative, [spoke-connect spec §Method —
-capability-token](.mstar/specs/spoke-connect.md)) is a **step-up /
+capability-token](../../.mstar/specs/spoke-connect.md)) is a **step-up /
 mid-session capability grant** on top of the `noise-peerid` hello identity:
 a trusted issuer signs a short claim set (`iss` / `sub` / `aud` /
 `capabilities` / `exp`, optional `iat` / `jti`) over RFC 8785 JCS with
@@ -319,7 +319,7 @@ transport layer converts `libp2p::PeerId` ↔ `String` at the boundary and
 calls into the core.
 
 This section records the binding facade decision for the spec's Path B
-(shared core bindings, `.mstar/specs/spoke-connect.md` §Embedding model):
+(shared core bindings, `../../.mstar/specs/spoke-connect.md` §Embedding model):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
 first binding skeleton exposes, and which languages are targeted. A **Swift
 sync-core skeleton is landed**: the exported surface below ships through

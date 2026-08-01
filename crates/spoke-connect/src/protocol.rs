@@ -19,6 +19,19 @@ pub(crate) const HELLO_PROTOCOL: &str = "/spoke/connect/hello/1.0.0";
 /// Request-response protocol name for op invocation.
 pub(crate) const INVOKE_PROTOCOL: &str = "/spoke/connect/invoke/1.0.0";
 
+/// Request-response protocol name for the capability-token auth exchange:
+/// the challenger sends a `ConnectAuthChallenge` request, the challenged
+/// peer replies with a `ConnectAuthResponse`.
+pub(crate) const AUTH_PROTOCOL: &str = "/spoke/connect/auth/1.0.0";
+
+/// The normative `capability-token` method name (open vocabulary, see
+/// `.mstar/specs/spoke-connect.md` §`method` core vocabulary).
+pub(crate) const METHOD_CAPABILITY_TOKEN: &str = "capability-token";
+
+/// Minimum length of the challenge nonce (`challenge`), per the
+/// capability-token method rules.
+pub(crate) const TOKEN_CHALLENGE_MIN_LENGTH: usize = 16;
+
 /// Transport-level acknowledgement for an accepted hello.
 ///
 /// The hello content travels as the request; the response is a minimal ack.

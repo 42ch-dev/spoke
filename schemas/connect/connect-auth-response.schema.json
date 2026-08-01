@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/connect/connect-auth-response.schema.json",
   "title": "ConnectAuthResponse",
-  "description": "Auth challenge reply envelope; proof is method-specific.",
+  "description": "Auth challenge reply envelope; proof is method-specific (core methods: noise-peerid, capability-token).",
   "type": "object",
   "required": ["challenge_id", "method", "proof", "extensions"],
   "properties": {
@@ -14,11 +14,11 @@
     "method": {
       "type": "string",
       "minLength": 1,
-      "description": "MUST match challenge method."
+      "description": "MUST match challenge method. Core (documented, not enforced): noise-peerid, capability-token. Reserved name: did."
     },
     "proof": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
-      "description": "Method-specific proof (signature bundle, token, ...)."
+      "description": "Method-specific proof. For capability-token: object { v, claims, sig } (sig over JCS(claims) only)."
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

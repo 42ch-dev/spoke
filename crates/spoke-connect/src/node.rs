@@ -53,11 +53,17 @@
 //! session handles are marked closed and their pending invokes fail fast.
 
 use crate::config::ConnectConfig;
-use crate::core::{dispatch_allowed, CoreInvokeError, InboundSequence};
+use crate::core::{
+    token_authorizes_op, verify_capability_token, CapabilityTokenProof, CoreError, CoreInvokeError,
+    InboundSequence,
+};
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
 use crate::hello::{generate_nonce, sign_hello};
-use crate::protocol::{HelloAck, HELLO_PROTOCOL, INVOKE_PROTOCOL, MAX_SEQUENCE};
+use crate::protocol::{
+    HelloAck, AUTH_PROTOCOL, HELLO_PROTOCOL, INVOKE_PROTOCOL, MAX_SEQUENCE,
+    METHOD_CAPABILITY_TOKEN, TOKEN_CHALLENGE_MIN_LENGTH,
+};
 use crate::runtime::{
     generate_request_id, map_invoke_response, InvokeCorrelation, InvokeSuccess, LoopCommand,
     SessionHandle,
@@ -70,13 +76,15 @@ use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{ConnectionId, NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::SwarmBuilder;
 use libp2p::{identify, noise, tcp, yamux, Multiaddr, PeerId, StreamProtocol};
+use spoke_schemas::connect::connect_auth_challenge::ConnectAuthChallenge;
+use spoke_schemas::connect::connect_auth_response::ConnectAuthResponse;
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::connect_invoke_response::{ConnectInvokeResponse, ErrorEnvelope};
 use spoke_schemas::connect::ConnectHello;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot, watch};
 
 /// How long `start` waits for the configured listeners to report resolved
@@ -101,6 +109,7 @@ struct ConnectBehaviour {
     identify: identify::Behaviour,
     hello: request_response::json::Behaviour<ConnectHello, HelloAck>,
     invoke: request_response::json::Behaviour<ConnectInvokeRequest, ConnectInvokeResponse>,
+    auth: request_response::json::Behaviour<ConnectAuthChallenge, ConnectAuthResponse>,
 }
 
 impl ConnectBehaviour {
@@ -125,10 +134,19 @@ impl ConnectBehaviour {
                 )],
                 request_response::Config::default().with_request_timeout(timeout),
             );
+        let auth =
+            request_response::json::Behaviour::<ConnectAuthChallenge, ConnectAuthResponse>::new(
+                [(
+                    StreamProtocol::new(AUTH_PROTOCOL),
+                    request_response::ProtocolSupport::Full,
+                )],
+                request_response::Config::default().with_request_timeout(timeout),
+            );
         Self {
             identify,
             hello,
             invoke,
+            auth,
         }
     }
 }
@@ -156,6 +174,23 @@ struct PeerHandshake {
 struct PendingInvoke {
     correlation: InvokeCorrelation,
     reply: oneshot::Sender<Result<InvokeSuccess, InvokeError>>,
+}
+
+/// An outstanding capability-token challenge sent to a peer.
+///
+/// The challenge nonce is bound to the `challenge_id` server-side (anti-replay
+/// for the challenge slot; protocol_version 1 does not require the client to
+/// embed challenge bytes inside token claims). One outstanding challenge per
+/// peer in the spike; the entry is removed when the peer answers, when the
+/// outbound challenge fails (timeout, dropped stream, or connection error),
+/// or when the peer's last connection closes.
+#[derive(Clone)]
+struct PendingChallenge {
+    challenge_id: String,
+    /// The opaque random nonce sent in the challenge (not consulted by
+    /// token validation — reserved bookkeeping for a future binding design).
+    #[allow(dead_code)]
+    nonce: String,
 }
 
 /// The single in-flight `connect` (spike: serial dials only).
@@ -211,8 +246,17 @@ struct EventLoop {
     /// side only). Used to complete duplicate `connect` calls against the
     /// same address without opening a surplus connection.
     peer_listen_addrs: HashMap<PeerId, Multiaddr>,
+    /// The connection each session was established through (dialer side
+    /// only). The duplicate-dial completion path closes the pending dial's
+    /// connection as surplus **unless** it is the session's own connection —
+    /// which happens when the capability-token gate delayed the pending
+    /// connect's completion past session creation.
+    session_connections: HashMap<PeerId, ConnectionId>,
     /// In-flight outbound invokes keyed by request-response id.
     pending_invokes: HashMap<OutboundRequestId, PendingInvoke>,
+    /// Outstanding capability-token challenges sent to each peer (one per
+    /// peer in the spike), keyed by the challenged peer.
+    pending_challenges: HashMap<PeerId, PendingChallenge>,
 }
 
 impl EventLoop {
@@ -301,6 +345,8 @@ impl EventLoop {
                 self.pending_hellos.remove(&peer_id);
                 self.handshakes.remove(&peer_id);
                 self.inbound_sequences.remove(&peer_id);
+                self.pending_challenges.remove(&peer_id);
+                self.session_connections.remove(&peer_id);
                 if let Some(handle) = self.sessions.remove(&peer_id) {
                     // Mark the handle closed before removal: live session
                     // clones fail fast instead of enqueueing on a dead
@@ -342,6 +388,9 @@ impl EventLoop {
             SwarmEvent::Behaviour(ConnectBehaviourEvent::Invoke(event)) => {
                 self.handle_invoke_event(event);
             }
+            SwarmEvent::Behaviour(ConnectBehaviourEvent::Auth(event)) => {
+                self.handle_auth_event(event);
+            }
             // Listener errors, dial failures, address churn, bandwidth and
             // other identify events are not part of the hello/invoke path.
             _ => {}
@@ -375,11 +424,15 @@ impl EventLoop {
         // Already-connected fast path: connecting to the recorded listen
         // address of a live session completes with that session (duplicate
         // dial) instead of opening a surplus connection. This is the
-        // sanctioned "already connected" duplicate-dial semantic.
+        // sanctioned "already connected" duplicate-dial semantic. When the
+        // token policy is active, the fast path only completes for sessions
+        // whose challenge already succeeded; otherwise the dial proceeds and
+        // waits for the token exchange through the normal completion path.
         if let Some(handle) = self
             .peer_listen_addrs
             .iter()
             .filter(|(_, recorded)| **recorded == addr)
+            .filter(|(peer, _)| self.token_gate_satisfied(peer))
             .filter_map(|(peer, _)| self.sessions.get(peer))
             .next()
         {
@@ -536,6 +589,227 @@ impl EventLoop {
         }
     }
 
+    /// The capability-token auth exchange: inbound challenges are answered
+    /// from the configured token provider; outbound challenge responses are
+    /// validated and mark the session token-authorized on success.
+    fn handle_auth_event(
+        &mut self,
+        event: request_response::Event<ConnectAuthChallenge, ConnectAuthResponse>,
+    ) {
+        match event {
+            request_response::Event::Message {
+                peer,
+                message:
+                    request_response::Message::Request {
+                        request_id: _request_id,
+                        request,
+                        channel,
+                    },
+                ..
+            } => self.handle_inbound_challenge(peer, request, channel),
+            request_response::Event::Message {
+                peer,
+                message:
+                    request_response::Message::Response {
+                        request_id: _request_id,
+                        response,
+                    },
+                ..
+            } => self.handle_challenge_response(peer, response),
+            request_response::Event::OutboundFailure { peer, .. } => {
+                // The peer did not answer our challenge (unknown method, no
+                // token provider, or a dropped stream). The session stays
+                // unauthorized for invokes — fail closed, per the spec's
+                // "kept established but restricted" reference behavior. The
+                // challenge slot is one-shot per peer, so the failure
+                // consumes it exactly like the response path does.
+                self.pending_challenges.remove(&peer);
+            }
+            request_response::Event::InboundFailure { .. }
+            | request_response::Event::ResponseSent { .. } => {}
+        }
+    }
+
+    /// Answer a received `capability-token` challenge with this node's proof.
+    ///
+    /// An unknown method or a challenge below the nonce floor cannot be
+    /// answered: the channel is dropped and the challenger observes an
+    /// outbound failure (its session stays unauthorized for invokes).
+    fn handle_inbound_challenge(
+        &mut self,
+        peer: PeerId,
+        challenge: ConnectAuthChallenge,
+        channel: ResponseChannel<ConnectAuthResponse>,
+    ) {
+        if challenge.method.as_str() != METHOD_CAPABILITY_TOKEN {
+            drop(channel);
+            return;
+        }
+        if challenge.challenge.as_str().len() < TOKEN_CHALLENGE_MIN_LENGTH {
+            drop(channel);
+            return;
+        }
+        let Some(provider) = &self.config.capability_token_provider else {
+            drop(channel);
+            return;
+        };
+        match provider(&peer.to_string()) {
+            Ok(proof) => {
+                let response = ConnectAuthResponse {
+                    // Echo the challenge's correlation id and method.
+                    challenge_id: challenge
+                        .challenge_id
+                        .as_str()
+                        .parse()
+                        .expect("echoed challenge id parses"),
+                    method: METHOD_CAPABILITY_TOKEN.parse().expect("method name parses"),
+                    proof,
+                    extensions: Default::default(),
+                };
+                let _ = self
+                    .swarm
+                    .behaviour_mut()
+                    .auth
+                    .send_response(channel, response);
+            }
+            // The provider could not produce a proof (e.g. no token for this
+            // audience): same fail-closed path as no provider.
+            Err(_) => drop(channel),
+        }
+    }
+
+    /// Validate a challenge response and, on success, mark the session
+    /// token-authorized (`capability_token_ok`).
+    ///
+    /// Checks, in order: the response must be for this node's outstanding
+    /// challenge (challenge_id echo), the method must be `capability-token`
+    /// (anything else is `auth_failed` — the session stays unauthorized),
+    /// and the proof must validate against this node's trust config. A
+    /// rejected or stale response consumes the challenge slot: the session
+    /// remains unauthorized for invokes (fail closed).
+    fn handle_challenge_response(&mut self, peer: PeerId, response: ConnectAuthResponse) {
+        let Some(pending) = self.pending_challenges.get(&peer).cloned() else {
+            return; // unsolicited response: ignore
+        };
+        if response.challenge_id.as_str() != pending.challenge_id {
+            return; // stale or mismatched challenge slot: ignore
+        }
+        self.pending_challenges.remove(&peer);
+        if response.method.as_str() != METHOD_CAPABILITY_TOKEN {
+            // Unknown method on the challenge response ⇒ auth_failed: the
+            // session stays unauthorized for invokes.
+            return;
+        }
+        let Ok(grant) = self.validate_token_proof(&response.proof, &peer) else {
+            // Invalid token: the session stays unauthorized for invokes.
+            return;
+        };
+        let Some(session) = self.sessions.get(&peer) else {
+            return;
+        };
+        session.mark_token_ok(grant);
+        // The token gate may have been blocking the pending connect: retry
+        // completion now that the session is token-authorized.
+        self.maybe_complete_session(&peer);
+    }
+
+    /// Validate a capability-token proof against this node's trust
+    /// configuration and the authenticated session peer.
+    ///
+    /// The opaque wire `proof` is deserialized into the core token type
+    /// (unknown claims / wrapper keys and malformed shapes reject here) and
+    /// validated with the pure core rule. Returns the token's granted
+    /// capabilities for the invoke dispatch gate.
+    fn validate_token_proof(
+        &self,
+        proof: &serde_json::Value,
+        session_peer: &PeerId,
+    ) -> Result<Vec<String>, CoreError> {
+        let proof: CapabilityTokenProof = serde_json::from_value(proof.clone())
+            .map_err(|e| CoreError::TokenInvalid(format!("malformed proof: {e}")))?;
+        verify_capability_token(
+            &proof,
+            &self.config.trusted_issuers,
+            &self.identity.public().to_peer_id().to_string(),
+            &session_peer.to_string(),
+            unix_now_seconds(),
+        )
+    }
+
+    /// Send a fresh `capability-token` challenge to `peer` and bind it in the
+    /// pending map (anti-replay for the challenge slot).
+    fn send_token_challenge(&mut self, peer: &PeerId) {
+        let Ok(challenge_id) = generate_request_id() else {
+            return;
+        };
+        let Ok(nonce) = generate_nonce() else { return };
+        // The generated UUID and base64url nonce always satisfy the wire
+        // minLength constraints (nonce = 22 chars ≥ 16).
+        let challenge = ConnectAuthChallenge {
+            challenge_id: challenge_id.parse().expect("generated challenge id parses"),
+            method: METHOD_CAPABILITY_TOKEN.parse().expect("method name parses"),
+            challenge: nonce.parse().expect("generated nonce parses"),
+            extensions: Default::default(),
+        };
+        self.pending_challenges.insert(
+            *peer,
+            PendingChallenge {
+                challenge_id,
+                nonce,
+            },
+        );
+        self.swarm
+            .behaviour_mut()
+            .auth
+            .send_request(peer, challenge);
+    }
+
+    /// Whether the capability-token gate is satisfied for `peer`'s session:
+    /// always when the token policy is inactive; otherwise the session must
+    /// have completed the challenge with a valid token.
+    fn token_gate_satisfied(&self, peer: &PeerId) -> bool {
+        if !self.config.token_policy_active() {
+            return true;
+        }
+        self.sessions
+            .get(peer)
+            .is_some_and(|session| session.token_ok())
+    }
+
+    /// The capability-token gate for an inbound invoke (normative dispatch
+    /// order step 2).
+    ///
+    /// Returns the **effective token grant** (`claims.capabilities`) when a
+    /// valid token is in effect for this invoke, or the wire `auth_failed`
+    /// message when the token gate rejects:
+    /// - `auth` present → the proof is validated on **every** invoke (same
+    ///   rules as the challenge), even when `require_capability_token` is
+    ///   false;
+    /// - `auth` absent and the token policy active → the session must have
+    ///   completed the challenge (`capability_token_ok`), otherwise the
+    ///   invoke is rejected;
+    /// - `auth` absent and the policy inactive → `None` (no token gate; the
+    ///   noise-peerid-only dispatch gate applies).
+    fn evaluate_invoke_token_gate(
+        &self,
+        peer: &PeerId,
+        request: &ConnectInvokeRequest,
+    ) -> Result<Option<Vec<String>>, String> {
+        if let Some(auth) = &request.auth {
+            return self
+                .validate_token_proof(auth, peer)
+                .map(Some)
+                .map_err(|e| format!("invalid capability token: {e}"));
+        }
+        let session = self.sessions.get(peer).expect("session verified above");
+        if self.config.token_policy_active() && !session.token_ok() {
+            return Err(
+                "capability token required but this session is not token-authorized".into(),
+            );
+        }
+        Ok(session.granted_capabilities())
+    }
+
     /// Answer an inbound invoke through the configured handler hook; a peer
     /// without an established session is answered with a wire
     /// `ErrorEnvelope` (protocol v1 has no invoke-level transport error
@@ -583,85 +857,117 @@ impl EventLoop {
                             // the response outcome (mirrors the outbound
                             // direction: a failed invoke still consumes its
                             // sequence).
-                            match &self.config.invoke_handler {
-                                None => self.error_response(
-                                    &request,
-                                    "op_unsupported",
-                                    "no invoke handler configured on this node".into(),
-                                ),
-                                Some(handler) => {
-                                    // Op dispatch gate (normative MUST,
-                                    // `.mstar/specs/spoke-connect.md` §Op
-                                    // dispatch gate): a host that performs op
-                                    // dispatch must not run an op whose
-                                    // required capability is absent from the
-                                    // session's `negotiated_capabilities`.
-                                    // Denied ops are answered with an
-                                    // `op_unsupported` wire envelope and the
-                                    // handler is never invoked — no side
-                                    // effects. The core table (pure
-                                    // `dispatch_allowed`, fail-closed for
-                                    // unknown ops) is consulted first; ops
-                                    // outside the core table fall back to
-                                    // the product-configured
-                                    // `op_capability_requirements` map.
-                                    let session = self
-                                        .sessions
-                                        .get(&peer)
-                                        .expect("session verified above");
-                                    let allowed = dispatch_allowed(
-                                        &request.op,
-                                        &session.negotiated_capabilities,
-                                    ) || self
-                                        .config
-                                        .op_capability_requirements
-                                        .get(request.op.as_str())
-                                        .is_some_and(|required| {
-                                            session
-                                                .negotiated_capabilities
-                                                .contains(required)
-                                        });
-                                    if !allowed {
-                                        self.error_response(
+                            // Capability-token gate (normative §Method —
+                            // capability-token, dispatch order step 2): when
+                            // the request carries `auth`, the proof is
+                            // validated on **every** invoke (same rules as
+                            // the challenge); when the token policy is
+                            // active, an invoke from a session that has not
+                            // completed the challenge and carries no `auth`
+                            // is rejected with an `auth_failed` wire
+                            // envelope — before any dispatch.
+                            match self.evaluate_invoke_token_gate(&peer, &request) {
+                                Err(message) => {
+                                    self.error_response(&request, "auth_failed", message)
+                                }
+                                Ok(token_grant) => {
+                                    match &self.config.invoke_handler {
+                                        None => self.error_response(
                                             &request,
                                             "op_unsupported",
-                                            format!(
-                                                "op {} requires a capability that is not negotiated in this session",
-                                                request.op.as_str()
-                                            ),
-                                        )
-                                    } else {
-                                        // The handler runs synchronously on the
-                                        // event loop: it must return promptly and
-                                        // must not block on I/O (see
-                                        // ConnectConfig::invoke_handler). Panics
-                                        // are contained so a misbehaving adapter
-                                        // cannot kill the node; the invoke is
-                                        // answered with an `internal_error` wire
-                                        // envelope.
-                                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                            || handler(&request.op, request.payload.clone()),
-                                        ));
-                                        match result {
-                                            Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
-                                                session_id: request.session_id.to_string(),
-                                                sequence: request.sequence,
-                                                request_id: request.request_id.to_string(),
-                                                payload,
-                                                extensions: Default::default(),
-                                            },
-                                            Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
-                                                session_id: request.session_id.to_string(),
-                                                sequence: request.sequence,
-                                                request_id: request.request_id.to_string(),
-                                                error,
-                                                extensions: Default::default(),
-                                            },
-                                            Err(_) => self.error_response(
-                                                &request,
-                                                "internal_error",
-                                                "invoke handler panicked".into(),
-                                            ),
+                                            "no invoke handler configured on this node".into(),
+                                        ),
+                                        Some(handler) => {
+                                            // Op dispatch gate (normative MUST,
+                                            // `.mstar/specs/spoke-connect.md` §Op
+                                            // dispatch gate): a host that performs
+                                            // op dispatch must not run an op whose
+                                            // required capability is absent from the
+                                            // session's `negotiated_capabilities`.
+                                            // Denied ops are answered with an
+                                            // `op_unsupported` wire envelope and the
+                                            // handler is never invoked — no side
+                                            // effects. The core table (pure
+                                            // `dispatch_allowed`, fail-closed for
+                                            // unknown ops) is consulted first; ops
+                                            // outside the core table fall back to
+                                            // the product-configured
+                                            // `op_capability_requirements` map.
+                                            // When a capability token is in effect
+                                            // (session grant or per-invoke `auth`),
+                                            // the token grant AND the negotiated
+                                            // set must both allow the op —
+                                            // capability-not-granted reuses the
+                                            // same `op_unsupported` deny path.
+                                            let session = self
+                                                .sessions
+                                                .get(&peer)
+                                                .expect("session verified above");
+                                            let required = crate::core::required_capability(
+                                                request.op.as_str(),
+                                            )
+                                            .or_else(|| {
+                                                self.config
+                                                    .op_capability_requirements
+                                                    .get(request.op.as_str())
+                                                    .map(String::as_str)
+                                            });
+                                            let negotiated_allowed = required.is_some_and(
+                                                |required| {
+                                                    session
+                                                        .negotiated_capabilities
+                                                        .iter()
+                                                        .any(|granted| granted == required)
+                                                },
+                                            );
+                                            let token_allowed = token_grant
+                                                .as_deref()
+                                                .is_none_or(|grant| {
+                                                    token_authorizes_op(required, grant)
+                                                });
+                                            if !negotiated_allowed || !token_allowed {
+                                                self.error_response(
+                                                    &request,
+                                                    "op_unsupported",
+                                                    format!(
+                                                        "op {} requires a capability that is not granted in this session",
+                                                        request.op.as_str()
+                                                    ),
+                                                )
+                                            } else {
+                                                // The handler runs synchronously on the
+                                                // event loop: it must return promptly
+                                                // and must not block on I/O (see
+                                                // ConnectConfig::invoke_handler).
+                                                // Panics are contained so a
+                                                // misbehaving adapter cannot kill the
+                                                // node; the invoke is answered with an
+                                                // `internal_error` wire envelope.
+                                                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                                    || handler(&request.op, request.payload.clone()),
+                                                ));
+                                                match result {
+                                                    Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
+                                                        session_id: request.session_id.to_string(),
+                                                        sequence: request.sequence,
+                                                        request_id: request.request_id.to_string(),
+                                                        payload,
+                                                        extensions: Default::default(),
+                                                    },
+                                                    Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
+                                                        session_id: request.session_id.to_string(),
+                                                        sequence: request.sequence,
+                                                        request_id: request.request_id.to_string(),
+                                                        error,
+                                                        extensions: Default::default(),
+                                                    },
+                                                    Err(_) => self.error_response(
+                                                        &request,
+                                                        "internal_error",
+                                                        "invoke handler panicked".into(),
+                                                    ),
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -749,12 +1055,26 @@ impl EventLoop {
             if is_pending_peer {
                 // Duplicate dial: the peer already has a live session.
                 // Complete the pending connect with a clone of the existing
-                // handle and close the surplus connection the dial just
-                // established. The existing session stays on its own
-                // connection and keeps working.
+                // handle — but only once the token gate is satisfied (the
+                // challenge exchange is a property of the session, not of
+                // any one connection). The surplus connection the dial just
+                // established is closed only when it is not the session's
+                // own connection: when the capability-token gate delayed the
+                // pending connect past session creation, the "existing"
+                // session lives on the pending dial's connection, and
+                // closing it would kill the session.
+                if !self.token_gate_satisfied(peer) {
+                    return;
+                }
+                let session_connection = self.session_connections.get(peer).copied();
                 if let Some(pending) = self.pending_connect.take() {
-                    if let Some(connection) = pending.connection {
-                        let _ = self.swarm.close_connection(connection);
+                    let surplus = pending
+                        .connection
+                        .is_some_and(|connection| session_connection != Some(connection));
+                    if surplus {
+                        if let Some(connection) = pending.connection {
+                            let _ = self.swarm.close_connection(connection);
+                        }
                     }
                     let _ = pending.reply.send(Ok(existing.clone()));
                 }
@@ -802,7 +1122,30 @@ impl EventLoop {
         // The receiver-side inbound expectation starts at 0 with the session
         // (lockstep with `sessions`; removed together on connection close).
         self.inbound_sequences.insert(*peer, InboundSequence::new());
+        // Dialer side: record the connection the session was established
+        // through (the duplicate-dial completion path uses it to tell a
+        // surplus dial connection apart from the session's own connection).
         if is_pending_peer {
+            if let Some(connection) = self
+                .pending_connect
+                .as_ref()
+                .and_then(|pending| pending.connection)
+            {
+                self.session_connections.insert(*peer, connection);
+            }
+        }
+        // Capability-token step-up (normative §Challenge / response and
+        // invoke `auth`): when the token policy is active, the session is
+        // offered the challenge right after establishment — the peer's
+        // answer authorizes invokes. Until then (or if the peer cannot
+        // answer), invokes from this peer are rejected with `auth_failed`.
+        if self.config.token_policy_active() {
+            self.send_token_challenge(peer);
+        }
+        if is_pending_peer {
+            if !self.token_gate_satisfied(peer) {
+                return;
+            }
             if let Some(pending) = self.pending_connect.take() {
                 self.peer_listen_addrs.insert(*peer, pending.addr.clone());
                 let _ = pending.reply.send(Ok(handle));
@@ -1001,6 +1344,14 @@ fn inbound_sequence_valid(sequence: i64) -> bool {
     sequence >= 0 && (sequence as u64) <= MAX_SEQUENCE
 }
 
+/// Current Unix time in seconds (UTC), for capability-token expiry checks.
+fn unix_now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
 /// Whether another pending hello may be buffered for a peer.
 fn pending_hello_capacity_available(pending: usize) -> bool {
     pending < MAX_PENDING_HELLOS_PER_PEER
@@ -1075,7 +1426,9 @@ impl SpokeConnectNode {
             sessions: HashMap::new(),
             inbound_sequences: HashMap::new(),
             peer_listen_addrs: HashMap::new(),
+            session_connections: HashMap::new(),
             pending_invokes: HashMap::new(),
+            pending_challenges: HashMap::new(),
         };
         let requested_listeners = event_loop.config.listen_addrs.len();
         let task = tokio::spawn(event_loop.run(shutdown_rx));
@@ -1239,6 +1592,9 @@ mod tests {
             handshake_timeout: Some(Duration::from_secs(5)),
             invoke_handler: None,
             op_capability_requirements: HashMap::new(),
+            trusted_issuers: Vec::new(),
+            require_capability_token: false,
+            capability_token_provider: None,
         }
     }
 

@@ -27,13 +27,32 @@
 //!     op_capability_requirements`) authorizes product-defined ops through
 //!     the dispatch gate: a mapped requirement that IS negotiated lets the
 //!     handler run; one that is NOT negotiated is denied (`op_unsupported`,
-//!     handler never called).
+//!     handler never called);
+//! (m) the capability-token challenge/response flow (require flag true on
+//!     both nodes): both sides complete the challenge with provider-minted
+//!     tokens from a trusted issuer, the dialer's session reports
+//!     `capability_token_ok`, and invokes flow without per-invoke `auth`;
+//! (n) a receiver with `require_capability_token` true rejects invokes from
+//!     a session that never completed the challenge when no `auth` is
+//!     attached (`auth_failed` wire code); per-invoke `auth` with a valid
+//!     token passes and an expired token is rejected;
+//! (o) with `require_capability_token` false, no-`auth` behavior is
+//!     unchanged, while an attached `auth` proof is still validated on every
+//!     invoke (untrusted issuer / tampered proof → `auth_failed`);
+//! (p) the token grant gates dispatch by capability membership: an op whose
+//!     required capability is negotiated but absent from the token grant is
+//!     denied with `op_unsupported` (handler never called); a token granting
+//!     the required capability lets it through.
 //!
 //! All waits are bounded event waits (timeouts on `connect` / `invoke`
 //! futures) — no sleep-based synchronization.
 
+use ed25519_dalek::SigningKey;
 use libp2p::identity::Keypair;
 use libp2p::{Multiaddr, PeerId};
+use spoke_connect::core::{
+    derive_peer_id_from_ed25519_pubkey, issue_capability_token, CapabilityClaims,
+};
 use spoke_connect::{parse_multiaddr, ConnectConfig, ConnectError, InvokeError, SpokeConnectNode};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
@@ -99,6 +118,9 @@ fn config(
         handshake_timeout: Some(timeout),
         invoke_handler: None,
         op_capability_requirements: HashMap::new(),
+        trusted_issuers: Vec::new(),
+        require_capability_token: false,
+        capability_token_provider: None,
     }
 }
 
@@ -139,6 +161,78 @@ fn check_response() -> serde_json::Value {
             "extensions": {}
         }],
         "extensions": {}
+    })
+}
+
+/// Unix time now + `offset` seconds, for token expiry fixtures.
+fn now_plus(offset: u64) -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("post-epoch clock")
+        .as_secs()
+        + offset
+}
+
+/// The `peer_id` derived from an Ed25519 issuer secret (the issuer's
+/// identity string, used in `trusted_issuers` and `claims.iss`).
+fn issuer_peer_id(issuer_secret: &[u8; 32]) -> String {
+    derive_peer_id_from_ed25519_pubkey(
+        &SigningKey::from_bytes(issuer_secret)
+            .verifying_key()
+            .to_bytes(),
+    )
+}
+
+/// Mint a capability-token proof from `issuer_secret` for `subject` to
+/// present to `audience`, serialized as the wire `proof` object (`{ v,
+/// claims, sig }`).
+fn token_proof(
+    issuer_secret: &[u8; 32],
+    subject: &str,
+    audience: &str,
+    capabilities: &[&str],
+    exp: u64,
+) -> serde_json::Value {
+    let proof = issue_capability_token(
+        issuer_secret,
+        CapabilityClaims {
+            iss: issuer_peer_id(issuer_secret),
+            sub: subject.to_string(),
+            aud: audience.to_string(),
+            capabilities: capabilities.iter().map(|c| (*c).to_string()).collect(),
+            exp,
+            iat: None,
+            jti: None,
+        },
+    )
+    .expect("issuer key derives iss");
+    serde_json::to_value(&proof).expect("proof serializes")
+}
+
+/// A challenge-response token provider for `subject`: mints a token from
+/// `issuer_secret` for the challenger as the audience (so the returned proof
+/// carries `sub` = `subject` and `aud` = the challenger's peer id).
+fn provider(
+    issuer_secret: [u8; 32],
+    subject: PeerId,
+    capabilities: Vec<String>,
+    exp: u64,
+) -> Arc<spoke_connect::CapabilityTokenProvider> {
+    Arc::new(move |audience: &str| {
+        let proof = issue_capability_token(
+            &issuer_secret,
+            CapabilityClaims {
+                iss: issuer_peer_id(&issuer_secret),
+                sub: subject.to_string(),
+                aud: audience.to_string(),
+                capabilities: capabilities.clone(),
+                exp,
+                iat: None,
+                jti: None,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        serde_json::to_value(&proof).map_err(|e| e.to_string())
     })
 }
 
@@ -953,6 +1047,391 @@ async fn product_op_with_unnegotiated_mapped_capability_is_denied() {
         calls.load(std::sync::atomic::Ordering::SeqCst),
         0,
         "the handler must not run for a capability-denied product op"
+    );
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (m) The capability-token challenge/response flow with
+/// `require_capability_token` true on both nodes: after both hellos, each
+/// side challenges the other; provider-minted tokens from a trusted issuer
+/// authorize both sessions, and invokes flow without per-invoke `auth`.
+#[tokio::test]
+async fn capability_token_challenge_authorizes_invokes() {
+    let _network_guard = network_test_guard().await;
+    let issuer_secret = [1u8; 32];
+    let issuer_peer = issuer_peer_id(&issuer_secret);
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let handler = Arc::new(|_op: &str, _payload: serde_json::Value| {
+        Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+    });
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest_with_capabilities("host-a", &["checker"], &["spoke-connect", "spoke-baseline"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    cfg_a.trusted_issuers = vec![issuer_peer.clone()];
+    cfg_a.require_capability_token = true;
+    cfg_a.capability_token_provider = Some(provider(
+        issuer_secret,
+        peer_a,
+        vec!["spoke-baseline".into()],
+        now_plus(3600),
+    ));
+    let mut cfg_b = config(
+        key_b,
+        vec![peer_a],
+        manifest_with_capabilities(
+            "host-b",
+            &["input-source"],
+            &["spoke-connect", "spoke-baseline"],
+        ),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_b.trusted_issuers = vec![issuer_peer];
+    cfg_b.require_capability_token = true;
+    cfg_b.capability_token_provider = Some(provider(
+        issuer_secret,
+        peer_b,
+        vec!["spoke-baseline".into()],
+        now_plus(3600),
+    ));
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = SpokeConnectNode::start(cfg_b).await.expect("b starts");
+
+    // B dials A: the connect completes only after the challenge exchange —
+    // B's token gate is part of session establishment when the policy is
+    // active, so the returned session is already token-authorized.
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a through the token challenge");
+    assert!(
+        session.capability_token_ok(),
+        "the dialer's session must be token-authorized after the challenge"
+    );
+
+    // A's responder side validated B's token as well: an invoke without
+    // `auth` is accepted (session grant in effect).
+    let success = session
+        .invoke("check", check_request())
+        .await
+        .expect("invoke without auth on a token-authorized session");
+    assert_eq!(success.sequence, 0);
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (n) A receiver with `require_capability_token` true rejects invokes from
+/// a session that never completed the challenge when no `auth` is attached
+/// (`auth_failed` wire code); per-invoke `auth` with a valid token passes,
+/// and an expired token is rejected with `auth_failed`.
+#[tokio::test]
+async fn require_token_receiver_rejects_unauthenticated_invokes() {
+    let _network_guard = network_test_guard().await;
+    let issuer_secret = [2u8; 32];
+    let issuer_peer = issuer_peer_id(&issuer_secret);
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler = {
+        let calls = calls.clone();
+        Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+        })
+    };
+    // A: default policy (no trusted issuers) — it dials B.
+    let cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["input-source"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    // B: requires a token, but has no provider (it cannot answer A's
+    // challenges either) — its session with A never completes the challenge.
+    let mut cfg_b = config(
+        key_b,
+        vec![peer_a],
+        manifest("host-b", &["checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_b.invoke_handler = Some(handler);
+    cfg_b.trusted_issuers = vec![issuer_peer];
+    cfg_b.require_capability_token = true;
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = SpokeConnectNode::start(cfg_b).await.expect("b starts");
+
+    let session = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("a dials b (a has no token policy)");
+    assert!(
+        !session.capability_token_ok(),
+        "a's session carries no token grant (a never challenged b)"
+    );
+
+    // No `auth` on a not-token-authorized session: rejected with auth_failed.
+    let err = session
+        .invoke("check", check_request())
+        .await
+        .expect_err("missing token must be rejected");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "auth_failed"),
+        other => panic!("expected auth_failed wire error, got {other:?}"),
+    }
+
+    // Per-invoke `auth` with a valid token from the trusted issuer: accepted.
+    let auth = token_proof(
+        &issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline"],
+        now_plus(3600),
+    );
+    session
+        .invoke_with_auth("check", check_request(), Some(auth))
+        .await
+        .expect("per-invoke auth with a valid token is accepted");
+
+    // Expired token: rejected with auth_failed.
+    let expired = token_proof(
+        &issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline"],
+        now_plus(0).saturating_sub(60),
+    );
+    let err = session
+        .invoke_with_auth("check", check_request(), Some(expired))
+        .await
+        .expect_err("expired token must be rejected");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "auth_failed"),
+        other => panic!("expected auth_failed wire error, got {other:?}"),
+    }
+
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the handler runs exactly once, for the valid-token invoke"
+    );
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (o) With `require_capability_token` false, no-`auth` behavior is
+/// unchanged (noise-peerid only), while an attached `auth` proof is still
+/// validated on **every** invoke: an untrusted issuer and a tampered proof
+/// are both rejected with `auth_failed`.
+#[tokio::test]
+async fn per_invoke_auth_validated_when_require_flag_false() {
+    let _network_guard = network_test_guard().await;
+    let issuer_secret = [3u8; 32];
+    let other_issuer_secret = [4u8; 32];
+    let issuer_peer = issuer_peer_id(&issuer_secret);
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let handler = Arc::new(|_op: &str, _payload: serde_json::Value| {
+        Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+    });
+    // B trusts the issuer but does NOT require a token: the challenge is not
+    // offered and no-`auth` invokes keep the noise-peerid-only behavior.
+    let mut cfg_b = config(
+        key_b,
+        vec![peer_a],
+        manifest("host-b", &["checker"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_b.invoke_handler = Some(handler);
+    cfg_b.trusted_issuers = vec![issuer_peer];
+    let node_a = SpokeConnectNode::start(config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["input-source"]),
+        HANDSHAKE_TIMEOUT,
+    ))
+    .await
+    .expect("a starts");
+    let node_b = SpokeConnectNode::start(cfg_b).await.expect("b starts");
+
+    let session = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("a dials b");
+
+    // No auth, require flag false: unchanged behavior.
+    session
+        .invoke("check", check_request())
+        .await
+        .expect("no-auth invoke succeeds when the require flag is false");
+
+    // Attached valid auth: validated and accepted.
+    let auth = token_proof(
+        &issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline"],
+        now_plus(3600),
+    );
+    session
+        .invoke_with_auth("check", check_request(), Some(auth))
+        .await
+        .expect("valid per-invoke auth is accepted");
+
+    // Auth from an untrusted issuer: rejected with auth_failed.
+    let untrusted = token_proof(
+        &other_issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline"],
+        now_plus(3600),
+    );
+    let err = session
+        .invoke_with_auth("check", check_request(), Some(untrusted))
+        .await
+        .expect_err("untrusted issuer must be rejected");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "auth_failed"),
+        other => panic!("expected auth_failed wire error, got {other:?}"),
+    }
+
+    // Tampered proof (claims mutated after issuance → signature no longer
+    // verifies): rejected with auth_failed.
+    let mut tampered = token_proof(
+        &issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline"],
+        now_plus(3600),
+    );
+    tampered["claims"]["capabilities"] = serde_json::json!(["spoke-baseline", "l2-computable"]);
+    let err = session
+        .invoke_with_auth("check", check_request(), Some(tampered))
+        .await
+        .expect_err("tampered proof must be rejected");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "auth_failed"),
+        other => panic!("expected auth_failed wire error, got {other:?}"),
+    }
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (p) The token grant gates dispatch by **capability membership**: an op
+/// whose required capability is part of the negotiated set but absent from
+/// the token grant is denied with `op_unsupported` (handler never called);
+/// a token granting the required capability lets the same op through.
+#[tokio::test]
+async fn token_grant_capability_membership_gates_dispatch() {
+    let _network_guard = network_test_guard().await;
+    let issuer_secret = [5u8; 32];
+    let issuer_peer = issuer_peer_id(&issuer_secret);
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+    // Both hosts advertise l2-computable: `project` IS in the negotiated
+    // intersection, so any denial below comes from the token grant, not the
+    // negotiated-set gate.
+    let caps = ["spoke-connect", "spoke-baseline", "l2-computable"];
+
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler = {
+        let calls = calls.clone();
+        Arc::new(move |op: &str, _payload: serde_json::Value| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(op, "project", "only token-granted ops reach the handler");
+            Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+        })
+    };
+    let cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest_with_capabilities("host-a", &["input-source"], &caps),
+        HANDSHAKE_TIMEOUT,
+    );
+    let mut cfg_b = config(
+        key_b,
+        vec![peer_a],
+        manifest_with_capabilities("host-b", &["checker"], &caps),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_b.invoke_handler = Some(handler);
+    cfg_b.trusted_issuers = vec![issuer_peer];
+    cfg_b.require_capability_token = true;
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = SpokeConnectNode::start(cfg_b).await.expect("b starts");
+
+    let session = node_a
+        .connect(node_b.listen_addrs()[0].clone())
+        .await
+        .expect("a dials b");
+
+    // Token grants only spoke-baseline: `project` (requires l2-computable)
+    // is denied with op_unsupported even though it IS negotiated.
+    let baseline_only = token_proof(
+        &issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline"],
+        now_plus(3600),
+    );
+    let err = session
+        .invoke_with_auth(
+            "project",
+            serde_json::json!({ "extensions": {} }),
+            Some(baseline_only),
+        )
+        .await
+        .expect_err("token without the op's capability must deny");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "op_unsupported"),
+        other => panic!("expected op_unsupported wire error, got {other:?}"),
+    }
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the handler must not run for a capability-denied op"
+    );
+
+    // A token granting the required capability (extra capabilities ignored):
+    // the same op flows to the handler.
+    let with_l2 = token_proof(
+        &issuer_secret,
+        &peer_a.to_string(),
+        &peer_b.to_string(),
+        &["spoke-baseline", "l2-computable", "unused-extra"],
+        now_plus(3600),
+    );
+    session
+        .invoke_with_auth(
+            "project",
+            serde_json::json!({ "extensions": {} }),
+            Some(with_l2),
+        )
+        .await
+        .expect("token granting the required capability lets the op through");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the handler runs exactly once, for the token-granted op"
     );
 
     node_b.shutdown().await.expect("b shuts down");

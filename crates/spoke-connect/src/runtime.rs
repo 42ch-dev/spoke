@@ -99,6 +99,13 @@ pub(crate) struct SessionHandle {
     /// Set when the sequence space is exhausted or the session is otherwise
     /// unusable; further invokes fail fast with `SessionClosed`.
     pub(crate) closed: AtomicBool,
+    /// Whether the capability-token challenge/response completed with a
+    /// valid token (normative `capability_token_ok`). False while the
+    /// challenge is pending or was rejected.
+    token_ok: AtomicBool,
+    /// The validated token's granted capabilities (challenge path). `None`
+    /// until a token validates; per-invoke `auth` grants are not cached.
+    token_grant: Mutex<Option<Vec<String>>>,
     /// Timeout applied while waiting for an invoke response.
     pub(crate) timeout: Duration,
     pub(crate) cmd_tx: mpsc::Sender<LoopCommand>,
@@ -123,9 +130,36 @@ impl SessionHandle {
             negotiated_capabilities,
             next_sequence: Mutex::new(core::OutboundSequence::new()),
             closed: AtomicBool::new(false),
+            token_ok: AtomicBool::new(false),
+            token_grant: Mutex::new(None),
             timeout,
             cmd_tx,
         }
+    }
+
+    /// Whether the capability-token challenge/response completed with a
+    /// valid token (challenge path).
+    pub(crate) fn token_ok(&self) -> bool {
+        self.token_ok.load(Ordering::SeqCst)
+    }
+
+    /// The validated token's granted capabilities (challenge path), if any.
+    pub(crate) fn granted_capabilities(&self) -> Option<Vec<String>> {
+        self.token_grant
+            .lock()
+            .expect("token grant lock is never poisoned")
+            .clone()
+    }
+
+    /// Record a successfully validated capability token (challenge path):
+    /// marks the session token-authorized and stores the grant for the
+    /// invoke dispatch gate.
+    pub(crate) fn mark_token_ok(&self, capabilities: Vec<String>) {
+        *self
+            .token_grant
+            .lock()
+            .expect("token grant lock is never poisoned") = Some(capabilities);
+        self.token_ok.store(true, Ordering::SeqCst);
     }
 
     /// Mark the session closed; further invokes fail fast with

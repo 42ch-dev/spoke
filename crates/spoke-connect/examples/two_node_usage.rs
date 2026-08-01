@@ -48,6 +48,9 @@ async fn main() {
         handshake_timeout: None,
         invoke_handler: Some(handler),
         op_capability_requirements: HashMap::new(),
+        trusted_issuers: Vec::new(),
+        require_capability_token: false,
+        capability_token_provider: None,
     };
     let node_a = SpokeConnectNode::start(config_a).await.expect("start a");
 
@@ -60,6 +63,9 @@ async fn main() {
         handshake_timeout: None,
         invoke_handler: None,
         op_capability_requirements: HashMap::new(),
+        trusted_issuers: Vec::new(),
+        require_capability_token: false,
+        capability_token_provider: None,
     };
     let node_b = SpokeConnectNode::start(config_b).await.expect("start b");
 

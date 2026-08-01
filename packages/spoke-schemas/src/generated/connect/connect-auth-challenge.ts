@@ -5,7 +5,7 @@
  */
 
 /**
- * Extensible auth challenge envelope. Core method: noise-peerid.
+ * Extensible auth challenge envelope. Core methods: noise-peerid, capability-token.
  */
 export interface ConnectAuthChallenge {
   /**
@@ -13,7 +13,7 @@ export interface ConnectAuthChallenge {
    */
   challenge_id: string;
   /**
-   * Open vocabulary. Core (documented, not enforced): noise-peerid. Reserved names: capability-token, did.
+   * Open vocabulary. Core (documented, not enforced): noise-peerid, capability-token. Reserved name: did.
    */
   method: string;
   /**

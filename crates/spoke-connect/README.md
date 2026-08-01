@@ -2,8 +2,9 @@
 
 Reference spike for the SPOKE Connect wire family (`.mstar/specs/spoke-connect.md`):
 an embeddable Rust library that maps the connect envelopes onto rust-libp2p and
-demonstrates the `noise-peerid` authenticated hello handshake, per-session
-ordering, and op invocation.
+demonstrates the `noise-peerid` authenticated hello handshake, the
+`capability-token` step-up auth method, per-session ordering, and op
+invocation.
 
 ## Status
 
@@ -56,6 +57,67 @@ planned for a future discovery iteration.
 
 `peer_id` on the wire is `PeerId::to_string()` — the libp2p PeerId base58btc
 multihash form.
+
+## Capability-token auth (`capability-token`)
+
+The `capability-token` method (normative, [spoke-connect spec §Method —
+capability-token](.mstar/specs/spoke-connect.md)) is a **step-up /
+mid-session capability grant** on top of the `noise-peerid` hello identity:
+a trusted issuer signs a short claim set (`iss` / `sub` / `aud` /
+`capabilities` / `exp`, optional `iat` / `jti`) over RFC 8785 JCS with
+Ed25519, and the proof rides the `ConnectAuthChallenge` /
+`ConnectAuthResponse` exchange and optionally the `ConnectInvokeRequest.auth`
+blob.
+
+Configure the method on `ConnectConfig`:
+
+- `trusted_issuers: Vec<String>` — issuer `peer_id`s whose signed tokens this
+  node accepts. **Empty list ⇒ the method is disabled**: challenges are not
+  offered and every presented proof is rejected (fail closed).
+- `require_capability_token: bool` (default `false`) — when `true` (and
+  `trusted_issuers` is non-empty), every new session must complete the
+  challenge before invokes are accepted. Default keeps the
+  `noise-peerid`-only behavior.
+- `capability_token_provider: Option<Arc<CapabilityTokenProvider>>` — the
+  hook that answers inbound challenges. Called with the challenger's
+  `peer_id` (the token's `aud`) and returns the wire `proof` object
+  (`{ v, claims, sig }`); the proof must be issued by a trusted issuer with
+  `sub` = this node's `peer_id`. The hook may hold a token cache or mint on
+  demand.
+
+Challenge / response flow: after both hellos are accepted, a node with an
+active token policy sends `ConnectAuthChallenge { method:
+"capability-token", challenge_id, challenge }` (fresh `challenge_id`, random
+nonce ≥ 16 chars, bound in a single-use pending slot) and the peer answers
+through its provider with `ConnectAuthResponse { challenge_id, method,
+proof }`. A valid response marks the session token-authorized and completes
+the pending `connect`; a missing provider, provider error, or unknown method
+drops the exchange — the session stays unauthorized for invokes and the
+pending `connect` resolves only at the handshake timeout (fail closed).
+A session that completed the challenge holds its grant for the session's
+lifetime without expiry revalidation on later invokes — products needing
+mid-session expiry enforcement implement their own re-challenge flow or
+attach a per-invoke `auth`.
+
+Per-invoke `auth`: `ConnectInvokeRequest.auth` optionally carries the same
+proof object. When present, the receiver validates it on **every** invoke
+(expiry re-checked; same issuer / subject / audience rules), independent of
+the challenge flag. When the token policy is active and the session has not
+completed the challenge, invokes without `auth` are rejected with an
+`auth_failed` wire envelope.
+
+Error codes ride the existing open-string wire vocabulary (`ErrorEnvelope`
+`code` — no new envelope fields): `auth_failed` for missing or invalid
+tokens and unknown auth methods; `op_unsupported` when the token is valid
+but the op's required capability is absent from the grant (the same code as
+the dispatch-deny and no-handler paths); `internal_error` for handler
+panics. Implementations MAY distinguish failure reasons in `message` /
+optional `details`.
+
+Reference tests: `cargo test -p spoke-connect` covers the issue→verify
+round-trip, expiry / issuer / subject / audience rejection, the
+challenge / response flow, and the invoke token gate (unit + two-node
+integration).
 
 ## Sessions and op invocation
 
@@ -116,6 +178,7 @@ type), and the invoke error branch carries the inline
 | Protocol | Name |
 |----------|------|
 | Hello exchange | `/spoke/connect/hello/1.0.0` |
+| Auth exchange | `/spoke/connect/auth/1.0.0` |
 | Op invocation | `/spoke/connect/invoke/1.0.0` |
 
 ## Usage
@@ -161,6 +224,9 @@ let node_a = SpokeConnectNode::start(ConnectConfig {
         Ok(serde_json::json!({ "findings": [], "extensions": {} }))
     })),
     op_capability_requirements: HashMap::new(),
+    trusted_issuers: vec![],               // capability-token auth disabled by default
+    require_capability_token: false,
+    capability_token_provider: None,
 })
 .await
 .expect("start a");
@@ -173,6 +239,9 @@ let node_b = SpokeConnectNode::start(ConnectConfig {
     handshake_timeout: None,
     invoke_handler: None,
     op_capability_requirements: HashMap::new(),
+    trusted_issuers: vec![],
+    require_capability_token: false,
+    capability_token_provider: None,
 })
 .await
 .expect("start b");

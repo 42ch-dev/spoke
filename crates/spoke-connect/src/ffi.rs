@@ -47,6 +47,11 @@ pub enum CoreError {
     /// failed.
     #[error("JCS canonicalization failed: {message}")]
     Jcs { message: String },
+    /// A capability-token proof failed validation (malformed shape, bad
+    /// signature, untrusted issuer, subject/audience/expiry mismatch, or
+    /// claim-rule violation).
+    #[error("capability token invalid: {message}")]
+    TokenInvalid { message: String },
 }
 
 impl From<CoreErrorImpl> for CoreError {
@@ -58,6 +63,7 @@ impl From<CoreErrorImpl> for CoreError {
             CoreErrorImpl::InvalidNonce(message) => Self::InvalidNonce { message },
             CoreErrorImpl::Crypto(message) => Self::Crypto { message },
             CoreErrorImpl::Jcs(message) => Self::Jcs { message },
+            CoreErrorImpl::TokenInvalid(message) => Self::TokenInvalid { message },
         }
     }
 }

@@ -124,16 +124,20 @@ pub fn sign_hello_ed25519(
     host_json: String,
 ) -> Result<String, CoreError> {
     let secret = ed25519_key(secret, "Ed25519 secret key")?;
-    let manifest: HostCapabilityManifest = serde_json::from_str(&host_json).map_err(|e| {
-        CoreError::HandshakeFailed {
+    // The FFI boundary cannot carry the typed `HostCapabilityManifest`, so
+    // it crosses as JSON; a parse failure is a malformed-input handshake
+    // failure (the core takes the typed manifest and never sees raw JSON).
+    let manifest: HostCapabilityManifest =
+        serde_json::from_str(&host_json).map_err(|e| CoreError::HandshakeFailed {
             reason: format!("invalid host manifest JSON: {e}"),
-        }
-    })?;
-    let hello = crate::core::sign_hello_ed25519(&secret, &nonce, &manifest).map_err(CoreError::from)?;
+        })?;
+    let hello =
+        crate::core::sign_hello_ed25519(&secret, &nonce, &manifest).map_err(CoreError::from)?;
     // Every envelope field is serializable, so a failure here is a
     // serialization defect — mapped to the canonicalization-family variant.
-    serde_json::to_string(&hello)
-        .map_err(|e| CoreError::Jcs { message: format!("serialize hello: {e}") })
+    serde_json::to_string(&hello).map_err(|e| CoreError::Jcs {
+        message: format!("serialize hello: {e}"),
+    })
 }
 
 /// Verify a received hello against a 32-byte Ed25519 public key.
@@ -149,12 +153,12 @@ pub fn verify_hello_ed25519(
     hello_json: String,
 ) -> Result<(), CoreError> {
     let public_key = ed25519_key(public_key, "Ed25519 public key")?;
-    let hello: ConnectHello = serde_json::from_str(&hello_json).map_err(|e| {
-        CoreError::HandshakeFailed {
+    let hello: ConnectHello =
+        serde_json::from_str(&hello_json).map_err(|e| CoreError::HandshakeFailed {
             reason: format!("invalid hello JSON: {e}"),
-        }
-    })?;
-    crate::core::verify_hello_ed25519(&public_key, &expected_peer_id, &hello).map_err(CoreError::from)
+        })?;
+    crate::core::verify_hello_ed25519(&public_key, &expected_peer_id, &hello)
+        .map_err(CoreError::from)
 }
 
 /// Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
@@ -184,6 +188,14 @@ impl NonceStore {
             .expect("nonce store lock poisoned")
             .check_and_record(&peer_id, &nonce)
     }
+}
+
+/// Whether `peer_id` is on the allowlist. Fails closed: an empty allowlist
+/// rejects every peer.
+#[uniffi::export]
+#[must_use]
+pub fn is_allowlisted(allowlist: Vec<String>, peer_id: String) -> bool {
+    crate::core::is_allowlisted(&allowlist, &peer_id)
 }
 
 /// Outbound sequence counter — thread-safe FFI wrapper over the core
@@ -328,8 +340,7 @@ mod tests {
         "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg";
     /// Golden manifest as canonical JSON — `authority` omitted (absent
     /// optional field), matching the JCS-signed bytes in the core fixtures.
-    const GOLDEN_MANIFEST_JSON: &str =
-        r#"{"capabilities":["spoke-baseline"],"extensions":{},"host_id":"golden-host","namespaces":[],"roles":["data-store"],"schema_version":1}"#;
+    const GOLDEN_MANIFEST_JSON: &str = r#"{"capabilities":["spoke-baseline"],"extensions":{},"host_id":"golden-host","namespaces":[],"roles":["data-store"],"schema_version":1}"#;
 
     /// Runtime-joined fixture nonce — joining keeps the value out of literal
     /// position at crypto call sites (CodeQL
@@ -408,12 +419,8 @@ mod tests {
         .expect_err("short nonce");
         assert!(matches!(err, CoreError::InvalidNonce { .. }));
 
-        let err = sign_hello_ed25519(
-            GOLDEN_SEED.to_vec(),
-            golden_nonce(),
-            "not json".to_owned(),
-        )
-        .expect_err("malformed manifest");
+        let err = sign_hello_ed25519(GOLDEN_SEED.to_vec(), golden_nonce(), "not json".to_owned())
+            .expect_err("malformed manifest");
         assert!(matches!(err, CoreError::HandshakeFailed { .. }));
     }
 
@@ -424,6 +431,14 @@ mod tests {
         assert!(!store.check_and_record("peer-a".to_owned(), "nonce-1".to_owned()));
         // Nonce scoping is per sender peer_id.
         assert!(store.check_and_record("peer-b".to_owned(), "nonce-1".to_owned()));
+    }
+
+    #[test]
+    fn allowlist_check_via_ffi_fails_closed() {
+        let allowlist = vec!["peer-a".to_owned(), "peer-b".to_owned()];
+        assert!(is_allowlisted(allowlist.clone(), "peer-a".to_owned()));
+        assert!(!is_allowlisted(allowlist, "peer-c".to_owned()));
+        assert!(!is_allowlisted(Vec::new(), "peer-a".to_owned()));
     }
 
     #[test]
@@ -442,6 +457,27 @@ mod tests {
                 actual: 0
             }
         ));
+    }
+
+    #[test]
+    fn outbound_sequence_exhaustion_maps_through_wrapper() {
+        // Position the core counter at the wire maximum via the test-only
+        // setter (no 2^53 allocations), then drive exhaustion through the
+        // FFI wrapper to exercise the error mapping end to end.
+        let mut core_seq = crate::core::OutboundSequence::new();
+        core_seq.set_next(crate::core::MAX_SEQUENCE);
+        let outbound = OutboundSequence {
+            inner: Mutex::new(core_seq),
+        };
+        assert_eq!(
+            outbound.allocate().expect("last valid"),
+            crate::core::MAX_SEQUENCE
+        );
+        let err = outbound.allocate().expect_err("exhausted");
+        assert!(matches!(err, CoreInvokeError::SequenceExhausted));
+        // Still exhausted — no wrap-around.
+        let err = outbound.allocate().expect_err("still exhausted");
+        assert!(matches!(err, CoreInvokeError::SequenceExhausted));
     }
 
     #[test]
@@ -465,6 +501,34 @@ mod tests {
             "req-1".to_owned(),
         )
         .expect_err("sequence mismatch");
+        assert!(matches!(err, CoreInvokeError::CorrelationMismatch));
+    }
+
+    #[test]
+    fn correlation_sequences_above_i64_max_fail_guarded() {
+        // Wire sequences are i64; a u64 above i64::MAX can never match a
+        // wire echo, so the guard fails correlation on either side.
+        let over_i64 = i64::MAX as u64 + 1;
+        let err = check_response_correlation(
+            "sess-1".to_owned(),
+            over_i64,
+            "req-1".to_owned(),
+            "sess-1".to_owned(),
+            0,
+            "req-1".to_owned(),
+        )
+        .expect_err("expected sequence above i64::MAX");
+        assert!(matches!(err, CoreInvokeError::CorrelationMismatch));
+
+        let err = check_response_correlation(
+            "sess-1".to_owned(),
+            0,
+            "req-1".to_owned(),
+            "sess-1".to_owned(),
+            over_i64,
+            "req-1".to_owned(),
+        )
+        .expect_err("actual sequence above i64::MAX");
         assert!(matches!(err, CoreInvokeError::CorrelationMismatch));
     }
 

@@ -30,9 +30,36 @@ libp2p is pinned to a single version (`=0.56.0`) with a minimal feature set:
 
 ## Discovery
 
-**Explicit peering** is the discovery mechanism: nodes are configured with
-static listen addresses and dial each other directly. LAN discovery (mDNS) is
-planned for a future discovery iteration.
+**Explicit peering** is the default discovery mechanism: nodes are configured
+with static listen addresses and dial each other directly. Same-LAN mDNS
+discovery is additionally available through the non-default `mdns` cargo
+feature, which wires libp2p's mDNS behaviour into the node and announces its
+listen addresses on the local network:
+
+```shell
+cargo test -p spoke-connect --features mdns
+```
+
+With the feature enabled, a node records mDNS `Discovered` peers as dial
+candidates. Auto-dial of discovered peers is on by default
+(`ConnectConfig::mdns_autodial`, default `true`; set `false` to record
+candidates without dialing) and only allowlisted discoveries are dialed — the
+dial reuses the same pending-connect machinery and passes the same
+`ConnectionEstablished` allowlist and signed-hello (`noise-peerid`) gates as an
+explicit `connect(addr)`. **mDNS never grants trust: discovered peers must
+still pass noise-peerid.**
+
+Auto-dials are one-shot: a failed auto-dial is not retried until the mDNS
+behaviour re-emits the peer as `Discovered` after its TTL expires. The recorded
+candidate store is bounded (256 entries; further `Discovered` events are
+dropped and never dialed). The feature-gated internal `take_mdns_discoveries`
+drain hook exposes the recorded candidates — the deterministic unit tests feed
+fabricated `Discovered` / `Expired` events through it without live multicast.
+mDNS addresses are discovery only: the connect wire carries no
+mDNS/DHT/multiaddr fields (see the [spoke-connect spec §Discovery
+boundary](.mstar/specs/spoke-connect.md)). The [Usage](#usage) example
+compiles as-is in default builds; with the feature enabled, `ConnectConfig`
+gains the `mdns_autodial` field.
 
 ## Authenticated hello (`spoke-connect-hello-jcs-v1`)
 

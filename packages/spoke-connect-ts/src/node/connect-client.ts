@@ -191,14 +191,24 @@ export async function connectClient(
   );
 
   const socket = new WebSocket(url);
-  await withTimeout(
-    new Promise<void>((resolve, reject) => {
-      socket.once("open", () => resolve());
-      socket.once("error", (error) => reject(error));
-    }),
-    timeoutMs,
-    `dial ${url}`,
-  );
+  try {
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        socket.once("open", () => resolve());
+        socket.once("error", (error) => reject(error));
+      }),
+      timeoutMs,
+      `dial ${url}`,
+    );
+  } catch (error) {
+    // Dial failure (timeout / connection error): the handshake never
+    // started, so an unclosed socket would leak in a half-open state (the
+    // peer keeps the TCP connection established). Close it so the peer
+    // sees a clean disconnect and local resources are freed (mirrors the
+    // handshake-rejection pattern below).
+    socket.close();
+    throw error;
+  }
 
   // Handshake messages are consumed in order via a waiter queue; once the
   // session is established, invoke responses route by `request_id`.
@@ -208,6 +218,10 @@ export async function connectClient(
     reject: (error: Error) => void;
   }[] = [];
   const pending = new Map<string, PendingInvoke>();
+  // Set once the hello exchange + session snapshot have been validated.
+  // Post-handshake, stray non-invoke envelopes are dropped (see below);
+  // only the handshake phase buffers ahead-of-waiter frames.
+  let sessionEstablished = false;
 
   function nextMessage(): Promise<unknown> {
     const buffered = inbox.shift();
@@ -234,34 +248,55 @@ export async function connectClient(
   socket.on("error", () => failAll(new Error("websocket error before invoke completion")));
   socket.on("close", () => failAll(new Error("websocket closed before invoke completion")));
 
-  onJsonMessage(socket, (doc) => {
-    const waiter = waiters.shift();
-    if (waiter) {
-      waiter.resolve(doc);
-      return;
-    }
-    if (isConnectInvokeResponse(doc)) {
-      const entry = pending.get(doc.request_id);
-      if (!entry) {
-        return; // unknown/duplicate response — no retry semantics in protocol v1
+  onJsonMessage(
+    socket,
+    (doc) => {
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter.resolve(doc);
+        return;
       }
-      clearTimeout(entry.timer);
-      pending.delete(doc.request_id);
-      try {
-        checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
-        entry.resolve(doc);
-      } catch (error) {
-        entry.reject(error instanceof Error ? error : new Error(String(error)));
+      if (isConnectInvokeResponse(doc)) {
+        const entry = pending.get(doc.request_id);
+        if (!entry) {
+          return; // unknown/duplicate response — no retry semantics in protocol v1
+        }
+        clearTimeout(entry.timer);
+        pending.delete(doc.request_id);
+        try {
+          checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
+          entry.resolve(doc);
+        } catch (error) {
+          entry.reject(error instanceof Error ? error : new Error(String(error)));
+        }
+        return;
       }
-      return;
-    }
-    // Handshake-phase envelope (hello / session snapshot) arriving ahead of
-    // its waiter — buffered so `nextMessage` can consume it in order. This
-    // matters when the peer sends several frames in one TCP segment: ws
-    // emits both 'message' events in the same macrotask, before the awaiting
-    // continuation re-registers a waiter.
-    inbox.push(doc);
-  });
+      if (sessionEstablished) {
+        // Post-handshake stray envelope (hello / session / unknown shape):
+        // ignored, per protocol v1 no-retry semantics — the receiver never
+        // buffers it, so the inbox cannot grow without bound after the
+        // handshake. The handshake-phase inbox below exists only to keep
+        // hello/snapshot frames in order until their waiter is registered.
+        return;
+      }
+      // Handshake-phase envelope (hello / session snapshot) arriving ahead of
+      // its waiter — buffered so `nextMessage` can consume it in order. This
+      // matters when the peer sends several frames in one TCP segment: ws
+      // emits both 'message' events in the same macrotask, before the awaiting
+      // continuation re-registers a waiter.
+      inbox.push(doc);
+    },
+    (error) => {
+      // Malformed frame at the transport boundary (JSON.parse failure):
+      // release every pending wait and close the socket so the peer sees a
+      // clean disconnect (mirrors the handshake-rejection pattern). The
+      // decode error never escapes into the ws listener, so the host
+      // process does not crash; pending invokes fail fast instead of
+      // waiting out their timeout.
+      failAll(new Error(`malformed JSON frame: ${error.message}`));
+      socket.close();
+    },
+  );
 
   let remoteManifest: HostCapabilityManifest;
   let session: Session;
@@ -315,6 +350,10 @@ export async function connectClient(
     throw error;
   }
 
+  // Handshake complete: from here on the receiver drops stray non-invoke
+  // envelopes instead of buffering them (see onJsonMessage above).
+  sessionEstablished = true;
+
   return {
     sessionId: session.session_id,
     remotePeerId,
@@ -351,7 +390,17 @@ export async function connectClient(
           reject,
           timer,
         });
-        sendJsonMessage(socket, request);
+        try {
+          sendJsonMessage(socket, request);
+        } catch (error) {
+          // Synchronous send failure (the socket closed between the invoke
+          // setup and the send): reject this invoke now and remove its
+          // pending entry + timer immediately — no dead entry waits out the
+          // timeout, and a later failAll cannot touch a settled promise.
+          clearTimeout(timer);
+          pending.delete(request.request_id);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
       });
     },
 

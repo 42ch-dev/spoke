@@ -24,9 +24,13 @@
 //! Dial flow: `connect` dials are **single-flight** and bound to their
 //! connection: the pending dial records the dial's `ConnectionId` and
 //! expected `PeerId` once the connection establishes, and only the matching
-//! connection can complete or fail it. The event loop owns the dial deadline
-//! and clears the entry deterministically (timeout, caller cancellation, or
-//! loop exit all resolve the pending reply).
+//! connection can complete or fail it. An explicit `connect` that replaces
+//! an in-flight auto-dial keeps the replaced dial's identity (connection id,
+//! dial address) so late events of the replaced dial — a
+//! `ConnectionEstablished` still in flight, its `ConnectionClosed`, a hello
+//! failure — never bind or fail the replacement. The event loop owns the
+//! dial deadline and clears the entry deterministically (timeout, caller
+//! cancellation, or loop exit all resolve the pending reply).
 //!
 //! Session + invoke flow: once both hellos of a connection are confirmed
 //! (remote ack received **and** remote hello accepted), the loop creates a
@@ -243,6 +247,24 @@ struct PendingChallenge {
     nonce: String,
 }
 
+/// A dial that an explicit `connect` replaced mid-flight (a preempted
+/// auto-dial). Its identity is kept on the replacement's pending entry so
+/// late transport events of the replaced dial — a `ConnectionEstablished`
+/// still in flight when the preemption happened, the `ConnectionClosed`
+/// that follows the close, an outbound hello failure — are attributed to
+/// the replaced dial and never bind or fail the replacement.
+struct SupersededDial {
+    /// The replaced dial's connection, when its `ConnectionEstablished`
+    /// had already been processed before the preemption (the close is
+    /// issued at preemption; the recorded id guards against any late
+    /// duplicate).
+    connection: Option<ConnectionId>,
+    /// The address the replaced dial targeted. Recognizes the replaced
+    /// dial's late `ConnectionEstablished` when its connection id was not
+    /// yet known at preemption time.
+    addr: Multiaddr,
+}
+
 /// The single in-flight `connect` (spike: serial dials only).
 ///
 /// The entry is **bound to its dial**: `connection` and `peer` are recorded
@@ -265,6 +287,13 @@ struct PendingConnect {
     /// the reply receiver is already dropped). An explicit `connect` replaces
     /// such a dial instead of being rejected with "already in progress".
     autodial: bool,
+    /// The outbound hello sent for this dial, once the dial's connection
+    /// bound its peer. A hello response or failure carrying a different
+    /// request id belongs to an earlier dial and never resolves this one.
+    hello_request: Option<OutboundRequestId>,
+    /// The auto-dial this explicit connect replaced, when there was one:
+    /// late events of the replaced dial must not bind or fail this dial.
+    superseded: Option<SupersededDial>,
 }
 
 struct EventLoop {
@@ -357,12 +386,47 @@ impl EventLoop {
                 endpoint,
                 ..
             } => {
+                // A late connection of the auto-dial that an explicit connect
+                // replaced is closed on arrival: it must not bind the pending
+                // slot (its `ConnectionEstablished` can race the preemption)
+                // nor start a hello exchange for a dial nobody is waiting for.
+                let dialer_address = match &endpoint {
+                    libp2p::core::connection::ConnectedPoint::Dialer { address, .. } => {
+                        Some(address)
+                    }
+                    _ => None,
+                };
+                let from_replaced_dial = match dialer_address {
+                    None => false,
+                    Some(address) => self.pending_connect.as_ref().is_some_and(|pending| {
+                        pending
+                            .superseded
+                            .as_ref()
+                            .is_some_and(|sup| match sup.connection {
+                                // The replaced dial's connection id is known:
+                                // attribute by id (dial addresses may
+                                // legitimately coincide).
+                                Some(known) => connection_id == known,
+                                // Unknown at preemption: attribute by dial
+                                // address, but only when it differs from the
+                                // current dial's address — identical addresses
+                                // make the two dials interchangeable, so binding
+                                // is benign and closing would break the explicit
+                                // dial.
+                                None => *address == sup.addr && *address != pending.addr,
+                            })
+                    }),
+                };
+                if from_replaced_dial {
+                    let _ = self.swarm.close_connection(connection_id);
+                    return;
+                }
                 // Bind the pending dial to its own connection: only an
                 // outbound connection that has not yet been attributed can be
                 // the dial's outcome. Concurrent inbound connections never
                 // claim a pending dial.
                 if let Some(pending) = self.pending_connect.as_mut() {
-                    if pending.connection.is_none() && endpoint.is_dialer() {
+                    if pending.connection.is_none() && dialer_address.is_some() {
                         pending.peer = Some(peer_id);
                         pending.connection = Some(connection_id);
                     }
@@ -486,11 +550,19 @@ impl EventLoop {
         //
         // An explicit connect replaces an in-flight auto-dial (the auto-dial
         // has no live caller — its reply receiver is already dropped): the
-        // replaced dial's connection is closed, its candidate is reset so the
-        // slot-free drain retries it, and the explicit dial proceeds. A
+        // replaced dial's identity is kept so its late transport events (a
+        // `ConnectionEstablished` still in flight, the `ConnectionClosed`
+        // that follows the close, a hello failure) never bind or fail the
+        // replacement; its connection is closed, its candidate is reset so
+        // the slot-free drain retries it, and the explicit dial proceeds. A
         // second explicit connect during an explicit dial is still rejected.
+        let mut superseded: Option<SupersededDial> = None;
         if let Some(pending) = self.pending_connect.take() {
             if pending.autodial && !autodial {
+                superseded = Some(SupersededDial {
+                    connection: pending.connection,
+                    addr: pending.addr.clone(),
+                });
                 if let Some(connection) = pending.connection {
                     let _ = self.swarm.close_connection(connection);
                 }
@@ -544,6 +616,8 @@ impl EventLoop {
             addr,
             reply,
             autodial,
+            hello_request: None,
+            superseded,
         });
     }
 
@@ -586,7 +660,7 @@ impl EventLoop {
                 peer,
                 message:
                     request_response::Message::Response {
-                        request_id: _request_id,
+                        request_id,
                         response,
                     },
                 ..
@@ -597,7 +671,12 @@ impl EventLoop {
                     self.maybe_complete_session(&peer);
                 } else {
                     // Protocol v1 acks are always `accepted: true`; a false
-                    // ack means the peer rejected our hello.
+                    // ack means the peer rejected our hello. Only the pending
+                    // dial's own hello can fail the pending connect — a stale
+                    // ack of a replaced or earlier dial's hello is ignored.
+                    if !self.hello_belongs_to_pending_dial(&peer, &request_id) {
+                        return;
+                    }
                     self.fail_pending_connect(
                         None,
                         Some(peer),
@@ -607,9 +686,20 @@ impl EventLoop {
                     );
                 }
             }
-            request_response::Event::OutboundFailure { peer, error, .. } => {
+            request_response::Event::OutboundFailure {
+                peer,
+                connection_id: _connection_id,
+                request_id,
+                error,
+                ..
+            } => {
                 // Our outbound hello failed: the peer dropped the stream
-                // (rejected our hello), timed out, or the connection died.
+                // (rejected our hello), timed out, or the connection died. A
+                // failure of a replaced or earlier dial's hello never fails
+                // the current pending connect.
+                if !self.hello_belongs_to_pending_dial(&peer, &request_id) {
+                    return;
+                }
                 self.fail_pending_connect(
                     None,
                     Some(peer),
@@ -1423,6 +1513,21 @@ impl EventLoop {
         }
     }
 
+    /// Whether a hello response/failure for `peer` with `request_id` belongs
+    /// to the current pending dial.
+    ///
+    /// Only the pending dial's own outbound hello (recorded in
+    /// [`PendingConnect::hello_request`] at send time) may complete or fail
+    /// it: anything else is a late event of an earlier dial — e.g. the
+    /// auto-dial an explicit connect replaced, whose connection was closed
+    /// at preemption but whose in-flight hello request can still report a
+    /// response or failure.
+    fn hello_belongs_to_pending_dial(&self, peer: &PeerId, request_id: &OutboundRequestId) -> bool {
+        self.pending_connect.as_ref().is_some_and(|pending| {
+            pending.peer == Some(*peer) && pending.hello_request == Some(*request_id)
+        })
+    }
+
     /// Fail every pending invoke for `peer` (called when the peer's last
     /// connection closes; the session is already marked closed).
     fn fail_pending_invokes(&mut self, peer: &PeerId) {
@@ -1569,7 +1674,17 @@ impl EventLoop {
         let Ok(hello) = sign_hello(&self.identity, &nonce, &self.config.local_manifest) else {
             return;
         };
-        self.swarm.behaviour_mut().hello.send_request(peer, hello);
+        let request_id = self.swarm.behaviour_mut().hello.send_request(peer, hello);
+        // Attribute the outbound hello to the pending dial it belongs to:
+        // the dial's own hello is the first one sent for its peer after the
+        // dial bound its connection, so a late response or failure for a
+        // different hello — e.g. the auto-dial an explicit connect replaced
+        // — never resolves this dial.
+        if let Some(pending) = self.pending_connect.as_mut() {
+            if pending.peer == Some(*peer) && pending.hello_request.is_none() {
+                pending.hello_request = Some(request_id);
+            }
+        }
     }
 }
 
@@ -1994,13 +2109,21 @@ mod tests {
         }
 
         fn established_event(peer: PeerId, addr: Multiaddr) -> SwarmEvent<ConnectBehaviourEvent> {
+            established_event_id(peer, addr, ConnectionId::new_unchecked(1))
+        }
+
+        fn established_event_id(
+            peer: PeerId,
+            addr: Multiaddr,
+            connection_id: ConnectionId,
+        ) -> SwarmEvent<ConnectBehaviourEvent> {
             // A fabricated transport-level success for the auto-dial: the
             // noise-authenticated connection is up. Fully deterministic — no
             // sockets, no polling; `handle_event` processes it like any swarm
             // event.
             SwarmEvent::ConnectionEstablished {
                 peer_id: peer,
-                connection_id: ConnectionId::new_unchecked(1),
+                connection_id,
                 endpoint: libp2p::core::connection::ConnectedPoint::Dialer {
                     address: addr,
                     role_override: libp2p::core::connection::Endpoint::Dialer,
@@ -2268,6 +2391,215 @@ mod tests {
             assert!(
                 matches!(receiver.await, Ok(Err(_))),
                 "the explicit connect reports its own failure"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_preempted_autodial_connection_is_not_bound_to_explicit_dial() {
+            // G-1 (preemption misbind): when an explicit connect replaces an
+            // in-flight auto-dial BEFORE the auto-dial's
+            // `ConnectionEstablished` is processed, the late event must not
+            // bind the replaced dial's connection + peer to the explicit
+            // pending entry — the slot belongs to the explicit dial's own
+            // connection. The stale connection is closed instead.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            let (reply, mut receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial pending");
+            assert_eq!(pending.addr, explicit_addr);
+            assert!(
+                pending.superseded.is_some(),
+                "the replaced auto-dial is recorded on the replacement"
+            );
+
+            // The replaced auto-dial's connection establishes late: it is
+            // closed, not bound — the explicit dial stays intact.
+            loop_.handle_event(established_event(peer, auto_addr));
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial still pending");
+            assert!(
+                pending.connection.is_none(),
+                "stale connection is not bound"
+            );
+            assert!(pending.peer.is_none(), "stale peer is not bound");
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ),
+                "explicit connect is not resolved by the stale connection"
+            );
+
+            // The explicit dial's own connection binds normally.
+            loop_.handle_event(established_event_id(
+                peer,
+                explicit_addr.clone(),
+                ConnectionId::new_unchecked(2),
+            ));
+            let pending = loop_.pending_connect.as_ref().expect("explicit dial bound");
+            assert_eq!(pending.connection, Some(ConnectionId::new_unchecked(2)));
+            assert_eq!(pending.peer, Some(peer));
+        }
+
+        #[tokio::test]
+        async fn mdns_preempted_autodial_close_does_not_fail_explicit_connect() {
+            // G-2 (failure side): the replaced auto-dial's `ConnectionClosed`
+            // (following the close issued at preemption) must not fail the
+            // explicit pending connect — the slot survives and still binds
+            // the explicit dial's own connection afterwards.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            // The auto-dial establishes and binds to its own connection
+            // first (its hello request is recorded on the replaced entry).
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            loop_.handle_event(established_event(peer, auto_addr.clone()));
+            assert_eq!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .expect("auto-dial bound")
+                    .connection,
+                Some(ConnectionId::new_unchecked(1))
+            );
+
+            // Explicit connect replaces it; the replaced connection is
+            // closed and its identity recorded on the replacement.
+            let (reply, mut receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial pending");
+            assert!(
+                pending
+                    .superseded
+                    .as_ref()
+                    .is_some_and(|sup| sup.connection == Some(ConnectionId::new_unchecked(1))),
+                "the replaced dial's connection id is recorded"
+            );
+
+            // The replaced connection's close event arrives late: it must
+            // not fail the explicit dial, which still binds its own
+            // connection afterwards.
+            loop_.handle_event(SwarmEvent::ConnectionClosed {
+                peer_id: peer,
+                connection_id: ConnectionId::new_unchecked(1),
+                endpoint: libp2p::core::connection::ConnectedPoint::Dialer {
+                    address: auto_addr.clone(),
+                    role_override: libp2p::core::connection::Endpoint::Dialer,
+                    port_use: libp2p::core::transport::PortUse::New,
+                },
+                num_established: 0,
+                cause: None,
+            });
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial not failed");
+            assert_eq!(pending.addr, explicit_addr);
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ),
+                "the stale close does not resolve the explicit connect"
+            );
+
+            loop_.handle_event(established_event_id(
+                peer,
+                explicit_addr.clone(),
+                ConnectionId::new_unchecked(2),
+            ));
+            let pending = loop_.pending_connect.as_ref().expect("explicit dial bound");
+            assert_eq!(pending.connection, Some(ConnectionId::new_unchecked(2)));
+        }
+
+        #[tokio::test]
+        async fn mdns_preempted_autodial_hello_failure_does_not_fail_explicit_connect() {
+            // G-3 (hello failure side): a hello failure of the replaced
+            // auto-dial (its connection was closed at preemption but the
+            // in-flight hello request can still report a failure) must not
+            // fail the explicit pending connect — only the explicit dial's
+            // own hello may fail it.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            // The auto-dial establishes (its hello request is recorded) and
+            // is then replaced by the explicit connect.
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            loop_.handle_event(established_event(peer, auto_addr.clone()));
+            let auto_hello = loop_
+                .pending_connect
+                .as_ref()
+                .and_then(|pending| pending.hello_request)
+                .expect("auto-dial hello recorded");
+            let (reply, mut receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+
+            // The explicit dial establishes and sends its own hello.
+            loop_.handle_event(established_event_id(
+                peer,
+                explicit_addr.clone(),
+                ConnectionId::new_unchecked(2),
+            ));
+            let explicit_hello = loop_
+                .pending_connect
+                .as_ref()
+                .and_then(|pending| pending.hello_request)
+                .expect("explicit dial hello recorded");
+            assert_ne!(auto_hello, explicit_hello);
+
+            // A late failure of the replaced dial's hello is ignored…
+            loop_.handle_hello_event(request_response::Event::OutboundFailure {
+                peer,
+                connection_id: ConnectionId::new_unchecked(1),
+                request_id: auto_hello,
+                error: request_response::OutboundFailure::ConnectionClosed,
+            });
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial not failed");
+            assert_eq!(pending.addr, explicit_addr);
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ),
+                "the stale hello failure does not resolve the explicit connect"
+            );
+
+            // …while the explicit dial's own hello failure fails it.
+            loop_.handle_hello_event(request_response::Event::OutboundFailure {
+                peer,
+                connection_id: ConnectionId::new_unchecked(2),
+                request_id: explicit_hello,
+                error: request_response::OutboundFailure::ConnectionClosed,
+            });
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Ok(Err(ConnectError::HandshakeFailed { .. }))
+                ),
+                "the explicit connect reports its own hello failure"
             );
         }
 

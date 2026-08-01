@@ -1,6 +1,6 @@
 # spoke-connect
 
-Reference spike for the SPOKE Connect wire family (`.mstar/specs/spoke-connect.md`):
+Reference spike for the SPOKE Connect wire family (`../../.mstar/specs/spoke-connect.md`):
 an embeddable Rust library that maps the connect envelopes onto rust-libp2p and
 demonstrates the `noise-peerid` authenticated hello handshake, the
 `capability-token` step-up auth method, per-session ordering, and op
@@ -13,7 +13,7 @@ invocation.
   dependency.
 - Consumes wire types exclusively from `spoke-schemas` generated modules
   (`ConnectHello`, `HostCapabilityManifest`, `ConnectInvokeRequest`,
-  `ConnectInvokeResponse`, …) — no parallel hand-written envelopes.
+  `ConnectInvokeResponse`, …) — every connect wire type comes from codegen.
 
 ## Transport composition
 
@@ -30,9 +30,48 @@ libp2p is pinned to a single version (`=0.56.0`) with a minimal feature set:
 
 ## Discovery
 
-**Explicit peering** is the discovery mechanism: nodes are configured with
-static listen addresses and dial each other directly. LAN discovery (mDNS) is
-planned for a future discovery iteration.
+**Explicit peering** is the default discovery mechanism: nodes are configured
+with static listen addresses and dial each other directly. Same-LAN mDNS
+discovery is additionally available through the `mdns` cargo feature (off by
+default), which wires libp2p's mDNS behaviour into the node and announces its
+listen addresses on the local network:
+
+```shell
+cargo test -p spoke-connect --features mdns
+```
+
+With the feature enabled, a node records mDNS `Discovered` peers as dial
+candidates. Auto-dial of discovered peers is on by default
+(`ConnectConfig::mdns_autodial`, default `true`; set `false` to record
+candidates only) and only allowlisted discoveries are dialed.
+The mDNS allowlist check is a scheduling pre-filter — it only spares the
+node's single-flight dial slot. Admission applies the same
+`ConnectionEstablished` allowlist and signed-hello (`noise-peerid`) gates as
+an explicit `connect(addr)` does. **mDNS discovery supplies candidate
+addresses: discovered peers are admitted through the same allowlist and
+signed-hello gates as explicitly dialed peers.**
+
+Dial scheduling: auto-dials are serialized through the same single-flight
+pending-connect machinery as explicit connects, one at a time and
+best-effort. An explicit `connect(addr)` preempts an in-flight auto-dial —
+the auto-dial is replaced and its candidate is retried once the slot frees.
+A candidate discovered while the slot is busy is dialed when the slot frees,
+and a failed auto-dial is retried when the mDNS behaviour re-emits the peer
+as `Discovered` after its TTL expires. A second explicit connect during an
+explicit dial is rejected with a `connect is already in progress` error.
+
+The recorded candidate store is memory-bounded (256 entries). Dial rate is
+bounded by the single-flight slot, `(peer, addr)` dedupe, and TTL
+re-emission; mDNS is LAN-scoped and session admission stays fully gated by
+the allowlist and signed hello. The feature-gated internal
+`take_mdns_discoveries` drain hook exposes the recorded candidates — the
+deterministic unit tests drive fabricated `Discovered` / `Expired` events
+through it. mDNS addresses serve discovery only: the connect wire carries
+only the six envelope families; discovery is transport-side (see the
+[spoke-connect spec §Discovery
+boundary](../../.mstar/specs/spoke-connect.md)). The [Usage](#usage) example
+compiles as-is in default builds; with the feature enabled, `ConnectConfig`
+gains the `mdns_autodial` field.
 
 ## Authenticated hello (`spoke-connect-hello-jcs-v1`)
 
@@ -61,7 +100,7 @@ multihash form.
 ## Capability-token auth (`capability-token`)
 
 The `capability-token` method (normative, [spoke-connect spec §Method —
-capability-token](.mstar/specs/spoke-connect.md)) is a **step-up /
+capability-token](../../.mstar/specs/spoke-connect.md)) is a **step-up /
 mid-session capability grant** on top of the `noise-peerid` hello identity:
 a trusted issuer signs a short claim set (`iss` / `sub` / `aud` /
 `capabilities` / `exp`, optional `iat` / `jti`) over RFC 8785 JCS with
@@ -72,8 +111,8 @@ blob.
 Configure the method on `ConnectConfig`:
 
 - `trusted_issuers: Vec<String>` — issuer `peer_id`s whose signed tokens this
-  node accepts. **Empty list ⇒ the method is disabled**: challenges are not
-  offered and every presented proof is rejected (fail closed).
+  node accepts. **Empty list ⇒ the method is disabled**; the node offers challenges and
+  accepts proofs only when the list is non-empty (fail closed).
 - `require_capability_token: bool` (default `false`) — when `true` (and
   `trusted_issuers` is non-empty), every new session must complete the
   challenge before invokes are accepted. Default keeps the
@@ -94,16 +133,16 @@ proof }`. A valid response marks the session token-authorized and completes
 the pending `connect`; a missing provider, provider error, or unknown method
 drops the exchange — the session stays unauthorized for invokes and the
 pending `connect` resolves only at the handshake timeout (fail closed).
-A session that completed the challenge holds its grant for the session's
-lifetime without expiry revalidation on later invokes — products needing
-mid-session expiry enforcement implement their own re-challenge flow or
-attach a per-invoke `auth`.
+The session grant is held for the session lifetime; per-invoke `auth`
+revalidates expiry on later invokes. Products needing mid-session expiry
+enforcement implement their own re-challenge flow or attach a per-invoke
+`auth`.
 
 Per-invoke `auth`: `ConnectInvokeRequest.auth` optionally carries the same
 proof object. When present, the receiver validates it on **every** invoke
 (expiry re-checked; same issuer / subject / audience rules), independent of
-the challenge flag. When the token policy is active and the session has not
-completed the challenge, invokes without `auth` are rejected with an
+the challenge flag. Once the challenge policy is active, invokes attach
+`auth`; a session without a validated grant is rejected with an
 `auth_failed` wire envelope.
 
 Error codes ride the existing open-string wire vocabulary (`ErrorEnvelope`
@@ -126,7 +165,7 @@ integration).
 remote acknowledged ours and we accepted theirs). Each session:
 
 - owns a per-direction **outbound** `sequence` counter starting at **0**
-  (each peer numbers its own requests; sequences never wrap — exhaustion
+  (each peer numbers its own requests from 0; exhaustion
   closes the session with `InvokeError::SequenceExhausted`);
 - assigns the next sequence **atomically** per `invoke` (concurrent invokes
   are allowed) and generates a UUID v4 `request_id`; the outbound counter is
@@ -137,7 +176,8 @@ remote acknowledged ours and we accepted theirs). Each session:
 - enforces **inbound** sequence monotonicity on the accept path: the
   receiver tracks the next expected inbound sequence per session (starts at
   0) and answers a replayed or out-of-order sequence with an
-  `invalid_sequence` wire envelope — no handler side effect runs for it;
+  `invalid_sequence` wire envelope — handler side effects run only for
+  accepted sequences;
 - returns `InvokeSuccess { sequence, request_id, payload }` on success;
   remote application failures arrive as `InvokeError::Wire(ErrorEnvelope)`;
   transport / session failures use the other `InvokeError` variants.
@@ -152,8 +192,8 @@ hook runs **synchronously on the node's network event loop**: it must return
 promptly and must not block on I/O. Panics are contained — the invoke is
 answered with an `internal_error` wire envelope and the node keeps running.
 The hook is spike-scoped — the op dispatcher is adapter-owned in products;
-without a handler, inbound invokes receive an `op_unsupported` error
-envelope.
+inbound invokes are answered by the registered handler; unhandled ops
+receive an `op_unsupported` error envelope.
 
 The wire imposes no payload size limit; the spike inherits libp2p's
 request-response JSON codec default of a **1 MiB maximum request size** as a
@@ -272,21 +312,21 @@ field type of `ConnectHello.host` and `ConnectConfig.local_manifest` (see
 The session core (`src/core/`) is the pure, synchronous, language-portable
 layer of this crate: it owns the session rules — `peer_id` derivation, hello
 sign/verify, allowlist, nonce single-use, sequence allocation/advance,
-response correlation, dispatch gate — with no `libp2p`, `tokio`, or I/O in
-its public surface. It operates on plain `String` peer ids, byte-oriented
+response correlation, dispatch gate — with `libp2p`, `tokio`, and I/O kept
+transport-side. It operates on plain `String` peer ids, byte-oriented
 keys, `spoke-schemas` connect types, and opaque `serde_json` payloads; the
 transport layer converts `libp2p::PeerId` ↔ `String` at the boundary and
 calls into the core.
 
 This section records the binding facade decision for the spec's Path B
-(shared core bindings, `.mstar/specs/spoke-connect.md` §Embedding model):
+(shared core bindings, `../../.mstar/specs/spoke-connect.md` §Embedding model):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
 first binding skeleton exposes, and which languages are targeted. A **Swift
 sync-core skeleton is landed**: the exported surface below ships through
-uniffi behind the non-default `ffi` feature as a `cdylib`, Swift bindings
+uniffi behind the optional `ffi` feature as a `cdylib`, Swift bindings
 generate from that library, and a macOS-local smoke asserts golden-vector
-parity from the Swift side. The node lifecycle stays Rust-side — the async
-surface is not part of the binding.
+parity from the Swift side. The binding exposes the sync core surface;
+async node lifecycle stays Rust-side.
 
 ### Sync vs async boundary
 
@@ -331,9 +371,8 @@ Errors map variant-for-variant onto two uniffi enums:
 
 Keys cross the boundary as raw bytes (validated to exactly 32 bytes inside
 the wrapper), peer ids as strings, and the host manifest / hello envelope as
-JSON strings deserialized with `serde_json` inside Rust — no `Multiaddr`,
-swarm, or libp2p types are exposed, and no generated schema types appear on
-the FFI surface.
+JSON strings deserialized with `serde_json` inside Rust — `Multiaddr`,
+swarm, libp2p, and generated schema types stay Rust-side.
 
 ### Path B scope for the first language
 
@@ -348,11 +387,11 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 | Language | Embedding path | Priority | Rationale |
 |----------|----------------|----------|-----------|
-| **Swift (iOS / macOS)** | Path B uniffi | **First target** | Mature uniffi story; mobile clients that ship a native Rust dylib; validates the sync core without browser WebCrypto constraints |
+| **Swift (iOS / macOS)** | Path B uniffi | **First target** | Mature uniffi story; mobile clients that ship a native Rust dylib; validates the sync core on a platform with native Ed25519 support |
 | **Kotlin (Android)** | Path B uniffi | Second | Same uniffi pipeline as Swift after the core stabilizes |
 | C# | Path B uniffi | Later | Secondary desktop/server hosts |
 | Python | Path B uniffi | Later | Async FFI / asyncio historically finicky — only after the sync core is proven, preferring core-only first |
-| TypeScript (browser / Node) | **Path A** (language-direct) | Parallel track | The TypeScript route decision lives with the TS identity proof; uniffi/WASM is not assumed for this path |
+| TypeScript (browser / Node) | **Path A** (language-direct) | Parallel track | The TypeScript route decision lives with the TS identity proof |
 
 ### Binding checklist
 
@@ -366,8 +405,8 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
      Ed25519 keypair — shared with the TypeScript identity proof so both
      paths agree byte-for-byte. The Swift smoke asserts the golden peer id
      and signature locally; cross-language sharing is a follow-up.
-- [x] 5. No `Multiaddr` / swarm types on FFI — satisfied by the landed
-     surface.
+- [x] 5. `Multiaddr` / swarm types stay Rust-side at the FFI boundary —
+     satisfied by the landed surface.
 
 ### Swift smoke (macOS)
 
@@ -399,8 +438,7 @@ cargo run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
 install_name_tool -id @rpath/libspoke_connect.dylib target/debug/libspoke_connect.dylib
 
 # 4. Compile the smoke (Swift 5 language mode keeps top-level code simple;
-#    `-fmodule-map-file` is required — the Clang importer does not discover
-#    the uniffi module map from `-I` alone).
+#    `-fmodule-map-file` supplies the module map to the Clang importer).
 swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generated/spoke_connectFFI.modulemap" \
   -L target/debug -lspoke_connect \
   -Xlinker -rpath -Xlinker "$PWD/target/debug" \
@@ -415,8 +453,9 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
 
 Local env quirk: if `cargo` fails with `error: the option Z is only accepted
 on the nightly compiler` — a nightly-only `-Z` flag set in
-`~/.cargo/config.toml` `[build] rustflags` — run the cargo steps with
-`RUSTFLAGS=""` (it overrides the config; this repo builds on stable).
+`~/.cargo/config.toml` `[unstable] rustflags` — run the cargo steps with the
+**nightly toolchain** (`cargo +nightly …`) so the flag is honored; CI builds
+on stable.
 
 ## Testing
 
@@ -434,10 +473,10 @@ remote-failure path, a panicking handler contained with an `internal_error`
 envelope, duplicate dials completing with the existing session, deterministic
 dial timeout and retry, unreachable-address dial failure, and reconnection
 after the peer shuts down. All waits are bounded event waits (timeouts on
-the `connect` / `invoke` futures) — no sleep-based synchronization.
+the `connect` / `invoke` futures).
 
 ## Normative reference
 
-- `.mstar/specs/spoke-connect.md` — envelope field tables, JCS rules, nonce /
+- `../../.mstar/specs/spoke-connect.md` — envelope field tables, JCS rules, nonce /
   replay, ordering, auth model, discovery boundary.
 - `schemas/connect/` — the JSON Schema SSOT for the six connect envelopes.

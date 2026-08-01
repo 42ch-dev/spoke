@@ -19,7 +19,10 @@
 //! (i) when the peer shuts down, the session is observed closed and a
 //!     reconnecting peer (same identity) establishes a fresh session;
 //! (j) a panicking handler is contained (internal_error wire envelope) and
-//!     the node stays alive.
+//!     the node stays alive;
+//! (k) the inbound op dispatch gate denies an op whose required capability
+//!     is absent from the session's negotiated capabilities (`op_unsupported`
+//!     envelope, handler never called) while a negotiated op still flows.
 //!
 //! All waits are bounded event waits (timeouts on `connect` / `invoke`
 //! futures) — no sleep-based synchronization.
@@ -57,9 +60,17 @@ const SHORT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3);
 const LISTEN: &str = "/ip4/127.0.0.1/tcp/0";
 
 fn manifest(host_id: &str, roles: &[&str]) -> HostCapabilityManifest {
+    manifest_with_capabilities(host_id, roles, &["spoke-connect", "spoke-baseline"])
+}
+
+fn manifest_with_capabilities(
+    host_id: &str,
+    roles: &[&str],
+    capabilities: &[&str],
+) -> HostCapabilityManifest {
     HostCapabilityManifest {
         authority: None,
-        capabilities: vec!["spoke-connect".into(), "spoke-baseline".into()],
+        capabilities: capabilities.iter().map(|c| (*c).to_string()).collect(),
         extensions: Default::default(),
         host_id: host_id.parse().expect("host id parses"),
         namespaces: Vec::new(),
@@ -735,6 +746,100 @@ async fn panicking_handler_is_contained_and_node_survives() {
             other => panic!("expected internal_error wire error, got {other:?}"),
         }
     }
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (k) The inbound op dispatch gate (normative MUST, §Op dispatch gate):
+/// an op whose required capability is absent from the session's negotiated
+/// capabilities is answered with an `op_unsupported` wire envelope and the
+/// configured handler is never called; ops whose required capability IS
+/// negotiated keep flowing to the handler.
+///
+/// A advertises `l2-computable`; B does not — the negotiated intersection
+/// is {spoke-connect, spoke-baseline}, so `project` (requires
+/// `l2-computable`) must be denied while `check` (requires
+/// `spoke-baseline`) still succeeds.
+#[tokio::test]
+async fn inbound_dispatch_gate_denies_unnegotiated_capability_ops() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler = {
+        let calls = calls.clone();
+        Arc::new(move |op: &str, _payload: serde_json::Value| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(op, "check", "only negotiated ops reach the handler");
+            Ok(serde_json::json!({ "findings": [], "extensions": {} }))
+        })
+    };
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest_with_capabilities(
+            "host-a",
+            &["checker"],
+            &["spoke-connect", "spoke-baseline", "l2-computable"],
+        ),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(
+        key_b,
+        vec![peer_a],
+        manifest_with_capabilities(
+            "host-b",
+            &["input-source"],
+            &["spoke-connect", "spoke-baseline"],
+        ),
+    )
+    .await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    // The negotiated intersection is stored on the session (local manifest
+    // order: B's capabilities kept where A also declared them).
+    let expected: Vec<String> = ["spoke-connect", "spoke-baseline"]
+        .iter()
+        .map(|c| (*c).to_string())
+        .collect();
+    assert_eq!(session.negotiated_capabilities(), &expected);
+
+    // `project` requires `l2-computable`, which B never advertised: denied
+    // with the op_unsupported envelope and no handler side effect.
+    let err = session
+        .invoke("project", serde_json::json!({ "extensions": {} }))
+        .await
+        .expect_err("unnegotiated capability op must be denied");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "op_unsupported"),
+        other => panic!("expected op_unsupported wire error, got {other:?}"),
+    }
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the handler must not run for a capability-denied op"
+    );
+
+    // `check` only needs `spoke-baseline` (⊆ intersection): still flows.
+    session
+        .invoke("check", check_request())
+        .await
+        .expect("negotiated op still succeeds");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "the handler runs exactly once, for the negotiated op"
+    );
 
     node_b.shutdown().await.expect("b shuts down");
     node_a.shutdown().await.expect("a shuts down");

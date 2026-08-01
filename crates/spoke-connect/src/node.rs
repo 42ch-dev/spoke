@@ -40,13 +40,17 @@
 //! answers a replayed or out-of-order sequence with an `invalid_sequence`
 //! wire envelope — no handler side effect runs for it (normative ordering
 //! rule, `.mstar/specs/spoke-connect.md` §Ordering semantics). Accepted
-//! invokes are dispatched to the configured `invoke_handler` (spike-scoped
-//! dispatcher hook; adapter-owned in products). When a peer's last
-//! connection closes, live session handles are marked closed and their
-//! pending invokes fail fast.
+//! invokes pass the op dispatch gate first: an op whose required capability
+//! is absent from the session's `negotiated_capabilities` (the intersection
+//! of both manifests, computed at session establishment) is answered with an
+//! `op_unsupported` wire envelope and the handler is never called
+//! (normative rule, §Op dispatch gate). Gate-passing invokes are dispatched
+//! to the configured `invoke_handler` (spike-scoped dispatcher hook;
+//! adapter-owned in products). When a peer's last connection closes, live
+//! session handles are marked closed and their pending invokes fail fast.
 
 use crate::config::ConnectConfig;
-use crate::core::{CoreInvokeError, InboundSequence};
+use crate::core::{dispatch_allowed, CoreInvokeError, InboundSequence};
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
 use crate::hello::{generate_nonce, sign_hello};
@@ -583,37 +587,65 @@ impl EventLoop {
                                     "no invoke handler configured on this node".into(),
                                 ),
                                 Some(handler) => {
-                                    // The handler runs synchronously on the
-                                    // event loop: it must return promptly and
-                                    // must not block on I/O (see
-                                    // ConnectConfig::invoke_handler). Panics
-                                    // are contained so a misbehaving adapter
-                                    // cannot kill the node; the invoke is
-                                    // answered with an `internal_error` wire
-                                    // envelope.
-                                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                        || handler(&request.op, request.payload.clone()),
-                                    ));
-                                    match result {
-                                        Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
-                                            session_id: request.session_id.to_string(),
-                                            sequence: request.sequence,
-                                            request_id: request.request_id.to_string(),
-                                            payload,
-                                            extensions: Default::default(),
-                                        },
-                                        Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
-                                            session_id: request.session_id.to_string(),
-                                            sequence: request.sequence,
-                                            request_id: request.request_id.to_string(),
-                                            error,
-                                            extensions: Default::default(),
-                                        },
-                                        Err(_) => self.error_response(
+                                    // Op dispatch gate (normative MUST,
+                                    // `.mstar/specs/spoke-connect.md` §Op
+                                    // dispatch gate): a host that performs op
+                                    // dispatch must not run an op whose
+                                    // required capability is absent from the
+                                    // session's `negotiated_capabilities`.
+                                    // Denied ops are answered with an
+                                    // `op_unsupported` wire envelope and the
+                                    // handler is never invoked — no side
+                                    // effects.
+                                    let session = self
+                                        .sessions
+                                        .get(&peer)
+                                        .expect("session verified above");
+                                    if !dispatch_allowed(
+                                        &request.op,
+                                        &session.negotiated_capabilities,
+                                    ) {
+                                        self.error_response(
                                             &request,
-                                            "internal_error",
-                                            "invoke handler panicked".into(),
-                                        ),
+                                            "op_unsupported",
+                                            format!(
+                                                "op {} requires a capability that is not negotiated in this session",
+                                                request.op.as_str()
+                                            ),
+                                        )
+                                    } else {
+                                        // The handler runs synchronously on the
+                                        // event loop: it must return promptly and
+                                        // must not block on I/O (see
+                                        // ConnectConfig::invoke_handler). Panics
+                                        // are contained so a misbehaving adapter
+                                        // cannot kill the node; the invoke is
+                                        // answered with an `internal_error` wire
+                                        // envelope.
+                                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                            || handler(&request.op, request.payload.clone()),
+                                        ));
+                                        match result {
+                                            Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
+                                                session_id: request.session_id.to_string(),
+                                                sequence: request.sequence,
+                                                request_id: request.request_id.to_string(),
+                                                payload,
+                                                extensions: Default::default(),
+                                            },
+                                            Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
+                                                session_id: request.session_id.to_string(),
+                                                sequence: request.sequence,
+                                                request_id: request.request_id.to_string(),
+                                                error,
+                                                extensions: Default::default(),
+                                            },
+                                            Err(_) => self.error_response(
+                                                &request,
+                                                "internal_error",
+                                                "invoke handler panicked".into(),
+                                            ),
+                                        }
                                     }
                                 }
                             }
@@ -715,6 +747,24 @@ impl EventLoop {
         let Some(remote_manifest) = handshake.remote_manifest.clone() else {
             return;
         };
+        // Negotiated capabilities = intersection of both hosts' manifests
+        // (normative rule, `.mstar/specs/spoke-connect.md` §Negotiation),
+        // evaluated once at session establishment. Iterating the local
+        // capabilities and keeping those the remote also declared makes the
+        // result deterministic in local manifest order.
+        let negotiated_capabilities = self
+            .config
+            .local_manifest
+            .capabilities
+            .iter()
+            .filter(|cap| {
+                remote_manifest
+                    .capabilities
+                    .iter()
+                    .any(|remote| remote == *cap)
+            })
+            .cloned()
+            .collect();
         let Ok(session_id) = generate_request_id() else {
             self.fail_pending_connect(
                 None,
@@ -727,6 +777,7 @@ impl EventLoop {
             session_id,
             *peer,
             remote_manifest,
+            negotiated_capabilities,
             self.config.effective_handshake_timeout(),
             self.cmd_tx.clone(),
         ));

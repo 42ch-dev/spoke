@@ -85,6 +85,12 @@ pub(crate) struct SessionHandle {
     pub(crate) session_id: String,
     pub(crate) remote_peer_id: PeerId,
     pub(crate) remote_manifest: HostCapabilityManifest,
+    /// Capabilities negotiated at session establishment: the intersection of
+    /// the local and remote `HostCapabilityManifest.capabilities` (normative
+    /// rule, `.mstar/specs/spoke-connect.md` §Negotiation). The inbound op
+    /// dispatch gate is evaluated against this set, never against the remote
+    /// manifest alone.
+    pub(crate) negotiated_capabilities: Vec<String>,
     /// Outbound sequence counter, starting at 0 (per-direction, per session).
     /// The pure counter rules live in [`core::OutboundSequence`]; the mutex is
     /// the transport's synchronization around them (concurrent invokes get
@@ -100,11 +106,13 @@ pub(crate) struct SessionHandle {
 
 impl SessionHandle {
     /// Create a new session handle for `peer` with the manifest carried by
-    /// the peer's accepted hello.
+    /// the peer's accepted hello and the capability set negotiated at
+    /// establishment.
     pub(crate) fn new(
         session_id: String,
         remote_peer_id: PeerId,
         remote_manifest: HostCapabilityManifest,
+        negotiated_capabilities: Vec<String>,
         timeout: Duration,
         cmd_tx: mpsc::Sender<LoopCommand>,
     ) -> Self {
@@ -112,6 +120,7 @@ impl SessionHandle {
             session_id,
             remote_peer_id,
             remote_manifest,
+            negotiated_capabilities,
             next_sequence: Mutex::new(core::OutboundSequence::new()),
             closed: AtomicBool::new(false),
             timeout,
@@ -236,10 +245,12 @@ mod tests {
 
     fn handle(timeout: Duration) -> Arc<SessionHandle> {
         let (cmd_tx, _cmd_rx) = mpsc::channel(16);
+        let manifest = manifest("remote-host");
         Arc::new(SessionHandle::new(
             "sess-1".into(),
             PeerId::random(),
-            manifest("remote-host"),
+            manifest.clone(),
+            manifest.capabilities,
             timeout,
             cmd_tx,
         ))

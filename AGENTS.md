@@ -72,8 +72,8 @@ Do not put plan progress or residual detail in this file.
 
 ## Local Rust toolchain (dev environment)
 
-- The local `~/.cargo/config.toml` sets `[build] rustflags = ["-Zno-embed-metadata"]` (nightly-only).
-- Run local cargo/codegen commands with the **nightly toolchain** (`cargo +nightly …`, `rustup run nightly cargo …`, or `rustup override set nightly` in this repo) — do **not** work around the flag with `RUSTFLAGS=""` overrides.
+- The local `~/.cargo/config.toml` carries `-Zno-embed-metadata` (under `[unstable] rustflags`) — a nightly-only flag that is **intentional** and must be honored.
+- Run local cargo/codegen commands with the **nightly toolchain** (`cargo +nightly …`, `rustup run nightly cargo …`, or `rustup override set nightly` in this repo). Do **not** disable or clear the flag — neither `RUSTFLAGS=""` env overrides nor `--config 'build.rustflags=[]'` workarounds.
 - CI remains on the stable toolchain (`dtolnay/rust-toolchain@stable`); the nightly convention is local-only.
 
 ## Conflict priority

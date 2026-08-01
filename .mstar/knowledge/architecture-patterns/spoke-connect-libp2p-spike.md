@@ -48,7 +48,7 @@ All connect/host/error types come from `spoke-schemas` generated modules. Codege
 
 ## Why This Matters
 
-These patterns are the difference between a spike that "works on the happy path" and one that is safe to bind into a multi-language SDK. The identify-key binding and early allowlist are auth-correctness invariants; the pending-dial binding prevents misrouting sensitive application data to the wrong authenticated peer; the handler contract keeps a buggy adapter hook from silently killing the node. Capturing them here means the next iteration's uniffi bindings and TS connectivity story start from a hardened, documented core instead of rediscovering the same pitfalls.
+These patterns are the difference between a spike that "works on the happy path" and one that is safe to bind into a multi-language SDK. The identify-key binding and early allowlist are auth-correctness invariants; the pending-dial binding prevents misrouting sensitive application data to the wrong authenticated peer; the handler contract keeps a buggy adapter hook from silently killing the node. Capturing them here means the uniffi bindings and TS connectivity story start from a hardened, documented core instead of rediscovering the same pitfalls.
 
 ## When to Apply
 

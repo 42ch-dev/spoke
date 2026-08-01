@@ -395,7 +395,7 @@ The **signed claims object** is canonicalized with **RFC 8785 JCS** → UTF-8 by
 |-------|-----|------|-----------|
 | `iss` | yes | string | Issuer `peer_id` (same string form as hello `peer_id`) |
 | `sub` | yes | string | Subject `peer_id` — who may present the token |
-| `aud` | yes | string | Audience — reference: **receiver `peer_id`** (the verifying node’s network id); products MAY document a `host_id` synonym |
+| `aud` | yes | string | Audience — receiver `peer_id` (reference implementation); products MAY document a `host_id` synonym later |
 | `capabilities` | yes | string[] | Capability names granted to `sub` (e.g. `spoke-baseline`, `l2-computable`) |
 | `exp` | yes | number (JSON integer) | Expiry as **Unix time seconds** (UTC); reject if `now >= exp` |
 | `iat` | no | number | Issued-at Unix seconds; if present, reject if `now < iat` (reference implementations SHOULD allow ±60s clock skew on both sides) |
@@ -415,7 +415,7 @@ The **signed claims object** is canonicalized with **RFC 8785 JCS** → UTF-8 by
     "sub": "…",
     "aud": "…",
     "capabilities": ["…"],
-    "exp": 0
+    "exp": 1790000000
   },
   "sig": "<base64url-no-pad Ed25519 over JCS(claims)>"
 }

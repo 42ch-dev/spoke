@@ -115,12 +115,12 @@ RESULT: ALL CHECKS PASSED
 
 For a subsequent plan (product-facing TS helper; still not a published connect daemon):
 
-1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers first (`derivePeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, base64url). No swarm, no mDNS/DHT, no capability-token auth in the first slice.
+1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers first (`derivePeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, base64url). No swarm, no mDNS/DHT. `capability-token` is normative; the TS SDK slice does not implement it yet.
 2. **Transport adapter:** WebSocket client that sends/receives one JSON document per message; map to hello → session establish → invoke request/response correlation via existing wire fields only.
 3. **Session-core port (minimal):** protocol version check, allowlist on `peer_id`, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate — mirror [spoke-connect.md](spoke-connect.md) session-core rules; keep I/O at the adapter boundary.
 4. **Crypto matrix:** WebCrypto Ed25519 primary; `@noble/ed25519` fallback for older runtimes; keep the identity proof (or promote its vectors) as a regression check.
 5. **Interop target:** envelope-level parity with Rust peers over WS (or a test double stream). Noise/js-libp2p mesh is an optional second track, not a blocker for slice 1.
-6. **Out of first slice:** published npm connect package, CI-enforced identity gate (optional later), DHT discovery, capability-token auth, full Noise stack in pure TS.
+6. **Out of first slice:** published npm connect package, CI-enforced identity gate (optional later), DHT discovery, capability-token auth (normative; not yet implemented by the TS SDK slice), full Noise stack in pure TS.
 
 ---
 

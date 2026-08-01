@@ -39,6 +39,11 @@ pub type InvokeHandler =
 /// becomes the token's `aud`) and returns the wire `proof` object (`{ v,
 /// claims, sig }` — see `core::capability_token`). The returned proof must
 /// be issued by a trusted issuer with `sub` = this node's `peer_id`.
+///
+/// Execution contract: like [`InvokeHandler`], the provider runs
+/// **synchronously on the node's network event loop** — it must return
+/// promptly and must not block on I/O (every handshake, invoke response,
+/// and timeout sweep on the node stalls behind it).
 /// (simplify: spike answers challenges from a supplier hook; products may
 /// hold a token cache or mint on demand.)
 pub type CapabilityTokenProvider = dyn Fn(&str) -> Result<serde_json::Value, String> + Send + Sync;

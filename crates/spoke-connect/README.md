@@ -95,8 +95,9 @@ the pending `connect`; a missing provider, provider error, or unknown method
 drops the exchange — the session stays unauthorized for invokes and the
 pending `connect` resolves only at the handshake timeout (fail closed).
 A session that completed the challenge holds its grant for the session's
-lifetime without expiry revalidation on later invokes — products that need
-mid-session expiry revalidation can re-challenge the peer.
+lifetime without expiry revalidation on later invokes — products needing
+mid-session expiry enforcement implement their own re-challenge flow or
+attach a per-invoke `auth`.
 
 Per-invoke `auth`: `ConnectInvokeRequest.auth` optionally carries the same
 proof object. When present, the receiver validates it on **every** invoke
@@ -223,6 +224,9 @@ let node_a = SpokeConnectNode::start(ConnectConfig {
         Ok(serde_json::json!({ "findings": [], "extensions": {} }))
     })),
     op_capability_requirements: HashMap::new(),
+    trusted_issuers: vec![],               // capability-token auth disabled by default
+    require_capability_token: false,
+    capability_token_provider: None,
 })
 .await
 .expect("start a");
@@ -235,6 +239,9 @@ let node_b = SpokeConnectNode::start(ConnectConfig {
     handshake_timeout: None,
     invoke_handler: None,
     op_capability_requirements: HashMap::new(),
+    trusted_issuers: vec![],
+    require_capability_token: false,
+    capability_token_provider: None,
 })
 .await
 .expect("start b");

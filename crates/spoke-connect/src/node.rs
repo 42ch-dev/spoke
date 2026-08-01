@@ -1811,9 +1811,11 @@ mod tests {
     /// Config gating (AD-P3-3/AD-P3-5): the `mdns` feature is non-default.
     /// This module compiles only in default builds — there is no
     /// `mdns_autodial` config field and no mdns behaviour member to
-    /// reference (touching them here would not compile). If `mdns` became a
-    /// default feature, this module disappears from the default suite; the
-    /// feature-on `mdns_tests` module asserts the other side of the gate.
+    /// reference (touching them here would not compile). Tripwire
+    /// limitation: if `mdns` became a default feature, this module would
+    /// disappear from the default suite without failing — the CI mdns test
+    /// step asserts `default = []` in `Cargo.toml`, and the feature-on
+    /// `mdns_tests` module asserts the other side of the gate.
     #[cfg(not(feature = "mdns"))]
     mod no_mdns_tests {
         use super::*;

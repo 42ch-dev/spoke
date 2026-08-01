@@ -13,7 +13,7 @@ export interface ConnectHello {
    */
   protocol_version: number;
   /**
-   * Sender network identity (opaque). Trust root for noise-peerid allowlist.
+   * Sender network identity — protocol_version 1: libp2p identity-spec PeerId string for Ed25519 (base58btc identity multihash of the protobuf PublicKey); opaque to protocol logic; trust root for the noise-peerid allowlist.
    */
   peer_id: string;
   /**

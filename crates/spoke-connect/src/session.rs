@@ -60,13 +60,25 @@ impl PeerSession {
         &self.inner.remote_manifest
     }
 
+    /// The capabilities negotiated for this session: the intersection of the
+    /// local and remote `capabilities[]` at session establishment (normative
+    /// rule, `.mstar/specs/spoke-connect.md` §Negotiation). The op dispatch
+    /// gate is evaluated against this set — never against the remote
+    /// manifest alone.
+    #[must_use]
+    pub fn negotiated_capabilities(&self) -> &[String] {
+        &self.inner.negotiated_capabilities
+    }
+
     /// The next sequence that will be assigned on the following `invoke`
     /// (starts at 0).
     #[must_use]
     pub fn next_sequence(&self) -> u64 {
         self.inner
             .next_sequence
-            .load(std::sync::atomic::Ordering::SeqCst)
+            .lock()
+            .expect("sequence lock is never poisoned")
+            .next()
     }
 
     /// Send a `ConnectInvokeRequest` and wait for the correlated

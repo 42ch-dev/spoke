@@ -5,6 +5,7 @@ use libp2p::identity::Keypair;
 use libp2p::{Multiaddr, PeerId};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -61,6 +62,14 @@ pub struct ConnectConfig {
     /// Optional remote op dispatcher for inbound invokes. `None` answers
     /// every inbound invoke with an `op_unsupported` error envelope.
     pub invoke_handler: Option<Arc<InvokeHandler>>,
+
+    /// Product-defined op → required capability map, consulted by the
+    /// inbound dispatch gate for ops outside the core-op table (the pure
+    /// core answers `None` for them — see `core::required_capability`).
+    /// Default empty: a product op is not dispatchable until its required
+    /// capability is configured here AND that capability is part of the
+    /// session's `negotiated_capabilities` (normative §Op dispatch gate).
+    pub op_capability_requirements: HashMap<String, String>,
 }
 
 impl fmt::Debug for ConnectConfig {
@@ -73,6 +82,10 @@ impl fmt::Debug for ConnectConfig {
             .field("local_manifest", &self.local_manifest)
             .field("handshake_timeout", &self.handshake_timeout)
             .field("invoke_handler", &"<handler>")
+            .field(
+                "op_capability_requirements",
+                &self.op_capability_requirements,
+            )
             .finish()
     }
 }
@@ -86,6 +99,7 @@ impl Clone for ConnectConfig {
             local_manifest: self.local_manifest.clone(),
             handshake_timeout: self.handshake_timeout,
             invoke_handler: self.invoke_handler.clone(),
+            op_capability_requirements: self.op_capability_requirements.clone(),
         }
     }
 }
@@ -137,6 +151,7 @@ mod tests {
             local_manifest: manifest(),
             handshake_timeout: None,
             invoke_handler: None,
+            op_capability_requirements: HashMap::new(),
         }
     }
 

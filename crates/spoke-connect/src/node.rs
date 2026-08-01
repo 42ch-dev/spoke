@@ -40,12 +40,20 @@
 //! answers a replayed or out-of-order sequence with an `invalid_sequence`
 //! wire envelope — no handler side effect runs for it (normative ordering
 //! rule, `.mstar/specs/spoke-connect.md` §Ordering semantics). Accepted
-//! invokes are dispatched to the configured `invoke_handler` (spike-scoped
-//! dispatcher hook; adapter-owned in products). When a peer's last
-//! connection closes, live session handles are marked closed and their
-//! pending invokes fail fast.
+//! invokes pass the op dispatch gate first: an op whose required capability
+//! is absent from the session's `negotiated_capabilities` (the intersection
+//! of both manifests, computed at session establishment) is answered with an
+//! `op_unsupported` wire envelope and the handler is never called
+//! (normative rule, §Op dispatch gate). Required capabilities come from the
+//! core-op table first; product-defined ops resolve theirs through the
+//! configurable `op_capability_requirements` map. Gate-passing invokes are
+//! dispatched
+//! to the configured `invoke_handler` (spike-scoped dispatcher hook;
+//! adapter-owned in products). When a peer's last connection closes, live
+//! session handles are marked closed and their pending invokes fail fast.
 
 use crate::config::ConnectConfig;
+use crate::core::{dispatch_allowed, CoreInvokeError, InboundSequence};
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
 use crate::hello::{generate_nonce, sign_hello};
@@ -193,11 +201,12 @@ struct EventLoop {
     /// Established sessions per peer (created once both hellos confirm).
     sessions: HashMap<PeerId, Arc<SessionHandle>>,
     /// Next expected inbound invoke sequence per sessioned peer (receiver-side
-    /// monotonicity; starts at 0 per session — normative ordering rule).
-    /// Maintained in lockstep with `sessions`: created in
-    /// `maybe_complete_session`, removed when the peer's last connection
-    /// closes.
-    inbound_sequences: HashMap<PeerId, u64>,
+    /// monotonicity; starts at 0 per session — normative ordering rule). The
+    /// rule lives in [`InboundSequence`] (pure core); this map is the
+    /// transport's per-peer storage, maintained in lockstep with `sessions`:
+    /// created in `maybe_complete_session`, removed when the peer's last
+    /// connection closes.
+    inbound_sequences: HashMap<PeerId, InboundSequence>,
     /// The dial address each live session was established through (dialer
     /// side only). Used to complete duplicate `connect` calls against the
     /// same address without opening a surplus connection.
@@ -556,29 +565,24 @@ impl EventLoop {
                 Some(_session) => {
                     // Inbound monotonicity (normative ordering rule): the
                     // receiver tracks the next expected inbound sequence per
-                    // session, starting at 0. A replayed or out-of-order
-                    // sequence is answered with a wire `invalid_sequence`
-                    // envelope and is never dispatched — no duplicate or
-                    // reordered handler side effects.
-                    let expected = *self
-                        .inbound_sequences
-                        .get(&peer)
-                        .expect("session and its inbound sequence state are created and removed together");
-                    match inbound_sequence_advance(request.sequence, expected) {
-                        None => self.error_response(
-                            &request,
-                            "invalid_sequence",
-                            format!(
-                                "sequence {} is not the next expected inbound sequence {expected} (replay or out-of-order)",
-                                request.sequence
-                            ),
-                        ),
-                        Some(next) => {
+                    // session, starting at 0 — the pure rule is
+                    // `InboundSequence::advance` (core). A replayed or
+                    // out-of-order sequence is answered with a wire
+                    // `invalid_sequence` envelope and is never dispatched —
+                    // no duplicate or reordered handler side effects.
+                    let gate = {
+                        let inbound = self
+                            .inbound_sequences
+                            .get_mut(&peer)
+                            .expect("session and its inbound sequence state are created and removed together");
+                        inbound.advance(request.sequence)
+                    };
+                    match gate {
+                        Ok(_next) => {
                             // The sequence is consumed once accepted, whatever
                             // the response outcome (mirrors the outbound
                             // direction: a failed invoke still consumes its
                             // sequence).
-                            self.inbound_sequences.insert(peer, next);
                             match &self.config.invoke_handler {
                                 None => self.error_response(
                                     &request,
@@ -586,41 +590,94 @@ impl EventLoop {
                                     "no invoke handler configured on this node".into(),
                                 ),
                                 Some(handler) => {
-                                    // The handler runs synchronously on the
-                                    // event loop: it must return promptly and
-                                    // must not block on I/O (see
-                                    // ConnectConfig::invoke_handler). Panics
-                                    // are contained so a misbehaving adapter
-                                    // cannot kill the node; the invoke is
-                                    // answered with an `internal_error` wire
-                                    // envelope.
-                                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                        || handler(&request.op, request.payload.clone()),
-                                    ));
-                                    match result {
-                                        Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
-                                            session_id: request.session_id.to_string(),
-                                            sequence: request.sequence,
-                                            request_id: request.request_id.to_string(),
-                                            payload,
-                                            extensions: Default::default(),
-                                        },
-                                        Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
-                                            session_id: request.session_id.to_string(),
-                                            sequence: request.sequence,
-                                            request_id: request.request_id.to_string(),
-                                            error,
-                                            extensions: Default::default(),
-                                        },
-                                        Err(_) => self.error_response(
+                                    // Op dispatch gate (normative MUST,
+                                    // `.mstar/specs/spoke-connect.md` §Op
+                                    // dispatch gate): a host that performs op
+                                    // dispatch must not run an op whose
+                                    // required capability is absent from the
+                                    // session's `negotiated_capabilities`.
+                                    // Denied ops are answered with an
+                                    // `op_unsupported` wire envelope and the
+                                    // handler is never invoked — no side
+                                    // effects. The core table (pure
+                                    // `dispatch_allowed`, fail-closed for
+                                    // unknown ops) is consulted first; ops
+                                    // outside the core table fall back to
+                                    // the product-configured
+                                    // `op_capability_requirements` map.
+                                    let session = self
+                                        .sessions
+                                        .get(&peer)
+                                        .expect("session verified above");
+                                    let allowed = dispatch_allowed(
+                                        &request.op,
+                                        &session.negotiated_capabilities,
+                                    ) || self
+                                        .config
+                                        .op_capability_requirements
+                                        .get(request.op.as_str())
+                                        .is_some_and(|required| {
+                                            session
+                                                .negotiated_capabilities
+                                                .contains(required)
+                                        });
+                                    if !allowed {
+                                        self.error_response(
                                             &request,
-                                            "internal_error",
-                                            "invoke handler panicked".into(),
-                                        ),
+                                            "op_unsupported",
+                                            format!(
+                                                "op {} requires a capability that is not negotiated in this session",
+                                                request.op.as_str()
+                                            ),
+                                        )
+                                    } else {
+                                        // The handler runs synchronously on the
+                                        // event loop: it must return promptly and
+                                        // must not block on I/O (see
+                                        // ConnectConfig::invoke_handler). Panics
+                                        // are contained so a misbehaving adapter
+                                        // cannot kill the node; the invoke is
+                                        // answered with an `internal_error` wire
+                                        // envelope.
+                                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                            || handler(&request.op, request.payload.clone()),
+                                        ));
+                                        match result {
+                                            Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
+                                                session_id: request.session_id.to_string(),
+                                                sequence: request.sequence,
+                                                request_id: request.request_id.to_string(),
+                                                payload,
+                                                extensions: Default::default(),
+                                            },
+                                            Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
+                                                session_id: request.session_id.to_string(),
+                                                sequence: request.sequence,
+                                                request_id: request.request_id.to_string(),
+                                                error,
+                                                extensions: Default::default(),
+                                            },
+                                            Err(_) => self.error_response(
+                                                &request,
+                                                "internal_error",
+                                                "invoke handler panicked".into(),
+                                            ),
+                                        }
                                     }
                                 }
                             }
                         }
+                        Err(CoreInvokeError::InboundSequenceMismatch {
+                            expected,
+                            actual,
+                        }) => self.error_response(
+                            &request,
+                            "invalid_sequence",
+                            format!(
+                                "sequence {actual} is not the next expected inbound sequence {expected} (replay or out-of-order)"
+                            ),
+                        ),
+                        Err(_) => unreachable!("advance only reports InboundSequenceMismatch"),
                     }
                 }
                 _ => self.error_response(
@@ -707,6 +764,24 @@ impl EventLoop {
         let Some(remote_manifest) = handshake.remote_manifest.clone() else {
             return;
         };
+        // Negotiated capabilities = intersection of both hosts' manifests
+        // (normative rule, `.mstar/specs/spoke-connect.md` §Negotiation),
+        // evaluated once at session establishment. Iterating the local
+        // capabilities and keeping those the remote also declared makes the
+        // result deterministic in local manifest order.
+        let negotiated_capabilities = self
+            .config
+            .local_manifest
+            .capabilities
+            .iter()
+            .filter(|cap| {
+                remote_manifest
+                    .capabilities
+                    .iter()
+                    .any(|remote| remote == *cap)
+            })
+            .cloned()
+            .collect();
         let Ok(session_id) = generate_request_id() else {
             self.fail_pending_connect(
                 None,
@@ -719,13 +794,14 @@ impl EventLoop {
             session_id,
             *peer,
             remote_manifest,
+            negotiated_capabilities,
             self.config.effective_handshake_timeout(),
             self.cmd_tx.clone(),
         ));
         self.sessions.insert(*peer, handle.clone());
         // The receiver-side inbound expectation starts at 0 with the session
         // (lockstep with `sessions`; removed together on connection close).
-        self.inbound_sequences.insert(*peer, 0);
+        self.inbound_sequences.insert(*peer, InboundSequence::new());
         if is_pending_peer {
             if let Some(pending) = self.pending_connect.take() {
                 self.peer_listen_addrs.insert(*peer, pending.addr.clone());
@@ -912,26 +988,17 @@ impl EventLoop {
     }
 }
 
-/// Whether an inbound invoke's wire `sequence` is within the schema range.
+/// Wire-range gate for an inbound invoke's `sequence`.
 ///
-/// The generated `ConnectInvokeRequest.sequence` is a bare `i64` — typify
-/// does not enforce the schema's `minimum: 0` / JSON-safe maximum. The wire
-/// path validates before dispatching to any handler.
+/// Required because the generated `ConnectInvokeRequest.sequence` is a bare
+/// `i64` — typify does not enforce the schema's `minimum: 0` / JSON-safe
+/// maximum, so this check is what keeps out-of-range values off the wire
+/// path. `core::InboundSequence` would also reject them, but only with a
+/// generic `InboundSequenceMismatch`; this gate lets the wire path answer
+/// with the distinct `invalid_sequence` envelope per spec §Ordering
+/// semantics.
 fn inbound_sequence_valid(sequence: i64) -> bool {
     sequence >= 0 && (sequence as u64) <= MAX_SEQUENCE
-}
-
-/// Inbound monotonicity gate: returns the advanced next-expected value when
-/// `sequence` equals `next_expected` (the sequential case), or `None` for a
-/// replayed or out-of-order sequence.
-///
-/// The receiver tracks one expectation per session (starts at 0); a
-/// replayed sequence (already consumed) and an out-of-order sequence
-/// (skipping ahead) both fail the gate and must be rejected with a wire
-/// `invalid_sequence` envelope — never dispatched. On `Some`, the sequence
-/// is consumed exactly once.
-fn inbound_sequence_advance(sequence: i64, next_expected: u64) -> Option<u64> {
-    (sequence >= 0 && (sequence as u64) == next_expected).then_some(next_expected + 1)
 }
 
 /// Whether another pending hello may be buffered for a peer.
@@ -1171,6 +1238,7 @@ mod tests {
             local_manifest: manifest("test-host"),
             handshake_timeout: Some(Duration::from_secs(5)),
             invoke_handler: None,
+            op_capability_requirements: HashMap::new(),
         }
     }
 
@@ -1225,21 +1293,36 @@ mod tests {
 
     #[test]
     fn inbound_sequence_gate_rejects_replay_and_out_of_order() {
-        // Sequential 0, 1, 2 advance the expectation (the wire path accepts
-        // them; covered end-to-end by the two-node integration tests).
-        let mut next_expected = 0;
+        // The transport composes the wire-range check with the pure
+        // `InboundSequence` rule: sequential 0, 1, 2 advance the expectation
+        // (the wire path accepts them; covered end-to-end by the two-node
+        // integration tests).
+        let mut inbound = InboundSequence::new();
         for sequence in 0..=2 {
-            next_expected = inbound_sequence_advance(sequence, next_expected)
+            inbound
+                .advance(sequence)
                 .expect("sequential inbound sequences are accepted");
         }
-        assert_eq!(next_expected, 3);
+        assert_eq!(inbound.next_expected(), 3);
         // A replayed sequence (already consumed) is rejected.
-        assert!(inbound_sequence_advance(1, next_expected).is_none());
+        assert!(matches!(
+            inbound.advance(1),
+            Err(CoreInvokeError::InboundSequenceMismatch { expected: 3, .. })
+        ));
         // An out-of-order sequence (skipping ahead) is rejected.
-        assert!(inbound_sequence_advance((next_expected + 1) as i64, next_expected).is_none());
+        assert!(matches!(
+            inbound.advance(4),
+            Err(CoreInvokeError::InboundSequenceMismatch {
+                expected: 3,
+                actual: 4
+            })
+        ));
         // Negative sequences never advance (defense in depth; the range
         // check rejects them first on the wire path).
-        assert!(inbound_sequence_advance(-1, 0).is_none());
+        assert!(matches!(
+            inbound.advance(-1),
+            Err(CoreInvokeError::InboundSequenceMismatch { .. })
+        ));
     }
 
     #[test]

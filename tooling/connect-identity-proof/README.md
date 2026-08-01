@@ -2,7 +2,7 @@
 
 Throwaway Node proof that SPOKE connect identity bytes are reproducible in JavaScript.
 
-**Not** a workspace package, **not** published, **not** CI-gated. Run locally before a TypeScript connect client slice.
+Local-only proof script: run with `node proof.mjs`; kept outside workspace packages and CI gates by design. Run before a TypeScript connect client slice.
 
 ## What it checks
 

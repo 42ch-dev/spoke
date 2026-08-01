@@ -107,7 +107,7 @@ node tooling/connect-identity-proof/proof.mjs
 RESULT: ALL CHECKS PASSED
 ```
 
-**Porter note:** absent optional host fields (e.g. `authority`) MUST be **omitted** from the signed object, not serialized as JSON `null` — null changes JCS bytes and breaks signature verify against Rust.
+**Porter note:** Porters should omit absent optional host fields (e.g. `authority`) from the signed object rather than serializing them as JSON `null`; emitting `null` changes the canonical JCS bytes and breaks signature verify against Rust.
 
 ---
 

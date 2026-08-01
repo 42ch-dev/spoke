@@ -100,10 +100,16 @@ Wire `peer_id` is the **libp2p PeerId string** for the Ed25519 public key, per t
    - field 1 (`Type`) = `1` (**Ed25519**);
    - field 2 (`Data`) = the **32-byte** raw Ed25519 public key.
 2. Let `pk_bytes` = the protobuf serialization of that message. For Ed25519, `pk_bytes` length is **≤ 42 bytes**.
-3. Compute a **multihash** of `pk_bytes` using the **identity** multihash code **`0x00`**: the multihash digest is `pk_bytes` itself.  
+3. Build the **multihash wire byte sequence** over `pk_bytes` using the **identity** multihash code **`0x00`**:
+
+   ```text
+   multihash_bytes = code-varint (0x00 identity) || length-varint || digest
+   ```
+
+   where `digest` is `pk_bytes` itself (the protobuf-encoded `PublicKey` bytes — **not** a cryptographic hash of them, and **not** the raw 32-byte public key alone).  
    **Do not** hash the raw 32-byte public key with sha2-256 for this step.  
    *(General libp2p rule: identity multihash when the protobuf public key is ≤ 42 bytes; sha2-256 multihash only when longer — e.g. RSA. Protocol_version 1 connect cores that support only Ed25519 always take the identity branch.)*
-4. Encode the multihash bytes with **base58btc** (Bitcoin alphabet). That string is wire `peer_id`.
+4. Encode `multihash_bytes` with **base58btc** (Bitcoin alphabet). That string is wire `peer_id`.
 
 **Encoding constraints:**
 

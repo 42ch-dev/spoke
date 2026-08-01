@@ -11,6 +11,7 @@
 use libp2p::identity::Keypair;
 use spoke_connect::{parse_multiaddr, ConnectConfig, SpokeConnectNode};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
+use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
@@ -46,6 +47,7 @@ async fn main() {
         local_manifest: manifest("host-a", "checker"),
         handshake_timeout: None,
         invoke_handler: Some(handler),
+        op_capability_requirements: HashMap::new(),
     };
     let node_a = SpokeConnectNode::start(config_a).await.expect("start a");
 
@@ -57,6 +59,7 @@ async fn main() {
         local_manifest: manifest("host-b", "input-source"),
         handshake_timeout: None,
         invoke_handler: None,
+        op_capability_requirements: HashMap::new(),
     };
     let node_b = SpokeConnectNode::start(config_b).await.expect("start b");
 

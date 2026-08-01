@@ -130,6 +130,7 @@ B invokes the `check` op on A's handler:
 use libp2p::identity::Keypair;
 use spoke_connect::{parse_multiaddr, ConnectConfig, SpokeConnectNode};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
+use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
@@ -159,6 +160,7 @@ let node_a = SpokeConnectNode::start(ConnectConfig {
         assert_eq!(op, "check");
         Ok(serde_json::json!({ "findings": [], "extensions": {} }))
     })),
+    op_capability_requirements: HashMap::new(),
 })
 .await
 .expect("start a");
@@ -170,6 +172,7 @@ let node_b = SpokeConnectNode::start(ConnectConfig {
     local_manifest: manifest("host-b", "input-source"),
     handshake_timeout: None,
     invoke_handler: None,
+    op_capability_requirements: HashMap::new(),
 })
 .await
 .expect("start b");

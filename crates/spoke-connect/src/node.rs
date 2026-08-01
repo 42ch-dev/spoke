@@ -44,7 +44,10 @@
 //! is absent from the session's `negotiated_capabilities` (the intersection
 //! of both manifests, computed at session establishment) is answered with an
 //! `op_unsupported` wire envelope and the handler is never called
-//! (normative rule, §Op dispatch gate). Gate-passing invokes are dispatched
+//! (normative rule, §Op dispatch gate). Required capabilities come from the
+//! core-op table first; product-defined ops resolve theirs through the
+//! configurable `op_capability_requirements` map. Gate-passing invokes are
+//! dispatched
 //! to the configured `invoke_handler` (spike-scoped dispatcher hook;
 //! adapter-owned in products). When a peer's last connection closes, live
 //! session handles are marked closed and their pending invokes fail fast.
@@ -596,15 +599,29 @@ impl EventLoop {
                                     // Denied ops are answered with an
                                     // `op_unsupported` wire envelope and the
                                     // handler is never invoked — no side
-                                    // effects.
+                                    // effects. The core table (pure
+                                    // `dispatch_allowed`, fail-closed for
+                                    // unknown ops) is consulted first; ops
+                                    // outside the core table fall back to
+                                    // the product-configured
+                                    // `op_capability_requirements` map.
                                     let session = self
                                         .sessions
                                         .get(&peer)
                                         .expect("session verified above");
-                                    if !dispatch_allowed(
+                                    let allowed = dispatch_allowed(
                                         &request.op,
                                         &session.negotiated_capabilities,
-                                    ) {
+                                    ) || self
+                                        .config
+                                        .op_capability_requirements
+                                        .get(request.op.as_str())
+                                        .is_some_and(|required| {
+                                            session
+                                                .negotiated_capabilities
+                                                .contains(required)
+                                        });
+                                    if !allowed {
                                         self.error_response(
                                             &request,
                                             "op_unsupported",
@@ -1221,6 +1238,7 @@ mod tests {
             local_manifest: manifest("test-host"),
             handshake_timeout: Some(Duration::from_secs(5)),
             invoke_handler: None,
+            op_capability_requirements: HashMap::new(),
         }
     }
 

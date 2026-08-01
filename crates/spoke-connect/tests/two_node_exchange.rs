@@ -22,7 +22,12 @@
 //!     the node stays alive;
 //! (k) the inbound op dispatch gate denies an op whose required capability
 //!     is absent from the session's negotiated capabilities (`op_unsupported`
-//!     envelope, handler never called) while a negotiated op still flows.
+//!     envelope, handler never called) while a negotiated op still flows;
+//! (l) the product op→capability map (`ConnectConfig::
+//!     op_capability_requirements`) authorizes product-defined ops through
+//!     the dispatch gate: a mapped requirement that IS negotiated lets the
+//!     handler run; one that is NOT negotiated is denied (`op_unsupported`,
+//!     handler never called).
 //!
 //! All waits are bounded event waits (timeouts on `connect` / `invoke`
 //! futures) — no sleep-based synchronization.
@@ -32,6 +37,7 @@ use libp2p::{Multiaddr, PeerId};
 use spoke_connect::{parse_multiaddr, ConnectConfig, ConnectError, InvokeError, SpokeConnectNode};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -92,6 +98,7 @@ fn config(
         local_manifest,
         handshake_timeout: Some(timeout),
         invoke_handler: None,
+        op_capability_requirements: HashMap::new(),
     }
 }
 
@@ -839,6 +846,113 @@ async fn inbound_dispatch_gate_denies_unnegotiated_capability_ops() {
         calls.load(std::sync::atomic::Ordering::SeqCst),
         1,
         "the handler runs exactly once, for the negotiated op"
+    );
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (l-i) A product-defined op (`merge`, outside the core-op table) with a
+/// MAPPED requirement that IS part of the negotiated intersection reaches the
+/// configured handler: A maps `merge` → `spoke-baseline`, B advertises
+/// `spoke-baseline`, so the invoke succeeds.
+#[tokio::test]
+async fn product_op_with_mapped_negotiated_capability_is_dispatchable() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let handler = Arc::new(|op: &str, _payload: serde_json::Value| {
+        assert_eq!(op, "merge", "handler sees the product op");
+        Ok(serde_json::json!({ "merged": true, "extensions": {} }))
+    });
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["data-store"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    cfg_a
+        .op_capability_requirements
+        .insert("merge".into(), "spoke-baseline".into());
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    // `spoke-baseline` is in both manifests, hence in the negotiated
+    // intersection: the mapped product op is dispatchable.
+    let success = session
+        .invoke("merge", serde_json::json!({ "extensions": {} }))
+        .await
+        .expect("product op with negotiated capability succeeds");
+    assert_eq!(
+        success.payload,
+        serde_json::json!({ "merged": true, "extensions": {} }),
+        "the handler's payload arrives intact"
+    );
+
+    node_b.shutdown().await.expect("b shuts down");
+    node_a.shutdown().await.expect("a shuts down");
+}
+
+/// (l-ii) A product-defined op whose MAPPED requirement is absent from the
+/// negotiated intersection is denied with the `op_unsupported` wire envelope
+/// and the configured handler is never called — the map is not a bypass.
+#[tokio::test]
+async fn product_op_with_unnegotiated_mapped_capability_is_denied() {
+    let _network_guard = network_test_guard().await;
+    let key_a = Keypair::generate_ed25519();
+    let key_b = Keypair::generate_ed25519();
+    let peer_a = key_a.public().to_peer_id();
+    let peer_b = key_b.public().to_peer_id();
+
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler = {
+        let calls = calls.clone();
+        Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "extensions": {} }))
+        })
+    };
+    let mut cfg_a = config(
+        key_a,
+        vec![peer_b],
+        manifest("host-a", &["data-store"]),
+        HANDSHAKE_TIMEOUT,
+    );
+    cfg_a.invoke_handler = Some(handler);
+    // `l2-computable` is advertised by neither host: even though the op is
+    // mapped (and a handler is configured), the gate must deny it.
+    cfg_a
+        .op_capability_requirements
+        .insert("merge".into(), "l2-computable".into());
+    let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
+    let node_b = start(key_b, vec![peer_a], manifest("host-b", &["input-source"])).await;
+
+    let session = node_b
+        .connect(node_a.listen_addrs()[0].clone())
+        .await
+        .expect("b dials a");
+
+    let err = session
+        .invoke("merge", serde_json::json!({ "extensions": {} }))
+        .await
+        .expect_err("unnegotiated mapped capability must deny the op");
+    match err {
+        InvokeError::Wire(envelope) => assert_eq!(envelope.code, "op_unsupported"),
+        other => panic!("expected op_unsupported wire error, got {other:?}"),
+    }
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the handler must not run for a capability-denied product op"
     );
 
     node_b.shutdown().await.expect("b shuts down");

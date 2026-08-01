@@ -235,4 +235,56 @@ describe("two-node local WebSocket interop", () => {
     },
     15000,
   );
+
+  it(
+    "rejects fast when the server drops the connection mid-handshake",
+    async () => {
+      // Deterministic mid-handshake close: the server accepts, waits for the
+      // client's hello, then closes the socket without answering. The client
+      // must reject with the socket failure (fail-fast), not wait out the
+      // 5 s handshake timeout, and its own socket must be released.
+      const seedB = seed(0x30);
+      const pubkeyA = getPublicKeyEd25519(seed(0xb0));
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+
+      const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+      const port = await new Promise<number>((resolve, reject) => {
+        server.once("error", reject);
+        server.once("listening", () => {
+          const address = server.address();
+          if (address === null || typeof address === "string") {
+            reject(new Error("unexpected server address"));
+            return;
+          }
+          resolve(address.port);
+        });
+      });
+
+      const connections: WebSocket[] = [];
+      server.on("connection", (socket) => {
+        connections.push(socket);
+        socket.once("message", () => socket.close());
+      });
+
+      try {
+        const started = Date.now();
+        await expect(
+          connectClient({
+            url: `ws://127.0.0.1:${port}`,
+            identity: { seed: seedB },
+            manifest: goldenManifest(),
+            remotePubkey: pubkeyA,
+            allowlist: [peerIdA],
+            timeoutMs: 5000,
+          }),
+        ).rejects.toThrow(/websocket (closed|error)/);
+        // Fail-fast: rejection arrives well before the 5 s handshake timeout.
+        expect(Date.now() - started).toBeLessThan(2000);
+      } finally {
+        for (const c of connections) c.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+    15000,
+  );
 });

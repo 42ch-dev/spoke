@@ -203,7 +203,10 @@ export async function connectClient(
   // Handshake messages are consumed in order via a waiter queue; once the
   // session is established, invoke responses route by `request_id`.
   const inbox: unknown[] = [];
-  const waiters: ((doc: unknown) => void)[] = [];
+  const waiters: {
+    resolve: (doc: unknown) => void;
+    reject: (error: Error) => void;
+  }[] = [];
   const pending = new Map<string, PendingInvoke>();
 
   function nextMessage(): Promise<unknown> {
@@ -211,7 +214,7 @@ export async function connectClient(
     if (buffered !== undefined) {
       return Promise.resolve(buffered);
     }
-    return new Promise((resolve) => waiters.push(resolve));
+    return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
   }
 
   function failAll(error: Error): void {
@@ -220,12 +223,21 @@ export async function connectClient(
       entry.reject(error);
     }
     pending.clear();
+    for (const waiter of waiters.splice(0)) {
+      waiter.reject(error);
+    }
   }
+
+  // Fail fast on socket error/close in every phase: pending handshake waits
+  // and in-flight invokes reject immediately instead of waiting out their
+  // timeout.
+  socket.on("error", () => failAll(new Error("websocket error before invoke completion")));
+  socket.on("close", () => failAll(new Error("websocket closed before invoke completion")));
 
   onJsonMessage(socket, (doc) => {
     const waiter = waiters.shift();
     if (waiter) {
-      waiter(doc);
+      waiter.resolve(doc);
       return;
     }
     if (isConnectInvokeResponse(doc)) {
@@ -251,50 +263,57 @@ export async function connectClient(
     inbox.push(doc);
   });
 
-  // Send our signed hello.
-  sendJsonMessage(
-    socket,
-    await signHelloEd25519(identity.seed, generateNonce(), manifest),
-  );
+  let remoteManifest: HostCapabilityManifest;
+  let session: Session;
+  try {
+    // Send our signed hello.
+    sendJsonMessage(
+      socket,
+      await signHelloEd25519(identity.seed, generateNonce(), manifest),
+    );
 
-  // Await the server's signed hello — the next WS message (AD-P0-3).
-  const helloDoc = await withTimeout(nextMessage(), timeoutMs, "server hello");
-  if (!isConnectHello(helloDoc)) {
-    throw new Error("expected ConnectHello from server");
-  }
-  await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
-  const remoteManifest = helloDoc.host;
+    // Await the server's signed hello — the next WS message (AD-P0-3).
+    const helloDoc = await withTimeout(nextMessage(), timeoutMs, "server hello");
+    if (!isConnectHello(helloDoc)) {
+      throw new Error("expected ConnectHello from server");
+    }
+    await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
+    remoteManifest = helloDoc.host;
 
-  // Await the session snapshot carrying the A-assigned session id + binding.
-  const sessionDoc = await withTimeout(nextMessage(), timeoutMs, "session snapshot");
-  if (!isConnectSession(sessionDoc)) {
-    throw new Error("expected ConnectSession snapshot after server hello");
-  }
-  if (
-    sessionDoc.initiator_peer_id !== localPeerId ||
-    sessionDoc.responder_peer_id !== remotePeerId
-  ) {
-    throw new Error("session snapshot peer ids do not match the authenticated hellos");
-  }
-  if (sessionDoc.session_id.length === 0) {
-    throw new Error("session snapshot session_id must not be empty");
-  }
-  if (sessionDoc.initial_sequence !== 0) {
-    throw new Error("session snapshot initial_sequence must be 0 for protocol_version 1");
-  }
+    // Await the session snapshot carrying the A-assigned session id + binding.
+    const sessionDoc = await withTimeout(nextMessage(), timeoutMs, "session snapshot");
+    if (!isConnectSession(sessionDoc)) {
+      throw new Error("expected ConnectSession snapshot after server hello");
+    }
+    if (
+      sessionDoc.initiator_peer_id !== localPeerId ||
+      sessionDoc.responder_peer_id !== remotePeerId
+    ) {
+      throw new Error("session snapshot peer ids do not match the authenticated hellos");
+    }
+    if (sessionDoc.session_id.length === 0) {
+      throw new Error("session snapshot session_id must not be empty");
+    }
+    if (sessionDoc.initial_sequence !== 0) {
+      throw new Error("session snapshot initial_sequence must be 0 for protocol_version 1");
+    }
 
-  const session = new Session({
-    session_id: sessionDoc.session_id,
-    initiator_peer_id: localPeerId,
-    responder_peer_id: remotePeerId,
-    negotiated_capabilities: negotiatedCapabilities(
-      manifest.capabilities,
-      remoteManifest.capabilities,
-    ),
-  });
-
-  socket.on("error", () => failAll(new Error("websocket error before invoke completion")));
-  socket.on("close", () => failAll(new Error("websocket closed before invoke completion")));
+    session = new Session({
+      session_id: sessionDoc.session_id,
+      initiator_peer_id: localPeerId,
+      responder_peer_id: remotePeerId,
+      negotiated_capabilities: negotiatedCapabilities(
+        manifest.capabilities,
+        remoteManifest.capabilities,
+      ),
+    });
+  } catch (error) {
+    // Handshake rejection: release pending waits and close the socket so the
+    // peer sees a clean disconnect and local resources are freed.
+    failAll(error instanceof Error ? error : new Error(String(error)));
+    socket.close();
+    throw error;
+  }
 
   return {
     sessionId: session.session_id,
@@ -302,14 +321,23 @@ export async function connectClient(
     remoteManifest,
 
     invoke(op, payload): Promise<ConnectInvokeResponse> {
-      const request: ConnectInvokeRequest = {
-        session_id: session.session_id,
-        sequence: session.allocateOutboundSequence(),
-        request_id: globalThis.crypto.randomUUID(),
-        op,
-        payload,
-        extensions: {},
-      };
+      let request: ConnectInvokeRequest;
+      try {
+        request = {
+          session_id: session.session_id,
+          sequence: session.allocateOutboundSequence(),
+          request_id: globalThis.crypto.randomUUID(),
+          op,
+          payload,
+          extensions: {},
+        };
+      } catch (error) {
+        // Outbound sequence exhaustion is a reject, not a synchronous throw —
+        // callers always observe the promise API.
+        return Promise.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
       return new Promise<ConnectInvokeResponse>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(request.request_id);

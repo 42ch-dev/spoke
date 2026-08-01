@@ -83,10 +83,27 @@ describe("WebCrypto Ed25519 path (when the runtime supports it)", () => {
     webcryptoOk = await webcryptoEd25519Available();
   });
 
-  it("reports availability consistently with crypto.subtle importKey", () => {
-    expect(webcryptoOk).toBe(
-      typeof globalThis.crypto?.subtle?.importKey === "function",
-    );
+  it("probe is true iff an Ed25519 importKey succeeds on this runtime", async () => {
+    // `importKey` presence is not the contract — it exists yet rejects
+    // Ed25519 on Node 20.0–20.18 / 21 / 22.0–22.3. Assert the probe's
+    // contract directly: true iff an actual Ed25519 importKey succeeds.
+    const s = globalThis.crypto?.subtle;
+    let importSucceeds = false;
+    if (s && typeof s.importKey === "function") {
+      try {
+        await s.importKey(
+          "pkcs8",
+          ed25519SeedToPkcs8(GOLDEN_SEED) as unknown as BufferSource,
+          { name: "Ed25519" },
+          false,
+          ["sign"],
+        );
+        importSucceeds = true;
+      } catch {
+        importSucceeds = false;
+      }
+    }
+    expect(webcryptoOk).toBe(importSucceeds);
   });
 
   it("sign → verify round-trip via crypto.subtle directly", async (ctx) => {

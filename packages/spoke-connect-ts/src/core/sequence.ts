@@ -52,6 +52,10 @@ export class OutboundSequence {
    * Test-only: position the counter at `value` so transport tests can
    * exercise exhaustion without 2⁵³ allocations (mirrors Rust
    * `#[cfg(test)] set_next`).
+   *
+   * @internal test-only — mirrors Rust `#[cfg(test)] set_next`. Not part
+   * of the public session-core API; production transports allocate
+   * sequences only through `allocate()` / `Session.allocateOutboundSequence()`.
    */
   setNext(value: number): void {
     this.nextValue = value;

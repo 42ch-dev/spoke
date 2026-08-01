@@ -162,3 +162,6 @@ target/
 .mstar/status.json
 .worktrees/
 # Tracked (results): .mstar/AGENTS.md, .mstar/roadmap.md, .mstar/knowledge/, .mstar/specs/
+
+# Morning Star status write lock (local coordination)
+.mstar/.status-write.lock

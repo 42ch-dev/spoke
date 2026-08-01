@@ -453,8 +453,9 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
 
 Local env quirk: if `cargo` fails with `error: the option Z is only accepted
 on the nightly compiler` — a nightly-only `-Z` flag set in
-`~/.cargo/config.toml` `[build] rustflags` — run the cargo steps with
-`RUSTFLAGS=""` (it overrides the config; this repo builds on stable).
+`~/.cargo/config.toml` `[unstable] rustflags` — run the cargo steps with the
+**nightly toolchain** (`cargo +nightly …`) so the flag is honored; CI builds
+on stable.
 
 ## Testing
 

@@ -6,11 +6,10 @@ signs and verifies the golden hello (asserting base64url signature parity), and
 exercises the rest of the exported surface (allowlist, sequences, nonce store,
 dispatch gate, correlation, protocol version) with the mapped error cases.
 
-> Local env quirk: this machine's `~/.cargo/config.toml` sets
-> `[build] rustflags = ["-Zno-embed-metadata"]` (a nightly-only flag). If
-> `cargo` fails with `error: the option Z is only accepted on the nightly
-> compiler`, run the cargo steps with `RUSTFLAGS=""` — that overrides the
-> config, and this repo builds on stable.
+> Local env quirk: this machine's `~/.cargo/config.toml` carries
+> `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).
+> Run the cargo steps with the **nightly toolchain** (`cargo +nightly …`) so
+> the flag is honored; CI builds on stable.
 
 > Footgun: a plain `cargo build` (default features) between steps replaces the
 > ffi cdylib in the shared `target/debug`. If the next smoke run fails with

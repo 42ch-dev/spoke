@@ -40,6 +40,19 @@ pub fn dispatch_allowed(op: &str, negotiated_capabilities: &[String]) -> bool {
     }
 }
 
+/// Whether a capability-token grant (validated `claims.capabilities`)
+/// authorizes `op` — **membership** of `op`'s required capability in the
+/// grant (normative §Capability matching: subset-of-grant, not exact-list
+/// equality; extra capabilities on the token are ignored when unused).
+///
+/// `required` is the op's required capability from the core table or the
+/// product-configured map. Fails closed: an unknown op (no requirement)
+/// is not authorized by the token gate.
+#[must_use]
+pub fn token_authorizes_op(required: Option<&str>, token_capabilities: &[String]) -> bool {
+    required.is_some_and(|r| token_capabilities.iter().any(|c| c == r))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +103,48 @@ mod tests {
         assert!(!dispatch_allowed("custom-op", &caps(&["spoke-baseline"])));
         assert!(!dispatch_allowed("custom-op", &caps(&["spoke-connect"])));
         assert!(!dispatch_allowed("", &caps(&["spoke-baseline"])));
+    }
+
+    #[test]
+    fn token_grant_authorizes_by_membership() {
+        // Membership / subset-of-grant: the required capability present in
+        // the grant authorizes the op; extra capabilities are ignored.
+        assert!(token_authorizes_op(
+            Some(CAPABILITY_SPOKE_BASELINE),
+            &caps(&["spoke-baseline", "l2-computable", "unused-extra"])
+        ));
+        assert!(token_authorizes_op(
+            Some(CAPABILITY_L2_COMPUTABLE),
+            &caps(&["l2-computable"])
+        ));
+        // The grant is NOT an exact-list match: a subset suffices.
+        assert!(token_authorizes_op(
+            Some(CAPABILITY_SPOKE_BASELINE),
+            &caps(&["spoke-baseline", "l2-computable"])
+        ));
+    }
+
+    #[test]
+    fn token_grant_missing_requirement_denies() {
+        assert!(!token_authorizes_op(
+            Some(CAPABILITY_L2_COMPUTABLE),
+            &caps(&["spoke-baseline"])
+        ));
+        assert!(!token_authorizes_op(
+            Some(CAPABILITY_SPOKE_BASELINE),
+            &caps(&[])
+        ));
+        assert!(!token_authorizes_op(
+            Some(CAPABILITY_SPOKE_BASELINE),
+            &caps(&["l2-computable"])
+        ));
+    }
+
+    #[test]
+    fn token_grant_unknown_ops_fail_closed() {
+        // An op with no required capability (core table or product map) is
+        // never authorized by the token gate.
+        assert!(!token_authorizes_op(None, &caps(&["spoke-baseline"])));
+        assert!(!token_authorizes_op(None, &caps(&[])));
     }
 }

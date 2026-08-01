@@ -32,6 +32,13 @@ pub enum CoreError {
     /// RFC 8785 JCS canonicalization of the signed object failed.
     #[error("JCS canonicalization failed: {0}")]
     Jcs(String),
+
+    /// A capability-token proof failed validation (malformed shape, bad
+    /// signature, untrusted issuer, subject/audience/expiry mismatch, or
+    /// claim-rule violation). Maps to the wire `auth_failed` code at the
+    /// transport boundary.
+    #[error("capability token invalid: {0}")]
+    TokenInvalid(String),
 }
 
 /// Errors from op invocation over an established session (pure core rules).

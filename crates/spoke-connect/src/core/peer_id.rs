@@ -44,6 +44,40 @@ pub fn derive_peer_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> String {
     base58_encode(&multihash)
 }
 
+/// Invert [`derive_peer_id_from_ed25519_pubkey`]: decode a well-formed
+/// Ed25519 `peer_id` string back to its 32-byte public key.
+///
+/// Ed25519 peer ids use the **identity** multihash (digest = the key's
+/// protobuf bytes), so this is a pure encoding inversion — no hash to
+/// invert. `None` for any string that is not a structurally valid Ed25519
+/// peer id (bad base58, wrong multihash layout, non-Ed25519 protobuf
+/// header). Used by capability-token verification: the issuer `peer_id`
+/// (`claims.iss`) carries the issuer's public key, which verifies the
+/// token signature.
+#[must_use]
+pub fn ed25519_pubkey_from_peer_id(peer_id: &str) -> Option<[u8; 32]> {
+    let bytes = base58_decode(peer_id)?;
+    // Identity multihash (code 0x00, length 0x24 = 36) with the protobuf
+    // `PublicKey` message as the digest (38 bytes total).
+    if bytes.len() != 38 || bytes[0] != 0x00 || bytes[1] != 0x24 {
+        return None;
+    }
+    // Protobuf `PublicKey`: field 1 varint Type = 1 (Ed25519): 0x08 0x01;
+    // field 2 bytes, length 0x20 (32): 0x12 0x20, then the raw key.
+    let message = &bytes[2..];
+    if message.len() != 36
+        || message[0] != 0x08
+        || message[1] != 0x01
+        || message[2] != 0x12
+        || message[3] != 0x20
+    {
+        return None;
+    }
+    let mut pubkey = [0u8; 32];
+    pubkey.copy_from_slice(&message[4..]);
+    Some(pubkey)
+}
+
 /// Spec §Identity binding, step 4: base58btc (Bitcoin alphabet) encode
 /// `input` with pure `std` arithmetic.
 ///
@@ -75,6 +109,35 @@ fn base58_encode(input: &[u8]) -> String {
         out.push(BITCOIN_ALPHABET[usize::from(*digit)] as char);
     }
     out
+}
+
+/// Decode a base58btc string with pure `std` arithmetic (inverse of
+/// [`base58_encode`]). `None` on any character outside the Bitcoin
+/// alphabet.
+fn base58_decode(input: &str) -> Option<Vec<u8>> {
+    let mut bytes: Vec<u8> = Vec::with_capacity(input.len());
+    for character in input.bytes() {
+        let digit = BITCOIN_ALPHABET.iter().position(|&a| a == character)?;
+        // Accumulate little-endian base-256 digits: multiply the running
+        // number by 58 and add the new digit (inverse of the encoder).
+        let mut carry = digit as u32;
+        for byte in bytes.iter_mut() {
+            carry += u32::from(*byte) * 58;
+            *byte = (carry & 0xff) as u8;
+            carry >>= 8;
+        }
+        while carry > 0 {
+            bytes.push((carry & 0xff) as u8);
+            carry >>= 8;
+        }
+    }
+    bytes.reverse();
+    // Leading `1` characters encode leading zero bytes (base58 convention).
+    let zeros = input.bytes().take_while(|&b| b == b'1').count();
+    for _ in 0..zeros {
+        bytes.insert(0, 0);
+    }
+    Some(bytes)
 }
 
 #[cfg(test)]
@@ -116,5 +179,72 @@ mod tests {
         let a = derive_peer_id_from_ed25519_pubkey(&[3u8; 32]);
         assert!(a.starts_with("12D3KooW"));
         assert_eq!(a.len(), GOLDEN_PEER_ID.len());
+    }
+
+    #[test]
+    fn golden_peer_id_decodes_back_to_its_public_key() {
+        // The identity multihash makes the mapping an inversion: the golden
+        // peer id (captured from libp2p) decodes to exactly the golden
+        // public key, and that key derives the same peer id.
+        assert_eq!(
+            ed25519_pubkey_from_peer_id(GOLDEN_PEER_ID),
+            Some(GOLDEN_PUBKEY)
+        );
+    }
+
+    #[test]
+    fn pubkey_peer_id_round_trip_for_arbitrary_keys() {
+        for seed in [4u8, 5, 6] {
+            let pubkey = [seed; 32];
+            let peer_id = derive_peer_id_from_ed25519_pubkey(&pubkey);
+            assert_eq!(
+                ed25519_pubkey_from_peer_id(&peer_id),
+                Some(pubkey),
+                "derive → decode must invert for the same key"
+            );
+        }
+    }
+
+    #[test]
+    fn base58_decode_inverts_encode() {
+        // Round-trip the encoder's output through the decoder for a few byte
+        // patterns, including leading zero bytes (base58 `1`s).
+        for input in [
+            &[0u8; 0][..],
+            &[0x01u8][..],
+            &[0x00u8, 0x01][..],
+            &[0xde, 0xad, 0xbe, 0xef][..],
+        ] {
+            let encoded = base58_encode(input);
+            assert_eq!(
+                base58_decode(&encoded).as_deref(),
+                Some(input),
+                "encode → decode must invert for {input:?}"
+            );
+        }
+        // The classic base58btc example: 0x00 0x01 encodes to "12".
+        assert_eq!(base58_encode(&[0x00, 0x01]), "12");
+        assert_eq!(base58_decode("12").as_deref(), Some(&[0x00, 0x01][..]));
+    }
+
+    #[test]
+    fn base58_decode_rejects_out_of_alphabet_input() {
+        // '0', 'O', 'I', 'l' are excluded from the Bitcoin alphabet.
+        for bad in ["0", "O", "I", "l", "12O3"] {
+            assert_eq!(base58_decode(bad), None, "{bad:?} must not decode");
+        }
+    }
+
+    #[test]
+    fn pubkey_decode_rejects_non_ed25519_peer_id_shapes() {
+        // A structurally valid base58 string that is not the identity
+        // multihash of an Ed25519 key (wrong length / layout) decodes to
+        // nothing — capability-token verification must fail closed.
+        assert_eq!(
+            ed25519_pubkey_from_peer_id("QmYwAPJzv5CZsnAzt8auVZRnV"),
+            None
+        );
+        assert_eq!(ed25519_pubkey_from_peer_id("12D3KooW"), None);
+        assert_eq!(ed25519_pubkey_from_peer_id(""), None);
     }
 }

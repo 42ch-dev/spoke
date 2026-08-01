@@ -1,4 +1,4 @@
-//! `noise-peerid` accept gate: allowlist check + per-sender nonce dedup.
+//! `noise-peerid` accept gate: transport adapter over the pure core rules.
 //!
 //! Normative rules (`.mstar/specs/spoke-connect.md` §Auth model, §Nonce):
 //! - Trust root is the deployment-configured `PeerId` allowlist; the peer is
@@ -7,46 +7,36 @@
 //! - Nonce uniqueness is scoped per sender `peer_id`; the receiver must reject
 //!   a hello whose `(peer_id, nonce)` pair was already accepted. An in-memory
 //!   set for the life of the process is sufficient for protocol v1.
+//!
+//! The rules themselves live in [`crate::core`] (allowlist check, hello
+//! verification, nonce store); this module converts `libp2p::PeerId` ↔
+//! `String` at the boundary and maps core errors to [`ConnectError`].
 
+use crate::core;
+/// The single-use `(peer_id, nonce)` replay store — owned by the pure core.
+pub(crate) use crate::core::NonceStore;
 use crate::error::ConnectError;
 use crate::hello::verify_hello;
-use crate::protocol::PROTOCOL_VERSION;
 use libp2p::identity::PublicKey;
 use libp2p::PeerId;
 use spoke_schemas::connect::ConnectHello;
-use std::collections::HashSet;
+
 /// Whether `peer` is on the allowlist. An empty allowlist rejects every peer.
 #[must_use]
 pub(crate) fn is_allowlisted(allowlist: &[PeerId], peer: &PeerId) -> bool {
-    // simplify: linear scan. Switch to a HashSet if allowlists grow past a
-    // handful of peers.
-    allowlist.contains(peer)
-}
-
-/// In-memory `(peer_id, nonce)` store of accepted hellos.
-#[derive(Debug, Default)]
-pub(crate) struct NonceStore {
-    seen: HashSet<(PeerId, String)>,
-}
-
-impl NonceStore {
-    /// Creates an empty store.
-    #[must_use]
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    /// Records `(peer, nonce)` unless it was already accepted; returns `false`
-    /// on replay.
-    pub(crate) fn check_and_record(&mut self, peer: &PeerId, nonce: &str) -> bool {
-        self.seen.insert((*peer, nonce.to_owned()))
-    }
+    // Boundary conversion: the core rule is string-keyed.
+    // simplify: linear scan (mirrors the core rule). Switch to a HashSet if
+    // allowlists grow past a handful of peers.
+    let allowlist: Vec<String> = allowlist.iter().map(ToString::to_string).collect();
+    core::is_allowlisted(&allowlist, &peer.to_string())
 }
 
 /// Run the full accept gate for an inbound hello.
 ///
-/// Order: protocol version and claimed-peer binding → allowlist → signature →
-/// nonce. A returned [`ConnectError`] identifies the exact rejection reason.
+/// Order: allowlist → verify (protocol version, key binding, claimed peer,
+/// signature — all core rules) → nonce. A returned [`ConnectError`]
+/// identifies the exact rejection reason. A rejected hello's nonce is never
+/// recorded, so it stays retry-safe once allowlisted.
 pub(crate) fn gate_hello(
     authenticated_peer: &PeerId,
     public_key: &PublicKey,
@@ -54,21 +44,13 @@ pub(crate) fn gate_hello(
     nonces: &mut NonceStore,
     hello: &ConnectHello,
 ) -> Result<(), ConnectError> {
-    if hello.protocol_version.get() != PROTOCOL_VERSION {
-        return Err(ConnectError::HandshakeFailed {
-            reason: format!(
-                "unsupported protocol_version {} (expected {PROTOCOL_VERSION})",
-                hello.protocol_version
-            ),
-        });
-    }
     if !is_allowlisted(allowlist, authenticated_peer) {
         return Err(ConnectError::NotAllowlisted {
             peer_id: *authenticated_peer,
         });
     }
     verify_hello(public_key, authenticated_peer, hello)?;
-    if !nonces.check_and_record(authenticated_peer, hello.nonce.as_str()) {
+    if !nonces.check_and_record(&authenticated_peer.to_string(), hello.nonce.as_str()) {
         return Err(ConnectError::NonceReplay);
     }
     Ok(())

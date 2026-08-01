@@ -5,23 +5,19 @@
 //! Crate-private: protocol names, version, and transport acknowledgement
 //! shapes are internal composition facts (documented in the crate README),
 //! not part of the locked public facade.
+//!
+//! The protocol version and the sequence ceiling are owned by the pure
+//! session core (`crate::core`).
 
-/// Connect protocol version exchanged in `ConnectHello` (not the data `schema_version`).
-/// Protocol version **1** is current.
-pub(crate) const PROTOCOL_VERSION: u64 = 1;
+/// Maximum outbound invoke sequence per session: 2⁵³−1, the JSON-safe wire
+/// maximum for `ConnectInvokeRequest.sequence` (core-owned rule).
+pub(crate) use crate::core::MAX_SEQUENCE;
 
 /// Request-response protocol name for the authenticated hello exchange.
 pub(crate) const HELLO_PROTOCOL: &str = "/spoke/connect/hello/1.0.0";
 
 /// Request-response protocol name for op invocation.
 pub(crate) const INVOKE_PROTOCOL: &str = "/spoke/connect/invoke/1.0.0";
-
-/// Maximum outbound invoke sequence per session: 2⁵³−1, the JSON-safe wire
-/// maximum for `ConnectInvokeRequest.sequence`. Sessions never wrap — an
-/// invoke past this value fails with `InvokeError::SequenceExhausted` and
-/// closes the session (normative ordering rule, `.mstar/specs/spoke-connect.md`
-/// §Ordering semantics).
-pub(crate) const MAX_SEQUENCE: u64 = (1 << 53) - 1;
 
 /// Transport-level acknowledgement for an accepted hello.
 ///

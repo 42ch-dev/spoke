@@ -67,6 +67,16 @@
 //! hook [`ConnectConfig::invoke_handler`]. Transport internals — hello and
 //! gate modules, protocol constants, the transport `HelloAck`, and session
 //! plumbing — are crate-private.
+//!
+//! # Pure session core
+//!
+//! [`core`] holds the pure, language-portable session rules (peer id
+//! derivation, hello sign/verify over raw Ed25519 keys, nonce store,
+//! allowlist, sequence counters, correlation, dispatch gate). It has no
+//! libp2p or tokio dependencies; the transport converts `libp2p::PeerId` ↔
+//! `String` at the boundary and delegates to it.
+
+pub mod core;
 
 mod config;
 mod error;

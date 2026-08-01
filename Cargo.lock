@@ -2648,6 +2648,7 @@ name = "spoke-connect"
 version = "0.6.1"
 dependencies = [
  "base64",
+ "ed25519-dalek",
  "futures",
  "getrandom 0.2.17",
  "libp2p",

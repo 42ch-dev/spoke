@@ -67,7 +67,9 @@ remote acknowledged ours and we accepted theirs). Each session:
   (each peer numbers its own requests; sequences never wrap — exhaustion
   closes the session with `InvokeError::SequenceExhausted`);
 - assigns the next sequence **atomically** per `invoke` (concurrent invokes
-  are allowed) and generates a UUID v4 `request_id`;
+  are allowed) and generates a UUID v4 `request_id`; the outbound counter is
+  the mutex-guarded core `OutboundSequence` — concurrent `invoke` calls
+  receive distinct sequences and `next_sequence` observation is synchronous;
 - requires the response to **echo** `session_id`, `sequence`, and
   `request_id` — any mismatch fails with `InvokeError::CorrelationMismatch`;
 - enforces **inbound** sequence monotonicity on the accept path: the
@@ -192,6 +194,89 @@ node_b.shutdown().await.expect("shutdown b");
 (`spoke_schemas::connect::connect_hello::HostCapabilityManifest`) — the exact
 field type of `ConnectHello.host` and `ConnectConfig.local_manifest` (see
 [Sessions and op invocation](#sessions-and-op-invocation)).
+
+## Binding facade (no uniffi yet)
+
+The session core (`src/core/`) is the pure, synchronous, language-portable
+layer of this crate: it owns the session rules — `peer_id` derivation, hello
+sign/verify, allowlist, nonce single-use, sequence allocation/advance,
+response correlation, dispatch gate — with no `libp2p`, `tokio`, or I/O in
+its public surface. It operates on plain `String` peer ids, byte-oriented
+keys, `spoke-schemas` connect types, and opaque `serde_json` payloads; the
+transport layer converts `libp2p::PeerId` ↔ `String` at the boundary and
+calls into the core.
+
+This section records the binding facade decision for the spec's Path B
+(shared core bindings, `.mstar/specs/spoke-connect.md` §Embedding model):
+what stays synchronous vs asynchronous on the FFI boundary, which surface the
+first binding skeleton exposes, and which languages are targeted. The
+deliverable here is the facade decision and the stable sync core surface —
+**no real uniffi bindings ship with this plan**; language skeletons land in
+the next iteration once the sync surface stabilizes.
+
+### Sync vs async boundary
+
+| Concern | Sync or async | FFI implication |
+|---------|---------------|-----------------|
+| `peer_id` derive, hello sign/verify, allowlist, nonce, sequence allocate/advance, correlation, dispatch gate | **Sync** — pure, fast | First binding surface: exported as synchronous FFI functions / objects; safe on any foreign caller thread, no tokio |
+| Node start, listen, shutdown | **Async** (tokio today) | Do not block foreign UI threads on the swarm loop; next iteration chooses between host-language transport + Rust core-only bindings (preferred default) and a uniffi async/foreign-runtime bridge for a thin `SpokeConnectNode` |
+| `connect(addr)` / session establishment | **Async** | Transport-owned, same as the node surface |
+| `invoke` wait for response | **Async** today | Foreign side uses an async binding or a callback/channel; the core only assigns the sequence and checks correlation on bytes already received |
+| `invoke_handler` | Sync **on the event loop** today | Product handlers must return promptly and must not block on I/O; before exposing handlers over FFI, dispatch moves off the loop (`spawn_blocking`) |
+
+### Sync core surface (first-binding candidates)
+
+| API | Role |
+|-----|------|
+| `derive_peer_id_from_ed25519_pubkey(&[u8; 32]) -> String` | Ed25519 public key → `peer_id` string (spec §Identity binding) |
+| `sign_hello_ed25519(secret, nonce, manifest) -> Result<ConnectHello, CoreError>` | JCS-canonicalized, Ed25519-signed hello envelope |
+| `verify_hello_ed25519(public_key, expected_peer_id, hello) -> Result<(), CoreError>` | Signature and peer-id binding checks |
+| `NonceStore::check_and_record(peer_id, nonce) -> bool` | Single-use `(peer_id, nonce)` gate |
+| `is_allowlisted(allowlist, peer_id) -> bool` | Fail-closed allowlist check |
+| `OutboundSequence::allocate() -> Result<u64, CoreInvokeError>` | Outbound sequence from 0, no wrap (2⁵³−1) |
+| `InboundSequence::advance(sequence) -> Result<u64, CoreInvokeError>` | Strict next-expected inbound check |
+| `check_response_correlation(expected, actual) -> Result<(), CoreInvokeError>` | Echo check on `session_id` / `sequence` / `request_id` |
+| `dispatch_allowed(op, negotiated_capabilities) -> bool` | Op capability ⊆ negotiated capabilities (core-op table) |
+| `CoreError` / `CoreInvokeError` | Pure error enums, no transport types |
+
+Keys cross the boundary as raw bytes (`&[u8; 32]`), peer ids as strings, and
+payloads as `serde_json::Value` — no `Multiaddr`, swarm, or libp2p types are
+exposed. The next iteration's binding plan maps `CoreError` /
+`CoreInvokeError` variants to foreign-language error enums.
+
+### Path B scope for the first language
+
+The next iteration's binding plan chooses between two Path B shapes:
+
+- **Core-only (preferred default)** — bind the sync surface above; the host
+  language implements its own transport adapter (hello exchange, session
+  establishment, invoke round-trip) against the wire contract.
+- **Core + async node** — additionally bridge a thin `SpokeConnectNode`
+  lifecycle over the uniffi async/foreign-runtime mechanism.
+
+The first skeleton requires no `Multiaddr` / swarm types on FFI.
+
+### Target-language matrix
+
+| Language | Embedding path | Priority | Rationale |
+|----------|----------------|----------|-----------|
+| **Swift (iOS / macOS)** | Path B uniffi | **First target** | Mature uniffi story; mobile clients that ship a native Rust dylib; validates the sync core without browser WebCrypto constraints |
+| **Kotlin (Android)** | Path B uniffi | Second | Same uniffi pipeline as Swift after the core stabilizes |
+| C# | Path B uniffi | Later | Secondary desktop/server hosts |
+| Python | Path B uniffi | Later | Async FFI / asyncio historically finicky — only after the sync core is proven, preferring core-only first |
+| TypeScript (browser / Node) | **Path A** (language-direct) | Parallel track | The TypeScript route decision lives with the TS identity proof; uniffi/WASM is not assumed for this path |
+
+### Next-iteration binding checklist
+
+1. Stable sync core API list (this section) with string peer ids and
+   byte-oriented keys.
+2. Error code mapping table (`CoreError` → foreign enum).
+3. Path B choice: core-only vs core + async node for the first language
+   (core-only preferred default).
+4. Golden hello vector — JCS bytes + signature + `peer_id` for a known
+   Ed25519 keypair — shared with the TypeScript identity proof so both
+   paths agree byte-for-byte.
+5. No `Multiaddr` / swarm types on FFI in the first skeleton.
 
 ## Testing
 

@@ -1,11 +1,12 @@
 ---
 module: spoke-connect
 date: 2026-07-31
+last_updated: 2026-08-01
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["building a libp2p-based spoke-connect runtime", "binding spoke-connect to a foreign language via uniffi", "hardening a p2p handshake/allowlist implementation"]
-tags: [spoke-connect, libp2p, rust, noise, identify, allowlist, pending-dial, session, uniffi-facade]
+applies_when: ["building a libp2p-based spoke-connect runtime", "binding spoke-connect to a foreign language via uniffi", "hardening a p2p handshake/allowlist implementation", "adding same-LAN discovery to a p2p node"]
+tags: [spoke-connect, libp2p, rust, noise, identify, allowlist, pending-dial, mdns]
 ---
 
 # spoke-connect Rust libp2p spike: transport, auth binding, and event-loop pitfalls
@@ -18,7 +19,16 @@ The `crates/spoke-connect` reference spike (workspace-private, `publish = false`
 
 ### Transport composition (locked minimal feature set)
 
-Pin a single rust-libp2p version (e.g. `=0.56.0`); enable only `noise`, `yamux`, `request-response`, `identify`, `macros`, `tokio`, `ed25519` (+ `tcp`, `json` as required by the composition). Avoid QUIC, relay, kad, gossipsub, tls, mdns unless a real behaviour is wired - a capability-named feature flag with no runtime behaviour must not ship (a no-op `mdns` feature was removed in QC).
+Pin a single rust-libp2p version (e.g. `=0.56.0`); enable only `noise`, `yamux`, `request-response`, `identify`, `macros`, `tokio`, `ed25519` (+ `tcp`, `json` as required by the composition). Avoid QUIC, relay, kad, gossipsub, tls unless a real behaviour is wired — a capability-named feature flag with no runtime behaviour must not ship. mDNS is wired in this crate only behind the non-default `mdns` feature (see below).
+
+### mDNS same-LAN discovery (non-default `mdns` feature)
+
+Discovery is a runtime convenience, never a trust grant: the connect wire carries no mDNS/DHT/multiaddr fields (spec §Discovery boundary), and mDNS serves discovery only — discovered peers are admitted through the **same** `ConnectionEstablished` allowlist and signed-hello (`noise-peerid`) gates as explicitly dialed peers.
+
+- **Feature gating**: `mdns = ["libp2p/mdns"]` is non-default; `default = []` stays asserted in CI. A tripwire unit test (`no_mdns_tests::default_build_has_no_mdns_surface`) compiles away if the feature ever becomes default — so CI additionally greps the `Cargo.toml` `default = []` line, and runs `cargo test -p spoke-connect --features mdns`.
+- **Auth invariant — discovery never grants trust**: the allowlist check applied at scheduling time is only a **pre-filter that spares the single-flight dial slot**; admission still applies the ConnectionEstablished allowlist + signed-hello gates. mDNS itself is unauthenticated, so the candidate store is memory-bounded (256 entries) and new candidates beyond the cap are dropped.
+- **Slot fairness (single-flight)**: auto-dials serialize through the same pending-connect machinery as explicit `connect(addr)` — one at a time, best-effort. An explicit `connect` **preempts** an in-flight auto-dial (the auto-dial is replaced; its candidate is retried once the slot frees). A candidate discovered while the slot is busy stays un-attempted and is dialed when the slot frees. TTL re-emission (`Discovered` again) resets the attempted flag — a previously failed auto-dial gets another chance; `Expired` removes the candidate. `(peer, addr)` pairs are deduplicated, and `mdns_autodial` (default `true`; `false` records candidates only) gates auto-dialing.
+- **Deterministic tests**: the feature-gated unit tests drive fabricated `Discovered` / `Expired` events through the event loop (no live multicast required) and drain the recorded candidates via the `take_mdns_discoveries` test hook.
 
 ### Identify key <-> noise PeerId binding (defense in depth)
 

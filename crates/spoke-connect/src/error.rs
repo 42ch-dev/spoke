@@ -4,9 +4,53 @@
 //! Remote **application** failures (op invocation) surface as
 //! [`InvokeError::Wire`] carrying the wire `ErrorEnvelope` — they are never
 //! encoded in [`ConnectError`].
+//!
+//! The pure session core reports [`crate::core::CoreError`] /
+//! [`crate::core::CoreInvokeError`]; the transport maps them here at the
+//! boundary ([`map_core_error`] / [`map_core_invoke_error`]).
 
+use crate::core::{CoreError, CoreInvokeError};
 use libp2p::PeerId;
 use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
+
+/// Map a pure core error to the transport-facing [`ConnectError`].
+///
+/// Identity variants keep their meaning; `InvalidNonce` (a signing-time
+/// caller error) maps to `Config`, and `Crypto` / `Jcs` (cryptographic or
+/// canonicalization failures on the wire path) map to `Transport`.
+pub(crate) fn map_core_error(err: CoreError) -> ConnectError {
+    match err {
+        CoreError::NotAllowlisted { peer_id } => ConnectError::NotAllowlisted {
+            // Core errors never carry a peer id the transport did not first
+            // supply as a `PeerId::to_string()`, so the parse is infallible.
+            peer_id: peer_id
+                .parse()
+                .expect("allowlist error carries a valid PeerId"),
+        },
+        CoreError::InvalidHelloSignature => ConnectError::InvalidHelloSignature,
+        CoreError::NonceReplay => ConnectError::NonceReplay,
+        CoreError::HandshakeFailed { reason } => ConnectError::HandshakeFailed { reason },
+        CoreError::InvalidNonce(reason) => ConnectError::Config(reason),
+        CoreError::Crypto(reason) => ConnectError::Transport(reason),
+        CoreError::Jcs(reason) => ConnectError::Transport(reason),
+    }
+}
+
+/// Map a pure core invoke error to the transport-facing [`InvokeError`].
+///
+/// `SequenceExhausted` and `CorrelationMismatch` keep their identity.
+/// `InboundSequenceMismatch` never surfaces on the outbound invoke path —
+/// the inbound path maps it to a wire `invalid_sequence` envelope instead
+/// (see `crate::node`).
+pub(crate) fn map_core_invoke_error(err: CoreInvokeError) -> InvokeError {
+    match err {
+        CoreInvokeError::SequenceExhausted => InvokeError::SequenceExhausted,
+        CoreInvokeError::InboundSequenceMismatch { .. } => {
+            InvokeError::Transport("inbound sequence mismatch".into())
+        }
+        CoreInvokeError::CorrelationMismatch => InvokeError::CorrelationMismatch,
+    }
+}
 
 /// Errors from node lifecycle, transport, and the authenticated hello handshake.
 #[derive(Debug, thiserror::Error)]

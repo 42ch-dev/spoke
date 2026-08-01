@@ -66,7 +66,9 @@ impl PeerSession {
     pub fn next_sequence(&self) -> u64 {
         self.inner
             .next_sequence
-            .load(std::sync::atomic::Ordering::SeqCst)
+            .lock()
+            .expect("sequence lock is never poisoned")
+            .next()
     }
 
     /// Send a `ConnectInvokeRequest` and wait for the correlated

@@ -7,14 +7,14 @@
 //! correlation material here breaks the node ↔ session dependency cycle and
 //! keeps libp2p transport internals out of the public surface.
 
-use crate::error::{ConnectError, InvokeError};
-use crate::protocol::MAX_SEQUENCE;
+use crate::core;
+use crate::error::{map_core_invoke_error, ConnectError, InvokeError};
 use libp2p::{Multiaddr, PeerId};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
@@ -65,6 +65,16 @@ pub(crate) struct InvokeCorrelation {
     pub(crate) request_id: String,
 }
 
+impl From<&InvokeCorrelation> for core::Correlation {
+    fn from(correlation: &InvokeCorrelation) -> Self {
+        Self {
+            session_id: correlation.session_id.clone(),
+            sequence: correlation.sequence,
+            request_id: correlation.request_id.clone(),
+        }
+    }
+}
+
 /// Per-session shared state (private to the crate).
 ///
 /// The event loop creates one of these per accepted peer and hands out
@@ -76,7 +86,10 @@ pub(crate) struct SessionHandle {
     pub(crate) remote_peer_id: PeerId,
     pub(crate) remote_manifest: HostCapabilityManifest,
     /// Outbound sequence counter, starting at 0 (per-direction, per session).
-    pub(crate) next_sequence: AtomicU64,
+    /// The pure counter rules live in [`core::OutboundSequence`]; the mutex is
+    /// the transport's synchronization around them (concurrent invokes get
+    /// distinct sequences).
+    pub(crate) next_sequence: Mutex<core::OutboundSequence>,
     /// Set when the sequence space is exhausted or the session is otherwise
     /// unusable; further invokes fail fast with `SessionClosed`.
     pub(crate) closed: AtomicBool,
@@ -99,7 +112,7 @@ impl SessionHandle {
             session_id,
             remote_peer_id,
             remote_manifest,
-            next_sequence: AtomicU64::new(0),
+            next_sequence: Mutex::new(core::OutboundSequence::new()),
             closed: AtomicBool::new(false),
             timeout,
             cmd_tx,
@@ -117,21 +130,24 @@ impl SessionHandle {
     ///
     /// The counter starts at 0; on exhaustion (past the JSON-safe wire
     /// maximum) the session is closed and `SequenceExhausted` is returned —
-    /// sequences never wrap.
+    /// sequences never wrap. The allocate rule itself is `core`'s
+    /// ([`core::OutboundSequence::allocate`]).
     pub(crate) fn allocate_sequence(&self) -> Result<u64, InvokeError> {
         if self.closed.load(Ordering::SeqCst) {
             return Err(InvokeError::SessionClosed);
         }
-        // simplify: a single fetch_add can overshoot by one between
-        // `closed` check and increment; u64 overflow is unreachable in
-        // practice (2^53-1 calls per session). If sessions ever reach
-        // saturation, replace with a compare_exchange loop.
-        let sequence = self.next_sequence.fetch_add(1, Ordering::SeqCst);
-        if sequence > MAX_SEQUENCE {
-            self.closed.store(true, Ordering::SeqCst);
-            return Err(InvokeError::SequenceExhausted);
-        }
-        Ok(sequence)
+        let mut sequence = self
+            .next_sequence
+            .lock()
+            .expect("sequence lock is never poisoned");
+        sequence.allocate().map_err(|err| {
+            // `allocate` only returns `SequenceExhausted`; exhaustion closes
+            // the session so later invokes fail fast with `SessionClosed`.
+            if matches!(err, core::CoreInvokeError::SequenceExhausted) {
+                self.closed.store(true, Ordering::SeqCst);
+            }
+            map_core_invoke_error(err)
+        })
     }
 
     pub(crate) async fn send_invoke(
@@ -166,35 +182,17 @@ pub struct InvokeSuccess {
 }
 
 /// Verify that a response echoes the request's `session_id`, `sequence`, and
-/// `request_id` (normative echo rule).
+/// `request_id` (normative echo rule — the check itself is
+/// [`core::check_response_correlation`]).
 pub(crate) fn verify_correlation(
     correlation: &InvokeCorrelation,
     response: &ConnectInvokeResponse,
 ) -> Result<(), InvokeError> {
-    let (session_id, sequence, request_id) = match response {
-        ConnectInvokeResponse::Variant0 {
-            session_id,
-            sequence,
-            request_id,
-            ..
-        }
-        | ConnectInvokeResponse::Variant1 {
-            session_id,
-            sequence,
-            request_id,
-            ..
-        } => (session_id.as_str(), *sequence, request_id.as_str()),
-    };
-    if session_id != correlation.session_id {
-        return Err(InvokeError::CorrelationMismatch);
-    }
-    if sequence != correlation.sequence {
-        return Err(InvokeError::CorrelationMismatch);
-    }
-    if request_id != correlation.request_id {
-        return Err(InvokeError::CorrelationMismatch);
-    }
-    Ok(())
+    core::check_response_correlation(
+        &core::Correlation::from(correlation),
+        &core::Correlation::from(response),
+    )
+    .map_err(map_core_invoke_error)
 }
 
 /// Map a correlated response to [`InvokeSuccess`] or the wire error branch.
@@ -221,6 +219,7 @@ pub(crate) fn map_invoke_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::MAX_SEQUENCE;
     use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
 
     fn manifest(host_id: &str) -> HostCapabilityManifest {
@@ -286,13 +285,13 @@ mod tests {
         assert_eq!(h.allocate_sequence().expect("first"), 0);
         assert_eq!(h.allocate_sequence().expect("second"), 1);
         assert_eq!(h.allocate_sequence().expect("third"), 2);
-        assert_eq!(h.next_sequence.load(Ordering::SeqCst), 3);
+        assert_eq!(h.next_sequence.lock().expect("lock").next(), 3);
     }
 
     #[test]
     fn sequence_exhaustion_closes_the_session() {
         let h = handle(Duration::from_secs(5));
-        h.next_sequence.store(MAX_SEQUENCE, Ordering::SeqCst);
+        h.next_sequence.lock().expect("lock").set_next(MAX_SEQUENCE);
         assert_eq!(h.allocate_sequence().expect("last valid"), MAX_SEQUENCE);
         let err = h.allocate_sequence().expect_err("exhausted");
         assert!(matches!(err, InvokeError::SequenceExhausted));

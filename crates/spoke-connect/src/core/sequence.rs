@@ -49,6 +49,13 @@ impl OutboundSequence {
     pub fn next(&self) -> u64 {
         self.next
     }
+
+    /// Test-only: position the counter at `next` so transport tests can
+    /// exercise exhaustion without 2⁵³ allocations.
+    #[cfg(test)]
+    pub(crate) fn set_next(&mut self, next: u64) {
+        self.next = next;
+    }
 }
 
 /// Inbound sequence expectation (receiver side), starting at 0.

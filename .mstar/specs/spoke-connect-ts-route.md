@@ -111,9 +111,9 @@ RESULT: ALL CHECKS PASSED
 
 ---
 
-## Next TypeScript connect first-slice scope
+## TypeScript connect first-slice scope
 
-For a subsequent plan (product-facing TS helper; still not a published connect daemon):
+**Shipped slice:** `packages/spoke-connect-ts` — a workspace-private, product-facing TS helper, not a published connect daemon. Capability-token remains the pending parity item (see item 1 and item 6); the rest of items 1–5 is implemented.
 
 1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers first (`derivePeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, base64url). No swarm, no mDNS/DHT. `capability-token` is normative; the TS SDK slice does not implement it yet.
 2. **Transport adapter:** WebSocket client that sends/receives one JSON document per message; map to hello → session establish → invoke request/response correlation via existing wire fields only.

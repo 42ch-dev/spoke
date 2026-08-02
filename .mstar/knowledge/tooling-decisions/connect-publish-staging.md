@@ -42,7 +42,7 @@ For the TS package, prep lands metadata-only while `private: true` stays; the bu
 
 ### When a gate blocks the pipeline: defer with a record
 
-C# bindings hit a toolchain gap (`uniffi-bindgen-cs` targets uniffi 0.31 vs the repo pin 0.32) and are **deferred** with a decision record + revisit trigger ([`connect-csharp-bindgen-deferred.md`](../specs/connect-csharp-bindgen-deferred.md)) instead of downgrading pins or forcing the pipeline. Same pattern for any blocked surface: record the blocker, keep the target priority, define the revisit trigger, re-check via the documented regenerate → build → run sequence.
+C# bindings hit a toolchain gap (`uniffi-bindgen-cs` targets uniffi 0.31 vs the repo pin 0.32) and are **deferred** with a decision record + revisit trigger ([`connect-csharp-bindgen-deferred.md`](../../specs/connect-csharp-bindgen-deferred.md)) instead of downgrading pins or forcing the pipeline. Same pattern for any blocked surface: record the blocker, keep the target priority, define the revisit trigger, re-check via the documented regenerate → build → run sequence.
 
 ## Why This Matters
 

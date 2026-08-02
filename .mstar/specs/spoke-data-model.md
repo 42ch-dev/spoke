@@ -735,7 +735,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `merged` | Absorbed into another KnowledgeEntry |
 | `deleted` | Tombstone / soft delete |
 
-**Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §KnowledgeEntry lifecycle](spoke-operations.md#6-knowledgeentry-lifecycle--knowledgeentry). Wire schema keeps `status` as open string; library enforces the core transition table. **Active** statuses for uniqueness: `provisional`, `confirmed` only.
+**Status transitions (cross-product minimum):** enforced by `@42ch/spoke-operations` — see [`spoke-operations.md` §KnowledgeEntry lifecycle](spoke-operations.md#6-knowledgeentry-lifecycle--knowledge-entry). Wire schema keeps `status` as open string; library enforces the core transition table. **Active** statuses for uniqueness: `provisional`, `confirmed` only.
 
 **`deprecated` → `merged` excluded:** merge absorbs an active canonical KnowledgeEntry into a target; a deprecated row is already superseded — restore to `confirmed` (or merge from `provisional`/`confirmed`) before absorb.
 

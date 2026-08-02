@@ -115,7 +115,7 @@ Package: `packages/spoke-connect-ts` (`@42ch/spoke-connect-ts`).
 | | ``` |
 | | Stage 1 first npm publish **MUST** ship a built tarball: emit `dist/` (tsc or tsup), retarget `exports` (`import` → `./dist/index.js`, `types` → `./dist/index.d.ts`, same shape for `./node`), include `dist/` in `files`, and pass packed-tarball import smokes before the first publish. The prep state above (src-publish intent map, `private: true`) is unchanged — the build is a Stage 1 execution step, not a prep flip |
 | `files` | Prep (realized): `["src", "README.md"]` — SPDX `license` field only, mirroring published siblings (authoritative text at repo-root `LICENSE`); no package-level LICENSE file. Tarball LICENSE copy is a **Stage 1 execution option** (npm `files` does not auto-include a root LICENSE; add a copy/prepare step alongside the build if a tarball LICENSE is wanted). Stage 1 with build: `["dist", "README.md"]` |
-| Metadata | `repository` `{ type, url: git+https://github.com/42ch-dev/spoke.git, directory: packages/spoke-connect-ts }`; `homepage` = **repo URL slot** today (`https://github.com/42ch-dev/spoke`) — docs-site URL not yet known; switch to the docs-site URL when the site lands; keep `keywords`, `description`, `engines.node` (≥20.19.0) |
+| Metadata | `repository` `{ type, url: git+https://github.com/42ch-dev/spoke.git, directory: packages/spoke-connect-ts }`; `homepage` = **repo URL slot** today (`https://github.com/42ch-dev/spoke`); the integrator docs site is live at `https://42ch-dev.github.io/spoke/` and becomes the `homepage` at the Stage 1 release cut; keep `keywords`, `description`, `engines.node` (≥20.19.0) |
 | `publishConfig` | `{ "access": "public" }` present or documented while `private: true` (inert until Stage 1). Provenance: npm Trusted Publishing OIDC via `release.yml` |
 | Dependencies at publish | `@42ch/spoke-schemas` resolves on npm at the **same lockstep version** (`workspace:*` rewritten on pack). `ws` remains a dependency of the `./node` subpath only — browser consumers import `"."` only |
 | README | Short **Publish guidance**: private until Stage 1; subpath map; peer/lockstep expectation on `@42ch/spoke-schemas` |
@@ -128,7 +128,7 @@ Package: `packages/spoke-connect-ts` (`@42ch/spoke-connect-ts`).
 - [ ] Co-update `.mstar/specs/spoke-version-release.md` in the same change as the `release.yml` publish-npm list extension: row 6 "not published" → `@42ch/spoke-connect-ts` published; add the package to the publish-only package lists and the package-name / install tables. The release spec is not edited during prep.
 - [ ] Re-evaluate `ws` placement: browser consumers of the `.` subpath currently pay the `ws` install cost via flat `dependencies` — decide at Stage 1 whether `ws` stays flat or moves to the `./node`-only dependency shape.
 - [ ] Register `@42ch/spoke-connect-ts` as an npm Trusted Publisher for org `42ch-dev` / repo `spoke` (OIDC binding already covers the sibling packages via `release.yml`).
-- [ ] Switch `homepage` from the repo URL slot to the docs-site URL when the docs site lands.
+- [ ] Switch `homepage` from the repo URL slot to the docs-site URL (`https://42ch-dev.github.io/spoke/`, live) at the Stage 1 release cut.
 
 **Prep owner:** package maintainer applying the checklist in-repo. **Stage 1 flip** (`private: false` + `release.yml` list) is a separate maintainer release cut after the checklist and suites are green on main.
 

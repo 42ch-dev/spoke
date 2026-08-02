@@ -127,3 +127,4 @@ Every item is pure, synchronous, and operates on plain data — the exact list a
 - [`connect-ts-client-sdk.md`](connect-ts-client-sdk.md) — the Path A language-direct port (pure-TS) that mirrors this core's surface and asserts the same golden vectors.
 - [`connect-capability-token-auth.md`](connect-capability-token-auth.md) — the step-up auth method whose `TokenInvalid` failure surfaces in the exported error enums.
 - [`connect-csharp-binding.md`](../../specs/connect-csharp-binding.md) — C# binding decision record (landed via vendored bindgen fork; version gap, what was tried, drop-fork trigger).
+- [`connect-uniffi-bindgen-fork.md`](connect-uniffi-bindgen-fork.md) — reusable vendored-fork technique when a community bindgen lags the repo uniffi pin (isolation, minimal patch, drop off-ramp).

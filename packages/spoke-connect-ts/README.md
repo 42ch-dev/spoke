@@ -16,11 +16,11 @@ Workspace-private package: the version tracks the monorepo lockstep SemVer (asse
 
 ## Usage
 
-Monorepo-internal (workspace-private; imports resolve TypeScript sources under `NodeNext`):
+Monorepo-internal (workspace-private; subpaths resolve via the package `exports` map):
 
 ```ts
-import { derivePeerIdFromEd25519Pubkey } from "@42ch/spoke-connect-ts/src/index.js";
-import { connectClient } from "@42ch/spoke-connect-ts/src/node/connect-client.js";
+import { derivePeerIdFromEd25519Pubkey } from "@42ch/spoke-connect-ts";
+import { connectClient } from "@42ch/spoke-connect-ts/node";
 
 const seed = new TextEncoder().encode("..."); // 32-byte Ed25519 seed
 const remotePubkey = /* the server's 32-byte Ed25519 public key */;
@@ -44,7 +44,7 @@ const response = await client.invoke("check", { /* op payload */ });
 client.close();
 ```
 
-Core helpers are importable without the client: `signHelloEd25519` / `verifyHelloEd25519`, `OutboundSequence`, `checkResponseCorrelation`, `dispatchAllowed`, `NonceStore`, `isAllowlisted`, `Session` — all from `@42ch/spoke-connect-ts/src/index.js`.
+Core helpers are importable without the client: `signHelloEd25519` / `verifyHelloEd25519`, `OutboundSequence`, `checkResponseCorrelation`, `dispatchAllowed`, `NonceStore`, `isAllowlisted`, `Session` — all from `@42ch/spoke-connect-ts`.
 
 ## Test
 
@@ -70,3 +70,12 @@ The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` ser
 - Envelope-level interop over any ordered reliable stream; framing is direct WebSocket per `.mstar/specs/spoke-connect.md` § Transport framing.
 - The client targets the direct ordered-stream transport.
 - `connectClient` lives in the Node `src/node/` subpath (uses `ws`); the isomorphic `src/` modules are browser-swappable with the native WebSocket.
+
+## Publish guidance
+
+The package is workspace-private at the current version (`"private": true`); the publish strategy, staging, and triggers are defined in `.mstar/specs/connect-publish-strategy.md` (repository-internal reference).
+
+- **Entry points** — the package exposes two subpaths: `.` (isomorphic core: identity, crypto, JCS, session core) and `./node` (the Node `connectClient`, which depends on `ws`). Browser consumers import `.` only.
+- **License** — declared Apache-2.0 via the `license` field, mirroring the published sibling packages (`@42ch/spoke-schemas`, `@42ch/spoke-operations`); the authoritative license text lives at the repository root (`LICENSE`).
+- **Versioning** — lockstep SemVer with the monorepo (`verify:version`, `release:bump`); `@42ch/spoke-schemas` resolves at the same version from npm (workspace `workspace:*` is rewritten at pack time).
+- **Stage 1 (maintainer release cut)** — the first registry publish of `@42ch/spoke-connect-ts` to npm runs through the top-level `release.yml` workflow with npm Trusted Publishing OIDC (same org/repo binding as the published siblings), after the published-shape checklist and the full suite are green on main.

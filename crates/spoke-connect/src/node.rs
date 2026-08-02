@@ -5,8 +5,10 @@
 //! (multiplexing) + **request-response** (hello exchange and op invocation) +
 //! **identify** (peer metadata — carries the remote public key used to verify
 //! hello signatures). Discovery is **explicit peering**: nodes are configured
-//! with static listen addresses and dial each other directly; LAN discovery
-//! is a future discovery iteration.
+//! with static listen addresses and dial each other directly. The non-default
+//! `mdns` cargo feature adds same-LAN peer discovery via libp2p's mDNS
+//! behaviour — address discovery only, never a trust grant: discovered peers
+//! still pass the allowlist + signed-hello gates.
 //!
 //! Hello flow: on connection establishment both sides send their signed
 //! `ConnectHello` (fresh nonce per send). The allowlist gate runs at
@@ -22,9 +24,13 @@
 //! Dial flow: `connect` dials are **single-flight** and bound to their
 //! connection: the pending dial records the dial's `ConnectionId` and
 //! expected `PeerId` once the connection establishes, and only the matching
-//! connection can complete or fail it. The event loop owns the dial deadline
-//! and clears the entry deterministically (timeout, caller cancellation, or
-//! loop exit all resolve the pending reply).
+//! connection can complete or fail it. An explicit `connect` that replaces
+//! an in-flight auto-dial keeps the replaced dial's identity (connection id,
+//! dial address) so late events of the replaced dial — a
+//! `ConnectionEstablished` still in flight, its `ConnectionClosed`, a hello
+//! failure — never bind or fail the replacement. The event loop owns the
+//! dial deadline and clears the entry deterministically (timeout, caller
+//! cancellation, or loop exit all resolve the pending reply).
 //!
 //! Session + invoke flow: once both hellos of a connection are confirmed
 //! (remote ack received **and** remote hello accepted), the loop creates a
@@ -53,11 +59,17 @@
 //! session handles are marked closed and their pending invokes fail fast.
 
 use crate::config::ConnectConfig;
-use crate::core::{dispatch_allowed, CoreInvokeError, InboundSequence};
+use crate::core::{
+    token_authorizes_op, verify_capability_token, CapabilityTokenProof, CoreError, CoreInvokeError,
+    InboundSequence,
+};
 use crate::error::{ConnectError, InvokeError};
 use crate::gate::{gate_hello, is_allowlisted, NonceStore};
 use crate::hello::{generate_nonce, sign_hello};
-use crate::protocol::{HelloAck, HELLO_PROTOCOL, INVOKE_PROTOCOL, MAX_SEQUENCE};
+use crate::protocol::{
+    HelloAck, AUTH_PROTOCOL, HELLO_PROTOCOL, INVOKE_PROTOCOL, MAX_SEQUENCE,
+    METHOD_CAPABILITY_TOKEN, TOKEN_CHALLENGE_MIN_LENGTH,
+};
 use crate::runtime::{
     generate_request_id, map_invoke_response, InvokeCorrelation, InvokeSuccess, LoopCommand,
     SessionHandle,
@@ -65,18 +77,22 @@ use crate::runtime::{
 use crate::session::PeerSession;
 use futures::StreamExt;
 use libp2p::identity::{Keypair, PublicKey};
+#[cfg(feature = "mdns")]
+use libp2p::mdns;
 use libp2p::request_response::{self, InboundRequestId, OutboundRequestId, ResponseChannel};
 use libp2p::swarm::dial_opts::DialOpts;
 use libp2p::swarm::{ConnectionId, NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::SwarmBuilder;
 use libp2p::{identify, noise, tcp, yamux, Multiaddr, PeerId, StreamProtocol};
+use spoke_schemas::connect::connect_auth_challenge::ConnectAuthChallenge;
+use spoke_schemas::connect::connect_auth_response::ConnectAuthResponse;
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::connect_invoke_response::{ConnectInvokeResponse, ErrorEnvelope};
 use spoke_schemas::connect::ConnectHello;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot, watch};
 
 /// How long `start` waits for the configured listeners to report resolved
@@ -95,16 +111,27 @@ const PENDING_HELLO_SWEEP_INTERVAL: Duration = Duration::from_secs(1);
 /// memory under adversarial senders.
 const MAX_PENDING_HELLOS_PER_PEER: usize = 8;
 
+/// Hard cap on recorded mDNS dial candidates. mDNS is unauthenticated, so a
+/// forged-discovery flood could otherwise grow the store without bound; new
+/// `Discovered` entries beyond the cap are dropped (and never dialed).
+#[cfg(feature = "mdns")]
+const MAX_MDNS_CANDIDATES: usize = 256;
+
 /// Composed libp2p behaviour for a connect node.
 #[derive(NetworkBehaviour)]
 struct ConnectBehaviour {
     identify: identify::Behaviour,
     hello: request_response::json::Behaviour<ConnectHello, HelloAck>,
     invoke: request_response::json::Behaviour<ConnectInvokeRequest, ConnectInvokeResponse>,
+    auth: request_response::json::Behaviour<ConnectAuthChallenge, ConnectAuthResponse>,
+    /// Same-LAN discovery (non-default `mdns` feature): emits `Discovered`
+    /// peer addresses; never grants trust.
+    #[cfg(feature = "mdns")]
+    mdns: mdns::tokio::Behaviour,
 }
 
 impl ConnectBehaviour {
-    fn new(keypair: &Keypair, config: &ConnectConfig) -> Self {
+    fn new(keypair: &Keypair, config: &ConnectConfig) -> Result<Self, ConnectError> {
         let identify = identify::Behaviour::new(identify::Config::new(
             format!("spoke-connect/{}", env!("CARGO_PKG_VERSION")),
             keypair.public(),
@@ -125,12 +152,57 @@ impl ConnectBehaviour {
                 )],
                 request_response::Config::default().with_request_timeout(timeout),
             );
-        Self {
+        let auth =
+            request_response::json::Behaviour::<ConnectAuthChallenge, ConnectAuthResponse>::new(
+                [(
+                    StreamProtocol::new(AUTH_PROTOCOL),
+                    request_response::ProtocolSupport::Full,
+                )],
+                request_response::Config::default().with_request_timeout(timeout),
+            );
+        // 0.56 constructor form (verified at impl): mdns 0.48's
+        // `Behaviour::new(Config, PeerId)` returns `io::Result` — the
+        // interface watcher creation is the only fallible step; multicast
+        // traffic only starts once the behaviour is polled.
+        #[cfg(feature = "mdns")]
+        let mdns =
+            mdns::tokio::Behaviour::new(mdns::Config::default(), keypair.public().to_peer_id())
+                .map_err(|e| ConnectError::Transport(format!("mdns setup failed: {e}")))?;
+        Ok(Self {
             identify,
             hello,
             invoke,
-        }
+            auth,
+            #[cfg(feature = "mdns")]
+            mdns,
+        })
     }
+}
+
+/// Compose the libp2p transport and behaviour stack for a connect node.
+///
+/// Shared by [`SpokeConnectNode::start`] and the mdns unit tests (which
+/// build a loop without running it — no network I/O happens at this stage).
+fn build_swarm(
+    identity: &Keypair,
+    config: &ConnectConfig,
+) -> Result<Swarm<ConnectBehaviour>, ConnectError> {
+    Ok(SwarmBuilder::with_existing_identity(identity.clone())
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )
+        .map_err(|e| ConnectError::Transport(format!("transport setup failed: {e}")))?
+        .with_behaviour(|keypair| {
+            ConnectBehaviour::new(keypair, config)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
+        .map_err(|e| ConnectError::Transport(format!("behaviour setup failed: {e}")))?
+        .with_swarm_config(|cfg| cfg)
+        .with_connection_timeout(config.effective_handshake_timeout())
+        .build())
 }
 
 /// A buffered inbound hello awaiting the remote public key.
@@ -158,6 +230,41 @@ struct PendingInvoke {
     reply: oneshot::Sender<Result<InvokeSuccess, InvokeError>>,
 }
 
+/// An outstanding capability-token challenge sent to a peer.
+///
+/// The challenge nonce is bound to the `challenge_id` server-side (anti-replay
+/// for the challenge slot; protocol_version 1 does not require the client to
+/// embed challenge bytes inside token claims). One outstanding challenge per
+/// peer in the spike; the entry is removed when the peer answers, when the
+/// outbound challenge fails (timeout, dropped stream, or connection error),
+/// or when the peer's last connection closes.
+#[derive(Clone)]
+struct PendingChallenge {
+    challenge_id: String,
+    /// The opaque random nonce sent in the challenge (not consulted by
+    /// token validation — reserved bookkeeping for a future binding design).
+    #[allow(dead_code)]
+    nonce: String,
+}
+
+/// A dial that an explicit `connect` replaced mid-flight (a preempted
+/// auto-dial). Its identity is kept on the replacement's pending entry so
+/// late transport events of the replaced dial — a `ConnectionEstablished`
+/// still in flight when the preemption happened, the `ConnectionClosed`
+/// that follows the close, an outbound hello failure — are attributed to
+/// the replaced dial and never bind or fail the replacement.
+struct SupersededDial {
+    /// The replaced dial's connection, when its `ConnectionEstablished`
+    /// had already been processed before the preemption (the close is
+    /// issued at preemption; the recorded id guards against any late
+    /// duplicate).
+    connection: Option<ConnectionId>,
+    /// The address the replaced dial targeted. Recognizes the replaced
+    /// dial's late `ConnectionEstablished` when its connection id was not
+    /// yet known at preemption time.
+    addr: Multiaddr,
+}
+
 /// The single in-flight `connect` (spike: serial dials only).
 ///
 /// The entry is **bound to its dial**: `connection` and `peer` are recorded
@@ -176,6 +283,17 @@ struct PendingConnect {
     deadline: Instant,
     addr: Multiaddr,
     reply: oneshot::Sender<Result<Arc<SessionHandle>, ConnectError>>,
+    /// Whether this dial was started by mDNS auto-dial (no live caller —
+    /// the reply receiver is already dropped). An explicit `connect` replaces
+    /// such a dial instead of being rejected with "already in progress".
+    autodial: bool,
+    /// The outbound hello sent for this dial, once the dial's connection
+    /// bound its peer. A hello response or failure carrying a different
+    /// request id belongs to an earlier dial and never resolves this one.
+    hello_request: Option<OutboundRequestId>,
+    /// The auto-dial this explicit connect replaced, when there was one:
+    /// late events of the replaced dial must not bind or fail this dial.
+    superseded: Option<SupersededDial>,
 }
 
 struct EventLoop {
@@ -211,8 +329,26 @@ struct EventLoop {
     /// side only). Used to complete duplicate `connect` calls against the
     /// same address without opening a surplus connection.
     peer_listen_addrs: HashMap<PeerId, Multiaddr>,
+    /// The connection each session was established through (dialer side
+    /// only). The duplicate-dial completion path closes the pending dial's
+    /// connection as surplus **unless** it is the session's own connection —
+    /// which happens when the capability-token gate delayed the pending
+    /// connect's completion past session creation.
+    session_connections: HashMap<PeerId, ConnectionId>,
     /// In-flight outbound invokes keyed by request-response id.
     pending_invokes: HashMap<OutboundRequestId, PendingInvoke>,
+    /// Outstanding capability-token challenges sent to each peer (one per
+    /// peer in the spike), keyed by the challenged peer.
+    pending_challenges: HashMap<PeerId, PendingChallenge>,
+    /// Dial candidates recorded from mDNS `Discovered` events (same-LAN
+    /// discovery only; drained by `take_mdns_discoveries`). Each entry
+    /// carries the auto-dial attempted flag (false = not yet dialed, or
+    /// reset by a re-emission): candidates skipped while the single-flight
+    /// slot is busy stay un-attempted and are dialed when the slot frees.
+    /// mDNS records addresses — it never grants trust: auto-dials still pass
+    /// the `ConnectionEstablished` allowlist gate.
+    #[cfg(feature = "mdns")]
+    mdns_candidates: Vec<(PeerId, Multiaddr, bool)>,
 }
 
 impl EventLoop {
@@ -250,12 +386,47 @@ impl EventLoop {
                 endpoint,
                 ..
             } => {
+                // A late connection of the auto-dial that an explicit connect
+                // replaced is closed on arrival: it must not bind the pending
+                // slot (its `ConnectionEstablished` can race the preemption)
+                // nor start a hello exchange for a dial nobody is waiting for.
+                let dialer_address = match &endpoint {
+                    libp2p::core::connection::ConnectedPoint::Dialer { address, .. } => {
+                        Some(address)
+                    }
+                    _ => None,
+                };
+                let from_replaced_dial = match dialer_address {
+                    None => false,
+                    Some(address) => self.pending_connect.as_ref().is_some_and(|pending| {
+                        pending
+                            .superseded
+                            .as_ref()
+                            .is_some_and(|sup| match sup.connection {
+                                // The replaced dial's connection id is known:
+                                // attribute by id (dial addresses may
+                                // legitimately coincide).
+                                Some(known) => connection_id == known,
+                                // Unknown at preemption: attribute by dial
+                                // address, but only when it differs from the
+                                // current dial's address — identical addresses
+                                // make the two dials interchangeable, so binding
+                                // is benign and closing would break the explicit
+                                // dial.
+                                None => *address == sup.addr && *address != pending.addr,
+                            })
+                    }),
+                };
+                if from_replaced_dial {
+                    let _ = self.swarm.close_connection(connection_id);
+                    return;
+                }
                 // Bind the pending dial to its own connection: only an
                 // outbound connection that has not yet been attributed can be
                 // the dial's outcome. Concurrent inbound connections never
                 // claim a pending dial.
                 if let Some(pending) = self.pending_connect.as_mut() {
-                    if pending.connection.is_none() && endpoint.is_dialer() {
+                    if pending.connection.is_none() && dialer_address.is_some() {
                         pending.peer = Some(peer_id);
                         pending.connection = Some(connection_id);
                     }
@@ -301,6 +472,8 @@ impl EventLoop {
                 self.pending_hellos.remove(&peer_id);
                 self.handshakes.remove(&peer_id);
                 self.inbound_sequences.remove(&peer_id);
+                self.pending_challenges.remove(&peer_id);
+                self.session_connections.remove(&peer_id);
                 if let Some(handle) = self.sessions.remove(&peer_id) {
                     // Mark the handle closed before removal: live session
                     // clones fail fast instead of enqueueing on a dead
@@ -342,6 +515,13 @@ impl EventLoop {
             SwarmEvent::Behaviour(ConnectBehaviourEvent::Invoke(event)) => {
                 self.handle_invoke_event(event);
             }
+            SwarmEvent::Behaviour(ConnectBehaviourEvent::Auth(event)) => {
+                self.handle_auth_event(event);
+            }
+            #[cfg(feature = "mdns")]
+            SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(event)) => {
+                self.handle_mdns_event(event);
+            }
             // Listener errors, dial failures, address churn, bandwidth and
             // other identify events are not part of the hello/invoke path.
             _ => {}
@@ -350,7 +530,7 @@ impl EventLoop {
 
     fn handle_command(&mut self, cmd: LoopCommand) {
         match cmd {
-            LoopCommand::Connect { addr, reply } => self.handle_connect(addr, reply),
+            LoopCommand::Connect { addr, reply } => self.handle_connect(addr, reply, false),
             LoopCommand::Invoke {
                 peer,
                 request,
@@ -363,23 +543,52 @@ impl EventLoop {
         &mut self,
         addr: Multiaddr,
         reply: oneshot::Sender<Result<Arc<SessionHandle>, ConnectError>>,
+        autodial: bool,
     ) {
         // simplify: single-flight dials. Parallel connects would need a
         // pending-connect map keyed by address; the spike is serial.
-        if self.pending_connect.is_some() {
-            let _ = reply.send(Err(ConnectError::Transport(
-                "a connect is already in progress (spike: single-flight dials)".into(),
-            )));
-            return;
+        //
+        // An explicit connect replaces an in-flight auto-dial (the auto-dial
+        // has no live caller — its reply receiver is already dropped): the
+        // replaced dial's identity is kept so its late transport events (a
+        // `ConnectionEstablished` still in flight, the `ConnectionClosed`
+        // that follows the close, a hello failure) never bind or fail the
+        // replacement; its connection is closed, its candidate is reset so
+        // the slot-free drain retries it, and the explicit dial proceeds. A
+        // second explicit connect during an explicit dial is still rejected.
+        let mut superseded: Option<SupersededDial> = None;
+        if let Some(pending) = self.pending_connect.take() {
+            if pending.autodial && !autodial {
+                superseded = Some(SupersededDial {
+                    connection: pending.connection,
+                    addr: pending.addr.clone(),
+                });
+                if let Some(connection) = pending.connection {
+                    let _ = self.swarm.close_connection(connection);
+                }
+                drop(pending.reply);
+                #[cfg(feature = "mdns")]
+                self.reset_mdns_candidate(&pending.addr);
+            } else {
+                self.pending_connect = Some(pending);
+                let _ = reply.send(Err(ConnectError::Transport(
+                    "a connect is already in progress (spike: single-flight dials)".into(),
+                )));
+                return;
+            }
         }
         // Already-connected fast path: connecting to the recorded listen
         // address of a live session completes with that session (duplicate
         // dial) instead of opening a surplus connection. This is the
-        // sanctioned "already connected" duplicate-dial semantic.
+        // sanctioned "already connected" duplicate-dial semantic. When the
+        // token policy is active, the fast path only completes for sessions
+        // whose challenge already succeeded; otherwise the dial proceeds and
+        // waits for the token exchange through the normal completion path.
         if let Some(handle) = self
             .peer_listen_addrs
             .iter()
             .filter(|(_, recorded)| **recorded == addr)
+            .filter(|(peer, _)| self.token_gate_satisfied(peer))
             .filter_map(|(peer, _)| self.sessions.get(peer))
             .next()
         {
@@ -406,6 +615,9 @@ impl EventLoop {
             deadline: Instant::now() + self.config.effective_handshake_timeout(),
             addr,
             reply,
+            autodial,
+            hello_request: None,
+            superseded,
         });
     }
 
@@ -448,7 +660,7 @@ impl EventLoop {
                 peer,
                 message:
                     request_response::Message::Response {
-                        request_id: _request_id,
+                        request_id,
                         response,
                     },
                 ..
@@ -459,7 +671,12 @@ impl EventLoop {
                     self.maybe_complete_session(&peer);
                 } else {
                     // Protocol v1 acks are always `accepted: true`; a false
-                    // ack means the peer rejected our hello.
+                    // ack means the peer rejected our hello. Only the pending
+                    // dial's own hello can fail the pending connect — a stale
+                    // ack of a replaced or earlier dial's hello is ignored.
+                    if !self.hello_belongs_to_pending_dial(&peer, &request_id) {
+                        return;
+                    }
                     self.fail_pending_connect(
                         None,
                         Some(peer),
@@ -469,9 +686,20 @@ impl EventLoop {
                     );
                 }
             }
-            request_response::Event::OutboundFailure { peer, error, .. } => {
+            request_response::Event::OutboundFailure {
+                peer,
+                connection_id: _connection_id,
+                request_id,
+                error,
+                ..
+            } => {
                 // Our outbound hello failed: the peer dropped the stream
-                // (rejected our hello), timed out, or the connection died.
+                // (rejected our hello), timed out, or the connection died. A
+                // failure of a replaced or earlier dial's hello never fails
+                // the current pending connect.
+                if !self.hello_belongs_to_pending_dial(&peer, &request_id) {
+                    return;
+                }
                 self.fail_pending_connect(
                     None,
                     Some(peer),
@@ -536,6 +764,368 @@ impl EventLoop {
         }
     }
 
+    /// The capability-token auth exchange: inbound challenges are answered
+    /// from the configured token provider; outbound challenge responses are
+    /// validated and mark the session token-authorized on success.
+    fn handle_auth_event(
+        &mut self,
+        event: request_response::Event<ConnectAuthChallenge, ConnectAuthResponse>,
+    ) {
+        match event {
+            request_response::Event::Message {
+                peer,
+                message:
+                    request_response::Message::Request {
+                        request_id: _request_id,
+                        request,
+                        channel,
+                    },
+                ..
+            } => self.handle_inbound_challenge(peer, request, channel),
+            request_response::Event::Message {
+                peer,
+                message:
+                    request_response::Message::Response {
+                        request_id: _request_id,
+                        response,
+                    },
+                ..
+            } => self.handle_challenge_response(peer, response),
+            request_response::Event::OutboundFailure { peer, .. } => {
+                // The peer did not answer our challenge (unknown method, no
+                // token provider, or a dropped stream). The session stays
+                // unauthorized for invokes — fail closed, per the spec's
+                // "kept established but restricted" reference behavior. The
+                // challenge slot is one-shot per peer, so the failure
+                // consumes it exactly like the response path does.
+                self.pending_challenges.remove(&peer);
+            }
+            request_response::Event::InboundFailure { .. }
+            | request_response::Event::ResponseSent { .. } => {}
+        }
+    }
+
+    /// Record mDNS discovery events as dial candidates.
+    ///
+    /// `Discovered` entries are appended to the internal candidate list
+    /// (deduplicated, bounded by [`MAX_MDNS_CANDIDATES`]); a re-emitted
+    /// `(peer, addr)` pair resets its attempted flag so the slot-free drain
+    /// gives the peer another auto-dial chance. When
+    /// [`ConnectConfig::mdns_autodial`] is set, the first eligible
+    /// allowlisted candidate is dialed through the **same** single-flight
+    /// pending-connect machinery as an explicit `connect(addr)`: there is no
+    /// separate "trusted because discovered" branch (AD-P3-4). The
+    /// allowlist pre-filter here only spares the single-flight slot — the
+    /// trust anchor stays the `ConnectionEstablished` allowlist and
+    /// signed-hello (`noise-peerid`) gates. Candidates that cannot dial yet
+    /// (slot busy) stay un-attempted and are dialed when the slot frees. The
+    /// auto-dial carries a dropped reply sender — the caller-less dial still
+    /// binds the pending entry, passes the `ConnectionEstablished` allowlist
+    /// gate, and creates the session like any user-initiated connect;
+    /// completion or failure simply resolves to nothing. An explicit
+    /// `connect` replaces an in-flight auto-dial instead of being rejected.
+    ///
+    /// `Expired` entries are removed from the candidate list (TTL
+    /// bookkeeping mirroring the behaviour's own expiry).
+    #[cfg(feature = "mdns")]
+    fn handle_mdns_event(&mut self, event: mdns::Event) {
+        match event {
+            mdns::Event::Discovered(list) => {
+                for (peer, addr) in list {
+                    self.record_mdns_candidate(peer, addr);
+                }
+                // Attempt the first eligible auto-dial now; candidates that
+                // cannot dial (slot busy) stay un-attempted and are picked
+                // up by `maybe_autodial_next` when the slot frees.
+                self.maybe_autodial_next();
+            }
+            mdns::Event::Expired(list) => {
+                self.mdns_candidates.retain(|(peer, addr, _)| {
+                    !list.iter().any(|(p, a)| *p == *peer && *a == *addr)
+                });
+            }
+        }
+    }
+
+    /// Record (or refresh) one mDNS dial candidate.
+    ///
+    /// New `(peer, addr)` pairs are appended (deduplicated, bounded by
+    /// [`MAX_MDNS_CANDIDATES`]); a re-emitted pair resets its attempted flag
+    /// so a later drain can retry it. Recording never dials — eligibility is
+    /// decided by [`EventLoop::maybe_autodial_next`].
+    #[cfg(feature = "mdns")]
+    fn record_mdns_candidate(&mut self, peer: PeerId, addr: Multiaddr) {
+        let existing =
+            self.mdns_candidates
+                .iter()
+                .position(|(candidate_peer, candidate_addr, _)| {
+                    *candidate_peer == peer && *candidate_addr == addr
+                });
+        match existing {
+            Some(index) => {
+                // TTL re-emission: reset the attempted flag — the peer gets
+                // another auto-dial chance (even if a previous dial failed).
+                self.mdns_candidates[index].2 = false;
+            }
+            None => {
+                if self.mdns_candidates.len() >= MAX_MDNS_CANDIDATES {
+                    // mDNS is unauthenticated: drop new candidates beyond
+                    // the cap instead of unbounded growth; dials stay
+                    // fail-closed (nothing is dialed here either).
+                    return;
+                }
+                self.mdns_candidates.push((peer, addr, false));
+            }
+        }
+    }
+
+    /// Reset the attempted flag of the candidate recorded for `addr`, if
+    /// any. Used when an explicit `connect` replaces an in-flight auto-dial,
+    /// so the replaced candidate is retried once the slot frees.
+    #[cfg(feature = "mdns")]
+    fn reset_mdns_candidate(&mut self, addr: &Multiaddr) {
+        if let Some(entry) = self
+            .mdns_candidates
+            .iter_mut()
+            .find(|(_, candidate_addr, _)| candidate_addr == addr)
+        {
+            entry.2 = false;
+        }
+    }
+
+    /// Dial the next eligible auto-dial candidate, if any.
+    ///
+    /// Runs when the single-flight slot is free (after a pending connect
+    /// resolves — success, failure, or timeout — and at the end of a
+    /// `Discovered` burst). Eligibility: `mdns_autodial` enabled, and a
+    /// recorded candidate that is allowlisted, not yet attempted, and
+    /// without a live session. The dial goes through the same
+    /// [`EventLoop::handle_connect`] machinery as an explicit connect;
+    /// best-effort — a synchronous dial failure simply moves the loop to the
+    /// next candidate (each iteration marks one candidate attempted, so the
+    /// loop is bounded by the candidate cap).
+    #[cfg(feature = "mdns")]
+    fn maybe_autodial_next(&mut self) {
+        if !self.config.mdns_autodial || self.pending_connect.is_some() {
+            return;
+        }
+        while self.pending_connect.is_none() {
+            let Some(index) = self
+                .mdns_candidates
+                .iter()
+                .position(|(peer, _addr, attempted)| {
+                    !*attempted
+                        && is_allowlisted(&self.config.peer_allowlist, peer)
+                        && !self.sessions.contains_key(peer)
+                })
+            else {
+                return;
+            };
+            let (_, addr, _) = self.mdns_candidates[index].clone();
+            self.mdns_candidates[index].2 = true;
+            let (reply, receiver) = oneshot::channel::<Result<Arc<SessionHandle>, ConnectError>>();
+            drop(receiver);
+            self.handle_connect(addr, reply, true);
+            // Loop while the dial did not claim the slot (already-connected
+            // fast path or a synchronous dial failure): the next candidate
+            // gets its chance.
+        }
+    }
+
+    /// Drain the recorded mDNS dial candidates.
+    ///
+    /// Unit-test hook (no live multicast required): feeding a fabricated
+    /// `Discovered` event to [`EventLoop::handle_event`] exercises the
+    /// `Discovered` → candidate mapping deterministically.
+    #[cfg(feature = "mdns")]
+    #[cfg_attr(not(test), allow(dead_code))] // test hook; no lib callers yet
+    fn take_mdns_discoveries(&mut self) -> Vec<(PeerId, Multiaddr)> {
+        std::mem::take(&mut self.mdns_candidates)
+            .into_iter()
+            .map(|(peer, addr, _attempted)| (peer, addr))
+            .collect()
+    }
+
+    /// Answer a received `capability-token` challenge with this node's proof.
+    ///
+    /// An unknown method or a challenge below the nonce floor cannot be
+    /// answered: the channel is dropped and the challenger observes an
+    /// outbound failure (its session stays unauthorized for invokes).
+    fn handle_inbound_challenge(
+        &mut self,
+        peer: PeerId,
+        challenge: ConnectAuthChallenge,
+        channel: ResponseChannel<ConnectAuthResponse>,
+    ) {
+        if challenge.method.as_str() != METHOD_CAPABILITY_TOKEN {
+            drop(channel);
+            return;
+        }
+        if challenge.challenge.as_str().len() < TOKEN_CHALLENGE_MIN_LENGTH {
+            drop(channel);
+            return;
+        }
+        let Some(provider) = &self.config.capability_token_provider else {
+            drop(channel);
+            return;
+        };
+        match provider(&peer.to_string()) {
+            Ok(proof) => {
+                let response = ConnectAuthResponse {
+                    // Echo the challenge's correlation id and method.
+                    challenge_id: challenge
+                        .challenge_id
+                        .as_str()
+                        .parse()
+                        .expect("echoed challenge id parses"),
+                    method: METHOD_CAPABILITY_TOKEN.parse().expect("method name parses"),
+                    proof,
+                    extensions: Default::default(),
+                };
+                let _ = self
+                    .swarm
+                    .behaviour_mut()
+                    .auth
+                    .send_response(channel, response);
+            }
+            // The provider could not produce a proof (e.g. no token for this
+            // audience): same fail-closed path as no provider.
+            Err(_) => drop(channel),
+        }
+    }
+
+    /// Validate a challenge response and, on success, mark the session
+    /// token-authorized (`capability_token_ok`).
+    ///
+    /// Checks, in order: the response must be for this node's outstanding
+    /// challenge (challenge_id echo), the method must be `capability-token`
+    /// (anything else is `auth_failed` — the session stays unauthorized),
+    /// and the proof must validate against this node's trust config. A
+    /// rejected or stale response consumes the challenge slot: the session
+    /// remains unauthorized for invokes (fail closed).
+    fn handle_challenge_response(&mut self, peer: PeerId, response: ConnectAuthResponse) {
+        let Some(pending) = self.pending_challenges.get(&peer).cloned() else {
+            return; // unsolicited response: ignore
+        };
+        if response.challenge_id.as_str() != pending.challenge_id {
+            return; // stale or mismatched challenge slot: ignore
+        }
+        self.pending_challenges.remove(&peer);
+        if response.method.as_str() != METHOD_CAPABILITY_TOKEN {
+            // Unknown method on the challenge response ⇒ auth_failed: the
+            // session stays unauthorized for invokes.
+            return;
+        }
+        let Ok(grant) = self.validate_token_proof(&response.proof, &peer) else {
+            // Invalid token: the session stays unauthorized for invokes.
+            return;
+        };
+        let Some(session) = self.sessions.get(&peer) else {
+            return;
+        };
+        session.mark_token_ok(grant);
+        // The token gate may have been blocking the pending connect: retry
+        // completion now that the session is token-authorized.
+        self.maybe_complete_session(&peer);
+    }
+
+    /// Validate a capability-token proof against this node's trust
+    /// configuration and the authenticated session peer.
+    ///
+    /// The opaque wire `proof` is deserialized into the core token type
+    /// (unknown claims / wrapper keys and malformed shapes reject here) and
+    /// validated with the pure core rule. Returns the token's granted
+    /// capabilities for the invoke dispatch gate.
+    fn validate_token_proof(
+        &self,
+        proof: &serde_json::Value,
+        session_peer: &PeerId,
+    ) -> Result<Vec<String>, CoreError> {
+        let proof: CapabilityTokenProof = serde_json::from_value(proof.clone())
+            .map_err(|e| CoreError::TokenInvalid(format!("malformed proof: {e}")))?;
+        verify_capability_token(
+            &proof,
+            &self.config.trusted_issuers,
+            &self.identity.public().to_peer_id().to_string(),
+            &session_peer.to_string(),
+            unix_now_seconds(),
+        )
+    }
+
+    /// Send a fresh `capability-token` challenge to `peer` and bind it in the
+    /// pending map (anti-replay for the challenge slot).
+    fn send_token_challenge(&mut self, peer: &PeerId) {
+        let Ok(challenge_id) = generate_request_id() else {
+            return;
+        };
+        let Ok(nonce) = generate_nonce() else { return };
+        // The generated UUID and base64url nonce always satisfy the wire
+        // minLength constraints (nonce = 22 chars ≥ 16).
+        let challenge = ConnectAuthChallenge {
+            challenge_id: challenge_id.parse().expect("generated challenge id parses"),
+            method: METHOD_CAPABILITY_TOKEN.parse().expect("method name parses"),
+            challenge: nonce.parse().expect("generated nonce parses"),
+            extensions: Default::default(),
+        };
+        self.pending_challenges.insert(
+            *peer,
+            PendingChallenge {
+                challenge_id,
+                nonce,
+            },
+        );
+        self.swarm
+            .behaviour_mut()
+            .auth
+            .send_request(peer, challenge);
+    }
+
+    /// Whether the capability-token gate is satisfied for `peer`'s session:
+    /// always when the token policy is inactive; otherwise the session must
+    /// have completed the challenge with a valid token.
+    fn token_gate_satisfied(&self, peer: &PeerId) -> bool {
+        if !self.config.token_policy_active() {
+            return true;
+        }
+        self.sessions
+            .get(peer)
+            .is_some_and(|session| session.token_ok())
+    }
+
+    /// The capability-token gate for an inbound invoke (normative dispatch
+    /// order step 2).
+    ///
+    /// Returns the **effective token grant** (`claims.capabilities`) when a
+    /// valid token is in effect for this invoke, or the wire `auth_failed`
+    /// message when the token gate rejects:
+    /// - `auth` present → the proof is validated on **every** invoke (same
+    ///   rules as the challenge), even when `require_capability_token` is
+    ///   false;
+    /// - `auth` absent and the token policy active → the session must have
+    ///   completed the challenge (`capability_token_ok`), otherwise the
+    ///   invoke is rejected;
+    /// - `auth` absent and the policy inactive → `None` (no token gate; the
+    ///   noise-peerid-only dispatch gate applies).
+    fn evaluate_invoke_token_gate(
+        &self,
+        peer: &PeerId,
+        request: &ConnectInvokeRequest,
+    ) -> Result<Option<Vec<String>>, String> {
+        if let Some(auth) = &request.auth {
+            return self
+                .validate_token_proof(auth, peer)
+                .map(Some)
+                .map_err(|e| format!("invalid capability token: {e}"));
+        }
+        let session = self.sessions.get(peer).expect("session verified above");
+        if self.config.token_policy_active() && !session.token_ok() {
+            return Err(
+                "capability token required but this session is not token-authorized".into(),
+            );
+        }
+        Ok(session.granted_capabilities())
+    }
+
     /// Answer an inbound invoke through the configured handler hook; a peer
     /// without an established session is answered with a wire
     /// `ErrorEnvelope` (protocol v1 has no invoke-level transport error
@@ -583,85 +1173,117 @@ impl EventLoop {
                             // the response outcome (mirrors the outbound
                             // direction: a failed invoke still consumes its
                             // sequence).
-                            match &self.config.invoke_handler {
-                                None => self.error_response(
-                                    &request,
-                                    "op_unsupported",
-                                    "no invoke handler configured on this node".into(),
-                                ),
-                                Some(handler) => {
-                                    // Op dispatch gate (normative MUST,
-                                    // `.mstar/specs/spoke-connect.md` §Op
-                                    // dispatch gate): a host that performs op
-                                    // dispatch must not run an op whose
-                                    // required capability is absent from the
-                                    // session's `negotiated_capabilities`.
-                                    // Denied ops are answered with an
-                                    // `op_unsupported` wire envelope and the
-                                    // handler is never invoked — no side
-                                    // effects. The core table (pure
-                                    // `dispatch_allowed`, fail-closed for
-                                    // unknown ops) is consulted first; ops
-                                    // outside the core table fall back to
-                                    // the product-configured
-                                    // `op_capability_requirements` map.
-                                    let session = self
-                                        .sessions
-                                        .get(&peer)
-                                        .expect("session verified above");
-                                    let allowed = dispatch_allowed(
-                                        &request.op,
-                                        &session.negotiated_capabilities,
-                                    ) || self
-                                        .config
-                                        .op_capability_requirements
-                                        .get(request.op.as_str())
-                                        .is_some_and(|required| {
-                                            session
-                                                .negotiated_capabilities
-                                                .contains(required)
-                                        });
-                                    if !allowed {
-                                        self.error_response(
+                            // Capability-token gate (normative §Method —
+                            // capability-token, dispatch order step 2): when
+                            // the request carries `auth`, the proof is
+                            // validated on **every** invoke (same rules as
+                            // the challenge); when the token policy is
+                            // active, an invoke from a session that has not
+                            // completed the challenge and carries no `auth`
+                            // is rejected with an `auth_failed` wire
+                            // envelope — before any dispatch.
+                            match self.evaluate_invoke_token_gate(&peer, &request) {
+                                Err(message) => {
+                                    self.error_response(&request, "auth_failed", message)
+                                }
+                                Ok(token_grant) => {
+                                    match &self.config.invoke_handler {
+                                        None => self.error_response(
                                             &request,
                                             "op_unsupported",
-                                            format!(
-                                                "op {} requires a capability that is not negotiated in this session",
-                                                request.op.as_str()
-                                            ),
-                                        )
-                                    } else {
-                                        // The handler runs synchronously on the
-                                        // event loop: it must return promptly and
-                                        // must not block on I/O (see
-                                        // ConnectConfig::invoke_handler). Panics
-                                        // are contained so a misbehaving adapter
-                                        // cannot kill the node; the invoke is
-                                        // answered with an `internal_error` wire
-                                        // envelope.
-                                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                            || handler(&request.op, request.payload.clone()),
-                                        ));
-                                        match result {
-                                            Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
-                                                session_id: request.session_id.to_string(),
-                                                sequence: request.sequence,
-                                                request_id: request.request_id.to_string(),
-                                                payload,
-                                                extensions: Default::default(),
-                                            },
-                                            Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
-                                                session_id: request.session_id.to_string(),
-                                                sequence: request.sequence,
-                                                request_id: request.request_id.to_string(),
-                                                error,
-                                                extensions: Default::default(),
-                                            },
-                                            Err(_) => self.error_response(
-                                                &request,
-                                                "internal_error",
-                                                "invoke handler panicked".into(),
-                                            ),
+                                            "no invoke handler configured on this node".into(),
+                                        ),
+                                        Some(handler) => {
+                                            // Op dispatch gate (normative MUST,
+                                            // `.mstar/specs/spoke-connect.md` §Op
+                                            // dispatch gate): a host that performs
+                                            // op dispatch must not run an op whose
+                                            // required capability is absent from the
+                                            // session's `negotiated_capabilities`.
+                                            // Denied ops are answered with an
+                                            // `op_unsupported` wire envelope and the
+                                            // handler is never invoked — no side
+                                            // effects. The core table (pure
+                                            // `dispatch_allowed`, fail-closed for
+                                            // unknown ops) is consulted first; ops
+                                            // outside the core table fall back to
+                                            // the product-configured
+                                            // `op_capability_requirements` map.
+                                            // When a capability token is in effect
+                                            // (session grant or per-invoke `auth`),
+                                            // the token grant AND the negotiated
+                                            // set must both allow the op —
+                                            // capability-not-granted reuses the
+                                            // same `op_unsupported` deny path.
+                                            let session = self
+                                                .sessions
+                                                .get(&peer)
+                                                .expect("session verified above");
+                                            let required = crate::core::required_capability(
+                                                request.op.as_str(),
+                                            )
+                                            .or_else(|| {
+                                                self.config
+                                                    .op_capability_requirements
+                                                    .get(request.op.as_str())
+                                                    .map(String::as_str)
+                                            });
+                                            let negotiated_allowed = required.is_some_and(
+                                                |required| {
+                                                    session
+                                                        .negotiated_capabilities
+                                                        .iter()
+                                                        .any(|granted| granted == required)
+                                                },
+                                            );
+                                            let token_allowed = token_grant
+                                                .as_deref()
+                                                .is_none_or(|grant| {
+                                                    token_authorizes_op(required, grant)
+                                                });
+                                            if !negotiated_allowed || !token_allowed {
+                                                self.error_response(
+                                                    &request,
+                                                    "op_unsupported",
+                                                    format!(
+                                                        "op {} requires a capability that is not granted in this session",
+                                                        request.op.as_str()
+                                                    ),
+                                                )
+                                            } else {
+                                                // The handler runs synchronously on the
+                                                // event loop: it must return promptly
+                                                // and must not block on I/O (see
+                                                // ConnectConfig::invoke_handler).
+                                                // Panics are contained so a
+                                                // misbehaving adapter cannot kill the
+                                                // node; the invoke is answered with an
+                                                // `internal_error` wire envelope.
+                                                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                                    || handler(&request.op, request.payload.clone()),
+                                                ));
+                                                match result {
+                                                    Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
+                                                        session_id: request.session_id.to_string(),
+                                                        sequence: request.sequence,
+                                                        request_id: request.request_id.to_string(),
+                                                        payload,
+                                                        extensions: Default::default(),
+                                                    },
+                                                    Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
+                                                        session_id: request.session_id.to_string(),
+                                                        sequence: request.sequence,
+                                                        request_id: request.request_id.to_string(),
+                                                        error,
+                                                        extensions: Default::default(),
+                                                    },
+                                                    Err(_) => self.error_response(
+                                                        &request,
+                                                        "internal_error",
+                                                        "invoke handler panicked".into(),
+                                                    ),
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -749,14 +1371,32 @@ impl EventLoop {
             if is_pending_peer {
                 // Duplicate dial: the peer already has a live session.
                 // Complete the pending connect with a clone of the existing
-                // handle and close the surplus connection the dial just
-                // established. The existing session stays on its own
-                // connection and keeps working.
+                // handle — but only once the token gate is satisfied (the
+                // challenge exchange is a property of the session, not of
+                // any one connection). The surplus connection the dial just
+                // established is closed only when it is not the session's
+                // own connection: when the capability-token gate delayed the
+                // pending connect past session creation, the "existing"
+                // session lives on the pending dial's connection, and
+                // closing it would kill the session.
+                if !self.token_gate_satisfied(peer) {
+                    return;
+                }
+                let session_connection = self.session_connections.get(peer).copied();
                 if let Some(pending) = self.pending_connect.take() {
-                    if let Some(connection) = pending.connection {
-                        let _ = self.swarm.close_connection(connection);
+                    let surplus = pending
+                        .connection
+                        .is_some_and(|connection| session_connection != Some(connection));
+                    if surplus {
+                        if let Some(connection) = pending.connection {
+                            let _ = self.swarm.close_connection(connection);
+                        }
                     }
                     let _ = pending.reply.send(Ok(existing.clone()));
+                    // The single-flight slot is free again: give the next
+                    // un-attempted auto-dial candidate its chance.
+                    #[cfg(feature = "mdns")]
+                    self.maybe_autodial_next();
                 }
             }
             return;
@@ -802,10 +1442,37 @@ impl EventLoop {
         // The receiver-side inbound expectation starts at 0 with the session
         // (lockstep with `sessions`; removed together on connection close).
         self.inbound_sequences.insert(*peer, InboundSequence::new());
+        // Dialer side: record the connection the session was established
+        // through (the duplicate-dial completion path uses it to tell a
+        // surplus dial connection apart from the session's own connection).
         if is_pending_peer {
+            if let Some(connection) = self
+                .pending_connect
+                .as_ref()
+                .and_then(|pending| pending.connection)
+            {
+                self.session_connections.insert(*peer, connection);
+            }
+        }
+        // Capability-token step-up (normative §Challenge / response and
+        // invoke `auth`): when the token policy is active, the session is
+        // offered the challenge right after establishment — the peer's
+        // answer authorizes invokes. Until then (or if the peer cannot
+        // answer), invokes from this peer are rejected with `auth_failed`.
+        if self.config.token_policy_active() {
+            self.send_token_challenge(peer);
+        }
+        if is_pending_peer {
+            if !self.token_gate_satisfied(peer) {
+                return;
+            }
             if let Some(pending) = self.pending_connect.take() {
                 self.peer_listen_addrs.insert(*peer, pending.addr.clone());
                 let _ = pending.reply.send(Ok(handle));
+                // The single-flight slot is free again: give the next
+                // un-attempted auto-dial candidate its chance.
+                #[cfg(feature = "mdns")]
+                self.maybe_autodial_next();
             }
         }
     }
@@ -838,8 +1505,27 @@ impl EventLoop {
         if matches {
             if let Some(pending) = self.pending_connect.take() {
                 let _ = pending.reply.send(Err(err));
+                // The single-flight slot is free again: give the next
+                // un-attempted auto-dial candidate its chance.
+                #[cfg(feature = "mdns")]
+                self.maybe_autodial_next();
             }
         }
+    }
+
+    /// Whether a hello response/failure for `peer` with `request_id` belongs
+    /// to the current pending dial.
+    ///
+    /// Only the pending dial's own outbound hello (recorded in
+    /// [`PendingConnect::hello_request`] at send time) may complete or fail
+    /// it: anything else is a late event of an earlier dial — e.g. the
+    /// auto-dial an explicit connect replaced, whose connection was closed
+    /// at preemption but whose in-flight hello request can still report a
+    /// response or failure.
+    fn hello_belongs_to_pending_dial(&self, peer: &PeerId, request_id: &OutboundRequestId) -> bool {
+        self.pending_connect.as_ref().is_some_and(|pending| {
+            pending.peer == Some(*peer) && pending.hello_request == Some(*request_id)
+        })
     }
 
     /// Fail every pending invoke for `peer` (called when the peer's last
@@ -975,6 +1661,10 @@ impl EventLoop {
             let _ = self.swarm.close_connection(connection);
         }
         let _ = entry.reply.send(Err(err));
+        // The single-flight slot is free again: give the next un-attempted
+        // auto-dial candidate its chance.
+        #[cfg(feature = "mdns")]
+        self.maybe_autodial_next();
     }
 
     fn send_hello(&mut self, peer: &PeerId) {
@@ -984,7 +1674,17 @@ impl EventLoop {
         let Ok(hello) = sign_hello(&self.identity, &nonce, &self.config.local_manifest) else {
             return;
         };
-        self.swarm.behaviour_mut().hello.send_request(peer, hello);
+        let request_id = self.swarm.behaviour_mut().hello.send_request(peer, hello);
+        // Attribute the outbound hello to the pending dial it belongs to:
+        // the dial's own hello is the first one sent for its peer after the
+        // dial bound its connection, so a late response or failure for a
+        // different hello — e.g. the auto-dial an explicit connect replaced
+        // — never resolves this dial.
+        if let Some(pending) = self.pending_connect.as_mut() {
+            if pending.peer == Some(*peer) && pending.hello_request.is_none() {
+                pending.hello_request = Some(request_id);
+            }
+        }
     }
 }
 
@@ -999,6 +1699,14 @@ impl EventLoop {
 /// semantics.
 fn inbound_sequence_valid(sequence: i64) -> bool {
     sequence >= 0 && (sequence as u64) <= MAX_SEQUENCE
+}
+
+/// Current Unix time in seconds (UTC), for capability-token expiry checks.
+fn unix_now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
 }
 
 /// Whether another pending hello may be buffered for a peer.
@@ -1039,19 +1747,7 @@ impl SpokeConnectNode {
         let (listen_tx, mut listen_rx) = mpsc::channel::<Multiaddr>(16);
         let (cmd_tx, cmd_rx) = mpsc::channel::<LoopCommand>(32);
 
-        let swarm = SwarmBuilder::with_existing_identity(config.identity.clone())
-            .with_tokio()
-            .with_tcp(
-                tcp::Config::default(),
-                noise::Config::new,
-                yamux::Config::default,
-            )
-            .map_err(|e| ConnectError::Transport(format!("transport setup failed: {e}")))?
-            .with_behaviour(|keypair| ConnectBehaviour::new(keypair, &config))
-            .map_err(|e| ConnectError::Transport(format!("behaviour setup failed: {e}")))?
-            .with_swarm_config(|cfg| cfg)
-            .with_connection_timeout(config.effective_handshake_timeout())
-            .build();
+        let swarm = build_swarm(&config.identity, &config)?;
 
         let mut swarm = swarm;
         for addr in &config.listen_addrs {
@@ -1075,7 +1771,11 @@ impl SpokeConnectNode {
             sessions: HashMap::new(),
             inbound_sequences: HashMap::new(),
             peer_listen_addrs: HashMap::new(),
+            session_connections: HashMap::new(),
             pending_invokes: HashMap::new(),
+            pending_challenges: HashMap::new(),
+            #[cfg(feature = "mdns")]
+            mdns_candidates: Vec::new(),
         };
         let requested_listeners = event_loop.config.listen_addrs.len();
         let task = tokio::spawn(event_loop.run(shutdown_rx));
@@ -1239,6 +1939,11 @@ mod tests {
             handshake_timeout: Some(Duration::from_secs(5)),
             invoke_handler: None,
             op_capability_requirements: HashMap::new(),
+            trusted_issuers: Vec::new(),
+            require_capability_token: false,
+            capability_token_provider: None,
+            #[cfg(feature = "mdns")]
+            mdns_autodial: true,
         }
     }
 
@@ -1334,5 +2039,730 @@ mod tests {
         assert!(!pending_hello_capacity_available(
             MAX_PENDING_HELLOS_PER_PEER
         ));
+    }
+
+    /// Config gating (AD-P3-3/AD-P3-5): the `mdns` feature is non-default.
+    /// This module compiles only in default builds — there is no
+    /// `mdns_autodial` config field and no mdns behaviour member to
+    /// reference (touching them here would not compile). Tripwire
+    /// limitation: if `mdns` became a default feature, this module would
+    /// disappear from the default suite without failing — the CI mdns test
+    /// step asserts `default = []` in `Cargo.toml`, and the feature-on
+    /// `mdns_tests` module asserts the other side of the gate.
+    #[cfg(not(feature = "mdns"))]
+    mod no_mdns_tests {
+        use super::*;
+
+        #[test]
+        fn default_build_has_no_mdns_surface() {
+            assert!(
+                !cfg!(feature = "mdns"),
+                "mdns must stay a non-default feature"
+            );
+            // The default facade is unchanged: the config builds without any
+            // mdns field and the node machinery is the explicit-peering
+            // baseline.
+            let cfg = config(Keypair::generate_ed25519(), Vec::new());
+            assert!(cfg.peer_allowlist.is_empty());
+        }
+    }
+
+    /// Deterministic mDNS wiring tests (AD-P3-5): no real multicast, no
+    /// timing assertions. The behaviour and the event loop construct
+    /// without network I/O (multicast queries only start once the behaviour
+    /// is polled with an interface-up event), so fabricated `Discovered` /
+    /// `Expired` events can be fed to `handle_event` directly.
+    #[cfg(feature = "mdns")]
+    mod mdns_tests {
+        use super::*;
+
+        fn event_loop(identity: Keypair, cfg: ConnectConfig) -> EventLoop {
+            let (listen_tx, _listen_rx) = mpsc::channel(16);
+            let (cmd_tx, cmd_rx) = mpsc::channel(32);
+            let swarm = build_swarm(&identity, &cfg).expect("swarm builds without network I/O");
+            EventLoop {
+                swarm,
+                identity,
+                config: cfg,
+                remote_keys: HashMap::new(),
+                pending_hellos: HashMap::new(),
+                nonces: NonceStore::new(),
+                listen_tx,
+                cmd_rx,
+                cmd_tx,
+                pending_connect: None,
+                handshakes: HashMap::new(),
+                sessions: HashMap::new(),
+                inbound_sequences: HashMap::new(),
+                peer_listen_addrs: HashMap::new(),
+                session_connections: HashMap::new(),
+                pending_invokes: HashMap::new(),
+                pending_challenges: HashMap::new(),
+                mdns_candidates: Vec::new(),
+            }
+        }
+
+        fn discovered_event(peer: PeerId, addr: Multiaddr) -> SwarmEvent<ConnectBehaviourEvent> {
+            SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(mdns::Event::Discovered(vec![
+                (peer, addr),
+            ])))
+        }
+
+        fn established_event(peer: PeerId, addr: Multiaddr) -> SwarmEvent<ConnectBehaviourEvent> {
+            established_event_id(peer, addr, ConnectionId::new_unchecked(1))
+        }
+
+        fn established_event_id(
+            peer: PeerId,
+            addr: Multiaddr,
+            connection_id: ConnectionId,
+        ) -> SwarmEvent<ConnectBehaviourEvent> {
+            // A fabricated transport-level success for the auto-dial: the
+            // noise-authenticated connection is up. Fully deterministic — no
+            // sockets, no polling; `handle_event` processes it like any swarm
+            // event.
+            SwarmEvent::ConnectionEstablished {
+                peer_id: peer,
+                connection_id,
+                endpoint: libp2p::core::connection::ConnectedPoint::Dialer {
+                    address: addr,
+                    role_override: libp2p::core::connection::Endpoint::Dialer,
+                    port_use: libp2p::core::transport::PortUse::New,
+                },
+                num_established: std::num::NonZeroU32::new(1).expect("non-zero"),
+                concurrent_dial_errors: None,
+                established_in: Duration::ZERO,
+            }
+        }
+
+        #[tokio::test]
+        async fn mdns_behaviour_constructs_without_live_multicast() {
+            // AD-P3-5(a): the feature-gated wiring compiles and `new` succeeds
+            // without any multicast traffic (construction only creates the
+            // interface watcher; queries start on poll).
+            let identity = Keypair::generate_ed25519();
+            let behaviour = ConnectBehaviour::new(&identity, &config(identity.clone(), Vec::new()))
+                .expect("mdns behaviour construction succeeds");
+            let _ = behaviour;
+        }
+
+        #[tokio::test]
+        async fn mdns_discovered_event_records_dial_candidates() {
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_repeated_discovery_is_deduplicated() {
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_expired_event_removes_candidates() {
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            loop_.handle_event(SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(
+                mdns::Event::Expired(vec![(peer, addr.clone())]),
+            )));
+            assert!(
+                loop_.take_mdns_discoveries().is_empty(),
+                "expired candidates are dropped"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_candidate_store_is_bounded() {
+            // Forged-discovery flood safety (AD-P3-6): mDNS is unauthenticated,
+            // so entries beyond the cap are dropped instead of growing the store
+            // without bound. Deterministic — no multicast, no dials (empty
+            // allowlist).
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            for i in 0..(MAX_MDNS_CANDIDATES + 32) {
+                let addr: Multiaddr = format!("/ip4/192.168.1.42/tcp/{}", 40_000 + i)
+                    .parse()
+                    .expect("multiaddr");
+                loop_.handle_event(discovered_event(peer, addr));
+            }
+            let candidates = loop_.take_mdns_discoveries();
+            assert_eq!(candidates.len(), MAX_MDNS_CANDIDATES);
+            assert_eq!(
+                candidates.first().map(|(_, addr)| addr.to_string()),
+                Some("/ip4/192.168.1.42/tcp/40000".to_owned()),
+                "earliest discoveries are kept, later ones are dropped"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_take_drains_the_candidate_store() {
+            // Pure helper semantics (AD-P3-3): `take_mdns_discoveries` drains
+            // the store — taking on an empty store is empty, a second take
+            // after a first is empty (nothing re-appears), and discoveries
+            // made after a drain are recorded again (dedupe runs against the
+            // live store, not against history).
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            assert!(loop_.take_mdns_discoveries().is_empty());
+
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr.clone())]);
+            assert!(
+                loop_.take_mdns_discoveries().is_empty(),
+                "drained: a second take returns nothing"
+            );
+
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(
+                loop_.take_mdns_discoveries(),
+                vec![(peer, addr)],
+                "post-drain discoveries are recorded again"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_candidate_cap_resets_after_drain() {
+            // Cap interplay: `MAX_MDNS_CANDIDATES` bounds the live store, not
+            // cumulative discoveries — a drain resets the accounting, so a
+            // post-drain discovery is accepted again (and a fresh flood would
+            // be capped anew).
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            for i in 0..MAX_MDNS_CANDIDATES {
+                let addr: Multiaddr = format!("/ip4/192.168.1.42/tcp/{}", 40_000 + i)
+                    .parse()
+                    .expect("multiaddr");
+                loop_.handle_event(discovered_event(peer, addr));
+            }
+            assert_eq!(loop_.take_mdns_discoveries().len(), MAX_MDNS_CANDIDATES);
+
+            // After the drain the store is empty and accepts new candidates.
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/50000".parse().expect("multiaddr");
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_skips_non_allowlisted_discoveries() {
+            // AD-P3-4 + AD-P3-5(b): an empty allowlist is fail-closed — the
+            // discovered peer is recorded as a candidate but never dialed (no
+            // pending dial is created). mDNS is discovery only, never a trust
+            // grant; the allowlist gate itself is exercised end-to-end by
+            // `mdns_autodial_dials_allowlisted_discoveries_through_connect_machinery`.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, Vec::new()));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert!(
+                loop_.pending_connect.is_none(),
+                "non-allowlisted discovery must not start a dial"
+            );
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_dials_allowlisted_discoveries_through_connect_machinery() {
+            // The auto-dial reuses the same single-flight machinery as an
+            // explicit `connect(addr)`: a pending dial bound to the discovered
+            // address is created (no parallel trusted branch). A tokio runtime
+            // is required because `swarm.dial` synchronously spawns the dial
+            // task through the connection pool's executor (`tokio::spawn`);
+            // no poll or socket I/O happens, so the test stays deterministic.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            let pending = loop_.pending_connect.as_ref().expect("auto-dial pending");
+            assert_eq!(pending.addr, addr);
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_allowlisted_peer_is_not_admitted_without_signed_hello() {
+            // AD-P3-4: mDNS grants addresses, never trust. An allowlisted
+            // discovered peer is auto-dialed through the shared connect
+            // machinery, but admission still requires the signed-hello
+            // exchange: even after the connection is established, no session
+            // exists until `gate_hello` accepts the peer's hello. (The hello
+            // gate itself is exercised end-to-end by the two-node tests.)
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert!(
+                loop_.pending_connect.is_some(),
+                "allowlisted discovery auto-dials"
+            );
+
+            // The transport layer "succeeds": the auto-dial's connection is
+            // established. The node binds the pending dial, passes the
+            // allowlist gate, and starts the hello exchange — but the peer
+            // never returns a valid signed hello, so no session is admitted.
+            loop_.handle_event(established_event(peer, addr));
+            let pending = loop_.pending_connect.as_ref().expect("dial still pending");
+            assert_eq!(
+                pending.peer,
+                Some(peer),
+                "dial bound to the discovered peer"
+            );
+            assert_eq!(
+                pending.connection,
+                Some(ConnectionId::new_unchecked(1)),
+                "dial bound through the shared connect machinery"
+            );
+            assert!(
+                loop_.sessions.is_empty(),
+                "no session before a valid signed hello exchange"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_off_records_candidates_without_dialing() {
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut cfg = config(identity.clone(), vec![peer]);
+            cfg.mdns_autodial = false;
+            let mut loop_ = event_loop(identity, cfg);
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            assert!(loop_.pending_connect.is_none(), "autodial disabled");
+            assert_eq!(loop_.take_mdns_discoveries(), vec![(peer, addr)]);
+        }
+
+        #[tokio::test]
+        async fn mdns_explicit_connect_preempts_inflight_autodial() {
+            // F-1: an explicit connect replaces an in-flight auto-dial
+            // instead of being rejected with "already in progress". The
+            // replaced dial's candidate is reset, so the slot-free drain
+            // retries it once the explicit dial resolves.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            assert!(
+                loop_.pending_connect.as_ref().is_some_and(|p| p.autodial),
+                "auto-dial holds the slot"
+            );
+
+            let (reply, receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial pending");
+            assert!(!pending.autodial, "explicit connect replaced the auto-dial");
+            assert_eq!(pending.addr, explicit_addr);
+
+            // The explicit dial fails: the slot frees and the replaced
+            // auto-dial candidate is retried through the drain.
+            loop_.handle_event(established_event(peer, explicit_addr.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            let retried = loop_.pending_connect.as_ref().expect("candidate retried");
+            assert!(retried.autodial, "retried dial is an auto-dial");
+            assert_eq!(retried.addr, auto_addr);
+            assert!(
+                matches!(receiver.await, Ok(Err(_))),
+                "the explicit connect reports its own failure"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_preempted_autodial_connection_is_not_bound_to_explicit_dial() {
+            // G-1 (preemption misbind): when an explicit connect replaces an
+            // in-flight auto-dial BEFORE the auto-dial's
+            // `ConnectionEstablished` is processed, the late event must not
+            // bind the replaced dial's connection + peer to the explicit
+            // pending entry — the slot belongs to the explicit dial's own
+            // connection. The stale connection is closed instead.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            let (reply, mut receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial pending");
+            assert_eq!(pending.addr, explicit_addr);
+            assert!(
+                pending.superseded.is_some(),
+                "the replaced auto-dial is recorded on the replacement"
+            );
+
+            // The replaced auto-dial's connection establishes late: it is
+            // closed, not bound — the explicit dial stays intact.
+            loop_.handle_event(established_event(peer, auto_addr));
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial still pending");
+            assert!(
+                pending.connection.is_none(),
+                "stale connection is not bound"
+            );
+            assert!(pending.peer.is_none(), "stale peer is not bound");
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ),
+                "explicit connect is not resolved by the stale connection"
+            );
+
+            // The explicit dial's own connection binds normally.
+            loop_.handle_event(established_event_id(
+                peer,
+                explicit_addr.clone(),
+                ConnectionId::new_unchecked(2),
+            ));
+            let pending = loop_.pending_connect.as_ref().expect("explicit dial bound");
+            assert_eq!(pending.connection, Some(ConnectionId::new_unchecked(2)));
+            assert_eq!(pending.peer, Some(peer));
+        }
+
+        #[tokio::test]
+        async fn mdns_preempted_autodial_close_does_not_fail_explicit_connect() {
+            // G-2 (failure side): the replaced auto-dial's `ConnectionClosed`
+            // (following the close issued at preemption) must not fail the
+            // explicit pending connect — the slot survives and still binds
+            // the explicit dial's own connection afterwards.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            // The auto-dial establishes and binds to its own connection
+            // first (its hello request is recorded on the replaced entry).
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            loop_.handle_event(established_event(peer, auto_addr.clone()));
+            assert_eq!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .expect("auto-dial bound")
+                    .connection,
+                Some(ConnectionId::new_unchecked(1))
+            );
+
+            // Explicit connect replaces it; the replaced connection is
+            // closed and its identity recorded on the replacement.
+            let (reply, mut receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial pending");
+            assert!(
+                pending
+                    .superseded
+                    .as_ref()
+                    .is_some_and(|sup| sup.connection == Some(ConnectionId::new_unchecked(1))),
+                "the replaced dial's connection id is recorded"
+            );
+
+            // The replaced connection's close event arrives late: it must
+            // not fail the explicit dial, which still binds its own
+            // connection afterwards.
+            loop_.handle_event(SwarmEvent::ConnectionClosed {
+                peer_id: peer,
+                connection_id: ConnectionId::new_unchecked(1),
+                endpoint: libp2p::core::connection::ConnectedPoint::Dialer {
+                    address: auto_addr.clone(),
+                    role_override: libp2p::core::connection::Endpoint::Dialer,
+                    port_use: libp2p::core::transport::PortUse::New,
+                },
+                num_established: 0,
+                cause: None,
+            });
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial not failed");
+            assert_eq!(pending.addr, explicit_addr);
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ),
+                "the stale close does not resolve the explicit connect"
+            );
+
+            loop_.handle_event(established_event_id(
+                peer,
+                explicit_addr.clone(),
+                ConnectionId::new_unchecked(2),
+            ));
+            let pending = loop_.pending_connect.as_ref().expect("explicit dial bound");
+            assert_eq!(pending.connection, Some(ConnectionId::new_unchecked(2)));
+        }
+
+        #[tokio::test]
+        async fn mdns_preempted_autodial_hello_failure_does_not_fail_explicit_connect() {
+            // G-3 (hello failure side): a hello failure of the replaced
+            // auto-dial (its connection was closed at preemption but the
+            // in-flight hello request can still report a failure) must not
+            // fail the explicit pending connect — only the explicit dial's
+            // own hello may fail it.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let auto_addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let explicit_addr: Multiaddr = "/ip4/10.0.0.9/tcp/9090".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            // The auto-dial establishes (its hello request is recorded) and
+            // is then replaced by the explicit connect.
+            loop_.handle_event(discovered_event(peer, auto_addr.clone()));
+            loop_.handle_event(established_event(peer, auto_addr.clone()));
+            let auto_hello = loop_
+                .pending_connect
+                .as_ref()
+                .and_then(|pending| pending.hello_request)
+                .expect("auto-dial hello recorded");
+            let (reply, mut receiver) = oneshot::channel();
+            loop_.handle_connect(explicit_addr.clone(), reply, false);
+
+            // The explicit dial establishes and sends its own hello.
+            loop_.handle_event(established_event_id(
+                peer,
+                explicit_addr.clone(),
+                ConnectionId::new_unchecked(2),
+            ));
+            let explicit_hello = loop_
+                .pending_connect
+                .as_ref()
+                .and_then(|pending| pending.hello_request)
+                .expect("explicit dial hello recorded");
+            assert_ne!(auto_hello, explicit_hello);
+
+            // A late failure of the replaced dial's hello is ignored…
+            loop_.handle_hello_event(request_response::Event::OutboundFailure {
+                peer,
+                connection_id: ConnectionId::new_unchecked(1),
+                request_id: auto_hello,
+                error: request_response::OutboundFailure::ConnectionClosed,
+            });
+            let pending = loop_
+                .pending_connect
+                .as_ref()
+                .expect("explicit dial not failed");
+            assert_eq!(pending.addr, explicit_addr);
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Err(oneshot::error::TryRecvError::Empty)
+                ),
+                "the stale hello failure does not resolve the explicit connect"
+            );
+
+            // …while the explicit dial's own hello failure fails it.
+            loop_.handle_hello_event(request_response::Event::OutboundFailure {
+                peer,
+                connection_id: ConnectionId::new_unchecked(2),
+                request_id: explicit_hello,
+                error: request_response::OutboundFailure::ConnectionClosed,
+            });
+            assert!(
+                matches!(
+                    receiver.try_recv(),
+                    Ok(Err(ConnectError::HandshakeFailed { .. }))
+                ),
+                "the explicit connect reports its own hello failure"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_autodial_candidate_is_retried_when_slot_frees() {
+            // F-2: a candidate discovered while the slot is busy is not
+            // permanently skipped — when the first dial resolves, the
+            // slot-free drain dials the next un-attempted candidate.
+            let identity = Keypair::generate_ed25519();
+            let peer1 = Keypair::generate_ed25519().public().to_peer_id();
+            let peer2 = Keypair::generate_ed25519().public().to_peer_id();
+            let addr1: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let addr2: Multiaddr = "/ip4/192.168.1.43/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer1, peer2]));
+
+            loop_.handle_event(discovered_event(peer1, addr1.clone()));
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr1),
+                "first discovery auto-dials"
+            );
+
+            // Second peer discovered while the slot is busy: recorded, not
+            // dialed, not lost.
+            loop_.handle_event(discovered_event(peer2, addr2.clone()));
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr1),
+                "slot still busy — peer2 waits"
+            );
+
+            // First dial fails → slot frees → peer2 is dialed.
+            loop_.handle_event(established_event(peer1, addr1.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer1),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            let pending = loop_.pending_connect.as_ref().expect("peer2 auto-dialed");
+            assert!(pending.autodial);
+            assert_eq!(pending.addr, addr2);
+            assert_eq!(
+                loop_.take_mdns_discoveries(),
+                vec![(peer1, addr1), (peer2, addr2)],
+                "both peers were recorded as candidates"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_multi_peer_autodials_are_serialized_as_slot_frees() {
+            // F-3(c): allowlisted candidates are dialed one at a time, in
+            // candidate order, as the single-flight slot frees.
+            let identity = Keypair::generate_ed25519();
+            let peer1 = Keypair::generate_ed25519().public().to_peer_id();
+            let peer2 = Keypair::generate_ed25519().public().to_peer_id();
+            let peer3 = Keypair::generate_ed25519().public().to_peer_id();
+            let addr1: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let addr2: Multiaddr = "/ip4/192.168.1.43/tcp/4242".parse().expect("multiaddr");
+            let addr3: Multiaddr = "/ip4/192.168.1.44/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(
+                identity.clone(),
+                config(identity, vec![peer1, peer2, peer3]),
+            );
+
+            // One burst discovers all three allowlisted peers: only the
+            // first is dialed (serialized), the rest wait for the slot.
+            loop_.handle_event(SwarmEvent::Behaviour(ConnectBehaviourEvent::Mdns(
+                mdns::Event::Discovered(vec![
+                    (peer1, addr1.clone()),
+                    (peer2, addr2.clone()),
+                    (peer3, addr3.clone()),
+                ]),
+            )));
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr1),
+                "first candidate dialed first"
+            );
+
+            // Resolve each dial as a failure in turn: the slot frees and the
+            // next candidate is dialed serially.
+            loop_.handle_event(established_event(peer1, addr1.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer1),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr2),
+                "second candidate dialed after the first failed"
+            );
+
+            loop_.handle_event(established_event(peer2, addr2.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer2),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_
+                    .pending_connect
+                    .as_ref()
+                    .is_some_and(|p| p.addr == addr3),
+                "third candidate dialed after the second failed"
+            );
+
+            loop_.handle_event(established_event(peer3, addr3.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer3),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_.pending_connect.is_none(),
+                "all candidates attempted — no further dials"
+            );
+        }
+
+        #[tokio::test]
+        async fn mdns_rediscovery_resets_attempted_for_retry() {
+            // F-2: TTL re-emission resets the attempted flag — a failed
+            // auto-dial candidate gets another chance on re-Discovery.
+            let identity = Keypair::generate_ed25519();
+            let peer = Keypair::generate_ed25519().public().to_peer_id();
+            let addr: Multiaddr = "/ip4/192.168.1.42/tcp/4242".parse().expect("multiaddr");
+            let mut loop_ = event_loop(identity.clone(), config(identity, vec![peer]));
+
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            loop_.handle_event(established_event(peer, addr.clone()));
+            loop_.fail_pending_connect(
+                None,
+                Some(peer),
+                ConnectError::HandshakeFailed {
+                    reason: "test failure".into(),
+                },
+            );
+            assert!(
+                loop_.pending_connect.is_none(),
+                "failed candidate is not re-dialed by the drain (attempted)"
+            );
+
+            // Re-emission resets the attempted flag: the drain dials again.
+            loop_.handle_event(discovered_event(peer, addr.clone()));
+            let pending = loop_.pending_connect.as_ref().expect("re-dialed");
+            assert!(pending.autodial);
+            assert_eq!(pending.addr, addr);
+        }
     }
 }

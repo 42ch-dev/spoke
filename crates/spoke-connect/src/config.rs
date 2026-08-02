@@ -33,6 +33,21 @@ pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub type InvokeHandler =
     dyn Fn(&str, serde_json::Value) -> Result<serde_json::Value, ErrorEnvelope> + Send + Sync;
 
+/// Capability-token proof supplier for challenge responses.
+///
+/// Called with the **audience** peer id (the challenger's `peer_id`, which
+/// becomes the token's `aud`) and returns the wire `proof` object (`{ v,
+/// claims, sig }` — see `core::capability_token`). The returned proof must
+/// be issued by a trusted issuer with `sub` = this node's `peer_id`.
+///
+/// Execution contract: like [`InvokeHandler`], the provider runs
+/// **synchronously on the node's network event loop** — it must return
+/// promptly and must not block on I/O (every handshake, invoke response,
+/// and timeout sweep on the node stalls behind it).
+/// (simplify: spike answers challenges from a supplier hook; products may
+/// hold a token cache or mint on demand.)
+pub type CapabilityTokenProvider = dyn Fn(&str) -> Result<serde_json::Value, String> + Send + Sync;
+
 /// Node configuration.
 ///
 /// All fields are public; [`crate::SpokeConnectNode::start`] validates the
@@ -70,12 +85,39 @@ pub struct ConnectConfig {
     /// capability is configured here AND that capability is part of the
     /// session's `negotiated_capabilities` (normative §Op dispatch gate).
     pub op_capability_requirements: HashMap<String, String>,
+
+    /// Trusted capability-token issuers: `peer_id` strings whose signed
+    /// tokens this node accepts (parallel to `peer_allowlist`). **Empty ⇒
+    /// the capability-token method is disabled**: challenges are not
+    /// offered and any presented proof is rejected (fail closed).
+    pub trusted_issuers: Vec<String>,
+
+    /// Whether every session must complete the capability-token challenge
+    /// before invokes are accepted (normative §Challenge / response and
+    /// invoke `auth`). Effective only with a non-empty `trusted_issuers`;
+    /// default `false` keeps the `noise-peerid`-only behavior.
+    pub require_capability_token: bool,
+
+    /// Supplies the capability-token proof this node presents when a peer
+    /// challenges it. `None` ⇒ the node cannot answer challenges: sessions
+    /// it dials stay unauthorized for invokes when the peer's policy
+    /// requires a token.
+    pub capability_token_provider: Option<Arc<CapabilityTokenProvider>>,
+
+    /// Whether mDNS-discovered peers are dialed automatically (builds with
+    /// the `mdns` feature only). Default `true` — same-LAN dev convenience.
+    /// Discovery never grants trust: only allowlisted discoveries are
+    /// dialed, and the dial passes the same `ConnectionEstablished`
+    /// allowlist gate as an explicit `connect(addr)`.
+    #[cfg(feature = "mdns")]
+    pub mdns_autodial: bool,
 }
 
 impl fmt::Debug for ConnectConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The handler closure is not Debug; render it as an opaque marker.
-        f.debug_struct("ConnectConfig")
+        let mut builder = f.debug_struct("ConnectConfig");
+        builder
             .field("identity", &self.identity)
             .field("peer_allowlist", &self.peer_allowlist)
             .field("listen_addrs", &self.listen_addrs)
@@ -86,7 +128,12 @@ impl fmt::Debug for ConnectConfig {
                 "op_capability_requirements",
                 &self.op_capability_requirements,
             )
-            .finish()
+            .field("trusted_issuers", &self.trusted_issuers)
+            .field("require_capability_token", &self.require_capability_token)
+            .field("capability_token_provider", &"<provider>");
+        #[cfg(feature = "mdns")]
+        builder.field("mdns_autodial", &self.mdns_autodial);
+        builder.finish()
     }
 }
 
@@ -100,6 +147,11 @@ impl Clone for ConnectConfig {
             handshake_timeout: self.handshake_timeout,
             invoke_handler: self.invoke_handler.clone(),
             op_capability_requirements: self.op_capability_requirements.clone(),
+            trusted_issuers: self.trusted_issuers.clone(),
+            require_capability_token: self.require_capability_token,
+            capability_token_provider: self.capability_token_provider.clone(),
+            #[cfg(feature = "mdns")]
+            mdns_autodial: self.mdns_autodial,
         }
     }
 }
@@ -109,6 +161,16 @@ impl ConnectConfig {
     #[must_use]
     pub fn effective_handshake_timeout(&self) -> Duration {
         self.handshake_timeout.unwrap_or(DEFAULT_HANDSHAKE_TIMEOUT)
+    }
+
+    /// Whether the capability-token challenge policy is active on this node:
+    /// non-empty `trusted_issuers` **and** `require_capability_token`. When
+    /// active, sessions must complete the challenge before invokes are
+    /// accepted (and the node challenges every new session). An empty
+    /// `trusted_issuers` disables the method regardless of the require flag.
+    #[must_use]
+    pub fn token_policy_active(&self) -> bool {
+        self.require_capability_token && !self.trusted_issuers.is_empty()
     }
 
     /// Validate the configuration.
@@ -152,6 +214,11 @@ mod tests {
             handshake_timeout: None,
             invoke_handler: None,
             op_capability_requirements: HashMap::new(),
+            trusted_issuers: Vec::new(),
+            require_capability_token: false,
+            capability_token_provider: None,
+            #[cfg(feature = "mdns")]
+            mdns_autodial: true,
         }
     }
 
@@ -177,5 +244,29 @@ mod tests {
         let mut cfg = config();
         cfg.handshake_timeout = Some(Duration::from_secs(30));
         assert_eq!(cfg.effective_handshake_timeout(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn token_policy_is_disabled_by_default() {
+        // Defaults (empty trusted_issuers, require false) keep the
+        // noise-peerid-only behavior: no challenge policy.
+        assert!(!config().token_policy_active());
+    }
+
+    #[test]
+    fn token_policy_requires_both_trusted_issuers_and_require_flag() {
+        let mut cfg = config();
+        // trusted_issuers alone does not activate the policy (no automatic
+        // challenge; tokens are still validated when `auth` is attached).
+        cfg.trusted_issuers = vec!["issuer-a".into()];
+        assert!(!cfg.token_policy_active());
+        // require flag alone does not activate it either (empty issuer list
+        // means the method is disabled and proofs are rejected).
+        cfg.trusted_issuers.clear();
+        cfg.require_capability_token = true;
+        assert!(!cfg.token_policy_active());
+        // Both together activate the challenge policy.
+        cfg.trusted_issuers = vec!["issuer-a".into()];
+        assert!(cfg.token_policy_active());
     }
 }

@@ -122,6 +122,10 @@ Established cross-process invocation context: `session_id`, `initiator_peer_id` 
 
 Opaque network peer identity string on connect envelopes — the **trust root** for `noise-peerid` authorization (deployment-configured allowlist). Distinct from `host_id` (advisory application-host label inside the embedded `HostCapabilityManifest`): receivers authorize on `peer_id` + signature, then consume `host` for roles/capabilities. For protocol_version 1, wire `peer_id` is the libp2p identity-spec PeerId string for Ed25519 (identity multihash of protobuf `PublicKey`, base58btc).
 
+### capability token (connect)
+
+Short-lived, capability-scoped grant proof carried as the opaque `proof` on `ConnectAuthResponse` / `ConnectInvokeRequest.auth`: a trusted issuer signs `{iss, sub, aud, capabilities, exp}` over RFC 8785 JCS with Ed25519, and the verifying node accepts only when the signature verifies, `iss` is in its configured `trusted_issuers`, subject / audience bind, and expiry holds — offline validation with no revocation list in protocol version 1.
+
 ---
 
 ## Core `entry_type` vocabulary (documented, not enforced)

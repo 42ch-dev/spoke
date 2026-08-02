@@ -18,6 +18,8 @@ use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
 /// Identity variants keep their meaning; `InvalidNonce` (a signing-time
 /// caller error) maps to `Config`, and `Crypto` / `Jcs` (cryptographic or
 /// canonicalization failures on the wire path) map to `Transport`.
+/// `TokenInvalid` maps to `AuthFailed` — on the wire it becomes an
+/// `auth_failed` error envelope (see `crate::node`).
 pub(crate) fn map_core_error(err: CoreError) -> ConnectError {
     match err {
         CoreError::InvalidHelloSignature => ConnectError::InvalidHelloSignature,
@@ -26,6 +28,7 @@ pub(crate) fn map_core_error(err: CoreError) -> ConnectError {
         CoreError::InvalidNonce(reason) => ConnectError::Config(reason),
         CoreError::Crypto(reason) => ConnectError::Transport(reason),
         CoreError::Jcs(reason) => ConnectError::Transport(reason),
+        CoreError::TokenInvalid(reason) => ConnectError::AuthFailed(reason),
     }
 }
 
@@ -71,6 +74,12 @@ pub enum ConnectError {
     /// Invalid [`crate::ConnectConfig`].
     #[error("invalid config: {0}")]
     Config(String),
+
+    /// A capability-token proof failed validation. On the wire this becomes
+    /// an `auth_failed` error envelope (open vocabulary string — no schema
+    /// change); the session remains unauthorized for invokes.
+    #[error("capability token invalid: {0}")]
+    AuthFailed(String),
 
     /// An asynchronous operation did not complete within its deadline.
     #[error("timed out waiting for {0}")]

@@ -6,8 +6,10 @@
 //! authenticated transport + **yamux** multiplexing + **request-response**
 //! for the signed hello exchange and op invocation + **identify** for peer
 //! metadata. Discovery is **explicit peering**: nodes are configured with
-//! static listen addresses and dial each other directly; LAN discovery is a
-//! future discovery iteration.
+//! static listen addresses and dial each other directly. The non-default
+//! `mdns` cargo feature adds same-LAN peer discovery (libp2p mDNS behaviour)
+//! as a local-development convenience — discovered peers still pass the
+//! allowlist + signed-hello gates.
 //!
 //! The crate is a workspace-private library (`publish = false`) with a
 //! library-only target; embedders integrate it as a Cargo path dependency.
@@ -68,15 +70,40 @@
 //! gate modules, protocol constants, the transport `HelloAck`, and session
 //! plumbing — are crate-private.
 //!
+//! # Capability-token auth
+//!
+//! The `capability-token` method (normative, `.mstar/specs/spoke-connect.md`
+//! §Method — capability-token) is a step-up / delegated capability grant on
+//! top of the `noise-peerid` hello identity: a trusted issuer signs a short
+//! claim set (`iss`/`sub`/`aud`/`capabilities`/`exp`, optional `iat`/`jti`)
+//! over RFC 8785 JCS with Ed25519; the proof rides the
+//! `ConnectAuthChallenge`/`ConnectAuthResponse` exchange and optionally the
+//! `ConnectInvokeRequest.auth` blob. Configure [`ConnectConfig`] with
+//! `trusted_issuers` (empty ⇒ method disabled) and
+//! `require_capability_token` (challenge every session); a node answers
+//! challenges through [`ConnectConfig::capability_token_provider`].
+//! [`PeerSession::invoke_with_auth`] attaches a per-invoke proof;
+//! [`PeerSession::capability_token_ok`] reports the challenge state.
+//!
 //! # Pure session core
 //!
 //! [`core`] holds the pure, language-portable session rules (peer id
 //! derivation, hello sign/verify over raw Ed25519 keys, nonce store,
-//! allowlist, sequence counters, correlation, dispatch gate). It has no
-//! libp2p or tokio dependencies; the transport converts `libp2p::PeerId` ↔
-//! `String` at the boundary and delegates to it.
+//! allowlist, sequence counters, correlation, dispatch gate, capability
+//! token issue/verify). It has no libp2p or tokio dependencies; the
+//! transport converts `libp2p::PeerId` ↔ `String` at the boundary and
+//! delegates to it.
 
 pub mod core;
+
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
+// uniffi scaffolding for the `ffi` feature: registers the crate's metadata
+// and buffer support so `uniffi-bindgen generate --library` can read the
+// exported surface from the cdylib. Compiled only when `--features ffi`.
+#[cfg(feature = "ffi")]
+uniffi::setup_scaffolding!();
 
 mod config;
 mod error;
@@ -87,7 +114,9 @@ mod protocol;
 mod runtime;
 mod session;
 
-pub use config::{ConnectConfig, InvokeHandler, DEFAULT_HANDSHAKE_TIMEOUT};
+pub use config::{
+    CapabilityTokenProvider, ConnectConfig, InvokeHandler, DEFAULT_HANDSHAKE_TIMEOUT,
+};
 pub use error::{ConnectError, InvokeError};
 pub use node::{parse_multiaddr, SpokeConnectNode};
 pub use runtime::InvokeSuccess;

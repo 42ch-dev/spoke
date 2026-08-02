@@ -70,6 +70,16 @@ impl PeerSession {
         &self.inner.negotiated_capabilities
     }
 
+    /// Whether this session completed the capability-token challenge with a
+    /// valid token (normative `capability_token_ok`). `false` while the
+    /// challenge is pending or was rejected — invokes on a session whose
+    /// peer requires a token are then rejected with an `auth_failed` wire
+    /// envelope until a valid token is presented.
+    #[must_use]
+    pub fn capability_token_ok(&self) -> bool {
+        self.inner.token_ok()
+    }
+
     /// The next sequence that will be assigned on the following `invoke`
     /// (starts at 0).
     #[must_use]
@@ -96,12 +106,30 @@ impl PeerSession {
         op: impl Into<String>,
         payload: serde_json::Value,
     ) -> Result<InvokeSuccess, InvokeError> {
+        self.invoke_with_auth(op, payload, None).await
+    }
+
+    /// Send a `ConnectInvokeRequest` with an optional capability-token
+    /// `auth` proof (the `{ v, claims, sig }` object) and wait for the
+    /// correlated response.
+    ///
+    /// When `auth` is present the receiver validates the proof on **every**
+    /// invoke (normative §Challenge / response and invoke `auth`); when the
+    /// session already completed the capability-token challenge, `None`
+    /// suffices. Same correlation and error semantics as
+    /// [`PeerSession::invoke`].
+    pub async fn invoke_with_auth(
+        &self,
+        op: impl Into<String>,
+        payload: serde_json::Value,
+        auth: Option<serde_json::Value>,
+    ) -> Result<InvokeSuccess, InvokeError> {
         let op = op.into();
         let sequence = self.inner.allocate_sequence()?;
         let request_id =
             generate_request_id().map_err(|e| InvokeError::Transport(e.to_string()))?;
         let request = ConnectInvokeRequest {
-            auth: None,
+            auth,
             extensions: HashMap::new(),
             op: op.parse().map_err(
                 |e: spoke_schemas::connect::connect_invoke_request::error::ConversionError| {

@@ -37,12 +37,17 @@ on:
 permissions:
   contents: read
 
-# Latest-wins concurrency across the whole workflow: a newer run cancels any
-# older in-flight run, so a stale main build can never deploy after a fresh
-# one. This differs from the official Pages starter's `cancel-in-progress:
-# false` — we prefer the newest content on every push to main.
+# Latest-wins per ref: a newer run on the same ref (a main push, or a single
+# PR branch) cancels the older in-flight run for that ref, so a stale main
+# build can never deploy after a fresh one. The group is ref-scoped
+# (`docs-${{ github.ref }}`) so PR runs never share a group with main runs —
+# a docs PR push can never cancel an in-flight main build or deploy. Deploy
+# contention stays main-only through the deploy job's own `pages` group below
+# (AD-P2-4). This differs from the official Pages starter's
+# `cancel-in-progress: false` — we prefer the newest content on every push to
+# main.
 concurrency:
-  group: pages
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -90,6 +95,13 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    # Main-only deploy serialization (AD-P2-4): this job only runs on
+    # refs/heads/main, so the `pages` group only ever holds main deploys — a
+    # newer main deploy cancels an in-flight one (latest main wins), while PR
+    # runs (ref-scoped group above) never touch it.
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

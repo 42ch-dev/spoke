@@ -114,8 +114,8 @@ Package: `packages/spoke-connect-ts` (`@42ch/spoke-connect-ts`).
 | | } |
 | | ``` |
 | | Stage 1 first npm publish **should** emit `dist/` (tsc or tsup) and point `exports` at JS + `.d.ts`. Src-only npm is acceptable only as an explicit interim; **default recommendation = add build before first publish**. |
-| `files` | Prep: `["src", "README.md", "LICENSE"]` (exclude `tests/`, `vitest.config.*`, tsbuildinfo). Stage 1 with build: `["dist", "README.md"]` (plus license as configured) |
-| Metadata | `repository` `{ type, url: git+https://github.com/42ch-dev/spoke.git, directory: packages/spoke-connect-ts }`; `homepage` (docs site URL once live, else repo URL); keep `keywords`, `description`, `engines.node` (≥20.19.0) |
+| `files` | Prep (realized): `["src", "README.md"]` — SPDX `license` field only, mirroring published siblings (authoritative text at repo-root `LICENSE`); no package-level LICENSE file. Tarball LICENSE copy is a **Stage 1 execution option** (npm `files` does not auto-include a root LICENSE; add a copy/prepare step alongside the build if a tarball LICENSE is wanted). Stage 1 with build: `["dist", "README.md"]` |
+| Metadata | `repository` `{ type, url: git+https://github.com/42ch-dev/spoke.git, directory: packages/spoke-connect-ts }`; `homepage` = **repo URL slot** today (`https://github.com/42ch-dev/spoke`) — docs-site URL not yet known; switch to the docs-site URL when the site lands; keep `keywords`, `description`, `engines.node` (≥20.19.0) |
 | `publishConfig` | `{ "access": "public" }` present or documented while `private: true` (inert until Stage 1). Provenance: npm Trusted Publishing OIDC via `release.yml` |
 | Dependencies at publish | `@42ch/spoke-schemas` resolves on npm at the **same lockstep version** (`workspace:*` rewritten on pack). `ws` remains a dependency of the `./node` subpath only — browser consumers import `"."` only |
 | README | Short **Publish guidance**: private until Stage 1; subpath map; peer/lockstep expectation on `@42ch/spoke-schemas` |
@@ -143,10 +143,10 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 | Item | Value |
 |------|--------|
 | **Conclusion** | **Defer implementation** — keep **WebSocket** as the default Path A transport for `@42ch/spoke-connect-ts` |
-| **Evidence** | *pending T3 evidence* (browser availability matrix; ordered bidirectional streams vs WebSocket message framing; fit to connect “one JSON envelope per message”; Node support maturity) |
-| **Recommend** | *pending T3 evidence* — structure locked: recommend WebSocket default; WT as future framing option under transport-adapter ownership |
+| **Evidence** | **Browser availability (2026-08):** WebTransport is **Baseline "newly available" since March 2026** (MDN compat) — Chrome 97+ / Edge 97+ (2022-01), Firefox 114+ (2023-06), Safari 26.4+ (2026-03; Safari ≤ 26.3 unsupported). **Secure context (HTTPS) required**; available in Web Workers; sub-features (e.g. `congestionControl`, datagrams) still vary by browser. **Framing fit:** the connect contract is **one JSON document = one envelope** over an **ordered, reliable, bidirectional stream**, with WebSocket one-message-per-envelope listed as conforming ([`spoke-connect.md`](spoke-connect.md) §Transport framing). WebSocket message semantics map 1:1 onto that contract; WebTransport's reliable surface is byte-stream oriented (`WebTransportBidirectionalStream` = `ReadableStream` + `WritableStream`, no preserved message boundaries) and its datagram side is unreliable — envelope delimiting would have to be re-imposed in the adapter. **Node.js maturity:** the undici `WebTransport` client ships behind `--experimental-webtransport` (experimental, Stability 1); native `node:quic` (Stability 1, `--experimental-quic`, not yet in a stable release) does **not** implement WebTransport yet (jasnell.me, 2026) |
+| **Recommend** | Keep **WebSocket** as the default Path A transport; WebTransport remains a **future framing option** under transport-adapter ownership (delimiting is transport-adapter-owned per [`spoke-connect.md`](spoke-connect.md) §Transport framing) |
 | **Defer** | Implementation this/next slice unless a product host **requires** WebTransport |
-| **Trigger to implement** | Product request + CI-able browser test plan |
+| **Trigger to implement** | Product host requires WebTransport (HTTP/3) transport, plus a CI-able browser test plan. Browser baseline availability (reached 2026-03) does **not** alone flip the decision: Node-side WebTransport remains experimental (flag-gated only), the reference spike has no WebTransport transport, and the one-envelope-per-message contract maps 1:1 onto WebSocket with no adapter-level framing work |
 | **Docs** | Docs may mention WebTransport as a future framing option; transport-adapter ownership stays per [`spoke-connect.md`](spoke-connect.md) / [`spoke-connect-ts-route.md`](spoke-connect-ts-route.md) |
 
 ---
@@ -156,8 +156,8 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 | Item | Value |
 |------|--------|
 | **Conclusion** | **Remain fallback route only** — does not overturn pure-TS-minimal primary ([`spoke-connect-ts-route.md`](spoke-connect-ts-route.md)) |
-| **Evidence** | *pending T3 evidence* (when Noise/yamux mesh with `crates/spoke-connect` is required; dependency weight; session-core still owns JCS hello) |
-| **Recommend** | *pending T3 evidence* — structure locked: do **not** add `js-libp2p` to `@42ch/spoke-connect-ts` default dependencies |
+| **Evidence** | **When mesh interop matters:** only for **direct libp2p-network participation** — a product host that must dial/listen on the same Noise/yamux mesh as the Rust reference spike (`crates/spoke-connect`). Envelope-level interop — the v1 goal — requires only the same hello / `peer_id` / session rules over **any ordered stream** (WebSocket today); Noise multistream is not required for it ([`spoke-connect-ts-route.md`](spoke-connect-ts-route.md) evaluation criterion 10). **Dependency weight:** js-libp2p is a deep `@libp2p/*` monorepo tree — large supply-chain and bundle surface (criterion 7), inverse of the thin `@42ch/*` helper pattern; Noise/multistream interop with rust-libp2p 0.56 additionally needs version pinning and periodic re-verify (criterion 8). Current package reality: `@42ch/spoke-connect-ts` dependencies are `@42ch/spoke-schemas`, `@noble/ed25519`, `@noble/hashes`, `canonicalize`, `ws` — no libp2p deps. **Session-core ownership:** js-libp2p does **not** replace the TS session-core port — sequence, nonce, allowlist, `request_id` correlation, and the dispatch gate remain SDK-owned (criterion 6); the SPOKE hello is JCS-signed, not a libp2p native hello (criterion 4) |
+| **Recommend** | Do **not** add `js-libp2p` to `@42ch/spoke-connect-ts` default dependencies; keep the pure-TS-minimal primary intact |
 | **Defer** | Shipping a mesh helper inside the default package |
 | **Trigger to ship a mesh helper** | Product requires shared libp2p network with the Rust spike; then prefer an **optional companion package or consumer-repo adapter**, not a forced default export |
 | **Primary route** | pure-TS-minimal (WebSocket + WebCrypto/`@noble` Ed25519 + JCS + ported session core) remains locked |
@@ -181,7 +181,7 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 
 | Slice | What ships | Trigger | Owner |
 |-------|------------|---------|-------|
-| **connect publish execution (Stage 1)** | First registry publish of `@42ch/spoke-connect-ts` + docs site live; extend `release.yml` publish-npm list + Trusted Publishing; keep `spoke-connect` crate and bindings unpublished unless Stage 2 revises | Decision record accepted on main + published-shape checklist complete + golden/suite green on main + maintainer release cut | Release maintainer / next delivery slice |
+| **connect publish execution (Stage 1)** | First registry publish of `@42ch/spoke-connect-ts` + docs site live; extend `release.yml` publish-npm list + Trusted Publishing; **amend the root `AGENTS.md` connect boundary line** ("no published connect package" → `@42ch/spoke-connect-ts` is the published TS client; `crates/spoke-connect` and bindings stay unpublished) **as part of the Stage 1 change**; keep `spoke-connect` crate and bindings unpublished unless Stage 2 revises | Decision record accepted on main + published-shape checklist complete + golden/suite green on main + maintainer release cut | Release maintainer / next delivery slice |
 
 Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next**.
 

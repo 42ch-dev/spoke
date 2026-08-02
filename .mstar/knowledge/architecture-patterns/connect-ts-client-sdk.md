@@ -59,6 +59,8 @@ The `src/core/` barrel mirrors the Rust core's `pub use` block function-for-func
 | `NonceStore` (+ `generate_nonce`) | `NonceStore` (+ `generateNonce`) — per-sender `(peer_id, nonce)` |
 | `is_allowlisted` | `isAllowlisted` — empty allowlist rejects all |
 | `sign_hello_ed25519` / `verify_hello_ed25519` | `signHelloEd25519` / `verifyHelloEd25519` |
+| `issue_capability_token` / `verify_capability_token` (+ `CapabilityClaims` / `CapabilityTokenProof` / `TOKEN_VERSION` / `CLOCK_SKEW_SECONDS`) | `issueCapabilityToken` / `verifyCapabilityToken` (+ same types / constants) — async on TS (WebCrypto / `@noble`), same bytes; fail-closed proof-shape guard before crypto |
+| `token_authorizes_op` | `tokenAuthorizesOp` — membership / subset-of-grant against token grants |
 | (session helper) | `Session` / `negotiatedCapabilities` |
 
 ### connectClient flow

@@ -33,6 +33,7 @@ export {
   CAPABILITY_SPOKE_BASELINE,
   dispatchAllowed,
   requiredCapability,
+  tokenAuthorizesOp,
 } from "./dispatch.js";
 export { generateNonce, NonceStore } from "./nonce.js";
 export { isAllowlisted } from "./allowlist.js";

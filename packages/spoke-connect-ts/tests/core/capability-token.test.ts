@@ -342,6 +342,62 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
   });
 });
 
+describe("verifyCapabilityToken proof-shape guard (fail closed before crypto)", () => {
+  it("rejects missing or malformed proof fields with CoreError token_invalid", async () => {
+    const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
+
+    // Runtime-shape violations a wire-parsed OpaqueJson can carry. Each must
+    // fail with the CoreError `token_invalid` code — never a TypeError from
+    // a downstream library (e.g. spreading a missing `capabilities`).
+    const malformed: Array<[string, unknown]> = [
+      ["proof is null", null],
+      ["missing v", { ...proof, v: undefined }],
+      ["missing sig", { ...proof, sig: undefined }],
+      ["missing claims", { ...proof, claims: undefined }],
+      ["claims is not an object", { ...proof, claims: "not-an-object" }],
+      ["claims missing iss", { ...proof, claims: { ...proof.claims, iss: undefined } }],
+      ["claims missing sub", { ...proof, claims: { ...proof.claims, sub: undefined } }],
+      ["claims missing aud", { ...proof, claims: { ...proof.claims, aud: undefined } }],
+      [
+        "claims missing capabilities",
+        { ...proof, claims: { ...proof.claims, capabilities: undefined } },
+      ],
+      [
+        "capabilities not an array",
+        { ...proof, claims: { ...proof.claims, capabilities: "spoke-baseline" } },
+      ],
+      [
+        "capabilities contains a non-string",
+        { ...proof, claims: { ...proof.claims, capabilities: ["spoke-baseline", 42] } },
+      ],
+      ["claims missing exp", { ...proof, claims: { ...proof.claims, exp: undefined } }],
+      ["exp is a string", { ...proof, claims: { ...proof.claims, exp: "123" } }],
+      ["iat is a string", { ...proof, claims: { ...proof.claims, iat: "999" } }],
+      ["unknown claim key", { ...proof, claims: { ...proof.claims, extra_claim: "sneaky" } }],
+      ["unknown wrapper key", { ...proof, extra_wrapper: true }],
+    ];
+
+    for (const [label, value] of malformed) {
+      await expect(
+        verifyCapabilityToken(
+          value as CapabilityTokenProof,
+          trustedIssuers,
+          peers[1],
+          peers[0],
+          NOW,
+        ),
+      ).rejects.toThrowError(tokenInvalid);
+    }
+  });
+
+  it("still accepts a well-formed proof (the guard does not over-reject)", async () => {
+    const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
+    await expect(
+      verifyCapabilityToken(proof, trustedIssuers, peers[1], peers[0], NOW),
+    ).resolves.toEqual(["spoke-baseline"]);
+  });
+});
+
 describe("ed25519PubkeyFromPeerId (port of peer_id.rs reverse)", () => {
   it("decodes the golden peer id back to the golden public key", () => {
     expect(ed25519PubkeyFromPeerId(GOLDEN_PEER_ID)).toEqual(GOLDEN_PUBKEY);

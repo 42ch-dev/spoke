@@ -119,10 +119,84 @@ export async function issueCapabilityToken(
 }
 
 /**
+ * Fail-closed runtime shape guard for wire-parsed proofs.
+ *
+ * The TS public types do not enforce shapes at runtime, so a proof parsed
+ * from the wire (`JSON.parse` of an OpaqueJson) can violate the
+ * `CapabilityTokenProof` shape. This guard rejects any missing / malformed /
+ * unknown field with `CoreError("token_invalid")` **before** the version
+ * check and any crypto runs — a downstream TypeError (e.g. spreading a
+ * missing `capabilities`) must never escape as a non-CoreError. Mirrors the
+ * Rust `serde(deny_unknown_fields)` deserialization, which rejects
+ * malformed proofs before `verify_capability_token` runs.
+ */
+function assertProofShape(value: unknown): asserts value is CapabilityTokenProof {
+  const malformed = (what: string): never => {
+    throw new CoreError("token_invalid", `proof is malformed: ${what}`);
+  };
+  if (typeof value !== "object" || value === null) {
+    malformed("proof must be an object with v, claims, sig");
+  }
+  const proof = value as Record<string, unknown>;
+  const wrapperKeys = Object.keys(proof);
+  for (const key of wrapperKeys) {
+    if (!["v", "claims", "sig"].includes(key)) {
+      malformed(`unknown wrapper key: ${key}`);
+    }
+  }
+  if (typeof proof.v !== "number") {
+    malformed("v must be a number");
+  }
+  if (typeof proof.sig !== "string") {
+    malformed("sig must be a string");
+  }
+  const claims = proof.claims;
+  if (typeof claims !== "object" || claims === null) {
+    malformed("claims must be an object");
+  }
+  const c = claims as Record<string, unknown>;
+  const claimKeys = Object.keys(c);
+  for (const key of claimKeys) {
+    if (!["iss", "sub", "aud", "capabilities", "exp", "iat", "jti"].includes(key)) {
+      malformed(`unknown claim key: ${key}`);
+    }
+  }
+  if (typeof c.iss !== "string") {
+    malformed("claims.iss must be a string");
+  }
+  if (typeof c.sub !== "string") {
+    malformed("claims.sub must be a string");
+  }
+  if (typeof c.aud !== "string") {
+    malformed("claims.aud must be a string");
+  }
+  if (
+    !Array.isArray(c.capabilities) ||
+    !c.capabilities.every((item) => typeof item === "string")
+  ) {
+    malformed("claims.capabilities must be a string array");
+  }
+  if (typeof c.exp !== "number") {
+    malformed("claims.exp must be a number");
+  }
+  if (c.iat !== undefined && typeof c.iat !== "number") {
+    malformed("claims.iat must be a number when present");
+  }
+  if (c.jti !== undefined && typeof c.jti !== "string") {
+    malformed("claims.jti must be a string when present");
+  }
+}
+
+/**
  * Validate a capability-token proof against this node's trust configuration
  * and the authenticated session peer.
  *
  * Checks, in order (normative §Trust root and validation rules):
+ * 0. **Shape guard** — the proof must be `{v, claims, sig}` with the
+ *    normative claim set (`iss`, `sub`, `aud`, `capabilities`, `exp`,
+ *    optional `iat` / `jti`); missing / malformed / unknown fields reject
+ *    with `CoreError("token_invalid")` before any crypto or trust check
+ *    (mirrors Rust `serde(deny_unknown_fields)` deserialization).
  * 1. `v` is the current token version.
  * 2. The signature verifies over JCS(`claims`) with the public key that
  *    derives `claims.iss` (recovered from the issuer peer id).
@@ -136,11 +210,9 @@ export async function issueCapabilityToken(
  *    window ahead of `now`.
  * 8. `jti`, when present, must be non-empty.
  *
- * Unknown claims / wrapper keys and malformed shapes are rejected before
- * this function runs (the caller deserializes the opaque proof with a
- * fail-closed shape check). Returns the validated grant
- * (`claims.capabilities`) for the dispatch gate — the token does **not**
- * replace the session's `negotiated_capabilities`.
+ * Returns the validated grant (`claims.capabilities`) for the dispatch
+ * gate — the token does **not** replace the session's
+ * `negotiated_capabilities`.
  */
 export async function verifyCapabilityToken(
   proof: CapabilityTokenProof,
@@ -149,6 +221,7 @@ export async function verifyCapabilityToken(
   sessionPeerId: string,
   now: number,
 ): Promise<string[]> {
+  assertProofShape(proof);
   if (proof.v !== TOKEN_VERSION) {
     throw new CoreError(
       "token_invalid",

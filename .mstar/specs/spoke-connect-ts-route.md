@@ -4,7 +4,7 @@
 
 **Normative wire / identity / framing:** [spoke-connect.md](spoke-connect.md) §Identity binding, §Signature canonicalization, §Transport framing, §Embedding model. This document chooses a **client stack route** for browser and Node integrators; it does not fork identity rules or add schemas.
 
-**Updated:** 2026-08-01
+**Updated:** 2026-08-02
 
 ---
 
@@ -113,14 +113,16 @@ RESULT: ALL CHECKS PASSED
 
 ## TypeScript connect first-slice scope
 
-**Shipped slice:** `packages/spoke-connect-ts` — a workspace-private, product-facing TS helper, not a published connect daemon. Capability-token remains the pending parity item (see item 1 and item 6); the rest of items 1–5 is implemented.
+**Shipped slice:** `packages/spoke-connect-ts` — a workspace-private, product-facing TS helper, not a published connect daemon. Items 1–5 below are implemented; item 6 lists the later scope.
 
-1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers first (`derivePeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, base64url). No swarm, no mDNS/DHT. `capability-token` is normative; the TS SDK slice does not implement it yet.
+**Session-core parity:** the TS session core (`packages/spoke-connect-ts/src/core/`, plus `src/identity.ts` for `peer_id`) maintains capability parity with the Rust reference (`crates/spoke-connect/src/core/`) across allowlist, `peer_id` (derive and reverse), hello crypto, nonce, correlation, sequence, capability-token auth, and the dispatch gate / product-op capability map (including `tokenAuthorizesOp`), proven by shared golden vectors and round-trip parity tests. Transport (WebSocket for TS, libp2p for Rust) is adapter-owned and outside the parity surface.
+
+1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers (`derivePeerId`, `ed25519PubkeyFromPeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, `issueCapabilityToken` / `verifyCapabilityToken`, base64url). No swarm, no mDNS/DHT.
 2. **Transport adapter:** WebSocket client that sends/receives one JSON document per message; map to hello → session establish → invoke request/response correlation via existing wire fields only.
 3. **Session-core port (minimal):** protocol version check, allowlist on `peer_id`, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate — mirror [spoke-connect.md](spoke-connect.md) session-core rules; keep I/O at the adapter boundary.
 4. **Crypto matrix:** WebCrypto Ed25519 primary; `@noble/ed25519` fallback for older runtimes; keep the identity proof (or promote its vectors) as a regression check.
 5. **Interop target:** envelope-level parity with Rust peers over WS (or a test double stream). Noise/js-libp2p mesh is an optional second track, not a blocker for slice 1.
-6. **Out of first slice:** published npm connect package, CI-enforced identity gate (optional later), DHT discovery, capability-token auth (normative; not yet implemented by the TS SDK slice), full Noise stack in pure TS.
+6. **Later scope (after the shipped slice):** published npm connect package, CI-enforced identity gate (optional), DHT discovery, full Noise stack in pure TS.
 
 ---
 

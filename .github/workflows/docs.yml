@@ -14,7 +14,9 @@ name: Docs site
 # to "Deploy from a branch" — record that decision here and in the plan notes
 # before switching.
 #
-# All actions are pinned to immutable commit SHAs (repo CI convention).
+# All actions in this workflow are pinned to immutable commit SHAs — stricter
+# than the repo's other workflows (ci.yml / release.yml mix mutable tags and
+# SHAs); keep it that way for the production-facing Pages deploy.
 
 on:
   pull_request:
@@ -35,10 +37,19 @@ on:
 permissions:
   contents: read
 
+# Latest-wins concurrency across the whole workflow: a newer run cancels any
+# older in-flight run, so a stale main build can never deploy after a fresh
+# one. This differs from the official Pages starter's `cancel-in-progress:
+# false` — we prefer the newest content on every push to main.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build docs site
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -71,9 +82,7 @@ jobs:
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    concurrency:
-      group: pages
-      cancel-in-progress: true
+    timeout-minutes: 10
     permissions:
       contents: read
       pages: write

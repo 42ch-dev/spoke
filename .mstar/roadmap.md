@@ -27,8 +27,8 @@
 
 | Slice | What ships | Notes |
 |-------|------------|-------|
-| **spoke-connect TS first slice (pure-TS-minimal)** | Thin Path A helpers: WebSocket ordered-stream framing + WebCrypto/`@noble` Ed25519 + RFC 8785 JCS hello + `peer_id` derivation + minimal session-core port; identity golden-vector check | Route locked in [spoke-connect-ts-route.md](specs/spoke-connect-ts-route.md); js-libp2p is the mesh fallback; WASM deferred; no published connect daemon |
-| **spoke-connect multi-language SDK** | uniffi real bindings (Swift-first sync core skeleton) + capability-token auth model + mDNS/DHT discovery | Facade boundary + target matrix recorded in crate README; async-FFI options (core-only vs core+async-node) documented |
+| **spoke-connect TS SDK deepening** | Continue the pure-TS-minimal path (first slice delivered): js-libp2p mesh fallback on demand, browser WebTransport evaluation, published-shape review | **Direction confirmed (2026-08-02): keep pure-TS + golden-vector parity discipline** — one Rust core contract, TS re-implementation locked byte-for-byte by golden vectors; WASM of the Rust core stays a contingency, revisited only if pure-TS crypto/JCS ever diverges from Rust |
+| **spoke-connect uniffi bindings (multi-language)** | Swift sync-core skeleton landed; next binding targets by product priority: **C#, Go, Python, Swift, Kotlin** (C# first) | Priority set by product direction (2026-08-02), supersedes the initial Swift-first matrix; C#/Go via community uniffi bindings; async-FFI options documented in crate README; DHT/NAT discovery remains future |
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
 
 ---

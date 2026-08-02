@@ -385,12 +385,15 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 ### Target-language matrix
 
+> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. Swift remains the first **landed** skeleton (shipped with a macOS smoke and golden parity); the order below governs future binding work.
+
 | Language | Embedding path | Priority | Rationale |
 |----------|----------------|----------|-----------|
-| **Swift (iOS / macOS)** | Path B uniffi | **First target** | Mature uniffi story; mobile clients that ship a native Rust dylib; validates the sync core on a platform with native Ed25519 support |
-| **Kotlin (Android)** | Path B uniffi | Second | Same uniffi pipeline as Swift after the core stabilizes |
-| C# | Path B uniffi | Later | Secondary desktop/server hosts |
-| Python | Path B uniffi | Later | Async FFI / asyncio historically finicky — only after the sync core is proven, preferring core-only first |
+| C# | Path B uniffi | **First target** | Desktop/server hosts; community `uniffi-bindgen-cs` (.NET) pipeline |
+| Go | Path B uniffi | Second | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
+| Python | Path B uniffi | Third | Async FFI / asyncio historically finicky — core-only first |
+| **Swift (iOS / macOS)** | Path B uniffi | Fourth — **landed skeleton** | Shipped first (macOS smoke, golden parity); mature uniffi story |
+| **Kotlin (Android)** | Path B uniffi | Fifth | Same uniffi pipeline as Swift |
 | TypeScript (browser / Node) | **Path A** (language-direct) | Parallel track | The TypeScript route decision lives with the TS identity proof |
 
 ### Binding checklist

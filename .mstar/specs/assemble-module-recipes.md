@@ -43,7 +43,7 @@ Category rule (normative triad ADR): shared functional dialects use `modules.*`.
 |------|----------|
 | Outer bag | Optional `modules` on `AssemblePacket` (capability-flagged `ModuleMap`) |
 | This handbook’s keys | `placement` → array; `activation_trace` → array |
-| Sibling dialects | `modules.activation` on KnowledgeEntry ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)); `modules.pack` ([`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md)) |
+| Sibling dialects | `modules.activation` on KnowledgeEntry ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)); Knowledge Pack catalog on **product envelope** ([`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md)) — Pack ≠ AssemblePacket |
 | Wire envelope | Shipped optional `modules`; capability flag `narrative-modules` |
 | Inner shapes | Handbook-defined (open bag — unknown module keys round-trip) |
 | Scope | **Packet-level lists** first; per-entry `AssembleEntry.modules` is backlog only if packet lists fail product needs |
@@ -303,7 +303,7 @@ An integrator can implement packet placement + activation-trace emit/consume fro
 |-----|-------|
 | [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / `modules.*` / `extensions.<product>` triad; capability-flagged envelope; round-trip |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | `modules.activation` field table; `position_hint` / `outlet`; constant ↔ Seed pointer |
-| [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md) | Knowledge Pack envelope; **primary** Seed vs Pool assemble pattern; `modules.pack` |
+| [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md) | Knowledge Pack atoms + product-envelope catalog; **primary** Seed vs Pool assemble pattern; Pack ≠ AssemblePacket |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Domain Profile principles; L8 AssemblePacket; `narrative-modules` |
 | [`spoke-data-model.md`](spoke-data-model.md) | AssemblePacket / AssembleEntry wire fields; ModuleMap |

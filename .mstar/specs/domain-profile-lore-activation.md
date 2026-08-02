@@ -192,7 +192,7 @@ An integrator can implement activation storage + pack mapping from this handbook
 | Doc | Topic |
 |-----|-------|
 | [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / `modules.*` / `extensions.<product>` triad; capability-flagged envelope |
-| `domain-profile-narrative-knowledge-pack.md` (companion handbook) | Knowledge Pack envelope; full Seed vs Pool assemble pattern; `modules.pack` |
+| `domain-profile-narrative-knowledge-pack.md` (companion handbook) | Knowledge Pack atoms + product-envelope catalog; full Seed vs Pool; Pack ≠ AssemblePacket |
 | [`assemble-module-recipes.md`](assemble-module-recipes.md) | Packet-level `modules.placement` + `modules.activation_trace` (where/why companions to per-entry activation) |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | Domain Profile principles; L8 AssemblePacket; `narrative-modules` |

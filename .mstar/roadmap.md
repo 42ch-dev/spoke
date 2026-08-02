@@ -14,6 +14,8 @@
 
 No active delivery slice on `main`. See **Up next** for planned work; durable contract facts live under **Done → Baseline inventory** and `.mstar/specs/`.
 
+**Durable decision (2026-08-02) — Knowledge Pack vs AssemblePacket; demote `modules.pack`:** A **Narrative Knowledge Pack** is a durable lore-library interchange pattern (full KnowledgeEntry + Relation atoms + product transport envelope). An **AssemblePacket** is an ephemeral `assemble` output (slim AI context projection). They share a vague “list of entries” shape but are **not** the same object and must not be merged. Pack catalog metadata (`title` / `version` / `creator`) is **product-envelope** — **not** `modules.*` on KnowledgeEntry or AssemblePacket. Keep `modules.activation` on KnowledgeEntry and `modules.placement` / `modules.activation_trace` on AssemblePacket. Handbook, triad ADR, CONCEPTS, docs, schemas descriptions, and companion fixture updated accordingly.
+
 ---
 
 ## Up next (planned)
@@ -35,6 +37,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-08-02 | Demote `modules.pack` (decision + SSOT) | **Pack ≠ AssemblePacket**; pack catalog → product transport envelope; remove `modules.pack` from ModuleMap examples (triad ADR, Knowledge Pack handbook, CONCEPTS, docs, schema descriptions, companion fixture); keep `modules.activation` on KE and assemble recipes on AssemblePacket |
 | 2026-08-02 | spoke-connect multi-language deepen & delivery prep | C# binding deferred (decision record); publish strategy locked (Stage 1 = npm `@42ch/spoke-connect-ts` + Pages docs); TS published-shape prep; **integrator docs site** (VitePress `docs/`, SSOT-linked pages, GitHub Pages deploy); knowledge `connect-publish-staging` + `integrator-docs-site-ssot-links` |
 | 2026-08-01 | spoke-connect multi-language SDK start | `@42ch/spoke-connect-ts` first slice (pure-TS-minimal + golden parity + WS interop); uniffi Swift sync-core skeleton; capability-token auth normative; mDNS same-LAN discovery (non-default `mdns` feature) |
 | 2026-08-01 | spoke-connect multi-language pre-design | Three-layer embedding contract; pure `crates/spoke-connect` session core + golden vectors; TS route + identity-byte parity proof |

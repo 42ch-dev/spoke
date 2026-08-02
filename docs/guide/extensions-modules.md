@@ -9,12 +9,12 @@ Every field an integrator adds to a SPOKE object belongs in one of three bags: *
 ## The triad
 
 - **Core fields** — protocol identity and closed body envelope (`entry_id`, `body.summary`, `schema_version`); every baseline host reads and writes them.
-- **`modules.*`** — optional, capability-flagged (`narrative-modules`) bag on KnowledgeEntry and AssemblePacket for cross-product functional dialects: `modules.activation` (lore activation), `modules.pack` (knowledge pack metadata), `modules.placement` / `modules.activation_trace` (assemble recipes). Inner shapes are handbook-defined; unknown module keys round-trip.
+- **`modules.*`** — optional, capability-flagged (`narrative-modules`) bag on KnowledgeEntry and AssemblePacket for cross-product functional dialects: `modules.activation` (lore activation on KE), `modules.placement` / `modules.activation_trace` (assemble recipes on AssemblePacket). Inner shapes are handbook-defined; unknown module keys round-trip. Knowledge Pack **catalog** metadata lives on the product transport envelope — not as `modules.pack` on KE.
 - **`extensions.<namespace>`** — required `ExtensionMap` on every durable data object; namespace keys are opaque product ids (`^[a-z][a-z0-9_-]*$`), values are opaque JSON. Adapters round-trip unknown namespaces and keys verbatim.
 
 ## Category rule
 
-A **cross-product functional dialect** uses `modules.*`; **product data** uses `extensions.<product>`. Shared functional keys published under `extensions.*` would collide with the product-id reading of the namespace and with `HostCapabilityManifest.namespaces[]` exclusivity — so activation, pack, placement, and activation_trace live in `modules.*`.
+A **cross-product functional dialect** uses `modules.*`; **product data** uses `extensions.<product>`. Shared functional keys published under `extensions.*` would collide with the product-id reading of the namespace and with `HostCapabilityManifest.namespaces[]` exclusivity — so activation, placement, and activation_trace live in `modules.*`. Pack catalog metadata stays on the product transport envelope.
 
 ## Host manifests
 

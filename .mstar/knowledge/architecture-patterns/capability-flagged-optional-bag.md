@@ -13,7 +13,7 @@ applies_when: adding an optional cross-product functional-dialect bag (or any op
 
 ## Context
 
-SPOKE ships optional capabilities via **capability flags** (`l2-computable`, `l5-fork`) — opt-in fields declared in `spoke-protocol-layers.md` §Capability levels. Phase A W3 added a second open namespace bag, **`modules`** (cross-product functional dialects: `modules.activation`, `modules.pack`, `modules.placement`, `modules.activation_trace`), alongside the product-owned `extensions` bag. The demand-gate question ("ship now or wait for ≥2 consumers") was resolved by shipping `modules` **capability-flagged** so the first consumer (Nexus) gets a standard, round-trippable home without forcing all hosts or breaking baseline.
+SPOKE ships optional capabilities via **capability flags** (`l2-computable`, `l5-fork`, `narrative-modules`, `spoke-connect`) — opt-in fields declared in `spoke-protocol-layers.md` §Capability levels. The open namespace bag **`modules`** carries cross-product functional dialects (`modules.activation` on KnowledgeEntry; `modules.placement` / `modules.activation_trace` on AssemblePacket), alongside the product-owned `extensions` bag. Knowledge Pack catalog metadata is product-envelope (not a module key). The demand-gate question ("ship now or wait for ≥2 consumers") was resolved by shipping `modules` **capability-flagged** so the first consumer gets a standard, round-trippable home without forcing all hosts or breaking baseline.
 
 ## Guidance — how to ship an optional open namespace bag
 

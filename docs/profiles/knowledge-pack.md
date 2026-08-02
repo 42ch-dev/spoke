@@ -4,12 +4,12 @@ title: Domain Profile — knowledge pack
 
 # Domain Profile — knowledge pack
 
-A **Narrative Knowledge Pack** is a portable lore bundle: an ordered set of KnowledgeEntries, Relations, and optional SourceAnchors that travel between narrative hosts. Packs use existing wire atoms plus the `modules.pack` metadata dialect on the optional `modules` bag — a dedicated pack container envelope stays product-local.
+A **Narrative Knowledge Pack** is a portable lore bundle: an ordered set of KnowledgeEntries, Relations, and optional SourceAnchors that travel between narrative hosts. Packs use existing wire atoms plus a **product transport envelope** for catalog metadata (`title` / `version` / `creator`). Pack ≠ AssemblePacket (durable library interchange vs ephemeral assemble output).
 
 ## Pack dialect
 
 - **Atoms** — existing wire objects: KnowledgeEntry (lore nodes), Relation (graph edges), SourceAnchor (optional provenance).
-- **Pack metadata** — `modules.pack`: `title`, `version`, `creator`, optional `description`.
+- **Pack catalog metadata** — product envelope fields: `title`, `version`, `creator`, optional `description` (not `modules.*` on KE or AssemblePacket).
 - **Per-entry fire conditions** — `modules.activation` travels with each KnowledgeEntry when the pack carries activation (lore-activation handbook).
 - **Round-trip** — importers preserve unknown `extensions` namespaces, unknown module keys, and open-string vocabulary verbatim.
 

@@ -1,13 +1,9 @@
 {
-  "_documentation": "PROPOSED — Narrative Knowledge Pack companion sample. This file is NOT a baseline schema and is NOT validated by the AJV/Vitest conformance harness: it lives under fixtures/toy-world/proposed/ which the harness enumerate list (a non-recursive readdirSync of fixtures/toy-world/) never traverses. Do NOT add this file to FIXTURE_SCHEMA_MAP. The KnowledgeEntry / Relation / SourceAnchor atoms embedded below WITHOUT a `modules` property each conform to the committed baseline schemas if validated standalone; the `modules.pack` (pack-level metadata) and `modules.activation` (per-entry fire conditions) objects are proposed companion shapes from the Narrative Knowledge Pack handbook (.mstar/specs/domain-profile-narrative-knowledge-pack.md) and the Lore Activation handbook (.mstar/specs/domain-profile-lore-activation.md). Neither `modules` nor any pack envelope is present on a committed schema; they ship on the wire only after the triad demand gate. Handbooks + this companion are sufficient interchange documentation until then.",
-  "modules": {
-    "pack": {
-      "title": "Ashford Harbor — Lore Pack",
-      "version": "1.0.0",
-      "creator": "toy-world",
-      "description": "Harbor setting + Mira lore subset demonstrating the proposed Narrative Knowledge Pack dialect: ordered KnowledgeEntry atoms, Relation edges, an optional SourceAnchor, pack-level modules.pack metadata, and one entry carrying proposed modules.activation."
-    }
-  },
+  "_documentation": "COMPANION — Narrative Knowledge Pack sample. NOT validated by the AJV/Vitest conformance harness (fixtures/toy-world/proposed/ is outside the harness enumerate set). Do NOT add to FIXTURE_SCHEMA_MAP. Root title/version/creator/description are product-transport catalog fields (not modules.*). Embedded KnowledgeEntry / Relation / SourceAnchor atoms without modules validate as baseline; one entry may carry modules.activation under narrative-modules. Pack ≠ AssemblePacket.",
+  "title": "Ashford Harbor — Lore Pack",
+  "version": "1.0.0",
+  "creator": "toy-world",
+  "description": "Harbor setting + Mira lore subset: ordered KnowledgeEntry atoms, Relation edges, optional SourceAnchor, product-envelope catalog metadata, and one entry with modules.activation.",
   "entries": [
     {
       "schema_version": 1,
@@ -17,7 +13,9 @@
       "status": "confirmed",
       "body": {
         "summary": "A sheltered port where dawn fog lifts over the quay.",
-        "tags": ["setting"],
+        "tags": [
+          "setting"
+        ],
         "state": {
           "tide_level": 2.1,
           "cargo_tons": 40
@@ -44,16 +42,29 @@
       "status": "confirmed",
       "body": {
         "summary": "Reluctant cartographer who charts coastal towns.",
-        "tags": ["pov", "protagonist"],
+        "tags": [
+          "pov",
+          "protagonist"
+        ],
         "attributes": [
-          { "trait_type": "role", "value": "protagonist" },
-          { "trait_type": "age", "value": 28, "display_type": "number" }
+          {
+            "trait_type": "role",
+            "value": "protagonist"
+          },
+          {
+            "trait_type": "age",
+            "value": 28,
+            "display_type": "number"
+          }
         ]
       },
       "source_anchor": {
         "schema_version": 1,
         "source_id": "manuscript:tw-ch1",
-        "span": { "start": 48, "end": 312 },
+        "span": {
+          "start": 48,
+          "end": 312
+        },
         "label": "Harbor arrival scene",
         "extensions": {}
       },
@@ -123,7 +134,10 @@
     {
       "schema_version": 1,
       "source_id": "manuscript:tw-ch1",
-      "span": { "start": 48, "end": 312 },
+      "span": {
+        "start": 48,
+        "end": 312
+      },
       "label": "Harbor arrival scene",
       "mime_type": "text/plain",
       "extensions": {}

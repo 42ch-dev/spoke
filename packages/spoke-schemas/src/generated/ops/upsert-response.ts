@@ -136,7 +136,7 @@ export interface ExtensionMap {
     | undefined;
 }
 /**
- * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation, modules.pack). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
+ * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
  */
 export interface ModuleMap {
   [k: string]:

@@ -104,7 +104,7 @@ Product-specific bag on durable data objects and ops envelopes. On `HostCapabili
 
 Optional `ModuleMap` on KnowledgeEntry + AssemblePacket; capability-flagged (`narrative-modules`); inner dialect shapes stay handbook-defined. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
 
-`modules.*` carries **cross-product functional** dialects (for example activation, pack, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`.
+`modules.*` carries **cross-product functional** dialects (for example activation, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`. Knowledge Pack **catalog** metadata (`title` / `version` / `creator`) lives on the product transport envelope — not under `modules.*`.
 
 ### spoke-connect
 

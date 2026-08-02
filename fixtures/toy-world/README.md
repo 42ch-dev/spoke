@@ -110,7 +110,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `conn_tw_invoke_check_response.json` | ConnectInvokeResponse (success branch) | `sess_tw_connect_0001` / `req_tw_check_0001` |
 | `conn_tw_invoke_error_response.json` | ConnectInvokeResponse (error branch, `INVALID_INPUT`) | `sess_tw_connect_0001` / `req_tw_check_0002` |
 
-`proposed/pack_tw_harbor_companion.json` — companion sample showing **proposed** `modules.pack` / `modules.activation` shape (not validated by harness; baseline atoms within are valid).
+`proposed/pack_tw_harbor_companion.json` — companion sample: product-envelope catalog (`title`/`version`/`creator`) + atoms + one KE with `modules.activation` (not validated by harness; baseline atoms within are valid). Pack ≠ AssemblePacket.
 
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 

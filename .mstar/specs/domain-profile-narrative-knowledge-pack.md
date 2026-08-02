@@ -1,18 +1,20 @@
 # Domain Profile — Narrative Knowledge Pack
 
-> **Status:** Domain Profile handbook (tracked result) — inner dialect shapes handbook-defined under shipped `modules`  
-> **Document class:** Domain Profile — portable lore-bundle dialect over closed SPOKE envelopes  
+> **Status:** Domain Profile handbook (tracked result) — portable lore-bundle dialect over SPOKE atoms + product transport envelope  
+> **Document class:** Domain Profile — pack interchange pattern (not AssemblePacket)  
 > **Parent:** [`spoke-protocol-layers.md`](spoke-protocol-layers.md) §Domain Profile  
 > **Bag placement authority:** [`spoke-extension-modules.md`](spoke-extension-modules.md)  
-> **Wire SSOT:** `schemas/` — optional `modules` (`ModuleMap`) on KnowledgeEntry and AssemblePacket
+> **Wire SSOT:** `schemas/` — optional `modules` (`ModuleMap`) on KnowledgeEntry (activation) and AssemblePacket (placement / activation_trace)
 
 ## Purpose
 
-This Domain Profile documents how integrators express a **Narrative Knowledge Pack** — a portable lore bundle that ships an ordered set of KnowledgeEntries, Relations, and optional SourceAnchors between narrative hosts — using existing SPOKE wire atoms plus a shared pack-level companion shape under `modules.pack`.
+This Domain Profile documents how integrators express a **Narrative Knowledge Pack** — a portable lore bundle that ships an ordered set of KnowledgeEntries, Relations, and optional SourceAnchors between narrative hosts — using existing SPOKE wire atoms plus a **product-local transport envelope** for catalog metadata.
 
-Integrators read this handbook to implement pack import/export, multi-pack compose (world pack + character pack), and the **Seed vs Pool** assemble candidate pattern. Matching engines, token budgets, ranking, and pack I/O stay **product-local**. The dialect is for **round-trip interchange** so lore graphs and fire conditions travel together.
+Integrators read this handbook to implement pack import/export, multi-pack compose (world pack + character pack), and the **Seed vs Pool** assemble candidate pattern. Matching engines, token budgets, ranking, and pack I/O stay **product-local**. The dialect is for **round-trip interchange** so lore graphs and per-entry fire conditions (`modules.activation`) travel together.
 
-Pack atoms are existing wire objects. Optional `modules` (`ModuleMap`) is shipped as optional, capability-flagged (`narrative-modules`) — see [`spoke-extension-modules.md`](spoke-extension-modules.md). Inner pack field tables remain handbook-defined. A dedicated pack **container** envelope (zip/JSON transport object) stays product-local.
+**Pack ≠ AssemblePacket.** A Knowledge Pack is durable library interchange (full atoms + Relation graph). An AssemblePacket is an ephemeral `assemble` output (slim AI context). Do not model pack catalog fields as AssemblePacket `modules`, and do not hang pack catalog metadata on KnowledgeEntry `modules`.
+
+Pack atoms are existing wire objects. Optional `modules` (`ModuleMap`) is shipped as optional, capability-flagged (`narrative-modules`) on KnowledgeEntry (for activation) and AssemblePacket (for placement / activation_trace) — see [`spoke-extension-modules.md`](spoke-extension-modules.md). A dedicated pack **container** envelope (zip/JSON transport object) stays product-local.
 
 ---
 
@@ -21,19 +23,19 @@ Pack atoms are existing wire objects. Optional `modules` (`ModuleMap`) is shippe
 | Bag | Role for Knowledge Packs |
 |-----|--------------------------|
 | **Core fields** | Pack **atoms**: KnowledgeEntry, Relation, SourceAnchor identity and body — closed protocol objects |
-| **`modules.pack`** | Cross-product **pack-level** metadata: title, version, creator, optional description |
+| **Product transport envelope** | Pack-level **catalog** metadata: title, version, creator, optional description (product-owned; not `modules.*`) |
 | **`modules.activation`** | Per-entry fire conditions that travel with pack KnowledgeEntries — see [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) |
 | **`extensions.<product>`** | One product’s private adapter state on atoms or pack sidecars (host-only filters, UI flags, interim staging) |
 
-Category rule (normative triad ADR): shared functional dialects use `modules.*`. Product data uses `extensions.<product>`. Publishing pack metadata as a shared key under `extensions.*` is a category error — see [`spoke-extension-modules.md`](spoke-extension-modules.md).
+Category rule (normative triad ADR): shared functional dialects use `modules.*`. Product data uses `extensions.<product>`. Pack catalog metadata is **envelope-level product transport**, not a KnowledgeEntry/AssemblePacket module key — see [`spoke-extension-modules.md`](spoke-extension-modules.md).
 
-`ModuleMap` is shipped; inner shapes (field tables) remain handbook-defined. Capability-flagged hosts emit/parse `modules.pack` / `modules.activation`; baseline hosts leave `modules` absent.
+`ModuleMap` is shipped for activation / assemble recipes; baseline hosts leave `modules` absent when they do not declare `narrative-modules`.
 
 ---
 
 ## Pack dialect
 
-A **Narrative Knowledge Pack** is a handbook dialect + sample layout over existing wire atoms. It is **not** a new baseline schema object.
+A **Narrative Knowledge Pack** is a handbook dialect + sample layout over existing wire atoms. It is **not** a new baseline schema object, and it is **not** an AssemblePacket.
 
 ### Atoms (existing wire)
 
@@ -45,9 +47,9 @@ A **Narrative Knowledge Pack** is a handbook dialect + sample layout over existi
 
 Atoms validate against committed schemas in `schemas/data/`. Field tables: [`spoke-data-model.md`](spoke-data-model.md).
 
-### Pack-level metadata — `modules.pack`
+### Pack-level catalog metadata — product transport envelope
 
-**Status:** Handbook-defined inner object under shipped optional `modules` (`ModuleMap`). Capability-flagged (`narrative-modules`); opt-in. Integrators use this field table so multiple hosts converge on one pack-metadata layout.
+**Status:** Product-local envelope fields. **Not** a `modules.*` dialect on KnowledgeEntry or AssemblePacket. Integrators MAY converge on these field names for cross-host catalogs:
 
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
@@ -56,26 +58,22 @@ Atoms validate against committed schemas in `schemas/data/`. Field tables: [`spo
 | `creator` | **yes** | `string` | Authoring identity (person, studio, or product account id as open string) |
 | `description` | no | `string` | Short human blurb for catalogs and import UIs |
 
-### Illustrative pack shape (handbook-defined inner dialect)
+### Illustrative pack shape (handbook-defined companion layout)
 
 ```text
-// Narrative Knowledge Pack — handbook companion layout
+// Narrative Knowledge Pack — product transport envelope + SPOKE atoms
 {
-  "modules": {
-    "pack": {
-      "title": "Harbor World Lore",
-      "version": "1.0.0",
-      "creator": "toy-world",
-      "description": "Harbor setting facts for cross-host interchange"
-    }
-  },
+  "title": "Harbor World Lore",
+  "version": "1.0.0",
+  "creator": "toy-world",
+  "description": "Harbor setting facts for cross-host interchange",
   "entries": [ /* KnowledgeEntry[] in stable export order */ ],
   "relations": [ /* Relation[] among entry ids in this pack */ ],
   "source_anchors": [ /* optional SourceAnchor[] */ ]
 }
 ```
 
-Product-private pack transport fields (zip layout, checksums, registry ids) stay in `extensions.<product>` or product envelope layers outside this dialect.
+Product-private pack transport fields (zip layout, checksums, registry ids) stay in `extensions.<product>` on atoms or additional product envelope layers.
 
 ### What the pack is
 
@@ -83,8 +81,9 @@ Product-private pack transport fields (zip layout, checksums, registry ids) stay
 |----------|----------|
 | Dialect home | This handbook + conformance samples under `fixtures/toy-world/` |
 | Atoms | Existing KnowledgeEntry / Relation / SourceAnchor wire shapes |
-| Metadata | `modules.pack` (inner shape handbook-defined) under optional shipped `ModuleMap` |
-| Baseline schema | No dedicated pack **container** object; optional `modules` on KE + AssemblePacket |
+| Catalog metadata | Product transport envelope (`title` / `version` / `creator` / …) — not ModuleMap |
+| Contrast | **≠ AssemblePacket** (ephemeral slim context); pack is durable library interchange |
+| Baseline schema | No dedicated pack **container** object; optional `modules` only for activation on KE / recipes on AssemblePacket |
 | Registry / CLI | Product-owned pack I/O (import, export, catalog) |
 
 ---
@@ -109,7 +108,7 @@ Narrative hosts commonly maintain **multiple** lore libraries (world facts, char
 | 4 | Run product activation / Scope filter / budget **after** stack merge |
 | 5 | Emit `AssemblePacket` via pure helpers with **caller-supplied** candidate order |
 
-Stack policy (priority across packs, override wins, soft-delete) is **product-local**. The protocol supplies portable atoms + `modules.pack` / `modules.activation` metadata; compose is a host recipe, not a baseline op.
+Stack policy (priority across packs, override wins, soft-delete) is **product-local**. The protocol supplies portable atoms + per-entry `modules.activation`; catalog metadata stays on the product envelope; compose is a host recipe, not a baseline op.
 
 ---
 
@@ -118,7 +117,7 @@ Stack policy (priority across packs, override wins, soft-delete) is **product-lo
 | Surface | Rule |
 |---------|------|
 | `extensions.<product>` on pack atoms | Importers **MUST** round-trip unknown product namespaces and unknown keys **verbatim** ([`spoke-extension-modules.md`](spoke-extension-modules.md) §Round-trip; helpers in [`spoke-operations.md`](spoke-operations.md)) |
-| `modules.pack` | Stage and re-export pack metadata with the handbook field names so hosts converge |
+| Product envelope catalog fields | Stage and re-export `title` / `version` / `creator` (and optional `description`) with the handbook field names so hosts converge |
 | `modules.activation` with entries | Preserve fire conditions on each KnowledgeEntry under optional `modules` ([`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)) |
 | Shipped `modules` (capability-flagged) | Adapters **MUST** round-trip the object — unknown module keys and nested fields survive read/write (`mergeModuleMaps` / `preserveModuleMaps`) |
 
@@ -135,7 +134,7 @@ Optional `modules` (`ModuleMap`) is shipped on KnowledgeEntry and AssemblePacket
 | This handbook | Pack dialect + Seed/Pool pattern + field tables |
 | `fixtures/toy-world/` | Conformance atoms and optional companion pack samples |
 | `schemas/` | Optional `modules` on KE + AssemblePacket; no dedicated pack container object |
-| Integrators | Implement import/export against handbook atoms + `modules.pack` / `modules.activation` |
+| Integrators | Implement import/export against handbook atoms + product envelope catalog + `modules.activation` on KE |
 | Capability flags | `narrative-modules` opt-in; no baseline requirement to emit pack containers |
 
 Authority for bag placement: [`spoke-extension-modules.md`](spoke-extension-modules.md).
@@ -247,27 +246,28 @@ Relation-first recursion detail: [`domain-profile-lore-activation.md`](domain-pr
 
 An integrator can implement pack import/export from this handbook (and the lore-activation handbook for fire-condition fields) when:
 
-1. A pack is an ordered list of KnowledgeEntry + Relation + optional SourceAnchor atoms with `modules.pack` metadata.
+1. A pack is an ordered list of KnowledgeEntry + Relation + optional SourceAnchor atoms plus product-envelope catalog metadata (`title` / `version` / `creator`).
 2. Compose stacks world / character / session packs product-side; merge policy stays local.
 3. Unknown `extensions.<product>` on atoms survive import/export verbatim; `modules.*` round-trip with handbook names (`mergeModuleMaps` / `preserveModuleMaps`).
 4. Packs **MAY** carry `modules.activation` on exported KnowledgeEntry atoms; field semantics live in the lore-activation handbook.
 5. Assemble callers build Seed then Pool, supply ordered candidates, and use `maxEntries` truncation on input order only.
 6. Engines and pack I/O stay in the product; `spoke-operations` stays pure wire helpers.
-7. Optional `modules` is capability-flagged (`narrative-modules`); inner pack shapes stay handbook-defined; pack **container** transport stays product-local.
+7. Optional `modules` is capability-flagged (`narrative-modules`) for activation on KE; pack **container** / catalog transport stays product-local — Pack ≠ AssemblePacket.
 
 ---
 
 ## Acceptance (profile handbook)
 
 - [x] Pack dialect defined: ordered KE + Relation + optional SourceAnchor atoms
-- [x] `modules.pack` field table (title, version, creator, optional description)
+- [x] Product-envelope catalog field table (title, version, creator, optional description) — not ModuleMap
+- [x] Pack ≠ AssemblePacket stated (durable library vs ephemeral assemble output)
 - [x] Compose / stack model for multi-pack hosts (world + character + session)
 - [x] Round-trip preserve for product `extensions` and shipped `modules.*`
-- [x] Envelope shipped capability-flagged; pack container remains product-local
+- [x] Activation ModuleMap capability-flagged; pack container remains product-local
 - [x] Cross-link to `modules.activation` / lore-activation handbook
 - [x] Seed vs Pool assemble pattern documented as primary home (caller order, `maxEntries`)
 - [x] Engine boundary: product-local match/scan/budget/pack I/O; pure ops wire-only
-- [x] Envelope status present-tense shipped; inner shapes handbook-defined
+- [x] Activation modules shipped; pack catalog is product envelope (demoted from ModuleMap)
 - [x] No field-table rewrite beyond status framing; no iteration ids; mechanisms only (clean-room public patterns)
 
 ---
@@ -284,5 +284,5 @@ An integrator can implement pack import/export from this handbook (and the lore-
 | [`spoke-ops.md`](spoke-ops.md) | `assemble` wire-only boundary; optional `max_entries` hint |
 | [`spoke-operations.md`](spoke-operations.md) | `buildAssemblePacket`, extension + module preserve; no activation engines |
 | [`fixtures/toy-world/`](../../fixtures/toy-world/) | Conformance atoms; optional companion pack samples |
-| [`fixtures/toy-world/proposed/pack_tw_harbor_companion.json`](../../fixtures/toy-world/proposed/pack_tw_harbor_companion.json) | Harbor Narrative Knowledge Pack companion sample (`modules.pack` + `modules.activation`) |
+| [`fixtures/toy-world/proposed/pack_tw_harbor_companion.json`](../../fixtures/toy-world/proposed/pack_tw_harbor_companion.json) | Harbor Narrative Knowledge Pack companion sample (product-envelope catalog + `modules.activation`) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (capability-flagged); Extensions |

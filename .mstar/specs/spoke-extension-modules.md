@@ -16,7 +16,7 @@ Integrators use this ADR to choose **core**, **`modules.*`**, or **`extensions.<
 | Bag | Audience | Wire today | Examples |
 |-----|----------|------------|----------|
 | **Core fields** | All baseline hosts | On the wire — closed protocol objects | `entry_id`, `body.summary`, `canonical_name`, `schema_version` |
-| **Optional modules (`modules.*`)** | Cross-product **functional** dialects | **Optional, capability-flagged (`narrative-modules`)** — open `ModuleMap` on KnowledgeEntry + AssemblePacket | `modules.activation`, `modules.pack`, `modules.placement`, `modules.activation_trace` |
+| **Optional modules (`modules.*`)** | Cross-product **functional** dialects | **Optional, capability-flagged (`narrative-modules`)** — open `ModuleMap` on KnowledgeEntry + AssemblePacket | `modules.activation`, `modules.placement`, `modules.activation_trace` |
 | **`extensions.<product>`** | One product / adapter | On the wire — required `ExtensionMap` on durable data objects | `extensions.nexus.world_id`, `extensions.toy.display_hint` |
 
 ### Core fields
@@ -27,14 +27,15 @@ Field tables: [`spoke-data-model.md`](spoke-data-model.md), [`spoke-ops.md`](spo
 
 ### Optional modules (`modules.*`) — capability-flagged
 
-Cross-product **functional** dialects shared by narrative hosts that need the same activation, pack, placement, or similar companion shape. Examples under handbook-defined inner shapes:
+Cross-product **functional** dialects shared by narrative hosts that need the same activation, placement, or similar companion shape. Examples under handbook-defined inner shapes:
 
 | Path | Role |
 |------|------|
-| `modules.activation` | Lore / knowledge activation keys, scan depth, and related trigger metadata |
-| `modules.pack` | Narrative Knowledge Pack envelope metadata (title, version, creator) |
-| `modules.placement` | Packet-level injection placement hints |
-| `modules.activation_trace` | Packet-level activation provenance |
+| `modules.activation` | Lore / knowledge activation keys and related trigger metadata (KnowledgeEntry) |
+| `modules.placement` | Packet-level injection placement hints (AssemblePacket) |
+| `modules.activation_trace` | Packet-level activation provenance (AssemblePacket) |
+
+**Not a `modules.*` dialect:** Narrative Knowledge Pack **catalog metadata** (`title` / `version` / `creator`) lives on the **product transport envelope** that wraps atoms for import/export. Pack ≠ AssemblePacket (durable library interchange vs ephemeral assemble output). Do not place pack catalog fields on KnowledgeEntry or AssemblePacket `modules`. See [`domain-profile-narrative-knowledge-pack.md`](domain-profile-narrative-knowledge-pack.md).
 
 **Status on the wire:** optional `modules` (`ModuleMap`) is **shipped** on `KnowledgeEntry` and `AssemblePacket`. The bag is **capability-flagged** (`narrative-modules` in [`spoke-protocol-layers.md`](spoke-protocol-layers.md)): opt-in; absent and empty `modules` are valid; baseline hosts need not emit or parse it. Inner dialect field tables stay **handbook-defined** (open bag — unknown module keys round-trip). Schema fragment: [`schemas/common/common.schema.json#/definitions/ModuleMap`](../../schemas/common/common.schema.json).
 
@@ -54,7 +55,7 @@ Optional `modules` (`ModuleMap`) is on the wire under capability flag **`narrati
 
 | Surface | Expectation |
 |---------|-------------|
-| Handbooks | Publish `modules.*` **inner** field tables and examples (activation, pack, placement, activation_trace, …) |
+| Handbooks | Publish `modules.*` **inner** field tables and examples (activation, placement, activation_trace, …) |
 | `schemas/` | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket; not required; open bag |
 | Integrators | Emit/parse `modules.<functional-ns>` when declaring `narrative-modules`; product-only query metadata stays in `extensions.<product>` |
 | Capability flags | `narrative-modules` — opt-in; no baseline requirement to emit or parse `modules` |
@@ -66,7 +67,7 @@ Inner dialect shapes remain handbook-defined. Freezing a specific inner field ta
 | Placement | Correct for | Incorrect for |
 |-----------|-------------|---------------|
 | Core fields | Cross-host protocol identity and closed body envelope | Product DTO keys, one-host query filters |
-| `modules.*` | Shared functional dialects (activation, pack, placement, activation_trace, …) | One product’s private adapter state |
+| `modules.*` | Shared functional dialects (activation, placement, activation_trace, …) | One product’s private adapter state |
 | `extensions.<product>` | One adapter’s product bag and product-local query metadata | Cross-product functional dialects shared by many hosts |
 
 **Category rule:** a cross-product functional dialect uses **`modules.*`**. Product data uses **`extensions.<product>`**.
@@ -107,7 +108,7 @@ Empty `extensions: {}` is valid. Absent or empty `modules` is valid. Core fields
 |------|----------|
 | Identity / closed body / protocol selector | Core field (existing schema) |
 | Lore activation keys shared across narrative hosts | `modules.activation` (inner shape handbook-defined) |
-| Portable Knowledge Pack metadata | `modules.pack` (inner shape handbook-defined) |
+| Portable Knowledge Pack catalog metadata | Product transport envelope (not `modules.*` on KE / AssemblePacket) |
 | Packet placement / activation provenance | `modules.placement` / `modules.activation_trace` (inner shapes handbook-defined) |
 | Product world id, UI hint, adapter DTO | `extensions.<your-product>` |
 | Host roles / owned namespaces | `HostCapabilityManifest` core fields (`roles`, `namespaces[]`) |
@@ -124,5 +125,5 @@ Empty `extensions: {}` is valid. Absent or empty `modules` is valid. Core fields
 | [`spoke-ops.md`](spoke-ops.md) | Ops envelopes; optional top-level `extensions`; AssemblePacket `modules` |
 | [`spoke-operations.md`](spoke-operations.md) | Extension + module merge/preserve helpers; host collaboration |
 | Lore-activation handbook | `modules.activation` field tables (sibling handbook) |
-| Narrative Knowledge Pack handbook | `modules.pack` + KE/Relation bundle (sibling handbook) |
+| Narrative Knowledge Pack handbook | KE/Relation bundle + product envelope catalog metadata; Seed vs Pool (sibling handbook) |
 | Assemble module recipes handbook | `modules.placement` + `modules.activation_trace` (sibling handbook) |

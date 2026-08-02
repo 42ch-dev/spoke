@@ -44,6 +44,44 @@ export const TOKEN_VERSION = 1;
 /** Clock-skew allowance (seconds) applied to `iat`: a token whose `iat` is up to 60s in the future is accepted. */
 export const CLOCK_SKEW_SECONDS = 60;
 
+/**
+ * Wire keys of the token wrapper — the runtime whitelist SSOT used by both
+ * the proof-shape guard and the canonical wrapper construction (mirrors the
+ * Rust struct fields; see `CapabilityTokenProof`).
+ */
+const PROOF_KEYS: readonly string[] = ["v", "claims", "sig"];
+
+/**
+ * Wire keys of the signed claims object — the runtime whitelist SSOT shared
+ * by `assertProofShape` (reject unknown keys) and the canonical JCS
+ * projection (pick only the normative keys), mirroring the Rust struct
+ * fields (`serde(deny_unknown_fields)`). Keep in sync with
+ * `CapabilityClaims`.
+ */
+const CLAIM_KEYS: readonly string[] = [
+  "iss",
+  "sub",
+  "aud",
+  "capabilities",
+  "exp",
+  "iat",
+  "jti",
+];
+
+/** Smallest double above any Rust `u64` (`2^64`); `n < 2^64` ⇔ `0 ≤ n ≤ 2^64 − 1` for doubles. */
+const U64_EXCLUSIVE_LIMIT = 2 ** 64;
+
+/** A JSON integer Rust accepts in a `u64` position: finite, integral, `0..2^64 − 1`. */
+function isU64JsonInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value < U64_EXCLUSIVE_LIMIT
+  );
+}
+
 /** The signed claims object of a capability token (normative claim set). */
 export interface CapabilityClaims {
   /** Issuer `peer_id` — the string form of the signing key's derived id. */
@@ -73,20 +111,40 @@ export interface CapabilityTokenProof {
 }
 
 /**
+ * Project `claims` onto the normative key set ([`CLAIM_KEYS`]), dropping any
+ * unknown keys. Both the signed JCS bytes and the wrapper returned by
+ * [`issueCapabilityToken`] come from this projection, so the wrapper always
+ * equals the signed object (a self-issued token round-trips even when the
+ * caller passed extra keys).
+ */
+function canonicalClaimsObject(claims: CapabilityClaims): CapabilityClaims {
+  const source = claims as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of CLAIM_KEYS) {
+    const value = source[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out as unknown as CapabilityClaims;
+}
+
+/**
  * JCS-canonicalize the claims object to the UTF-8 bytes the token signature
  * covers. Absent optional claims (`iat` / `jti`) are **omitted**, never
  * emitted as `null` — matches Rust `skip_serializing_if = "Option::is_none"`.
+ *
+ * Any `canonicalize` failure (non-finite numbers, BigInt, circular
+ * references) surfaces as a typed `CoreError("jcs")`, never a raw error.
  */
 function canonicalClaimsBytes(claims: CapabilityClaims): Uint8Array {
-  const jcs = canonicalize({
-    iss: claims.iss,
-    sub: claims.sub,
-    aud: claims.aud,
-    capabilities: claims.capabilities,
-    exp: claims.exp,
-    ...(claims.iat !== undefined ? { iat: claims.iat } : {}),
-    ...(claims.jti !== undefined ? { jti: claims.jti } : {}),
-  });
+  let jcs: string | undefined;
+  try {
+    jcs = canonicalize(canonicalClaimsObject(claims));
+  } catch (err) {
+    throw new CoreError(
+      "jcs",
+      `claims object is not JSON-canonicalizable: ${(err as Error).message}`,
+    );
+  }
   if (jcs === undefined) {
     throw new CoreError("jcs", "claims object is not JSON-serializable");
   }
@@ -115,7 +173,15 @@ export async function issueCapabilityToken(
   }
   const bytes = canonicalClaimsBytes(claims);
   const signature = base64UrlEncode(await signEd25519(issuerSecret, bytes));
-  return { v: TOKEN_VERSION, claims, sig: signature };
+  // Return the whitelisted projection that was actually signed — not the
+  // caller's object — so the wrapper claims always equal the signed bytes
+  // (extra keys carried by `claims` at runtime are dropped, mirroring the
+  // Rust typed struct).
+  return {
+    v: TOKEN_VERSION,
+    claims: canonicalClaimsObject(claims),
+    sig: signature,
+  };
 }
 
 /**
@@ -140,12 +206,12 @@ function assertProofShape(value: unknown): asserts value is CapabilityTokenProof
   const proof = value as Record<string, unknown>;
   const wrapperKeys = Object.keys(proof);
   for (const key of wrapperKeys) {
-    if (!["v", "claims", "sig"].includes(key)) {
+    if (!PROOF_KEYS.includes(key)) {
       malformed(`unknown wrapper key: ${key}`);
     }
   }
-  if (typeof proof.v !== "number") {
-    malformed("v must be a number");
+  if (!isU64JsonInteger(proof.v)) {
+    malformed("v must be a u64 JSON integer");
   }
   if (typeof proof.sig !== "string") {
     malformed("sig must be a string");
@@ -157,7 +223,7 @@ function assertProofShape(value: unknown): asserts value is CapabilityTokenProof
   const c = claims as Record<string, unknown>;
   const claimKeys = Object.keys(c);
   for (const key of claimKeys) {
-    if (!["iss", "sub", "aud", "capabilities", "exp", "iat", "jti"].includes(key)) {
+    if (!CLAIM_KEYS.includes(key)) {
       malformed(`unknown claim key: ${key}`);
     }
   }
@@ -176,11 +242,15 @@ function assertProofShape(value: unknown): asserts value is CapabilityTokenProof
   ) {
     malformed("claims.capabilities must be a string array");
   }
-  if (typeof c.exp !== "number") {
-    malformed("claims.exp must be a number");
+  // Rust types exp / iat / v as u64: `serde_json` rejects non-finite,
+  // fractional, negative, and out-of-range values at deserialization.
+  // `typeof === "number"` alone lets `Infinity`/fractions through, so the
+  // guard must mirror the u64 rules exactly.
+  if (!isU64JsonInteger(c.exp)) {
+    malformed("claims.exp must be a u64 JSON integer");
   }
-  if (c.iat !== undefined && typeof c.iat !== "number") {
-    malformed("claims.iat must be a number when present");
+  if (c.iat !== undefined && !isU64JsonInteger(c.iat)) {
+    malformed("claims.iat must be a u64 JSON integer when present");
   }
   if (c.jti !== undefined && typeof c.jti !== "string") {
     malformed("claims.jti must be a string when present");
@@ -244,6 +314,18 @@ export async function verifyCapabilityToken(
     signature = base64UrlDecode(proof.sig);
   } catch {
     throw new CoreError("token_invalid", "signature is not valid base64url");
+  }
+  // The spec mandates base64url **without padding**, and Rust decodes with
+  // `URL_SAFE_NO_PAD`, which rejects padded input and alternate encodings
+  // of the final character's slack bits. A canonical round-trip
+  // (`encode(decode(sig)) === sig`) admits exactly the one encoding Rust
+  // accepts, so `sig` stays a canonical identifier (replay caches / dedup
+  // keys on it).
+  if (base64UrlEncode(signature) !== proof.sig) {
+    throw new CoreError(
+      "token_invalid",
+      "signature is not canonical base64url (no padding)",
+    );
   }
   if (signature.length !== 64) {
     throw new CoreError("token_invalid", "signature is not 64 bytes");

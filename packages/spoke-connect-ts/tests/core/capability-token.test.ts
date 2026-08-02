@@ -5,6 +5,7 @@ import {
   derivePeerIdFromEd25519Pubkey,
   ed25519PubkeyFromPeerId,
 } from "../../src/identity.js";
+import { CoreError } from "../../src/core/error.js";
 import { GOLDEN_PEER_ID, GOLDEN_PUBKEY } from "../../src/golden.js";
 import {
   CLOCK_SKEW_SECONDS,
@@ -22,11 +23,13 @@ import type {
  * `crates/spoke-connect/src/core/capability_token.rs` unit tests
  * (deterministic seeds per role, same expiry boundary / skew semantics).
  *
- * No Rust-produced golden capability-token vector is checked in, so inputs
- * are the deterministic seeds from the Rust tests: issuer `[1u8; 32]`,
- * other-issuer `[2u8; 32]`, subject `[7u8; 32]`, audience `[8u8; 32]`, and
- * `now = 1_000_000_000`. Behavioral parity (accept/reject outcomes and the
- * validation order) is the acceptance bar, not byte-identity to a TS vector.
+ * A Rust-produced golden capability-token vector is checked in as
+ * `tests/fixtures/capability-token-golden.json` and verified by
+ * `capability-token-golden.test.ts` (cross-language JCS/sig drift check).
+ * The unit tests here use the deterministic seeds from the Rust tests:
+ * issuer `[1u8; 32]`, other-issuer `[2u8; 32]`, subject `[7u8; 32]`,
+ * audience `[8u8; 32]`, and `now = 1_000_000_000`. Behavioral parity
+ * (accept/reject outcomes and the validation order) is the acceptance bar.
  */
 
 /** Deterministic test keys: distinct 32-byte seeds per role (Rust constants). */
@@ -417,5 +420,167 @@ describe("ed25519PubkeyFromPeerId (port of peer_id.rs reverse)", () => {
     expect(ed25519PubkeyFromPeerId("")).toBeUndefined();
     // Out-of-alphabet base58 chars must not decode.
     expect(ed25519PubkeyFromPeerId("12O3")).toBeUndefined();
+  });
+});
+
+describe("u64 numeric parity for wire-parsed claims (Rust serde_json)", () => {
+  it("rejects non-finite, fractional, negative, and out-of-u64-range exp with typed CoreError", async () => {
+    const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
+    // JSON.parse is the attacker-controlled layer: `"exp":1e999` → Infinity,
+    // and hostile JSON text can carry fractions / negatives / values ≥ 2^64.
+    // Each must reject with the typed CoreError — never a raw Error escaping
+    // from canonicalize (regression for the Infinity non-CoreError escape).
+    const proofText = JSON.stringify(proof);
+    expect(proofText).toContain('"exp":1000003600');
+    const hostileLiterals = [
+      "1e999", // → Infinity
+      "-1e999", // → -Infinity
+      "1e400", // → Infinity
+      "-1", // negative — Rust u64 rejects
+      "2000000000.5", // fractional — Rust u64 rejects
+      "1.5", // fractional
+      "18446744073709551616", // 2^64 — first value Rust u64 rejects
+      "1e60", // integral but > 2^64 − 1
+    ];
+    for (const literal of hostileLiterals) {
+      const wire = JSON.parse(
+        proofText.replace('"exp":1000003600', `"exp":${literal}`),
+      ) as CapabilityTokenProof;
+      const error = await verifyCapabilityToken(
+        wire,
+        trustedIssuers,
+        peers[1],
+        peers[0],
+        NOW,
+      ).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error, `exp: ${literal} must reject`).toBeInstanceOf(CoreError);
+      expect((error as CoreError).code, `exp: ${literal} code`).toBe("token_invalid");
+    }
+
+    // Same guard semantics for non-wire-constructible values (object form).
+    for (const bad of [Infinity, -Infinity, NaN, 1.5, -1, 2 ** 64, Number.MAX_VALUE]) {
+      const wired: CapabilityTokenProof = {
+        ...proof,
+        claims: { ...proof.claims, exp: bad },
+      };
+      await expect(
+        verifyCapabilityToken(wired, trustedIssuers, peers[1], peers[0], NOW),
+      ).rejects.toThrowError(tokenInvalid);
+    }
+  });
+
+  it("rejects non-integer iat and v with the same u64 guard", async () => {
+    const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
+    await expect(
+      verifyCapabilityToken(
+        { ...proof, claims: { ...proof.claims, iat: 1.5 } },
+        trustedIssuers,
+        peers[1],
+        peers[0],
+        NOW,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+    await expect(
+      verifyCapabilityToken(
+        { ...proof, v: 1.5 },
+        trustedIssuers,
+        peers[1],
+        peers[0],
+        NOW,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+});
+
+describe("canonical sig encoding (Rust URL_SAFE_NO_PAD parity)", () => {
+  it("accepts only the canonical unpadded base64url sig — padded and alternate slack-bit encodings reject", async () => {
+    const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
+    // A 64-byte signature is 86 base64url chars: the final char carries 4
+    // data bits + 2 slack bits, so the same bytes have exactly 4 encodings.
+    // Rust URL_SAFE_NO_PAD rejects the 3 non-canonical ones; TS previously
+    // decoded all 4 (atob ignores slack bits) and all verified.
+    const alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const lastChar = proof.sig[proof.sig.length - 1];
+    const index = alphabet.indexOf(lastChar);
+    const variants: Array<[string, string]> = [
+      ["canonical", proof.sig],
+      ["padded", `${proof.sig}==`],
+      ["slack+1", `${proof.sig.slice(0, -1)}${alphabet[index ^ 1]}`],
+      ["slack+2", `${proof.sig.slice(0, -1)}${alphabet[index ^ 2]}`],
+      ["slack+3", `${proof.sig.slice(0, -1)}${alphabet[index ^ 3]}`],
+    ];
+    for (const [label, sig] of variants) {
+      const variant: CapabilityTokenProof = { ...proof, sig };
+      if (label === "canonical") {
+        await expect(
+          verifyCapabilityToken(variant, trustedIssuers, peers[1], peers[0], NOW),
+        ).resolves.toEqual(["spoke-baseline"]);
+      } else {
+        await expect(
+          verifyCapabilityToken(variant, trustedIssuers, peers[1], peers[0], NOW),
+        ).rejects.toThrowError(tokenInvalid);
+      }
+    }
+  });
+});
+
+describe("issueCapabilityToken sign/return consistency", () => {
+  it("returns the whitelisted claims projection that was signed (extra keys dropped)", async () => {
+    const issuer = peerOf(ISSUER_SEED);
+    const subject = peerOf(new Uint8Array(32).fill(7));
+    const audience = peerOf(new Uint8Array(32).fill(8));
+    const dirty = claims(
+      issuer,
+      subject,
+      audience,
+      ["spoke-baseline"],
+      NOW + 3600,
+    );
+    (dirty as CapabilityClaims & Record<string, unknown>).extra_claim = "sneaky";
+    dirty.iat = NOW - 10;
+    const proof = await issueCapabilityToken(ISSUER_SEED, dirty);
+    // The wrapper carries exactly the signed, whitelisted claim set.
+    expect(Object.keys(proof.claims).sort()).toEqual([
+      "aud",
+      "capabilities",
+      "exp",
+      "iat",
+      "iss",
+      "sub",
+    ]);
+    expect((proof.claims as unknown as Record<string, unknown>).extra_claim).toBeUndefined();
+    // A self-issued token round-trips despite the extra key at issue time.
+    await expect(
+      verifyCapabilityToken(proof, trusted([issuer]), audience, subject, NOW),
+    ).resolves.toEqual(["spoke-baseline"]);
+  });
+});
+
+describe("iss length cap (base58 O(n²) DoS guard)", () => {
+  it("fails closed on over-long iss before base58 decode work", async () => {
+    const [proof, trustedIssuers, peers] = await happyToken(NOW, ["spoke-baseline"]);
+    const longIss = `${"1".repeat(200)}abc`; // valid alphabet, > 128 chars
+    await expect(
+      verifyCapabilityToken(
+        { ...proof, claims: { ...proof.claims, iss: longIss } },
+        trustedIssuers,
+        peers[1],
+        peers[0],
+        NOW,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("ed25519PubkeyFromPeerId refuses inputs longer than 128 chars", () => {
+    expect(ed25519PubkeyFromPeerId(`${"1".repeat(129)}x`)).toBeUndefined();
+    expect(ed25519PubkeyFromPeerId(`${"1".repeat(200)}abc`)).toBeUndefined();
+    // The cap is on input length only — at-cap inputs still fail the
+    // structural checks, and short valid peer ids still decode.
+    expect(ed25519PubkeyFromPeerId("1".repeat(128))).toBeUndefined();
+    expect(ed25519PubkeyFromPeerId(GOLDEN_PEER_ID)).toEqual(GOLDEN_PUBKEY);
   });
 });

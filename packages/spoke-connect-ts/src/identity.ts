@@ -134,6 +134,13 @@ export function derivePeerIdFromEd25519Pubkey(pubkey: Uint8Array): string {
  * signature.
  */
 export function ed25519PubkeyFromPeerId(peerId: string): Uint8Array | undefined {
+  // base58 decoding is O(n²) in input length; valid Ed25519 peer ids are
+  // ≤ 52 chars (38 bytes → base58btc). Cap the decode input so an over-long
+  // adversarial `iss` fails closed in O(1) instead of burning CPU.
+  // simplify: Rust `base58_decode` (peer_id.rs) shares the same O(n²) shape
+  // under an uncapped `iss`; the cap belongs on both sides (tracked as
+  // follow-up — TS side lands first).
+  if (peerId.length > 128) return undefined;
   const bytes = base58Decode(peerId);
   if (bytes === undefined) return undefined;
   // Identity multihash (code 0x00, length 0x24 = 36) with the protobuf

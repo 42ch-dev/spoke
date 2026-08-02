@@ -4,9 +4,11 @@ The C# binding of the `spoke-connect` sync-core FFI facade, generated with a
 vendored fork of `uniffi-bindgen-cs` retargeted to the repo's uniffi **0.32**
 pin (see [`bindgen/README.md`](../bindgen/README.md)). The smoke is a net8.0
 console project that loads the generated binding + the `ffi`-built cdylib and
-asserts **golden parity** with the Rust vectors: `peer_id`
+asserts **golden parity** with the Rust vectors across the whole exported
+surface: `peer_id`
 (`12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf`), hello signature,
-verify, and protocol version.
+verify, protocol version, allowlist gate, dispatch gate + capability table,
+response correlation, nonce store, and sequence objects.
 
 ## What's here
 
@@ -15,15 +17,16 @@ verify, and protocol version.
 | `../generated/spoke_connect.cs` | Generated binding (8 functions + 3 objects + 2 error enums; see inventory in `bindgen/README.md`) |
 | `Smoke.csproj` | net8.0 console project — `AllowUnsafeBlocks`, compiles `..\generated\**\*.cs`, copies the cdylib to the output dir |
 | `Program.cs` | Runs the golden-parity checks, prints PASS lines, exits 0 only on full pass |
-| `tests/GoldenParity.cs` | Golden constants + assertions (peer_id, signature, verify, tamper rejection, protocol version) |
+| `tests/GoldenParity.cs` | Golden constants + assertions (all 8 functions, 3 objects, 2 error enums, collection/optional marshalling) |
 
 ## Regenerate → build → run
 
 The generate step needs the **vendored fork bindgen** binary (build recipe:
 [`bindgen/README.md`](../bindgen/README.md) — clone the pinned upstream tag,
-apply `uniffi-bindgen-cs-0.32.patch`, `cargo +nightly build -p
-uniffi-bindgen-cs`). All commands run from the **repository root** with the
-local nightly convention.
+apply `uniffi-bindgen-cs-0.32.patch`, copy the committed
+`uniffi-bindgen-cs-0.32.Cargo.lock` into the clone, `cargo +nightly build
+--locked -p uniffi-bindgen-cs`). All commands run from the **repository
+root** with the local nightly convention.
 
 ```bash
 # 0. Build the cdylib (ffi feature — non-default; a plain `cargo build`
@@ -50,6 +53,12 @@ sign_hello signature: PASS  # golden signature bytes in signed envelope
 verify_hello: PASS
 tampered_hello: PASS        # rejected with CoreException.InvalidHelloSignature
 protocol: 1
+allowlist: PASS             # string[] marshalling; empty fails closed
+dispatch gate: PASS         # spoke-baseline grants check; custom-op denied
+required_capability: PASS   # string? marshalling: Some / None
+response correlation: PASS  # exact echo ok; mismatch -> CorrelationMismatch
+nonce_store: PASS           # first use ok; replay rejected; per-peer scope
+sequence objects: PASS      # outbound 0/1; inbound advance + replay mismatch
 
 GOLDEN PARITY: ALL PASS
 ```

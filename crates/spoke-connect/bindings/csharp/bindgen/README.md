@@ -13,7 +13,7 @@ Stock `uniffi-bindgen-cs` 0.31 cannot read the uniffi 0.32 cdylib metadata
 (`--library` mode fails with `Invalid string data: invalid utf-8 sequence of
 1 bytes from index 1009`), and the UDL-mode fallback passes generation but
 fails the runtime checksum gate on all 14 symbols. See
-`.mstar/specs/connect-csharp-binding.md` for the full T1 record.
+`.mstar/specs/connect-csharp-binding.md` for the full decision record.
 
 The fork restores the locked `--library` CLI form against the 0.32 cdylib;
 the generated bindings load and pass the checksum gate at runtime (golden
@@ -34,6 +34,12 @@ The delta is exactly the uniffi 0.32 interface additions (`Type::Box`,
 retarget: when a `uniffi-bindgen-cs` tag targets 0.32+, drop this patch and
 use stock.
 
+**Template threading caveat:** the fork's `bindgen/templates/*.cs` are
+generator-internal implementation detail. Regenerate `spoke_connect.cs` from
+the patched source (recipe step 4) rather than threading template files into
+the generated output or consumers — a threaded snapshot drifts from the
+generator's contract-version and checksum gates.
+
 ## Build recipe (macOS arm64, repo nightly convention)
 
 Each step's shell context is explicit — the clone and the repo root are
@@ -41,7 +47,9 @@ separate directories: the patch applies **inside the clone**, and the
 generate step runs from the **repo root**:
 
 ```bash
-# 1. Clone upstream at the exact pinned commit — from the repo root
+# 1. Clone upstream at the exact pinned commit — from the repo root.
+#    `rm -rf` keeps re-runs (e.g. the periodic drop-fork re-check) idempotent.
+rm -rf uniffi-bindgen-cs
 git clone https://github.com/NordSecurity/uniffi-bindgen-cs
 cd uniffi-bindgen-cs
 git checkout e10ce410eb3a10cc19c7928b93ea8d84e038c034   # v0.11.0+v0.31.0
@@ -51,8 +59,14 @@ git checkout e10ce410eb3a10cc19c7928b93ea8d84e038c034   # v0.11.0+v0.31.0
 #    bindgen/...) are clone-relative, so `git apply` must run from here.
 git apply ../crates/spoke-connect/bindings/csharp/bindgen/uniffi-bindgen-cs-0.32.patch
 
+# 2b. Copy the fork's resolved lockfile — INSIDE the clone. The committed
+#     lock pins the post-retarget dependency graph (uniffi 0.32), so a clean
+#     clone + apply + this copy builds reproducibly with `--locked` instead
+#     of re-resolving against the live registry.
+cp ../crates/spoke-connect/bindings/csharp/bindgen/uniffi-bindgen-cs-0.32.Cargo.lock Cargo.lock
+
 # 3. Build the bindgen binary (nightly per root AGENTS.md) — still inside the clone
-cargo +nightly build -p uniffi-bindgen-cs
+cargo +nightly build --locked -p uniffi-bindgen-cs
 # binary: target/debug/uniffi-bindgen-cs (inside the clone)
 
 # 4. Generate against the 0.32 cdylib — from the REPO ROOT

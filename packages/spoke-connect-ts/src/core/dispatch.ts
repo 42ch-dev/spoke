@@ -54,3 +54,24 @@ export function dispatchAllowed(op: string, negotiatedCapabilities: readonly str
   }
   return negotiatedCapabilities.includes(required);
 }
+
+/**
+ * Whether a capability-token grant (validated `claims.capabilities`)
+ * authorizes `op` — **membership** of `op`'s required capability in the
+ * grant (normative §Capability matching: subset-of-grant, not exact-list
+ * equality; extra capabilities on the token are ignored when unused).
+ *
+ * `required` is the op's required capability from the core table or the
+ * product-configured map. Fails closed: an op with no requirement is not
+ * authorized by the token gate.
+ *
+ * Hosts compose this with `dispatchAllowed`: when a token grant is in
+ * effect, both the negotiated set and the grant must allow the op (the
+ * token does not replace `negotiatedCapabilities`).
+ */
+export function tokenAuthorizesOp(
+  required: string | undefined,
+  tokenCapabilities: readonly string[],
+): boolean {
+  return required !== undefined && tokenCapabilities.includes(required);
+}

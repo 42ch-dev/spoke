@@ -3,15 +3,16 @@
  *
  * Mirrors `crates/spoke-connect/src/core/error.rs` variants as string-code
  * discriminators on two error classes:
- * - `CoreError` — hello-gate / identity failures (hello verify, nonce,
- *   handshake, crypto, JCS).
+ * - `CoreError` — hello-gate / identity / capability-token failures (hello
+ *   verify, nonce, handshake, crypto, JCS, token invalid).
  * - `CoreInvokeError` — invoke path (sequence, correlation).
  *
  * The `code` field is a string-code union naming the Rust variant
  * (`invalid_hello_signature`, `nonce_replay`, `sequence_exhausted`,
- * `inbound_sequence_mismatch`, `correlation_mismatch`, …). Callers
- * discriminate on `code`; wire `ErrorEnvelope.code` mapping happens only on
- * the server invoke path (`op_unsupported` for dispatch deny).
+ * `inbound_sequence_mismatch`, `correlation_mismatch`, `token_invalid`, …).
+ * Callers discriminate on `code`; wire `ErrorEnvelope.code` mapping happens
+ * only on the server invoke path (`op_unsupported` for dispatch deny;
+ * `auth_failed` for token validation failures at the transport boundary).
  */
 
 /** String codes mirroring `CoreError` variants. */
@@ -21,7 +22,8 @@ export type CoreErrorCode =
   | "handshake_failed"
   | "invalid_nonce"
   | "crypto"
-  | "jcs";
+  | "jcs"
+  | "token_invalid";
 
 /** String codes mirroring `CoreInvokeError` variants. */
 export type CoreInvokeErrorCode =
@@ -36,6 +38,7 @@ const CORE_ERROR_MESSAGES: Record<CoreErrorCode, string> = {
   invalid_nonce: "invalid hello nonce",
   crypto: "crypto error",
   jcs: "JCS canonicalization failed",
+  token_invalid: "capability token invalid",
 };
 
 const CORE_INVOKE_ERROR_MESSAGES: Record<CoreInvokeErrorCode, string> = {

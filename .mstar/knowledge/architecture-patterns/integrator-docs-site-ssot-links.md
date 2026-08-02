@@ -18,7 +18,7 @@ Protocol facts live in `.mstar/specs/` (normative, read-only) — integrator doc
 
 ### Content model: integrator summary + SSOT links, no body duplication
 
-- Every page is an integrator-facing summary or procedure; anything normative (wire tables, MUST blocks, invariants) links to the spec blob (`https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/<file>.md`) instead of being copied. Pages end with a "Normative references" section listing the spec links (e.g. `docs/connect/bindings.md` → `spoke-connect.md` §Embedding model, `connect-csharp-bindgen-deferred.md`).
+- Every page is an integrator-facing summary or procedure; anything normative (wire tables, MUST blocks, invariants) links to the spec blob (`https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/<file>.md`) instead of being copied. Pages end with a "Normative references" section listing the spec links (e.g. `docs/connect/bindings.md` → `spoke-connect.md` §Embedding model, `connect-csharp-binding.md`).
 - `.mstar/specs/` stays read-only — the single source of truth; docs pages summarize and point at it. The same policy is documented for maintainers in `CONTRIBUTING.md` (Integrator docs site section).
 - Consistency checks grep the site for copied spec tables / MUST-block duplication against the specs.
 

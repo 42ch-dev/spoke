@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>spoke-connect-csharp-smoke</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Generated binding (regenerate sequence in README.md; run the
+         library-mode generate step before building after a surface change). -->
+    <Compile Include="..\generated\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The ffi-feature cdylib is copied next to the smoke binary so
+         LibraryImport("spoke_connect") resolves it at runtime. -->
+    <None Include="..\..\..\..\..\target\debug\libspoke_connect.dylib"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

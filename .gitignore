@@ -150,6 +150,11 @@ tooling/codegen/.schemas-dereferenced/
 target/
 **/target/
 
+# C# bindgen clone target — the bindgen README recipe clones the upstream
+# uniffi-bindgen-cs checkout into the repo root; keep it out of `git add -A`
+# reach
+/uniffi-bindgen-cs/
+
 # Morning Star harness (.mstar/)
 # Principle: process stays local; results are shared with the team.
 # Ignored (process / coordination):

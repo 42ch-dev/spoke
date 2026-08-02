@@ -1,0 +1,127 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index cf211e3..e08f10a 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -7,10 +7,10 @@ members = [
+ ]
+ 
+ [workspace.dependencies]
+-uniffi = { version = "0.31.0", features = ["build"] }
+-uniffi_testing = "0.31.0"
+-uniffi_macros = "0.31.0"
+-uniffi_build = { version = "0.31.0", features=["builtin-bindgen"] }
+-uniffi_bindgen = "0.31.0"
+-uniffi_meta = "0.31.0"
+-uniffi_udl = "0.31.0"
+\ No newline at end of file
++uniffi = { version = "0.32.0", features = ["build"] }
++uniffi_testing = "0.32.0"
++uniffi_macros = "0.32.0"
++uniffi_build = { version = "0.32.0", features=["builtin-bindgen"] }
++uniffi_bindgen = "0.32.0"
++uniffi_meta = "0.32.0"
++uniffi_udl = "0.32.0"
+\ No newline at end of file
+diff --git a/bindgen/src/gen_cs/compounds.rs b/bindgen/src/gen_cs/compounds.rs
+index 0c78c40..1ce9cb2 100644
+--- a/bindgen/src/gen_cs/compounds.rs
++++ b/bindgen/src/gen_cs/compounds.rs
+@@ -68,6 +68,7 @@ macro_rules! impl_code_type_for_compound {
+ 
+ impl_code_type_for_compound!(OptionalCodeType, "{}?", "Optional{}", "null");
+ impl_code_type_for_compound!(SequenceCodeType, "{}[]", "Sequence{}", "null");
++impl_code_type_for_compound!(SetCodeType, "HashSet<{}>", "Set{}", "null");
+ 
+ #[derive(Debug)]
+ pub struct MapCodeType {
+diff --git a/bindgen/src/gen_cs/mod.rs b/bindgen/src/gen_cs/mod.rs
+index 0166f14..36a8a61 100644
+--- a/bindgen/src/gen_cs/mod.rs
++++ b/bindgen/src/gen_cs/mod.rs
+@@ -330,6 +330,9 @@ impl<T: AsType> AsCodeType for T {
+             Type::Custom { name, builtin, .. } => {
+                 Box::new(custom::CustomCodeType::new(name, builtin.as_codetype()))
+             }
++            // uniffi 0.32: `Box<T>` is transparent (same wire type as `T`).
++            Type::Box { inner_type } => inner_type.as_codetype(),
++            Type::Set { inner_type } => Box::new(compounds::SetCodeType::new(*inner_type)),
+         }
+     }
+ }
+diff --git a/bindgen/templates/SetTemplate.cs b/bindgen/templates/SetTemplate.cs
+new file mode 100644
+index 0000000..89b8438
+--- /dev/null
++++ b/bindgen/templates/SetTemplate.cs
+@@ -0,0 +1,46 @@
++{#/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */#}
++
++{%- let inner_type_name = inner_type|type_name(ci) %}
++
++class {{ ffi_converter_name }}: FfiConverterRustBuffer<HashSet<{{ inner_type_name }}>> {
++    public static {{ ffi_converter_name }} INSTANCE = new {{ ffi_converter_name }}();
++
++    public override HashSet<{{ inner_type_name }}> Read(BigEndianStream stream) {
++        var length = stream.ReadInt();
++        if (length == 0) {
++            return new HashSet<{{ inner_type_name }}>();
++        }
++
++        var result = new HashSet<{{ inner_type_name }}>();
++        var readFn = {{ inner_type|read_fn }};
++        for (int i = 0; i < length; i++) {
++            result.Add(readFn(stream));
++        }
++        return result;
++    }
++
++    public override int AllocationSize(HashSet<{{ inner_type_name }}> value) {
++        var sizeForLength = 4;
++
++        if (value == null) {
++            return sizeForLength;
++        }
++
++        var allocationSizeFn = {{ inner_type|allocation_size_fn }};
++        var sizeForItems = value.Sum(item => allocationSizeFn(item));
++        return sizeForLength + sizeForItems;
++    }
++
++    public override void Write(HashSet<{{ inner_type_name }}> value, BigEndianStream stream) {
++        if (value == null) {
++            stream.WriteInt(0);
++            return;
++        }
++
++        stream.WriteInt(value.Count);
++        var writerFn = {{ inner_type|write_fn }};
++        value.ForEach(item => writerFn(item, stream));
++    }
++}
+diff --git a/bindgen/templates/Types.cs b/bindgen/templates/Types.cs
+index 9629b22..ae1d2c5 100644
+--- a/bindgen/templates/Types.cs
++++ b/bindgen/templates/Types.cs
+@@ -77,6 +77,9 @@
+ {%- when Type::Sequence { inner_type } %}
+ {% include "SequenceTemplate.cs" %}
+ 
++{%- when Type::Set { inner_type } %}
++{% include "SetTemplate.cs" %}
++
+ {%- when Type::Bytes %}
+ {% include "BytesTemplate.cs" %}
+ 
+@@ -99,6 +102,10 @@
+ {% include "CustomTypeTemplate.cs" %}
+ {%- endif %}
+ 
++{# uniffi 0.32: `Box<T>` is transparent and normalized away before
++   templates run; the arm exists for askama exhaustiveness only. #}
++{%- when Type::Box { .. } %}
++
+ {%- endmatch %}
+ {%- endfor %}
+ 

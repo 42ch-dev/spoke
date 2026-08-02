@@ -1,0 +1,85 @@
+name: Docs site
+
+# SPOKE integrator docs site (VitePress under docs/).
+#
+# Build gate: runs on PRs that touch the docs site or its tooling; the PR
+# fails if `pnpm docs:build` breaks.
+# Deploy: on push to main, the built site is published to GitHub Pages via the
+# official Pages actions (upload-pages-artifact + deploy-pages).
+#
+# Pages source requirement: repo Settings -> Pages -> Source must be
+# "GitHub Actions" for this workflow to deploy. If the org blocks
+# Actions-based Pages, fall back to pushing the built site
+# (docs/.vitepress/dist) to a `gh-pages` branch and switching the Pages source
+# to "Deploy from a branch" — record that decision here and in the plan notes
+# before switching.
+#
+# All actions are pinned to immutable commit SHAs (repo CI convention).
+
+on:
+  pull_request:
+    paths:
+      - docs/**
+      - .github/workflows/docs.yml
+      - package.json
+  push:
+    branches:
+      - main
+    paths:
+      - docs/**
+      - .github/workflows/docs.yml
+      - package.json
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build docs site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Setup pnpm
+        # pnpm/action-setup@v4.4.0 (same pin as ci.yml)
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs site
+        run: pnpm docs:build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4

@@ -16,7 +16,7 @@ A **Swift sync-core skeleton** is landed through uniffi behind the optional `ffi
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction); Swift is the landed skeleton. TypeScript is a parallel **Path A** track (language-direct). C# remains the first target, deferred pending `uniffi-bindgen-cs` support for uniffi 0.32.
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction); Swift and C# are landed — C# via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 ([decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)). TypeScript is a parallel **Path A** track (language-direct). Go / Python / Kotlin remain.
 
 ## Integrator notes
 
@@ -28,4 +28,4 @@ C#, Go, Python, Swift, Kotlin are the target languages (priority per product dir
 
 - [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) §Embedding model — Path B definition and purity rules
 - [crates/spoke-connect/README.md#binding-facade](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md#binding-facade) — sync/async boundary, exported surface, target-language matrix
-- [connect-csharp-bindgen-deferred.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-bindgen-deferred.md) — C# binding decision record
+- [connect-csharp-binding.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md) — C# binding decision record

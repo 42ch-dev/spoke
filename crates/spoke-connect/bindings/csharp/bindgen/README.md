@@ -13,7 +13,7 @@ Stock `uniffi-bindgen-cs` 0.31 cannot read the uniffi 0.32 cdylib metadata
 (`--library` mode fails with `Invalid string data: invalid utf-8 sequence of
 1 bytes from index 1009`), and the UDL-mode fallback passes generation but
 fails the runtime checksum gate on all 14 symbols. See
-`.mstar/specs/connect-csharp-bindgen-deferred.md` for the full T1 record.
+`.mstar/specs/connect-csharp-binding.md` for the full T1 record.
 
 The fork restores the locked `--library` CLI form against the 0.32 cdylib;
 the generated bindings load and pass the checksum gate at runtime (golden
@@ -37,21 +37,21 @@ use stock.
 ## Build recipe (macOS arm64, repo nightly convention)
 
 Each step's shell context is explicit — the clone and the repo root are
-separate directories, and the generate step runs from the **repo root**:
+separate directories: the patch applies **inside the clone**, and the
+generate step runs from the **repo root**:
 
 ```bash
-# 1. Clone upstream at the exact pinned commit
+# 1. Clone upstream at the exact pinned commit — from the repo root
 git clone https://github.com/NordSecurity/uniffi-bindgen-cs
 cd uniffi-bindgen-cs
 git checkout e10ce410eb3a10cc19c7928b93ea8d84e038c034   # v0.11.0+v0.31.0
 
-# 2. Apply the fork delta — run from the REPO ROOT (the patch paths are
-#    repo-root-relative), not from inside the clone
-cd ..   # back to the repo root
-git apply crates/spoke-connect/bindings/csharp/bindgen/uniffi-bindgen-cs-0.32.patch
+# 2. Apply the fork delta — INSIDE the clone. The patch *file* path is
+#    repo-root-relative, but the patch's *content* paths (Cargo.toml,
+#    bindgen/...) are clone-relative, so `git apply` must run from here.
+git apply ../crates/spoke-connect/bindings/csharp/bindgen/uniffi-bindgen-cs-0.32.patch
 
-# 3. Build the bindgen binary (nightly per root AGENTS.md) — inside the clone
-cd uniffi-bindgen-cs
+# 3. Build the bindgen binary (nightly per root AGENTS.md) — still inside the clone
 cargo +nightly build -p uniffi-bindgen-cs
 # binary: target/debug/uniffi-bindgen-cs (inside the clone)
 

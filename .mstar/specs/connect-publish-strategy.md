@@ -143,7 +143,7 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 | What this repo ships | Generate scripts, smokes, and the sync-core `ffi` surface on the unpublished `spoke-connect` crate |
 | What consumers do | Vendor generated bindings + link the `cdylib`, **or** ship language bindings from **consumer repositories** |
 | Version tracking | Bind against the **git tag / spoke lockstep version** of the cdylib they were generated from (no independent registry SemVer) |
-| Language matrix | **C#, Go, Python, Swift, Kotlin — C# first** (Swift skeleton landed; **C# landed** via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 — drop the fork when upstream tags 0.32+; see [`connect-csharp-bindgen-deferred.md`](connect-csharp-bindgen-deferred.md)) |
+| Language matrix | **C#, Go, Python, Swift, Kotlin — C# first** (Swift skeleton landed; **C# landed** via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 — drop the fork when upstream tags 0.32+; see [`connect-csharp-binding.md`](connect-csharp-binding.md)) |
 
 ---
 
@@ -203,7 +203,7 @@ Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next**.
 | [`.mstar/specs/spoke-connect.md`](spoke-connect.md) | Normative connect wire + embedding |
 | [`.mstar/specs/spoke-connect-ts-route.md`](spoke-connect-ts-route.md) | TS client route (pure-TS-minimal) |
 | [`.mstar/specs/spoke-version-release.md`](spoke-version-release.md) | Lockstep SemVer + Trusted Publishing |
-| [`.mstar/specs/connect-csharp-bindgen-deferred.md`](connect-csharp-bindgen-deferred.md) | C# uniffi binding decision record (landed via vendored bindgen fork) |
+| [`.mstar/specs/connect-csharp-binding.md`](connect-csharp-binding.md) | C# uniffi binding decision record (landed via vendored bindgen fork) |
 | [`.mstar/roadmap.md`](../roadmap.md) | Durable project roadmap (Stage 1 execution row) |
 | [`packages/spoke-connect-ts/`](../../packages/spoke-connect-ts/) | TS connect client package |
 | [`crates/spoke-connect/`](../../crates/spoke-connect/) | Rust reference spike (`publish = false`) |

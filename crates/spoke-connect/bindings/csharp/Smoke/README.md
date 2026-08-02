@@ -57,7 +57,7 @@ GOLDEN PARITY: ALL PASS
 ## Generation mechanism
 
 `uniffi-bindgen-cs` upstream still targets uniffi 0.31, so generation uses the
-vendored fork (127-line source patch: uniffi workspace deps 0.31.0 → 0.32.0
+vendored fork (129-line source patch: uniffi workspace deps 0.31.0 → 0.32.0
 plus the `Type::Box` / `Type::Set` interface additions). The fork is
 generation-only tooling — the `spoke-connect` uniffi 0.32 pin, Swift bindings,
 and the Rust suite are untouched. **Drop the fork patch when upstream tags a
@@ -69,5 +69,5 @@ build in step 1.
 - Fork recipe + patch inventory: [`../bindgen/README.md`](../bindgen/README.md)
 - FFI surface + Rust golden tests: [`../../../src/ffi.rs`](../../../src/ffi.rs)
 - Golden vectors (identity-byte proof): [`tooling/connect-identity-proof/`](../../../../../tooling/connect-identity-proof/README.md)
-- Decision record: [`../../../../../.mstar/specs/connect-csharp-bindgen-deferred.md`](../../../../../.mstar/specs/connect-csharp-bindgen-deferred.md)
+- Decision record: [`../../../../../.mstar/specs/connect-csharp-binding.md`](../../../../../.mstar/specs/connect-csharp-binding.md)
 - Swift smoke (skeleton precedent): [`../../swift/Smoke/README.md`](../../swift/Smoke/README.md)

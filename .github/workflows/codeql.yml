@@ -2,9 +2,9 @@ name: "CodeQL (advanced)"
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 permissions:
   actions: read
@@ -15,27 +15,25 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
-    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        language: ['actions', 'javascript-typescript', 'rust']
+        language: [ 'actions', 'javascript-typescript', 'rust' ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # The Swift smoke script (bindings/swift/Smoke/main.swift) is a
-          # standalone file with no buildable project; Swift analysis would
-          # fail autobuild. Swift is intentionally not in the language matrix;
-          # this ignore guards against future matrix additions.
-          paths-ignore:
-            - '**/bindings/swift/**'
+          paths-ignore: |
+            **/bindings/swift/**
+
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
+
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: '/language:${{ matrix.language }}'
+          category: "/language:${{matrix.language}}"

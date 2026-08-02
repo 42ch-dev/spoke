@@ -1,105 +1,73 @@
-# spoke-connect C# smoke (deferred)
+# spoke-connect C# smoke
 
-In the deferred state only this README is committed — no `Smoke.csproj`, `Program.cs`, or generated bindings; the §Regenerate block below is the recipe to scaffold them on the revisit trigger.
+The C# binding of the `spoke-connect` sync-core FFI facade, generated with a
+vendored fork of `uniffi-bindgen-cs` retargeted to the repo's uniffi **0.32**
+pin (see [`bindgen/README.md`](../bindgen/README.md)). The smoke is a net8.0
+console project that loads the generated binding + the `ffi`-built cdylib and
+asserts **golden parity** with the Rust vectors: `peer_id`
+(`12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf`), hello signature,
+verify, and protocol version.
 
-## T1 feasibility verdict
+## What's here
 
-```text
-## T1 feasibility verdict
-- Date: 2026-08-02
-- bindgen-cs pin: v0.11.0+v0.31.0 — tag == upstream main HEAD, commit
-  e10ce410eb3a10cc19c7928b93ea8d84e038c034 (upstream pins uniffi 0.31; no
-  newer tag exists)
-- uniffi (spoke-connect): 0.32.0
-- Host OS / arch / dotnet --version: macOS 26.5.2 / arm64 / dotnet 8.0.302
-- Commands run: (paste)
+| Path | Contents |
+|------|----------|
+| `../generated/spoke_connect.cs` | Generated binding (8 functions + 3 objects + 2 error enums; see inventory in `bindgen/README.md`) |
+| `Smoke.csproj` | net8.0 console project — `AllowUnsafeBlocks`, compiles `..\generated\**\*.cs`, copies the cdylib to the output dir |
+| `Program.cs` | Runs the golden-parity checks, prints PASS lines, exits 0 only on full pass |
+| `tests/GoldenParity.cs` | Golden constants + assertions (peer_id, signature, verify, tamper rejection, protocol version) |
 
-  # primary pin (AD-P0-1)
-  cargo +nightly install uniffi-bindgen-cs --git \
-    https://github.com/NordSecurity/uniffi-bindgen-cs \
-    --tag v0.11.0+v0.31.0 --locked
-  cargo +nightly build -p spoke-connect --features ffi
-  uniffi-bindgen-cs target/debug/libspoke_connect.dylib --library \
-    --out-dir crates/spoke-connect/bindings/csharp/generated --no-format
-  #   -> Error: finding components in 'target/debug/libspoke_connect.dylib'
-  #      Caused by: extracting metadata for
-  #      '_UNIFFI_META_SPOKE_CONNECT_CONSTRUCTOR_INBOUNDSEQUENCE_NEW'
-  #      Invalid string data: invalid utf-8 sequence of 1 bytes from index 1009
+## Regenerate → build → run
 
-  # secondary attempt A — upstream main HEAD (same commit e10ce410, still
-  # targets uniffi 0.31; no 0.32 tag): identical metadata-parse failure.
-  # Positive control: the crate-local uniffi 0.32 bindgen generates Swift
-  # from the same cdylib, so the cdylib metadata is well-formed — the gap
-  # is bindgen-cs 0.31 reading the uniffi 0.32 metadata section.
-
-  # secondary attempt B — alternate CLI flag (UDL mode): hand-written UDL
-  # mirror of the src/ffi.rs proc-macro surface
-  uniffi-bindgen-cs crates/spoke-connect/bindings/spoke_connect.udl \
-    --config uniffi.toml --no-format \
-    --out-dir crates/spoke-connect/bindings/csharp/generated   # PASS
-  dotnet build crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj  # PASS
-  dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
-  #   -> Unhandled exception. System.TypeInitializationException
-  #      ---> UniffiContractChecksumException: expected function
-  #      `uniffi_spoke_connect_checksum_func_check_response_correlation`
-  #      checksum `37894`, library returned `57062`
-
-- Results:
-  - generate: FAIL — `--library` mode cannot read the uniffi 0.32 metadata
-    section (0.31 reader); UDL-mode fallback generates, but the generated
-    bindings fail the runtime checksum gate (below)
-  - compile (csproj): PASS — minimal net8.0 csproj (AllowUnsafeBlocks)
-    compiles the UDL-generated surface, 0 warnings / 0 errors
-  - link/load cdylib at runtime: PASS load, FAIL run — the process loads
-    libspoke_connect.dylib and the contract-version check passes (30 == 30),
-    but the checksum integrity gate rejects all 14 exported symbols
-    (functions, methods, constructors) before any call can execute
-  - surface inventory (8+3+2 enums): PASS — UDL-generated surface exposes
-    the 8 functions + 3 objects + 2 error enums (7 + 3 exception classes)
-- Verdict: NO-GO
-- If NO-GO: root cause class = version-gap
-- Fallback (NO-GO only): decision record
-  .mstar/specs/connect-csharp-bindgen-deferred.md — matrix substitution
-  requires PM re-scope (no Go work started)
-```
-
-## Why the checksum gate cannot be passed
-
-The uniffi 0.32 cdylib derives each exported symbol's checksum from the
-proc-macro metadata (module path `spoke_connect::ffi`, uniffi-rs 0.32
-checksum inputs). bindgen-cs v0.11.0 derives the expected checksums from
-its own uniffi-rs 0.31 metadata model; for UDL mode the module path is not
-expressible and the checksum inputs differ by version. All 14 checksum
-values mismatch (e.g. `protocol_version` expected 58305, library 50454 —
-a zero-argument function with no types, so the skew is structural, not a
-UDL typo). Patching the generated bindings to skip the integrity gate, or
-downgrading `crates/spoke-connect` to uniffi 0.31, are both out of bounds
-(AD-P0-1).
-
-## Regenerate → build → run sequence (for the revisit trigger)
-
-Revisit when a `uniffi-bindgen-cs` tag targets uniffi-rs 0.32+ — then the
-locked `--library` CLI form should work without a UDL:
+The generate step needs the **vendored fork bindgen** binary (build recipe:
+[`bindgen/README.md`](../bindgen/README.md) — clone the pinned upstream tag,
+apply `uniffi-bindgen-cs-0.32.patch`, `cargo +nightly build -p
+uniffi-bindgen-cs`). All commands run from the **repository root** with the
+local nightly convention.
 
 ```bash
-# from the repository root (nightly convention for this repo)
+# 0. Build the cdylib (ffi feature — non-default; a plain `cargo build`
+#    replaces it with a default-features stub, so rebuild with `ffi` if the
+#    smoke fails with missing symbols).
 cargo +nightly build -p spoke-connect --features ffi
-uniffi-bindgen-cs target/debug/libspoke_connect.dylib --library \
-  --out-dir crates/spoke-connect/bindings/csharp/generated --no-format
-# net8.0 csproj: TargetFramework=net8.0, AllowUnsafeBlocks=true,
-# <Compile Include="..\generated\**\*.cs" />,
-# <None Include="..\..\..\..\..\target\debug\libspoke_connect.dylib"
-#       CopyToOutputDirectory="PreserveNewest" />
+
+# 1. Generate the binding (only needed when the FFI surface changes)
+<fork>/target/debug/uniffi-bindgen-cs target/debug/libspoke_connect.dylib \
+  --library --out-dir crates/spoke-connect/bindings/csharp/generated --no-format
+
+# 2. Build the smoke — must be 0 warnings / 0 errors
 dotnet build crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
+
+# 3. Run the smoke — golden parity must PASS
 dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```
 
-Generated bindings live in `bindings/csharp/generated/` (gitignored,
-regenerated by the first command above). The `--library` generate step is
-the gate: it failed on uniffi 0.32 metadata at T1 (2026-08-02), before any
-.NET compile or run.
+Expected output:
+
+```text
+derive_peer_id: PASS        # 12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf
+sign_hello signature: PASS  # golden signature bytes in signed envelope
+verify_hello: PASS
+tampered_hello: PASS        # rejected with CoreException.InvalidHelloSignature
+protocol: 1
+
+GOLDEN PARITY: ALL PASS
+```
+
+## Generation mechanism
+
+`uniffi-bindgen-cs` upstream still targets uniffi 0.31, so generation uses the
+vendored fork (127-line source patch: uniffi workspace deps 0.31.0 → 0.32.0
+plus the `Type::Box` / `Type::Set` interface additions). The fork is
+generation-only tooling — the `spoke-connect` uniffi 0.32 pin, Swift bindings,
+and the Rust suite are untouched. **Drop the fork patch when upstream tags a
+uniffi 0.32+ release** — stock `uniffi-bindgen-cs` then replaces the vendored
+build in step 1.
 
 ## Reference
 
+- Fork recipe + patch inventory: [`../bindgen/README.md`](../bindgen/README.md)
+- FFI surface + Rust golden tests: [`../../../src/ffi.rs`](../../../src/ffi.rs)
+- Golden vectors (identity-byte proof): [`tooling/connect-identity-proof/`](../../../../../tooling/connect-identity-proof/README.md)
 - Decision record: [`../../../../../.mstar/specs/connect-csharp-bindgen-deferred.md`](../../../../../.mstar/specs/connect-csharp-bindgen-deferred.md)
-- Swift smoke (landed): `../../swift/Smoke/README.md`
+- Swift smoke (skeleton precedent): [`../../swift/Smoke/README.md`](../../swift/Smoke/README.md)

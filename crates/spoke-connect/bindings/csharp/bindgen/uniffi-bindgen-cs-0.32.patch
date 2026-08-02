@@ -50,10 +50,10 @@ index 0166f14..36a8a61 100644
  }
 diff --git a/bindgen/templates/SetTemplate.cs b/bindgen/templates/SetTemplate.cs
 new file mode 100644
-index 0000000..89b8438
+index 0000000..8aef6fa
 --- /dev/null
 +++ b/bindgen/templates/SetTemplate.cs
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,48 @@
 +{#/* This Source Code Form is subject to the terms of the Mozilla Public
 + * License, v. 2.0. If a copy of the MPL was not distributed with this
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/. */#}
@@ -97,7 +97,9 @@ index 0000000..89b8438
 +
 +        stream.WriteInt(value.Count);
 +        var writerFn = {{ inner_type|write_fn }};
-+        value.ForEach(item => writerFn(item, stream));
++        foreach (var item in value) {
++            writerFn(item, stream);
++        }
 +    }
 +}
 diff --git a/bindgen/templates/Types.cs b/bindgen/templates/Types.cs

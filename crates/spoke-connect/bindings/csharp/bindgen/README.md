@@ -19,7 +19,7 @@ The fork restores the locked `--library` CLI form against the 0.32 cdylib;
 the generated bindings load and pass the checksum gate at runtime (golden
 parity verified).
 
-## Patch contents (127 lines, 6 files)
+## Patch contents (129 lines, 5 files)
 
 | File | Change |
 |------|--------|
@@ -36,26 +36,33 @@ use stock.
 
 ## Build recipe (macOS arm64, repo nightly convention)
 
+Each step's shell context is explicit — the clone and the repo root are
+separate directories, and the generate step runs from the **repo root**:
+
 ```bash
 # 1. Clone upstream at the exact pinned commit
 git clone https://github.com/NordSecurity/uniffi-bindgen-cs
 cd uniffi-bindgen-cs
 git checkout e10ce410eb3a10cc19c7928b93ea8d84e038c034   # v0.11.0+v0.31.0
 
-# 2. Apply the fork delta (from repo root)
+# 2. Apply the fork delta — run from the REPO ROOT (the patch paths are
+#    repo-root-relative), not from inside the clone
+cd ..   # back to the repo root
 git apply crates/spoke-connect/bindings/csharp/bindgen/uniffi-bindgen-cs-0.32.patch
 
-# 3. Build the bindgen binary (nightly per root AGENTS.md)
+# 3. Build the bindgen binary (nightly per root AGENTS.md) — inside the clone
+cd uniffi-bindgen-cs
 cargo +nightly build -p uniffi-bindgen-cs
-# binary: target/debug/uniffi-bindgen-cs
+# binary: target/debug/uniffi-bindgen-cs (inside the clone)
 
-# 4. Generate against the 0.32 cdylib
+# 4. Generate against the 0.32 cdylib — from the REPO ROOT
+cd ..   # back to the repo root
 cargo +nightly build -p spoke-connect --features ffi
 ./uniffi-bindgen-cs/target/debug/uniffi-bindgen-cs \
   target/debug/libspoke_connect.dylib --library \
   --out-dir crates/spoke-connect/bindings/csharp/generated --no-format
 
-# 5. Build + run the net8.0 smoke
+# 5. Build + run the net8.0 smoke — from the repo root
 dotnet build crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```

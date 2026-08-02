@@ -6,7 +6,7 @@ import {
   ed25519PubkeyFromPeerId,
 } from "../../src/identity.js";
 import { CoreError } from "../../src/core/error.js";
-import { GOLDEN_PEER_ID, GOLDEN_PUBKEY } from "../../src/golden.js";
+import { GOLDEN_PEER_ID, GOLDEN_PUBKEY, GOLDEN_SEED } from "../../src/golden.js";
 import {
   CLOCK_SKEW_SECONDS,
   TOKEN_VERSION,
@@ -311,10 +311,18 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       NOW + 3600,
     );
     emptyJti.jti = "";
-    const proofEmptyJti = await issueCapabilityToken(ISSUER_SEED, emptyJti);
+    // Issuance fails fast: an empty jti can never verify (verify rule 8).
+    await expect(
+      issueCapabilityToken(ISSUER_SEED, emptyJti),
+    ).rejects.toThrowError(tokenInvalid);
+    // Wire-parsed proofs carrying an empty jti still fail at verification.
+    const emptyJtiProof: CapabilityTokenProof = {
+      ...proofWithJti,
+      claims: { ...proofWithJti.claims, jti: "" },
+    };
     await expect(
       verifyCapabilityToken(
-        proofEmptyJti,
+        emptyJtiProof,
         trustedIssuers,
         audience,
         subject,
@@ -582,5 +590,114 @@ describe("iss length cap (base58 O(n²) DoS guard)", () => {
     // structural checks, and short valid peer ids still decode.
     expect(ed25519PubkeyFromPeerId("1".repeat(128))).toBeUndefined();
     expect(ed25519PubkeyFromPeerId(GOLDEN_PEER_ID)).toEqual(GOLDEN_PUBKEY);
+  });
+});
+
+describe("issueCapabilityToken claim validation (fail fast at issuance)", () => {
+  const issuer = peerOf(ISSUER_SEED);
+  const subject = peerOf(new Uint8Array(32).fill(7));
+  const audience = peerOf(new Uint8Array(32).fill(8));
+
+  it("rejects claims missing a required field before signing", async () => {
+    const base = claims(issuer, subject, audience, ["spoke-baseline"], NOW + 3600);
+    const missing: Array<[string, unknown]> = [
+      ["iss", { ...base, iss: undefined }],
+      ["sub", { ...base, sub: undefined }],
+      ["aud", { ...base, aud: undefined }],
+      ["capabilities", { ...base, capabilities: undefined }],
+      ["exp", { ...base, exp: undefined }],
+    ];
+    for (const [label, value] of missing) {
+      await expect(
+        issueCapabilityToken(ISSUER_SEED, value as unknown as CapabilityClaims),
+        `missing ${label} must reject`,
+      ).rejects.toThrowError(tokenInvalid);
+    }
+    // Non-object claims are malformed too.
+    await expect(
+      issueCapabilityToken(ISSUER_SEED, null as unknown as CapabilityClaims),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("rejects non-u64 exp and iat before signing", async () => {
+    const base = claims(issuer, subject, audience, ["spoke-baseline"], NOW + 3600);
+    for (const exp of ["123", 1.5, -1, Infinity, NaN, 2 ** 64]) {
+      await expect(
+        issueCapabilityToken(
+          ISSUER_SEED,
+          { ...base, exp } as unknown as CapabilityClaims,
+        ),
+        `exp: ${String(exp)} must reject`,
+      ).rejects.toThrowError(tokenInvalid);
+    }
+    for (const iat of ["999", 1.5, -1]) {
+      await expect(
+        issueCapabilityToken(
+          ISSUER_SEED,
+          { ...base, iat } as unknown as CapabilityClaims,
+        ),
+        `iat: ${String(iat)} must reject`,
+      ).rejects.toThrowError(tokenInvalid);
+    }
+  });
+
+  it("rejects malformed or empty capabilities before signing", async () => {
+    const base = claims(issuer, subject, audience, ["spoke-baseline"], NOW + 3600);
+    const badCapabilities: unknown[] = [
+      "spoke-baseline", // not an array
+      null, // not an array
+      [], // empty grant — authorizes nothing
+      ["spoke-baseline", 42], // non-string member
+    ];
+    for (const capabilities of badCapabilities) {
+      await expect(
+        issueCapabilityToken(
+          ISSUER_SEED,
+          { ...base, capabilities } as unknown as CapabilityClaims,
+        ),
+      ).rejects.toThrowError(tokenInvalid);
+    }
+  });
+
+  it("rejects an empty jti at issuance (could never verify)", async () => {
+    const base = claims(issuer, subject, audience, ["spoke-baseline"], NOW + 3600);
+    await expect(
+      issueCapabilityToken(
+        ISSUER_SEED,
+        { ...base, jti: "" } as unknown as CapabilityClaims,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("accepts the golden-shape claims (Rust-minted fixture shape)", async () => {
+    const goldenSubject = peerOf(new Uint8Array(32).fill(7));
+    const goldenAudience = peerOf(new Uint8Array(32).fill(8));
+    const proof = await issueCapabilityToken(GOLDEN_SEED, {
+      iss: GOLDEN_PEER_ID,
+      sub: goldenSubject,
+      aud: goldenAudience,
+      capabilities: ["spoke-baseline", "l2-computable"],
+      exp: NOW + 3600,
+      iat: NOW,
+      jti: "golden-jti-001",
+    });
+    expect(proof.claims).toEqual({
+      iss: GOLDEN_PEER_ID,
+      sub: goldenSubject,
+      aud: goldenAudience,
+      capabilities: ["spoke-baseline", "l2-computable"],
+      exp: NOW + 3600,
+      iat: NOW,
+      jti: "golden-jti-001",
+    });
+    await expect(
+      verifyCapabilityToken(
+        proof,
+        [GOLDEN_PEER_ID],
+        goldenAudience,
+        goldenSubject,
+        NOW,
+      ),
+    ).resolves.toEqual(["spoke-baseline", "l2-computable"]);
   });
 });

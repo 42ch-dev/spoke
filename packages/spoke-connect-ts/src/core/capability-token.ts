@@ -152,8 +152,62 @@ function canonicalClaimsBytes(claims: CapabilityClaims): Uint8Array {
 }
 
 /**
+ * Fail-closed runtime claim guard for **issuance**: before any crypto runs,
+ * reject claims the verifier would deterministically reject, so
+ * `issueCapabilityToken` never signs a token that cannot verify.
+ *
+ * Mirrors the claim checks in [`assertProofShape`] (required fields, u64
+ * JSON-integer rules for `exp` / `iat` via [`isU64JsonInteger`]) with two
+ * fail-fast additions: `capabilities` must be **non-empty** (an empty grant
+ * authorizes nothing) and `jti`, when present, must be **non-empty** (verify
+ * rule 8 rejects empty `jti`). Unknown keys are **not** rejected here —
+ * [`canonicalClaimsObject`] drops them before signing, mirroring the Rust
+ * typed struct that cannot even carry extra keys.
+ */
+function assertClaimsShape(claims: unknown): asserts claims is CapabilityClaims {
+  const malformed = (what: string): never => {
+    throw new CoreError("token_invalid", `claims are malformed: ${what}`);
+  };
+  if (typeof claims !== "object" || claims === null) {
+    malformed("claims must be an object");
+  }
+  const c = claims as Record<string, unknown>;
+  if (typeof c.iss !== "string") {
+    malformed("iss must be a string");
+  }
+  if (typeof c.sub !== "string") {
+    malformed("sub must be a string");
+  }
+  if (typeof c.aud !== "string") {
+    malformed("aud must be a string");
+  }
+  if (
+    !Array.isArray(c.capabilities) ||
+    c.capabilities.length === 0 ||
+    !c.capabilities.every((item) => typeof item === "string")
+  ) {
+    malformed("capabilities must be a non-empty string array");
+  }
+  // Rust types exp / iat as u64; mirror the verifier's u64 rules exactly so
+  // issuance cannot sign a token the verifier would reject on shape.
+  if (!isU64JsonInteger(c.exp)) {
+    malformed("exp must be a u64 JSON integer");
+  }
+  if (c.iat !== undefined && !isU64JsonInteger(c.iat)) {
+    malformed("iat must be a u64 JSON integer when present");
+  }
+  if (c.jti !== undefined && (typeof c.jti !== "string" || c.jti === "")) {
+    malformed("jti must be a non-empty string when present");
+  }
+}
+
+/**
  * Issue a capability token: canonicalize `claims` with JCS, sign with the
  * issuer Ed25519 secret key (32-byte seed), and wrap the result.
+ *
+ * Claims are shape-validated before signing ([`assertClaimsShape`]) — a
+ * token that could never verify is rejected at issuance with
+ * `CoreError("token_invalid")` instead of being signed.
  *
  * The issuer's derived `peer_id` MUST equal `claims.iss` — the token must
  * be issued by the authority it names, or it cannot verify.
@@ -162,6 +216,7 @@ export async function issueCapabilityToken(
   issuerSecret: Uint8Array,
   claims: CapabilityClaims,
 ): Promise<CapabilityTokenProof> {
+  assertClaimsShape(claims);
   const derivedIssuer = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(issuerSecret),
   );

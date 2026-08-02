@@ -20,7 +20,7 @@ Connect is the opt-in **interaction envelope family** (`spoke-connect` capabilit
 - **Signed hello** — `spoke-connect-hello-jcs-v1`: RFC 8785 JCS over `{protocol_version, peer_id, nonce, host}`, Ed25519-signed, unpadded base64url.
 - **Ordering** — per-session, per-direction monotonic `sequence` from 0; a sequence overflow closes the session and opens a new one; responses echo `session_id` / `sequence` / `request_id`.
 - **Auth** — `noise-peerid` (allowlist + signed hello at handshake) and `capability-token` (offline-validated, capability-scoped step-up grants).
-- **Discovery** — explicit peering (configured addresses / out-of-band dial) is the normative path; mDNS is a same-LAN runtime convenience in the reference stack.
+- **Discovery** — explicit peering (configured addresses / out-of-band dial) is the normative production path; mDNS is a non-default reference-stack convenience for same-LAN development only.
 
 ## Embedding model
 

@@ -34,7 +34,7 @@ The protocol organizes its wire dialect into **nine conceptual layers** (L0–L8
 
 ## Domain Profiles
 
-A Domain Profile publishes ontology vocabulary while core schemas stay closed: profile type tables live in adapter specs and handbooks (narrative-structure beat mapping, lore activation), and `entry_type` and `relation_type` remain open strings on the wire.
+A Domain Profile publishes ontology vocabulary over the core wire shapes: profile type tables live in adapter specs and handbooks (narrative-structure beat mapping, lore activation). Core objects keep closed envelopes (`additionalProperties: false`), while core vocabulary stays open — `entry_type`, `relation_type`, and statuses are open strings with documented core lists, not closed enums. Products express profile-specific types with open strings and `extensions.<namespace>`.
 
 ## Normative references
 

@@ -16,7 +16,7 @@ The TypeScript route for connect Path A is **pure-TS-minimal**: the envelope rul
 ## Fallback routes
 
 - **js-libp2p** — the mesh fallback when the product must join a shared libp2p mesh and speak Noise/yamux with the Rust reference stack.
-- **WASM (Rust core + JS transport)** — fallback route for a pure-TS crypto/JCS gap; not yet implemented.
+- **WASM (Rust core + JS transport)** — deferred fallback route for a pure-TS crypto/JCS gap.
 
 ## Evidence
 
@@ -24,7 +24,7 @@ Identity-byte reproducibility in JavaScript is proven: `tooling/connect-identity
 
 ## Implementation scope
 
-The route covers pure helpers (`derivePeerId`, canonical hello bytes / JCS, `signHello` / `verifyHello`, base64url), a WebSocket transport adapter, and a minimal session-core port (protocol version check, allowlist, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate). Swarm features, DHT discovery, and a published npm connect package are not yet implemented.
+The route covers pure helpers (`derivePeerId`, canonical hello bytes / JCS, `signHello` / `verifyHello`, base64url), a WebSocket transport adapter, and a minimal session-core port (protocol version check, allowlist, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate). Swarm features, DHT discovery, and a published npm connect package are out of first-slice scope.
 
 ## Normative references
 

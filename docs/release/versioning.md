@@ -23,7 +23,7 @@ SPOKE publishes a **single lockstep SemVer** across all workspace packages and R
 
 - **PATCH** — bugfix-only packaging release; the wire contract stays unchanged.
 - **MINOR** — backward-compatible wire or ops library additions.
-- **MAJOR** — breaking wire or public API change (pre-1.0, deprecation periods begin at 1.0).
+- **MAJOR** — breaking wire or public API change (pre-1.0, allowed without a deprecation period).
 
 ## Pin methods
 
@@ -33,7 +33,7 @@ SPOKE publishes a **single lockstep SemVer** across all workspace packages and R
 
 ## Package SemVer vs wire `schema_version`
 
-Package SemVer and the integer wire `schema_version` move independently — release notes couple them when a package bump accompanies a wire change.
+Package SemVer and the integer wire `schema_version` move independently — a bump to one does not require a bump to the other. As an exception, release notes explicitly couple the two when a release covers both a package bump and a wire change.
 
 ## Normative references
 

@@ -9,7 +9,7 @@ This Domain Profile handbook documents **Beat-assisted narrative outlining** ove
 ## Beat senses → wire mapping
 
 - **Atomic / scene beat** — `TimelineEvent` with `timeline_scale: "moment"`, optionally paired with a KnowledgeEntry (dual-concern).
-- **Structural beat** — `BodyAttribute` trait (`structural_role`) on a KnowledgeEntry body, e.g. `midpoint`, `catalyst`, `finale` (open vocabulary alongside the core `entry_type` list).
+- **Structural beat** — `BodyAttribute` with `trait_type: "structural_role"` on a KnowledgeEntry body, e.g. `midpoint`, `catalyst`, `finale` (profile open-string slot labels in the body-attribute trait vocabulary).
 - **Parenthetical beat** — screenplay `(beat)` pauses map to `SourceAnchor` spans on dialogue text.
 - **Ordering** — `Relation` with `relation_type: "precedes"` (or `follows`) between dual KnowledgeEntry ids; moment events link to their KE via `extensions.spoke.timeline_entry_id`.
 - **Selection** — `Scope` filters with `timeline_scale: "moment"`, `timeline_event_ids`, or `entry_types` including the profile `beat` label.

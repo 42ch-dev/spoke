@@ -12,11 +12,11 @@ The crate's `src/core/` is the pure, synchronous, language-portable layer — li
 
 ## Swift sync-core binding
 
-A **Swift sync-core binding** ships through uniffi behind the optional `ffi` feature (`cdylib`): exported functions like `derivePeerIdFromEd25519Pubkey`, `signHelloEd25519` / `verifyHelloEd25519`, `isAllowlisted`, `checkResponseCorrelation`, `dispatchAllowed`, plus `NonceStore` / `OutboundSequence` / `InboundSequence` objects — with a macOS-local smoke asserting golden-vector parity. Async node lifecycle (start, listen, `connect`) stays Rust-side.
+A **Swift sync-core skeleton** is landed through uniffi behind the optional `ffi` feature (`cdylib`): exported functions like `derivePeerIdFromEd25519Pubkey`, `signHelloEd25519` / `verifyHelloEd25519`, `isAllowlisted`, `checkResponseCorrelation`, `dispatchAllowed`, plus `NonceStore` / `OutboundSequence` / `InboundSequence` objects — with a macOS-local smoke asserting golden-vector parity. Async node lifecycle (start, listen, `connect`) stays Rust-side.
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction); Swift is the first shipped binding. TypeScript is a parallel **Path A** track (language-direct). C# binding is pending `uniffi-bindgen-cs` support for uniffi 0.32; the target matrix keeps C# as the first target.
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction); Swift is the landed skeleton. TypeScript is a parallel **Path A** track (language-direct). C# remains the first target, deferred pending `uniffi-bindgen-cs` support for uniffi 0.32.
 
 ## Integrator notes
 

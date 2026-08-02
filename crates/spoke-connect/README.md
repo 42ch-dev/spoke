@@ -364,7 +364,8 @@ Errors map variant-for-variant onto two uniffi enums:
 
 - `CoreError` → Swift `CoreError`: `InvalidHelloSignature`, `NonceReplay`,
   `HandshakeFailed(reason: String)`, `InvalidNonce(message: String)`,
-  `Crypto(message: String)`, `Jcs(message: String)`.
+  `Crypto(message: String)`, `Jcs(message: String)`,
+  `TokenInvalid(message: String)`.
 - `CoreInvokeError` → Swift `CoreInvokeError`: `SequenceExhausted`,
   `InboundSequenceMismatch(expected: UInt64, actual: Int64)`,
   `CorrelationMismatch`.
@@ -385,11 +386,11 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 ### Target-language matrix
 
-> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. Swift remains the first **landed** skeleton (shipped with a macOS smoke and golden parity); the order below governs future binding work.
+> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. Swift remains the first **landed** skeleton (shipped with a macOS smoke and golden parity); the order below governs future binding work. C# remains the next binding target; it is **deferred** pending a `uniffi-bindgen-cs` tag targeting uniffi 0.32+ (decision record: `../../.mstar/specs/connect-csharp-bindgen-deferred.md`).
 
 | Language | Embedding path | Priority | Rationale |
 |----------|----------------|----------|-----------|
-| C# | Path B uniffi | **First target** | Desktop/server hosts; community `uniffi-bindgen-cs` (.NET) pipeline |
+| C# | Path B uniffi | First target — **deferred** | Desktop/server hosts; community `uniffi-bindgen-cs` (.NET) pipeline — its latest tag (v0.11.0+v0.31.0) targets uniffi 0.31, which cannot read the uniffi 0.32 cdylib metadata; revisit when a bindgen-cs tag targets 0.32+ |
 | Go | Path B uniffi | Second | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
 | Python | Path B uniffi | Third | Async FFI / asyncio historically finicky — core-only first |
 | **Swift (iOS / macOS)** | Path B uniffi | Fourth — **landed skeleton** | Shipped first (macOS smoke, golden parity); mature uniffi story |

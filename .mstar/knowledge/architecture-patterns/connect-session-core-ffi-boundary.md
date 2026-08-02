@@ -1,12 +1,12 @@
 ---
 module: spoke-connect
 date: 2026-08-01
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["extracting a pure session core for cross-language binding", "preparing a Rust crate for a uniffi FFI boundary", "deciding sync vs async surfaces on a foreign-language facade", "landing a first uniffi binding skeleton (Swift, Kotlin, …)"]
-tags: [spoke-connect, session-core, ffi-boundary, uniffi, swift, path-b, sync-async, golden-vectors]
+applies_when: ["extracting a pure session core for cross-language binding", "preparing a Rust crate for a uniffi FFI boundary", "deciding sync vs async surfaces on a foreign-language facade", "landing a first uniffi binding skeleton (Swift, Kotlin, …)", "verifying a community bindgen pipeline against the repo's pinned uniffi version"]
+tags: [spoke-connect, session-core, ffi-boundary, uniffi, swift, path-b, golden-vectors, csharp]
 ---
 
 # connect session-core extraction and FFI facade boundary
@@ -70,12 +70,18 @@ Order binding targets by uniffi maturity and product value; record the decision 
 
 | Language | Embedding path | Priority |
 |---|---|---|
-| C# | Path B uniffi | **First target** — desktop/server hosts; community `uniffi-bindgen-cs` (.NET) |
+| C# | Path B uniffi | **First target** — desktop/server hosts; community `uniffi-bindgen-cs` (.NET); **deferred** on the bindgen version gap (see binding-pipeline verification below) |
 | Go | Path B uniffi | Second — server/CLI hosts; community `uniffi-bindgen-go` |
 | Python | Path B uniffi | Third — async FFI / asyncio is historically finicky; core-only first |
 | Swift (iOS / macOS) | Path B uniffi | Fourth — **landed skeleton** (sync-core, core-only, macOS smoke) |
 | Kotlin (Android) | Path B uniffi | Fifth — same uniffi pipeline as Swift |
 | TypeScript (browser / Node) | **Path A** language-direct | Parallel track — no uniffi/WASM assumed; decided by the TS route |
+
+### Binding pipeline verification (community bindgens lag uniffi)
+
+Community uniffi bindgen tools (C#/Go/Python) may lag the repo's pinned uniffi line — uniffi metadata encoding and runtime contract checksums change between uniffi versions, so a bindgen built for an older uniffi fails against a well-formed current `cdylib`. **Verify the full pipeline — generate → compile → link/load → runtime checksum — against the pinned uniffi version before planning a binding slice**; do not assume a published bindgen tag tracks the newest uniffi. Use a positive control (the crate-local uniffi-bindgen generating another language from the same `cdylib`) to confirm the failure is reader/version-specific and not a surface or metadata defect.
+
+**C# is currently deferred on this gate:** `uniffi-bindgen-cs` v0.11.0 (and upstream `main`) targets uniffi 0.31 while the repo pins 0.32. The `--library` metadata read fails; the UDL fallback generates and compiles (net8.0, zero warnings/errors) but the runtime checksum gate rejects all 14 exported symbols before any call executes. The target-language matrix keeps **C# as the first target**; the revisit trigger is a `uniffi-bindgen-cs` tag (or main commit) targeting uniffi **0.32+**, re-checked via the regenerate → build → run sequence documented in `crates/spoke-connect/bindings/csharp/Smoke/README.md`. Go/Python bindgen tools get the same feasibility gate before their binding slices start. Full record: [`connect-csharp-bindgen-deferred.md`](../../specs/connect-csharp-bindgen-deferred.md).
 
 ### Next-slice binding checklist
 
@@ -120,3 +126,4 @@ Every item is pure, synchronous, and operates on plain data — the exact list a
 - [`connect-identity-parity-proof.md`](../testing-patterns/connect-identity-parity-proof.md) — the cross-language byte-parity methodology the golden vectors feed.
 - [`connect-ts-client-sdk.md`](connect-ts-client-sdk.md) — the Path A language-direct port (pure-TS) that mirrors this core's surface and asserts the same golden vectors.
 - [`connect-capability-token-auth.md`](connect-capability-token-auth.md) — the step-up auth method whose `TokenInvalid` failure surfaces in the exported error enums.
+- [`connect-csharp-bindgen-deferred.md`](../../specs/connect-csharp-bindgen-deferred.md) — C# binding deferral decision record (bindgen version gap, what was tried, revisit trigger).

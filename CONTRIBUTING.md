@@ -90,6 +90,18 @@ These stay private to the monorepo (not published to registries):
 
 PRs must pass GitHub Actions jobs `verify-codegen`, `typescript`, `rust`, and `verify-version` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
+## Integrator docs site
+
+The integrator-facing VitePress site lives in `docs/` (config: `docs/.vitepress/config.mts`).
+
+| Command | Purpose |
+|---------|---------|
+| `pnpm docs:dev` | Local dev server with hot reload |
+| `pnpm docs:build` | Static build to `docs/.vitepress/dist` (the CI gate) |
+| `pnpm docs:preview` | Serve the built site locally |
+
+Pages summarize each topic and link the normative body in `.mstar/specs/` — the specs remain the single source of truth for normative detail. The build gate runs on PRs and the Pages deploy runs on `main` via [`.github/workflows/docs.yml`](.github/workflows/docs.yml); the Pages source must be **GitHub Actions** (repo Settings → Pages → Source).
+
 ## Release
 
 Primary path — **New release** on GitHub Actions, then merge the PR:

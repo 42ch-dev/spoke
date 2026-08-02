@@ -1,0 +1,34 @@
+---
+title: TypeScript connect route
+---
+
+# TypeScript connect route
+
+The TypeScript route for connect Path A is **pure-TS-minimal**: the envelope rules and identity math are implemented in TypeScript with pure-JS primitives (WebCrypto where available, `@noble/ed25519` fallback) — js-libp2p and WASM are the fallback routes below.
+
+## Route shape
+
+- **Transport** — WebSocket as an ordered reliable stream, one JSON connect envelope per message.
+- **Crypto** — WebCrypto `Ed25519` where available, `@noble/ed25519` fallback (same seed/sign semantics).
+- **Canonicalization** — RFC 8785 JCS over the signed hello fields.
+- **`peer_id`** — the spec formula only: protobuf `PublicKey` → identity multihash `0x00` → base58btc (no multibase prefix, no CIDv1).
+
+## Fallback routes
+
+- **js-libp2p** — the mesh fallback when the product must join a shared libp2p mesh and speak Noise/yamux with the Rust reference stack.
+- **WASM (Rust core + JS transport)** — deferred fallback route for a pure-TS crypto/JCS gap.
+
+## Evidence
+
+Identity-byte reproducibility in JavaScript is proven: `tooling/connect-identity-proof/proof.mjs` (zero npm dependencies) matches the Rust golden vectors for `peer_id`, JCS bytes, Ed25519 signature, and base64url encoding — all checks PASS on Node 24 WebCrypto.
+
+## Implementation scope
+
+The route covers pure helpers (`derivePeerId`, canonical hello bytes / JCS, `signHello` / `verifyHello`, base64url), a WebSocket transport adapter, and a minimal session-core port (protocol version check, allowlist, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate). Swarm features, DHT discovery, and a published npm connect package are out of first-slice scope.
+
+## Normative references
+
+- [spoke-connect-ts-route.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect-ts-route.md) — full evaluation, rationale, overturn check, identity proof evidence
+- [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) — normative wire / identity / framing (the route keeps envelopes unchanged)
+- [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md) — publishing and packaging strategy for the TS surface
+- [tooling/connect-identity-proof/](https://github.com/42ch-dev/spoke/tree/main/tooling/connect-identity-proof) — local JS reproducibility proof

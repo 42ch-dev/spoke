@@ -184,7 +184,7 @@ Both `README.md` and `README_CN.md` MUST contain a dynamic shields.io GitHub Rel
 | pnpm workspace | `"@42ch/spoke-schemas": "file:../spoke/packages/spoke-schemas"` at checked-out tag |
 | Git dependency | `"@42ch/spoke-schemas": "github:42ch-dev/spoke#vX.Y.Z"` (org/repo as applicable) |
 
-Package names: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crates `spoke-schemas`, `spoke-operations` (published), `spoke-fixture-toy-world` and `spoke-connect` (workspace-private; lockstep version asserted, never published).
+Package names: `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-fixture-toy-world`; Rust crates `spoke-schemas`, `spoke-operations` (published), `spoke-fixture-toy-world` (workspace-private fixture; lockstep version asserted, never published) and `spoke-connect` (workspace-private spike; lockstep version asserted, not published).
 
 ## Orthogonality — package SemVer vs wire `schema_version`
 

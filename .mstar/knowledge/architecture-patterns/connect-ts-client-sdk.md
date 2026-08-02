@@ -20,7 +20,7 @@ The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) loc
 
 | Decision | Rule |
 |---|---|
-| Visibility | `"private": true` — ships inside the monorepo, never published |
+| Visibility | `"private": true` — ships inside the monorepo; not published (future publish is governed by the connect publish strategy) |
 | Version | Tracks the monorepo lockstep SemVer — asserted by `verify:version`, bumped by `release:bump` |
 | Engine floor | `node >= 20.19.0` (see Node floor rationale below) |
 | Module style | ESM (`"type": "module"`); monorepo-internal imports resolve TypeScript sources under `NodeNext` |

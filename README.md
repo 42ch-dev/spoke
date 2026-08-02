@@ -6,7 +6,9 @@
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
-[中文](README_CN.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
+[中文](README_CN.md) · [Documentation](docs/) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
+
+Integrator documentation: browse [`docs/`](docs/) locally with `pnpm docs:dev`; the site is published to <https://42ch-dev.github.io/spoke/> once the Pages deploy workflow runs.
 
 **Standardized Programmable Ontology Knowledge Engine** — a protocol of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products exchange consistency-check and context-assembly I/O through these shapes.
 

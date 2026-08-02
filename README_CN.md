@@ -6,7 +6,9 @@
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
-[English](README.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
+[English](README.md) · [文档](docs/) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
+
+集成文档：本地用 `pnpm docs:dev` 浏览 [`docs/`](docs/)；Pages 部署工作流运行后，文档站点发布至 <https://42ch-dev.github.io/spoke/>。
 
 **Standardized Programmable Ontology Knowledge Engine** — 叙事 **KnowledgeEntry** 数据层与 **ops** 操作层的 JSON Schema 线上契约。各独立产品通过这些形状交换一致性检查与上下文组装的 I/O。
 

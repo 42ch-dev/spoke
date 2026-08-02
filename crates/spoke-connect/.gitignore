@@ -4,3 +4,11 @@
 bindings/swift/generated/
 # Local smoke binary — compiled by the commands in bindings/swift/Smoke/README.md.
 bindings/swift/Smoke/smoke
+# Generated C# bindings — uniffi-bindgen-cs output for the exported sync-core
+# facade (regenerate sequence in bindings/csharp/Smoke/README.md; pipeline
+# deferred pending a bindgen-cs tag targeting uniffi 0.32+).
+bindings/csharp/generated/
+# Local smoke build outputs — `dotnet build/run` artifacts of
+# bindings/csharp/Smoke.
+bindings/csharp/Smoke/bin/
+bindings/csharp/Smoke/obj/

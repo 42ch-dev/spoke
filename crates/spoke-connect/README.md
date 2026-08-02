@@ -364,7 +364,8 @@ Errors map variant-for-variant onto two uniffi enums:
 
 - `CoreError` → Swift `CoreError`: `InvalidHelloSignature`, `NonceReplay`,
   `HandshakeFailed(reason: String)`, `InvalidNonce(message: String)`,
-  `Crypto(message: String)`, `Jcs(message: String)`.
+  `Crypto(message: String)`, `Jcs(message: String)`,
+  `TokenInvalid(message: String)`.
 - `CoreInvokeError` → Swift `CoreInvokeError`: `SequenceExhausted`,
   `InboundSequenceMismatch(expected: UInt64, actual: Int64)`,
   `CorrelationMismatch`.

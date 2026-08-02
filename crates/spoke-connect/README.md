@@ -386,7 +386,7 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 ### Target-language matrix
 
-> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. Swift remains the first **landed** skeleton (shipped with a macOS smoke and golden parity); the order below governs future binding work. C# remains the next binding target; it is **deferred** pending a `uniffi-bindgen-cs` tag targeting uniffi 0.32+ (decision record: `.mstar/specs/connect-csharp-bindgen-deferred.md`).
+> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. Swift remains the first **landed** skeleton (shipped with a macOS smoke and golden parity); the order below governs future binding work. C# remains the next binding target; it is **deferred** pending a `uniffi-bindgen-cs` tag targeting uniffi 0.32+ (decision record: `../../.mstar/specs/connect-csharp-bindgen-deferred.md`).
 
 | Language | Embedding path | Priority | Rationale |
 |----------|----------------|----------|-----------|

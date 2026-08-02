@@ -1,5 +1,7 @@
 # spoke-connect C# smoke (deferred)
 
+In the deferred state only this README is committed — no `Smoke.csproj`, `Program.cs`, or generated bindings; the §Regenerate block below is the recipe to scaffold them on the revisit trigger.
+
 ## T1 feasibility verdict
 
 ```text
@@ -100,4 +102,4 @@ the gate: it failed on uniffi 0.32 metadata at T1 (2026-08-02), before any
 ## Reference
 
 - Decision record: [`../../../../../.mstar/specs/connect-csharp-bindgen-deferred.md`](../../../../../.mstar/specs/connect-csharp-bindgen-deferred.md)
-- Swift smoke (landed): `../swift/Smoke/README.md`
+- Swift smoke (landed): `../../swift/Smoke/README.md`

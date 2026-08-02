@@ -66,14 +66,15 @@ Boundary conventions the wrapper encodes:
 
 ### Target-language matrix
 
-Order binding targets by uniffi maturity and product value; record the decision in the crate README so the next slice starts from a settled surface:
+Order binding targets by uniffi maturity and product value; record the decision in the crate README so the next slice starts from a settled surface. Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin** — Swift remains the first **landed** skeleton; the order governs future binding work.
 
 | Language | Embedding path | Priority |
 |---|---|---|
-| Swift (iOS / macOS) | Path B uniffi | **First — landed** (sync-core skeleton, core-only, macOS smoke) |
-| Kotlin (Android) | Path B uniffi | Second — same uniffi pipeline after the core stabilizes |
-| C# | Path B uniffi | Later — secondary desktop/server hosts |
-| Python | Path B uniffi | Later — async FFI / asyncio is historically finicky; core-only first |
+| C# | Path B uniffi | **First target** — desktop/server hosts; community `uniffi-bindgen-cs` (.NET) |
+| Go | Path B uniffi | Second — server/CLI hosts; community `uniffi-bindgen-go` |
+| Python | Path B uniffi | Third — async FFI / asyncio is historically finicky; core-only first |
+| Swift (iOS / macOS) | Path B uniffi | Fourth — **landed skeleton** (sync-core, core-only, macOS smoke) |
+| Kotlin (Android) | Path B uniffi | Fifth — same uniffi pipeline as Swift |
 | TypeScript (browser / Node) | **Path A** language-direct | Parallel track — no uniffi/WASM assumed; decided by the TS route |
 
 ### Next-slice binding checklist

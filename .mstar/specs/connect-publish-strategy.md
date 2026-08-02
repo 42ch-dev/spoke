@@ -84,7 +84,7 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 
 - `release.yml` remains the **sole top-level publish workflow** (tag push `v*` or `release`-labeled PR merge). Trusted Publishing OIDC binds to that filename — keep Stage 1 npm publish inside `publish-npm`, do not wrap via `workflow_call`.
 - Stable tags `vX.Y.Z` and prerelease SemVer tags without `-rc.` publish registries; tags containing `-rc.` create GitHub pre-releases only.
-- Stage 1 execution extends the publish-npm package list to include `@42ch/spoke-connect-ts` after published-shape and suite gates are green; until then the package stays `private: true`.
+- Stage 1 execution extends the publish-npm package list to include `@42ch/spoke-connect-ts` after published-shape and suite gates are green, and **co-updates `.mstar/specs/spoke-version-release.md` in the same change**: row 6 "not published" → `@42ch/spoke-connect-ts` published; add the package to the publish-only package lists (release steps, registry-artifacts, CI package set) and the package-name / install tables. Until Stage 1 the package stays `private: true` and the release spec keeps the "not published" wording.
 
 ---
 
@@ -113,13 +113,22 @@ Package: `packages/spoke-connect-ts` (`@42ch/spoke-connect-ts`).
 | |   } |
 | | } |
 | | ``` |
-| | Stage 1 first npm publish **should** emit `dist/` (tsc or tsup) and point `exports` at JS + `.d.ts`. Src-only npm is acceptable only as an explicit interim; **default recommendation = add build before first publish**. |
+| | Stage 1 first npm publish **MUST** ship a built tarball: emit `dist/` (tsc or tsup), retarget `exports` (`import` → `./dist/index.js`, `types` → `./dist/index.d.ts`, same shape for `./node`), include `dist/` in `files`, and pass packed-tarball import smokes before the first publish. The prep state above (src-publish intent map, `private: true`) is unchanged — the build is a Stage 1 execution step, not a prep flip |
 | `files` | Prep (realized): `["src", "README.md"]` — SPDX `license` field only, mirroring published siblings (authoritative text at repo-root `LICENSE`); no package-level LICENSE file. Tarball LICENSE copy is a **Stage 1 execution option** (npm `files` does not auto-include a root LICENSE; add a copy/prepare step alongside the build if a tarball LICENSE is wanted). Stage 1 with build: `["dist", "README.md"]` |
 | Metadata | `repository` `{ type, url: git+https://github.com/42ch-dev/spoke.git, directory: packages/spoke-connect-ts }`; `homepage` = **repo URL slot** today (`https://github.com/42ch-dev/spoke`) — docs-site URL not yet known; switch to the docs-site URL when the site lands; keep `keywords`, `description`, `engines.node` (≥20.19.0) |
 | `publishConfig` | `{ "access": "public" }` present or documented while `private: true` (inert until Stage 1). Provenance: npm Trusted Publishing OIDC via `release.yml` |
 | Dependencies at publish | `@42ch/spoke-schemas` resolves on npm at the **same lockstep version** (`workspace:*` rewritten on pack). `ws` remains a dependency of the `./node` subpath only — browser consumers import `"."` only |
 | README | Short **Publish guidance**: private until Stage 1; subpath map; peer/lockstep expectation on `@42ch/spoke-schemas` |
 | Behavior | Published-shape is metadata/exports only until Stage 1; workspace consumers keep current import paths |
+
+**Stage 1 execution checklist** (fires at the Stage 1 release cut; no action during prep):
+
+- [ ] Emit `dist/` (tsc or tsup) and retarget `exports` to the built JS + `.d.ts` (`import` → `./dist/*.js`, `types` → `./dist/*.d.ts`); `files` includes `dist/`.
+- [ ] Pass **packed-tarball import smokes**: `npm pack`, then import both `@42ch/spoke-connect-ts` and `@42ch/spoke-connect-ts/node` from the packed tarball on the supported Node versions (≥ 20.19.0).
+- [ ] Co-update `.mstar/specs/spoke-version-release.md` in the same change as the `release.yml` publish-npm list extension: row 6 "not published" → `@42ch/spoke-connect-ts` published; add the package to the publish-only package lists and the package-name / install tables. The release spec is not edited during prep.
+- [ ] Re-evaluate `ws` placement: browser consumers of the `.` subpath currently pay the `ws` install cost via flat `dependencies` — decide at Stage 1 whether `ws` stays flat or moves to the `./node`-only dependency shape.
+- [ ] Register `@42ch/spoke-connect-ts` as an npm Trusted Publisher for org `42ch-dev` / repo `spoke` (OIDC binding already covers the sibling packages via `release.yml`).
+- [ ] Switch `homepage` from the repo URL slot to the docs-site URL when the docs site lands.
 
 **Prep owner:** package maintainer applying the checklist in-repo. **Stage 1 flip** (`private: false` + `release.yml` list) is a separate maintainer release cut after the checklist and suites are green on main.
 
@@ -181,7 +190,7 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 
 | Slice | What ships | Trigger | Owner |
 |-------|------------|---------|-------|
-| **connect publish execution (Stage 1)** | First registry publish of `@42ch/spoke-connect-ts` + docs site live; extend `release.yml` publish-npm list + Trusted Publishing; **amend the root `AGENTS.md` connect boundary line** ("no published connect package" → `@42ch/spoke-connect-ts` is the published TS client; `crates/spoke-connect` and bindings stay unpublished) **as part of the Stage 1 change**; keep `spoke-connect` crate and bindings unpublished unless Stage 2 revises | Decision record accepted on main + published-shape checklist complete + golden/suite green on main + maintainer release cut | Release maintainer / next delivery slice |
+| **connect publish execution (Stage 1)** | First registry publish of `@42ch/spoke-connect-ts` + docs site live; **dist/ build + packed-tarball import smokes** (see §6); extend `release.yml` publish-npm list + Trusted Publishing + **co-update `spoke-version-release.md`** (row 6, publish-only lists, package-name/install tables); **amend the root `AGENTS.md` connect boundary line** ("no published connect package" → `@42ch/spoke-connect-ts` is the published TS client; `crates/spoke-connect` and bindings stay unpublished) **as part of the Stage 1 change**; keep `spoke-connect` crate and bindings unpublished unless Stage 2 revises | Decision record accepted on main + published-shape checklist complete + golden/suite green on main + maintainer release cut | Release maintainer / next delivery slice |
 
 Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next**.
 

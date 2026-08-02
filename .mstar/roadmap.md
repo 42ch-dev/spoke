@@ -30,6 +30,7 @@
 | **spoke-connect TS SDK deepening** | Continue the pure-TS-minimal path (first slice delivered): js-libp2p mesh fallback on demand, browser WebTransport evaluation, published-shape review | **Direction confirmed (2026-08-02): keep pure-TS + golden-vector parity discipline** — one Rust core contract, TS re-implementation locked byte-for-byte by golden vectors; WASM of the Rust core stays a contingency, revisited only if pure-TS crypto/JCS ever diverges from Rust |
 | **spoke-connect uniffi bindings (multi-language)** | Swift sync-core skeleton landed; next binding targets by product priority: **C#, Go, Python, Swift, Kotlin** (C# first) | Priority set by product direction (2026-08-02), supersedes the initial Swift-first matrix; C#/Go via community uniffi bindings; async-FFI options documented in crate README; DHT/NAT discovery remains future |
 | **Integrator docs site** | VitePress `docs/` + GitHub Pages publishing Domain Profile handbooks and CONCEPTS-aligned guides | Consumer-facing home for profile handbooks; repo-local SSOT remains `.mstar/specs/` until promoted |
+| **libp2p transitive vulnerability revisit** | Re-check yamux (0.12.1, CVE-2026-32314) and hickory-proto (0.25.2, GHSA-3v94-mw7p-v465 / GHSA-q2qq-hmj6-3wpp) in `Cargo.lock` and bump when upstream fixes land | Dismissed 2026-08-02 (no upstream fix: libp2p 0.56.0 is the latest release; libp2p-yamux 0.47.0 still pins yamux ^0.12.1; libp2p-mdns 0.48.0 requires hickory-proto ^0.25.2 whose fix is 0.26.1); trigger: libp2p ecosystem bump |
 
 ---
 

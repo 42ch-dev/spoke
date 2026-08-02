@@ -156,7 +156,7 @@ Importers map activation fields into product engines. Engines stay product-local
 
 ### Illustrative entry with activation
 
-Baseline KnowledgeEntry atoms stay schema-valid with or without optional `modules`. Full Harbor sample: [`fixtures/toy-world/proposed/pack_tw_harbor_companion.json`](../../fixtures/toy-world/proposed/pack_tw_harbor_companion.json).
+Baseline KnowledgeEntry atoms stay schema-valid with or without optional `modules`. Illustrative activation shape below; Seed/Pool and pack compose guidance are in this handbook.
 
 ```text
 // KnowledgeEntry with optional modules.activation (capability-flagged)
@@ -283,6 +283,5 @@ An integrator can implement pack import/export from this handbook (and the lore-
 | [`spoke-data-model.md`](spoke-data-model.md) | KnowledgeEntry, Relation, SourceAnchor, AssemblePacket, ModuleMap |
 | [`spoke-ops.md`](spoke-ops.md) | `assemble` wire-only boundary; optional `max_entries` hint |
 | [`spoke-operations.md`](spoke-operations.md) | `buildAssemblePacket`, extension + module preserve; no activation engines |
-| [`fixtures/toy-world/`](../../fixtures/toy-world/) | Conformance atoms; optional companion pack samples |
-| [`fixtures/toy-world/proposed/pack_tw_harbor_companion.json`](../../fixtures/toy-world/proposed/pack_tw_harbor_companion.json) | Harbor Narrative Knowledge Pack companion sample (product-envelope catalog + `modules.activation`) |
+| [`fixtures/toy-world/`](../../fixtures/toy-world/) | Conformance atoms; Harbor KE / Relation samples for pack atom patterns |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (capability-flagged); Extensions |

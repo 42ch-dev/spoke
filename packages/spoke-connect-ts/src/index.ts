@@ -16,7 +16,10 @@
  * are not exported here.
  */
 
-export { derivePeerIdFromEd25519Pubkey } from "./identity.js";
+export {
+  derivePeerIdFromEd25519Pubkey,
+  ed25519PubkeyFromPeerId,
+} from "./identity.js";
 
 export {
   base64UrlDecode,

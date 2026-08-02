@@ -11,6 +11,13 @@ export { PROTOCOL_VERSION } from "./version.js";
 export { CoreError, CoreInvokeError } from "./error.js";
 export type { CoreErrorCode, CoreInvokeErrorCode } from "./error.js";
 export {
+  CLOCK_SKEW_SECONDS,
+  TOKEN_VERSION,
+  issueCapabilityToken,
+  verifyCapabilityToken,
+} from "./capability-token.js";
+export type { CapabilityClaims, CapabilityTokenProof } from "./capability-token.js";
+export {
   MAX_SEQUENCE,
   OutboundSequence,
   InboundSequence,

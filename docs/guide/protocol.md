@@ -10,7 +10,7 @@ SPOKE is a shared **wire dialect** for narrative products: one set of JSON Schem
 
 - **Data wire** — eight durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent (`schemas/data/` plus shared defs in `schemas/common/`).
 - **Ops wire** — five baseline operation families (upsert, extract→promote, relate, check, assemble) as transport-agnostic request/response envelopes, plus optional `project` / `compute` under `l2-computable`.
-- **Operations library** — hand-written behavior that JSON Schema cannot express: pure lifecycle helpers, capability-sliced adapter ports, and injection orchestration (`@42ch/spoke-operations` TypeScript; `spoke-operations` Rust at lockstep SemVer).
+- **Operations library** — hand-written behavior over the generated wire types: pure lifecycle helpers, capability-sliced adapter ports, and injection orchestration (`@42ch/spoke-operations` TypeScript; `spoke-operations` Rust at lockstep SemVer).
 
 ## Connect family (opt-in)
 

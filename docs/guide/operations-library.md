@@ -32,7 +32,7 @@ Composed aliases (`BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAd
 
 ## Purity boundary
 
-The library performs no storage I/O, LLM calls, ranking, retrieval, or transport binding — products supply those through injected ports and adapters. Reference adapters and conformance demos live in `fixtures/toy-world/`.
+The library is pure: storage I/O, LLM calls, ranking, retrieval, and transport binding are supplied by products through injected ports and adapters. Reference adapters and conformance demos live in `fixtures/toy-world/`.
 
 ## Normative references
 

@@ -9,16 +9,16 @@ This Domain Profile handbook documents **Beat-assisted narrative outlining** ove
 ## Beat senses → wire mapping
 
 - **Atomic / scene beat** — `TimelineEvent` with `timeline_scale: "moment"`, optionally paired with a KnowledgeEntry (dual-concern).
-- **Structural beat** — `BodyAttribute` trait (`structural_role`) on a KnowledgeEntry body, e.g. `midpoint`, `catalyst`, `finale` (open vocabulary, not core `enum`).
+- **Structural beat** — `BodyAttribute` trait (`structural_role`) on a KnowledgeEntry body, e.g. `midpoint`, `catalyst`, `finale` (open vocabulary alongside the core `entry_type` list).
 - **Parenthetical beat** — screenplay `(beat)` pauses map to `SourceAnchor` spans on dialogue text.
 - **Ordering** — `Relation` with `relation_type: "precedes"` (or `follows`) between dual KnowledgeEntry ids; moment events link to their KE via `extensions.spoke.timeline_entry_id`.
 - **Selection** — `Scope` filters with `timeline_scale: "moment"`, `timeline_event_ids`, or `entry_types` including the profile `beat` label.
 
-Profile-only `entry_type: "beat"` is a valid open string published by this profile — it stays outside the core `entry_type` table and schema description lists.
+Profile-only `entry_type: "beat"` is a valid open string published by this profile — the core `entry_type` table and schema description lists document the core vocabulary.
 
 ## Library support
 
-`@42ch/spoke-operations` / `spoke-operations` export moment-scale filters and beat-sheet ordering helpers (`filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes`) — pure functions over caller-supplied arrays, with no I/O or storage.
+`@42ch/spoke-operations` / `spoke-operations` export moment-scale filters and beat-sheet ordering helpers (`filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes`) — pure functions over caller-supplied arrays, with I/O and storage handled by adapters.
 
 ## Normative references
 

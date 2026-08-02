@@ -19,7 +19,7 @@ features:
 SPOKE is a protocol of JSON Schema wire contracts for narrative knowledge: independent products exchange consistency-check and context-assembly I/O through shared data and ops shapes, so each product stops inventing local formats for the same concepts. The repository is the SSOT — hand-authored schemas, normative specs in `.mstar/specs/`, generated TypeScript and Rust wire types, and pure operations libraries.
 
 - **One wire dialect** — eight data objects and five baseline ops (plus optional `project` / `compute`)
-- **Domain Profiles, not closed enums** — ontology vocabulary publishes over open strings and optional `modules.*` bags
+- **Domain Profiles over open strings** — ontology vocabulary publishes over open strings and optional `modules.*` bags
 - **Capability flags** — claim `spoke-baseline`, or declare `l2-computable`, `l5-fork`, `narrative-modules`, `spoke-connect` explicitly
 - **Language parity** — one lockstep SemVer across npm and crates.io
 - **Opt-in connect** — signed cross-process interaction envelopes with per-session ordering and extensible auth

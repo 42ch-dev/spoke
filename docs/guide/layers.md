@@ -29,12 +29,12 @@ The protocol organizes its wire dialect into **nine conceptual layers** (L0–L8
 ## Hard boundaries
 
 - Rule is declarative input; Finding is checker output — two distinct artifacts.
-- `check` returns findings; `assemble` returns a packet; there is no merged op.
+- `check` returns findings; `assemble` returns a packet — each op returns its own artifact.
 - Timeline tiers (`brief` / `narrative` / `moment`) are protocol when-axis labels, distinct from L8 context assembly and from Fork branches.
 
 ## Domain Profiles
 
-A Domain Profile publishes ontology vocabulary without closing core schemas: profile type tables live in adapter specs and handbooks (narrative-structure beat mapping, lore activation), while `entry_type` and `relation_type` stay open strings on the wire.
+A Domain Profile publishes ontology vocabulary while core schemas stay closed: profile type tables live in adapter specs and handbooks (narrative-structure beat mapping, lore activation), and `entry_type` and `relation_type` remain open strings on the wire.
 
 ## Normative references
 

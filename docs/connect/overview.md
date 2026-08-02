@@ -15,12 +15,12 @@ Connect is the opt-in **interaction envelope family** (`spoke-connect` capabilit
 
 ## Design rules
 
-- **Reuse, don't redefine** — hello embeds the data-layer manifest; invoke wraps ops envelopes; identity is the existing opaque `peer_id`.
+- **Reuse** — hello embeds the data-layer manifest; invoke wraps ops envelopes; identity is the existing opaque `peer_id`.
 - **Identity** — `peer_id` (trust root; libp2p Ed25519 PeerId in protocol v1) vs `host_id` (advisory label inside the manifest).
-- **Signed hello** — `spoke-connect-hello-jcs-v1`: RFC 8785 JCS over `{protocol_version, peer_id, nonce, host}`, Ed25519-signed, base64url (no padding).
-- **Ordering** — per-session, per-direction monotonic `sequence` from 0; responses echo `session_id` / `sequence` / `request_id`; no wrap-around.
+- **Signed hello** — `spoke-connect-hello-jcs-v1`: RFC 8785 JCS over `{protocol_version, peer_id, nonce, host}`, Ed25519-signed, unpadded base64url.
+- **Ordering** — per-session, per-direction monotonic `sequence` from 0; a sequence overflow closes the session and opens a new one; responses echo `session_id` / `sequence` / `request_id`.
 - **Auth** — `noise-peerid` (allowlist + signed hello at handshake) and `capability-token` (offline-validated, capability-scoped step-up grants).
-- **Discovery** — explicit peering is the normative path; the wire carries no mDNS/DHT/multiaddr fields.
+- **Discovery** — explicit peering (configured addresses / out-of-band dial) is the normative path; mDNS is a same-LAN runtime convenience in the reference stack.
 
 ## Embedding model
 

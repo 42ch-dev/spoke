@@ -23,7 +23,7 @@ This handbook defines **lore activation**: the fire conditions under which a Kno
 
 ## Engine boundary
 
-Keyword matching, scan windows, token budgets, and ranking are product-local. The protocol carries the fire conditions for round-trip and pack import; `spoke-operations` provides no matchers.
+Keyword matching, scan windows, token budgets, and ranking are product-local; the protocol carries the fire conditions for round-trip and pack import, and matching is implemented by products.
 
 ## Normative references
 

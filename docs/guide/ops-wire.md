@@ -4,7 +4,7 @@ title: Ops wire
 
 # Ops wire
 
-The ops layer defines transport-agnostic request/response envelopes for core KnowledgeEntry operations. Products carry these JSON payloads over any transport — in-process calls, message queues, or HTTP mappings inside adapters; the wire itself carries no transport fields.
+The ops layer defines transport-agnostic request/response envelopes for core KnowledgeEntry operations. Products carry these JSON payloads over any transport — in-process calls, message queues, or HTTP mappings inside adapters — and the wire stays transport-agnostic.
 
 ## Baseline operations
 
@@ -21,7 +21,7 @@ Each operation has a paired request and response schema. Optional `project` / `c
 - **Scope selector** — `check` and `assemble` require a shared `Scope` with an opaque `scope_id` plus optional refinements (`entry_ids`, `entry_types`, `timeline_event_ids`, `source_id`, `timeline_scale`, `fork_id`, `extensions`). World / book / product ids map via `extensions` or adapters.
 - **One failure dialect** — every response is a `oneOf` of the success payload or `{ "error": ErrorEnvelope }`; success and error branches are mutually exclusive.
 - **Check ≠ Assemble** — `check` returns findings only; `assemble` returns a packet only.
-- **No inline copies** — ops schemas `$ref` data-layer types instead of duplicating them.
+- **`$ref` composition** — ops schemas `$ref` data-layer types, with each type defined once.
 
 ## Minimal request sketch
 

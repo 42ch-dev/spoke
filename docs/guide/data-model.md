@@ -19,7 +19,7 @@ The data layer defines the durable wire objects narrative products exchange. All
 
 ## Open vocabulary
 
-`entry_type`, `relation_type`, and statuses are **open strings** with documented core lists — the schema does not close them with `enum`. Products emit their own values; Domain Profiles document published vocabulary (for example the profile-only `entry_type: "beat"`); adapters round-trip unknown values verbatim.
+`entry_type`, `relation_type`, and statuses are **open strings** with documented core lists — the schema keeps them open, and the core lists serve as reference values. Products emit their own values; Domain Profiles document published vocabulary (for example the profile-only `entry_type: "beat"`); adapters round-trip unknown values verbatim.
 
 ## Extensions contract
 
@@ -29,7 +29,7 @@ Every durable object carries `extensions: { "<namespace>": { } }`. Namespace key
 
 - Rule is declarative checker input; Finding is checker output — each artifact keeps its own role.
 - TimelineEvent is the L5 when-axis object; `entry_type: "event"` is an ontology label — one local concept may map to both.
-- Host metadata lives on `HostCapabilityManifest` (roles, capabilities, namespaces), not inside KnowledgeEntry `extensions`.
+- Host metadata lives on `HostCapabilityManifest` (roles, capabilities, namespaces) — the dedicated manifest surface, separate from KnowledgeEntry `extensions`.
 
 ## Normative references
 

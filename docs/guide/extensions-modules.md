@@ -18,7 +18,7 @@ A **cross-product functional dialect** uses `modules.*`; **product data** uses `
 
 ## Host manifests
 
-On `HostCapabilityManifest`, `extensions` carries deployment metadata only — roles, capabilities, and namespace ownership are core manifest fields.
+On `HostCapabilityManifest`, `extensions` carries deployment metadata; roles, capabilities, and namespace ownership are core manifest fields.
 
 ## Normative references
 

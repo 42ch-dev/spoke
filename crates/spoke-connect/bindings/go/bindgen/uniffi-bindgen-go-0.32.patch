@@ -1,0 +1,383 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 73aa26c..1c368c0 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -12,10 +12,10 @@ members = [
+ ]
+ 
+ [workspace.dependencies]
+-uniffi = "0.31.0"
+-uniffi_testing = "0.31.0"
+-uniffi_macros = "0.31.0"
+-uniffi_build = { version = "0.31.0", features=["builtin-bindgen"] }
+-uniffi_bindgen = "0.31.0"
+-uniffi_meta = "0.31.0"
+-uniffi_udl = "0.31.0"
++uniffi = "0.32.0"
++uniffi_testing = "0.32.0"
++uniffi_macros = "0.32.0"
++uniffi_build = { version = "0.32.0", features=["builtin-bindgen"] }
++uniffi_bindgen = "0.32.0"
++uniffi_meta = "0.32.0"
++uniffi_udl = "0.32.0"
+diff --git a/bindgen/src/gen_go/compounds.rs b/bindgen/src/gen_go/compounds.rs
+index ce6b262..08a9e88 100644
+--- a/bindgen/src/gen_go/compounds.rs
++++ b/bindgen/src/gen_go/compounds.rs
+@@ -57,6 +57,42 @@ macro_rules! impl_code_type_for_compound {
+ impl_code_type_for_compound!(OptionalCodeType, "*{}", "Optional{}");
+ impl_code_type_for_compound!(SequenceCodeType, "[]{}", "Sequence{}");
+ 
++#[derive(Debug)]
++pub struct SetCodeType<'a> {
++    inner: Type,
++    ci: &'a ComponentInterface,
++}
++
++impl<'a> SetCodeType<'a> {
++    pub fn new(inner: Type, ci: &'a ComponentInterface) -> Self {
++        Self { inner, ci }
++    }
++
++    fn inner(&self) -> &Type {
++        &self.inner
++    }
++}
++
++impl<'a> CodeType for SetCodeType<'a> {
++    fn type_label(&self, ci: &ComponentInterface) -> String {
++        format!(
++            "map[{}]struct{{}}",
++            super::GoCodeOracle.find(self.inner(), ci).type_label(ci),
++        )
++    }
++
++    fn canonical_name(&self) -> String {
++        format!(
++            "Set{}",
++            super::GoCodeOracle.find(self.inner(), self.ci).canonical_name(),
++        )
++    }
++
++    fn literal(&self, literal: &Literal, ci: &ComponentInterface) -> String {
++        render_literal(literal, self.inner(), ci)
++    }
++}
++
+ #[derive(Debug)]
+ pub struct MapCodeType<'a> {
+     key: Type,
+diff --git a/bindgen/src/gen_go/mod.rs b/bindgen/src/gen_go/mod.rs
+index 359c837..9a0d88b 100644
+--- a/bindgen/src/gen_go/mod.rs
++++ b/bindgen/src/gen_go/mod.rs
+@@ -434,6 +434,11 @@ impl GoCodeOracle {
+             Type::CallbackInterface { name, .. } => {
+                 Box::new(callback_interface::CallbackInterfaceCodeType::new(name))
+             }
++            // uniffi 0.32: `Box<T>` is transparent (same wire type as `T`).
++            Type::Box { inner_type } => self.create_code_type(*inner_type, ci),
++            Type::Set { inner_type } => {
++                Box::new(compounds::SetCodeType::new(*inner_type, ci))
++            }
+         }
+     }
+ 
+diff --git a/bindgen/src/lib.rs b/bindgen/src/lib.rs
+index 1f4f654..a544429 100644
+--- a/bindgen/src/lib.rs
++++ b/bindgen/src/lib.rs
+@@ -4,14 +4,14 @@
+ 
+ pub mod gen_go;
+ 
+-use anyhow::Context;
++use anyhow::Result;
+ use camino::{Utf8Path, Utf8PathBuf};
+ use clap::Parser;
+ use fs_err::{self as fs};
+ use gen_go::generate_go_bindings;
+ use serde::{Deserialize, Serialize};
+ use std::process::Command;
+-use uniffi_bindgen::{BindgenLoader, BindgenPaths, Component, GenerationSettings};
++use uniffi_bindgen::{Component, GenerationSettings};
+ 
+ #[derive(Parser)]
+ #[clap(name = "uniffi-bindgen")]
+@@ -22,33 +22,25 @@ struct Cli {
+     #[clap(long, short)]
+     out_dir: Option<Utf8PathBuf>,
+ 
+-    /// Do not try to format the generated bindings.
+-    #[clap(long, short)]
+-    no_format: bool,
+-
+-    /// Path to optional uniffi config file. This config will be merged on top of default
+-    /// `uniffi.toml` config in crate root. The merge recursively upserts TOML keys into
+-    /// the default config.
++    /// Path to optional uniffi config file.
+     #[clap(long, short)]
+     config: Option<Utf8PathBuf>,
+ 
+-    /// Compatibility flag for older invocations.
+-    ///
+-    /// UniFFI v0.31.0 auto-detects whether `source` is a UDL file or a library.
+-    #[clap(long = "library")]
++    /// Pass in a cdylib path rather than a UDL file.
++    #[clap(long = "library", requires = "out_dir")]
+     library_mode: bool,
+ 
+-    /// Filter generated bindings to a single crate.
+-    #[clap(long = "crate")]
++    /// When `--library` is passed, only generate bindings for one crate.
++    #[clap(long = "crate", requires = "library_mode")]
+     crate_name: Option<String>,
+ 
+-    /// Path to the UDL file or compiled Rust library.
++    /// Path to the UDL file, or cdylib if `library-mode` is specified.
+     source: Utf8PathBuf,
+-}
+ 
+-struct BindingGeneratorGo;
+-
+-// Replicate the config structure.
++    /// Do not try to format the generated bindings.
++    #[clap(long, short)]
++    no_format: bool,
++}
+ 
+ #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+ pub struct Config {
+@@ -62,11 +54,18 @@ struct InnerConfig {
+     go: gen_go::Config,
+ }
+ 
++struct BindingGeneratorGo {
++    try_format_code: bool,
++}
++
+ impl uniffi_bindgen::BindingGenerator for BindingGeneratorGo {
+-    type Config = Config;
++    type Config = gen_go::Config;
+ 
+     fn new_config(&self, root_toml: &toml::Value) -> anyhow::Result<Self::Config> {
+-        Config::deserialize(root_toml.clone()).context("parse bindgen.go config")
++        Ok(match root_toml.get("bindings").and_then(|b| b.get("go")) {
++            Some(v) => v.clone().try_into()?,
++            None => Default::default(),
++        })
+     }
+ 
+     fn update_component_configs(
+@@ -75,9 +74,9 @@ impl uniffi_bindgen::BindingGenerator for BindingGeneratorGo {
+         components: &mut Vec<uniffi_bindgen::Component<Self::Config>>,
+     ) -> anyhow::Result<()> {
+         for component in components {
+-            component.config.bindings.go.update_from_ci(&component.ci);
++            component.config.update_from_ci(&component.ci);
+             if let Some(name) = &settings.cdylib {
+-                component.config.bindings.go.update_from_cdylib_name(name);
++                component.config.update_from_cdylib_name(name);
+             }
+         }
+         Ok(())
+@@ -89,18 +88,16 @@ impl uniffi_bindgen::BindingGenerator for BindingGeneratorGo {
+         components: &[Component<Self::Config>],
+     ) -> anyhow::Result<()> {
+         for Component { ci, config } in components {
+-            let config = &config.bindings.go;
+-
+             let bindings_path = full_bindings_path(config, &settings.out_dir);
+             fs::create_dir_all(&bindings_path)?;
+             let go_file = bindings_path.join(format!("{}.go", ci.namespace()));
+-            let (header, wrapper) = generate_go_bindings(&config, &ci)?;
++            let (header, wrapper) = generate_go_bindings(config, &ci)?;
+             fs::write(&go_file, wrapper)?;
+ 
+             let header_file = bindings_path.join(config.header_filename());
+             fs::write(header_file, header)?;
+ 
+-            if settings.try_format_code {
++            if self.try_format_code {
+                 match Command::new("go").arg("fmt").arg(&go_file).output() {
+                     Ok(out) => {
+                         if !out.status.success() {
+@@ -134,58 +131,41 @@ fn full_bindings_path(config: &gen_go::Config, out_dir: &Utf8Path) -> Utf8PathBu
+     Utf8PathBuf::from(out_dir).join(package_path)
+ }
+ 
+-pub fn main() -> anyhow::Result<()> {
+-    let Cli {
+-        out_dir,
+-        no_format,
+-        config,
+-        library_mode: _,
+-        crate_name,
+-        source,
+-    } = Cli::parse();
+-
+-    let mut bindgen_paths = BindgenPaths::default();
+-    if let Some(config_path) = &config {
+-        bindgen_paths.add_config_override_layer(config_path.clone());
+-    }
+-    bindgen_paths.add_cargo_metadata_layer(false)?;
+-
+-    let loader = BindgenLoader::new(bindgen_paths);
+-    let binding_gen = BindingGeneratorGo;
+-
+-    let metadata = loader.load_metadata(&source)?;
+-    let cis = loader.load_cis(metadata)?;
+-    let cdylib = loader.library_name(&source).map(|name| name.to_string());
+-    let mut components = loader.load_components(cis, |_ci, root_toml| {
+-        uniffi_bindgen::BindingGenerator::new_config(&binding_gen, &root_toml)
+-    })?;
+-
+-    let settings = GenerationSettings {
+-        out_dir: out_dir.unwrap_or_else(|| {
+-            source
+-                .parent()
+-                .expect("source should have a parent directory")
+-                .to_path_buf()
+-        }),
+-        try_format_code: !no_format,
+-        cdylib,
++pub fn main() -> Result<()> {
++    let cli = Cli::parse();
++    let binding_gen = BindingGeneratorGo {
++        try_format_code: !cli.no_format,
+     };
+ 
+-    uniffi_bindgen::BindingGenerator::update_component_configs(
+-        &binding_gen,
+-        &settings,
+-        &mut components,
+-    )?;
+-
+-    for component in &mut components {
+-        component.ci.derive_ffi_funcs()?;
++    if cli.library_mode {
++        let out_dir = cli
++            .out_dir
++            .expect("--out-dir is required when using --library");
++
++        let config_supplier = {
++            use uniffi_bindgen::cargo_metadata::CrateConfigSupplier;
++            CrateConfigSupplier::from_cargo_metadata_command(false)?
++        };
++
++        uniffi_bindgen::library_mode::generate_bindings(
++            &cli.source,
++            cli.crate_name,
++            &binding_gen,
++            &config_supplier,
++            cli.config.as_deref(),
++            &out_dir,
++            !cli.no_format,
++        )
++        .map(|_| ())
++    } else {
++        uniffi_bindgen::generate_external_bindings(
++            &binding_gen,
++            &cli.source,
++            cli.config.as_deref(),
++            cli.out_dir.as_deref(),
++            None::<&Utf8Path>,
++            cli.crate_name.as_deref(),
++            !cli.no_format,
++        )
+     }
+-
+-    if let Some(crate_name) = &crate_name {
+-        components.retain(|component| component.ci.crate_name() == crate_name);
+-    }
+-
+-    uniffi_bindgen::BindingGenerator::write_bindings(&binding_gen, &settings, &components)?;
+-
+-    Ok(())
+ }
+diff --git a/bindgen/templates/SetTemplate.go b/bindgen/templates/SetTemplate.go
+new file mode 100644
+index 0000000..7e04f10
+--- /dev/null
++++ b/bindgen/templates/SetTemplate.go
+@@ -0,0 +1,55 @@
++{#/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */#}
++
++{{- self.add_import("math") }}
++
++{%- let inner_type_name = inner_type|type_name(ci) %}
++
++type {{ ffi_converter_name }} struct{}
++
++var {{ ffi_converter_instance }} = {{ ffi_converter_name }}{}
++
++func (c {{ ffi_converter_name }}) Lift(rb RustBufferI) {{ type_name }} {
++	return LiftFromRustBuffer[{{ type_name }}](c, rb)
++}
++
++func (c {{ ffi_converter_name }}) Read(reader io.Reader) {{ type_name }} {
++	length := readInt32(reader)
++	if length == 0 {
++		return nil
++	}
++	result := make({{ type_name }}, length)
++	for i := int32(0); i < length; i++ {
++		item := {{ inner_type|read_fn(ci) }}(reader)
++		result[item] = struct{}{}
++	}
++	return result
++}
++
++func (c {{ ffi_converter_name }}) Lower(value {{ type_name }}) C.RustBuffer {
++	return LowerIntoRustBuffer[{{ type_name }}](c, value)
++}
++
++func (c {{ ffi_converter_name }}) LowerExternal(value {{ type_name }}) ExternalCRustBuffer {
++	return RustBufferFromC(LowerIntoRustBuffer[{{ type_name }}](c, value))
++}
++
++func (c {{ ffi_converter_name }}) Write(writer io.Writer, value {{ type_name }}) {
++	if len(value) > math.MaxInt32 {
++		panic("{{ type_name }} is too large to fit into Int32")
++	}
++
++	writeInt32(writer, int32(len(value)))
++	for item := range value {
++		{{ inner_type|write_fn(ci) }}(writer, item)
++	}
++}
++
++type {{ ffi_destroyer_name }} struct {}
++
++func ({{ ffi_destroyer_name }}) Destroy(set {{ type_name }}) {
++	for item := range set {
++		{{ inner_type|destroy_fn(ci) }}(item)
++	}
++}
+diff --git a/bindgen/templates/Types.go b/bindgen/templates/Types.go
+index 2f9b6b8..777b0c6 100644
+--- a/bindgen/templates/Types.go
++++ b/bindgen/templates/Types.go
+@@ -78,6 +78,9 @@
+ {%- when Type::Sequence { inner_type }  %}
+ {% include "SequenceTemplate.go" %}
+ 
++{%- when Type::Set { inner_type } %}
++{% include "SetTemplate.go" %}
++
+ {%- when Type::Map { key_type, value_type } %}
+ {% include "MapTemplate.go" %}
+ 
+@@ -87,6 +90,10 @@
+ {%- when Type::Custom { name, builtin, module_path } %}
+ {% include "CustomTypeTemplate.go" %}
+ 
++{# uniffi 0.32: `Box<T>` is transparent and normalized away before
++   templates run; the arm exists for askama exhaustiveness only. #}
++{%- when Type::Box { .. } %}
++
+ {%- else %}
+ {%- endmatch %}
+ {%- endfor %}

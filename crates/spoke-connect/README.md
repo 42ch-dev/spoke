@@ -320,12 +320,12 @@ calls into the core.
 This section records the binding facade decision for the spec's Path B
 (shared core bindings, `../../.mstar/specs/spoke-connect.md` §Embedding model):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
-first binding skeleton exposes, and which languages are targeted. A **Swift
-sync-core skeleton is landed**: the exported surface below ships through
-uniffi behind the optional `ffi` feature as a `cdylib`, Swift bindings
-generate from that library, and a macOS-local smoke asserts golden-vector
-parity from the Swift side. The binding exposes the sync core surface;
-async node lifecycle stays Rust-side.
+first binding exposes, and which languages are targeted. **Swift (SPM
+`SpokeConnect`)** and **Kotlin (GitHub Packages Maven)** are landed alongside
+C#, Go, and Python: the exported surface below ships through uniffi behind the
+optional `ffi` feature as a `cdylib`, foreign bindings generate from that
+library, and golden-parity smokes assert parity from each host side. The
+binding exposes the sync core surface; async node lifecycle stays Rust-side.
 
 ### Sync vs async boundary
 
@@ -337,7 +337,7 @@ async node lifecycle stays Rust-side.
 | `invoke` wait for response | **Async** today | Foreign side uses an async binding or a callback/channel; the core only assigns the sequence and checks correlation on bytes already received |
 | `invoke_handler` | Sync **on the event loop** today | Product handlers must return promptly and must not block on I/O; before exposing handlers over FFI, dispatch moves off the loop (`spawn_blocking`) |
 
-### Exported surface (Swift skeleton, landed)
+### Exported surface (landed)
 
 Eight functions and three objects are exported; uniffi renames them to Swift
 camelCase with `Data` keys:
@@ -385,16 +385,16 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 ### Target-language matrix
 
-> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. Swift is the first **landed** skeleton (shipped with a macOS smoke and golden parity); **C# landed** next via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 — generated binding + net8.0 golden-parity smoke, fork dropped when upstream tags 0.32+ (decision record: `../../.mstar/specs/connect-csharp-binding.md`). The order below governs future binding work.
+> Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin**. **C#**, **Go**, **Python**, **Swift (SPM)**, and **Kotlin (Maven)** are **landed** on their publish channels (see binding READMEs under `bindings/`). The order below records embedding path and channel for each language.
 
-| Language | Embedding path | Priority | Rationale |
-|----------|----------------|----------|-----------|
-| C# | Path B uniffi | First target — **landed** | Desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (fork dropped when a bindgen-cs tag targets 0.32+); the community pipeline's latest tag (v0.11.0+v0.31.0) targets uniffi 0.31 and cannot read the 0.32 cdylib metadata |
-| Go | Path B uniffi | Second | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
-| Python | Path B uniffi | Third | Async FFI / asyncio historically finicky — core-only first |
-| **Swift (iOS / macOS)** | Path B uniffi | Fourth — **landed skeleton** | Shipped first (macOS smoke, golden parity); mature uniffi story |
-| **Kotlin (Android)** | Path B uniffi | Fifth | Same uniffi pipeline as Swift |
-| TypeScript (browser / Node) | **Path A** (language-direct) | Parallel track | The TypeScript route decision lives with the TS identity proof |
+| Language | Embedding path | Publish channel | Priority | Rationale |
+|----------|----------------|-----------------|----------|-----------|
+| C# | Path B uniffi | **GitHub Packages NuGet** (`42ch.Spoke.Connect`) | First target — **landed** | Desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (fork dropped when a bindgen-cs tag targets 0.32+); the community pipeline's latest tag (v0.11.0+v0.31.0) targets uniffi 0.31 and cannot read the 0.32 cdylib metadata |
+| Go | Path B uniffi | **Go modules** (`go get …/bindings/go@vX.Y.Z`) | Second — **landed** | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
+| Python | Path B uniffi | **PyPI** (`pip install spoke-connect`) | Third — **landed** | Platform wheels + golden-parity smoke via first-party uniffi 0.32 bindgen; `publish-pypi` on `release.yml` |
+| **Swift (iOS / macOS)** | Path B uniffi | **SPM git** (root `Package.swift` + `vX.Y.Z` tags) | Fourth — **landed** | Product `SpokeConnect`; macOS golden-parity smoke; [`bindings/swift/README.md`](bindings/swift/README.md) |
+| **Kotlin (Android)** | Path B uniffi | **GitHub Packages Maven** (`io.github.42ch-dev:spoke-connect`) | Fifth — **landed** | Same sync core surface; `publish-maven` on `release.yml`; [`bindings/kotlin/README.md`](bindings/kotlin/README.md) |
+| TypeScript (browser / Node) | **Path A** (language-direct) | **npm** (`@42ch/spoke-connect`) | Parallel track | The TypeScript route decision lives with the TS identity proof |
 
 ### Binding checklist
 
@@ -402,8 +402,8 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
      peer ids and byte-oriented keys.
 - [x] 2. Error code mapping table (`CoreError` / `CoreInvokeError` →
      foreign enums).
-- [ ] 3. Path B choice for a second language — core-only is landed for
-     Swift; the core + async-node option stays open for a later iteration.
+- [x] 3. Path B choice for a second language — core-only is landed for
+     Swift and Kotlin; the core + async-node option stays open for a later iteration.
 - [ ] 4. Golden hello vector — JCS bytes + signature + `peer_id` for a known
      Ed25519 keypair — shared with the TypeScript identity proof so both
      paths agree byte-for-byte. The Swift smoke asserts the golden peer id
@@ -424,8 +424,9 @@ check prints `PASS`.
 > (`cargo build` / `cargo test -p spoke-connect --features ffi`) on ubuntu;
 > the Swift toolchain and this smoke stay macOS-local.
 
-Run from the repository root (exact working forms; the generated bindings
-live in `bindings/swift/generated/`, gitignored and regenerated by step 2):
+Run from the repository root (exact working forms; generated bindings and the
+xcframework are committed under `bindings/swift/` — regenerate when the FFI
+surface changes; see [`bindings/swift/README.md`](bindings/swift/README.md)):
 
 ```bash
 # 1. Build the cdylib that carries the exported-surface metadata.

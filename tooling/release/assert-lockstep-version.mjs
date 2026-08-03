@@ -31,11 +31,15 @@ import {
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   NUGET_CONNECT_CSPROJ_PATH,
+  PYPI_CONNECT_PYPROJECT_PATH,
+  MAVEN_CONNECT_GRADLE_PATH,
   README_BADGE_PATHS,
   README_RELEASE_BADGE_MARKER,
   hasReadmeReleaseBadge,
   parseCargoLockPackageVersion,
   parseCsprojVersion,
+  parseGradleVersion,
+  parsePyprojectVersion,
   parseSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -238,6 +242,40 @@ assertWorkspaceCrateVersion(
       canonicalVersion,
       nugetVersion,
     );
+  }
+}
+
+{
+  const pyprojectContents = readRepoFile(PYPI_CONNECT_PYPROJECT_PATH);
+  const pyprojectVersion = parsePyprojectVersion(pyprojectContents);
+  if (pyprojectVersion === null) {
+    recordFailure(
+      PYPI_CONNECT_PYPROJECT_PATH,
+      canonicalVersion,
+      "(missing [project] version)",
+      "Python PyPI project must declare [project].version lockstep with package.json",
+    );
+  } else {
+    assertEqual(
+      PYPI_CONNECT_PYPROJECT_PATH,
+      canonicalVersion,
+      pyprojectVersion,
+    );
+  }
+}
+
+{
+  const gradleContents = readRepoFile(MAVEN_CONNECT_GRADLE_PATH);
+  const gradleVersion = parseGradleVersion(gradleContents);
+  if (gradleVersion === null) {
+    recordFailure(
+      MAVEN_CONNECT_GRADLE_PATH,
+      canonicalVersion,
+      '(missing version = "…")',
+      "Kotlin Maven project must declare version lockstep with package.json",
+    );
+  } else {
+    assertEqual(MAVEN_CONNECT_GRADLE_PATH, canonicalVersion, gradleVersion);
   }
 }
 

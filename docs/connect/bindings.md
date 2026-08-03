@@ -10,9 +10,25 @@ Path B embeds a **shared session core** into host languages through FFI: the pur
 
 The crate's `src/core/` is the pure, synchronous, language-portable layer — libp2p, tokio, and I/O live in the transport layer, which converts `libp2p::PeerId` ↔ `String` at the boundary. The facade decision is recorded in the crate README's [Binding facade](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md#binding-facade) section, including the sync-vs-async boundary and the exported surface.
 
+## Publish channels
+
+Path B bindings ship on **four channel types** (five languages), all lockstep with spoke git tags `vX.Y.Z`:
+
+| Channel | Languages | Integrator entry |
+|---------|-----------|------------------|
+| **GitHub Packages NuGet** | C# | `42ch.Spoke.Connect` |
+| **GitHub Packages Maven** | Kotlin | `io.github.42ch-dev:spoke-connect` |
+| **Swift Package Manager** (git + tags) | Swift | Root `Package.swift` — `.package(url:from:)` |
+| **Go modules** (git + tags) | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
+| **PyPI** (Trusted Publishing) | Python | `pip install spoke-connect` |
+
+NuGet and Maven both use the **GitHub Packages** channel type (one registry family, two package ecosystems).
+
+Packaging coordinates and native layouts: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md). Staging and registry auth: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md).
+
 ## C# NuGet (`42ch.Spoke.Connect`)
 
-Integrators consume the session core via **GitHub Packages**:
+Integrators consume the session core via **GitHub Packages NuGet**:
 
 ```xml
 <!-- nuget.config (once per solution) -->
@@ -32,13 +48,103 @@ var peerId = SpokeConnectMethods.DerivePeerIdFromEd25519Pubkey(pubkey);
 
 Native `spoke_connect` / `libspoke_connect` ships under NuGet `runtimes/<rid>/native/` (`win-x64`, `linux-x64`, `osx-arm64`). Authenticate to GitHub Packages with a PAT that has `read:packages` (or `GITHUB_TOKEN` in Actions). Package SemVer locksteps with spoke git tags `vX.Y.Z`.
 
-## Swift sync-core binding
+## Kotlin Maven (`io.github.42ch-dev:spoke-connect`)
 
-A **Swift sync-core skeleton** is landed through uniffi behind the optional `ffi` feature (`cdylib`): exported functions like `derivePeerIdFromEd25519Pubkey`, `signHelloEd25519` / `verifyHelloEd25519`, `isAllowlisted`, `checkResponseCorrelation`, `dispatchAllowed`, plus `NonceStore` / `OutboundSequence` / `InboundSequence` objects — with a macOS-local smoke asserting golden-vector parity. Async node lifecycle (start, listen, `connect`) stays Rust-side. Swift packaging on GitHub Packages follows the same registry rule when a packable project is added.
+Integrators add the GitHub Packages Maven repository and depend on the binding artifact at spoke lockstep SemVer `X.Y.Z`:
+
+```kotlin
+// settings.gradle.kts or build.gradle.kts repository block
+maven {
+    url = uri("https://maven.pkg.github.com/42ch-dev/spoke")
+    credentials {
+        username = providers.gradleProperty("gpr.user").get()
+        password = providers.gradleProperty("gpr.key").get()
+    }
+}
+```
+
+```kotlin
+dependencies {
+    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    // JNA is a transitive dependency of the published artifact
+}
+```
+
+```kotlin
+import uniffi.spoke_connect.derivePeerIdFromEd25519Pubkey
+import uniffi.spoke_connect.protocolVersion
+
+val peerId = derivePeerIdFromEd25519Pubkey(pubkey)
+val version = protocolVersion() // 1
+```
+
+Set `gpr.user` and `gpr.key` in `gradle.properties` or `~/.gradle/gradle.properties` (GitHub username and a PAT with `read:packages`). Stable tags publish via `publish-maven` on [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml).
+
+JNA loads platform natives from the jar per the Maven layout contract (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`. Binding README: [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md).
+
+## Swift (`SpokeConnect` via SPM)
+
+Integrators add the spoke repository as an SPM dependency at lockstep SemVer `X.Y.Z`:
+
+```swift
+// Package.swift
+dependencies: [
+    .package(url: "https://github.com/42ch-dev/spoke.git", from: "X.Y.Z"),
+],
+targets: [
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "SpokeConnect", package: "spoke"),
+        ]
+    ),
+]
+```
+
+At tag `vX.Y.Z`, SPM resolves the repo-root `Package.swift` for library product `SpokeConnect` with generated Swift and a `spoke_connectFFI` xcframework per the packaging contract.
+
+```swift
+import SpokeConnect
+
+let peerId = try derivePeerIdFromEd25519Pubkey(pubkey: goldenPubkey)
+let version = protocolVersion() // 1
+```
+
+Binding README: [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md).
+
+## Go (`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`)
+
+Integrators pin the binding module at spoke lockstep tag `vX.Y.Z`:
+
+```bash
+go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
+```
+
+```go
+import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
+```
+
+At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Committed natives today: `darwin_arm64`, `darwin_amd64`; `linux_amd64` and `windows_amd64` follow when maintainer stages `build-connect-ffi` artifacts (see [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)). Consumers need a C toolchain and `CGO_ENABLED=1`.
+
+## Python (PyPI)
+
+Integrators install from PyPI at spoke lockstep SemVer `X.Y.Z`:
+
+```bash
+pip install spoke-connect==X.Y.Z
+```
+
+```python
+import spoke_connect
+
+peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
+```
+
+Platform wheels (`manylinux_2_35_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publish to PyPI project **`spoke-connect`** via Trusted Publishing OIDC on the top-level `release.yml` workflow (`publish-pypi` job, repository `42ch-dev/spoke`). Version locksteps with spoke git tags `vX.Y.Z`. See [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction); Swift and C# are landed — C# via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 ([decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)). TypeScript is a parallel **Path A** track (language-direct). Go / Python / Kotlin remain.
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (SPM `SpokeConnect`), **Kotlin** (GitHub Packages Maven), **Go** (Go modules + golden-parity smoke), and **Python** (PyPI platform wheels + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md); Swift [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md); Kotlin [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md); Python [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)). TypeScript is a parallel **Path A** track (language-direct).
 
 ## Integrator notes
 
@@ -49,6 +155,7 @@ C#, Go, Python, Swift, Kotlin are the target languages (priority per product dir
 ## Normative references
 
 - [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) §Embedding model — Path B definition and purity rules
-- [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md) — npm/crates.io vs GitHub Packages registry split
+- [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md) — publish staging and four-channel registry split
+- [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) — per-language packaging contract (coordinates, natives, CI jobs)
 - [crates/spoke-connect/README.md#binding-facade](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md#binding-facade) — sync/async boundary, exported surface, target-language matrix
 - [connect-csharp-binding.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md) — C# binding decision record

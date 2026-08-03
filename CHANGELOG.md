@@ -6,6 +6,278 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.7.0] - 2026-08-03
+
+
+### Added
+
+- **schemas:** Spoke-connect interaction wire family and Rust libp2p spike (#37)
+
+- **connect:** Add pure session core with golden vectors
+
+- **connect-ts:** Add workspace-private TS connect package foundation
+
+- **connect-ts:** Add one-JSON-per-message WebSocket framing
+
+- **connect-ts:** Port pure session-core guards from Rust core
+
+- **connect-ts:** Add minimal WebSocket connect client and two-node interop test
+
+- **connect-ts:** Wire package into root CI gates and lockstep versioning
+
+- **spoke-connect:** Uniffi Swift-first sync-core binding surface
+
+- **spoke-connect:** Export is_allowlisted through uniffi facade
+
+- **connect:** Capability-token issue/verify core rules
+
+- **connect:** Capability-token challenge/response and invoke auth gate
+
+- **connect:** Mdns same-LAN discovery behind non-default feature
+
+- **connect-ts:** Declare exports map and publish metadata (published-shape prep)
+
+- **connect-ts:** Port capability-token auth for Rust parity
+
+- **connect-ts:** TokenAuthorizesOp + proof-shape guard + TS/Rust parity rule
+
+- **connect:** Land C# binding + golden smoke via vendored uniffi-bindgen-cs fork
+
+- **docs:** Add VitePress EN root + zh CN locale infrastructure
+
+
+### Changed
+
+- **connect:** Cut transport over to the pure session core
+
+- **connect-ts:** Source PROTOCOL_VERSION from core version module
+
+- **connect-ts:** Use schema-conformant manifests for wire tests
+
+- **spoke-connect:** Add Swift smoke asserting golden parity for the uniffi facade
+
+- **spoke-connect:** Fix rustfmt drift in golden canonical bytes test
+
+- **spoke-connect:** Rustfmt the malformed-hello test
+
+- **connect:** Disable mdns autodial in two-node exchange tests
+
+- **connect:** Deterministic mdns auth-interplay and helper coverage
+
+- **connect:** Document mdns default-feature tripwire guard
+
+- **connect-ts:** Smoke-test both package exports map subpaths
+
+
+### Documentation
+
+- **roadmap:** Remove non-repo and release-process entries; keep functional delivery history
+
+- **roadmap:** Restore integrator docs site (GitHub Pages) as planned slice
+
+- **knowledge:** Fix schema count in codegen-pipeline index
+
+- **specs:** Connect embedding, identity binding, and ops dispatch contract
+
+- **specs:** Spell multihash wire bytes for connect peer_id
+
+- **schemas:** Document connect peer_id Ed25519 PeerId derivation
+
+- **connect:** Record binding facade decision and target-language matrix
+
+- **connect:** Tighten core purity docs, spec cross-refs, and golden-vector notes
+
+- **connect:** Lock pure-TS-minimal TS route with identity proof
+
+- **connect:** Soften informative TS-route wording for QC nits
+
+- **knowledge:** Fix register in connect spike patterns
+
+- **connect-ts:** Add first-slice package README
+
+- **connect-ts:** State scope affirmatively in README
+
+- **connect-ts:** State engine floor and affirm scope in README
+
+- **specs:** List connect-ts package in lockstep surface table
+
+- **spoke-connect:** Mark Swift sync-core binding skeleton as landed
+
+- **spoke-connect:** Warn about default-build cdylib clobber in swift smoke
+
+- **connect:** Normative capability-token auth method
+
+- **connect:** Capability-token auth usage, spec cosmetics, CONCEPTS entry
+
+- **connect:** Capability-token docs hygiene — usage block, session-grant lifetime, provider contract
+
+- **agents:** Standardize local Rust toolchain on nightly
+
+- **agents:** Honor -Zno-embed-metadata via nightly, forbid flag-clearing workarounds
+
+- **connect:** MDNS discovery section — feature usage, autodial, bounds
+
+- **connect:** MDNS dial scheduling and amplification boundary
+
+- **connect:** Fix discovery spec link; affirmative mDNS wording
+
+- **connect:** Fix spec relative links in crate README
+
+- **connect:** Fix remaining spec relative links in crate README
+
+- **connect:** Affirmative register pass on crate README
+
+- **connect:** Align toolchain guidance with nightly convention
+
+- **roadmap:** Confirm pure-TS path for TS SDK; reorder uniffi binding targets (C#, Go, Python, Swift, Kotlin)
+
+- **roadmap:** Track libp2p transitive vulnerability revisit on ecosystem bump
+
+- Fix stale publish and binding-matrix statements
+
+- **connect:** Defer C# binding, record T1 version-gap verdict
+
+- **roadmap:** Mark C# uniffi bindings deferred pending bindgen-cs uniffi 0.32
+
+- **connect:** List TokenInvalid in Swift CoreError mapping
+
+- **connect:** Fix broken links and clarify C# deferred state
+
+- **connect:** Add publish strategy decision record and roadmap Stage 1 row
+
+- **connect-ts:** Update usage to subpath imports and add publish guidance
+
+- **connect:** Finalize evaluation evidence and Stage 1 steps in publish strategy
+
+- **connect:** Mandate dist build and packed-tarball smokes for Stage 1
+
+- **connect-ts:** Point publish guidance at strategy and add transition note
+
+- **site:** Fill home and guide pages with SSOT-linked summaries
+
+- **site:** Fill profile, connect, and package pages with SSOT-linked summaries
+
+- **site:** Trim homepage to hero, CTAs, and SSOT links
+
+- **readme:** Add pointer to integrator docs site
+
+- **versioning:** Publish on every tag without -rc. prerelease segment
+
+- **site:** Pin es2020 build target and record vite advisory disposition
+
+- **readme:** Add local docs command and published Pages URL
+
+- **site:** State current facts affirmatively across register
+
+- **contributing:** Document integrator docs site workflow
+
+- **roadmap:** Slim Now and schedule docs EN+CN i18n
+
+- **modules:** Demote pack catalog from ModuleMap
+
+- **knowledge:** Align companion-fixture index after pack sample removal
+
+- **specs:** Corpus hygiene — fix anchor rot, state docs-site URL as current fact, tighten ts-route framing
+
+- **i18n:** CN translations — guide and profiles pages
+
+- **i18n:** CN translations — connect, packages, release pages
+
+- **roadmap:** Reflect final TS parity + C# smoke coverage after Phase 5 hardening
+
+
+### Fixed
+
+- **connect:** Drop dead CoreError::NotAllowlisted variant and map arm
+
+- **connect:** Gate inbound invokes on negotiated capabilities
+
+- **connect:** Suppress CodeQL hard-coded-nonce alerts on golden fixtures
+
+- **connect:** Dispatch product ops through configurable capability map
+
+- **connect:** Restructure golden nonce fixtures for Rust CodeQL
+
+- **connect:** Build golden nonce at runtime for CodeQL
+
+- **connect-ts:** Assert Ed25519 WebCrypto probe contract directly
+
+- **connect-ts:** Fail fast on handshake failure and keep invoke promise-only
+
+- **connect-ts:** Close socket on dial failure and fail fast on malformed frames
+
+- **connect-ts:** Mark OutboundSequence.setNext as test-only internal
+
+- **spoke-connect:** Recover poisoned ffi locks and cover malformed hello verify
+
+- **connect:** Clear pending challenge slot on auth outbound failure
+
+- **connect:** Mdns review fixes — bounded candidates, passive example autodial
+
+- **connect:** Auto-dial slot fairness — explicit preemption, slot-free retry
+
+- **connect:** Run mdns behaviour construction tests in a tokio runtime
+
+- **connect:** Bind pending connects only to the dial that originated them
+
+- **docs:** Align guide, release, profile, and connect pages with SSOT wording
+
+- **connect-ts:** QC tri fixes — proof-shape u64 parity, canonical sig, sign/return consistency, base58 cap, golden vector
+
+- **connect:** C# binding review fixes — README apply path, roadmap, rename decision record
+
+- **connect:** C# binding QC fixes — smoke coverage, locked regen, gitignore clone, roadmap
+
+- **connect-ts:** Validate capability-token claims at issuance (Greptile P2)
+
+- **connect-ts:** Issuance current-time check — reject already-expired/future-iat claims (Greptile)
+
+
+### Internal
+
+- **harness:** Ignore status-write lock file
+
+- **iteration:** Close spoke-connect multi-language pre-design — compound round, roadmap update
+
+- **connect-ts:** Align engines floor and correct WebCrypto comments
+
+- **connect-ts:** Typecheck the package in CI
+
+- Build and test spoke-connect ffi feature on ubuntu
+
+- **connect:** Test spoke-connect with mdns feature in rust job
+
+- **iteration:** Close spoke-connect multi-language SDK start — compound round, roadmap update
+
+- Advanced CodeQL setup — rust + js/ts + actions, exclude swift smoke
+
+- Rename CodeQL workflow to avoid default-setup name collision
+
+- Restructure CodeQL workflow to canonical starter form
+
+- Pin CodeQL workflow actions to immutable SHAs
+
+- Remove custom CodeQL workflow, rely on GitHub default setup
+
+- **docs:** Add GitHub Pages build and deploy workflow
+
+- **docs:** Rebuild docs when lockfile changes
+
+- **docs:** Make Pages deploy latest-wins with workflow-level concurrency
+
+- **docs:** Ref-scope concurrency and restore main-only deploy group
+
+- **iteration:** Close spoke-connect multi-language deepening — compound round, roadmap update
+
+- **fixtures:** Drop redundant Knowledge Pack companion sample
+
+- **connect:** Vendor C# bindgen fork patch retargeted to uniffi 0.32
+
+
+### build
+
+- **docs:** Scaffold VitePress site under docs/
+
 ## [0.6.1] - 2026-07-30
 
 

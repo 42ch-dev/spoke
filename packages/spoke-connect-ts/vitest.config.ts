@@ -14,6 +14,16 @@ export default defineConfig({
         REPO_ROOT,
         "packages/spoke-schemas/src/index.ts",
       ),
+      // Self-import aliases so tests run from src/ without a prior build
+      // (the package exports point to dist/ for published consumers).
+      "@42ch/spoke-connect": join(
+        REPO_ROOT,
+        "packages/spoke-connect-ts/src/index.ts",
+      ),
+      "@42ch/spoke-connect/node": join(
+        REPO_ROOT,
+        "packages/spoke-connect-ts/src/node/connect-client.ts",
+      ),
     },
   },
   test: {

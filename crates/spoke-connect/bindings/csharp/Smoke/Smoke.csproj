@@ -10,16 +10,23 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Generated binding (regenerate sequence in README.md; run the
-         library-mode generate step before building after a surface change). -->
-    <Compile Include="..\generated\**\*.cs" />
+    <!-- Prefer the packable library (RID natives when assembled; local cargo
+         cdylib fallback via 42ch.Spoke.Connect.csproj CopyLocal target). -->
+    <ProjectReference Include="..\42ch.Spoke.Connect.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- The ffi-feature cdylib is copied next to the smoke binary so
-         LibraryImport("spoke_connect") resolves it at runtime. -->
-    <None Include="..\..\..\..\..\target\debug\libspoke_connect.dylib"
-          CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  <!-- Native must sit beside the referenced DLL in *this* output dir. -->
+  <Target Name="CopySpokeConnectNativeFromLibrary" AfterTargets="Build">
+    <PropertyGroup>
+      <_LibOut>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\bin\$(Configuration)\$(TargetFramework)\'))</_LibOut>
+      <_NativeName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libspoke_connect.dylib</_NativeName>
+      <_NativeName Condition="$([MSBuild]::IsOSPlatform('Linux'))">libspoke_connect.so</_NativeName>
+      <_NativeName Condition="$([MSBuild]::IsOSPlatform('Windows'))">spoke_connect.dll</_NativeName>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_LibOut)$(_NativeName)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_LibOut)$(_NativeName)')" />
+  </Target>
 
 </Project>

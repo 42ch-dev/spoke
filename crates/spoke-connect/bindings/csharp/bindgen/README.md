@@ -74,6 +74,7 @@ cd ..   # back to the repo root
 cargo +nightly build -p spoke-connect --features ffi
 ./uniffi-bindgen-cs/target/debug/uniffi-bindgen-cs \
   target/debug/libspoke_connect.dylib --library \
+  --config crates/spoke-connect/bindings/csharp/uniffi.toml \
   --out-dir crates/spoke-connect/bindings/csharp/generated --no-format
 
 # 5. Build + run the net8.0 smoke — from the repo root

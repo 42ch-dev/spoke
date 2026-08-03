@@ -22,6 +22,7 @@ permissions:
   contents: write
   id-token: write
   pull-requests: read
+  packages: write
 
 jobs:
   tag:
@@ -447,3 +448,136 @@ jobs:
         run: cargo publish -p spoke-connect
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+
+  build-connect-ffi:
+    name: build-connect-ffi (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    needs:
+      - resolve-tag
+      - verify-codegen
+      - typescript
+      - rust
+      - verify-version
+      - release
+    if: ${{ always() && needs.resolve-tag.result == 'success' && needs.release.result == 'success' && !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            lib: libspoke_connect.so
+          - os: windows-latest
+            rid: win-x64
+            lib: spoke_connect.dll
+          - os: macos-14
+            rid: osx-arm64
+            lib: libspoke_connect.dylib
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-connect-ffi-${{ matrix.rid }}
+          workspaces: .
+
+      - name: Build spoke-connect FFI (release)
+        run: cargo build -p spoke-connect --features ffi --release
+
+      - name: Stage RID native
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_DIR="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+          SRC="${TARGET_DIR}/release/${{ matrix.lib }}"
+          if [[ ! -f "${SRC}" ]]; then
+            echo "missing ${SRC}" >&2
+            exit 1
+          fi
+          mkdir -p "ffi-stage/${{ matrix.rid }}"
+          cp "${SRC}" "ffi-stage/${{ matrix.rid }}/${{ matrix.lib }}"
+          ls -la "ffi-stage/${{ matrix.rid }}"
+
+      - name: Upload FFI artifact
+        # actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ffi-${{ matrix.rid }}
+          path: ffi-stage/${{ matrix.rid }}
+          if-no-files-found: error
+          retention-days: 5
+
+  publish-nuget:
+    name: publish-nuget
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-tag
+      - build-connect-ffi
+    if: ${{ always() && needs.resolve-tag.result == 'success' && needs.build-connect-ffi.result == 'success' && !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Download FFI artifacts
+        # actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ffi-*
+          path: ffi-artifacts
+          merge-multiple: false
+
+      - name: Assemble NuGet runtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ffi-assembled
+          for d in ffi-artifacts/ffi-*; do
+            rid="${d##*/ffi-}"
+            mkdir -p "ffi-assembled/${rid}"
+            cp -R "${d}/." "ffi-assembled/${rid}/"
+          done
+          ls -laR ffi-assembled
+          ./tooling/connect/assemble-csharp-runtimes.sh ffi-assembled
+
+      - name: Setup .NET
+        # actions/setup-dotnet@v4.3.1
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Pack 42ch.Spoke.Connect
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          dotnet pack crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj \
+            -c Release \
+            -o nuget-out \
+            -p:Version="${VERSION}" \
+            -p:PackageVersion="${VERSION}"
+
+      - name: Push to GitHub Packages
+        run: |
+          set -euo pipefail
+          dotnet nuget push nuget-out/*.nupkg \
+            --source "https://nuget.pkg.github.com/42ch-dev/index.json" \
+            --api-key "${{ secrets.GITHUB_TOKEN }}" \
+            --skip-duplicate

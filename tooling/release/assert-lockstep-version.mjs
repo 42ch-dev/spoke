@@ -30,10 +30,12 @@ import {
   CARGO_SCHEMA_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
+  NUGET_CONNECT_CSPROJ_PATH,
   README_BADGE_PATHS,
   README_RELEASE_BADGE_MARKER,
   hasReadmeReleaseBadge,
   parseCargoLockPackageVersion,
+  parseCsprojVersion,
   parseSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -219,6 +221,25 @@ assertWorkspaceCrateVersion(
   canonicalVersion,
   cargoWorkspaceVersion,
 );
+
+{
+  const nugetContents = readRepoFile(NUGET_CONNECT_CSPROJ_PATH);
+  const nugetVersion = parseCsprojVersion(nugetContents);
+  if (nugetVersion === null) {
+    recordFailure(
+      NUGET_CONNECT_CSPROJ_PATH,
+      canonicalVersion,
+      "(missing <Version>)",
+      "C# NuGet project must declare <Version> lockstep with package.json",
+    );
+  } else {
+    assertEqual(
+      NUGET_CONNECT_CSPROJ_PATH,
+      canonicalVersion,
+      nugetVersion,
+    );
+  }
+}
 
 for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
   const crateContents = readRepoFile(cratePath);

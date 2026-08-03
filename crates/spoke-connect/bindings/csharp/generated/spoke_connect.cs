@@ -24,7 +24,7 @@ namespace uniffi.spoke_connect;
 // pointer to the underlying data.
 
 [StructLayout(LayoutKind.Sequential)]
-internal struct RustBuffer {
+public struct RustBuffer {
     public ulong capacity;
     public ulong len;
     public IntPtr data;
@@ -86,7 +86,7 @@ internal struct RustBuffer {
 // completeness.
 
 [StructLayout(LayoutKind.Sequential)]
-internal struct ForeignBytes {
+public struct ForeignBytes {
     public int length;
     public IntPtr data;
 }
@@ -96,7 +96,7 @@ internal struct ForeignBytes {
 //
 // All implementing objects should be public to support external types.  When a
 // type is external we need to import it's FfiConverter.
-internal abstract class FfiConverter<CsType, FfiType> {
+public abstract class FfiConverter<CsType, FfiType> {
     // Convert an FFI type to a C# type
     public abstract CsType Lift(FfiType value);
 
@@ -157,7 +157,7 @@ internal abstract class FfiConverter<CsType, FfiType> {
 }
 
 // FfiConverter that uses `RustBuffer` as the FfiType
-internal abstract class FfiConverterRustBuffer<CsType>: FfiConverter<CsType, RustBuffer> {
+public abstract class FfiConverterRustBuffer<CsType>: FfiConverter<CsType, RustBuffer> {
     public override CsType Lift(RustBuffer value) {
         return LiftFromRustBuffer(value);
     }
@@ -171,7 +171,7 @@ internal abstract class FfiConverterRustBuffer<CsType>: FfiConverter<CsType, Rus
 // This would be a good candidate for isolating in its own ffi-support lib.
 // Error runtime.
 [StructLayout(LayoutKind.Sequential)]
-struct UniffiRustCallStatus {
+public struct UniffiRustCallStatus {
     public sbyte code;
     public RustBuffer error_buf;
 
@@ -189,49 +189,49 @@ struct UniffiRustCallStatus {
 }
 
 // Base class for all uniffi exceptions
-internal class UniffiException: System.Exception {
+public class UniffiException: System.Exception {
     public UniffiException(): base() {}
     public UniffiException(string message): base(message) {}
 }
 
-internal class UndeclaredErrorException: UniffiException {
+public class UndeclaredErrorException: UniffiException {
     public UndeclaredErrorException(string message): base(message) {}
 }
 
-internal class PanicException: UniffiException {
+public class PanicException: UniffiException {
     public PanicException(string message): base(message) {}
 }
 
-internal class AllocationException: UniffiException {
+public class AllocationException: UniffiException {
     public AllocationException(string message): base(message) {}
 }
 
-internal class InternalException: UniffiException {
+public class InternalException: UniffiException {
     public InternalException(string message): base(message) {}
 }
 
-internal class InvalidEnumException: InternalException {
+public class InvalidEnumException: InternalException {
     public InvalidEnumException(string message): base(message) {
     }
 }
 
-internal class UniffiContractVersionException: UniffiException {
+public class UniffiContractVersionException: UniffiException {
     public UniffiContractVersionException(string message): base(message) {
     }
 }
 
-internal class UniffiContractChecksumException: UniffiException {
+public class UniffiContractChecksumException: UniffiException {
     public UniffiContractChecksumException(string message): base(message) {
     }
 }
 
 // Each top-level error class has a companion object that can lift the error from the call status's rust buffer
-interface CallStatusErrorHandler<E> where E: System.Exception {
+public interface CallStatusErrorHandler<E> where E: System.Exception {
     E Lift(RustBuffer error_buf);
 }
 
 // CallStatusErrorHandler implementation for times when we don't expect a CALL_ERROR
-class NullCallStatusErrorHandler: CallStatusErrorHandler<UniffiException> {
+public class NullCallStatusErrorHandler: CallStatusErrorHandler<UniffiException> {
     public static NullCallStatusErrorHandler INSTANCE = new NullCallStatusErrorHandler();
 
     public UniffiException Lift(RustBuffer error_buf) {
@@ -243,7 +243,7 @@ class NullCallStatusErrorHandler: CallStatusErrorHandler<UniffiException> {
 // Helpers for calling Rust
 // In practice we usually need to be synchronized to call this safely, so it doesn't
 // synchronize itself
-class _UniffiHelpers {
+public class _UniffiHelpers {
     public delegate void RustCallAction(ref UniffiRustCallStatus status);
     public delegate U RustCallFunc<out U>(ref UniffiRustCallStatus status);
 
@@ -295,7 +295,7 @@ class _UniffiHelpers {
     }
 }
 
-static class FFIObjectUtil {
+public static class FFIObjectUtil {
     public static void DisposeAll(params Object?[] list) {
         Dispose(list);
     }
@@ -355,12 +355,12 @@ static class FFIObjectUtil {
 // Big endian streams are not yet available in dotnet :'(
 // https://github.com/dotnet/runtime/issues/26904
 
-class StreamUnderflowException: System.Exception {
+public class StreamUnderflowException: System.Exception {
     public StreamUnderflowException() {
     }
 }
 
-static class BigEndianStreamExtensions
+public static class BigEndianStreamExtensions
 {
     public static void WriteInt32(this Stream stream, int value, int bytesToWrite = 4)
     {
@@ -465,7 +465,7 @@ static class BigEndianStreamExtensions
     }
 }
 
-class BigEndianStream {
+public class BigEndianStream {
     Stream stream;
     public BigEndianStream(Stream stream) {
         this.stream = stream;
@@ -544,7 +544,7 @@ class BigEndianStream {
 #if NET8_0_OR_GREATER
 static partial class _UniFFILib {
 #else
-static class _UniFFILib {
+public static class _UniFFILib {
 #endif
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiRustFutureContinuationCallback(
@@ -1841,7 +1841,7 @@ static class _UniFFILib {
 
 
 
-class FfiConverterUInt64: FfiConverter<ulong, ulong> {
+public class FfiConverterUInt64: FfiConverter<ulong, ulong> {
     public static FfiConverterUInt64 INSTANCE = new FfiConverterUInt64();
 
     public override ulong Lift(ulong value) {
@@ -1867,7 +1867,7 @@ class FfiConverterUInt64: FfiConverter<ulong, ulong> {
 
 
 
-class FfiConverterInt64: FfiConverter<long, long> {
+public class FfiConverterInt64: FfiConverter<long, long> {
     public static FfiConverterInt64 INSTANCE = new FfiConverterInt64();
 
     public override long Lift(long value) {
@@ -1893,7 +1893,7 @@ class FfiConverterInt64: FfiConverter<long, long> {
 
 
 
-class FfiConverterBoolean: FfiConverter<bool, sbyte> {
+public class FfiConverterBoolean: FfiConverter<bool, sbyte> {
     public static FfiConverterBoolean INSTANCE = new FfiConverterBoolean();
 
     public override bool Lift(sbyte value) {
@@ -1919,7 +1919,7 @@ class FfiConverterBoolean: FfiConverter<bool, sbyte> {
 
 
 
-class FfiConverterString: FfiConverter<string, RustBuffer> {
+public class FfiConverterString: FfiConverter<string, RustBuffer> {
     public static FfiConverterString INSTANCE = new FfiConverterString();
 
     // Note: we don't inherit from FfiConverterRustBuffer, because we use a
@@ -1967,7 +1967,7 @@ class FfiConverterString: FfiConverter<string, RustBuffer> {
 
 
 
-class FfiConverterByteArray: FfiConverterRustBuffer<byte[]> {
+public class FfiConverterByteArray: FfiConverterRustBuffer<byte[]> {
     public static FfiConverterByteArray INSTANCE = new FfiConverterByteArray();
 
     public override byte[] Read(BigEndianStream stream) {
@@ -1991,7 +1991,7 @@ class FfiConverterByteArray: FfiConverterRustBuffer<byte[]> {
 /// Inbound sequence expectation — thread-safe FFI wrapper over the core
 /// expectation, starting at 0.
 /// </summary>
-internal interface IInboundSequence {
+public interface IInboundSequence {
     /// <summary>
     /// Accepts `sequence` iff it equals the next expected inbound sequence;
     /// on acceptance the expectation advances by 1 and the new expectation
@@ -2006,7 +2006,7 @@ internal interface IInboundSequence {
 /// Inbound sequence expectation — thread-safe FFI wrapper over the core
 /// expectation, starting at 0.
 /// </summary>
-internal class InboundSequence : IInboundSequence, IDisposable {
+public class InboundSequence : IInboundSequence, IDisposable {
     protected ulong pointer;
     private int _wasDestroyed = 0;
     private long _callCounter = 1;
@@ -2122,7 +2122,7 @@ internal class InboundSequence : IInboundSequence, IDisposable {
 
     
 }
-class FfiConverterTypeInboundSequence: FfiConverter<InboundSequence, ulong> {
+public class FfiConverterTypeInboundSequence: FfiConverter<InboundSequence, ulong> {
     public static FfiConverterTypeInboundSequence INSTANCE = new FfiConverterTypeInboundSequence();
 
 
@@ -2153,7 +2153,7 @@ class FfiConverterTypeInboundSequence: FfiConverter<InboundSequence, ulong> {
 /// Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
 /// the core store.
 /// </summary>
-internal interface INonceStore {
+public interface INonceStore {
     /// <summary>
     /// Records `(peer_id, nonce)` unless it was already accepted; returns
     /// `false` on replay. Call only after the hello passed every earlier
@@ -2165,7 +2165,7 @@ internal interface INonceStore {
 /// Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
 /// the core store.
 /// </summary>
-internal class NonceStore : INonceStore, IDisposable {
+public class NonceStore : INonceStore, IDisposable {
     protected ulong pointer;
     private int _wasDestroyed = 0;
     private long _callCounter = 1;
@@ -2278,7 +2278,7 @@ internal class NonceStore : INonceStore, IDisposable {
 
     
 }
-class FfiConverterTypeNonceStore: FfiConverter<NonceStore, ulong> {
+public class FfiConverterTypeNonceStore: FfiConverter<NonceStore, ulong> {
     public static FfiConverterTypeNonceStore INSTANCE = new FfiConverterTypeNonceStore();
 
 
@@ -2309,7 +2309,7 @@ class FfiConverterTypeNonceStore: FfiConverter<NonceStore, ulong> {
 /// Outbound sequence counter — thread-safe FFI wrapper over the core
 /// counter, starting at 0.
 /// </summary>
-internal interface IOutboundSequence {
+public interface IOutboundSequence {
     /// <summary>
     /// Assigns the next outbound sequence; on exhaustion (past the JSON-safe
     /// wire maximum) `SequenceExhausted` is returned and the counter stays
@@ -2322,7 +2322,7 @@ internal interface IOutboundSequence {
 /// Outbound sequence counter — thread-safe FFI wrapper over the core
 /// counter, starting at 0.
 /// </summary>
-internal class OutboundSequence : IOutboundSequence, IDisposable {
+public class OutboundSequence : IOutboundSequence, IDisposable {
     protected ulong pointer;
     private int _wasDestroyed = 0;
     private long _callCounter = 1;
@@ -2436,7 +2436,7 @@ internal class OutboundSequence : IOutboundSequence, IDisposable {
 
     
 }
-class FfiConverterTypeOutboundSequence: FfiConverter<OutboundSequence, ulong> {
+public class FfiConverterTypeOutboundSequence: FfiConverter<OutboundSequence, ulong> {
     public static FfiConverterTypeOutboundSequence INSTANCE = new FfiConverterTypeOutboundSequence();
 
 
@@ -2469,7 +2469,7 @@ class FfiConverterTypeOutboundSequence: FfiConverter<OutboundSequence, ulong> {
 /// FFI-facing mirror of [`crate::core::CoreError`] (hello-gate / identity
 /// failures). Mapped 1:1 in [`From<CoreErrorImpl>`].
 /// </summary>
-internal class CoreException: UniffiException {
+public class CoreException: UniffiException {
     CoreException() : base() {}
     CoreException(String @Message) : base(@Message) {}
 
@@ -2584,7 +2584,7 @@ internal class CoreException: UniffiException {
     
 }
 
-class FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException>, CallStatusErrorHandler<CoreException> {
+public class FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException>, CallStatusErrorHandler<CoreException> {
     public static FfiConverterTypeCoreError INSTANCE = new FfiConverterTypeCoreError();
 
     public override CoreException Read(BigEndianStream stream) {
@@ -2690,7 +2690,7 @@ class FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException>, CallSta
 /// sequence / correlation failures). Mapped 1:1 in
 /// [`From<CoreInvokeErrorImpl>`].
 /// </summary>
-internal class CoreInvokeException: UniffiException {
+public class CoreInvokeException: UniffiException {
     CoreInvokeException() : base() {}
     CoreInvokeException(String @Message) : base(@Message) {}
 
@@ -2741,7 +2741,7 @@ internal class CoreInvokeException: UniffiException {
     
 }
 
-class FfiConverterTypeCoreInvokeError : FfiConverterRustBuffer<CoreInvokeException>, CallStatusErrorHandler<CoreInvokeException> {
+public class FfiConverterTypeCoreInvokeError : FfiConverterRustBuffer<CoreInvokeException>, CallStatusErrorHandler<CoreInvokeException> {
     public static FfiConverterTypeCoreInvokeError INSTANCE = new FfiConverterTypeCoreInvokeError();
 
     public override CoreInvokeException Read(BigEndianStream stream) {
@@ -2800,7 +2800,7 @@ class FfiConverterTypeCoreInvokeError : FfiConverterRustBuffer<CoreInvokeExcepti
 
 
 
-class FfiConverterOptionalString: FfiConverterRustBuffer<string?> {
+public class FfiConverterOptionalString: FfiConverterRustBuffer<string?> {
     public static FfiConverterOptionalString INSTANCE = new FfiConverterOptionalString();
 
     public override string? Read(BigEndianStream stream) {
@@ -2831,7 +2831,7 @@ class FfiConverterOptionalString: FfiConverterRustBuffer<string?> {
 
 
 
-class FfiConverterSequenceString: FfiConverterRustBuffer<string[]> {
+public class FfiConverterSequenceString: FfiConverterRustBuffer<string[]> {
     public static FfiConverterSequenceString INSTANCE = new FfiConverterSequenceString();
 
     public override string[]  Read(BigEndianStream stream) {
@@ -2874,7 +2874,7 @@ class FfiConverterSequenceString: FfiConverterRustBuffer<string[]> {
     }
 }
 #pragma warning restore 8625
-internal static class SpokeConnectMethods {
+public static class SpokeConnectMethods {
     /// <summary>
     /// Checks that a response echoes the request's `session_id` / `sequence` /
     /// `request_id` — the three echo fields, flattened to primitives.

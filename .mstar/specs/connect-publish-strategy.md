@@ -2,7 +2,7 @@
 
 **Status:** Informative decision — does not change connect envelopes or the lockstep release policy for core wire packages.
 
-**Updated:** 2026-08-02
+**Updated:** 2026-08-03
 
 ---
 
@@ -28,47 +28,53 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 
 ## 2. Surface inventory
 
-| Surface | Path today | Registry candidate | Current publish state |
-|---------|------------|--------------------|------------------------|
-| **TS connect client** | `packages/spoke-connect-ts` | npm `@42ch/spoke-connect` | Workspace-private (`private: true`); lockstep version |
-| **Docs site** | `docs/` | GitHub Pages (site, not a package registry) | Planned companion to Stage 1 |
-| **Rust connect core / spike** | `crates/spoke-connect` | crates.io `spoke-connect` (deferred) | `publish = false` reference spike |
-| **uniffi bindings (Swift / C# / …)** | `crates/spoke-connect/bindings/*` | Registry packages from this repo: none | Generate scripts + smokes in-repo; product bindings ship from consumer repositories |
-| **Core wire packages** (context) | `@42ch/spoke-schemas`, `@42ch/spoke-operations`, crates `spoke-schemas` / `spoke-operations` | npm + crates.io | Already published under lockstep SemVer |
+| Surface | Path today | Registry | Publish state |
+|---------|------------|----------|---------------|
+| **TS connect client** | `packages/spoke-connect-ts` | npm `@42ch/spoke-connect` | Published lockstep via `release.yml` |
+| **Docs site** | `docs/` | GitHub Pages | Live companion site |
+| **Rust connect crate** | `crates/spoke-connect` | crates.io `spoke-connect` | Published lockstep via `release.yml` |
+| **C# NuGet binding** | `crates/spoke-connect/bindings/csharp/` | GitHub Packages `42ch.Spoke.Connect` | Published lockstep via `release.yml` `publish-nuget` |
+| **Other uniffi bindings** (Swift / Go / …) | `crates/spoke-connect/bindings/*` | GitHub Packages (language-specific) when each binding is package-ready | Generate scripts + smokes in-repo; packages follow the C# pattern |
+| **Core wire packages** (context) | `@42ch/spoke-schemas`, `@42ch/spoke-operations`, crates `spoke-schemas` / `spoke-operations` | npm + crates.io | Published under lockstep SemVer |
 
 ---
 
 ## 3. Publish staging
 
-| Surface | Path today | Registry candidate | Stage | Trigger to publish / go live |
-|---------|------------|--------------------|-------|------------------------------|
-| **TS connect client** | `packages/spoke-connect-ts` (`private: true`, lockstep version) | **npm** `@42ch/spoke-connect` | **Stage 1 — first publish** | (a) published-shape checklist complete; (b) golden + suite green on main; (c) maintainer elects connect publish in a release cut that extends `release.yml` publish-npm list; (d) docs site home links the package |
-| **Docs site** | `docs/` | **GitHub Pages** (not a package registry) | **Stage 1 companion** | Docs workflow deploys on main; not blocked on npm publish |
-| **Rust connect core / spike** | `crates/spoke-connect` (`publish = false`) | crates.io `spoke-connect` **deferred** | **Stage 2+** | Separate decision: either (i) publish a **slim** `spoke-connect-core` (sync core only, no libp2p) or (ii) keep spike private and document path-dep / git-dep embed — **default recommendation: keep full spike `publish = false`**; revisit when a crates.io consumer demand is real and the core is split from libp2p |
-| **uniffi bindings (Swift/C#/…)** | `crates/spoke-connect/bindings/*` | **Not published** from this repo | **Never as registry packages here** | Consumers vendor generated bindings + link `cdylib` **or** ship bindings from **consumer repositories**; protocol repo keeps generate scripts + smokes only |
-| **Core wire packages** (context) | `@42ch/spoke-schemas`, `@42ch/spoke-operations`, crates | Already on npm/crates.io | **Unchanged** | Existing `spoke-version-release.md` / `release.yml` |
+| Surface | Registry | Stage | Trigger |
+|---------|----------|-------|---------|
+| **TS connect client** | **npm** `@42ch/spoke-connect` | **Stage 1 — done** | Stable / non-`-rc.` tags via `publish-npm` |
+| **Docs site** | **GitHub Pages** | **Stage 1 companion — done** | Docs workflow on main |
+| **Rust connect crate** | crates.io `spoke-connect` | **Stage 1 — done** | Stable / non-`-rc.` tags via `publish-crates` |
+| **C# NuGet binding** | **GitHub Packages** `42ch.Spoke.Connect` | **Bindings Stage A — done when first tag ships the job** | Multi-RID `ffi` matrix + `dotnet pack` + `dotnet nuget push` on the same tag gate as npm/crates |
+| **Further language bindings** | GitHub Packages | **Bindings Stage B+** | Same GH Packages + lockstep rule when each language package is ready |
+| **Core wire packages** | npm + crates.io | **Unchanged** | Existing `spoke-version-release.md` / `release.yml` |
 
-**Staging rationale:** The TS Path A client is the lowest-ops publish (pure JS/TS, no native cdylib in the tarball) and matches the existing npm Trusted Publishing path. The Rust spike carries libp2p + cdylib policy and is not first. Bindings are host-specific artifacts; product connect bindings ship in consumer repositories.
+**Registry split:**
 
-**Owner class per stage:**
+| Ecosystem | Surfaces |
+|-----------|----------|
+| **npm** + **crates.io** | Primary TS / Rust connect packages (`@42ch/spoke-connect`, `spoke-connect`) and core wire packages |
+| **GitHub Packages** | Multi-language binding packages published from this repo (NuGet first: `42ch.Spoke.Connect`; Swift and others later) |
+
+**Owner class:**
 
 | Stage | Owner class |
 |-------|-------------|
-| Stage 1 npm `@42ch/spoke-connect` | Maintainer CI — extend top-level `release.yml` publish-npm list + Trusted Publishing OIDC binding |
-| Stage 1 companion docs site | Docs workflow (GitHub Pages deploy on main) |
-| Stage 2+ Rust core | Maintainer decision + release cut only after slim-core split or explicit keep-private confirmation |
-| Bindings | Consumer repositories (or path/git embed); protocol repo maintainers own generate scripts + smokes only |
+| npm / crates.io connect + wire | Maintainer CI — top-level `release.yml` Trusted Publishing OIDC |
+| Docs site | Docs workflow (GitHub Pages on main) |
+| GitHub Packages bindings | Maintainer CI — `publish-nuget` (and future language jobs) with `packages: write` + `GITHUB_TOKEN` |
 
 ---
 
 ## 4. Versioning recommendation
 
-| Decision | **Continue monorepo lockstep SemVer** for `@42ch/spoke-connect` (and any future published connect crate that remains a workspace member) |
-|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| Rationale | Already asserted in `spoke-version-release.md` row 6 / row 10; integrators pin one `X.Y.Z` across schemas + operations + connect-ts; `release:bump` / `verify:version` already cover the package; per-surface independent SemVer would fork bump scripts, CHANGELOG story, and Trusted Publishing mental model for little gain pre-1.0 |
-| Pre-1.0 note | Breaking connect API changes still allowed without long deprecation; call out in CHANGELOG when connect-ts public surface breaks |
-| Revisit trigger | Connect-ts gains a **native optional dependency** or a **substantially different release cadence** from wire packages → then evaluate `connect-ts@Y` independent channel; record in this decision doc before splitting |
-| Bindings | No registry version — track against the **git tag / spoke lockstep version** of the cdylib they were generated from |
+| Decision | **Continue monorepo lockstep SemVer** for `@42ch/spoke-connect`, `spoke-connect`, and binding packages (`42ch.Spoke.Connect`) |
+|----------|------------------------------------------------------------------------------------------------------------------------------|
+| Rationale | Integrators pin one `X.Y.Z` across schemas + operations + connect surfaces; `release:bump` / `verify:version` cover the manifests; independent SemVer would fork bump scripts and CHANGELOG story for little gain pre-1.0 |
+| Binding packages | Lockstep with spoke SemVer / git tag `vX.Y.Z` (same tag gate as npm/crates publish) |
+| Pre-1.0 note | Breaking connect API changes still allowed without long deprecation; call out in CHANGELOG when a public connect surface breaks |
+| Revisit trigger | A binding gains a substantially different release cadence or a nuget.org mirror demand → record the split in this decision doc before changing channels |
 
 ---
 
@@ -76,74 +82,38 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 
 | Target | Artifact | Auth model |
 |--------|----------|------------|
-| **npm** | `@42ch/spoke-connect` (Stage 1) | **Trusted Publishing OIDC** via top-level `.github/workflows/release.yml` (same org `42ch-dev` / repo `spoke` binding as `@42ch/spoke-schemas` and `@42ch/spoke-operations`). No long-lived `NPM_TOKEN` repository secret for release publish |
-| **crates.io** | `spoke-connect` (Stage 2+, only if publish decision revises) | Same Trusted Publishing pattern as `spoke-schemas` / `spoke-operations` (`rust-lang/crates-io-auth-action` → short-lived `CARGO_REGISTRY_TOKEN`); OIDC binds to top-level `release.yml` filename |
-| **GitHub Pages** | Integrator docs site from `docs/` | Pages deploy workflow on main; separate from registry Trusted Publishing |
+| **npm** | `@42ch/spoke-connect` (+ wire packages) | **Trusted Publishing OIDC** via top-level `.github/workflows/release.yml`. No long-lived `NPM_TOKEN` repository secret for release publish |
+| **crates.io** | `spoke-connect` (+ wire crates) | Same Trusted Publishing pattern (`rust-lang/crates-io-auth-action` → short-lived `CARGO_REGISTRY_TOKEN`); OIDC binds to top-level `release.yml` |
+| **GitHub Packages** | `42ch.Spoke.Connect` (NuGet) and future binding packages | `GITHUB_TOKEN` with `packages: write` on `release.yml`; push to `https://nuget.pkg.github.com/42ch-dev/index.json` |
+| **GitHub Pages** | Integrator docs site from `docs/` | Pages deploy workflow on main |
 
-**Alignment constraints (from `spoke-version-release.md` / repo release policy):**
+**Alignment constraints:**
 
-- `release.yml` remains the **sole top-level publish workflow** (tag push `v*` or `release`-labeled PR merge). Trusted Publishing OIDC binds to that filename — keep Stage 1 npm publish inside `publish-npm`, do not wrap via `workflow_call`.
-- Stable tags `vX.Y.Z` and prerelease SemVer tags without `-rc.` publish registries; tags containing `-rc.` create GitHub pre-releases only.
-- Stage 1 execution extends the publish-npm package list to include `@42ch/spoke-connect` after published-shape and suite gates are green, and **co-updates `.mstar/specs/spoke-version-release.md` in the same change**: row 6 "not published" → `@42ch/spoke-connect` published; add the package to the publish-only package lists (release steps, registry-artifacts, CI package set) and the package-name / install tables. Until Stage 1 the package stays `private: true` and the release spec keeps the "not published" wording.
+- `release.yml` remains the **sole top-level publish workflow** (tag push `v*` or `release`-labeled PR merge). Trusted Publishing OIDC binds to that filename — keep npm/crates publish inside `publish-npm` / `publish-crates`; binding NuGet publish is a sibling job in the same workflow.
+- Stable tags `vX.Y.Z` and prerelease SemVer tags without `-rc.` publish registries; tags containing `-rc.` create GitHub pre-releases only (no npm / crates.io / GitHub Packages binding push).
 
 ---
 
-## 6. TS package published-shape checklist
+## 6. TS package published-shape (historical Stage 1)
 
 Package: `packages/spoke-connect-ts` (`@42ch/spoke-connect`).
 
-| Field | Locked shape (prep → Stage 1) |
-|-------|-------------------------------|
-| `private` | **`true` remains** until Stage 1 execution |
-| `name` / `version` / `license` | Keep; version stays lockstep with monorepo |
-| `type` | `"module"` |
-| `exports` | **Root + `./node` subpath only** — no `./src/*` wildcard; Node-only `ws` / `connectClient` stay off the root barrel |
-| | Prep (workspace / src-publish intent): |
-| | ```json |
-| | "exports": { |
-| |   ".": { |
-| |     "types": "./src/index.ts", |
-| |     "import": "./src/index.ts", |
-| |     "default": "./src/index.ts" |
-| |   }, |
-| |   "./node": { |
-| |     "types": "./src/node/connect-client.ts", |
-| |     "import": "./src/node/connect-client.ts", |
-| |     "default": "./src/node/connect-client.ts" |
-| |   } |
-| | } |
-| | ``` |
-| | Stage 1 first npm publish **MUST** ship a built tarball: emit `dist/` (tsc or tsup), retarget `exports` (`import` → `./dist/index.js`, `types` → `./dist/index.d.ts`, same shape for `./node`), include `dist/` in `files`, and pass packed-tarball import smokes before the first publish. The prep state above (src-publish intent map, `private: true`) is unchanged — the build is a Stage 1 execution step, not a prep flip |
-| `files` | Prep (realized): `["src", "README.md"]` — SPDX `license` field only, mirroring published siblings (authoritative text at repo-root `LICENSE`); no package-level LICENSE file. Tarball LICENSE copy is a **Stage 1 execution option** (npm `files` does not auto-include a root LICENSE; add a copy/prepare step alongside the build if a tarball LICENSE is wanted). Stage 1 with build: `["dist", "README.md"]` |
-| Metadata | `repository` `{ type, url: git+https://github.com/42ch-dev/spoke.git, directory: packages/spoke-connect-ts }`; `homepage` = **repo URL slot** today (`https://github.com/42ch-dev/spoke`); the integrator docs site is live at `https://42ch-dev.github.io/spoke/` and becomes the `homepage` at the Stage 1 release cut; keep `keywords`, `description`, `engines.node` (≥20.19.0) |
-| `publishConfig` | `{ "access": "public" }` present or documented while `private: true` (inert until Stage 1). Provenance: npm Trusted Publishing OIDC via `release.yml` |
-| Dependencies at publish | `@42ch/spoke-schemas` resolves on npm at the **same lockstep version** (`workspace:*` rewritten on pack). `ws` remains a dependency of the `./node` subpath only — browser consumers import `"."` only |
-| README | Short **Publish guidance**: private until Stage 1; subpath map; peer/lockstep expectation on `@42ch/spoke-schemas` |
-| Behavior | Published-shape is metadata/exports only until Stage 1; workspace consumers keep current import paths |
-
-**Stage 1 execution checklist** (fires at the Stage 1 release cut; no action during prep):
-
-- [ ] Emit `dist/` (tsc or tsup) and retarget `exports` to the built JS + `.d.ts` (`import` → `./dist/*.js`, `types` → `./dist/*.d.ts`); `files` includes `dist/`.
-- [ ] Pass **packed-tarball import smokes**: `npm pack`, then import both `@42ch/spoke-connect` and `@42ch/spoke-connect/node` from the packed tarball on the supported Node versions (≥ 20.19.0).
-- [ ] Co-update `.mstar/specs/spoke-version-release.md` in the same change as the `release.yml` publish-npm list extension: row 6 "not published" → `@42ch/spoke-connect` published; add the package to the publish-only package lists and the package-name / install tables. The release spec is not edited during prep.
-- [ ] Re-evaluate `ws` placement: browser consumers of the `.` subpath currently pay the `ws` install cost via flat `dependencies` — decide at Stage 1 whether `ws` stays flat or moves to the `./node`-only dependency shape.
-- [ ] Register `@42ch/spoke-connect` as an npm Trusted Publisher for org `42ch-dev` / repo `spoke` (OIDC binding already covers the sibling packages via `release.yml`).
-- [ ] Switch `homepage` from the repo URL slot to the docs-site URL (`https://42ch-dev.github.io/spoke/`, live) at the Stage 1 release cut.
-
-**Prep owner:** package maintainer applying the checklist in-repo. **Stage 1 flip** (`private: false` + `release.yml` list) is a separate maintainer release cut after the checklist and suites are green on main.
+Stage 1 execution is complete: built `dist/` tarball, Trusted Publishing on `release.yml`, lockstep with wire packages. Current package metadata and exports live in `packages/spoke-connect-ts/package.json`; see the package README for integrator install.
 
 ---
 
 ## 7. Bindings disposition
 
-uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not registry packages from this repository**.
+uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged from this repository onto **GitHub Packages** when a language has a packable project and release job.
 
 | Fact | Detail |
 |------|--------|
-| What this repo ships | Generate scripts, smokes, and the sync-core `ffi` surface on the unpublished `spoke-connect` crate |
-| What consumers do | Vendor generated bindings + link the `cdylib`, **or** ship language bindings from **consumer repositories** |
-| Version tracking | Bind against the **git tag / spoke lockstep version** of the cdylib they were generated from (no independent registry SemVer) |
-| Language matrix | **C#, Go, Python, Swift, Kotlin — C# first** (Swift skeleton landed; **C# landed** via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 — drop the fork when upstream tags 0.32+; see [`connect-csharp-binding.md`](connect-csharp-binding.md)) |
+| What this repo ships | Generate scripts, smokes, the sync-core `ffi` surface, and published binding packages on GitHub Packages |
+| C# package | **`42ch.Spoke.Connect`** — generated C# + multi-RID native `spoke_connect` / `libspoke_connect` under `runtimes/<rid>/native/`; session core only (transport stays product-owned) |
+| Consumer DX | One-time `nuget.config` source for `https://nuget.pkg.github.com/42ch-dev/index.json` + `PackageReference` — no Rust toolchain required |
+| Version tracking | Lockstep SemVer with spoke / git tag `vX.Y.Z` |
+| Language matrix | **C#, Go, Python, Swift, Kotlin — C# first** (Swift skeleton landed; C# NuGet via vendored `uniffi-bindgen-cs` fork until upstream tags 0.32+; see [`connect-csharp-binding.md`](connect-csharp-binding.md)) |
+| Maintainer regenerate | Vendored bindgen fork until upstream 0.32+; consumers never run bindgen |
 
 ---
 
@@ -178,9 +148,9 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 | Non-goal | Detail |
 |----------|--------|
 | Daemon / runtime packages | No connect daemon, MCP server, or multi-product runtime package from this repo |
-| Bindings registry publish | No npm/crates.io (or language-specific registry) packages for uniffi bindings from this monorepo |
-| Per-surface independent SemVer pre-1.0 | No split version channels for connect-ts vs schemas/ops until the revisit trigger in §4 fires |
-| Premature registry publish | Stage 1 executes only after published-shape + suite gates + maintainer release cut; prep leaves `private: true` and crate `publish = false` |
+| nuget.org mirror | GitHub Packages only for binding NuGet until integrator demand justifies a second feed |
+| WebSocket client inside `42ch.Spoke.Connect` | Session core only in v1; a later `42ch.Spoke.Connect.WebSocket` (or product package) may add transport |
+| Per-surface independent SemVer pre-1.0 | No split version channels for connect-ts / NuGet vs schemas/ops until the revisit trigger in §4 fires |
 | Overturn pure-TS-minimal | This strategy does not re-litigate the TS connectivity primary route |
 | Wire / schema changes | Publish strategy is packaging and staging only; connect envelopes stay under `spoke-connect.md` |
 
@@ -190,9 +160,10 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are **not regi
 
 | Slice | What ships | Trigger | Owner |
 |-------|------------|---------|-------|
-| **connect publish execution (Stage 1)** | First registry publish of `@42ch/spoke-connect` + docs site live; **dist/ build + packed-tarball import smokes** (see §6); extend `release.yml` publish-npm list + Trusted Publishing + **co-update `spoke-version-release.md`** (row 6, publish-only lists, package-name/install tables); **amend the root `AGENTS.md` connect boundary line** ("no published connect package" → `@42ch/spoke-connect` is the published TS client; `crates/spoke-connect` and bindings stay unpublished) **as part of the Stage 1 change**; keep `spoke-connect` crate and bindings unpublished unless Stage 2 revises | Decision record accepted on main + published-shape checklist complete + golden/suite green on main + maintainer release cut | Release maintainer / next delivery slice |
+| **C# GitHub Packages NuGet** | `42ch.Spoke.Connect` pack + multi-RID ffi + `publish-nuget` on stable tags; docs PackageReference DX | Decision record on main + release tag without `-rc.` | Release maintainer |
+| **Further bindings on GH Packages** | Swift / Go / Python / Kotlin packages when each language is pack-ready | Feasibility gate + packable project | Binding maintainers |
 
-Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next**.
+Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next** / **Done**.
 
 ---
 
@@ -203,9 +174,9 @@ Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next**.
 | [`.mstar/specs/spoke-connect.md`](spoke-connect.md) | Normative connect wire + embedding |
 | [`.mstar/specs/spoke-connect-ts-route.md`](spoke-connect-ts-route.md) | TS client route (pure-TS-minimal) |
 | [`.mstar/specs/spoke-version-release.md`](spoke-version-release.md) | Lockstep SemVer + Trusted Publishing |
-| [`.mstar/specs/connect-csharp-binding.md`](connect-csharp-binding.md) | C# uniffi binding decision record (landed via vendored bindgen fork) |
-| [`.mstar/roadmap.md`](../roadmap.md) | Durable project roadmap (Stage 1 execution row) |
+| [`.mstar/specs/connect-csharp-binding.md`](connect-csharp-binding.md) | C# uniffi binding decision record |
+| [`.mstar/roadmap.md`](../roadmap.md) | Durable project roadmap |
 | [`packages/spoke-connect-ts/`](../../packages/spoke-connect-ts/) | TS connect client package |
-| [`crates/spoke-connect/`](../../crates/spoke-connect/) | Rust reference spike (`publish = false`) |
-| [`crates/spoke-connect/bindings/`](../../crates/spoke-connect/bindings/) | uniffi binding trees (not registry products here) |
-| [`.github/workflows/release.yml`](../../.github/workflows/release.yml) | Top-level publish workflow (OIDC Trusted Publishing) |
+| [`crates/spoke-connect/`](../../crates/spoke-connect/) | Rust connect crate |
+| [`crates/spoke-connect/bindings/csharp/`](../../crates/spoke-connect/bindings/csharp/) | C# binding + NuGet project |
+| [`.github/workflows/release.yml`](../../.github/workflows/release.yml) | Top-level publish workflow (OIDC + GitHub Packages) |

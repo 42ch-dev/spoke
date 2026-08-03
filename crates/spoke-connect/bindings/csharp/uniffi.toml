@@ -1,0 +1,9 @@
+# uniffi-bindgen-cs configuration for the packable NuGet library.
+# Pass with: uniffi-bindgen-cs <cdylib> --library --config <this-file> --out-dir …
+#
+# Default access_modifier is `internal` (same-assembly apps). PackageReference
+# consumers need `public` exported symbols.
+
+[bindings.csharp]
+cdylib_name = "spoke_connect"
+access_modifier = "public"

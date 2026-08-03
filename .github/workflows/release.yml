@@ -466,7 +466,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             rid: linux-x64
             lib: libspoke_connect.so
           - os: windows-latest

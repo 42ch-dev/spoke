@@ -140,7 +140,7 @@ import spoke_connect
 peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
 ```
 
-Platform wheels (`manylinux_2_17_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publish to PyPI project **`spoke-connect`** via Trusted Publishing OIDC on the top-level `release.yml` workflow (`publish-pypi` job, repository `42ch-dev/spoke`). Version locksteps with spoke git tags `vX.Y.Z`. See [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
+Platform wheels (`manylinux_2_35_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publish to PyPI project **`spoke-connect`** via Trusted Publishing OIDC on the top-level `release.yml` workflow (`publish-pypi` job, repository `42ch-dev/spoke`). Version locksteps with spoke git tags `vX.Y.Z`. See [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
 
 ## Target matrix
 

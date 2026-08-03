@@ -72,7 +72,7 @@ rid_to_native() {
 
 rid_to_plat_name() {
   case "$1" in
-    linux-x64) echo "manylinux_2_17_x86_64" ;;
+    linux-x64) echo "manylinux_2_35_x86_64" ;;
     win-x64) echo "win_amd64" ;;
     osx-arm64) echo "macosx_11_0_arm64" ;;
     *)

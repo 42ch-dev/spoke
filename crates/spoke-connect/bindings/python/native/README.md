@@ -4,7 +4,7 @@ Each platform wheel bundles **one** shared library beside `spoke_connect/__init_
 
 | Wheel platform tag (PEP 425) | Artifact RID | Native basename | Staging path (optional) |
 |------------------------------|--------------|-----------------|-------------------------|
-| `manylinux_2_17_x86_64` | `linux-x64` | `libspoke_connect.so` | `native/linux_x86_64/` |
+| `manylinux_2_35_x86_64` | `linux-x64` | `libspoke_connect.so` | `native/linux_x86_64/` |
 | `macosx_11_0_arm64` | `osx-arm64` | `libspoke_connect.dylib` | committed under `../spoke_connect/` for in-tree smoke |
 | `win_amd64` | `win-x64` | `spoke_connect.dll` | `native/win_amd64/` |
 

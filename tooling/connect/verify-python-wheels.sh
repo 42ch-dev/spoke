@@ -5,7 +5,7 @@
 #   ./tooling/connect/verify-python-wheels.sh [dist-dir]
 #
 # Expects exactly three wheels for spoke-connect lockstep version with PEP 425 tags:
-#   py3-none-manylinux_2_17_x86_64
+#   py3-none-manylinux_2_35_x86_64
 #   py3-none-macosx_11_0_arm64
 #   py3-none-win_amd64
 
@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DIST="${1:-${REPO_ROOT}/crates/spoke-connect/bindings/python/dist}"
 VERSION="$(node -p "require('${REPO_ROOT}/package.json').version")"
 
-LINUX_TAG="manylinux_2_17_x86_64"
+LINUX_TAG="manylinux_2_35_x86_64"
 MAC_TAG="macosx_11_0_arm64"
 WIN_TAG="win_amd64"
 

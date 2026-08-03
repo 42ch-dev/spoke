@@ -6,7 +6,7 @@ from setuptools import setup
 from setuptools.command.bdist_wheel import bdist_wheel
 
 RID_TO_PLAT = {
-    "linux-x64": "manylinux_2_17_x86_64",
+    "linux-x64": "manylinux_2_35_x86_64",
     "win-x64": "win_amd64",
     "osx-arm64": "macosx_11_0_arm64",
 }

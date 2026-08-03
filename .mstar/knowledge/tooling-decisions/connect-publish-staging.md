@@ -41,6 +41,10 @@ Published connect surfaces — including binding packages — stay on the monore
 - Maintainers regenerate with the vendored bindgen fork until upstream tags uniffi 0.32+; consumers never run bindgen.
 - Other languages follow the per-channel layouts in `connect-binding-channels.md` (Maven JNA resources, SPM xcframework, Go `native/<goos>_<goarch>/`, PyPI platform wheels).
 
+### Maven groupId decoupled from GitHub owner
+
+The Kotlin Maven `<groupId>` (`dev.42ch:spoke-connect`) is the consumer-facing coordinate and does **not** have to match the publishing GitHub org/owner (`42ch-dev`). GitHub Packages Maven auth binds to the repository URL (`maven.pkg.github.com/42ch-dev/spoke`) and `GITHUB_TOKEN` (`packages: write`), not to `groupId == owner`. The `dev.42ch` groupId is reverse-DNS of the org's core domain `42ch.dev`, satisfying the standard Maven Central namespace requirement for a future mirror. The `publish-maven` job carries no coordinate string — it calls `gradle publish` which reads the POM metadata from `build.gradle.kts`.
+
 ### When a gate blocks the pipeline: defer with a record
 
 C# bindings hit a toolchain gap (`uniffi-bindgen-cs` targets uniffi 0.31 vs the repo pin 0.32) and were recorded with a decision record + revisit trigger ([`connect-csharp-binding.md`](../../specs/connect-csharp-binding.md)) instead of downgrading pins — the gap then **landed via a vendored fork** retargeted to uniffi 0.32 (fork dropped when upstream tags 0.32+). Same pattern for any other blocked surface: record the blocker, keep the target priority, define the revisit trigger, re-check via the documented regenerate → build → run sequence.

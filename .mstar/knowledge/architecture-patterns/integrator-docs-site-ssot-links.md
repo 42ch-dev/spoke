@@ -49,6 +49,7 @@ An integrator site for a protocol repo must be a **window onto the specs, not a 
 
 - Building consumer-facing docs for any protocol repository — integrator summaries + GitHub blob SSOT links; specs read-only; no body duplication.
 - Deploying a VitePress site to GitHub Pages from Actions — SHA-pinned Pages actions, Pages source "GitHub Actions", ref-scoped build concurrency + main-only deploy group, `base: '/'` when a custom domain is attached; otherwise `base: '/<repo>/'` for bare project sites.
+- Locale twin sites (EN root + `zh/`) — a zero-dep twin-parity script (`tooling/docs/twin-parity.mjs`) gates page-count drift: every `*.md` under the root locale has a path-identical twin under `zh/` (and vice versa), with an explicit allow-list for justified locale-specific pages. A dead-link script (`tooling/docs/deadlink-check.mjs`) crawls the built `dist/**/*.html` for internal `href`s under the site base and fails on any 404. Both run in the `build` job before `upload-pages-artifact`, on the same `docs/**` + `tooling/docs/**` path filter.
 
 ## Examples
 

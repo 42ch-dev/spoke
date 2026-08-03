@@ -1,4 +1,4 @@
-//! SPOKE Connect reference spike — authenticated cross-process connectivity
+//! SPOKE Connect reference library — authenticated cross-process connectivity
 //! for the connect wire family.
 //!
 //! `spoke-connect` demonstrates the reference stack mapping of the connect
@@ -11,8 +11,8 @@
 //! as a local-development convenience — discovered peers still pass the
 //! allowlist + signed-hello gates.
 //!
-//! The crate is a workspace-private library (`publish = false`) with a
-//! library-only target; embedders integrate it as a Cargo path dependency.
+//! The crate is published on crates.io as `spoke-connect`; embedders depend on
+//! it via `cargo add spoke-connect`.
 //! All wire types come from `spoke-schemas` generated modules — no parallel
 //! hand-written envelopes.
 //!

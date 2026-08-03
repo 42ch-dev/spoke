@@ -28,8 +28,10 @@
 |--------|--------|------|
 | [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | 生成的 TypeScript 线上类型 — 描述**线上传输什么** |
 | [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | 基于上述类型的纯函数辅助、adapter ports 与编排 |
+| [`@42ch/spoke-connect`](https://www.npmjs.com/package/@42ch/spoke-connect) | npm | 可选连接客户端 — 身份派生、hello 认证、会话核心、WebSocket 传输 |
 | [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | 生成的 Rust 线上类型 |
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数辅助、adapter ports 与编排 — 与 `@42ch/spoke-operations` 行为对齐 |
+| [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | 可选连接参考 — libp2p 传输、会话核心、uniffi 绑定接口 |
 
 产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry 与 AssemblePacket 上一个可选、按能力启用的字段袋。见 [`spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md)。
 

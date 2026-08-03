@@ -2,7 +2,7 @@
 
 SPOKE connect client library (TypeScript) — peer identity derivation, Ed25519 hello signing, RFC 8785 JCS canonicalization, one-JSON-per-message WebSocket framing, and the pure session-core port (sequence, correlation, dispatch gate, nonce store, allowlist).
 
-Workspace-private package: the version tracks the monorepo lockstep SemVer (asserted by `verify:version`, bumped by `release:bump`). The transport is a direct WebSocket ordered reliable stream using plain JSON + WebSocket framing; transport and crypto are dependency-light by design.
+Published on npm as `@42ch/spoke-connect`; the version tracks the monorepo lockstep SemVer (asserted by `verify:version`, bumped by `release:bump`). The transport is a direct WebSocket ordered reliable stream using plain JSON + WebSocket framing; transport and crypto are dependency-light by design.
 
 ## What it provides
 
@@ -14,9 +14,13 @@ Workspace-private package: the version tracks the monorepo lockstep SemVer (asse
 
 **Golden-vector parity:** tests assert peer_id / JCS bytes / signature byte-identical to the Rust golden vectors in `crates/spoke-connect/src/core/` (`peer_id.rs`, `hello_crypto.rs`), with constants redeclared in `src/golden.ts` (provenance comments included).
 
-## Usage
+## Install
 
-Monorepo-internal (workspace-private; subpaths resolve via the package `exports` map):
+```bash
+pnpm add @42ch/spoke-connect
+```
+
+## Usage
 
 ```ts
 import { derivePeerIdFromEd25519Pubkey } from "@42ch/spoke-connect";
@@ -65,17 +69,17 @@ The two-node interop test (`tests/two-node.test.ts`) runs an in-process `ws` ser
 
 ## Scope
 
-- Workspace-private (`"private": true`) package shipping inside the monorepo.
-- The package consumes the existing connect schemas as-is (`@42ch/spoke-schemas`, workspace dependency, types only); the schema inventory is unchanged.
+- Published on npm (`@42ch/spoke-connect`); ships a built `dist/` via tsup (dual CJS/ESM, two isolated entries — browser-safe `.` and Node `./node`).
+- The package consumes the existing connect schemas as-is (`@42ch/spoke-schemas` runtime dependency; types only from the consumer's perspective); the schema inventory is unchanged.
 - Envelope-level interop over any ordered reliable stream; framing is direct WebSocket per `.mstar/specs/spoke-connect.md` § Transport framing.
 - The client targets the direct ordered-stream transport.
 - `connectClient` lives in the Node `src/node/` subpath (uses `ws`); the isomorphic `src/` modules are browser-swappable with the native WebSocket.
 
-## Publish guidance
+## Publishing
 
-The package is workspace-private at the current version (`"private": true`); the publish strategy, staging, and triggers are defined in `.mstar/specs/connect-publish-strategy.md` (repository-internal reference).
+Published via the monorepo `release.yml` on stable lockstep tags (npm Trusted Publishing OIDC). The build emits `dist/` (tsup, dual CJS/ESM); the tarball is packed with pnpm (rewrites `workspace:*`) and published with the npm CLI.
 
-- **Entry points** — the package exposes two subpaths: `.` (isomorphic core: identity, crypto, JCS, session core) and `./node` (the Node `connectClient`, which depends on `ws`). Browser consumers import `.` only.
-- **License** — declared Apache-2.0 via the `license` field, mirroring the published sibling packages (`@42ch/spoke-schemas`, `@42ch/spoke-operations`); the authoritative license text lives at the repository root (`LICENSE`).
-- **Versioning** — lockstep SemVer with the monorepo (`verify:version`, `release:bump`); `@42ch/spoke-schemas` resolves at the same version from npm (workspace `workspace:*` is rewritten at pack time).
-- **Installation** — the package installs from the workspace at the current version. When the Stage 1 publish defined in the strategy document executes, `@42ch/spoke-connect` publishes to npm and consumers install it from the registry at the same lockstep version as `@42ch/spoke-schemas`. The Stage 1 release procedure lives in `.mstar/specs/connect-publish-strategy.md` (repository-internal).
+- **Entry points** — two subpaths: `.` (isomorphic core: identity, crypto, JCS, session core) and `./node` (the Node `connectClient`, which depends on `ws`). Browser consumers import `.` only.
+- **License** — Apache-2.0 via the `license` field; authoritative text at repository root `LICENSE`.
+- **Versioning** — lockstep SemVer with the monorepo (`verify:version`, `release:bump`); `@42ch/spoke-schemas` resolves at the same version from npm.
+- **Installation** — `pnpm add @42ch/spoke-connect` installs from the npm registry at the lockstep version.

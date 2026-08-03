@@ -1,6 +1,6 @@
 # spoke-connect
 
-Reference spike for the SPOKE Connect wire family (`../../.mstar/specs/spoke-connect.md`):
+Reference library for the SPOKE Connect wire family (`../../.mstar/specs/spoke-connect.md`):
 an embeddable Rust library that maps the connect envelopes onto rust-libp2p and
 demonstrates the `noise-peerid` authenticated hello handshake, the
 `capability-token` step-up auth method, per-session ordering, and op
@@ -8,9 +8,8 @@ invocation.
 
 ## Status
 
-- **Reference spike** — a workspace-private library crate (`publish = false`)
-  with a library-only target; consumers integrate it as a Cargo path
-  dependency.
+- **Reference library** — published on crates.io as `spoke-connect`; consumers
+  depend on it via `cargo add spoke-connect`.
 - Consumes wire types exclusively from `spoke-schemas` generated modules
   (`ConnectHello`, `HostCapabilityManifest`, `ConnectInvokeRequest`,
   `ConnectInvokeResponse`, …) — every connect wire type comes from codegen.

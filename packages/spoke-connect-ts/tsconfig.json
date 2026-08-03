@@ -11,9 +11,24 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@42ch/spoke-schemas": ["../spoke-schemas/src/index.ts"]
+      "@42ch/spoke-schemas": [
+        "../spoke-schemas/src/index.ts"
+      ],
+      "@42ch/spoke-connect": [
+        "./src/index.ts"
+      ],
+      "@42ch/spoke-connect/node": [
+        "./src/node/connect-client.ts"
+      ]
     }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

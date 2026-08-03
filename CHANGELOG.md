@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.7.1] - 2026-08-03
+
+
+### Changed
+
+- **connect:** Rename npm package @42ch/spoke-connect-ts -> @42ch/spoke-connect
+
+
+### Documentation
+
+- **connect:** Update READMEs for published @42ch/spoke-connect + spoke-connect
+
+- **connect:** Update crate README + lib.rs — published, not workspace-private (Greptile P2)
+
+
+### Fixed
+
+- **docs:** Override vite to ^6.4.3 — clear Dependabot dev-server advisories
+
+- **connect-ts:** Tsconfig paths for self-import — resolve src, not dist (CI typecheck)
+
+- **connect-ts:** Vitest alias for self-import + exports->dist (CI typecheck+test pass)
+
+- **connect-ts:** Reorder vitest alias — /node before bare name (prefix match)
+
+
+### Internal
+
+- **release:** Publish @42ch/spoke-connect + spoke-connect via release.yml (Stage 1+2)
+
 ## [0.7.0] - 2026-08-03
 
 

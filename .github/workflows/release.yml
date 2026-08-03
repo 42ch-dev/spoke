@@ -635,8 +635,9 @@ jobs:
         run: ./tooling/connect/verify-python-wheels.sh
 
       - name: Publish to PyPI
-        # pypa/gh-action-pypi-publish@v1.14.2 — Trusted Publishing OIDC (Pending publisher: spoke-connect)
-        uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26
+        # pypa/gh-action-pypi-publish@v1.14.2 — pin peeled commit (GHCR image tag), not annotated-tag object SHA
+        # Trusted Publishing OIDC (Pending publisher: spoke-connect)
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: crates/spoke-connect/bindings/python/dist/
           print-hash: true
@@ -684,7 +685,7 @@ jobs:
 
       - name: Setup Java
         # actions/setup-java@v4.7.0
-        uses: actions/setup-java@943e71e27a2314880cef1f1212a7def833ca4670
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: temurin
           java-version: "17"

@@ -1,9 +1,9 @@
 # spoke-connect Go binding
 
-Go module path: **`github.com/42ch-dev/spoke`** (root `go.mod`). Import the generated package:
+Go module path: **`github.com/42ch-dev/spoke`** (root `go.mod`). Import the binding package:
 
 ```go
-import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
+import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 ```
 
 Integrators pin at spoke lockstep tag `vX.Y.Z`:
@@ -18,7 +18,8 @@ Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/sp
 
 | Path | Contents |
 |------|----------|
-| `generated/spoke_connect/` | Generated Go + C header + cgo link shims (regenerate when FFI surface changes) |
+| `spokeconnect.go` | Integrator-facing re-export of the generated FFI surface |
+| `generated/spoke_connect/` | Generated Go + C header + cgo link shims (maintainer-internal; regenerate when FFI surface changes) |
 | `native/<goos>_<goarch>/` | Committed cdylib per platform (`libspoke_connect.dylib` / `.so` / `.dll`) |
 | `bindgen/` | Vendored `uniffi-bindgen-go` fork retargeted to uniffi 0.32 |
 | `Smoke/` | Golden-parity smoke (`go test`) |
@@ -54,11 +55,15 @@ cargo +nightly build -p spoke-connect --features ffi --release
 #    darwin_arm64 (host Apple Silicon):
 cp target/release/libspoke_connect.dylib \
   crates/spoke-connect/bindings/go/native/darwin_arm64/
+install_name_tool -id @rpath/libspoke_connect.dylib \
+  crates/spoke-connect/bindings/go/native/darwin_arm64/libspoke_connect.dylib
 
 #    darwin_amd64 (cross from macOS, after: rustup target add x86_64-apple-darwin --toolchain nightly):
 cargo +nightly build -p spoke-connect --features ffi --release --target x86_64-apple-darwin
 cp target/x86_64-apple-darwin/release/libspoke_connect.dylib \
   crates/spoke-connect/bindings/go/native/darwin_amd64/
+install_name_tool -id @rpath/libspoke_connect.dylib \
+  crates/spoke-connect/bindings/go/native/darwin_amd64/libspoke_connect.dylib
 
 #    linux_amd64 / windows_amd64: copy from release.yml build-connect-ffi artifacts
 #    into native/linux_amd64/libspoke_connect.so and native/windows_amd64/spoke_connect.dll

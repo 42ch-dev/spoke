@@ -98,7 +98,7 @@ go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
 ```go
-import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
+import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 ```
 
 在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；cgo 按打包契约从 `native/<goos>_<goarch>/` 加载原生库。当前已提交的原生库：`darwin_arm64`、`darwin_amd64`；`linux_amd64` 与 `windows_amd64` 待维护者从 `build-connect-ffi` 产物落盘（见 [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)）。集成方需 C 工具链且 `CGO_ENABLED=1`。

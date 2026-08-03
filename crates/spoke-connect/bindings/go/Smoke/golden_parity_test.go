@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	sc "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
+	spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 )
 
 var goldenSeed = []byte{
@@ -34,7 +34,7 @@ func goldenNonce() string {
 }
 
 func TestGoldenDerivePeerID(t *testing.T) {
-	got, err := sc.DerivePeerIdFromEd25519Pubkey(goldenPubkey)
+	got, err := spokeconnect.DerivePeerIdFromEd25519Pubkey(goldenPubkey)
 	if err != nil {
 		t.Fatalf("derive_peer_id: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestGoldenDerivePeerID(t *testing.T) {
 }
 
 func TestGoldenSignHelloSignature(t *testing.T) {
-	helloJSON, err := sc.SignHelloEd25519(goldenSeed, goldenNonce(), goldenManifestJSON)
+	helloJSON, err := spokeconnect.SignHelloEd25519(goldenSeed, goldenNonce(), goldenManifestJSON)
 	if err != nil {
 		t.Fatalf("sign_hello: %v", err)
 	}
@@ -63,32 +63,32 @@ func TestGoldenSignHelloSignature(t *testing.T) {
 }
 
 func TestGoldenVerifyHello(t *testing.T) {
-	helloJSON, err := sc.SignHelloEd25519(goldenSeed, goldenNonce(), goldenManifestJSON)
+	helloJSON, err := spokeconnect.SignHelloEd25519(goldenSeed, goldenNonce(), goldenManifestJSON)
 	if err != nil {
 		t.Fatalf("sign_hello: %v", err)
 	}
-	if err := sc.VerifyHelloEd25519(goldenPubkey, goldenPeerID, helloJSON); err != nil {
+	if err := spokeconnect.VerifyHelloEd25519(goldenPubkey, goldenPeerID, helloJSON); err != nil {
 		t.Fatalf("verify_hello: %v", err)
 	}
 }
 
 func TestGoldenTamperedHelloRejected(t *testing.T) {
-	helloJSON, err := sc.SignHelloEd25519(goldenSeed, goldenNonce(), goldenManifestJSON)
+	helloJSON, err := spokeconnect.SignHelloEd25519(goldenSeed, goldenNonce(), goldenManifestJSON)
 	if err != nil {
 		t.Fatalf("sign_hello: %v", err)
 	}
 	tampered := strings.Replace(helloJSON, "data-store", "checker", 1)
-	err = sc.VerifyHelloEd25519(goldenPubkey, goldenPeerID, tampered)
+	err = spokeconnect.VerifyHelloEd25519(goldenPubkey, goldenPeerID, tampered)
 	if err == nil {
 		t.Fatal("tampered hello was accepted")
 	}
-	if !errors.Is(err, sc.ErrCoreErrorInvalidHelloSignature) {
+	if !errors.Is(err, spokeconnect.ErrCoreErrorInvalidHelloSignature) {
 		t.Fatalf("tampered hello: got %v, want InvalidHelloSignature", err)
 	}
 }
 
 func TestGoldenProtocolVersion(t *testing.T) {
-	if got := sc.ProtocolVersion(); got != 1 {
+	if got := spokeconnect.ProtocolVersion(); got != 1 {
 		t.Fatalf("protocol_version: got %d, want 1", got)
 	}
 }

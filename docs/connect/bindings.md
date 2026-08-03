@@ -101,7 +101,7 @@ go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
 ```go
-import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
+import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 ```
 
 At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Committed natives today: `darwin_arm64`, `darwin_amd64`; `linux_amd64` and `windows_amd64` follow when maintainer stages `build-connect-ffi` artifacts (see [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)). Consumers need a C toolchain and `CGO_ENABLED=1`.

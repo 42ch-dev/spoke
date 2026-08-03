@@ -52,7 +52,7 @@
 | Field | Value |
 |-------|-------|
 | Module path | `github.com/42ch-dev/spoke` — declared by a **root `go.mod`** |
-| Import path | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` (package clause follows the generator default; consumers may alias the import) |
+| Import path | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` — integrator package `spokeconnect` re-exports the generated `generated/spoke_connect` cgo surface; consumers import `bindings/go`, not the generated subdirectory |
 | Versioning | Repo tags `vX.Y.Z`; consumers `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
 | Layout | `crates/spoke-connect/bindings/go/` — committed generated Go + `native/<goos>_<goarch>/` + `Smoke/` + README |
 | Native set | `linux_amd64/libspoke_connect.so`, `windows_amd64/spoke_connect.dll`, `darwin_arm64/libspoke_connect.dylib` — committed, rebuilt when the FFI surface changes |

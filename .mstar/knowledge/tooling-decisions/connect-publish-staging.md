@@ -26,7 +26,7 @@ The connect embedding model ships several surfaces with different publishing cos
 | Kotlin binding | **GitHub Packages Maven** | `io.github.42ch-dev:spoke-connect` on `maven.pkg.github.com/42ch-dev/spoke`; `publish-maven` sibling job |
 | Swift binding | **GitHub repo + SPM** | Root `Package.swift` + `vX.Y.Z` tags; consumers `.package(url:from:)` |
 | Go binding | **GitHub repo + Go modules** | Root `go.mod` + `vX.Y.Z` tags; consumers `go get …@vX.Y.Z` |
-| Python binding | **PyPI** | `publish-pypi` via Trusted Publishing OIDC; `pip install <registered-name>` |
+| Python binding | **PyPI** | `publish-pypi` via Trusted Publishing OIDC; `pip install spoke-connect` |
 | Docs site | **GitHub Pages** | Companion site on main |
 
 ### Lockstep SemVer continuation

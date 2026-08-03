@@ -20,7 +20,7 @@ The connect embedding model ships several surfaces with very different publishin
 
 | Surface | Stage | Rule |
 |---|---|---|
-| TS connect client (`@42ch/spoke-connect-ts`) | **Stage 1** — first registry publish | Lowest-ops: pure JS/TS, no native `cdylib` in the tarball; matches the existing npm Trusted Publishing path; the integrator docs site ships as the Stage 1 companion |
+| TS connect client (`@42ch/spoke-connect`) | **Stage 1** — first registry publish | Lowest-ops: pure JS/TS, no native `cdylib` in the tarball; matches the existing npm Trusted Publishing path; the integrator docs site ships as the Stage 1 companion |
 | Rust connect core / spike (`crates/spoke-connect`) | **Stage 2+** — deferred | `publish = false` stays; publish only after a slim core-only split or real crates.io consumer demand — default is keeping the full spike private (consumers embed via path-dep / git-dep) |
 | uniffi bindings (Swift / C# / …) | **Never** from this repo | Host-specific artifacts: consumers vendor generated bindings + link the `cdylib`, or ship bindings from consumer repositories. The protocol repo owns generate scripts + smokes only; version tracking is the git tag / lockstep version of the `cdylib` they were generated from |
 

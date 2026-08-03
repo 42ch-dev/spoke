@@ -88,7 +88,7 @@ Community uniffi bindgen tools (C#/Go/Python) may lag the repo's pinned uniffi l
 1. [x] Freeze the stable sync core API list — **done**: 8 functions + 3 objects + the two error enums are the exported surface.
 2. [x] Map `CoreError` / `CoreInvokeError` variants to foreign-language error enums — **done** for Swift (`TokenInvalid` included); the mapping table lives in the crate README "Binding facade" section.
 3. [~] Choose the Path B shape for the first language — **core-only landed for Swift** (host-language transport + Rust core); the **core + async node** option (bridging a thin `SpokeConnectNode` via the uniffi async/foreign-runtime mechanism) stays open for a later iteration or a second language.
-4. [~] Share the golden hello vector with every other language path — **TypeScript asserts the same constants byte-for-byte** (`src/golden.ts` in `@42ch/spoke-connect-ts`); the **Swift smoke asserts the golden peer id + signature locally**; a shared cross-language fixture remains a follow-up.
+4. [~] Share the golden hello vector with every other language path — **TypeScript asserts the same constants byte-for-byte** (`src/golden.ts` in `@42ch/spoke-connect`); the **Swift smoke asserts the golden peer id + signature locally**; a shared cross-language fixture remains a follow-up.
 5. [x] Keep `Multiaddr` / swarm types off the FFI — **done**: satisfied by the landed surface.
 
 ## Why This Matters

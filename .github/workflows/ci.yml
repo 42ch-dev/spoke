@@ -91,10 +91,10 @@ jobs:
       - name: Test toy-world fixtures
         run: pnpm run test:fixtures
 
-      - name: Typecheck @42ch/spoke-connect-ts
-        run: pnpm -F @42ch/spoke-connect-ts typecheck
+      - name: Typecheck @42ch/spoke-connect
+        run: pnpm -F @42ch/spoke-connect typecheck
 
-      - name: Test @42ch/spoke-connect-ts
+      - name: Test @42ch/spoke-connect
         run: pnpm run test:connect-ts
 
       - name: Build @42ch/spoke-operations

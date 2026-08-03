@@ -1,4 +1,4 @@
-# @42ch/spoke-connect-ts
+# @42ch/spoke-connect
 
 SPOKE connect client library (TypeScript) — peer identity derivation, Ed25519 hello signing, RFC 8785 JCS canonicalization, one-JSON-per-message WebSocket framing, and the pure session-core port (sequence, correlation, dispatch gate, nonce store, allowlist).
 
@@ -19,8 +19,8 @@ Workspace-private package: the version tracks the monorepo lockstep SemVer (asse
 Monorepo-internal (workspace-private; subpaths resolve via the package `exports` map):
 
 ```ts
-import { derivePeerIdFromEd25519Pubkey } from "@42ch/spoke-connect-ts";
-import { connectClient } from "@42ch/spoke-connect-ts/node";
+import { derivePeerIdFromEd25519Pubkey } from "@42ch/spoke-connect";
+import { connectClient } from "@42ch/spoke-connect/node";
 
 const seed = new TextEncoder().encode("..."); // 32-byte Ed25519 seed
 const remotePubkey = /* the server's 32-byte Ed25519 public key */;
@@ -44,7 +44,7 @@ const response = await client.invoke("check", { /* op payload */ });
 client.close();
 ```
 
-Core helpers are importable without the client: `signHelloEd25519` / `verifyHelloEd25519`, `OutboundSequence`, `checkResponseCorrelation`, `dispatchAllowed`, `NonceStore`, `isAllowlisted`, `Session` — all from `@42ch/spoke-connect-ts`.
+Core helpers are importable without the client: `signHelloEd25519` / `verifyHelloEd25519`, `OutboundSequence`, `checkResponseCorrelation`, `dispatchAllowed`, `NonceStore`, `isAllowlisted`, `Session` — all from `@42ch/spoke-connect`.
 
 ## Test
 
@@ -78,4 +78,4 @@ The package is workspace-private at the current version (`"private": true`); the
 - **Entry points** — the package exposes two subpaths: `.` (isomorphic core: identity, crypto, JCS, session core) and `./node` (the Node `connectClient`, which depends on `ws`). Browser consumers import `.` only.
 - **License** — declared Apache-2.0 via the `license` field, mirroring the published sibling packages (`@42ch/spoke-schemas`, `@42ch/spoke-operations`); the authoritative license text lives at the repository root (`LICENSE`).
 - **Versioning** — lockstep SemVer with the monorepo (`verify:version`, `release:bump`); `@42ch/spoke-schemas` resolves at the same version from npm (workspace `workspace:*` is rewritten at pack time).
-- **Installation** — the package installs from the workspace at the current version. When the Stage 1 publish defined in the strategy document executes, `@42ch/spoke-connect-ts` publishes to npm and consumers install it from the registry at the same lockstep version as `@42ch/spoke-schemas`. The Stage 1 release procedure lives in `.mstar/specs/connect-publish-strategy.md` (repository-internal).
+- **Installation** — the package installs from the workspace at the current version. When the Stage 1 publish defined in the strategy document executes, `@42ch/spoke-connect` publishes to npm and consumers install it from the registry at the same lockstep version as `@42ch/spoke-schemas`. The Stage 1 release procedure lives in `.mstar/specs/connect-publish-strategy.md` (repository-internal).

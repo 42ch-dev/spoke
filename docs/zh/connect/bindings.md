@@ -24,6 +24,8 @@ crate 的 `src/core/` 是纯同步、语言可移植层 —— libp2p、tokio �
 | **Go modules**（git + 标签） | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
 | **PyPI**（Trusted Publishing） | Python | `pip install <registered-name>` |
 
+NuGet 与 Maven 共用 **GitHub Packages** 渠道类型（同一注册表家族，两种包生态）。
+
 打包坐标与原生库布局：[connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md)。发布阶段与注册表鉴权：[connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md)。
 
 ## C# NuGet（`42ch.Spoke.Connect`）
@@ -41,11 +43,11 @@ crate 的 `src/core/` 是纯同步、语言可移植层 —— libp2p、tokio �
 <PackageReference Include="42ch.Spoke.Connect" Version="0.7.1" />
 ```
 
-原生 `spoke_connect` / `libspoke_connect` 位于 NuGet `runtimes/<rid>/native/`（`win-x64`、`linux-x64`、`osx-arm64`）。包版本与 spoke 锁步 SemVer / 标签 `vX.Y.Z` 对齐。
+使用具备 `read:packages` 权限的 PAT（或 Actions 中的 `GITHUB_TOKEN`）向 GitHub Packages 鉴权。原生 `spoke_connect` / `libspoke_connect` 位于 NuGet `runtimes/<rid>/native/`（`win-x64`、`linux-x64`、`osx-arm64`）。包版本与 spoke 锁步 SemVer / 标签 `vX.Y.Z` 对齐。
 
 ## Kotlin Maven（`io.github.42ch-dev:spoke-connect`）
 
-集成方添加 GitHub Packages Maven 仓库并依赖绑定构件：
+集成方添加 GitHub Packages Maven 仓库，并在 spoke 锁步 SemVer `X.Y.Z` 处依赖绑定构件：
 
 ```kotlin
 // settings.gradle.kts 或 build.gradle.kts 仓库块
@@ -60,20 +62,20 @@ maven {
 
 ```kotlin
 dependencies {
-    implementation("io.github.42ch-dev:spoke-connect:0.7.1")
+    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
 }
 ```
 
-JNA 从已发布 jar 加载平台原生库（`darwin-aarch64`、`linux-x86-64`、`win32-x86-64`）。版本与 spoke 标签 `vX.Y.Z` 锁步。
+JNA 按 Maven 布局契约从 jar 加载平台原生库（`darwin-aarch64`、`linux-x86-64`、`win32-x86-64`）。版本与 spoke 标签 `vX.Y.Z` 锁步。
 
 ## Swift（经 SPM 的 `SpokeConnect`）
 
-集成方将 spoke 仓库添加为 SPM 依赖：
+集成方在锁步 SemVer `X.Y.Z` 处将 spoke 仓库添加为 SPM 依赖：
 
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/42ch-dev/spoke.git", from: "0.7.1"),
+    .package(url: "https://github.com/42ch-dev/spoke.git", from: "X.Y.Z"),
 ],
 targets: [
     .target(
@@ -85,35 +87,35 @@ targets: [
 ]
 ```
 
-根目录 `Package.swift` 提供库产品 `SpokeConnect`，含已提交的生成 Swift 与本地 `spoke_connectFFI` xcframework。版本由 git 标签 `vX.Y.Z` 解析。
+在标签 `vX.Y.Z` 处，SPM 解析仓库根目录 `Package.swift`，取得库产品 `SpokeConnect`、生成 Swift 与 `spoke_connectFFI` xcframework（按打包契约）。
 
 ## Go（`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`）
 
-集成方在 spoke 标签处固定绑定模块：
+集成方在 spoke 锁步标签 `vX.Y.Z` 处固定绑定模块：
 
 ```bash
-go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@v0.7.1
+go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
 ```go
 import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 ```
 
-根目录 `go.mod`（`module github.com/42ch-dev/spoke`）以单一标签族为整个仓库定版。cgo 从 `native/<goos>_<goarch>/` 加载已提交原生库；集成方需 C 工具链。
+在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；cgo 按打包契约从 `native/<goos>_<goarch>/` 加载原生库。集成方需 C 工具链。
 
 ## Python（PyPI）
 
-集成方安装已发布 wheel：
+集成方在 spoke 锁步 SemVer `X.Y.Z` 处从 PyPI 安装：
 
 ```bash
-pip install <registered-name>==0.7.1
+pip install <registered-name>==X.Y.Z
 ```
 
 ```python
 import spoke_connect
 ```
 
-PyPI 经 `release.yml` 上的 Trusted Publishing 发布平台 wheel（`linux_x86_64`、`macosx_arm64`、`win_amd64`）。PyPI 项目名与已注册的 Pending publisher 一致；见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
+平台 wheel（`linux_x86_64`、`macosx_arm64`、`win_amd64`）经 `release.yml` 上的 Trusted Publishing 按打包契约发布。PyPI 项目名与已注册的 Pending publisher 一致；见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
 
 ## 目标语言矩阵
 

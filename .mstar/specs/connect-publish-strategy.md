@@ -38,7 +38,7 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | **Kotlin binding** | `crates/spoke-connect/bindings/kotlin/` | **GitHub Packages Maven** (`maven.pkg.github.com/42ch-dev/spoke`) | Tag-gated publish job sibling to `publish-nuget` when the binding is package-ready |
 | **Swift binding** | `crates/spoke-connect/bindings/swift/` | **GitHub repo + Swift Package Manager** (`Package.swift` + `vX.Y.Z` tags) | SPM git dependency; skeleton landed, packable layout in progress |
 | **Go binding** | `crates/spoke-connect/bindings/go/` | **GitHub repo + Go modules** (root `go.mod` → module `github.com/42ch-dev/spoke` + `vX.Y.Z` tags) | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` when the binding is package-ready |
-| **Python binding** | `crates/spoke-connect/bindings/python/` | **PyPI** (Trusted Publishing OIDC; Pending publishers configured) | Dedicated PyPI path; `pip install <registered-name>` when the binding is package-ready |
+| **Python binding** | `crates/spoke-connect/bindings/python/` | **PyPI** (Trusted Publishing OIDC on `release.yml`; first publish matches the registered Pending publisher) | Dedicated PyPI path; `pip install <registered-name>` when the binding is package-ready |
 | **Core wire packages** (context) | `@42ch/spoke-schemas`, `@42ch/spoke-operations`, crates `spoke-schemas` / `spoke-operations` | npm + crates.io | Published under lockstep SemVer |
 
 ---
@@ -128,7 +128,7 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | **Kotlin** | GitHub Packages Maven | Maven coordinates on `maven.pkg.github.com/42ch-dev/spoke`; `publish-maven` (or Gradle publish) on `release.yml` | In progress |
 | **Swift** | GitHub repo + SPM | `Package.swift` + `vX.Y.Z` tags; consumers `.package(url:from:)` — no GitHub Packages | Skeleton landed; packable layout in progress |
 | **Go** | GitHub repo + Go modules | Root `go.mod` (module `github.com/42ch-dev/spoke`) + `vX.Y.Z` tags; consumers `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` — no GitHub Packages | In progress |
-| **Python** | PyPI | `pip install <registered-name>` via Trusted Publishing OIDC on `release.yml`; Pending publishers configured — no GitHub Packages | In progress |
+| **Python** | PyPI | `pip install <registered-name>` via Trusted Publishing OIDC on `release.yml`, matching the registered Pending publisher — no GitHub Packages | In progress |
 
 | Fact | Detail |
 |------|--------|

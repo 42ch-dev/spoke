@@ -22,6 +22,8 @@ Path B bindings ship on **four channel types** (five languages), all lockstep wi
 | **Go modules** (git + tags) | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
 | **PyPI** (Trusted Publishing) | Python | `pip install <registered-name>` |
 
+NuGet and Maven both use the **GitHub Packages** channel type (one registry family, two package ecosystems).
+
 Packaging coordinates and native layouts: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md). Staging and registry auth: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md).
 
 ## C# NuGet (`42ch.Spoke.Connect`)
@@ -48,7 +50,7 @@ Native `spoke_connect` / `libspoke_connect` ships under NuGet `runtimes/<rid>/na
 
 ## Kotlin Maven (`io.github.42ch-dev:spoke-connect`)
 
-Integrators add the GitHub Packages Maven repository and depend on the binding artifact:
+Integrators add the GitHub Packages Maven repository and depend on the binding artifact at spoke lockstep SemVer `X.Y.Z`:
 
 ```kotlin
 // settings.gradle.kts or build.gradle.kts repository block
@@ -63,20 +65,20 @@ maven {
 
 ```kotlin
 dependencies {
-    implementation("io.github.42ch-dev:spoke-connect:0.7.1")
+    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
 }
 ```
 
-JNA loads platform natives from the published jar (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`.
+JNA loads platform natives from the jar per the Maven layout contract (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`.
 
 ## Swift (`SpokeConnect` via SPM)
 
-Integrators add the spoke repository as an SPM dependency:
+Integrators add the spoke repository as an SPM dependency at lockstep SemVer `X.Y.Z`:
 
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/42ch-dev/spoke.git", from: "0.7.1"),
+    .package(url: "https://github.com/42ch-dev/spoke.git", from: "X.Y.Z"),
 ],
 targets: [
     .target(
@@ -88,35 +90,35 @@ targets: [
 ]
 ```
 
-The root `Package.swift` exposes library product `SpokeConnect` with committed generated Swift and a local `spoke_connectFFI` xcframework. Version resolves from git tags `vX.Y.Z`.
+At tag `vX.Y.Z`, SPM resolves the repo-root `Package.swift` for library product `SpokeConnect` with generated Swift and a `spoke_connectFFI` xcframework per the packaging contract.
 
 ## Go (`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`)
 
-Integrators pin the binding module at the spoke tag:
+Integrators pin the binding module at spoke lockstep tag `vX.Y.Z`:
 
 ```bash
-go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@v0.7.1
+go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
 ```go
 import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 ```
 
-The root `go.mod` (`module github.com/42ch-dev/spoke`) versions the whole repo at one tag family. cgo loads committed natives under `native/<goos>_<goarch>/`; consumers need a C toolchain.
+At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Consumers need a C toolchain.
 
 ## Python (PyPI)
 
-Integrators install the published wheel:
+Integrators install from PyPI at spoke lockstep SemVer `X.Y.Z`:
 
 ```bash
-pip install <registered-name>==0.7.1
+pip install <registered-name>==X.Y.Z
 ```
 
 ```python
 import spoke_connect
 ```
 
-PyPI publishes platform wheels (`linux_x86_64`, `macosx_arm64`, `win_amd64`) via Trusted Publishing on `release.yml`. The PyPI project name matches the registered Pending publisher; see [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
+Platform wheels (`linux_x86_64`, `macosx_arm64`, `win_amd64`) ship via Trusted Publishing on `release.yml` per the packaging contract. The PyPI project name matches the registered Pending publisher; see [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
 
 ## Target matrix
 

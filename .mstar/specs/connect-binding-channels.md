@@ -66,7 +66,7 @@
 | Field | Value |
 |-------|-------|
 | Project dir | `crates/spoke-connect/bindings/python/` — `pyproject.toml` + import package `spoke_connect/` (generated module committed) + `Smoke/` |
-| PyPI name | The `pyproject.toml` `name` **must equal the registered PyPI Pending publisher project name**; the registration binds repository `42ch-dev/spoke` + workflow filename `release.yml` (+ environment, if one was registered) |
+| PyPI name | **`spoke-connect`** — registered Pending publisher for repository `42ch-dev/spoke` + workflow `release.yml` |
 | Wheel shape | One platform wheel per ffi-matrix RID (`linux_x86_64`, `macosx_arm64`, `win_amd64`), tagged `py3-none-<platform>`; each wheel bundles exactly its RID's shared library beside the generated module (the uniffi Python loader resolves the cdylib relative to the module file). The manylinux tag matches the CI build image's glibc floor; a manylinux-container build is the documented hardening option if older-glibc consumers appear |
 | sdist | Not published in v1 (a source install cannot produce the native library without a Rust toolchain) — recorded deferral |
 | CI job | `publish-pypi` on `release.yml` — sibling to `publish-nuget`, `needs: build-connect-ffi`, same non-`-rc.` tag gate; `pypa/gh-action-pypi-publish` with OIDC Trusted Publishing (no long-lived `PYPI_TOKEN`); if the Pending publisher registered an environment, the job declares the same `environment:` |

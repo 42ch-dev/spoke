@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spoke-connect"
+version = "0.7.1"
+description = "SPOKE Connect session-core Python bindings (uniffi + native spoke_connect FFI)"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "42ch" }]
+requires-python = ">=3.10"
+keywords = ["spoke", "connect", "uniffi", "ffi"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/42ch-dev/spoke"
+Repository = "https://github.com/42ch-dev/spoke"
+Documentation = "https://github.com/42ch-dev/spoke/blob/main/docs/connect/bindings.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["spoke_connect"]
+
+[tool.setuptools.package-data]
+spoke_connect = [
+  "libspoke_connect.dylib",
+  "libspoke_connect.so",
+  "spoke_connect.dll",
+]

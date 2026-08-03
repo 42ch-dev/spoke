@@ -3,7 +3,9 @@ name: Docs site
 # SPOKE integrator docs site (VitePress under docs/).
 #
 # Build gate: runs on PRs that touch the docs site or its tooling; the PR
-# fails if `pnpm docs:build` breaks.
+# fails if `pnpm docs:build` breaks, if an EN page ships without its CN twin
+# (twin-parity), or if an internal link resolves to a missing page
+# (dead-link).
 # Deploy: on push to main, the built site is published to GitHub Pages via the
 # official Pages actions (upload-pages-artifact + deploy-pages).
 #
@@ -22,6 +24,7 @@ on:
   pull_request:
     paths:
       - docs/**
+      - tooling/docs/**
       - .github/workflows/docs.yml
       - package.json
       - pnpm-lock.yaml
@@ -30,6 +33,7 @@ on:
       - main
     paths:
       - docs/**
+      - tooling/docs/**
       - .github/workflows/docs.yml
       - package.json
       - pnpm-lock.yaml
@@ -74,8 +78,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check EN↔CN twin parity
+        run: node tooling/docs/twin-parity.mjs
+
       - name: Build docs site
         run: pnpm docs:build
+
+      - name: Check internal links
+        run: node tooling/docs/deadlink-check.mjs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3

@@ -15,6 +15,12 @@
     <ProjectReference Include="..\42ch.Spoke.Connect.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Golden hello vector fixture (registered byte-identical copy of the
+         crate SSOT — see tooling/connect/golden-vector-sync.mjs). -->
+    <None Include="fixtures\golden-hello.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Native must sit beside the referenced DLL in *this* output dir. -->
   <Target Name="CopySpokeConnectNativeFromLibrary" AfterTargets="Build">
     <PropertyGroup>

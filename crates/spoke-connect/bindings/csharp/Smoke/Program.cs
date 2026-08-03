@@ -10,7 +10,7 @@ using SpokeConnectSmoke.Tests;
 try
 {
     GoldenParity.AssertDerivePeerId();
-    Console.WriteLine("derive_peer_id: PASS        # 12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf");
+    Console.WriteLine($"derive_peer_id: PASS        # {GoldenParity.GoldenPeerId}");
 
     GoldenParity.AssertSignHelloSignature();
     Console.WriteLine("sign_hello signature: PASS  # golden signature bytes in signed envelope");

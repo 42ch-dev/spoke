@@ -6,7 +6,7 @@ Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/sp
 
 ## Install (Maven)
 
-Coordinates: **`io.github.42ch-dev:spoke-connect`** on GitHub Packages (`https://maven.pkg.github.com/42ch-dev/spoke`).
+Coordinates: **`dev.42ch:spoke-connect`** on GitHub Packages (`https://maven.pkg.github.com/42ch-dev/spoke`).
 
 At spoke lockstep tag `vX.Y.Z`:
 
@@ -23,7 +23,7 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    implementation("dev.42ch:spoke-connect:X.Y.Z")
     // JNA is a transitive dependency of the published artifact
 }
 ```

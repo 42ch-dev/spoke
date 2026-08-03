@@ -17,7 +17,7 @@ Path B bindings ship on **four channel types** (five languages), all lockstep wi
 | Channel | Languages | Integrator entry |
 |---------|-----------|------------------|
 | **GitHub Packages NuGet** | C# | `42ch.Spoke.Connect` |
-| **GitHub Packages Maven** | Kotlin | `io.github.42ch-dev:spoke-connect` |
+| **GitHub Packages Maven** | Kotlin | `dev.42ch:spoke-connect` |
 | **Swift Package Manager** (git + tags) | Swift | Root `Package.swift` — `.package(url:from:)` |
 | **Go modules** (git + tags) | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
 | **PyPI** (Trusted Publishing) | Python | `pip install spoke-connect` |
@@ -52,7 +52,7 @@ var peerId = SpokeConnectMethods.DerivePeerIdFromEd25519Pubkey(pubkey);
 var version = SpokeConnectMethods.ProtocolVersion(); // 1
 ```
 
-## Kotlin Maven (`io.github.42ch-dev:spoke-connect`)
+## Kotlin Maven (`dev.42ch:spoke-connect`)
 
 ### Install
 
@@ -69,7 +69,7 @@ maven {
 
 ```kotlin
 dependencies {
-    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    implementation("dev.42ch:spoke-connect:X.Y.Z")
     // JNA is a transitive dependency of the published artifact
 }
 ```

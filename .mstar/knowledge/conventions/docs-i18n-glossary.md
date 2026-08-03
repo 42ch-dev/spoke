@@ -124,6 +124,12 @@ every EN page in the published set gets a CN twin, and no orphan CN page
 exists outside that set. Current site layout lives under `docs/` and
 `docs/zh/`; re-count against the nav config when adding pages.
 
+The 1:1 twin mapping is enforced in CI: `tooling/docs/twin-parity.mjs` (run
+by the docs workflow on every PR touching `docs/**` or `tooling/docs/**`)
+fails the build when a page lands in one locale without its twin in the
+other. Pages that legitimately exist in only one locale are listed in the
+script's `localeSpecific` allow-list as docs-relative paths.
+
 ## Why This Matters
 
 Twin docs fail quietly when glosses drift: dual-concern terms collapse,

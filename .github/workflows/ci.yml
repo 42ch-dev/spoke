@@ -196,3 +196,18 @@ jobs:
 
       - name: Assert lockstep package versions
         run: node tooling/release/assert-lockstep-version.mjs
+
+  golden-vector-sync:
+    name: golden-vector-sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify golden hello vector copies match SSOT
+        run: node tooling/connect/golden-vector-sync.mjs

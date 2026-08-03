@@ -54,6 +54,7 @@ cat >"${CONSUMER}/Smoke.csproj" <<EOF
     <PackageReference Include="42ch.Spoke.Connect" Version="${VERSION}" />
     <Compile Include="${REPO_ROOT}/crates/spoke-connect/bindings/csharp/Smoke/Program.cs" />
     <Compile Include="${REPO_ROOT}/crates/spoke-connect/bindings/csharp/Smoke/tests/GoldenParity.cs" />
+    <None Include="${REPO_ROOT}/crates/spoke-connect/bindings/csharp/Smoke/fixtures/golden-hello.json" CopyToOutputDirectory="PreserveNewest" Link="fixtures\golden-hello.json" />
   </ItemGroup>
 </Project>
 EOF

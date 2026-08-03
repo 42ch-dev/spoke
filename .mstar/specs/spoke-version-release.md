@@ -33,7 +33,7 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 10 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 (published as `spoke-connect`) |
 | 11 | C# connect NuGet | `crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj` → `<Version>` | Lockstep SemVer; published as GitHub Packages `42ch.Spoke.Connect` |
 | 12 | Python connect PyPI | `crates/spoke-connect/bindings/python/pyproject.toml` → `[project].version` | Lockstep SemVer; published as PyPI `spoke-connect` via `publish-pypi` on `release.yml` |
-| 13 | Kotlin connect Maven | `crates/spoke-connect/bindings/kotlin/build.gradle.kts` → `version` | Lockstep SemVer; published as GitHub Packages `io.github.42ch-dev:spoke-connect` via `publish-maven` on `release.yml` |
+| 13 | Kotlin connect Maven | `crates/spoke-connect/bindings/kotlin/build.gradle.kts` → `version` | Lockstep SemVer; published as GitHub Packages `dev.42ch:spoke-connect` via `publish-maven` on `release.yml` |
 | 14 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
 | 15 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
 | 16 | README CN badge | `README_CN.md` | Same as row 15 |
@@ -102,7 +102,7 @@ A SPOKE release is:
 | `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | Opens lockstep bump PR with label `release` (GitHub-signed commit); MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists; MUST NOT duplicate `CHANGELOG` version headings |
 | `pull_request` closed (merged + label `release`) or push of tag `v*` | `.github/workflows/release.yml` | Top-level only (no `workflow_call`, no `workflow_dispatch`). Tag-on-merge when applicable → parallel verify → GitHub Release → `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). Trusted Publishing OIDC requires this filename (`release.yml`). |
 
-Release workflows publish `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `spoke-schemas`, `spoke-operations`, `spoke-connect`, GitHub Packages NuGet `42ch.Spoke.Connect`, GitHub Packages Maven `io.github.42ch-dev:spoke-connect` (`publish-maven`), and PyPI `spoke-connect` (`publish-pypi`). Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
+Release workflows publish `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `spoke-schemas`, `spoke-operations`, `spoke-connect`, GitHub Packages NuGet `42ch.Spoke.Connect`, GitHub Packages Maven `dev.42ch:spoke-connect` (`publish-maven`), and PyPI `spoke-connect` (`publish-pypi`). Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
 ### Lockstep assert (PR / main)
 

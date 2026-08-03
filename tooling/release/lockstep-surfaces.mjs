@@ -51,7 +51,7 @@ export const PYPI_CONNECT_PYPROJECT_PATH =
   "crates/spoke-connect/bindings/python/pyproject.toml";
 
 /**
- * Kotlin Maven project version (GitHub Packages io.github.42ch-dev:spoke-connect;
+ * Kotlin Maven project version (GitHub Packages dev.42ch:spoke-connect;
  * lockstep).
  * @type {string}
  */

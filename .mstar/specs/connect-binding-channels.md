@@ -89,7 +89,7 @@
 
 | Field | Value |
 |-------|-------|
-| Coordinates | `io.github.42ch-dev:spoke-connect` (GitHub-verifiable namespace; keeps a future Maven Central mirror possible) |
+| Coordinates | `dev.42ch:spoke-connect` — reverse-DNS of the owned domain `42ch.dev`, the standard Maven Central namespace requirement (keeps a future Maven Central mirror possible) |
 | Repository | `https://maven.pkg.github.com/42ch-dev/spoke` |
 | Project dir | `crates/spoke-connect/bindings/kotlin/` — Gradle `build.gradle.kts` (`maven-publish`) + committed generated Kotlin + `Smoke/` |
 | Generated namespace | uniffi default (`uniffi.spoke_connect`) — mirrors the C# `RootNamespace` decision; a branded namespace is a later cosmetic change |

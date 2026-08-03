@@ -2,58 +2,58 @@
 /**
  * Throwaway identity-byte reproducibility proof (Node, zero deps).
  *
- * Golden vectors mirror crates/spoke-connect/src/core/{peer_id,hello_crypto}.rs
- * (seed 1..=32 → pubkey 79b5562e… → peer_id 12D3KooWJ1T…; JCS hex + signature).
+ * Golden vectors load from the shared cross-language SSOT
+ * (`crates/spoke-connect/tests/fixtures/golden-hello.json`: seed 1..=32 →
+ * pubkey 79b5562e… → peer_id 12D3KooWJ1T…; JCS hex + signature). The fixture
+ * carries the inputs AND the pinned output bytes — transcribed from
+ * committed libp2p-captured constants, never regenerated.
  *
  * Normative: .mstar/specs/spoke-connect.md §Identity binding / §Signature canonicalization
  *
  * Usage: node tooling/connect-identity-proof/proof.mjs
  */
 
+import { readFileSync } from "node:fs";
 import { webcrypto } from "node:crypto";
 import { strict as assert } from "node:assert";
 
 const subtle = webcrypto.subtle;
 
-// ── Golden vectors (from Rust core tests) ──────────────────────────────────
+// ── Golden vectors (shared SSOT fixture) ───────────────────────────────────
+
+const golden = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../crates/spoke-connect/tests/fixtures/golden-hello.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+);
 
 /** Ed25519 seed bytes 1..=32 */
-const GOLDEN_SEED = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+const GOLDEN_SEED = fromHex(golden.seed_hex);
 
-const GOLDEN_PUBKEY = Uint8Array.from([
-  0x79, 0xb5, 0x56, 0x2e, 0x8f, 0xe6, 0x54, 0xf9, 0x40, 0x78, 0xb1, 0x12, 0xe8,
-  0xa9, 0x8b, 0xa7, 0x90, 0x1f, 0x85, 0x3a, 0xe6, 0x95, 0xbe, 0xd7, 0xe0, 0xe3,
-  0x91, 0x0b, 0xad, 0x04, 0x96, 0x64,
-]);
+const GOLDEN_PUBKEY = fromHex(golden.pubkey_hex);
 
-const GOLDEN_PEER_ID =
-  "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
+const GOLDEN_PEER_ID = golden.peer_id;
 
-const GOLDEN_NONCE = "golden-nonce-000000000001";
+const GOLDEN_NONCE = golden.nonce;
 
 /**
  * RFC 8785 JCS of signed object {protocol_version, peer_id, nonce, host}.
  * host.authority is omitted (not null) — matches Rust skip_serializing_if.
  */
-const GOLDEN_JCS_HEX =
-  "7b22686f7374223a7b226361706162696c6974696573223a5b2273706f6b652d626173656c696e65225d2c22657874656e73696f6e73223a7b7d2c22686f73745f6964223a22676f6c64656e2d686f7374222c226e616d65737061636573223a5b5d2c22726f6c6573223a5b22646174612d73746f7265225d2c22736368656d615f76657273696f6e223a317d2c226e6f6e6365223a22676f6c64656e2d6e6f6e63652d303030303030303030303031222c22706565725f6964223a22313244334b6f6f574a315473696a48374835463734686641443558697368517a337378726d41745659333747744e643943715966222c2270726f746f636f6c5f76657273696f6e223a317d";
+const GOLDEN_JCS_HEX = golden.jcs_hex;
 
 /** base64url (no pad) of raw 64-byte Ed25519 signature over GOLDEN_JCS_HEX */
-const GOLDEN_SIGNATURE =
-  "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg";
+const GOLDEN_SIGNATURE = golden.signature_b64u;
 
 const PROTOCOL_VERSION = 1;
 
 /** Golden host manifest — authority absent (omit, do not emit null). */
 function goldenManifest() {
-  return {
-    capabilities: ["spoke-baseline"],
-    extensions: {},
-    host_id: "golden-host",
-    namespaces: [],
-    roles: ["data-store"],
-    schema_version: 1,
-  };
+  return golden.manifest;
 }
 
 // ── base58btc (Bitcoin alphabet) ───────────────────────────────────────────

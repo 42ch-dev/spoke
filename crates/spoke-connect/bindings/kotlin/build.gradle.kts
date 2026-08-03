@@ -3,7 +3,7 @@ plugins {
     `maven-publish`
 }
 
-group = "io.github.42ch-dev"
+group = "dev.42ch"
 // Lockstep SemVer — asserted/bumped with tooling/release lockstep surfaces.
 version = "0.8.1"
 
@@ -14,6 +14,8 @@ repositories {
 dependencies {
     implementation("net.java.dev.jna:jna:5.16.0")
     testImplementation(kotlin("test"))
+    // JSON parsing for the golden-parity smoke fixture (Smoke/fixtures).
+    testImplementation("org.json:json:20240303")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -80,7 +82,7 @@ fun nativeLibraryOverride(): java.io.File? {
 publishing {
     publications {
         create<MavenPublication>("maven") {
-            groupId = "io.github.42ch-dev"
+            groupId = "dev.42ch"
             artifactId = "spoke-connect"
             from(components["java"])
 

@@ -151,53 +151,12 @@ pub fn verify_hello_ed25519(
 #[cfg(test)]
 mod tests {
     // Deterministic test vectors: the fixed nonce strings in these tests are
-    // reproducible fixtures, not production CSPRNG output.
+    // reproducible fixtures, not production CSPRNG output. The golden key
+    // pair, nonce, manifest, and the pinned JCS bytes + signature come from
+    // the shared cross-language fixture `tests/fixtures/golden-hello.json`
+    // (SSOT; transcribed from libp2p-captured constants — never regenerated).
     use super::*;
-
-    /// Golden key pair: seed bytes 1..=32, captured from the same seed fed
-    /// to libp2p `Keypair::ed25519_from_bytes` (libp2p-identity 0.2.14 /
-    /// libp2p 0.56).
-    const GOLDEN_SEED: [u8; 32] = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
-        0x1f, 0x20,
-    ];
-    const GOLDEN_PUBKEY: [u8; 32] = [
-        0x79, 0xb5, 0x56, 0x2e, 0x8f, 0xe6, 0x54, 0xf9, 0x40, 0x78, 0xb1, 0x12, 0xe8, 0xa9, 0x8b,
-        0xa7, 0x90, 0x1f, 0x85, 0x3a, 0xe6, 0x95, 0xbe, 0xd7, 0xe0, 0xe3, 0x91, 0x0b, 0xad, 0x04,
-        0x96, 0x64,
-    ];
-    const GOLDEN_PEER_ID: &str = "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
-    /// RFC 8785 JCS bytes of the signed object, captured from the libp2p
-    /// hello path (`serde_jcs` over `{protocol_version, peer_id, nonce,
-    /// host}`) before the transport cutover.
-    const GOLDEN_JCS_HEX: &str = "7b22686f7374223a7b226361706162696c6974696573223a5b2273706f6b652d626173656c696e65225d2c22657874656e73696f6e73223a7b7d2c22686f73745f6964223a22676f6c64656e2d686f7374222c226e616d65737061636573223a5b5d2c22726f6c6573223a5b22646174612d73746f7265225d2c22736368656d615f76657273696f6e223a317d2c226e6f6e6365223a22676f6c64656e2d6e6f6e63652d303030303030303030303031222c22706565725f6964223a22313244334b6f6f574a315473696a48374835463734686641443558697368517a337378726d41745659333747744e643943715966222c2270726f746f636f6c5f76657273696f6e223a317d";
-    /// base64url (no padding) of the raw 64-byte Ed25519 signature over
-    /// `GOLDEN_JCS_HEX`, captured from libp2p `Keypair::sign` before the
-    /// transport cutover.
-    const GOLDEN_SIGNATURE: &str =
-        "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg";
-
-    /// Golden manifest — `authority` is `None`. JCS serialization **omits**
-    /// absent optional fields: the canonical bytes in `GOLDEN_JCS_HEX`
-    /// contain no `"authority"` member at all (the generated
-    /// `HostCapabilityManifest` carries `skip_serializing_if =
-    /// "Option::is_none"` on `authority`, the only non-required manifest
-    /// field). Path A porters must not emit `"authority": null` — an
-    /// explicit null serializes as a `null` member, which canonicalizes to
-    /// different bytes (and therefore a different signature) than the
-    /// omitted form.
-    fn golden_manifest() -> HostCapabilityManifest {
-        HostCapabilityManifest {
-            authority: None,
-            capabilities: vec!["spoke-baseline".into()],
-            extensions: Default::default(),
-            host_id: "golden-host".parse().expect("host id parses"),
-            namespaces: Vec::new(),
-            roles: vec!["data-store".into()],
-            schema_version: std::num::NonZeroU64::new(1).expect("non-zero"),
-        }
-    }
+    use crate::core::golden::{golden, golden_manifest, golden_pubkey, golden_seed};
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -216,54 +175,47 @@ mod tests {
         parts.join("-")
     }
 
-    /// The golden fixture nonce, built at runtime by `test_nonce`.
-    ///
-    /// A single-string literal at a crypto call site trips
-    /// `rust/hard-coded-cryptographic-value` even on fixtures (CodeQL's Rust
-    /// extractor does not honor comment suppressions, and `concat!` is
-    /// constant-folded back into a visible literal). Joining the parts at
-    /// runtime keeps the value out of literal position while the joined
-    /// string stays byte-identical to `"golden-nonce-000000000001"` — exactly
-    /// what `GOLDEN_JCS_HEX` and `GOLDEN_SIGNATURE` embed.
-    fn golden_nonce() -> String {
-        test_nonce(&["golden-nonce", "000000000001"])
-    }
-
     #[test]
     fn test_nonce_keeps_fixture_strings_byte_identical() {
         // These are the exact fixture strings the tests below rely on; if
         // one ever drifts, the byte-level expectations that embed them
         // (golden JCS hex, golden signature) would still catch the golden
-        // nonce, and this test pins the runtime-joined ones.
+        // nonce, and this test pins the runtime-joined ones and the golden
+        // fixture value itself.
         assert_eq!(
             test_nonce(&["round-trip-nonce", "123"]),
             "round-trip-nonce-123"
         );
         assert_eq!(test_nonce(&["short"]), "short");
         assert_eq!(test_nonce(&["jcs-nonce", "1234567"]), "jcs-nonce-1234567");
-        assert_eq!(golden_nonce(), "golden-nonce-000000000001");
+        assert_eq!(golden().nonce, "golden-nonce-000000000001");
     }
 
     #[test]
     fn golden_signature_matches_libp2p_captured_vector() {
-        let hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
-        assert_eq!(hello.peer_id.as_str(), GOLDEN_PEER_ID);
-        assert_eq!(hello.signature.as_str(), GOLDEN_SIGNATURE);
+        assert_eq!(hello.peer_id.as_str(), golden().peer_id.as_str());
+        assert_eq!(hello.signature.as_str(), golden().signature_b64u.as_str());
     }
 
     #[test]
     fn golden_canonical_bytes_match_libp2p_captured_vector() {
-        let bytes = canonical_hello_bytes(GOLDEN_PEER_ID, &golden_nonce(), &golden_manifest())
-            .expect("jcs");
-        assert_eq!(hex(&bytes), GOLDEN_JCS_HEX);
+        let bytes = canonical_hello_bytes(
+            golden().peer_id.as_str(),
+            golden().nonce.as_str(),
+            &golden_manifest(),
+        )
+        .expect("jcs");
+        assert_eq!(hex(&bytes), golden().jcs_hex);
     }
 
     #[test]
     fn golden_hello_verifies_with_raw_pubkey() {
-        let hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
-        verify_hello_ed25519(&GOLDEN_PUBKEY, GOLDEN_PEER_ID, &hello).expect("verify golden hello");
+        verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello)
+            .expect("verify golden hello");
     }
 
     #[test]
@@ -296,10 +248,10 @@ mod tests {
 
     #[test]
     fn tampered_host_fails_verification() {
-        let mut hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let mut hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
         hello.host.roles.push("checker".into());
-        let err = verify_hello_ed25519(&GOLDEN_PUBKEY, GOLDEN_PEER_ID, &hello)
+        let err = verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello)
             .expect_err("tampered host");
         assert!(matches!(err, CoreError::InvalidHelloSignature));
     }
@@ -310,16 +262,16 @@ mod tests {
         let other_pubkey = SigningKey::from_bytes(&other_secret)
             .verifying_key()
             .to_bytes();
-        let hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
-        let err = verify_hello_ed25519(&other_pubkey, GOLDEN_PEER_ID, &hello)
+        let err = verify_hello_ed25519(&other_pubkey, golden().peer_id.as_str(), &hello)
             .expect_err("unbound verify key");
         assert!(matches!(err, CoreError::HandshakeFailed { .. }));
     }
 
     #[test]
     fn claimed_peer_id_mismatch_fails_before_signature_check() {
-        let hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
         let other_secret = [10u8; 32];
         let other_peer = derive_peer_id_from_ed25519_pubkey(
@@ -327,29 +279,29 @@ mod tests {
                 .verifying_key()
                 .to_bytes(),
         );
-        let err = verify_hello_ed25519(&GOLDEN_PUBKEY, &other_peer, &hello)
+        let err = verify_hello_ed25519(&golden_pubkey(), &other_peer, &hello)
             .expect_err("peer id mismatch");
         assert!(matches!(err, CoreError::HandshakeFailed { .. }));
     }
 
     #[test]
     fn unsupported_protocol_version_rejected() {
-        let mut hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let mut hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
         hello.protocol_version = std::num::NonZeroU64::new(2).expect("non-zero");
-        let err = verify_hello_ed25519(&GOLDEN_PUBKEY, GOLDEN_PEER_ID, &hello)
+        let err = verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello)
             .expect_err("unsupported version");
         assert!(matches!(err, CoreError::HandshakeFailed { .. }));
     }
 
     #[test]
     fn malformed_signature_rejected() {
-        let mut hello = sign_hello_ed25519(&GOLDEN_SEED, &golden_nonce(), &golden_manifest())
+        let mut hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest())
             .expect("sign golden hello");
         hello.signature = "%%%not-base64url%%%"
             .parse()
             .expect("string parses as opaque");
-        let err = verify_hello_ed25519(&GOLDEN_PUBKEY, GOLDEN_PEER_ID, &hello)
+        let err = verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello)
             .expect_err("malformed signature");
         assert!(matches!(err, CoreError::InvalidHelloSignature));
     }

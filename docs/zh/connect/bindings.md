@@ -117,7 +117,7 @@ import spoke_connect
 peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
 ```
 
-平台 wheel（`linux_x86_64`、`macosx_arm64`、`win_amd64`）经顶层 `release.yml` 工作流上的 Trusted Publishing OIDC（`publish-pypi` 任务，仓库 `42ch-dev/spoke`）发布至 PyPI 项目 **`spoke-connect`**。版本与 spoke 标签 `vX.Y.Z` 锁步。见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
+平台 wheel（`manylinux_2_17_x86_64`、`macosx_11_0_arm64`、`win_amd64`）经顶层 `release.yml` 工作流上的 Trusted Publishing OIDC（`publish-pypi` 任务，仓库 `42ch-dev/spoke`）发布至 PyPI 项目 **`spoke-connect`**。版本与 spoke 标签 `vX.Y.Z` 锁步。见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
 
 ## 目标语言矩阵
 

@@ -631,6 +631,9 @@ jobs:
       - name: Build platform wheels
         run: ./tooling/connect/build-python-wheels-from-ffi.sh ffi-assembled
 
+      - name: Verify wheel inventory
+        run: ./tooling/connect/verify-python-wheels.sh
+
       - name: Publish to PyPI
         # pypa/gh-action-pypi-publish@v1.14.2 — Trusted Publishing OIDC (Pending publisher: spoke-connect)
         uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26

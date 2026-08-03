@@ -2,7 +2,7 @@
 
 **Status:** Informative decision record — freezes the per-language package shapes for Path B bindings. Does not change connect envelopes, the lockstep release policy, or the channel split.
 
-**Updated:** 2026-08-03
+**Updated:** 2026-08-04
 
 ---
 
@@ -31,6 +31,7 @@
 | Golden parity | Every language smoke asserts the committed Rust fixtures: golden peer id `12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf`, the golden base64url hello signature, and protocol version `1` |
 | Lockstep SemVer | Binding manifests carry the repo `X.Y.Z`; new version surfaces register in `tooling/release/lockstep-surfaces.mjs` (assert + bump). Tag-resolved channels (SPM, Go modules) take the version from the git tag `vX.Y.Z` itself |
 | Native provenance | The `build-connect-ffi` matrix on `release.yml` (`linux-x64`, `win-x64`, `osx-arm64`) is the single native build; registry packagers assemble per-language layouts from those artifacts. Repo-committed natives (Swift xcframework, Go `native/`) are maintainer-built and refreshed when the FFI surface changes, not on every release |
+| crates.io package | `crates/spoke-connect/Cargo.toml` `exclude`s the entire `bindings/**` tree (Path B sources + natives). crates.io ships the Rust crate only; language bindings stay on the four Path B channels and the git repo |
 | Tag gate | Stable `vX.Y.Z` and non-`-rc.` prerelease tags publish; `-rc.` tags create GitHub pre-releases only |
 
 ---

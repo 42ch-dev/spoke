@@ -25,7 +25,7 @@ Protocol facts live in `.mstar/specs/` (normative, read-only) — integrator doc
 ### VitePress layout
 
 - `docs/` at repo root; `pnpm docs:build` is the CI gate; site config in `docs/.vitepress/config.mts`.
-- `base: '/spoke/'` for a GitHub Pages **project site** at `https://42ch-dev.github.io/spoke/` — switch to `'/'` only for a custom domain or an org-root site.
+- `base: '/'` for the custom domain `https://spoke.42ch.dev/` (GitHub Pages project site; `*.github.io/spoke/` redirects to the custom domain). Use `base: '/spoke/'` only if the custom domain is removed and the site is served under the github.io project path again.
 - One sidebar per audience: Guides, Domain Profiles, Connect, Packages, Release.
 - Complements the EN/CN README twin and `CONTRIBUTING.md`: the site is the consumer-facing entry; maintainer / local-dev / release how-to stays in CONTRIBUTING.
 
@@ -48,7 +48,7 @@ An integrator site for a protocol repo must be a **window onto the specs, not a 
 ## When to Apply
 
 - Building consumer-facing docs for any protocol repository — integrator summaries + GitHub blob SSOT links; specs read-only; no body duplication.
-- Deploying a VitePress site to GitHub Pages from Actions — SHA-pinned Pages actions, Pages source "GitHub Actions", ref-scoped build concurrency + main-only deploy group, `base: '/<repo>/'` for project sites.
+- Deploying a VitePress site to GitHub Pages from Actions — SHA-pinned Pages actions, Pages source "GitHub Actions", ref-scoped build concurrency + main-only deploy group, `base: '/'` when a custom domain is attached; otherwise `base: '/<repo>/'` for bare project sites.
 
 ## Examples
 
@@ -77,6 +77,6 @@ jobs:
 ## See also
 
 - `.github/workflows/docs.yml` — the landed workflow (build gate + Pages deploy)
-- `docs/.vitepress/config.mts` — site config (`base: '/spoke/'`)
+- `docs/.vitepress/config.mts` — site config (`base: '/'` for `spoke.42ch.dev`)
 - [`consumer-readme-twin.md`](consumer-readme-twin.md) — the EN/CN README twin pattern the site complements
 - `.mstar/specs/` — the normative SSOT the site summarizes and links to

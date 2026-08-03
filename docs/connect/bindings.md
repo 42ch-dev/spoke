@@ -126,7 +126,7 @@ let version = protocolVersion() // 1
 go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
-At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; the import path is the subdirectory package `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` (Go treats subdirectory packages as first-class — no root re-export file is required for `go get`). cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Committed natives: `darwin_arm64`, `darwin_amd64`. Consumers need a C toolchain and `CGO_ENABLED=1`. Binding README: [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md).
+At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; the import path is the subdirectory package `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` (Go treats subdirectory packages as first-class — no root re-export file is required for `go get`). cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Committed natives in-tree: `darwin_arm64`, `darwin_amd64` (macOS `go get` + link is complete with those). For `linux_amd64` and `windows_amd64`, place the matching shared library (`libspoke_connect.so` / `spoke_connect.dll`) into `native/<goos>_<goarch>/` from the `release.yml` `build-connect-ffi` job artifacts (`linux-x64` / `win-x64`) before linking. Consumers need a C toolchain and `CGO_ENABLED=1`. Binding README: [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md).
 
 ### Import & usage
 

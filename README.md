@@ -6,9 +6,7 @@
 [![Last commit](https://img.shields.io/github/last-commit/42ch-dev/spoke)](https://github.com/42ch-dev/spoke/commits/main)
 [![Greptile: The War on Bugs](https://www.greptile.com/badge.svg)](https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source)
 
-[中文](README_CN.md) · [Documentation](docs/) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
-
-Integrator documentation: browse [`docs/`](docs/) locally with `pnpm docs:dev`; the site is published to <https://42ch-dev.github.io/spoke/> once the Pages deploy workflow runs.
+[中文](README_CN.md) · [Concepts](CONCEPTS.md) · [Strategy](STRATEGY.md) · [Contributing](CONTRIBUTING.md)
 
 **Standardized Programmable Ontology Knowledge Engine** — a protocol of JSON Schema wire contracts for narrative **KnowledgeEntry** data and **ops**. Independent products exchange consistency-check and context-assembly I/O through these shapes.
 
@@ -18,6 +16,7 @@ Integrator documentation: browse [`docs/`](docs/) locally with `pnpm docs:dev`; 
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
 - Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
 - Pure lifecycle helpers plus **adapter ports** and **injection orchestration** (`@42ch/spoke-operations` / `spoke-operations`)
+- Opt-in **Connect** for signed cross-process interaction (`@42ch/spoke-connect` / `spoke-connect`, plus native bindings)
 - Protocol conformance fixtures and reference **`ToyWorldAdapter`** ([`fixtures/toy-world/`](fixtures/toy-world/))
 
 ## Packages
@@ -33,7 +32,9 @@ Published consumer packages share one **lockstep SemVer**.
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
 | [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Opt-in connect reference — libp2p transport, session core, uniffi binding surface |
 
-Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [`spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [Extensions & modules](https://42ch-dev.github.io/spoke/guide/extensions-modules).
+
+Install pins and package roles: [Package quick-start](https://42ch-dev.github.io/spoke/packages/quick-start).
 
 ## Install
 
@@ -112,6 +113,25 @@ fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: 
 }
 ```
 
+### Connect (optional)
+
+Declare the **`spoke-connect`** capability when hosts need signed cross-process interaction (hello, session, invoke, auth envelopes).
+
+**TypeScript** — npm client with WebSocket transport:
+
+```bash
+pnpm add @42ch/spoke-connect
+# Pin to the same lockstep SemVer as schemas / operations
+```
+
+**Rust** — crates.io reference with libp2p transport and a uniffi binding surface for other host languages:
+
+```bash
+cargo add spoke-connect
+```
+
+Connect is multi-language: Path A (language-direct, e.g. TypeScript) and Path B (shared session core via native bindings such as C# / Swift on GitHub Packages). Overview, TypeScript route, and native bindings: [Connect](https://42ch-dev.github.io/spoke/connect/overview).
+
 ## Version and pinning
 
 Pin every consumer surface to the **same** SemVer (`X.Y.Z`) on npm and crates.io:
@@ -121,11 +141,11 @@ pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
 cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
 ```
 
-Annotated git tags `vX.Y.Z` match that lockstep version. Release notes: [`CHANGELOG.md`](CHANGELOG.md) and [GitHub Releases](https://github.com/42ch-dev/spoke/releases).
+Annotated git tags `vX.Y.Z` match that lockstep version. Release notes: [`CHANGELOG.md`](CHANGELOG.md) and [GitHub Releases](https://github.com/42ch-dev/spoke/releases). Pinning guide: [Version & release](https://42ch-dev.github.io/spoke/release/versioning).
 
 ## Quick start
 
-Integrator path: one adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations` (same shape in Rust as `orchestrate_*`).
+Implement the port families for the capabilities you claim on one adapter type, then call `orchestrate*` from `@42ch/spoke-operations` (Rust: `orchestrate_*`).
 
 ```typescript
 import type { KnowledgeEntry, PromoteRequest } from "@42ch/spoke-schemas";
@@ -158,12 +178,7 @@ if (result.ok) {
 }
 ```
 
-Walk the committed “Mira at Harbor” graph and Vitest/Cargo demos in [`fixtures/toy-world/`](fixtures/toy-world/):
-
-```bash
-pnpm run test:fixtures
-cargo test -p spoke-fixture-toy-world
-```
+Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtures/toy-world/`](fixtures/toy-world/). Step-by-step package path: [Package quick-start](https://42ch-dev.github.io/spoke/packages/quick-start).
 
 ## Core concepts
 
@@ -182,7 +197,7 @@ cargo test -p spoke-fixture-toy-world
 | **Adapter ports** | Injected read/write surfaces (`KnowledgeEntryPort`, `HostManifestPort`, …) that own persistence |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` sequences that load scope, apply gates, and persist via ports |
 
-Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md).
+Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md), and [Concepts](https://42ch-dev.github.io/spoke/guide/concepts).
 
 ## Optional capabilities
 
@@ -193,9 +208,11 @@ Products that need programmable KnowledgeEntry body state may declare **`l2-comp
 - **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
 - **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
 
-Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry and AssemblePacket carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
+Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry and AssemblePacket carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes.
 
-Baseline integrators use core schemas; optional capabilities are opt-in. Normative detail: [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) §Capability levels.
+Products that need signed cross-process interaction may declare **`spoke-connect`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
+
+Baseline integrators use core schemas; optional capabilities are opt-in. Detail: [Layers & capabilities](https://42ch-dev.github.io/spoke/guide/layers).
 
 ## Operations
 
@@ -212,20 +229,22 @@ Baseline integrators use core schemas; optional capabilities are opt-in. Normati
 
 Reference **FullAdapter** (baseline + `l2-computable` + `l5-fork`, including `HostCapabilityManifest` peers): [`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`, Rust crate `spoke-fixture-toy-world`.
 
-Normative detail: [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md).
+Detail: [Operations library](https://42ch-dev.github.io/spoke/guide/operations-library).
 
-## Specs and schemas
+## Further reading
 
-| Path | Topic |
-|------|-------|
-| [`schemas/`](schemas/) | JSON Schema SSOT (Draft-07) |
-| [`fixtures/toy-world/`](fixtures/toy-world/) | Protocol conformance JSON graph (“Mira at Harbor”) + reference adapters |
-| [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md) | Umbrella protocol spec |
-| [`.mstar/specs/spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md) | Nine layers (L0–L8), capability levels, Timeline tiers |
-| [`.mstar/specs/spoke-data-model.md`](.mstar/specs/spoke-data-model.md) | Data objects and open vocabulary |
-| [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Ops wire request/response envelopes |
-| [`.mstar/specs/spoke-operations.md`](.mstar/specs/spoke-operations.md) | Operations library behavior |
-| [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad (bag placement) |
+| Topic | Guide |
+|-------|-------|
+| Protocol umbrella | [Protocol](https://42ch-dev.github.io/spoke/guide/protocol) |
+| Nine layers and capability levels | [Layers & capabilities](https://42ch-dev.github.io/spoke/guide/layers) |
+| Data objects and open vocabulary | [Data model](https://42ch-dev.github.io/spoke/guide/data-model) |
+| Ops request/response envelopes | [Ops wire](https://42ch-dev.github.io/spoke/guide/ops-wire) |
+| Operations library behavior | [Operations library](https://42ch-dev.github.io/spoke/guide/operations-library) |
+| Core / modules / extensions | [Extensions & modules](https://42ch-dev.github.io/spoke/guide/extensions-modules) |
+| Connect envelopes and bindings | [Connect](https://42ch-dev.github.io/spoke/connect/overview) |
+| Domain Profiles | [Narrative structure](https://42ch-dev.github.io/spoke/profiles/narrative-structure) and siblings |
+| JSON Schema SSOT | [`schemas/`](schemas/) |
+| Reference adapters and sample graph | [`fixtures/toy-world/`](fixtures/toy-world/) |
 
 ## Contributing
 

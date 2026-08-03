@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "claims": {
+    "iss": "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf",
+    "sub": "12D3KooWRawPbxPtP1eZaJpumGnyWX2DcUyd3RQnydr3eAto4Az7",
+    "aud": "12D3KooWB8sCGZCrwr79HtabLAn95qyPQx6RYHXjEbiD6QKou7ww",
+    "capabilities": [
+      "spoke-baseline",
+      "l2-computable"
+    ],
+    "exp": 1000003600,
+    "iat": 1000000000,
+    "jti": "golden-jti-001"
+  },
+  "sig": "aO1IaobmXMTiY09XpuPM2-KMNlrxXnhT90RIz-XwveogPXVK4E6JU9RADwhpBUphEjm-ucPPSjF0nX82JNrgBg"
+}

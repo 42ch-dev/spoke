@@ -70,7 +70,7 @@ Order binding targets by uniffi maturity and product value; record the decision 
 
 | Language | Embedding path | Priority |
 |---|---|---|
-| C# | Path B uniffi | **First target** — desktop/server hosts; community `uniffi-bindgen-cs` (.NET); **deferred** on the bindgen version gap (see binding-pipeline verification below) |
+| C# | Path B uniffi | **First target — landed** — desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (see binding-pipeline verification below) |
 | Go | Path B uniffi | Second — server/CLI hosts; community `uniffi-bindgen-go` |
 | Python | Path B uniffi | Third — async FFI / asyncio is historically finicky; core-only first |
 | Swift (iOS / macOS) | Path B uniffi | Fourth — **landed skeleton** (sync-core, core-only, macOS smoke) |
@@ -81,7 +81,7 @@ Order binding targets by uniffi maturity and product value; record the decision 
 
 Community uniffi bindgen tools (C#/Go/Python) may lag the repo's pinned uniffi line — uniffi metadata encoding and runtime contract checksums change between uniffi versions, so a bindgen built for an older uniffi fails against a well-formed current `cdylib`. **Verify the full pipeline — generate → compile → link/load → runtime checksum — against the pinned uniffi version before planning a binding slice**; do not assume a published bindgen tag tracks the newest uniffi. Use a positive control (the crate-local uniffi-bindgen generating another language from the same `cdylib`) to confirm the failure is reader/version-specific and not a surface or metadata defect.
 
-**C# is currently deferred on this gate:** `uniffi-bindgen-cs` v0.11.0 (and upstream `main`) targets uniffi 0.31 while the repo pins 0.32. The `--library` metadata read fails; the UDL fallback generates and compiles (net8.0, zero warnings/errors) but the runtime checksum gate rejects all 14 exported symbols before any call executes. The target-language matrix keeps **C# as the first target**; the revisit trigger is a `uniffi-bindgen-cs` tag (or main commit) targeting uniffi **0.32+**, re-checked via the regenerate → build → run sequence documented in `crates/spoke-connect/bindings/csharp/Smoke/README.md`. Go/Python bindgen tools get the same feasibility gate before their binding slices start. Full record: [`connect-csharp-bindgen-deferred.md`](../../specs/connect-csharp-bindgen-deferred.md).
+**C# passed this gate via a vendored fork:** `uniffi-bindgen-cs` v0.11.0 (and upstream `main`) targets uniffi 0.31 while the repo pins 0.32 — the stock `--library` metadata read fails, and the UDL fallback generates and compiles (net8.0, zero warnings/errors) but the runtime checksum gate rejects all 14 exported symbols before any call executes. The repo vendors a fork retargeted to uniffi 0.32: the generated binding passes the checksum gate and the golden-parity smoke (net8.0). The fork is dropped when a `uniffi-bindgen-cs` tag (or main commit) targets uniffi **0.32+**, re-checked via the regenerate → build → run sequence documented in `crates/spoke-connect/bindings/csharp/Smoke/README.md`. Go/Python bindgen tools get the same feasibility gate before their binding slices start. Full record: [`connect-csharp-binding.md`](../../specs/connect-csharp-binding.md).
 
 ### Next-slice binding checklist
 
@@ -126,4 +126,5 @@ Every item is pure, synchronous, and operates on plain data — the exact list a
 - [`connect-identity-parity-proof.md`](../testing-patterns/connect-identity-parity-proof.md) — the cross-language byte-parity methodology the golden vectors feed.
 - [`connect-ts-client-sdk.md`](connect-ts-client-sdk.md) — the Path A language-direct port (pure-TS) that mirrors this core's surface and asserts the same golden vectors.
 - [`connect-capability-token-auth.md`](connect-capability-token-auth.md) — the step-up auth method whose `TokenInvalid` failure surfaces in the exported error enums.
-- [`connect-csharp-bindgen-deferred.md`](../../specs/connect-csharp-bindgen-deferred.md) — C# binding deferral decision record (bindgen version gap, what was tried, revisit trigger).
+- [`connect-csharp-binding.md`](../../specs/connect-csharp-binding.md) — C# binding decision record (landed via vendored bindgen fork; version gap, what was tried, drop-fork trigger).
+- [`connect-uniffi-bindgen-fork.md`](connect-uniffi-bindgen-fork.md) — reusable vendored-fork technique when a community bindgen lags the repo uniffi pin (isolation, minimal patch, drop off-ramp).

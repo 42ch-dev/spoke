@@ -114,5 +114,5 @@ The method delivers delegated, capability-scoped step-up authorization with **ze
 
 - [`spoke-connect-wire-and-auth.md`](spoke-connect-wire-and-auth.md) — the auth model and `method` vocabulary this method extends; the error-envelope reuse rule.
 - [`connect-session-core-ffi-boundary.md`](connect-session-core-ffi-boundary.md) — the pure-core extraction; `TokenInvalid` maps into the exported Swift `CoreError` enum.
-- [`connect-ts-client-sdk.md`](connect-ts-client-sdk.md) — the TS Path A port, whose first slice does not implement capability-token (normative, deferred).
+- [`connect-ts-client-sdk.md`](connect-ts-client-sdk.md) — the TS Path A port, which implements capability-token in `src/core/capability-token.ts` with the same validation rules.
 - [`spoke-connect.md`](../../specs/spoke-connect.md) §Method — capability-token — the normative claim set, trust root, and validation rules.

@@ -1,11 +1,12 @@
 ---
 module: spoke-connect
 date: 2026-08-01
+last_updated: 2026-08-03
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["building the first language-SDK slice for spoke-connect", "porting the connect session core to a new language", "choosing crypto / JCS / framing dependencies for a connect client", "adding a browser-or-Node connect client"]
-tags: [spoke-connect, connect-ts, path-a, pure-ts, websocket-framing, jcs, webcrypto, golden-vectors]
+applies_when: ["building the first language-SDK slice for spoke-connect", "porting the connect session core to a new language", "choosing crypto / JCS / framing dependencies for a connect client", "adding a browser-or-Node connect client", "extending session-core capability parity across TS and Rust"]
+tags: [spoke-connect, connect-ts, path-a, pure-ts, websocket-framing, jcs, webcrypto, golden-vectors, session-core-parity]
 ---
 
 # pure-TS-minimal connect client SDK (first slice)
@@ -59,7 +60,71 @@ The `src/core/` barrel mirrors the Rust core's `pub use` block function-for-func
 | `NonceStore` (+ `generate_nonce`) | `NonceStore` (+ `generateNonce`) — per-sender `(peer_id, nonce)` |
 | `is_allowlisted` | `isAllowlisted` — empty allowlist rejects all |
 | `sign_hello_ed25519` / `verify_hello_ed25519` | `signHelloEd25519` / `verifyHelloEd25519` |
+| `issue_capability_token` / `verify_capability_token` (+ `CapabilityClaims` / `CapabilityTokenProof` / `TOKEN_VERSION` / `CLOCK_SKEW_SECONDS`) | `issueCapabilityToken` / `verifyCapabilityToken` (+ same types / constants) — async on TS (WebCrypto / `@noble`), same bytes; fail-closed proof-shape guard before crypto |
+| `token_authorizes_op` | `tokenAuthorizesOp` — membership / subset-of-grant against token grants |
+| `ed25519_pubkey_from_peer_id` | `ed25519PubkeyFromPeerId` — reverse of derive; required by capability-token verify (issuer key recovery from `claims.iss`) |
 | (session helper) | `Session` / `negotiatedCapabilities` |
+
+### Session-core parity discipline
+
+Normative sources (do not duplicate wire contracts here): root `AGENTS.md`
+(connect boundary bullet) and
+[`.mstar/specs/spoke-connect-ts-route.md`](../../specs/spoke-connect-ts-route.md)
+§Session-core parity. The discipline is how Path A keeps **capability parity**
+with the Rust reference without sharing code.
+
+**1. Enumerate the parity surface (in vs out)**
+
+| In (same accept/reject rules on both sides) | Out (asymmetric by design) |
+|---------------------------------------------|----------------------------|
+| allowlist | Transport: WebSocket (TS) vs libp2p stack (Rust) |
+| `peer_id` — derive **and** reverse (token verify) | Node lifecycle / dial / listen |
+| hello crypto (sign/verify over JCS) | uniffi FFI facade (Path B only) |
+| nonce single-use store | Package-layout helpers unique to one language (`Session` thin helper, correlation builders, `generateNonce`) |
+| request correlation | |
+| outbound / inbound sequence | |
+| capability-token auth (issue/verify, claims/proof shape) | |
+| dispatch gate + product-op capability map, including `tokenAuthorizesOp` membership against token grants | |
+
+Re-diff the Rust `crates/spoke-connect/src/core/` barrel against the TS
+`src/core/` (+ `src/identity.ts` for `peer_id`) whenever either side gains a
+session rule. Status each item: **parity** (matching semantics present) or
+**asymmetric-by-design** (deliberate shape difference, not a gap). Gaps on
+the pure-rules list are parity work; transport differences are not.
+
+**2. Port pure session logic only**
+
+- Behavior port: same accept/reject outcomes, same fail-closed defaults
+  (empty allowlist rejects all; unknown op fails closed; deny-unknown-fields
+  on token claims/proof).
+- Keep crypto/JCS/framing on the existing TS helpers; do not reimplement
+  platform crypto inside the core module under test.
+- Async on TS (WebCrypto / `@noble`) vs sync on Rust is fine when the **bytes**
+  and outcomes match.
+- Product-configured op→capability maps stay host-owned on both sides; the
+  core table covers baseline ops only.
+
+**3. Prove parity (two layers)**
+
+| Layer | What it pins | Pattern |
+|-------|--------------|---------|
+| Same-language round-trip | Issue/verify, reject paths, `tokenAuthorizesOp` membership cases | Unit tests on each side mirroring the other's cases (deterministic seeds, fixed `now`) |
+| Cross-language golden fixture | JCS canonical bytes + signature encoding the other language cannot see from its own round-trip | One side **mints**, the other **verifies** a checked-in proof |
+
+Capability-token golden pattern (landed): Rust mints a proof from the
+identity golden seed (`tooling/connect-identity-proof/` bytes `1..=32` →
+issuer `GOLDEN_PEER_ID`) with deterministic subject/audience role seeds;
+the proof JSON is checked in as
+`packages/spoke-connect-ts/tests/fixtures/capability-token-golden.json`;
+TS `verifyCapabilityToken` must accept it and return the granted
+capabilities. Identity/hello goldens stay in `src/golden.ts` with provenance
+comments pointing at Rust core constants — tests never recompute the pinned
+bytes from the code under test.
+
+When adding a new pure-core rule: extend the surface table, port the
+function, add mirror unit cases, and — if the rule emits or consumes
+cross-language bytes (JCS, sig, peer_id) — add or extend a Rust-produced
+(or TS-produced) golden fixture the other side verifies.
 
 ### connectClient flow
 
@@ -94,6 +159,7 @@ Envelope-level interop with Rust peers is the v1 goal: same hello bytes, same `p
 ## When to Apply
 
 - Building any future language SDK slice (another Path A port, or uniffi targets beyond Swift) — reuse the slice shape: provenance-pinned golden constants, crypto primary+fallback matrix, canonicalization pin with a byte gate, one-document-per-message framing, a core surface that mirrors the Rust barrel, bounded-wait test topology, and the byte-contract vs schema-valid fixture split.
+- Extending or auditing TS↔Rust session-core capability parity — enumerate the pure-rules surface, port behavior (not transport), prove with mirror unit tests plus a cross-language minted golden fixture.
 - Choosing dependencies for a connect client — prefer platform crypto and a pinned canonicalizer over a swarm stack; keep the JCS implementation behind a golden-byte gate.
 - Adding a browser or Node connect client — the isomorphic `src/` modules are the swappable core; transport adapters (native WebSocket vs `ws`) plug in at the `src/node/` boundary.
 
@@ -115,5 +181,6 @@ The receiver buffers hello/snapshot frames that arrive ahead of their waiter (se
 
 - [`connect-identity-parity-proof.md`](../testing-patterns/connect-identity-parity-proof.md) — the proof script and port gotchas this slice implements (protobuf PublicKey, identity multihash, base64url, DER wrap).
 - [`connect-session-core-ffi-boundary.md`](connect-session-core-ffi-boundary.md) — the Rust core whose surface this package mirrors (Path A vs Path B parity).
+- [`connect-capability-token-auth.md`](connect-capability-token-auth.md) — capability-token claims/proof design and validation order the parity surface includes.
 - [`spoke-connect-wire-and-auth.md`](spoke-connect-wire-and-auth.md) — the wire family, JCS signed-field set, and identity binding the client implements.
-- [`spoke-connect-ts-route.md`](../../specs/spoke-connect-ts-route.md) — the route decision this package implements (pure-TS-minimal; fallback js-libp2p).
+- [`spoke-connect-ts-route.md`](../../specs/spoke-connect-ts-route.md) — the route decision and session-core parity rule this package implements (pure-TS-minimal; fallback js-libp2p).

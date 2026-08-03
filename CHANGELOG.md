@@ -6,6 +6,88 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.8.0] - 2026-08-03
+
+
+### Added
+
+- **connect:** Publish 42ch.Spoke.Connect NuGet to GitHub Packages
+
+- **connect:** Add vendored uniffi-bindgen-go 0.32 fork recipe
+
+- **connect:** Add Go bindings and golden-parity smoke
+
+- **connect:** Complete Go module layout and README
+
+- **connect:** Merge Go spoke-connect module export
+
+- **connect:** Add Python binding module and golden smoke
+
+- **connect:** Add spoke-connect PyPI packaging layout
+
+- **release:** Add publish-pypi Trusted Publishing job
+
+- **connect:** Merge Python spoke-connect PyPI packaging
+
+- **connect:** Add Swift SPM package with committed bindings and xcframework
+
+- **connect:** Add Kotlin binding with post-generate patch and golden smoke
+
+- **connect:** Add Kotlin Maven publish to GitHub Packages
+
+- **connect:** Merge Swift SPM and Kotlin Maven packaging
+
+
+### Documentation
+
+- **readme:** Reframe for third-party integrators
+
+- **connect:** Lock four-channel binding publish matrix
+
+- **connect:** Align binding install prose with channel readiness
+
+- **connect:** Update Go binding consumer docs
+
+- **connect:** Document spoke-connect PyPI install path
+
+- **specs:** Register Python PyPI in lockstep and publish SSOT
+
+- **connect:** Mark Swift SPM and Kotlin Maven as landed
+
+- **specs:** Add Kotlin Maven lockstep row and landed bindings
+
+- **knowledge:** Compound Path B Kotlin Throwable message pattern
+
+- **connect:** Add per-language package usage guides
+
+- **connect:** Document Go linux/windows native staging
+
+- **connect:** Tie Go natives to in-tree tag layout
+
+- **connect:** Document Go linux/windows native replace staging
+
+- **connect:** Document Go Windows DLL and NuGet native source
+
+
+### Fixed
+
+- **ci:** Pin csharp-connect actions and smoke via PackageReference
+
+- **connect:** Align Go import path and dylib @rpath install names
+
+- **connect:** Use manylinux wheel tag and pre-publish verify
+
+- **connect:** Avoid duplicate JNA natives in Kotlin jar
+
+- **ci:** Pin Gradle 9.6.1 for publish-maven
+
+- **connect:** Align Python wheel tag with ubuntu-22.04 glibc floor
+
+
+### Internal
+
+- **connect:** Drop Python pycache from binding tree
+
 ## [0.7.1] - 2026-08-03
 
 

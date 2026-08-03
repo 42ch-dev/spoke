@@ -202,12 +202,54 @@ function assertClaimsShape(claims: unknown): asserts claims is CapabilityClaims 
 }
 
 /**
+ * Fail-closed **time** guard for issuance: reject claims whose lifetime is
+ * already unverifiable at `now` (Unix seconds), mirroring the verifier's
+ * time rules in [`verifyCapabilityToken`] (expiry check 6 and `iat` skew
+ * check 7) so `issueCapabilityToken` never signs a token the verifier
+ * would deterministically reject on time grounds.
+ *
+ * - `exp <= now + CLOCK_SKEW_SECONDS` rejects: the token expires at or
+ *   inside the ±[`CLOCK_SKEW_SECONDS`] window, so a verifier clock running
+ *   ahead of this clock (`now >= exp`) rejects it.
+ * - `iat > now + CLOCK_SKEW_SECONDS` rejects: the issuer clock is ahead of
+ *   the verifier's beyond the skew window (mirror of verify check 7).
+ *
+ * Parity note: this check is **additive TS-side issuance ergonomics**
+ * (fail-fast at issue time) — it is NOT a session-core rule change. Rust
+ * issuance (`issue_capability_token`) validates only through its typed
+ * struct (`exp` / `iat` are `u64`), with no runtime time input; the shared
+ * verify rules and token shape are unchanged, so a token with valid claims
+ * still round-trips both directions (TS-issued verifies in Rust; Rust-issued
+ * verifies in TS via the golden vector).
+ */
+function assertClaimsSemantics(claims: CapabilityClaims, now: number): void {
+  if (claims.exp <= now + CLOCK_SKEW_SECONDS) {
+    throw new CoreError(
+      "token_invalid",
+      `token exp ${claims.exp} is not after now ${now} + ${CLOCK_SKEW_SECONDS}s clock-skew; the verifier would reject it`,
+    );
+  }
+  if (claims.iat !== undefined && claims.iat > now + CLOCK_SKEW_SECONDS) {
+    throw new CoreError(
+      "token_invalid",
+      `token issued at ${claims.iat} is beyond the ${CLOCK_SKEW_SECONDS}s clock-skew window ahead of now ${now}`,
+    );
+  }
+}
+
+/**
  * Issue a capability token: canonicalize `claims` with JCS, sign with the
  * issuer Ed25519 secret key (32-byte seed), and wrap the result.
  *
- * Claims are shape-validated before signing ([`assertClaimsShape`]) — a
- * token that could never verify is rejected at issuance with
- * `CoreError("token_invalid")` instead of being signed.
+ * Claims are shape- and time-validated before signing
+ * ([`assertClaimsShape`] + [`assertClaimsSemantics`]) — a token that could
+ * never verify is rejected at issuance with `CoreError("token_invalid")`
+ * instead of being signed.
+ *
+ * `now` is the current time in **Unix seconds** (same unit as the
+ * `verifyCapabilityToken` `now` parameter); it defaults to the wall clock
+ * (`Math.floor(Date.now() / 1000)`). Pass an explicit `now` in tests to
+ * keep issuance deterministic.
  *
  * The issuer's derived `peer_id` MUST equal `claims.iss` — the token must
  * be issued by the authority it names, or it cannot verify.
@@ -215,8 +257,10 @@ function assertClaimsShape(claims: unknown): asserts claims is CapabilityClaims 
 export async function issueCapabilityToken(
   issuerSecret: Uint8Array,
   claims: CapabilityClaims,
+  now?: number,
 ): Promise<CapabilityTokenProof> {
   assertClaimsShape(claims);
+  assertClaimsSemantics(claims, now ?? Math.floor(Date.now() / 1000));
   const derivedIssuer = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(issuerSecret),
   );

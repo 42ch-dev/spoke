@@ -68,6 +68,7 @@ async function happyToken(
   const proof = await issueCapabilityToken(
     ISSUER_SEED,
     claims(issuer, subject, audience, capabilities, now + 3600),
+    now,
   );
   return [proof, trusted([issuer]), [subject, audience]];
 }
@@ -94,10 +95,13 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     const issuer = peerOf(ISSUER_SEED);
     const subject = peerOf(new Uint8Array(32).fill(7));
     const audience = peerOf(new Uint8Array(32).fill(8));
-    // exp == now is already expired (reject if now >= exp).
+    // exp == now is already expired (reject if now >= exp). Issue the token
+    // an hour before the verify `now` so issuance's own time check accepts
+    // it — this test exercises the verify-side expiry rule.
     const proof = await issueCapabilityToken(
       ISSUER_SEED,
       claims(issuer, subject, audience, ["spoke-baseline"], NOW),
+      NOW - 3600,
     );
     await expect(
       verifyCapabilityToken(proof, trusted([issuer]), audience, subject, NOW),
@@ -197,6 +201,7 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       issueCapabilityToken(
         OTHER_ISSUER_SEED,
         claims(issuer, subject, audience, ["spoke-baseline"], NOW + 3600),
+        NOW,
       ),
     ).rejects.toThrowError(tokenInvalid);
   });
@@ -232,7 +237,7 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       NOW + 3600,
     );
     atBoundary.iat = NOW + CLOCK_SKEW_SECONDS;
-    const proofAtBoundary = await issueCapabilityToken(ISSUER_SEED, atBoundary);
+    const proofAtBoundary = await issueCapabilityToken(ISSUER_SEED, atBoundary, NOW);
     await expect(
       verifyCapabilityToken(
         proofAtBoundary,
@@ -244,6 +249,7 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
     ).resolves.toEqual(["spoke-baseline"]);
 
     // iat beyond the skew window is rejected (issuer clock too far ahead).
+    // Issuance now fails fast on the same rule the verifier applies.
     const beyond: CapabilityClaims = claims(
       issuer,
       subject,
@@ -252,14 +258,19 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       NOW + 3600,
     );
     beyond.iat = NOW + CLOCK_SKEW_SECONDS + 1;
-    const proofBeyond = await issueCapabilityToken(ISSUER_SEED, beyond);
+    await expect(
+      issueCapabilityToken(ISSUER_SEED, beyond, NOW),
+    ).rejects.toThrowError(tokenInvalid);
+    // The verify-side rule is unchanged: a validly signed token whose iat is
+    // beyond skew is still rejected when the verifier clock runs behind
+    // issuance (signature untouched — only the verify `now` shifts).
     await expect(
       verifyCapabilityToken(
-        proofBeyond,
+        proofAtBoundary,
         trustedIssuers,
         audience,
         subject,
-        NOW,
+        NOW - 1,
       ),
     ).rejects.toThrowError(tokenInvalid);
 
@@ -272,7 +283,7 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       NOW + 3600,
     );
     past.iat = NOW - 10;
-    const proofPast = await issueCapabilityToken(ISSUER_SEED, past);
+    const proofPast = await issueCapabilityToken(ISSUER_SEED, past, NOW);
     await expect(
       verifyCapabilityToken(proofPast, trustedIssuers, audience, subject, NOW),
     ).resolves.toEqual(["spoke-baseline"]);
@@ -292,7 +303,7 @@ describe("issueCapabilityToken / verifyCapabilityToken (port of capability_token
       NOW + 3600,
     );
     withJti.jti = "token-abc-123";
-    const proofWithJti = await issueCapabilityToken(ISSUER_SEED, withJti);
+    const proofWithJti = await issueCapabilityToken(ISSUER_SEED, withJti, NOW);
     await expect(
       verifyCapabilityToken(
         proofWithJti,
@@ -550,7 +561,7 @@ describe("issueCapabilityToken sign/return consistency", () => {
     );
     (dirty as CapabilityClaims & Record<string, unknown>).extra_claim = "sneaky";
     dirty.iat = NOW - 10;
-    const proof = await issueCapabilityToken(ISSUER_SEED, dirty);
+    const proof = await issueCapabilityToken(ISSUER_SEED, dirty, NOW);
     // The wrapper carries exactly the signed, whitelisted claim set.
     expect(Object.keys(proof.claims).sort()).toEqual([
       "aud",
@@ -672,15 +683,19 @@ describe("issueCapabilityToken claim validation (fail fast at issuance)", () => 
   it("accepts the golden-shape claims (Rust-minted fixture shape)", async () => {
     const goldenSubject = peerOf(new Uint8Array(32).fill(7));
     const goldenAudience = peerOf(new Uint8Array(32).fill(8));
-    const proof = await issueCapabilityToken(GOLDEN_SEED, {
-      iss: GOLDEN_PEER_ID,
-      sub: goldenSubject,
-      aud: goldenAudience,
-      capabilities: ["spoke-baseline", "l2-computable"],
-      exp: NOW + 3600,
-      iat: NOW,
-      jti: "golden-jti-001",
-    });
+    const proof = await issueCapabilityToken(
+      GOLDEN_SEED,
+      {
+        iss: GOLDEN_PEER_ID,
+        sub: goldenSubject,
+        aud: goldenAudience,
+        capabilities: ["spoke-baseline", "l2-computable"],
+        exp: NOW + 3600,
+        iat: NOW,
+        jti: "golden-jti-001",
+      },
+      NOW,
+    );
     expect(proof.claims).toEqual({
       iss: GOLDEN_PEER_ID,
       sub: goldenSubject,
@@ -699,5 +714,91 @@ describe("issueCapabilityToken claim validation (fail fast at issuance)", () => 
         NOW,
       ),
     ).resolves.toEqual(["spoke-baseline", "l2-computable"]);
+  });
+});
+
+describe("issueCapabilityToken claim time validation (fail fast at issuance)", () => {
+  const issuer = peerOf(ISSUER_SEED);
+  const subject = peerOf(new Uint8Array(32).fill(7));
+  const audience = peerOf(new Uint8Array(32).fill(8));
+
+  it("rejects exp = 0 (already expired under any realistic now)", async () => {
+    await expect(
+      issueCapabilityToken(
+        ISSUER_SEED,
+        claims(issuer, subject, audience, ["spoke-baseline"], 0),
+        NOW,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("rejects a past exp (expires within the clock-skew window)", async () => {
+    await expect(
+      issueCapabilityToken(
+        ISSUER_SEED,
+        claims(issuer, subject, audience, ["spoke-baseline"], NOW - 10),
+        NOW,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("rejects iat beyond the clock-skew window ahead of now", async () => {
+    const futureIat = claims(
+      issuer,
+      subject,
+      audience,
+      ["spoke-baseline"],
+      NOW + 3600,
+    );
+    futureIat.iat = NOW + CLOCK_SKEW_SECONDS + 1;
+    await expect(
+      issueCapabilityToken(ISSUER_SEED, futureIat, NOW),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("accepts exp just inside the valid window and iat ≈ now, and round-trips", async () => {
+    const tight = claims(
+      issuer,
+      subject,
+      audience,
+      ["spoke-baseline"],
+      NOW + CLOCK_SKEW_SECONDS + 1,
+    );
+    tight.iat = NOW;
+    const proof = await issueCapabilityToken(ISSUER_SEED, tight, NOW);
+    await expect(
+      verifyCapabilityToken(proof, trusted([issuer]), audience, subject, NOW),
+    ).resolves.toEqual(["spoke-baseline"]);
+    // exp exactly at now + skew is the first rejected value (boundary).
+    await expect(
+      issueCapabilityToken(
+        ISSUER_SEED,
+        claims(
+          issuer,
+          subject,
+          audience,
+          ["spoke-baseline"],
+          NOW + CLOCK_SKEW_SECONDS,
+        ),
+        NOW,
+      ),
+    ).rejects.toThrowError(tokenInvalid);
+  });
+
+  it("defaults now to the wall clock in Unix seconds (ms → s conversion)", async () => {
+    const wallNow = Math.floor(Date.now() / 1000);
+    const proof = await issueCapabilityToken(
+      ISSUER_SEED,
+      claims(issuer, subject, audience, ["spoke-baseline"], wallNow + 3600),
+    );
+    await expect(
+      verifyCapabilityToken(
+        proof,
+        trusted([issuer]),
+        audience,
+        subject,
+        wallNow,
+      ),
+    ).resolves.toEqual(["spoke-baseline"]);
   });
 });

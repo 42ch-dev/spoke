@@ -9,3 +9,8 @@ bindings/swift/Smoke/smoke
 # bindings/csharp/Smoke.
 bindings/csharp/Smoke/bin/
 bindings/csharp/Smoke/obj/
+# Generated Kotlin bindings are COMMITTED (post-generate patch in bindgen/;
+# regenerate recipe in bindings/kotlin/README.md).
+# Gradle build outputs for bindings/kotlin smoke.
+bindings/kotlin/.gradle/
+bindings/kotlin/build/

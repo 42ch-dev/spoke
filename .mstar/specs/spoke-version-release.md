@@ -26,11 +26,11 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 3 | TypeScript operations | `packages/spoke-operations/package.json` → `version` | JSON `version` field |
 | 4 | Fixture harness | `fixtures/toy-world/package.json` → `version` | JSON `version` field |
 | 5 | Codegen runner | `tooling/codegen/package.json` → `version` | JSON `version` field |
-| 6 | TypeScript connect library | `packages/spoke-connect-ts/package.json` → `version` | JSON `version` field (workspace-private TS package; asserted by `verify:version`, bumped by `release:bump`; not published) |
+| 6 | TypeScript connect library | `packages/spoke-connect-ts/package.json` → `version` | JSON `version` field (published as `@42ch/spoke-connect`; asserted by `verify:version`, bumped by `release:bump`; built via `tsup` → `dist/` for the npm tarball) |
 | 7 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
 | 8 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 |
 | 9 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 |
-| 10 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 (workspace-private spike crate; not published) |
+| 10 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 (published as `spoke-connect`) |
 | 11 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
 | 12 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
 | 13 | README CN badge | `README_CN.md` | Same as row 12 |
@@ -99,7 +99,7 @@ A SPOKE release is:
 | `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | Opens lockstep bump PR with label `release` (GitHub-signed commit); MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists; MUST NOT duplicate `CHANGELOG` version headings |
 | `pull_request` closed (merged + label `release`) or push of tag `v*` | `.github/workflows/release.yml` | Top-level only (no `workflow_call`, no `workflow_dispatch`). Tag-on-merge when applicable → parallel verify → GitHub Release → `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). Trusted Publishing OIDC requires this filename (`release.yml`). |
 
-Release workflows publish **only** `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `spoke-schemas`, and `spoke-operations`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
+Release workflows publish `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `spoke-schemas`, `spoke-operations`, and `spoke-connect`. Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
 ### Lockstep assert (PR / main)
 

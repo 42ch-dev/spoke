@@ -209,6 +209,15 @@ jobs:
       - name: Build @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations build
 
+      - name: Typecheck @42ch/spoke-connect
+        run: pnpm -F @42ch/spoke-connect typecheck
+
+      - name: Test @42ch/spoke-connect
+        run: pnpm -F @42ch/spoke-connect test
+
+      - name: Build @42ch/spoke-connect
+        run: pnpm -F @42ch/spoke-connect build
+
   rust:
     name: rust
     needs: [resolve-tag]
@@ -376,6 +385,7 @@ jobs:
         run: |
           pnpm -F @42ch/spoke-schemas build
           pnpm -F @42ch/spoke-operations build
+          pnpm -F @42ch/spoke-connect build
 
       # Pack with pnpm (rewrites workspace:*), publish with npm CLI (OIDC Trusted Publisher).
       - name: Publish @42ch/spoke-schemas
@@ -389,6 +399,12 @@ jobs:
         run: |
           pnpm pack
           npm publish 42ch-spoke-operations-*.tgz --access public
+
+      - name: Publish @42ch/spoke-connect
+        working-directory: packages/spoke-connect-ts
+        run: |
+          pnpm pack
+          npm publish 42ch-spoke-connect-*.tgz --access public
 
   publish-crates:
     name: publish-crates
@@ -424,5 +440,10 @@ jobs:
 
       - name: Publish spoke-operations crate
         run: cargo publish -p spoke-operations
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+
+      - name: Publish spoke-connect crate
+        run: cargo publish -p spoke-connect
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}

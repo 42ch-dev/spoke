@@ -12,7 +12,7 @@ Published on npm as `@42ch/spoke-connect`; the version tracks the monorepo locks
 - **Session core** (`src/core/`) — behavior port of `crates/spoke-connect/src/core/`: `OutboundSequence` / `InboundSequence` (start 0, exhaustion instead of wrap past `2^53−1`), response correlation (session_id / sequence / request_id echo), op dispatch gate (capability ⊆ negotiated, unknown op fails closed), per-sender `NonceStore`, fail-closed allowlist, thin `Session` helper, `PROTOCOL_VERSION`.
 - **Node client** (`src/node/`) — `connectClient({ url, identity, manifest, remotePubkey, allowlist })`: dials a WebSocket, performs the signed hello exchange, validates the session snapshot (peer binding, `initial_sequence` 0), then routes correlated invokes by `request_id` with bounded waits. Node-only because it uses `ws`; the isomorphic `src/` modules stay browser-swappable.
 
-**Golden-vector parity:** tests assert peer_id / JCS bytes / signature byte-identical to the Rust golden vectors in `crates/spoke-connect/src/core/` (`peer_id.rs`, `hello_crypto.rs`), with constants redeclared in `src/golden.ts` (provenance comments included).
+**Golden-vector parity:** tests assert peer_id / JCS bytes / signature byte-identical to the Rust golden vectors. The golden hello vector has a single cross-language source of truth at `crates/spoke-connect/tests/fixtures/golden-hello.json`; this package loads its registered byte-identical copy (`tests/fixtures/golden-hello.json`) through the thin test-only loader `src/golden.ts` (not part of the package `exports` or npm `files`).
 
 ## Install
 

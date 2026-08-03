@@ -143,23 +143,20 @@ fn base58_decode(input: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::golden::{golden, golden_pubkey};
 
     /// Golden vector captured from rust-libp2p (`PeerId::to_string()` over
     /// `Keypair::ed25519_from_bytes(seed)`) for the Ed25519 key seeded with
     /// bytes 1..=32 — captured against libp2p-identity 0.2.14 / libp2p 0.56
-    /// before the transport cutover.
-    const GOLDEN_PUBKEY: [u8; 32] = [
-        0x79, 0xb5, 0x56, 0x2e, 0x8f, 0xe6, 0x54, 0xf9, 0x40, 0x78, 0xb1, 0x12, 0xe8, 0xa9, 0x8b,
-        0xa7, 0x90, 0x1f, 0x85, 0x3a, 0xe6, 0x95, 0xbe, 0xd7, 0xe0, 0xe3, 0x91, 0x0b, 0xad, 0x04,
-        0x96, 0x64,
-    ];
-    const GOLDEN_PEER_ID: &str = "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
+    /// before the transport cutover. Loaded from the shared cross-language
+    /// fixture `tests/fixtures/golden-hello.json` (SSOT), not redeclared
+    /// here.
 
     #[test]
     fn golden_peer_id_matches_libp2p_derivation() {
         assert_eq!(
-            derive_peer_id_from_ed25519_pubkey(&GOLDEN_PUBKEY),
-            GOLDEN_PEER_ID
+            derive_peer_id_from_ed25519_pubkey(&golden_pubkey()),
+            golden().peer_id
         );
     }
 
@@ -178,7 +175,7 @@ mod tests {
         // peer id shape.
         let a = derive_peer_id_from_ed25519_pubkey(&[3u8; 32]);
         assert!(a.starts_with("12D3KooW"));
-        assert_eq!(a.len(), GOLDEN_PEER_ID.len());
+        assert_eq!(a.len(), golden().peer_id.len());
     }
 
     #[test]
@@ -187,8 +184,8 @@ mod tests {
         // peer id (captured from libp2p) decodes to exactly the golden
         // public key, and that key derives the same peer id.
         assert_eq!(
-            ed25519_pubkey_from_peer_id(GOLDEN_PEER_ID),
-            Some(GOLDEN_PUBKEY)
+            ed25519_pubkey_from_peer_id(&golden().peer_id),
+            Some(golden_pubkey())
         );
     }
 

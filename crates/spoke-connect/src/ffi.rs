@@ -331,42 +331,19 @@ pub fn protocol_version() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::golden::{golden, golden_pubkey, golden_seed};
 
     /// Golden key pair (seed bytes 1..=32) — the same fixtures as the core
     /// golden-vector tests, so these wrapper tests assert byte parity with
-    /// the core surface.
-    const GOLDEN_SEED: [u8; 32] = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
-        0x1f, 0x20,
-    ];
-    const GOLDEN_PUBKEY: [u8; 32] = [
-        0x79, 0xb5, 0x56, 0x2e, 0x8f, 0xe6, 0x54, 0xf9, 0x40, 0x78, 0xb1, 0x12, 0xe8, 0xa9, 0x8b,
-        0xa7, 0x90, 0x1f, 0x85, 0x3a, 0xe6, 0x95, 0xbe, 0xd7, 0xe0, 0xe3, 0x91, 0x0b, 0xad, 0x04,
-        0x96, 0x64,
-    ];
-    const GOLDEN_PEER_ID: &str = "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
-    /// base64url (no padding) of the raw 64-byte Ed25519 signature over the
-    /// golden hello — captured from libp2p before the transport cutover.
-    const GOLDEN_SIGNATURE: &str =
-        "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg";
-    /// Golden manifest as canonical JSON — `authority` omitted (absent
-    /// optional field), matching the JCS-signed bytes in the core fixtures.
-    const GOLDEN_MANIFEST_JSON: &str = r#"{"capabilities":["spoke-baseline"],"extensions":{},"host_id":"golden-host","namespaces":[],"roles":["data-store"],"schema_version":1}"#;
-
-    /// Runtime-joined fixture nonce — joining keeps the value out of literal
-    /// position at crypto call sites (CodeQL
-    /// `rust/hard-coded-cryptographic-value`; same pattern as the core
-    /// tests). The joined value is exactly `golden-nonce-000000000001`.
-    fn golden_nonce() -> String {
-        ["golden-nonce", "000000000001"].join("-")
-    }
+    /// the core surface. Loaded from the shared cross-language fixture
+    /// `tests/fixtures/golden-hello.json` (SSOT); the golden signature,
+    /// peer id, and manifest JSON are the fixture's pinned output bytes.
 
     #[test]
     fn derive_peer_id_via_ffi_matches_golden() {
         assert_eq!(
-            derive_peer_id_from_ed25519_pubkey(GOLDEN_PUBKEY.to_vec()).expect("derives"),
-            GOLDEN_PEER_ID
+            derive_peer_id_from_ed25519_pubkey(golden_pubkey().to_vec()).expect("derives"),
+            golden().peer_id
         );
     }
 
@@ -381,27 +358,27 @@ mod tests {
     #[test]
     fn sign_hello_via_ffi_matches_golden_signature() {
         let hello_json = sign_hello_ed25519(
-            GOLDEN_SEED.to_vec(),
-            golden_nonce(),
-            GOLDEN_MANIFEST_JSON.to_owned(),
+            golden_seed().to_vec(),
+            golden().nonce.clone(),
+            golden().manifest_json.clone(),
         )
         .expect("signs");
         let hello: ConnectHello = serde_json::from_str(&hello_json).expect("hello JSON parses");
-        assert_eq!(hello.peer_id.as_str(), GOLDEN_PEER_ID);
-        assert_eq!(hello.signature.as_str(), GOLDEN_SIGNATURE);
+        assert_eq!(hello.peer_id.as_str(), golden().peer_id.as_str());
+        assert_eq!(hello.signature.as_str(), golden().signature_b64u.as_str());
     }
 
     #[test]
     fn sign_verify_round_trip_via_ffi_json() {
         let hello_json = sign_hello_ed25519(
-            GOLDEN_SEED.to_vec(),
-            golden_nonce(),
-            GOLDEN_MANIFEST_JSON.to_owned(),
+            golden_seed().to_vec(),
+            golden().nonce.clone(),
+            golden().manifest_json.clone(),
         )
         .expect("signs");
         verify_hello_ed25519(
-            GOLDEN_PUBKEY.to_vec(),
-            GOLDEN_PEER_ID.to_owned(),
+            golden_pubkey().to_vec(),
+            golden().peer_id.clone(),
             hello_json,
         )
         .expect("verifies");
@@ -410,14 +387,18 @@ mod tests {
     #[test]
     fn tampered_hello_json_fails_verification_with_mapped_error() {
         let hello_json = sign_hello_ed25519(
-            GOLDEN_SEED.to_vec(),
-            golden_nonce(),
-            GOLDEN_MANIFEST_JSON.to_owned(),
+            golden_seed().to_vec(),
+            golden().nonce.clone(),
+            golden().manifest_json.clone(),
         )
         .expect("signs");
         let tampered = hello_json.replace("data-store", "checker");
-        let err = verify_hello_ed25519(GOLDEN_PUBKEY.to_vec(), GOLDEN_PEER_ID.to_owned(), tampered)
-            .expect_err("tampered host");
+        let err = verify_hello_ed25519(
+            golden_pubkey().to_vec(),
+            golden().peer_id.clone(),
+            tampered,
+        )
+        .expect_err("tampered host");
         assert!(matches!(err, CoreError::InvalidHelloSignature));
     }
 
@@ -429,9 +410,12 @@ mod tests {
         // (sign_hello_ed25519 also returns HandshakeFailed for unparseable
         // JSON), so sign and verify are consistent.
         for malformed in ["not json".to_owned(), r#"{"not":"a-hello"}"#.to_owned()] {
-            let err =
-                verify_hello_ed25519(GOLDEN_PUBKEY.to_vec(), GOLDEN_PEER_ID.to_owned(), malformed)
-                    .expect_err("malformed hello");
+            let err = verify_hello_ed25519(
+                golden_pubkey().to_vec(),
+                golden().peer_id.clone(),
+                malformed,
+            )
+            .expect_err("malformed hello");
             assert!(matches!(err, CoreError::HandshakeFailed { .. }));
         }
     }
@@ -439,15 +423,19 @@ mod tests {
     #[test]
     fn bad_nonce_and_bad_manifest_json_map_to_errors() {
         let err = sign_hello_ed25519(
-            GOLDEN_SEED.to_vec(),
+            golden_seed().to_vec(),
             ["short"].join("-"),
-            GOLDEN_MANIFEST_JSON.to_owned(),
+            golden().manifest_json.clone(),
         )
         .expect_err("short nonce");
         assert!(matches!(err, CoreError::InvalidNonce { .. }));
 
-        let err = sign_hello_ed25519(GOLDEN_SEED.to_vec(), golden_nonce(), "not json".to_owned())
-            .expect_err("malformed manifest");
+        let err = sign_hello_ed25519(
+            golden_seed().to_vec(),
+            golden().nonce.clone(),
+            "not json".to_owned(),
+        )
+        .expect_err("malformed manifest");
         assert!(matches!(err, CoreError::HandshakeFailed { .. }));
     }
 

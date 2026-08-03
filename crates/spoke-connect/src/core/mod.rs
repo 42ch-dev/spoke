@@ -21,6 +21,8 @@ mod capability_token;
 mod correlate;
 mod dispatch;
 mod error;
+#[cfg(test)]
+pub(crate) mod golden;
 mod hello_crypto;
 mod nonce;
 mod peer_id;

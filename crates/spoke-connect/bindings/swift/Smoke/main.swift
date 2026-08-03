@@ -43,37 +43,21 @@
 
 import Foundation
 
-// MARK: - Golden fixtures (parity with GOLDEN_* in src/ffi.rs)
+// MARK: - Golden fixtures (shared SSOT copy)
 
-/// Ed25519 secret seed 1..=32 — `GOLDEN_SEED`.
-let goldenSeed = Data([
-    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
-    0x1f, 0x20,
-])
-
-/// Public key derived from `goldenSeed` — `GOLDEN_PUBKEY`.
-let goldenPubkey = Data([
-    0x79, 0xb5, 0x56, 0x2e, 0x8f, 0xe6, 0x54, 0xf9, 0x40, 0x78, 0xb1, 0x12, 0xe8, 0xa9, 0x8b,
-    0xa7, 0x90, 0x1f, 0x85, 0x3a, 0xe6, 0x95, 0xbe, 0xd7, 0xe0, 0xe3, 0x91, 0x0b, 0xad, 0x04,
-    0x96, 0x64,
-])
-
-/// Wire peer id for `goldenPubkey` — `GOLDEN_PEER_ID`.
-let goldenPeerId = "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf"
-
-/// base64url (no padding) of the raw 64-byte signature over the golden hello —
-/// `GOLDEN_SIGNATURE`, captured from libp2p before the transport cutover.
-let goldenSignature = "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg"
-
-/// Golden host manifest as canonical JSON — `GOLDEN_MANIFEST_JSON` (`authority`
-/// omitted, matching the JCS-signed bytes in the core fixtures).
-let goldenManifestJson = #"{"capabilities":["spoke-baseline"],"extensions":{},"host_id":"golden-host","namespaces":[],"roles":["data-store"],"schema_version":1}"#
-
-/// Golden fixture nonce — joined like the Rust tests so the literal does not
-/// sit at the crypto call site. The joined value is exactly
-/// `golden-nonce-000000000001`.
-let goldenNonce = ["golden-nonce", "000000000001"].joined(separator: "-")
+/// Decode a lowercase hex string into raw bytes (`nil` on malformed input).
+func hexData(_ hex: String) -> Data? {
+    guard hex.count % 2 == 0 else { return nil }
+    var out = Data()
+    var index = hex.startIndex
+    while index < hex.endIndex {
+        let end = hex.index(index, offsetBy: 2)
+        guard let byte = UInt8(hex[index..<end], radix: 16) else { return nil }
+        out.append(byte)
+        index = end
+    }
+    return out
+}
 
 // MARK: - Reporter
 
@@ -94,6 +78,35 @@ final class Reporter {
 // MARK: - Exercises
 
 func run() throws {
+    // Load the golden hello vector from the registered byte-identical copy
+    // of the crate SSOT (`crates/spoke-connect/tests/fixtures/golden-hello.json`)
+    // next to this smoke. `#filePath` resolves at compile time; the smoke is
+    // compiled and run from the repository root (see the header comment).
+    let fixtureURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .appendingPathComponent("fixtures/golden-hello.json")
+    let goldenData = try Data(contentsOf: fixtureURL)
+    guard
+        let golden = (try? JSONSerialization.jsonObject(with: goldenData))
+            as? [String: Any],
+        let seedHex = golden["seed_hex"] as? String,
+        let seedData = hexData(seedHex),
+        let pubkeyHex = golden["pubkey_hex"] as? String,
+        let pubkeyData = hexData(pubkeyHex),
+        let goldenPeerId = golden["peer_id"] as? String,
+        let goldenSignature = golden["signature_b64u"] as? String,
+        let goldenManifestJson = golden["manifest_json"] as? String,
+        let goldenNonce = golden["nonce"] as? String
+    else {
+        print("ERROR: cannot load golden fixture at \(fixtureURL.path)")
+        exit(1)
+    }
+    // The fixture carries the seed / nonce / manifest inputs AND the pinned
+    // output bytes (pubkey, peer id, JCS hex, signature) — asserted below,
+    // never recomputed and written back.
+    let goldenSeed = seedData
+    let goldenPubkey = pubkeyData
+
     let r = Reporter()
 
     // 1. Golden peer id parity: derive from the golden public key.

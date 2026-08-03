@@ -5,41 +5,55 @@ namespace SpokeConnectSmoke.Tests;
 
 /// <summary>
 /// Golden-parity assertions for the C# binding: every check reproduces the
-/// Rust golden vectors (crates/spoke-connect/src/ffi.rs tests + the
-/// connect-identity-proof tool) through the generated binding surface.
+/// Rust golden vectors through the generated binding surface.
 ///
-/// The nonce below is joined from two literals to mirror the Rust fixture
-/// pattern (the value is exactly `golden-nonce-000000000001`).
+/// The golden vector is loaded from the shared cross-language SSOT via the
+/// registered byte-identical copy at `fixtures/golden-hello.json` (copied to
+/// the output directory; sync gate: `tooling/connect/golden-vector-sync.mjs`).
+/// The fixture carries the seed / nonce / manifest inputs AND the pinned
+/// output bytes (pubkey, peer id, JCS hex, signature) — asserted below,
+/// never recomputed and written back.
 /// </summary>
 public static class GoldenParity
 {
-    /// Ed25519 seed bytes 1..=32 — the canonical golden key pair.
-    public static readonly byte[] GoldenSeed =
-        Enumerable.Range(1, 32).Select(i => (byte)i).ToArray();
-
-    public static readonly byte[] GoldenPubkey =
+    private sealed class GoldenFixture
     {
-        0x79, 0xb5, 0x56, 0x2e, 0x8f, 0xe6, 0x54, 0xf9,
-        0x40, 0x78, 0xb1, 0x12, 0xe8, 0xa9, 0x8b, 0xa7,
-        0x90, 0x1f, 0x85, 0x3a, 0xe6, 0x95, 0xbe, 0xd7,
-        0xe0, 0xe3, 0x91, 0x0b, 0xad, 0x04, 0x96, 0x64,
-    };
+        public string seed_hex { get; set; } = "";
+        public string nonce { get; set; } = "";
+        public string manifest_json { get; set; } = "";
+        public string pubkey_hex { get; set; } = "";
+        public string peer_id { get; set; } = "";
+        public string jcs_hex { get; set; } = "";
+        public string signature_b64u { get; set; } = "";
+    }
 
-    public const string GoldenPeerId =
-        "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf";
+    private static readonly GoldenFixture Golden = LoadFixture();
+
+    private static GoldenFixture LoadFixture()
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory, "fixtures", "golden-hello.json");
+        var json = File.ReadAllText(path);
+        return JsonSerializer.Deserialize<GoldenFixture>(json)
+            ?? throw new Exception("golden-hello.json fixture is empty");
+    }
+
+    /// Ed25519 seed bytes 1..=32 — the canonical golden key pair.
+    public static byte[] GoldenSeed => Convert.FromHexString(Golden.seed_hex);
+
+    public static byte[] GoldenPubkey => Convert.FromHexString(Golden.pubkey_hex);
+
+    public static string GoldenPeerId => Golden.peer_id;
 
     /// base64url (no padding) of the raw 64-byte Ed25519 signature over the
     /// golden hello — the same constant the Rust golden tests assert.
-    public const string GoldenSignature =
-        "yWu5Dl0jcKPWGyFDWJ1K8PbgoGcxerFSXSxiCu6Sdh8cqwH667TuAZJwgbuRHJFWehVaJtn5ox2vuYRO8IcMCg";
+    public static string GoldenSignature => Golden.signature_b64u;
 
     /// Golden manifest as canonical JSON — `authority` omitted (absent
     /// optional field), matching the JCS-signed bytes in the core fixtures.
-    public const string GoldenManifestJson =
-        "{\"capabilities\":[\"spoke-baseline\"],\"extensions\":{},\"host_id\":\"golden-host\",\"namespaces\":[],\"roles\":[\"data-store\"],\"schema_version\":1}";
+    public static string GoldenManifestJson => Golden.manifest_json;
 
-    public static string GoldenNonce() =>
-        string.Concat("golden-nonce", "-", "000000000001");
+    public static string GoldenNonce => Golden.nonce;
 
     public const ulong ProtocolVersion = 1;
 
@@ -55,7 +69,7 @@ public static class GoldenParity
     public static void AssertSignHelloSignature()
     {
         var helloJson = SpokeConnectMethods.SignHelloEd25519(
-            GoldenSeed, GoldenNonce(), GoldenManifestJson);
+            GoldenSeed, GoldenNonce, GoldenManifestJson);
         using var doc = JsonDocument.Parse(helloJson);
         var root = doc.RootElement;
 
@@ -70,7 +84,7 @@ public static class GoldenParity
     public static void AssertVerifyHello()
     {
         var helloJson = SpokeConnectMethods.SignHelloEd25519(
-            GoldenSeed, GoldenNonce(), GoldenManifestJson);
+            GoldenSeed, GoldenNonce, GoldenManifestJson);
         SpokeConnectMethods.VerifyHelloEd25519(GoldenPubkey, GoldenPeerId, helloJson);
     }
 
@@ -79,7 +93,7 @@ public static class GoldenParity
     public static void AssertTamperedHelloRejected()
     {
         var helloJson = SpokeConnectMethods.SignHelloEd25519(
-            GoldenSeed, GoldenNonce(), GoldenManifestJson);
+            GoldenSeed, GoldenNonce, GoldenManifestJson);
         var tampered = helloJson.Replace("data-store", "checker");
 
         try

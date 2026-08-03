@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.8.2] - 2026-08-03
+
+
+### Added
+
+- **connect:** Rename Kotlin Maven groupId to dev.42ch
+
+
+### Changed
+
+- **connect:** Consolidate golden hello vector into shared JSON SSOT
+
+
+### Fixed
+
+- **connect:** Include golden-hello fixture in C# PackageReference smoke
+
+- **connect:** Use Link to place C# golden fixture under fixtures/ subdir
+
+- **docs:** Derive site base from VitePress config in dead-link gate
+
+
+### Internal
+
+- **docs:** Add EN↔CN twin-parity check and dead-link gate
+
+- **connect:** Wire golden-vector-sync gate into ci.yml
+
 ## [0.8.1] - 2026-08-03
 
 

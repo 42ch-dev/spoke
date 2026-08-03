@@ -13,7 +13,7 @@ description = "SPOKE Connect reference spike — libp2p transport, noise-peerid 
 exclude = ["bindings/**"]
 
 [dependencies]
-spoke-schemas = { version = "0.8.1", path = "../spoke-schemas" }
+spoke-schemas = { version = "0.8.2", path = "../spoke-schemas" }
 libp2p.workspace = true
 serde.workspace = true
 serde_json.workspace = true

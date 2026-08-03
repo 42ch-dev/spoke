@@ -63,10 +63,21 @@ maven {
 ```kotlin
 dependencies {
     implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    // JNA 为发布构件的传递依赖
 }
 ```
 
-JNA 按 Maven 布局契约从 jar 加载平台原生库（`darwin-aarch64`、`linux-x86-64`、`win32-x86-64`）。版本与 spoke 标签 `vX.Y.Z` 锁步。
+```kotlin
+import uniffi.spoke_connect.derivePeerIdFromEd25519Pubkey
+import uniffi.spoke_connect.protocolVersion
+
+val peerId = derivePeerIdFromEd25519Pubkey(pubkey)
+val version = protocolVersion() // 1
+```
+
+在 `gradle.properties` 或 `~/.gradle/gradle.properties` 中设置 `gpr.user` 与 `gpr.key`（GitHub 用户名及具备 `read:packages` 的 PAT）。稳定标签经 [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml) 的 `publish-maven` 发布。
+
+JNA 按 Maven 布局契约从 jar 加载平台原生库（`darwin-aarch64`、`linux-x86-64`、`win32-x86-64`）。版本与 spoke 标签 `vX.Y.Z` 锁步。绑定 README：[`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md)。
 
 ## Swift（经 SPM 的 `SpokeConnect`）
 
@@ -88,6 +99,15 @@ targets: [
 ```
 
 在标签 `vX.Y.Z` 处，SPM 解析仓库根目录 `Package.swift`，取得库产品 `SpokeConnect`、生成 Swift 与 `spoke_connectFFI` xcframework（按打包契约）。
+
+```swift
+import SpokeConnect
+
+let peerId = try derivePeerIdFromEd25519Pubkey(pubkey: goldenPubkey)
+let version = protocolVersion() // 1
+```
+
+绑定 README：[`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md)。
 
 ## Go（`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`）
 
@@ -121,7 +141,7 @@ peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
 
 ## 目标语言矩阵
 
-目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（同步核心骨架）、**Go**（Go modules + 黄金向量 smoke）与 **Python**（PyPI 平台 wheel + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)；Python 见 [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)）。**Kotlin** 遵循相同可行性门控与上文渠道契约。TypeScript 是并行的**路径 A**（语言直连）轨道。
+目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（SPM `SpokeConnect`）、**Kotlin**（GitHub Packages Maven）、**Go**（Go modules + 黄金向量 smoke）与 **Python**（PyPI 平台 wheel + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)；Swift 见 [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md)；Kotlin 见 [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md)；Python 见 [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)）。TypeScript 是并行的**路径 A**（语言直连）轨道。
 
 ## 集成方须知
 

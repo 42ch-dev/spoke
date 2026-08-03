@@ -66,10 +66,21 @@ maven {
 ```kotlin
 dependencies {
     implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    // JNA is a transitive dependency of the published artifact
 }
 ```
 
-JNA loads platform natives from the jar per the Maven layout contract (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`.
+```kotlin
+import uniffi.spoke_connect.derivePeerIdFromEd25519Pubkey
+import uniffi.spoke_connect.protocolVersion
+
+val peerId = derivePeerIdFromEd25519Pubkey(pubkey)
+val version = protocolVersion() // 1
+```
+
+Set `gpr.user` and `gpr.key` in `gradle.properties` or `~/.gradle/gradle.properties` (GitHub username and a PAT with `read:packages`). Stable tags publish via `publish-maven` on [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml).
+
+JNA loads platform natives from the jar per the Maven layout contract (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`. Binding README: [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md).
 
 ## Swift (`SpokeConnect` via SPM)
 
@@ -91,6 +102,15 @@ targets: [
 ```
 
 At tag `vX.Y.Z`, SPM resolves the repo-root `Package.swift` for library product `SpokeConnect` with generated Swift and a `spoke_connectFFI` xcframework per the packaging contract.
+
+```swift
+import SpokeConnect
+
+let peerId = try derivePeerIdFromEd25519Pubkey(pubkey: goldenPubkey)
+let version = protocolVersion() // 1
+```
+
+Binding README: [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md).
 
 ## Go (`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`)
 
@@ -124,7 +144,7 @@ Platform wheels (`manylinux_2_17_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publ
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (sync-core skeleton), **Go** (Go modules + golden-parity smoke), and **Python** (PyPI platform wheels + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md); Python [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)). **Kotlin** follows the same feasibility gate and channel contract above. TypeScript is a parallel **Path A** track (language-direct).
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (SPM `SpokeConnect`), **Kotlin** (GitHub Packages Maven), **Go** (Go modules + golden-parity smoke), and **Python** (PyPI platform wheels + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md); Swift [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md); Kotlin [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md); Python [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)). TypeScript is a parallel **Path A** track (language-direct).
 
 ## Integrator notes
 

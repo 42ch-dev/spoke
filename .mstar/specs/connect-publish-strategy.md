@@ -35,9 +35,9 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | **Docs site** | `docs/` | GitHub Pages | Live companion site |
 | **Rust connect crate** | `crates/spoke-connect` | crates.io `spoke-connect` | Published lockstep via `release.yml` |
 | **C# binding** | `crates/spoke-connect/bindings/csharp/` | **GitHub Packages NuGet** `42ch.Spoke.Connect` | Published lockstep via `release.yml` `publish-nuget` |
-| **Kotlin binding** | `crates/spoke-connect/bindings/kotlin/` | **GitHub Packages Maven** (`maven.pkg.github.com/42ch-dev/spoke`) | Tag-gated publish job sibling to `publish-nuget` when the binding is package-ready |
-| **Swift binding** | `crates/spoke-connect/bindings/swift/` | **GitHub repo + Swift Package Manager** (`Package.swift` + `vX.Y.Z` tags) | SPM git dependency; skeleton landed, packable layout in progress |
-| **Go binding** | `crates/spoke-connect/bindings/go/` | **GitHub repo + Go modules** (root `go.mod` → module `github.com/42ch-dev/spoke` + `vX.Y.Z` tags) | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` when the binding is package-ready |
+| **Kotlin binding** | `crates/spoke-connect/bindings/kotlin/` | **GitHub Packages Maven** `io.github.42ch-dev:spoke-connect` | Published lockstep via `release.yml` `publish-maven` |
+| **Swift binding** | `crates/spoke-connect/bindings/swift/` | **GitHub repo + Swift Package Manager** (root `Package.swift` product `SpokeConnect` + `vX.Y.Z` tags) | SPM git dependency at lockstep tag |
+| **Go binding** | `crates/spoke-connect/bindings/go/` | **GitHub repo + Go modules** (root `go.mod` → module `github.com/42ch-dev/spoke` + `vX.Y.Z` tags) | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` at lockstep tag |
 | **Python binding** | `crates/spoke-connect/bindings/python/` | **PyPI** `spoke-connect` (Trusted Publishing OIDC on `release.yml` `publish-pypi`) | Package-ready; platform wheels + `publish-pypi` on stable tags |
 | **Core wire packages** (context) | `@42ch/spoke-schemas`, `@42ch/spoke-operations`, crates `spoke-schemas` / `spoke-operations` | npm + crates.io | Published under lockstep SemVer |
 
@@ -51,9 +51,9 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | **Docs site** | **GitHub Pages** | **Stage 1 companion — done** | Docs workflow on main |
 | **Rust connect crate** | crates.io `spoke-connect` | **Stage 1 — done** | Stable / non-`-rc.` tags via `publish-crates` |
 | **C# binding** | **GitHub Packages NuGet** `42ch.Spoke.Connect` | **Bindings Stage A — done** | Multi-RID `ffi` matrix + `dotnet pack` + `dotnet nuget push` on the same tag gate as npm/crates |
-| **Kotlin binding** | **GitHub Packages Maven** | **Bindings Stage B** | `publish-maven` (or Gradle publish) on the same tag gate when the Kotlin package is ready |
-| **Swift binding** | **GitHub repo + SPM** | **Bindings Stage B** | `Package.swift` + `vX.Y.Z` tags; SPM resolves the dependency from the repo — no registry publish job |
-| **Go binding** | **GitHub repo + Go modules** | **Bindings Stage B** | `go.mod` + `vX.Y.Z` tags; `go get` resolves the module from the repo — no registry publish job |
+| **Kotlin binding** | **GitHub Packages Maven** `io.github.42ch-dev:spoke-connect` | **Bindings Stage B — done** | `publish-maven` on the same tag gate as npm/crates; Gradle publish to `maven.pkg.github.com/42ch-dev/spoke` |
+| **Swift binding** | **GitHub repo + SPM** | **Bindings Stage B — done** | Root `Package.swift` product `SpokeConnect` + `vX.Y.Z` tags; SPM resolves the dependency from the repo |
+| **Go binding** | **GitHub repo + Go modules** | **Bindings Stage B — done** | Root `go.mod` + `vX.Y.Z` tags; `go get …/bindings/go@vX.Y.Z` resolves from the repo |
 | **Python binding** | **PyPI** | **Bindings Stage B — done** | `publish-pypi` on `release.yml` via Trusted Publishing OIDC; `pip install spoke-connect==X.Y.Z` |
 | **Core wire packages** | npm + crates.io | **Unchanged** | Existing `spoke-version-release.md` / `release.yml` |
 
@@ -125,9 +125,9 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | Language | Channel | Package / mechanism | State |
 |----------|---------|--------------------|-------|
 | **C#** | GitHub Packages NuGet | **`42ch.Spoke.Connect`** — generated C# + multi-RID native `spoke_connect` / `libspoke_connect` under `runtimes/<rid>/native/`; session core only (transport stays product-owned) | **Landed** |
-| **Kotlin** | GitHub Packages Maven | Maven coordinates on `maven.pkg.github.com/42ch-dev/spoke`; `publish-maven` (or Gradle publish) on `release.yml` | In progress |
-| **Swift** | GitHub repo + SPM | `Package.swift` + `vX.Y.Z` tags; consumers `.package(url:from:)` — no GitHub Packages | Skeleton landed; packable layout in progress |
-| **Go** | GitHub repo + Go modules | Root `go.mod` (module `github.com/42ch-dev/spoke`) + `vX.Y.Z` tags; consumers `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` — no GitHub Packages | In progress |
+| **Kotlin** | GitHub Packages Maven | **`io.github.42ch-dev:spoke-connect`** — committed uniffi Kotlin + JNA natives in jar; `publish-maven` on `release.yml` | **Landed** |
+| **Swift** | GitHub repo + SPM | Root `Package.swift` product **`SpokeConnect`** + committed xcframework; consumers `.package(url:from:)` at `vX.Y.Z` | **Landed** |
+| **Go** | GitHub repo + Go modules | Root `go.mod` (module `github.com/42ch-dev/spoke`) + `vX.Y.Z` tags; consumers `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` | **Landed** |
 | **Python** | PyPI | `pip install spoke-connect==X.Y.Z` via Trusted Publishing OIDC on `release.yml` (`publish-pypi`) — no GitHub Packages | **Landed** — platform wheels + golden-parity smoke |
 
 | Fact | Detail |
@@ -186,9 +186,9 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | Slice | What ships | Trigger | Owner |
 |-------|------------|---------|-------|
 | **C# GitHub Packages NuGet** | `42ch.Spoke.Connect` pack + multi-RID ffi + `publish-nuget` on stable tags; docs PackageReference DX | Decision record on main + release tag without `-rc.` | Release maintainer |
-| **Kotlin GitHub Packages Maven** | `publish-maven` (or Gradle publish) on `release.yml` to `maven.pkg.github.com/42ch-dev/spoke`; smoke + docs | Feasibility gate + packable project | Binding maintainers |
-| **Swift SPM** | `Package.swift` + product layout + `vX.Y.Z` tags; `.package(url:from:)` docs | Packable layout ready | Binding maintainers |
-| **Go modules** | `go.mod` + module path + `vX.Y.Z` tags; `go get …@vX.Y.Z` docs | Feasibility gate + packable project | Binding maintainers |
+| **Kotlin GitHub Packages Maven** | `io.github.42ch-dev:spoke-connect` Gradle publish + multi-RID JNA natives + `publish-maven` on stable tags; Maven coordinates DX in docs/Smoke | **Done** — `publish-maven` on `release.yml` |
+| **Swift SPM** | Root `Package.swift` product `SpokeConnect` + xcframework + `vX.Y.Z` tags; `.package(url:from:)` docs | **Done** — SPM resolves at lockstep tag |
+| **Go modules** | Root `go.mod` + module path + `vX.Y.Z` tags; `go get …@vX.Y.Z` docs + golden-parity smoke | **Done** — Go modules resolve at lockstep tag |
 | **Python PyPI** | `publish-pypi` on `release.yml` via Trusted Publishing OIDC matching the Pending publisher; `pip install` docs | Feasibility gate + packable project + registered publisher | Binding maintainers |
 
 Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next** / **Done**.

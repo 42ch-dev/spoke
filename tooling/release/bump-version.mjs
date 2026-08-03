@@ -19,8 +19,10 @@ import {
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   NUGET_CONNECT_CSPROJ_PATH,
+  PYPI_CONNECT_PYPROJECT_PATH,
   replaceCargoLockPackageVersions,
   replaceCsprojVersion,
+  replacePyprojectVersion,
   replaceSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
@@ -486,6 +488,18 @@ writeRepoFile(
   writeRepoFile(
     NUGET_CONNECT_CSPROJ_PATH,
     replaceCsprojVersion(nugetContents, targetVersion, NUGET_CONNECT_CSPROJ_PATH),
+  );
+}
+
+{
+  const pyprojectContents = readRepoFile(PYPI_CONNECT_PYPROJECT_PATH);
+  writeRepoFile(
+    PYPI_CONNECT_PYPROJECT_PATH,
+    replacePyprojectVersion(
+      pyprojectContents,
+      targetVersion,
+      PYPI_CONNECT_PYPROJECT_PATH,
+    ),
   );
 }
 

@@ -20,7 +20,7 @@ Path B bindings ship on **four channel types** (five languages), all lockstep wi
 | **GitHub Packages Maven** | Kotlin | `io.github.42ch-dev:spoke-connect` |
 | **Swift Package Manager** (git + tags) | Swift | Root `Package.swift` — `.package(url:from:)` |
 | **Go modules** (git + tags) | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
-| **PyPI** (Trusted Publishing) | Python | `pip install <registered-name>` |
+| **PyPI** (Trusted Publishing) | Python | `pip install spoke-connect` |
 
 NuGet and Maven both use the **GitHub Packages** channel type (one registry family, two package ecosystems).
 
@@ -111,18 +111,20 @@ At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) ver
 Integrators install from PyPI at spoke lockstep SemVer `X.Y.Z`:
 
 ```bash
-pip install <registered-name>==X.Y.Z
+pip install spoke-connect==X.Y.Z
 ```
 
 ```python
 import spoke_connect
+
+peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
 ```
 
-Platform wheels (`linux_x86_64`, `macosx_arm64`, `win_amd64`) ship via Trusted Publishing on `release.yml` per the packaging contract. The PyPI project name matches the registered Pending publisher; see [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
+Platform wheels (`manylinux_2_17_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publish to PyPI project **`spoke-connect`** via Trusted Publishing OIDC on the top-level `release.yml` workflow (`publish-pypi` job, repository `42ch-dev/spoke`). Version locksteps with spoke git tags `vX.Y.Z`. See [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (sync-core skeleton), and **Go** (Go modules + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)). **Python and Kotlin** follow the same feasibility gate and channel contract above. TypeScript is a parallel **Path A** track (language-direct).
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (sync-core skeleton), **Go** (Go modules + golden-parity smoke), and **Python** (PyPI platform wheels + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md); Python [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)). **Kotlin** follows the same feasibility gate and channel contract above. TypeScript is a parallel **Path A** track (language-direct).
 
 ## Integrator notes
 

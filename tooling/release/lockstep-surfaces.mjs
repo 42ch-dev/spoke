@@ -1,7 +1,7 @@
 /**
  * Lockstep version surfaces — SSOT manifest for assert and bump scripts.
  *
- * Normative source: `.mstar/specs/spoke-version-release.md` rows 1–11.
+ * Normative source: `.mstar/specs/spoke-version-release.md` lockstep table (rows 1–15).
  *
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.
@@ -43,6 +43,13 @@ export const CARGO_CONNECT_CRATE_PATH = "crates/spoke-connect/Cargo.toml";
 export const NUGET_CONNECT_CSPROJ_PATH =
   "crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj";
 
+/**
+ * Python PyPI project version (PyPI `spoke-connect`; lockstep).
+ * @type {string}
+ */
+export const PYPI_CONNECT_PYPROJECT_PATH =
+  "crates/spoke-connect/bindings/python/pyproject.toml";
+
 /** @type {string} Cargo lockfile — workspace member package versions (row 10). */
 export const CARGO_LOCK_PATH = "Cargo.lock";
 
@@ -70,6 +77,38 @@ export function replaceCsprojVersion(contents, version, manifestPath) {
   return contents.replace(
     /<Version>\s*[^<]+?\s*<\/Version>/,
     `<Version>${version}</Version>`,
+  );
+}
+
+/**
+ * Read `version = "X.Y.Z"` from the `[project]` table in pyproject.toml.
+ * @param {string} contents
+ * @returns {string | null}
+ */
+export function parsePyprojectVersion(contents) {
+  const projectSection = contents.match(/\[project\][\s\S]*?(?=\n\[|$)/);
+  if (!projectSection) {
+    return null;
+  }
+  const match = projectSection[0].match(/^version\s*=\s*"([^"]+)"/m);
+  return match?.[1]?.trim() ?? null;
+}
+
+/**
+ * Replace `version = "…"` inside the `[project]` table.
+ * @param {string} contents
+ * @param {string} version
+ * @param {string} manifestPath
+ * @returns {string}
+ */
+export function replacePyprojectVersion(contents, version, manifestPath) {
+  const projectSection = contents.match(/\[project\][\s\S]*?(?=\n\[|$)/);
+  if (!projectSection || !/^version\s*=\s*"[^"]+"/m.test(projectSection[0])) {
+    throw new Error(`${manifestPath}: missing [project] version = "…"`);
+  }
+  return contents.replace(
+    /(\[project\][\s\S]*?^version\s*=\s*")[^"]+(")/m,
+    `$1${version}$2`,
   );
 }
 

@@ -391,7 +391,7 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 |----------|----------------|-----------------|----------|-----------|
 | C# | Path B uniffi | **GitHub Packages NuGet** (`42ch.Spoke.Connect`) | First target — **landed** | Desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (fork dropped when a bindgen-cs tag targets 0.32+); the community pipeline's latest tag (v0.11.0+v0.31.0) targets uniffi 0.31 and cannot read the 0.32 cdylib metadata |
 | Go | Path B uniffi | **Go modules** (`go get …/bindings/go@vX.Y.Z`) | Second | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
-| Python | Path B uniffi | **PyPI** (`pip install <registered-name>`) | Third | Async FFI / asyncio historically finicky — core-only first |
+| Python | Path B uniffi | **PyPI** (`pip install spoke-connect`) | Third — **landed** | Platform wheels + golden-parity smoke via first-party uniffi 0.32 bindgen; `publish-pypi` on `release.yml` |
 | **Swift (iOS / macOS)** | Path B uniffi | **SPM git** (root `Package.swift` + `vX.Y.Z` tags) | Fourth — **landed skeleton** | Shipped first (macOS smoke, golden parity); mature uniffi story |
 | **Kotlin (Android)** | Path B uniffi | **GitHub Packages Maven** (`io.github.42ch-dev:spoke-connect`) | Fifth | Same uniffi pipeline as Swift |
 | TypeScript (browser / Node) | **Path A** (language-direct) | **npm** (`@42ch/spoke-connect`) | Parallel track | The TypeScript route decision lives with the TS identity proof |

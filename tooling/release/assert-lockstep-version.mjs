@@ -31,11 +31,13 @@ import {
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   NUGET_CONNECT_CSPROJ_PATH,
+  PYPI_CONNECT_PYPROJECT_PATH,
   README_BADGE_PATHS,
   README_RELEASE_BADGE_MARKER,
   hasReadmeReleaseBadge,
   parseCargoLockPackageVersion,
   parseCsprojVersion,
+  parsePyprojectVersion,
   parseSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -237,6 +239,25 @@ assertWorkspaceCrateVersion(
       NUGET_CONNECT_CSPROJ_PATH,
       canonicalVersion,
       nugetVersion,
+    );
+  }
+}
+
+{
+  const pyprojectContents = readRepoFile(PYPI_CONNECT_PYPROJECT_PATH);
+  const pyprojectVersion = parsePyprojectVersion(pyprojectContents);
+  if (pyprojectVersion === null) {
+    recordFailure(
+      PYPI_CONNECT_PYPROJECT_PATH,
+      canonicalVersion,
+      "(missing [project] version)",
+      "Python PyPI project must declare [project].version lockstep with package.json",
+    );
+  } else {
+    assertEqual(
+      PYPI_CONNECT_PYPROJECT_PATH,
+      canonicalVersion,
+      pyprojectVersion,
     );
   }
 }

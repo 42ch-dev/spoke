@@ -101,10 +101,10 @@ go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
 ```go
-import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
+import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
 ```
 
-At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Consumers need a C toolchain.
+At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Committed natives today: `darwin_arm64`, `darwin_amd64`; `linux_amd64` and `windows_amd64` follow when maintainer stages `build-connect-ffi` artifacts (see [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)). Consumers need a C toolchain and `CGO_ENABLED=1`.
 
 ## Python (PyPI)
 
@@ -122,7 +122,7 @@ Platform wheels (`linux_x86_64`, `macosx_arm64`, `win_amd64`) ship via Trusted P
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet) and **Swift** (sync-core skeleton) are landed — C# via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 ([decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)). **Go, Python, and Kotlin** follow the same feasibility gate and channel contract above. TypeScript is a parallel **Path A** track (language-direct).
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (sync-core skeleton), and **Go** (Go modules + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)). **Python and Kotlin** follow the same feasibility gate and channel contract above. TypeScript is a parallel **Path A** track (language-direct).
 
 ## Integrator notes
 

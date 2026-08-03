@@ -98,10 +98,10 @@ go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
 ```go
-import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
+import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
 ```
 
-在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；cgo 按打包契约从 `native/<goos>_<goarch>/` 加载原生库。集成方需 C 工具链。
+在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；cgo 按打包契约从 `native/<goos>_<goarch>/` 加载原生库。当前已提交的原生库：`darwin_arm64`、`darwin_amd64`；`linux_amd64` 与 `windows_amd64` 待维护者从 `build-connect-ffi` 产物落盘（见 [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)）。集成方需 C 工具链且 `CGO_ENABLED=1`。
 
 ## Python（PyPI）
 
@@ -119,7 +119,7 @@ import spoke_connect
 
 ## 目标语言矩阵
 
-目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）与 **Swift**（同步核心骨架）**已落地** —— C# 经 vendored `uniffi-bindgen-cs` fork（重定向到 uniffi 0.32）实现（[决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)）。**Go、Python、Kotlin** 遵循相同可行性门控与上文渠道契约。TypeScript 是并行的**路径 A**（语言直连）轨道。
+目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（同步核心骨架）与 **Go**（Go modules + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)）。**Python 与 Kotlin** 遵循相同可行性门控与上文渠道契约。TypeScript 是并行的**路径 A**（语言直连）轨道。
 
 ## 集成方须知
 

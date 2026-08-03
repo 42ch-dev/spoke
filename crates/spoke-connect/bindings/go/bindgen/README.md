@@ -64,7 +64,8 @@ cargo +nightly build -p spoke-connect --features ffi
   target/debug/libspoke_connect.dylib --library \
   --out-dir crates/spoke-connect/bindings/go/generated --no-format
 
-# 5. Golden-parity smoke (Task 2) — from the repo root after committed natives + cgo wiring
+# 5. Golden-parity smoke — from the repo root (see ../README.md)
+CGO_ENABLED=1 go test -v ./crates/spoke-connect/bindings/go/Smoke/
 ```
 
 `cargo install --git` from a GitHub fork of this delta is an equivalent

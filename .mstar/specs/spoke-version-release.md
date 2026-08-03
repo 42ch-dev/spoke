@@ -33,9 +33,10 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 10 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 (published as `spoke-connect`) |
 | 11 | C# connect NuGet | `crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj` → `<Version>` | Lockstep SemVer; published as GitHub Packages `42ch.Spoke.Connect` |
 | 12 | Python connect PyPI | `crates/spoke-connect/bindings/python/pyproject.toml` → `[project].version` | Lockstep SemVer; published as PyPI `spoke-connect` via `publish-pypi` on `release.yml` |
-| 13 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
-| 14 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
-| 15 | README CN badge | `README_CN.md` | Same as row 14 |
+| 13 | Kotlin connect Maven | `crates/spoke-connect/bindings/kotlin/build.gradle.kts` → `version` | Lockstep SemVer; published as GitHub Packages `io.github.42ch-dev:spoke-connect` via `publish-maven` on `release.yml` |
+| 14 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
+| 15 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
+| 16 | README CN badge | `README_CN.md` | Same as row 15 |
 
 **Canonical version source:** row 1 (`package.json` → `version`). The assert script compares every other row to that string.
 
@@ -46,7 +47,7 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | `tooling/codegen/rust-gen/Cargo.toml` | Standalone `[workspace]` bin crate (`spoke-rust-gen`); not a consumer pin surface; version is local to the codegen tool |
 | `pnpm-lock.yaml` | Workspace packages use `link:` protocol; lockfile does not embed package SemVer |
 
-CI **lockstep assert** MUST cover rows 1–15. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
+CI **lockstep assert** MUST cover rows 1–16. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
 
 ## SemVer usage (monorepo)
 
@@ -101,7 +102,7 @@ A SPOKE release is:
 | `workflow_dispatch` (version input) | `.github/workflows/new-release.yml` | Opens lockstep bump PR with label `release` (GitHub-signed commit); MUST refuse when version ≤ `package.json` on `main` or when `vX.Y.Z` already exists; MUST NOT duplicate `CHANGELOG` version headings |
 | `pull_request` closed (merged + label `release`) or push of tag `v*` | `.github/workflows/release.yml` | Top-level only (no `workflow_call`, no `workflow_dispatch`). Tag-on-merge when applicable → parallel verify → GitHub Release → `publish-npm` + `publish-crates` when tag has no `-rc.` (fail-closed). Trusted Publishing OIDC requires this filename (`release.yml`). |
 
-Release workflows publish `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `spoke-schemas`, `spoke-operations`, `spoke-connect`, GitHub Packages NuGet `42ch.Spoke.Connect`, and PyPI `spoke-connect` (`publish-pypi`). Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
+Release workflows publish `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `spoke-schemas`, `spoke-operations`, `spoke-connect`, GitHub Packages NuGet `42ch.Spoke.Connect`, GitHub Packages Maven `io.github.42ch-dev:spoke-connect` (`publish-maven`), and PyPI `spoke-connect` (`publish-pypi`). Fixture and codegen packages remain private. Third-party Actions MUST pin by commit SHA (same policy as `ci.yml`).
 
 ### Lockstep assert (PR / main)
 
@@ -123,9 +124,9 @@ On tag push, `release.yml` `verify-version` MUST assert `github.ref_name` via `S
 | Trigger | `on.push.tags: ['v*']`; `pull_request` closed (merged + label `release`). No `workflow_call` / no `workflow_dispatch` (OIDC Trusted Publishing requires top-level `release.yml`). |
 | Concurrency | `group: release-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}`, `cancel-in-progress: true` |
 | Permissions | Workflow-level `contents: write`, `id-token: write`, `pull-requests: read` |
-| Job layout | Optional `tag` → `resolve-tag` → **four parallel verify jobs** → **`release`** → **`publish-npm`** then **`publish-crates`**, plus **`build-connect-ffi`** matrix → **`publish-nuget`** and **`publish-pypi`** (tags without `-rc.` only) |
+| Job layout | Optional `tag` → `resolve-tag` → **four parallel verify jobs** → **`release`** → **`publish-npm`** then **`publish-crates`**, plus **`build-connect-ffi`** matrix → **`publish-nuget`**, **`publish-maven`**, and **`publish-pypi`** (tags without `-rc.` only) |
 | Fail-closed | If any verify job fails, `release` and registry publish jobs MUST NOT run |
-| Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm`, `publish-crates`, `publish-nuget`, and `publish-pypi` |
+| Pre-release | Tag name contains `-rc.` → `prerelease: true` on GitHub Release; **skip** `publish-npm`, `publish-crates`, `publish-nuget`, `publish-maven`, and `publish-pypi` |
 | Release action | `softprops/action-gh-release` pinned by commit SHA |
 | Notes body | `extract-changelog-notes.mjs` on `CHANGELOG.md`; fallback tag annotation; fallback one-liner |
 | Registry publish | `publish-npm`: Node 24 + `registry-url`, stock npm (no global npm upgrade), pack with pnpm then `npm publish` tarball; `publish-crates`: `rust-lang/crates-io-auth-action` then `cargo publish` schemas then ops |

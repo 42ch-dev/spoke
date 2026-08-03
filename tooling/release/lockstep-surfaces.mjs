@@ -1,7 +1,7 @@
 /**
  * Lockstep version surfaces — SSOT manifest for assert and bump scripts.
  *
- * Normative source: `.mstar/specs/spoke-version-release.md` rows 1–11.
+ * Normative source: `.mstar/specs/spoke-version-release.md` lockstep table (rows 1–15).
  *
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.

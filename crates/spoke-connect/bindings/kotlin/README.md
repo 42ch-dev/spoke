@@ -4,9 +4,29 @@ JVM library for SPOKE Connect session-core bindings (committed uniffi Kotlin + J
 
 Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.5.
 
-Maven coordinates (Task 4+): `io.github.42ch-dev:spoke-connect` on GitHub Packages (`maven.pkg.github.com/42ch-dev/spoke`).
+## Install (Maven)
 
-## Usage
+Coordinates: **`io.github.42ch-dev:spoke-connect`** on GitHub Packages (`https://maven.pkg.github.com/42ch-dev/spoke`).
+
+At spoke lockstep tag `vX.Y.Z`:
+
+```kotlin
+// settings.gradle.kts or build.gradle.kts
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/42ch-dev/spoke")
+        credentials {
+            username = providers.gradleProperty("gpr.user").get()
+            password = providers.gradleProperty("gpr.key").get()
+        }
+    }
+}
+
+dependencies {
+    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    // JNA is a transitive dependency of the published artifact
+}
+```
 
 ```kotlin
 import uniffi.spoke_connect.derivePeerIdFromEd25519Pubkey
@@ -16,7 +36,7 @@ val peerId = derivePeerIdFromEd25519Pubkey(pubkey)
 val version = protocolVersion() // 1
 ```
 
-Transport / WebSocket stays in the host product.
+Namespace: **`uniffi.spoke_connect`**. Transport / WebSocket stays in the host product.
 
 ## Layout
 
@@ -24,11 +44,14 @@ Transport / WebSocket stays in the host product.
 |------|----------|
 | `generated/uniffi/spoke_connect/` | Committed generated Kotlin (post-generate patch applied) |
 | `bindgen/` | Post-generate patch recipe (`message` → `detail` on four `CoreException` variants) |
-| `native/<rid>/` | Committed cdylib per platform for smoke / JNA (see `native/README.md`) |
+| `native/<jna-rid>/` | Committed host native for smoke; jar also packs CI-assembled `src/main/resources/` |
+| `src/main/resources/<jna-rid>/` | CI-assembled JNA classpath natives (gitignored; see `assemble-kotlin-natives.sh`) |
 | `Smoke/` | Golden-parity smoke (`gradle test`) |
-| `build.gradle.kts` | JVM library + smoke test harness |
+| `build.gradle.kts` | JVM library, `maven-publish`, smoke harness |
 
-## Maintainer: regenerate → patch → stage native → smoke
+JNA resource prefixes inside the jar: `darwin-aarch64/`, `linux-x86-64/`, `win32-x86-64/`.
+
+## Maintainer: regenerate → patch → stage native → smoke / publish
 
 Commands from the **repository root** (local nightly convention: `cargo +nightly …`):
 
@@ -46,6 +69,8 @@ install_name_tool -id @rpath/libspoke_connect.dylib \
   crates/spoke-connect/bindings/kotlin/native/darwin-aarch64/libspoke_connect.dylib
 cd crates/spoke-connect/bindings/kotlin && gradle test
 ```
+
+Release publish (CI `publish-maven` on stable tags): assembles ffi-matrix natives via `./tooling/connect/assemble-kotlin-natives.sh`, then `gradle publish` to GitHub Packages with `GITHUB_TOKEN`.
 
 Full patch rationale: [`bindgen/README.md`](bindgen/README.md).
 

@@ -14,3 +14,5 @@ bindings/csharp/Smoke/obj/
 # Gradle build outputs for bindings/kotlin smoke.
 bindings/kotlin/.gradle/
 bindings/kotlin/build/
+# CI-assembled JNA classpath resources for Maven jar (see assemble-kotlin-natives.sh).
+bindings/kotlin/src/main/resources/

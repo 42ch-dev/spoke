@@ -1,8 +1,10 @@
 plugins {
     kotlin("jvm") version "1.9.25"
+    `maven-publish`
 }
 
 group = "io.github.42ch-dev"
+// Lockstep SemVer — asserted/bumped with tooling/release lockstep surfaces.
 version = "0.7.1"
 
 repositories {
@@ -28,6 +30,26 @@ sourceSets {
     test {
         kotlin {
             srcDir("Smoke")
+        }
+    }
+}
+
+// JNA loads natives from classpath prefixes (e.g. darwin-aarch64/libspoke_connect.dylib).
+// Host smoke uses committed native/darwin-aarch64; release CI assembles all RIDs into
+// src/main/resources/ via tooling/connect/assemble-kotlin-natives.sh.
+tasks.processResources {
+    listOf("darwin-aarch64", "linux-x86-64", "win32-x86-64").forEach { rid ->
+        val fromNative = file("native/$rid")
+        if (fromNative.isDirectory) {
+            from(fromNative) {
+                into(rid)
+            }
+        }
+        val fromResources = file("src/main/resources/$rid")
+        if (fromResources.isDirectory) {
+            from(fromResources) {
+                into(rid)
+            }
         }
     }
 }
@@ -60,4 +82,57 @@ fun nativeLibraryOverride(): java.io.File? {
         else -> file("native/$rid/libspoke_connect.dylib")
     }
     return if (lib.isFile) lib else null
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            groupId = "io.github.42ch-dev"
+            artifactId = "spoke-connect"
+            from(components["java"])
+
+            pom {
+                name.set("spoke-connect")
+                description.set(
+                    "SPOKE Connect session-core Kotlin bindings (uniffi + JNA native spoke_connect FFI). " +
+                        "Transport stays product-owned.",
+                )
+                url.set("https://github.com/42ch-dev/spoke")
+                licenses {
+                    license {
+                        name.set("Apache License 2.0")
+                        url.set("https://www.apache.org/licenses/LICENSE-2.0")
+                    }
+                }
+                developers {
+                    developer {
+                        name.set("42ch")
+                        organization.set("42ch")
+                        organizationUrl.set("https://github.com/42ch-dev")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:git://github.com/42ch-dev/spoke.git")
+                    developerConnection.set("scm:git:ssh://github.com:42ch-dev/spoke.git")
+                    url.set("https://github.com/42ch-dev/spoke")
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/42ch-dev/spoke")
+            credentials {
+                username =
+                    project.findProperty("gpr.user") as String?
+                        ?: System.getenv("GITHUB_ACTOR")
+                        ?: System.getenv("GPR_USER")
+                password =
+                    project.findProperty("gpr.key") as String?
+                        ?: System.getenv("GITHUB_TOKEN")
+                        ?: System.getenv("GPR_KEY")
+            }
+        }
+    }
 }

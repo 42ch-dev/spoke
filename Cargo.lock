@@ -2864,7 +2864,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-connect"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -2883,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-fixture-toy-world"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2893,7 +2893,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-operations"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "chrono",
  "serde",
@@ -2903,7 +2903,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-schemas"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "chrono",
  "regress",

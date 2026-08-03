@@ -1,6 +1,6 @@
 {
   "name": "@42ch/spoke-connect",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "SPOKE connect client library — pure-TS identity derivation, Ed25519 hello signing, and RFC 8785 JCS canonicalization",
   "license": "Apache-2.0",
   "repository": {

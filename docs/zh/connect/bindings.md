@@ -22,7 +22,7 @@ crate 的 `src/core/` 是纯同步、语言可移植层 —— libp2p、tokio �
 | **GitHub Packages Maven** | Kotlin | `io.github.42ch-dev:spoke-connect` |
 | **Swift Package Manager**（git + 标签） | Swift | 根目录 `Package.swift` — `.package(url:from:)` |
 | **Go modules**（git + 标签） | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
-| **PyPI**（Trusted Publishing） | Python | `pip install <registered-name>` |
+| **PyPI**（Trusted Publishing） | Python | `pip install spoke-connect` |
 
 NuGet 与 Maven 共用 **GitHub Packages** 渠道类型（同一注册表家族，两种包生态）。
 
@@ -108,18 +108,20 @@ import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
 集成方在 spoke 锁步 SemVer `X.Y.Z` 处从 PyPI 安装：
 
 ```bash
-pip install <registered-name>==X.Y.Z
+pip install spoke-connect==X.Y.Z
 ```
 
 ```python
 import spoke_connect
+
+peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
 ```
 
-平台 wheel（`linux_x86_64`、`macosx_arm64`、`win_amd64`）经 `release.yml` 上的 Trusted Publishing 按打包契约发布。PyPI 项目名与已注册的 Pending publisher 一致；见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
+平台 wheel（`linux_x86_64`、`macosx_arm64`、`win_amd64`）经顶层 `release.yml` 工作流上的 Trusted Publishing OIDC（`publish-pypi` 任务，仓库 `42ch-dev/spoke`）发布至 PyPI 项目 **`spoke-connect`**。版本与 spoke 标签 `vX.Y.Z` 锁步。见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
 
 ## 目标语言矩阵
 
-目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（同步核心骨架）与 **Go**（Go modules + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)）。**Python 与 Kotlin** 遵循相同可行性门控与上文渠道契约。TypeScript 是并行的**路径 A**（语言直连）轨道。
+目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（同步核心骨架）、**Go**（Go modules + 黄金向量 smoke）与 **Python**（PyPI 平台 wheel + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)；Python 见 [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)）。**Kotlin** 遵循相同可行性门控与上文渠道契约。TypeScript 是并行的**路径 A**（语言直连）轨道。
 
 ## 集成方须知
 

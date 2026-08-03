@@ -20,7 +20,23 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const DIST_DIR = join(REPO_ROOT, "docs", ".vitepress", "dist");
-const BASE = "/spoke/";
+
+// Derive the site base from the VitePress config so the gate works with
+// any base (e.g. `/spoke/` for bare project sites, `/` for custom domains).
+// Falls back to `/` if the config line is not found.
+function readBase() {
+  try {
+    const cfg = readFileSync(join(REPO_ROOT, "docs", ".vitepress", "config.mts"), "utf8");
+    const m = cfg.match(/const\s+base\s*=\s*["']([^"']*)["']/);
+    let b = m ? m[1] : "/";
+    if (!b.startsWith("/")) b = "/" + b;
+    if (!b.endsWith("/")) b += "/";
+    return b;
+  } catch {
+    return "/";
+  }
+}
+const BASE = readBase();
 
 const ANCHOR_HREF = /<a\b[^>]*\bhref\s*=\s*["']([^"']*)["']/g;
 
@@ -49,14 +65,18 @@ function resolveHref(href, referrerRel) {
   if (pathOnly.startsWith("//")) return { skip: true }; // protocol-relative
 
   let rel;
+  const baseTrimmed = BASE.replace(/\/$/, ""); // "/spoke" or ""
   if (pathOnly.startsWith("/")) {
-    // Root-relative: must live under the site base `/spoke/`.
-    if (pathOnly === BASE || pathOnly === "/spoke") {
+    // Root-relative: must live under the site base.
+    if (pathOnly === BASE || pathOnly === baseTrimmed || pathOnly === baseTrimmed + "/") {
       rel = "";
     } else if (pathOnly.startsWith(BASE)) {
       rel = posix.normalize(pathOnly.slice(BASE.length));
+    } else if (BASE === "/" ) {
+      // base is root; any root-relative link is internal
+      rel = posix.normalize(pathOnly.slice(1));
     } else {
-      return { rel: pathOnly, note: "not under the site base /spoke/" };
+      return { rel: pathOnly, note: `not under the site base ${BASE}` };
     }
   } else {
     rel = posix.normalize(posix.join(posix.dirname(referrerRel), pathOnly));

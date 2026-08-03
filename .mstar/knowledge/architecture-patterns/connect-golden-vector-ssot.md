@@ -58,4 +58,4 @@ A zero-dep script (`tooling/connect/golden-vector-sync.mjs`) holds a **manifest 
 
 - `spoke-connect` hello vector: `crates/spoke-connect/tests/fixtures/golden-hello.json` + 4 registered copies (TS, C#, Kotlin, Swift) + Go/Python reading SSOT directly
 - Capability-token golden (precedent for a tests/fixtures JSON, but lives TS-local because TS is the sole consumer): `packages/spoke-connect-ts/tests/fixtures/capability-token-golden.json`
-- Sync gate: `tooling/connect/golden-vector-sync.mjs` (verify mode CI-ready; CI wiring deferred to a future tooling-CI slice)
+- Sync gate: `tooling/connect/golden-vector-sync.mjs` (verify mode; CI-wired as a `golden-vector-sync` job in `ci.yml`)

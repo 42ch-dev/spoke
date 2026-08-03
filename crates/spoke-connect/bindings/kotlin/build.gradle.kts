@@ -35,21 +35,14 @@ sourceSets {
 }
 
 // JNA loads natives from classpath prefixes (e.g. darwin-aarch64/libspoke_connect.dylib).
-// Host smoke uses committed native/darwin-aarch64; release CI assembles all RIDs into
-// src/main/resources/ via tooling/connect/assemble-kotlin-natives.sh.
+// Assembled CI natives live under src/main/resources/ (default Gradle resources dir).
+// Committed native/ is copied only when no assembled dir exists for that RID.
 tasks.processResources {
     listOf("darwin-aarch64", "linux-x86-64", "win32-x86-64").forEach { rid ->
-        val fromNative = file("native/$rid")
-        if (fromNative.isDirectory) {
-            from(fromNative) {
-                into(rid)
-            }
-        }
         val fromResources = file("src/main/resources/$rid")
-        if (fromResources.isDirectory) {
-            from(fromResources) {
-                into(rid)
-            }
+        val fromNative = file("native/$rid")
+        if (!fromResources.isDirectory && fromNative.isDirectory) {
+            from(fromNative) { into(rid) }
         }
     }
 }

@@ -150,7 +150,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
@@ -164,11 +165,12 @@ jobs:
           workspaces: .
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        # actions/setup-dotnet@v4.3.1
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: "8.0.x"
 
-      - name: Build FFI, assemble RID, pack + smoke
+      - name: Build FFI, assemble RID, pack + PackageReference smoke
         run: |
           set -euo pipefail
           STAGING="$(mktemp -d)"
@@ -176,9 +178,9 @@ jobs:
           ./tooling/connect/assemble-csharp-runtimes.sh "${STAGING}"
           dotnet pack crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj \
             -c Release -o /tmp/spoke-nuget-out
-          # RID natives are on the ProjectReference output path; golden parity
-          # must pass against the packaged managed sources + linux-x64 native.
-          dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj -c Release
+          # Golden parity via PackageReference so NuGet runtimes/<rid>/native
+          # resolution is exercised (not the in-repo ProjectReference copy path).
+          ./tooling/connect/smoke-nupkg-packageref.sh /tmp/spoke-nuget-out
 
   verify-version:
     name: verify-version

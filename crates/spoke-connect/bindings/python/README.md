@@ -14,6 +14,8 @@ pip install spoke-connect==X.Y.Z
 
 Platform wheels (`py3-none-<platform>`) ship for `linux_x86_64`, `macosx_arm64`, and `win_amd64`. Each wheel bundles that platform's shared library beside the `spoke_connect` module (uniffi ctypes loader contract). Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
 
+Release publishes via Trusted Publishing on the top-level `release.yml` workflow (`publish-pypi` job, OIDC). The PyPI Pending publisher for **`spoke-connect`** binds repository `42ch-dev/spoke` to that workflow filename; the first successful stable-tag publish activates the project on PyPI.
+
 ## Usage
 
 ```python
@@ -62,6 +64,9 @@ PYTHONPATH=crates/spoke-connect/bindings/python \
 
 # 5. Build platform wheel (host RID or CI artifact — recipe: tooling/connect/build-python-wheel.sh)
 ./tooling/connect/build-python-wheel.sh
+
+# Release: all three wheels from build-connect-ffi artifacts
+./tooling/connect/build-python-wheels-from-ffi.sh ffi-assembled
 ```
 
 v1 publishes **platform wheels only** (no sdist): a source install cannot produce the native library without a Rust toolchain.
@@ -77,5 +82,6 @@ v1 publishes **platform wheels only** (no sdist): a source install cannot produc
 ## Reference
 
 - Wheel recipe: [`tooling/connect/build-python-wheel.sh`](../../../../tooling/connect/build-python-wheel.sh)
+- Release wheels (all RIDs): [`tooling/connect/build-python-wheels-from-ffi.sh`](../../../../tooling/connect/build-python-wheels-from-ffi.sh)
 - FFI surface: [`../../src/ffi.rs`](../../src/ffi.rs)
 - Publish strategy: [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md)

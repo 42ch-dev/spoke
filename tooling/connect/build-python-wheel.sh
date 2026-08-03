@@ -22,6 +22,7 @@ DIST="${PY_ROOT}/dist"
 
 ARTIFACT_ROOT=""
 RID=""
+APPEND=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
     --rid)
       RID="$2"
       shift 2
+      ;;
+    --append)
+      APPEND=true
+      shift
       ;;
     -h|--help)
       sed -n '2,15p' "$0"
@@ -123,7 +128,7 @@ if [[ -n "${ARTIFACT_ROOT}" ]]; then
   # Remove other platform natives so the wheel carries exactly one RID library.
   rm -f "${PKG}/libspoke_connect.dylib" "${PKG}/libspoke_connect.so" "${PKG}/spoke_connect.dll"
   cp "${src}" "${PKG}/${native_name}"
-  if [[ "${native_name}" == "libspoke_connect.dylib" ]]; then
+  if [[ "${native_name}" == "libspoke_connect.dylib" ]] && command -v install_name_tool >/dev/null; then
     install_name_tool -id @rpath/libspoke_connect.dylib "${PKG}/${native_name}"
   fi
   echo "staged ${RID}/${native_name} beside spoke_connect module"
@@ -147,7 +152,9 @@ if ! python3 -c "import setuptools" 2>/dev/null; then
 fi
 
 mkdir -p "${DIST}"
-rm -f "${DIST}"/*.whl
+if [[ "${APPEND}" != true ]]; then
+  rm -f "${DIST}"/*.whl
+fi
 
 plat_name="$(rid_to_plat_name "${RID}")"
 echo "building wheel for rid=${RID} plat-name=${plat_name}"

@@ -581,3 +581,59 @@ jobs:
             --source "https://nuget.pkg.github.com/42ch-dev/index.json" \
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --skip-duplicate
+
+  publish-pypi:
+    name: publish-pypi
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-tag
+      - build-connect-ffi
+    if: ${{ always() && needs.resolve-tag.result == 'success' && needs.build-connect-ffi.result == 'success' && !contains(needs.resolve-tag.outputs.tag, '-rc.') }}
+    env:
+      RELEASE_TAG: ${{ needs.resolve-tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Download FFI artifacts
+        # actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: ffi-*
+          path: ffi-artifacts
+          merge-multiple: false
+
+      - name: Assemble FFI natives for wheel build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ffi-assembled
+          for d in ffi-artifacts/ffi-*; do
+            rid="${d##*/ffi-}"
+            mkdir -p "ffi-assembled/${rid}"
+            cp -R "${d}/." "ffi-assembled/${rid}/"
+          done
+          ls -laR ffi-assembled
+
+      - name: Setup Python
+        # actions/setup-python@v5.4.0
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: "3.12"
+
+      - name: Install wheel tooling
+        run: python -m pip install setuptools wheel
+
+      - name: Build platform wheels
+        run: ./tooling/connect/build-python-wheels-from-ffi.sh ffi-assembled
+
+      - name: Publish to PyPI
+        # pypa/gh-action-pypi-publish@v1.14.2 — Trusted Publishing OIDC (Pending publisher: spoke-connect)
+        uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26
+        with:
+          packages-dir: crates/spoke-connect/bindings/python/dist/
+          print-hash: true

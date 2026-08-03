@@ -16,13 +16,15 @@ export default defineConfig({
       ),
       // Self-import aliases so tests run from src/ without a prior build
       // (the package exports point to dist/ for published consumers).
-      "@42ch/spoke-connect": join(
-        REPO_ROOT,
-        "packages/spoke-connect-ts/src/index.ts",
-      ),
+      // Order matters: the /node subpath MUST come before the bare name,
+      // otherwise vite prefix-matches the shorter key first.
       "@42ch/spoke-connect/node": join(
         REPO_ROOT,
         "packages/spoke-connect-ts/src/node/connect-client.ts",
+      ),
+      "@42ch/spoke-connect": join(
+        REPO_ROOT,
+        "packages/spoke-connect-ts/src/index.ts",
       ),
     },
   },

@@ -1,12 +1,12 @@
 import { defineConfig } from 'vitepress'
 
-// Dependency risk disposition (accepted; revisit on the vitepress 2.x / vite 6
-// upgrade): the `vitepress@1.6.4` devDependency pins `vite@5.4.21`, which
-// carries GHSA-fx2h-pf6j-xcff (high) plus GHSA-4w7w-66w2-5vf9 and
-// GHSA-v6wh-96g9-6wx3 (moderate) — all dev-server surfaces, with no in-range
-// remediation (patches land in vite 6.4.x, which vitepress 1.6.x excludes).
-// `pnpm audit --prod` is clean and CI runs only `vitepress build`, which
-// produces static HTML.
+// Vite resolution: `vitepress@1.6.4` declares `vite: ^5.4.14`, but the root
+// `package.json` `pnpm.overrides` pins `vite` to `^6.4.3` to clear the
+// dev-server advisories that affected vite 5.4.x (GHSA-fx2h-pf6j-xcff high,
+// GHSA-4w7w-66w2-5vf9 / GHSA-v6wh-96g9-6wx3 moderate). vitepress 1.6.4 builds
+// cleanly against vite 6.4.x (`pnpm docs:build` green); revisit the override
+// when vitepress stable moves to vite 6+ natively. `pnpm audit --prod` is clean
+// and CI runs only `vitepress build`, which produces static HTML.
 
 // Base URL: this site is published as a GitHub Pages *project site* at
 // https://42ch-dev.github.io/spoke/ (repository 42ch-dev/spoke). Keep

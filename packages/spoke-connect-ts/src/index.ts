@@ -1,5 +1,5 @@
 /**
- * @42ch/spoke-connect-ts — SPOKE connect client library (workspace-private).
+ * @42ch/spoke-connect — SPOKE connect client library (workspace-private).
  *
  * Public surface (AD-P0-6): peer_id identity derivation, Ed25519 sign/verify
  * (WebCrypto primary with @noble/ed25519 fallback), RFC 8785 JCS hello

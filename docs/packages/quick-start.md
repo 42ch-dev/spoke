@@ -46,7 +46,7 @@ cargo add spoke-connect@X.Y.Z
 
 - **`spoke-connect`** — Rust reference crate (Path A).
 
-Path B host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `io.github.42ch-dev:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings (Path B)](/connect/bindings).
+Path B host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings (Path B)](/connect/bindings).
 
 ## Integrator path
 

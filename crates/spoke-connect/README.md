@@ -393,7 +393,7 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 | Go | Path B uniffi | **Go modules** (`go get …/bindings/go@vX.Y.Z`) | Second — **landed** | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
 | Python | Path B uniffi | **PyPI** (`pip install spoke-connect`) | Third — **landed** | Platform wheels + golden-parity smoke via first-party uniffi 0.32 bindgen; `publish-pypi` on `release.yml` |
 | **Swift (iOS / macOS)** | Path B uniffi | **SPM git** (root `Package.swift` + `vX.Y.Z` tags) | Fourth — **landed** | Product `SpokeConnect`; macOS golden-parity smoke; [`bindings/swift/README.md`](bindings/swift/README.md) |
-| **Kotlin (Android)** | Path B uniffi | **GitHub Packages Maven** (`io.github.42ch-dev:spoke-connect`) | Fifth — **landed** | Same sync core surface; `publish-maven` on `release.yml`; [`bindings/kotlin/README.md`](bindings/kotlin/README.md) |
+| **Kotlin (Android)** | Path B uniffi | **GitHub Packages Maven** (`dev.42ch:spoke-connect`) | Fifth — **landed** | Same sync core surface; `publish-maven` on `release.yml`; [`bindings/kotlin/README.md`](bindings/kotlin/README.md) |
 | TypeScript (browser / Node) | **Path A** (language-direct) | **npm** (`@42ch/spoke-connect`) | Parallel track | The TypeScript route decision lives with the TS identity proof |
 
 ### Binding checklist

@@ -19,7 +19,7 @@ crate 的 `src/core/` 是纯同步、语言可移植层 —— libp2p、tokio �
 | 渠道 | 语言 | 集成方入口 |
 |------|------|------------|
 | **GitHub Packages NuGet** | C# | `42ch.Spoke.Connect` |
-| **GitHub Packages Maven** | Kotlin | `io.github.42ch-dev:spoke-connect` |
+| **GitHub Packages Maven** | Kotlin | `dev.42ch:spoke-connect` |
 | **Swift Package Manager**（git + 标签） | Swift | 根目录 `Package.swift` — `.package(url:from:)` |
 | **Go modules**（git + 标签） | Go | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
 | **PyPI**（Trusted Publishing） | Python | `pip install spoke-connect` |
@@ -54,7 +54,7 @@ var peerId = SpokeConnectMethods.DerivePeerIdFromEd25519Pubkey(pubkey);
 var version = SpokeConnectMethods.ProtocolVersion(); // 1
 ```
 
-## Kotlin Maven（`io.github.42ch-dev:spoke-connect`）
+## Kotlin Maven（`dev.42ch:spoke-connect`）
 
 ### 安装
 
@@ -71,7 +71,7 @@ maven {
 
 ```kotlin
 dependencies {
-    implementation("io.github.42ch-dev:spoke-connect:X.Y.Z")
+    implementation("dev.42ch:spoke-connect:X.Y.Z")
     // JNA 为发布构件的传递依赖
 }
 ```

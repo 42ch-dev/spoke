@@ -48,7 +48,7 @@ cargo add spoke-connect@X.Y.Z
 
 - **`spoke-connect`** —— Rust 参考 crate（路径 A）。
 
-路径 B 宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `io.github.42ch-dev:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）经 FFI 嵌入共享会话核心 —— 见[原生绑定（路径 B）](/zh/connect/bindings)。
+路径 B 宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `dev.42ch:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）经 FFI 嵌入共享会话核心 —— 见[原生绑定（路径 B）](/zh/connect/bindings)。
 
 ## 集成路径
 

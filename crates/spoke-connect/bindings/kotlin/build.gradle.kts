@@ -3,7 +3,7 @@ plugins {
     `maven-publish`
 }
 
-group = "io.github.42ch-dev"
+group = "dev.42ch"
 // Lockstep SemVer — asserted/bumped with tooling/release lockstep surfaces.
 version = "0.8.1"
 
@@ -80,7 +80,7 @@ fun nativeLibraryOverride(): java.io.File? {
 publishing {
     publications {
         create<MavenPublication>("maven") {
-            groupId = "io.github.42ch-dev"
+            groupId = "dev.42ch"
             artifactId = "spoke-connect"
             from(components["java"])
 

@@ -23,7 +23,7 @@ The connect embedding model ships several surfaces with different publishing cos
 | TS connect client (`@42ch/spoke-connect`) | **npm** | Lockstep publish via top-level `release.yml` Trusted Publishing |
 | Rust connect crate (`spoke-connect`) | **crates.io** | Lockstep publish via the same release workflow |
 | C# NuGet (`42ch.Spoke.Connect`) | **GitHub Packages NuGet** | Generated C# + multi-RID `ffi` natives; `PackageReference` DX; `publish-nuget` on the tag gate |
-| Kotlin binding | **GitHub Packages Maven** | `io.github.42ch-dev:spoke-connect` on `maven.pkg.github.com/42ch-dev/spoke`; `publish-maven` sibling job |
+| Kotlin binding | **GitHub Packages Maven** | `dev.42ch:spoke-connect` on `maven.pkg.github.com/42ch-dev/spoke`; `publish-maven` sibling job |
 | Swift binding | **GitHub repo + SPM** | Root `Package.swift` + `vX.Y.Z` tags; consumers `.package(url:from:)` |
 | Go binding | **GitHub repo + Go modules** | Root `go.mod` + `vX.Y.Z` tags; consumers `go get …@vX.Y.Z` |
 | Python binding | **PyPI** | `publish-pypi` via Trusted Publishing OIDC; `pip install spoke-connect` |

@@ -28,8 +28,10 @@ Published consumer packages share one **lockstep SemVer**.
 |---------|----------|------|
 | [`@42ch/spoke-schemas`](https://www.npmjs.com/package/@42ch/spoke-schemas) | npm | Generated TypeScript wire types — **what** crosses the wire |
 | [`@42ch/spoke-operations`](https://www.npmjs.com/package/@42ch/spoke-operations) | npm | Pure helpers, adapter ports, and orchestration over those types |
+| [`@42ch/spoke-connect`](https://www.npmjs.com/package/@42ch/spoke-connect) | npm | Opt-in connect client — identity, hello auth, session core, WebSocket transport |
 | [`spoke-schemas`](https://crates.io/crates/spoke-schemas) | crates.io | Generated Rust wire types |
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
+| [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Opt-in connect reference — libp2p transport, session core, uniffi binding surface |
 
 Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [`spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
 

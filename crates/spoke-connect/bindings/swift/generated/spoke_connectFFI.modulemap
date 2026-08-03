@@ -1,0 +1,7 @@
+module spoke_connectFFI {
+    header "spoke_connectFFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

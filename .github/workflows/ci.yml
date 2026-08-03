@@ -145,6 +145,43 @@ jobs:
       - name: Test spoke-connect FFI facade (ffi feature)
         run: cargo test -p spoke-connect --features ffi
 
+  csharp-connect:
+    name: csharp-connect
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust
+          workspaces: .
+
+      - name: Setup .NET
+        # actions/setup-dotnet@v4.3.1
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build FFI, assemble RID, pack + PackageReference smoke
+        run: |
+          set -euo pipefail
+          STAGING="$(mktemp -d)"
+          ./tooling/connect/build-csharp-ffi-host.sh "${STAGING}"
+          ./tooling/connect/assemble-csharp-runtimes.sh "${STAGING}"
+          dotnet pack crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj \
+            -c Release -o /tmp/spoke-nuget-out
+          # Golden parity via PackageReference so NuGet runtimes/<rid>/native
+          # resolution is exercised (not the in-repo ProjectReference copy path).
+          ./tooling/connect/smoke-nupkg-packageref.sh /tmp/spoke-nuget-out
+
   verify-version:
     name: verify-version
     runs-on: ubuntu-latest

@@ -33,11 +33,45 @@ export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
 /** @type {string} Rust operations crate manifest (row 8). */
 export const CARGO_OPS_CRATE_PATH = "crates/spoke-operations/Cargo.toml";
 
-/** @type {string} Rust connect spike crate manifest (row 9; private, not published). */
+/** @type {string} Rust connect crate manifest (row 9; published as spoke-connect). */
 export const CARGO_CONNECT_CRATE_PATH = "crates/spoke-connect/Cargo.toml";
+
+/**
+ * C# NuGet project Version (GitHub Packages 42ch.Spoke.Connect; lockstep).
+ * @type {string}
+ */
+export const NUGET_CONNECT_CSPROJ_PATH =
+  "crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj";
 
 /** @type {string} Cargo lockfile — workspace member package versions (row 10). */
 export const CARGO_LOCK_PATH = "Cargo.lock";
+
+/**
+ * Read `<Version>X.Y.Z</Version>` from a SDK-style csproj.
+ * @param {string} contents
+ * @returns {string | null}
+ */
+export function parseCsprojVersion(contents) {
+  const match = contents.match(/<Version>\s*([^<]+?)\s*<\/Version>/);
+  return match?.[1]?.trim() ?? null;
+}
+
+/**
+ * Replace the first `<Version>…</Version>` in a SDK-style csproj.
+ * @param {string} contents
+ * @param {string} version
+ * @param {string} manifestPath
+ * @returns {string}
+ */
+export function replaceCsprojVersion(contents, version, manifestPath) {
+  if (!/<Version>\s*[^<]+?\s*<\/Version>/.test(contents)) {
+    throw new Error(`${manifestPath}: missing <Version>…</Version>`);
+  }
+  return contents.replace(
+    /<Version>\s*[^<]+?\s*<\/Version>/,
+    `<Version>${version}</Version>`,
+  );
+}
 
 /**
  * Workspace member crate names whose `[[package]]` version in Cargo.lock must

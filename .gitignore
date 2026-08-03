@@ -155,6 +155,14 @@ target/
 # reach
 /uniffi-bindgen-cs/
 
+# .NET build / pack outputs
+**/bin/
+**/obj/
+*.nupkg
+*.snupkg
+# Assembled RID natives for 42ch.Spoke.Connect (CI / local pack only)
+crates/spoke-connect/bindings/csharp/runtimes/
+
 # Morning Star harness (.mstar/)
 # Principle: process stays local; results are shared with the team.
 # Ignored (process / coordination):

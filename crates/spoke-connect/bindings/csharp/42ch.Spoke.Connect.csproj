@@ -1,0 +1,92 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Packable NuGet: 42ch.Spoke.Connect
+    Managed sources: committed generated/spoke_connect.cs
+    Native assets: runtimes/<rid>/native/* assembled by tooling/connect/assemble-csharp-runtimes.sh
+    before `dotnet pack` (CI release matrix or local pack).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>uniffi.spoke_connect</RootNamespace>
+    <AssemblyName>42ch.Spoke.Connect</AssemblyName>
+
+    <PackageId>42ch.Spoke.Connect</PackageId>
+    <!-- Lockstep SemVer — asserted/bumped with tooling/release lockstep surfaces. -->
+    <Version>0.7.1</Version>
+    <Authors>42ch</Authors>
+    <Company>42ch</Company>
+    <Description>SPOKE Connect session-core C# bindings (uniffi + native spoke_connect FFI). Transport stays product-owned.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/42ch-dev/spoke</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/42ch-dev/spoke</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>spoke;connect;uniffi;ffi</PackageTags>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
+    <!-- Project dir also holds Smoke/, bindgen/, obj/ — do not glob them. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="generated\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Pack RID natives when present (CI assemble step / local pack). -->
+  <ItemGroup>
+    <Content Include="runtimes\**\*"
+             Pack="true"
+             PackagePath="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             Condition="Exists('$(MSBuildThisFileDirectory)runtimes')" />
+  </ItemGroup>
+
+  <!--
+    Local ProjectReference / Smoke: copy cargo-built cdylib next to the output
+    when RID runtimes are not assembled. When runtimes exist, also flatten the
+    host RID native beside the assembly so LibraryImport resolves without a
+    publish RID graph.
+  -->
+  <PropertyGroup>
+    <_SpokeConnectRepoRoot Condition="'$(_SpokeConnectRepoRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\..\'))</_SpokeConnectRepoRoot>
+    <_SpokeConnectCargoTarget Condition="'$(_SpokeConnectCargoTarget)' == ''">$(_SpokeConnectRepoRoot)target</_SpokeConnectCargoTarget>
+    <_SpokeConnectProfile Condition="'$(_SpokeConnectProfile)' == ''">debug</_SpokeConnectProfile>
+  </PropertyGroup>
+
+  <Target Name="CopySpokeConnectNativeBesideAssembly" AfterTargets="Build">
+    <PropertyGroup>
+      <_HostRid Condition="$([MSBuild]::IsOSPlatform('OSX')) AND '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">osx-arm64</_HostRid>
+      <_HostRid Condition="$([MSBuild]::IsOSPlatform('OSX')) AND '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' != 'Arm64'">osx-x64</_HostRid>
+      <_HostRid Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux-x64</_HostRid>
+      <_HostRid Condition="$([MSBuild]::IsOSPlatform('Windows'))">win-x64</_HostRid>
+      <_NativeName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libspoke_connect.dylib</_NativeName>
+      <_NativeName Condition="$([MSBuild]::IsOSPlatform('Linux'))">libspoke_connect.so</_NativeName>
+      <_NativeName Condition="$([MSBuild]::IsOSPlatform('Windows'))">spoke_connect.dll</_NativeName>
+      <_RidNative>$(MSBuildThisFileDirectory)runtimes\$(_HostRid)\native\$(_NativeName)</_RidNative>
+      <_CargoNative>$(_SpokeConnectCargoTarget)\$(_SpokeConnectProfile)\$(_NativeName)</_CargoNative>
+      <_NativeSrc Condition="Exists('$(_RidNative)')">$(_RidNative)</_NativeSrc>
+      <_NativeSrc Condition="'$(_NativeSrc)' == '' AND Exists('$(_CargoNative)')">$(_CargoNative)</_NativeSrc>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_NativeSrc)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="'$(_NativeSrc)' != ''" />
+    <Warning Text="SpokeConnect native library not found (checked '$(_RidNative)' and '$(_CargoNative)'). Build with: cargo build -p spoke-connect --features ffi — or assemble runtimes via tooling/connect/."
+             Condition="'$(_NativeSrc)' == ''" />
+  </Target>
+
+</Project>

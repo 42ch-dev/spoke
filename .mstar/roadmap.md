@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-03  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.  
-**Lockstep SemVer on main:** `0.6.1` · protocol schema inventory **30** (24 baseline + 6 opt-in connect envelopes).
+**Lockstep SemVer on main:** `0.7.1` · protocol schema inventory **30** (24 baseline + 6 opt-in connect envelopes).
 
 ---
 
@@ -22,9 +22,7 @@ No active delivery slice on `main`. See **Up next** for planned work; durable co
 
 | Slice | What ships | Notes |
 |-------|------------|-------|
-| **connect publish Stage 1** | First registry publish of `@42ch/spoke-connect` (npm) per [connect-publish-strategy.md](specs/connect-publish-strategy.md); dist/ + packed-tarball smokes; extend `release.yml` publish-npm list + Trusted Publishing; co-update `spoke-version-release.md` + `AGENTS.md` connect boundary | **Trigger:** published-shape checklist complete + golden/suite green + maintainer release cut. Session-core TS↔Rust parity already landed (capability-token auth + dispatch gate); keep `spoke-connect` crate and language bindings unpublished unless Stage 2 revises |
-| **spoke-connect uniffi bindings** | Binding matrix by product priority: **C#, Go, Python, Swift, Kotlin** — Swift skeleton and **C# landed** (decision record: [connect-csharp-binding.md](specs/connect-csharp-binding.md)); **Go / Python / Kotlin** remain with the same feasibility gate | Community bindgen tools verified against the uniffi 0.32 pin before each slice; vendored-fork path available ([connect-uniffi-bindgen-fork.md](knowledge/architecture-patterns/connect-uniffi-bindgen-fork.md)) if a tool lags |
-| **Cross-platform C# smoke + dotnet CI coverage** | Linux/Windows cdylib loading for the C# smoke (replace the macOS-only `.dylib` path in `Smoke.csproj`); dotnet job in CI so generated-binding drift is caught at commit; reconcile generated-header base-tag provenance | **Trigger:** a non-macOS integrator or CI-on-Linux need. Pairs with Go/Python/Kotlin binding slices |
+| **spoke-connect uniffi bindings** | Binding matrix by product priority: **C#, Go, Python, Swift, Kotlin** — Swift skeleton and **C# NuGet on GitHub Packages** landed ([connect-csharp-binding.md](specs/connect-csharp-binding.md), [connect-publish-strategy.md](specs/connect-publish-strategy.md)); **Go / Python / Kotlin** remain with the same feasibility gate; Swift package on GH Packages when pack-ready | Community bindgen tools verified against the uniffi 0.32 pin before each slice; vendored-fork path available ([connect-uniffi-bindgen-fork.md](knowledge/architecture-patterns/connect-uniffi-bindgen-fork.md)) if a tool lags |
 | **Docs CI hardening** | Docs twin-parity check (EN↔CN page-count drift) + dead-link gate for the VitePress site | **Trigger:** next `docs/**` slice; pairs with the cross-platform/CI slice above. EN+CN locale twins already landed |
 | **Integrator docs content** | Keep VitePress `docs/` + GitHub Pages aligned with `.mstar/specs/` SSOT (site scaffold already on main; EN root + `zh/` CN twins live) | Content/SSOT sync as profiles and connect docs evolve; CN terminology glossary: [docs-i18n-glossary.md](knowledge/conventions/docs-i18n-glossary.md) |
 | **libp2p transitive vulnerability revisit** | Re-check yamux / hickory-proto pins in `Cargo.lock` when upstream libp2p ecosystem ships fixes | Last reviewed 2026-08-02 — no fix available on current libp2p 0.56 line |
@@ -37,6 +35,7 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
+| 2026-08-03 | C# `42ch.Spoke.Connect` GitHub Packages NuGet | Packable net8.0 project + multi-RID `ffi` release matrix + `publish-nuget` on `release.yml`; PackageReference DX in docs/Smoke; publish strategy registry split (npm/crates.io primary; GH Packages for multi-language bindings) |
 | 2026-08-03 | Integrator docs EN + CN i18n | VitePress locale support (`docs/.vitepress/config.mts` `locales`: EN root + `zh/` CN tree) + locale switch + CN twins of all 17 integrator pages (index, 7 guide, 4 profiles, 3 connect, packages, release); SSOT stays English (`.mstar/specs/`); CN terminology glossary promoted to [knowledge](knowledge/conventions/docs-i18n-glossary.md); `vitepress build` green bilingually, Pages deploy covers `/zh/` |
 | 2026-08-03 | spoke-connect TS↔Rust session-core parity | Port Rust `capability_token` module + `tokenAuthorizesOp` grant-membership + reverse peer_id to `@42ch/spoke-connect`; **verify-side** proof-shape u64 parity + canonical-sig + base58 cap; **issuance-side** shape + current-time validation (fail-fast — rejects claims the verifier would deterministically reject, e.g. already-expired `exp` or non-u64 timestamps); Rust-produced golden vector + cross-language verify test; TS↔Rust parity rule recorded in root `AGENTS.md` + [spoke-connect-ts-route.md](specs/spoke-connect-ts-route.md); 120 TS tests green |
 | 2026-08-03 | C# binding landed | Generated `spoke_connect.cs` binding + net8.0 golden-parity smoke (peer_id + hello signature + verify + tamper, protocol=1, plus allowlist / dispatch / capability / correlation / nonce / sequence lifecycle coverage — 11 checks) via a **vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32** ([connect-csharp-binding.md](specs/connect-csharp-binding.md)) — drop the fork when upstream tags a uniffi 0.32+ release |
@@ -63,7 +62,7 @@ Newest first. Dates are delivery dates on `main`.
 | Data wire | KnowledgeEntry (closed L2 `body`; optional `modules` under `narrative-modules`; optional `body.state`/`computable` under `l2-computable`), Relation (optional `revision` OCC), SourceAnchor, Finding, AssemblePacket (optional `modules`), HostCapabilityManifest, Rule, TimelineEvent (+ optional fork fields), `extensions` |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`). `relate` OCC-deep-integrated with upsert |
 | Ops library | Pure TS + Rust helpers + six baseline port families (incl. `HostManifestPort`) + `*Adapter` aliases + injection orchestration; `mergeModuleMaps` / `preserveModuleMaps` |
-| Connect wire (opt-in) | `schemas/connect/` six envelopes; hello JCS + auth paths; Rust spike + TS client (workspace-private) |
+| Connect wire (opt-in) | `schemas/connect/` six envelopes; hello JCS + auth paths; published `@42ch/spoke-connect` + crates.io `spoke-connect`; C# NuGet `42ch.Spoke.Connect` on GitHub Packages |
 | Fixtures | `fixtures/toy-world/` samples + harness + reference adapters; pack companion under `proposed/` |
 | Codegen / CI | Schema inventory **30**; `verify-codegen`; release lockstep; Pages docs workflow |
 | Specs | Umbrella, layers, data-model, ops, operations, extension-modules, Domain Profiles, assemble recipes, connect family under `.mstar/specs/` |

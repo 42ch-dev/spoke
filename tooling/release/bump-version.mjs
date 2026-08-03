@@ -18,7 +18,9 @@ import {
   CARGO_OPS_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
+  NUGET_CONNECT_CSPROJ_PATH,
   replaceCargoLockPackageVersions,
+  replaceCsprojVersion,
   replaceSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
@@ -478,6 +480,14 @@ writeRepoFile(
   CARGO_WORKSPACE_PATH,
   replaceWorkspacePackageVersion(cargoContents, targetVersion),
 );
+
+{
+  const nugetContents = readRepoFile(NUGET_CONNECT_CSPROJ_PATH);
+  writeRepoFile(
+    NUGET_CONNECT_CSPROJ_PATH,
+    replaceCsprojVersion(nugetContents, targetVersion, NUGET_CONNECT_CSPROJ_PATH),
+  );
+}
 
 for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
   const crateContents = readRepoFile(cratePath);

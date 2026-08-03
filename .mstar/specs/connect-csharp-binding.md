@@ -14,6 +14,7 @@ targets.
 | Component | Version |
 |-----------|---------|
 | `crates/spoke-connect` (ffi surface) | uniffi **0.32.0** (proc-macro cdylib; locked — not downgraded) |
+| NuGet package | **`42ch.Spoke.Connect`** on GitHub Packages — lockstep SemVer; generated C# + multi-RID natives |
 | `uniffi-bindgen-cs` (NordSecurity) | **v0.11.0+v0.31.0** — the latest published tag; upstream `main` HEAD is the same commit (`e10ce410eb3a10cc19c7928b93ea8d84e038c034`) and its workspace pins `uniffi_bindgen`/`uniffi_meta`/`uniffi_udl` at **0.31.0** |
 
 `uniffi-bindgen-cs` v0.11.0 targets uniffi-rs 0.31; no published tag or main
@@ -74,8 +75,5 @@ regenerate → build → run sequence in the Smoke README is the re-check gate.
 ## Status of the binding matrix
 
 - Swift: landed skeleton (uniffi 0.32, macOS smoke, golden parity).
-- C#: **landed** — generated binding + net8.0 golden-parity smoke via the
-  vendored fork; fork dropped when upstream targets uniffi 0.32+.
-- Go / Python / Kotlin: not started; community bindgen tools must be verified
-  against uniffi 0.32 with the same feasibility gate before binding work
-  starts (the C# outcome is the template for that check).
+- C#: **landed** — generated binding + net8.0 golden-parity smoke + **`42ch.Spoke.Connect`** NuGet (GitHub Packages) via the vendored fork; fork dropped when upstream targets uniffi 0.32+.
+- Go / Python / Kotlin: not started; community bindgen tools must be verified against uniffi 0.32 with the same feasibility gate before binding work starts (the C# outcome is the template for that check).

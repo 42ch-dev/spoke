@@ -128,7 +128,7 @@ let version = protocolVersion() // 1
 go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
-在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；导入路径为子目录包 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`（Go 将子目录包视为一等公民 —— `go get` 无需根目录 re-export 文件）。cgo 按打包契约从 `native/<goos>_<goarch>/` 加载原生库。仓库内已提交的原生库：`darwin_arm64`、`darwin_amd64`（macOS 上 `go get` + 链接即可用）。对 `linux_amd64` 与 `windows_amd64`，在链接前将匹配的共享库（`libspoke_connect.so` / `spoke_connect.dll`）从 `release.yml` 的 `build-connect-ffi` 产物（`linux-x64` / `win-x64`）放入 `native/<goos>_<goarch>/`。集成方需 C 工具链且 `CGO_ENABLED=1`。绑定 README：[`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)。
+在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；导入路径为子目录包 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`（Go 将子目录包视为一等公民 —— `go get` 无需根目录 re-export 文件）。cgo 链接该标签内提交于 `native/<goos>_<goarch>/` 的原生库（[打包契约](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.2）。当前标签提供 `darwin_arm64` 与 `darwin_amd64`（`libspoke_connect.dylib`）—— macOS 上 `go get` + 链接即可用。`linux_amd64`（`libspoke_connect.so`）与 `windows_amd64`（`spoke_connect.dll`）在固定标签内出现对应目录时使用同一布局。集成方需 C 工具链且 `CGO_ENABLED=1`。绑定 README：[`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)。
 
 ### 导入与用法
 

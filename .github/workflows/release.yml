@@ -435,17 +435,17 @@ jobs:
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18
 
       - name: Publish spoke-schemas crate
-        run: cargo publish -p spoke-schemas
+        run: ./tooling/release/publish-crate.sh spoke-schemas
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 
       - name: Publish spoke-operations crate
-        run: cargo publish -p spoke-operations
+        run: ./tooling/release/publish-crate.sh spoke-operations
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 
       - name: Publish spoke-connect crate
-        run: cargo publish -p spoke-connect
+        run: ./tooling/release/publish-crate.sh spoke-connect
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 

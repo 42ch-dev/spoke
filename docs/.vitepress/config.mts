@@ -8,11 +8,11 @@ import { defineConfig } from 'vitepress'
 // when vitepress stable moves to vite 6+ natively. `pnpm audit --prod` is clean
 // and CI runs only `vitepress build`, which produces static HTML.
 
-// Base URL: this site is published as a GitHub Pages *project site* at
-// https://42ch-dev.github.io/spoke/ (repository 42ch-dev/spoke). Keep
-// `base: '/spoke/'` unless Pages moves to a custom domain or the org root
-// site (then use `base: '/'`).
-const base = '/spoke/'
+// Base URL: GitHub Pages custom domain `spoke.42ch.dev` serves the site at the
+// domain root (project-site github.io URL redirects here). Use `base: '/'`.
+// If Pages ever drops the custom domain and returns to
+// `https://42ch-dev.github.io/spoke/`, switch back to `base: '/spoke/'`.
+const base = '/'
 
 // Locales: English is the root locale (served at `/`), 简体中文 is served under
 // `/zh/`. Each locale carries its own `themeConfig` (nav + sidebar); these are

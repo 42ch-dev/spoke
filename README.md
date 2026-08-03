@@ -32,9 +32,9 @@ Published consumer packages share one **lockstep SemVer**.
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
 | [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Opt-in connect reference — libp2p transport, session core, uniffi binding surface |
 
-Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [Extensions & modules](https://42ch-dev.github.io/spoke/guide/extensions-modules).
+Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [Extensions & modules](https://spoke.42ch.dev/guide/extensions-modules).
 
-Install pins and package roles: [Package quick-start](https://42ch-dev.github.io/spoke/packages/quick-start).
+Install pins and package roles: [Package quick-start](https://spoke.42ch.dev/packages/quick-start).
 
 ## Install
 
@@ -130,7 +130,7 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-Connect is multi-language: Path A (language-direct, e.g. TypeScript on npm) and Path B (shared session core via native bindings on four publish channels — GitHub Packages NuGet/Maven, SPM git, Go modules git, PyPI). Overview, TypeScript route, and native bindings: [Connect](https://42ch-dev.github.io/spoke/connect/overview).
+Connect is multi-language: Path A (language-direct, e.g. TypeScript on npm) and Path B (shared session core via native bindings on four publish channels — GitHub Packages NuGet/Maven, SPM git, Go modules git, PyPI). Overview, TypeScript route, and native bindings: [Connect](https://spoke.42ch.dev/connect/overview).
 
 ## Version and pinning
 
@@ -141,7 +141,7 @@ pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z
 cargo add spoke-schemas@X.Y.Z spoke-operations@X.Y.Z
 ```
 
-Annotated git tags `vX.Y.Z` match that lockstep version. Release notes: [`CHANGELOG.md`](CHANGELOG.md) and [GitHub Releases](https://github.com/42ch-dev/spoke/releases). Pinning guide: [Version & release](https://42ch-dev.github.io/spoke/release/versioning).
+Annotated git tags `vX.Y.Z` match that lockstep version. Release notes: [`CHANGELOG.md`](CHANGELOG.md) and [GitHub Releases](https://github.com/42ch-dev/spoke/releases). Pinning guide: [Version & release](https://spoke.42ch.dev/release/versioning).
 
 ## Quick start
 
@@ -178,7 +178,7 @@ if (result.ok) {
 }
 ```
 
-Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtures/toy-world/`](fixtures/toy-world/). Step-by-step package path: [Package quick-start](https://42ch-dev.github.io/spoke/packages/quick-start).
+Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtures/toy-world/`](fixtures/toy-world/). Step-by-step package path: [Package quick-start](https://spoke.42ch.dev/packages/quick-start).
 
 ## Core concepts
 
@@ -197,7 +197,7 @@ Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtur
 | **Adapter ports** | Injected read/write surfaces (`KnowledgeEntryPort`, `HostManifestPort`, …) that own persistence |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` sequences that load scope, apply gates, and persist via ports |
 
-Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md), and [Concepts](https://42ch-dev.github.io/spoke/guide/concepts).
+Vocabulary and positioning: [`CONCEPTS.md`](CONCEPTS.md), [`STRATEGY.md`](STRATEGY.md), and [Concepts](https://spoke.42ch.dev/guide/concepts).
 
 ## Optional capabilities
 
@@ -212,7 +212,7 @@ Products that need fork-scoped timeline queries may declare **`l5-fork`**. Produ
 
 Products that need signed cross-process interaction may declare **`spoke-connect`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
 
-Baseline integrators use core schemas; optional capabilities are opt-in. Detail: [Layers & capabilities](https://42ch-dev.github.io/spoke/guide/layers).
+Baseline integrators use core schemas; optional capabilities are opt-in. Detail: [Layers & capabilities](https://spoke.42ch.dev/guide/layers).
 
 ## Operations
 
@@ -229,20 +229,20 @@ Baseline integrators use core schemas; optional capabilities are opt-in. Detail:
 
 Reference **FullAdapter** (baseline + `l2-computable` + `l5-fork`, including `HostCapabilityManifest` peers): [`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`, Rust crate `spoke-fixture-toy-world`.
 
-Detail: [Operations library](https://42ch-dev.github.io/spoke/guide/operations-library).
+Detail: [Operations library](https://spoke.42ch.dev/guide/operations-library).
 
 ## Further reading
 
 | Topic | Guide |
 |-------|-------|
-| Protocol umbrella | [Protocol](https://42ch-dev.github.io/spoke/guide/protocol) |
-| Nine layers and capability levels | [Layers & capabilities](https://42ch-dev.github.io/spoke/guide/layers) |
-| Data objects and open vocabulary | [Data model](https://42ch-dev.github.io/spoke/guide/data-model) |
-| Ops request/response envelopes | [Ops wire](https://42ch-dev.github.io/spoke/guide/ops-wire) |
-| Operations library behavior | [Operations library](https://42ch-dev.github.io/spoke/guide/operations-library) |
-| Core / modules / extensions | [Extensions & modules](https://42ch-dev.github.io/spoke/guide/extensions-modules) |
-| Connect envelopes and bindings | [Connect](https://42ch-dev.github.io/spoke/connect/overview) |
-| Domain Profiles | [Narrative structure](https://42ch-dev.github.io/spoke/profiles/narrative-structure) and siblings |
+| Protocol umbrella | [Protocol](https://spoke.42ch.dev/guide/protocol) |
+| Nine layers and capability levels | [Layers & capabilities](https://spoke.42ch.dev/guide/layers) |
+| Data objects and open vocabulary | [Data model](https://spoke.42ch.dev/guide/data-model) |
+| Ops request/response envelopes | [Ops wire](https://spoke.42ch.dev/guide/ops-wire) |
+| Operations library behavior | [Operations library](https://spoke.42ch.dev/guide/operations-library) |
+| Core / modules / extensions | [Extensions & modules](https://spoke.42ch.dev/guide/extensions-modules) |
+| Connect envelopes and bindings | [Connect](https://spoke.42ch.dev/connect/overview) |
+| Domain Profiles | [Narrative structure](https://spoke.42ch.dev/profiles/narrative-structure) and siblings |
 | JSON Schema SSOT | [`schemas/`](schemas/) |
 | Reference adapters and sample graph | [`fixtures/toy-world/`](fixtures/toy-world/) |
 

@@ -2,7 +2,7 @@
   "name": "spoke",
   "version": "0.7.0",
   "private": true,
-  "description": "SPOKE protocol monorepo — JSON Schema SSOT with generated TypeScript and Rust types",
+  "description": "SPOKE protocol monorepo \u2014 JSON Schema SSOT with generated TypeScript and Rust types",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20.0.0",
@@ -34,7 +34,8 @@
   "pnpm": {
     "overrides": {
       "brace-expansion": ">=5.0.8",
-      "esbuild": ">=0.28.1"
+      "esbuild": ">=0.28.1",
+      "vite": "^6.4.3"
     }
   }
 }

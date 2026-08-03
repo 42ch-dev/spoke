@@ -28,7 +28,7 @@ Packaging coordinates and native layouts: [connect-binding-channels.md](https://
 
 ## C# NuGet (`42ch.Spoke.Connect`)
 
-Integrators consume the session core via **GitHub Packages NuGet**:
+### Install
 
 ```xml
 <!-- nuget.config (once per solution) -->
@@ -38,19 +38,23 @@ Integrators consume the session core via **GitHub Packages NuGet**:
 ```
 
 ```xml
-<PackageReference Include="42ch.Spoke.Connect" Version="0.7.1" />
+<PackageReference Include="42ch.Spoke.Connect" Version="X.Y.Z" />
 ```
+
+Authenticate to GitHub Packages with a PAT that has `read:packages` (or `GITHUB_TOKEN` in Actions). Native `spoke_connect` / `libspoke_connect` ships under NuGet `runtimes/<rid>/native/` (`win-x64`, `linux-x64`, `osx-arm64`). Package SemVer locksteps with spoke git tags `vX.Y.Z`.
+
+### Import & usage
 
 ```csharp
 using uniffi.spoke_connect;
-var peerId = SpokeConnectMethods.DerivePeerIdFromEd25519Pubkey(pubkey);
-```
 
-Native `spoke_connect` / `libspoke_connect` ships under NuGet `runtimes/<rid>/native/` (`win-x64`, `linux-x64`, `osx-arm64`). Authenticate to GitHub Packages with a PAT that has `read:packages` (or `GITHUB_TOKEN` in Actions). Package SemVer locksteps with spoke git tags `vX.Y.Z`.
+var peerId = SpokeConnectMethods.DerivePeerIdFromEd25519Pubkey(pubkey);
+var version = SpokeConnectMethods.ProtocolVersion(); // 1
+```
 
 ## Kotlin Maven (`io.github.42ch-dev:spoke-connect`)
 
-Integrators add the GitHub Packages Maven repository and depend on the binding artifact at spoke lockstep SemVer `X.Y.Z`:
+### Install
 
 ```kotlin
 // settings.gradle.kts or build.gradle.kts repository block
@@ -70,6 +74,12 @@ dependencies {
 }
 ```
 
+Set `gpr.user` and `gpr.key` in `gradle.properties` or `~/.gradle/gradle.properties` (GitHub username and a PAT with `read:packages`). Stable tags publish via `publish-maven` on [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml).
+
+JNA loads platform natives from the jar per the Maven layout contract (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`. Binding README: [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md).
+
+### Import & usage
+
 ```kotlin
 import uniffi.spoke_connect.derivePeerIdFromEd25519Pubkey
 import uniffi.spoke_connect.protocolVersion
@@ -78,13 +88,9 @@ val peerId = derivePeerIdFromEd25519Pubkey(pubkey)
 val version = protocolVersion() // 1
 ```
 
-Set `gpr.user` and `gpr.key` in `gradle.properties` or `~/.gradle/gradle.properties` (GitHub username and a PAT with `read:packages`). Stable tags publish via `publish-maven` on [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml).
-
-JNA loads platform natives from the jar per the Maven layout contract (`darwin-aarch64`, `linux-x86-64`, `win32-x86-64`). Version locksteps with spoke git tags `vX.Y.Z`. Binding README: [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md).
-
 ## Swift (`SpokeConnect` via SPM)
 
-Integrators add the spoke repository as an SPM dependency at lockstep SemVer `X.Y.Z`:
+### Install
 
 ```swift
 // Package.swift
@@ -101,7 +107,9 @@ targets: [
 ]
 ```
 
-At tag `vX.Y.Z`, SPM resolves the repo-root `Package.swift` for library product `SpokeConnect` with generated Swift and a `spoke_connectFFI` xcframework per the packaging contract.
+At tag `vX.Y.Z`, SPM resolves the repo-root `Package.swift` for library product `SpokeConnect` with generated Swift and a `spoke_connectFFI` xcframework per the packaging contract. Binding README: [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md).
+
+### Import & usage
 
 ```swift
 import SpokeConnect
@@ -110,37 +118,43 @@ let peerId = try derivePeerIdFromEd25519Pubkey(pubkey: goldenPubkey)
 let version = protocolVersion() // 1
 ```
 
-Binding README: [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md).
-
 ## Go (`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`)
 
-Integrators pin the binding module at spoke lockstep tag `vX.Y.Z`:
+### Install
 
 ```bash
 go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
+At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; the import path is the subdirectory package `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` (Go treats subdirectory packages as first-class — no root re-export file is required for `go get`). cgo links shared libraries under `native/<goos>_<goarch>/` in the module tree ([packaging contract](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.2). Current tags commit `darwin_arm64` and `darwin_amd64` (`libspoke_connect.dylib`) — macOS `go get` + link is complete. For Linux and Windows, before linking, place `libspoke_connect.so` or `spoke_connect.dll` at `native/linux_amd64/` or `native/windows_amd64/` in the module you build (local checkout + `replace` when the pinned tag omits that directory). Those shared libraries match the lockstep FFI natives already published for the same SemVer in NuGet `42ch.Spoke.Connect` (`runtimes/linux-x64/native/`, `runtimes/win-x64/native/`). On Windows, also place `spoke_connect.dll` beside the executable so the loader finds it at runtime. Consumers need a C toolchain and `CGO_ENABLED=1`. Binding README: [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md).
+
+### Import & usage
+
 ```go
 import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
-```
 
-At tag `vX.Y.Z`, the repo-root `go.mod` (`module github.com/42ch-dev/spoke`) versions the module; cgo loads natives under `native/<goos>_<goarch>/` per the packaging contract. Committed natives today: `darwin_arm64`, `darwin_amd64`; `linux_amd64` and `windows_amd64` follow when maintainer stages `build-connect-ffi` artifacts (see [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)). Consumers need a C toolchain and `CGO_ENABLED=1`.
+peerID, err := spokeconnect.DerivePeerIdFromEd25519Pubkey(pubkey)
+version := spokeconnect.ProtocolVersion() // 1
+```
 
 ## Python (PyPI)
 
-Integrators install from PyPI at spoke lockstep SemVer `X.Y.Z`:
+### Install
 
 ```bash
 pip install spoke-connect==X.Y.Z
 ```
 
+Platform wheels (`manylinux_2_35_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publish to PyPI project **`spoke-connect`** via Trusted Publishing OIDC on the top-level `release.yml` workflow (`publish-pypi` job, repository `42ch-dev/spoke`). Version locksteps with spoke git tags `vX.Y.Z`. See [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
+
+### Import & usage
+
 ```python
 import spoke_connect
 
 peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
+version = spoke_connect.protocol_version()  # 1
 ```
-
-Platform wheels (`manylinux_2_35_x86_64`, `macosx_11_0_arm64`, `win_amd64`) publish to PyPI project **`spoke-connect`** via Trusted Publishing OIDC on the top-level `release.yml` workflow (`publish-pypi` job, repository `42ch-dev/spoke`). Version locksteps with spoke git tags `vX.Y.Z`. See [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3.
 
 ## Target matrix
 
@@ -149,7 +163,7 @@ C#, Go, Python, Swift, Kotlin are the target languages (priority per product dir
 ## Integrator notes
 
 - **Core-only** — the exported surface is the session core; host languages implement their own transport adapter against the wire contract.
-- Keys cross the FFI boundary as raw bytes; peer ids as strings; manifests / hellos as JSON strings.
+- **Session-core surface** — keys cross the FFI boundary as raw bytes; peer ids as strings; manifests and hellos as JSON strings.
 - **C# consumers** use `PackageReference`; maintainers regenerate bindings with the vendored bindgen fork when the FFI surface changes (see the Smoke README).
 
 ## Normative references

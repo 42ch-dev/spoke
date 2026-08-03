@@ -30,7 +30,7 @@ NuGet 与 Maven 共用 **GitHub Packages** 渠道类型（同一注册表家族�
 
 ## C# NuGet（`42ch.Spoke.Connect`）
 
-集成方通过 **GitHub Packages NuGet** 消费会话核心：
+### 安装
 
 ```xml
 <!-- nuget.config（每个解决方案配置一次） -->
@@ -40,14 +40,23 @@ NuGet 与 Maven 共用 **GitHub Packages** 渠道类型（同一注册表家族�
 ```
 
 ```xml
-<PackageReference Include="42ch.Spoke.Connect" Version="0.7.1" />
+<PackageReference Include="42ch.Spoke.Connect" Version="X.Y.Z" />
 ```
 
 使用具备 `read:packages` 权限的 PAT（或 Actions 中的 `GITHUB_TOKEN`）向 GitHub Packages 鉴权。原生 `spoke_connect` / `libspoke_connect` 位于 NuGet `runtimes/<rid>/native/`（`win-x64`、`linux-x64`、`osx-arm64`）。包版本与 spoke 锁步 SemVer / 标签 `vX.Y.Z` 对齐。
 
+### 导入与用法
+
+```csharp
+using uniffi.spoke_connect;
+
+var peerId = SpokeConnectMethods.DerivePeerIdFromEd25519Pubkey(pubkey);
+var version = SpokeConnectMethods.ProtocolVersion(); // 1
+```
+
 ## Kotlin Maven（`io.github.42ch-dev:spoke-connect`）
 
-集成方添加 GitHub Packages Maven 仓库，并在 spoke 锁步 SemVer `X.Y.Z` 处依赖绑定构件：
+### 安装
 
 ```kotlin
 // settings.gradle.kts 或 build.gradle.kts 仓库块
@@ -67,6 +76,12 @@ dependencies {
 }
 ```
 
+在 `gradle.properties` 或 `~/.gradle/gradle.properties` 中设置 `gpr.user` 与 `gpr.key`（GitHub 用户名及具备 `read:packages` 的 PAT）。稳定标签经 [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml) 的 `publish-maven` 发布。
+
+JNA 按 Maven 布局契约从 jar 加载平台原生库（`darwin-aarch64`、`linux-x86-64`、`win32-x86-64`）。版本与 spoke 标签 `vX.Y.Z` 锁步。绑定 README：[`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md)。
+
+### 导入与用法
+
 ```kotlin
 import uniffi.spoke_connect.derivePeerIdFromEd25519Pubkey
 import uniffi.spoke_connect.protocolVersion
@@ -75,13 +90,9 @@ val peerId = derivePeerIdFromEd25519Pubkey(pubkey)
 val version = protocolVersion() // 1
 ```
 
-在 `gradle.properties` 或 `~/.gradle/gradle.properties` 中设置 `gpr.user` 与 `gpr.key`（GitHub 用户名及具备 `read:packages` 的 PAT）。稳定标签经 [`release.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/release.yml) 的 `publish-maven` 发布。
-
-JNA 按 Maven 布局契约从 jar 加载平台原生库（`darwin-aarch64`、`linux-x86-64`、`win32-x86-64`）。版本与 spoke 标签 `vX.Y.Z` 锁步。绑定 README：[`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md)。
-
 ## Swift（经 SPM 的 `SpokeConnect`）
 
-集成方在锁步 SemVer `X.Y.Z` 处将 spoke 仓库添加为 SPM 依赖：
+### 安装
 
 ```swift
 // Package.swift
@@ -98,7 +109,9 @@ targets: [
 ]
 ```
 
-在标签 `vX.Y.Z` 处，SPM 解析仓库根目录 `Package.swift`，取得库产品 `SpokeConnect`、生成 Swift 与 `spoke_connectFFI` xcframework（按打包契约）。
+在标签 `vX.Y.Z` 处，SPM 解析仓库根目录 `Package.swift`，取得库产品 `SpokeConnect`、生成 Swift 与 `spoke_connectFFI` xcframework（按打包契约）。绑定 README：[`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md)。
+
+### 导入与用法
 
 ```swift
 import SpokeConnect
@@ -107,37 +120,43 @@ let peerId = try derivePeerIdFromEd25519Pubkey(pubkey: goldenPubkey)
 let version = protocolVersion() // 1
 ```
 
-绑定 README：[`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md)。
-
 ## Go（`github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`）
 
-集成方在 spoke 锁步标签 `vX.Y.Z` 处固定绑定模块：
+### 安装
 
 ```bash
 go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 ```
 
+在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；导入路径为子目录包 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`（Go 将子目录包视为一等公民 —— `go get` 无需根目录 re-export 文件）。cgo 链接模块树中 `native/<goos>_<goarch>/` 下的共享库（[打包契约](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.2）。当前标签提交 `darwin_arm64` 与 `darwin_amd64`（`libspoke_connect.dylib`）—— macOS 上 `go get` + 链接即可用。对 Linux 与 Windows，在链接前将 `libspoke_connect.so` 或 `spoke_connect.dll` 放到所构建模块的 `native/linux_amd64/` 或 `native/windows_amd64/`（固定标签若尚未包含该目录，使用本地 checkout 与 `replace`）。这些共享库与同一锁步 SemVer 下 NuGet `42ch.Spoke.Connect` 已发布的 FFI 原生库一致（`runtimes/linux-x64/native/`、`runtimes/win-x64/native/`）。在 Windows 上还需将 `spoke_connect.dll` 放在可执行文件旁，以便运行时加载器找到它。集成方需 C 工具链且 `CGO_ENABLED=1`。绑定 README：[`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)。
+
+### 导入与用法
+
 ```go
 import spokeconnect "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go"
-```
 
-在标签 `vX.Y.Z` 处，仓库根目录 `go.mod`（`module github.com/42ch-dev/spoke`）为模块定版；cgo 按打包契约从 `native/<goos>_<goarch>/` 加载原生库。当前已提交的原生库：`darwin_arm64`、`darwin_amd64`；`linux_amd64` 与 `windows_amd64` 待维护者从 `build-connect-ffi` 产物落盘（见 [`crates/spoke-connect/bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)）。集成方需 C 工具链且 `CGO_ENABLED=1`。
+peerID, err := spokeconnect.DerivePeerIdFromEd25519Pubkey(pubkey)
+version := spokeconnect.ProtocolVersion() // 1
+```
 
 ## Python（PyPI）
 
-集成方在 spoke 锁步 SemVer `X.Y.Z` 处从 PyPI 安装：
+### 安装
 
 ```bash
 pip install spoke-connect==X.Y.Z
 ```
 
+平台 wheel（`manylinux_2_35_x86_64`、`macosx_11_0_arm64`、`win_amd64`）经顶层 `release.yml` 工作流上的 Trusted Publishing OIDC（`publish-pypi` 任务，仓库 `42ch-dev/spoke`）发布至 PyPI 项目 **`spoke-connect`**。版本与 spoke 标签 `vX.Y.Z` 锁步。见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
+
+### 导入与用法
+
 ```python
 import spoke_connect
 
 peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
+version = spoke_connect.protocol_version()  # 1
 ```
-
-平台 wheel（`manylinux_2_35_x86_64`、`macosx_11_0_arm64`、`win_amd64`）经顶层 `release.yml` 工作流上的 Trusted Publishing OIDC（`publish-pypi` 任务，仓库 `42ch-dev/spoke`）发布至 PyPI 项目 **`spoke-connect`**。版本与 spoke 标签 `vX.Y.Z` 锁步。见 [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.3。
 
 ## 目标语言矩阵
 
@@ -146,7 +165,7 @@ peer_id = spoke_connect.derive_peer_id_from_ed25519_pubkey(pubkey)
 ## 集成方须知
 
 - **仅核心（core-only）** —— 导出面即会话核心；宿主语言对照线上契约自行实现传输适配器。
-- 密钥以原始字节跨 FFI 边界；对等节点标识以字符串；清单 / hello 以 JSON 字符串。
+- **会话核心表面（Session-core surface）** —— 密钥以原始字节跨 FFI 边界；对等节点标识以字符串；清单与 hello 以 JSON 字符串。
 - **C# 集成方**使用 `PackageReference`；维护者在 FFI 面变更时用 vendored bindgen fork 重新生成（见 Smoke README）。
 
 ## 规范参考

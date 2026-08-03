@@ -4,7 +4,7 @@ title: 软件包快速开始
 
 # 软件包快速开始（Package quick-start）
 
-SPOKE 发布四个消费方软件包 —— 生成的线上类型与手写操作库 —— 共用一套**锁步 SemVer**。将您使用的所有面固定到同一个 `X.Y.Z`。
+SPOKE 在**锁步 SemVer** 下发布消费方软件包 —— 生成的线上类型、手写操作库，以及 Connect 会话客户端（路径 A 的 TypeScript/Rust 与路径 B 原生绑定）。将您使用的所有面固定到同一个 `X.Y.Z`。
 
 本页为[英文原页](/packages/quick-start)（English）的中文概览。规范说明（specs）保持英文原文并作为 SSOT（单一事实来源）；完整细节见文末「规范参考」。
 
@@ -31,6 +31,24 @@ spoke-operations = "X.Y.Z"
 
 - **`spoke-schemas`** —— 由同一 JSON Schema SSOT 生成的 Rust 线上类型。
 - **`spoke-operations`** —— port traits 与 `orchestrate_*`（重新导出 `spoke_schemas`）。
+
+## Connect
+
+路径 A 会话客户端与线上/操作软件包在同一锁步 SemVer 下发布：
+
+```bash
+pnpm add @42ch/spoke-connect@X.Y.Z
+```
+
+- **`@42ch/spoke-connect`** —— TypeScript 会话客户端（路径 A）。
+
+```bash
+cargo add spoke-connect@X.Y.Z
+```
+
+- **`spoke-connect`** —— Rust 参考 crate（路径 A）。
+
+路径 B 宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `io.github.42ch-dev:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）经 FFI 嵌入共享会话核心 —— 见[原生绑定（路径 B）](/zh/connect/bindings)。
 
 ## 集成路径
 

@@ -201,6 +201,15 @@ jobs:
           grep -q '^default = \[\]$' crates/spoke-connect/Cargo.toml
           cargo test -p spoke-connect --features mdns
 
+      - name: Test spoke-connect crate (remote-adapter feature)
+        run: |
+          # remote-adapter must stay non-default (it pulls in spoke-operations
+          # for the BaselinePorts surface); assert the Cargo.toml default here
+          # so a future default-feature change trips CI, then run the
+          # feature-gated suite (loopback interop + adapter unit tests).
+          grep -q '^default = \[\]$' crates/spoke-connect/Cargo.toml
+          cargo test -p spoke-connect --features remote-adapter
+
       - name: Build spoke-connect FFI facade (ffi feature)
         run: cargo build -p spoke-connect --features ffi
 

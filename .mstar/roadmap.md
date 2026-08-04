@@ -12,7 +12,7 @@
 
 ## Now (in progress)
 
-No active delivery slice on `main`. See **Up next** for planned work; durable contract facts live under **Done → Baseline inventory** and `.mstar/specs/`.
+**Async-native operations + remote Adapter bridge:** make `@42ch/spoke-operations` and `spoke-operations` async-native across ports, orchestrators, reference adapters, and tests; add a single-peer `RemoteAdapter` in the connect packages that implements async `BaselinePorts` over a message-oriented `Transport`; keep WebSocket and other concrete transports external to spoke-connect; encapsulate connect hello, verification, nonce, sequence, correlation, and dispatch checks behind the operations Adapter experience.
 
 **Durable decision (2026-08-02) — Knowledge Pack vs AssemblePacket; demote `modules.pack`:** A **Narrative Knowledge Pack** is a durable lore-library interchange pattern (full KnowledgeEntry + Relation atoms + product transport envelope). An **AssemblePacket** is an ephemeral `assemble` output (slim AI context projection). They share a vague “list of entries” shape but are **not** the same object and must not be merged. Pack catalog metadata (`title` / `version` / `creator`) is **product-envelope** — **not** `modules.*` on KnowledgeEntry or AssemblePacket. Keep `modules.activation` on KnowledgeEntry and `modules.placement` / `modules.activation_trace` on AssemblePacket. Handbook, triad ADR, CONCEPTS, docs, schemas descriptions, and companion fixture updated accordingly.
 
@@ -22,6 +22,9 @@ No active delivery slice on `main`. See **Up next** for planned work; durable co
 
 | Slice | What ships | Trigger / notes |
 |-------|------------|-----------------|
+| **Multi-peer capability routing** | A registry/composer over connected `RemoteAdapter`s that selects peers by manifest roles, capabilities, and namespaces for each operation | Follows the single-peer remote Adapter; preserves the same async `BaselinePorts` consumer experience while adding peer selection and failure policy |
+| **Native-bound remote Adapter FFI** | Expose `RemoteAdapter` through the native binding channels so non-TypeScript/Rust hosts can consume the same remote Adapter contract | Follows stabilization of the TS/Rust remote Adapter and transport boundary |
+| **Per-language WebSocket transports** | Language-native WebSocket transport implementations that satisfy the connect message-oriented `Transport` boundary | Consumer repositories/packages supply concrete transports; WebSocket remains the priority pluggable transport shape |
 | **DHT discovery** | Libp2p Kademlia DHT peer discovery layered on the Noise mesh transport, for hosts that need peer routing beyond explicit relay/dial lists | A product host requires libp2p-mesh peer discovery; builds on the pure-TS Noise foundation and the Rust reference mesh |
 | **iOS xcframework CI automation** | A CI job that assembles the multi-slice `spoke_connectFFI.xcframework` when the FFI surface changes, removing the maintainer manual-refresh step | Follows the three-slice matrix (`macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator`); the xcframework stays repo-committed between FFI-surface changes per [connect-binding-channels.md](specs/connect-binding-channels.md) |
 | **Cross-language capability-token golden-vector TS-minted counterpart** | A TS-minted capability-token golden vector that the Rust verify path (and other bindings) round-trip, closing the current Rust-minted-only direction | Token auth is session-core parity; this adds the reverse-direction shared vector |

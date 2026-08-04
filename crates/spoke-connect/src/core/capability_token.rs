@@ -86,12 +86,41 @@ pub struct CapabilityTokenProof {
 /// Issue a capability token: canonicalize `claims` with JCS, sign with the
 /// issuer Ed25519 secret key (32-byte seed), and wrap the result.
 ///
+/// `now` is the current time in **Unix seconds** (same unit as the
+/// [`verify_capability_token`] `now` parameter); pure session-core has no
+/// wall clock, so callers pass it explicitly. Before any crypto runs, claims
+/// the verifier would deterministically reject fail fast at issuance
+/// (parity with TS `assertClaimsShape` → `assertClaimsSemantics`):
+/// `capabilities` must be non-empty, `exp` must be beyond
+/// `now + CLOCK_SKEW_SECONDS`, and `iat` (when present) must not be beyond
+/// the clock-skew window ahead of `now`.
+///
 /// The issuer's derived `peer_id` MUST equal `claims.iss` — the token must
 /// be issued by the authority it names, or it cannot verify.
 pub fn issue_capability_token(
     issuer_secret: &[u8; 32],
     claims: CapabilityClaims,
+    now: u64,
 ) -> Result<CapabilityTokenProof, CoreError> {
+    if claims.capabilities.is_empty() {
+        return Err(CoreError::TokenInvalid(
+            "capabilities must be non-empty".into(),
+        ));
+    }
+    if claims.exp <= now.saturating_add(CLOCK_SKEW_SECONDS) {
+        return Err(CoreError::TokenInvalid(format!(
+            "token exp {} is not after now {} + {}s clock-skew; the verifier would reject it",
+            claims.exp, now, CLOCK_SKEW_SECONDS
+        )));
+    }
+    if let Some(iat) = claims.iat {
+        if iat > now.saturating_add(CLOCK_SKEW_SECONDS) {
+            return Err(CoreError::TokenInvalid(format!(
+                "token issued at {} is beyond the {}s clock-skew window ahead of now {}",
+                iat, CLOCK_SKEW_SECONDS, now
+            )));
+        }
+    }
     let signing_key = SigningKey::from_bytes(issuer_secret);
     let derived_issuer =
         derive_peer_id_from_ed25519_pubkey(&signing_key.verifying_key().to_bytes());
@@ -157,10 +186,24 @@ pub fn verify_capability_token(
     let verifying_key = VerifyingKey::from_bytes(&issuer_pubkey)
         .map_err(|e| CoreError::Crypto(format!("invalid Ed25519 public key: {e}")))?;
     let bytes = serde_jcs::to_vec(&proof.claims).map_err(|e| CoreError::Jcs(e.to_string()))?;
-    let signature = URL_SAFE_NO_PAD
+    let raw = URL_SAFE_NO_PAD
         .decode(proof.sig.as_str())
         .map_err(|_| CoreError::TokenInvalid("signature is not valid base64url".into()))?;
-    let signature = Signature::from_slice(&signature)
+    // Canonical base64url (RFC 4648) round-trip check. The signature MUST
+    // be the unique canonical encoding of its 64 raw bytes: decode followed
+    // by re-encode must reproduce the original string exactly. The check is
+    // a TS↔Rust parity invariant (TS uses an atob-based decoder that is
+    // slack-lenient, so the round-trip is load-bearing there; Rust's
+    // `URL_SAFE_NO_PAD` strict config already rejects non-zero slack bits
+    // at decode, so the check is defense-in-depth on the Rust side — it
+    // preserves source-level parity with TS and protects against future
+    // decoder relaxation).
+    if URL_SAFE_NO_PAD.encode(&raw) != proof.sig {
+        return Err(CoreError::TokenInvalid(
+            "signature is not canonical base64url (no padding)".into(),
+        ));
+    }
+    let signature = Signature::from_slice(&raw)
         .map_err(|_| CoreError::TokenInvalid("signature is not 64 bytes".into()))?;
     if verifying_key.verify(&bytes, &signature).is_err() {
         return Err(CoreError::TokenInvalid("signature does not verify".into()));
@@ -247,6 +290,21 @@ mod tests {
         issuers.iter().map(|s| (*s).to_string()).collect()
     }
 
+    /// Sign `claims` with `issuer_secret` directly (same bytes as the issue
+    /// body), **bypassing** the issuance-time guards — for verify-only
+    /// adversarial fixtures whose claims the guarded issuer would refuse
+    /// (e.g. an `iat` beyond the clock-skew window).
+    fn raw_proof(issuer_secret: &[u8; 32], claims: CapabilityClaims) -> CapabilityTokenProof {
+        let signing_key = SigningKey::from_bytes(issuer_secret);
+        let bytes = serde_jcs::to_vec(&claims).expect("claims canonicalize");
+        let signature: Signature = signing_key.sign(&bytes);
+        CapabilityTokenProof {
+            v: TOKEN_VERSION,
+            claims,
+            sig: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+        }
+    }
+
     /// A valid (issuer, subject, audience) triple for the happy path: the
     /// issuer is trusted, `sub` is the session peer, `aud` the verifying
     /// node, and the token is unexpired at `now`.
@@ -260,6 +318,7 @@ mod tests {
         let proof = issue_capability_token(
             &ISSUER_SEED,
             claims(&issuer, &subject, &audience, capabilities, now + 3600),
+            now,
         )
         .expect("issue");
         (proof, trusted(&[issuer.as_str()]), vec![subject, audience])
@@ -281,17 +340,22 @@ mod tests {
         let subject = peer_of(&[7u8; 32]);
         let audience = peer_of(&[8u8; 32]);
         let trusted = trusted(&[issuer.as_str()]);
-        // exp == now is already expired (reject if now >= exp).
+        // Issue with a lifetime that passes the issuance guards (exp is well
+        // beyond now + CLOCK_SKEW_SECONDS) …
+        let exp = now + 3600;
         let proof = issue_capability_token(
             &ISSUER_SEED,
-            claims(&issuer, &subject, &audience, &["spoke-baseline"], now),
+            claims(&issuer, &subject, &audience, &["spoke-baseline"], exp),
+            now,
         )
         .expect("issue");
-        let err = verify_capability_token(&proof, &trusted, &audience, &subject, now)
-            .expect_err("expired at now");
+        // … then verify at the expiry boundary: now == exp is already
+        // expired (reject if now >= exp).
+        let err = verify_capability_token(&proof, &trusted, &audience, &subject, exp)
+            .expect_err("expired at exp");
         assert!(matches!(err, CoreError::TokenInvalid(_)));
         // And any time after exp.
-        let err = verify_capability_token(&proof, &trusted, &audience, &subject, now + 1)
+        let err = verify_capability_token(&proof, &trusted, &audience, &subject, exp + 1)
             .expect_err("expired after");
         assert!(matches!(err, CoreError::TokenInvalid(_)));
     }
@@ -421,6 +485,58 @@ mod tests {
     }
 
     #[test]
+    fn non_canonical_signature_rejected() {
+        use base64::alphabet::URL_SAFE as URL_SAFE_ALPHABET;
+
+        let now = 1_000_000_000u64;
+        let (mut proof, trusted, peers) = happy_token(now, &["spoke-baseline"]);
+
+        // A 64-byte Ed25519 signature encodes to 86 base64url (no pad)
+        // chars; the final char carries 2 data bits + 4 slack bits. Replace
+        // the last char with its slack-bit sibling (same low 2 data bits,
+        // different high 4 slack bits): a non-canonical encoding that
+        // decodes to the identical 64 bytes under a slack-lenient decoder
+        // (the TS side's `atob` — where the canonical round-trip check is
+        // live) but re-encodes to a different string.
+        let last = proof.sig.chars().last().expect("sig is non-empty");
+        let idx = URL_SAFE_ALPHABET
+            .as_str()
+            .find(last)
+            .expect("emitted sig uses the base64url alphabet");
+        // Mutate only the slack bits (preserve the low 2 data bits). The
+        // new slack is `(old % 15) + 1` ∈ 1..=15: it never wraps to the
+        // canonical 0 (the old `(old + 1) % 16` degenerated to 0 when the
+        // original char carried slack bits `1111`) and never equals the
+        // original, so the mutated char is always a non-canonical sibling
+        // of the same 64 bytes regardless of the signature content.
+        let slack_flipped = (idx & 0b11) | ((((idx >> 2) % 15) + 1) << 2);
+        let mutated_last = URL_SAFE_ALPHABET
+            .as_str()
+            .chars()
+            .nth(slack_flipped)
+            .expect("slack-flipped index stays in the alphabet");
+        assert_ne!(mutated_last, last, "slack-bit mutation must change the char");
+        proof.sig.pop();
+        proof.sig.push(mutated_last);
+
+        // A decodable-but-non-canonical input cannot be constructed with
+        // base64 0.22's `URL_SAFE_NO_PAD`: its default config rejects
+        // non-zero slack bits at decode (`InvalidLastSymbol`,
+        // `decode_allow_trailing_bits: false`), before the round-trip check
+        // runs. The round-trip check is therefore the parity invariant with
+        // TS (whose `atob` decoder is slack-lenient, making the check live
+        // there) and the fail-closed defense if the decoder config ever
+        // relaxes. Both gates surface the same observable rejection.
+        assert!(
+            URL_SAFE_NO_PAD.decode(proof.sig.as_str()).is_err(),
+            "the strict decoder rejects non-zero slack bits today"
+        );
+        let err = verify_capability_token(&proof, &trusted, &peers[1], &peers[0], now)
+            .expect_err("non-canonical signature");
+        assert!(matches!(err, CoreError::TokenInvalid(_)));
+    }
+
+    #[test]
     fn tampered_claims_fail_signature_verification() {
         let now = 1_000_000_000u64;
         let (mut proof, trusted, peers) = happy_token(now, &["spoke-baseline"]);
@@ -449,9 +565,122 @@ mod tests {
                 &["spoke-baseline"],
                 now + 3600,
             ),
+            now,
         )
         .expect_err("unbound issuer key");
         assert!(matches!(err, CoreError::TokenInvalid(_)));
+    }
+
+    #[test]
+    fn empty_capabilities_rejected_at_issue() {
+        let now = 1_000_000_000u64;
+        let issuer = peer_of(&ISSUER_SEED);
+        let subject = peer_of(&[7u8; 32]);
+        let audience = peer_of(&[8u8; 32]);
+        // An empty grant authorizes nothing; fail fast instead of signing a
+        // token whose grant is empty (parity with TS assertClaimsShape).
+        let err = issue_capability_token(
+            &ISSUER_SEED,
+            claims(&issuer, &subject, &audience, &[], now + 3600),
+            now,
+        )
+        .expect_err("empty capabilities");
+        assert!(matches!(err, CoreError::TokenInvalid(_)));
+    }
+
+    #[test]
+    fn exp_at_or_inside_clock_skew_rejected_at_issue() {
+        let now = 1_000_000_000u64;
+        let issuer = peer_of(&ISSUER_SEED);
+        let subject = peer_of(&[7u8; 32]);
+        let audience = peer_of(&[8u8; 32]);
+
+        // exp == now + CLOCK_SKEW_SECONDS: the verifier's clock could already
+        // be at exp (skew window), so the token is unverifiable — rejects.
+        let err = issue_capability_token(
+            &ISSUER_SEED,
+            claims(
+                &issuer,
+                &subject,
+                &audience,
+                &["spoke-baseline"],
+                now + CLOCK_SKEW_SECONDS,
+            ),
+            now,
+        )
+        .expect_err("exp at the skew boundary");
+        assert!(matches!(err, CoreError::TokenInvalid(_)));
+
+        // exp == now + CLOCK_SKEW_SECONDS + 1: just beyond the window,
+        // verifier cannot have reached exp yet — accepts.
+        let proof = issue_capability_token(
+            &ISSUER_SEED,
+            claims(
+                &issuer,
+                &subject,
+                &audience,
+                &["spoke-baseline"],
+                now + CLOCK_SKEW_SECONDS + 1,
+            ),
+            now,
+        )
+        .expect("exp just beyond the skew boundary");
+        assert_eq!(proof.claims.exp, now + CLOCK_SKEW_SECONDS + 1);
+    }
+
+    #[test]
+    fn iat_beyond_clock_skew_rejected_at_issue() {
+        let now = 1_000_000_000u64;
+        let issuer = peer_of(&ISSUER_SEED);
+        let subject = peer_of(&[7u8; 32]);
+        let audience = peer_of(&[8u8; 32]);
+
+        // iat beyond the skew window ahead of now (issuer clock too far
+        // ahead): the verifier would reject — rejects at issue.
+        let mut grant = claims(
+            &issuer,
+            &subject,
+            &audience,
+            &["spoke-baseline"],
+            now + 3600,
+        );
+        grant.iat = Some(now + CLOCK_SKEW_SECONDS + 1);
+        let err = issue_capability_token(&ISSUER_SEED, grant, now).expect_err("iat beyond skew");
+        assert!(matches!(err, CoreError::TokenInvalid(_)));
+
+        // iat exactly at the skew boundary: accepted.
+        let mut grant = claims(
+            &issuer,
+            &subject,
+            &audience,
+            &["spoke-baseline"],
+            now + 3600,
+        );
+        grant.iat = Some(now + CLOCK_SKEW_SECONDS);
+        issue_capability_token(&ISSUER_SEED, grant, now).expect("iat at the skew boundary");
+
+        // iat in the past: always accepted.
+        let mut grant = claims(
+            &issuer,
+            &subject,
+            &audience,
+            &["spoke-baseline"],
+            now + 3600,
+        );
+        grant.iat = Some(now - 10);
+        issue_capability_token(&ISSUER_SEED, grant, now).expect("iat in the past");
+    }
+
+    #[test]
+    fn happy_path_still_signs_with_valid_claims() {
+        // Well-formed claims (non-empty capabilities, exp beyond the skew
+        // window, no iat) sign exactly as before — sanity for the new
+        // issuance guards.
+        let now = 1_000_000_000u64;
+        let (proof, trusted, peers) = happy_token(now, &["spoke-baseline", "l2-computable"]);
+        let granted = verify_capability_token(&proof, &trusted, &peers[1], &peers[0], now)
+            .expect("well-formed claims still sign and verify");
+        assert_eq!(granted, vec!["spoke-baseline", "l2-computable"]);
     }
 
     #[test]
@@ -481,11 +710,15 @@ mod tests {
             now + 3600,
         );
         grant.iat = Some(now + CLOCK_SKEW_SECONDS);
-        let proof = issue_capability_token(&ISSUER_SEED, grant).expect("issue");
+        let proof = issue_capability_token(&ISSUER_SEED, grant, now).expect("issue");
         verify_capability_token(&proof, &trusted, &audience, &subject, now)
             .expect("iat at the skew boundary");
 
-        // iat beyond the skew window is rejected (issuer clock too far ahead).
+        // iat beyond the skew window is rejected at verify (issuer clock too
+        // far ahead). The issuance guard already refuses this claim at issue
+        // (`iat_beyond_clock_skew_rejected_at_issue` covers that path), so
+        // construct the proof with the raw-sign helper for this verify-only
+        // fixture.
         let mut grant = claims(
             &issuer,
             &subject,
@@ -494,7 +727,7 @@ mod tests {
             now + 3600,
         );
         grant.iat = Some(now + CLOCK_SKEW_SECONDS + 1);
-        let proof = issue_capability_token(&ISSUER_SEED, grant).expect("issue");
+        let proof = raw_proof(&ISSUER_SEED, grant);
         let err = verify_capability_token(&proof, &trusted, &audience, &subject, now)
             .expect_err("iat beyond skew");
         assert!(matches!(err, CoreError::TokenInvalid(_)));
@@ -508,7 +741,7 @@ mod tests {
             now + 3600,
         );
         grant.iat = Some(now - 10);
-        let proof = issue_capability_token(&ISSUER_SEED, grant).expect("issue");
+        let proof = issue_capability_token(&ISSUER_SEED, grant, now).expect("issue");
         verify_capability_token(&proof, &trusted, &audience, &subject, now)
             .expect("iat in the past");
     }
@@ -529,7 +762,7 @@ mod tests {
             now + 3600,
         );
         grant.jti = Some("token-abc-123".into());
-        let proof = issue_capability_token(&ISSUER_SEED, grant).expect("issue");
+        let proof = issue_capability_token(&ISSUER_SEED, grant, now).expect("issue");
         verify_capability_token(&proof, &trusted, &audience, &subject, now)
             .expect("non-empty jti is accepted (reserved, not consulted)");
 
@@ -541,7 +774,7 @@ mod tests {
             now + 3600,
         );
         grant.jti = Some(String::new());
-        let proof = issue_capability_token(&ISSUER_SEED, grant).expect("issue");
+        let proof = issue_capability_token(&ISSUER_SEED, grant, now).expect("issue");
         let err = verify_capability_token(&proof, &trusted, &audience, &subject, now)
             .expect_err("empty jti");
         assert!(matches!(err, CoreError::TokenInvalid(_)));

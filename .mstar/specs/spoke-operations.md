@@ -650,7 +650,7 @@ type FullPorts = BaselinePorts & ComputablePort & ForkTimelineQueryPort;
 
 ### Adapter aliases (normative)
 
-Integrators implement **one** adapter type (class/struct) that satisfies the port families for the capabilities they claim. The operations packages export **Adapter** aliases as ergonomic names for the composed port intersections below. Individual capability families remain `*Port`; legacy `*Ports` type names remain exported.
+Integrators implement **one** adapter type (class/struct) that satisfies the port families for the capabilities they claim. The operations packages export **Adapter** aliases as ergonomic names for the composed port intersections below. Individual capability families remain `*Port`; the composed `*Ports` names remain exported alongside the aliases.
 
 | Adapter alias | Equivalent composed ports | Capabilities |
 |---------------|---------------------------|--------------|
@@ -670,7 +670,7 @@ Rust exports the same names with TS/Rust parity per the **Alias implementation**
 | TypeScript | `export type BaselineAdapter = BaselinePorts` (and same for `ComputableAdapter`, `ForkAdapter`, `FullAdapter`) | `packages/spoke-operations/src/adapter/ports.ts` → flat-re-export `src/index.ts` |
 | Rust | Marker traits `pub trait BaselineAdapter: BaselinePorts {}` with blanket `impl<T: BaselinePorts> BaselineAdapter for T {}` (same for `ComputableAdapter: ComputablePorts`, `ForkAdapter: ForkPorts`, `FullAdapter: FullPorts`) | `crates/spoke-operations/src/adapter/ports.rs` → flat-re-export `src/lib.rs` |
 
-Orchestrator signatures keep `&impl BaselinePorts` (etc.); `&impl BaselineAdapter` is equivalent via the blanket impl. Legacy `*Ports` names remain exported.
+Orchestrator signatures keep `&impl BaselinePorts` (etc.); `&impl BaselineAdapter` is equivalent via the blanket impl. The `*Ports` names remain exported.
 
 ### Reference adapter stub policy (normative)
 

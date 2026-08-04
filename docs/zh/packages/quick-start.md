@@ -48,7 +48,7 @@ cargo add spoke-connect@X.Y.Z
 
 - **`spoke-connect`** —— Rust 参考实现（libp2p 传输 + uniffi 绑定面）。
 
-原生绑定宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `dev.42ch:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）经 FFI 嵌入共享会话核心 —— 见[原生绑定](/zh/connect/bindings)。
+原生绑定宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `dev.42ch:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）经 FFI 嵌入共享会话核心 —— 见[原生绑定](/zh/how-to/connect-native-bindings)。
 
 ## 集成路径
 
@@ -61,11 +61,10 @@ cargo add spoke-connect@X.Y.Z
 
 全部软件包一起升版（锁步 SemVer）；带注释标签 `vX.Y.Z` 与之匹配。固定指南见 [版本与发布](/zh/release/versioning)。
 
-## 规范参考
+## 更多资源
 
 - [README.md](https://github.com/42ch-dev/spoke/blob/main/README.md) —— 安装、快速开始、操作概览
-- [@42ch/spoke-schemas README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-schemas/README.md)
-- [@42ch/spoke-operations README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-operations/README.md)
-- [spoke-schemas README (Rust)](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-schemas/README.md)
-- [spoke-operations README (Rust)](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-operations/README.md)
-- [spoke-version-release.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-version-release.md) —— 锁步 SemVer 与消费方固定
+- npm 上的 [@42ch/spoke-schemas](https://www.npmjs.com/package/@42ch/spoke-schemas) 与其[软件包 README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-schemas/README.md)
+- npm 上的 [@42ch/spoke-operations](https://www.npmjs.com/package/@42ch/spoke-operations) 与其[软件包 README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-operations/README.md)
+- crates.io 上的 [spoke-schemas](https://crates.io/crates/spoke-schemas) 与其 [crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-schemas/README.md)
+- crates.io 上的 [spoke-operations](https://crates.io/crates/spoke-operations) 与其 [crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-operations/README.md)

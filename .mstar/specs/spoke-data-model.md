@@ -748,9 +748,9 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | Concern | Rule |
 |---------|------|
 | Unknown values | Round-trip verbatim |
-| Closed enums | Deferred until adapter iteration |
+| Closed enums | Open vocabulary; per-product tables published in adapter specs / Showcases |
 | Product-only types | `extensions.<namespace>` or open `entry_type` string |
-| Documentation | Adapter specs (next iteration) own per-product tables |
+| Documentation | Adapter specs and Showcases own per-product tables |
 
 ---
 

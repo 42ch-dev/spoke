@@ -264,7 +264,7 @@ Receivers MUST NOT use top-level hello `extensions` for authorization or trust d
 | `nonce` entropy | minLength 16 is a wire floor; generators SHOULD use ≥128 bits CSPRNG (encoded output typically exceeds 16 chars) |
 | Scope | Per `peer_id` of the **sender** |
 | Uniqueness | Receiver MUST reject a hello whose `(peer_id, nonce)` pair was already accepted |
-| Replay window | In-memory set for the life of the process is sufficient for the reference spike; products MAY persist nonces with TTL — not specified in this protocol version |
+| Replay window | In-memory set for the life of the process is sufficient for the reference stack; products MAY persist nonces with TTL — not specified in this protocol version |
 | Bound into signature | Yes — nonce is inside the signed object |
 | Rejected hello | Nonce of a **rejected** hello MUST NOT be recorded (retry-safe) |
 
@@ -319,7 +319,7 @@ Logical states and transitions for the **session core** (pure rules). Dialing, N
 | `Established` → `Established` | Inbound response | Accept iff it echoes `session_id`, `sequence`, and `request_id` of a pending request; else correlation failure (local error) |
 | `Established` → `Closed` | Next outbound sequence would exceed 2⁵³−1, or transport loss, or local shutdown | No wrap-around |
 
-These labels and guards are the portable session-core contract so Path A ports match reference behavior without depending on spike internals.
+These labels and guards are the portable session-core contract so Path A ports match reference behavior without depending on reference-crate internals.
 
 ## `op` core vocabulary
 
@@ -429,6 +429,8 @@ The **signed claims object** is canonicalized with **RFC 8785 JCS** → UTF-8 by
 | `claims` | yes | Signed claims object (table above) |
 | `sig` | yes | base64url (no padding) of the 64 raw Ed25519 signature bytes over JCS(`claims`) only |
 
+**Canonical encoding (normative):** the `sig` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Receivers MUST reject any `sig` that does not round-trip through `decode → encode` equality (non-canonical encodings of the final character's slack bits are rejected). Both language implementations enforce this at verify time.
+
 Issuance MUST bind the issuer key to `claims.iss`: the Ed25519 public key used to sign MUST derive `claims.iss` per §[Identity binding](#identity-binding).
 
 #### Trust root and validation rules
@@ -516,7 +518,7 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 
 | Excluded concern | Where it lives |
 |------------------|----------------|
-| Daemon / shared runtime | Protocol repo is wire + spec only; runtimes are product-owned (reference spike `crates/spoke-connect` stays unpublished) |
+| Daemon / shared runtime | Protocol repo is wire + spec only; runtimes are product-owned (the published reference crate `crates/spoke-connect` demonstrates transports and the binding surface, not a product runtime) |
 | Ranking / retrieval / routing scores | Product-local |
 | DHT / NAT traversal (Kademlia, Gossipsub, circuit relay) | Not in this protocol version; wire carries no multiaddr/DHT fields |
 | Op semantics (upsert/check/assemble fields) | Ops wire (`schemas/ops/`) — invoke `payload` is opaque |
@@ -553,13 +555,13 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 
 ## Non-goals (connect)
 
-- Runtime / networking code (reference-stack spike is separate and unpublished)
+- Runtime / networking code (the published reference crate `crates/spoke-connect` ships its libp2p transport and uniffi binding surface alongside the session core; runtime placement stays product-owned)
 - `did` auth method (reserved `method` name only)
 - Capability-token revocation lists, refresh tokens, and protocol-level token issuance endpoints (offline validation only — see [§Method — capability-token](#method--capability-token))
 - Kademlia / DHT discovery, Gossipsub, circuit relay / NAT traversal on the wire
 - mDNS as a wire concept or default discovery mechanism
 - TypeScript connectivity SDK or binding decisions
-- Publishing anything (no npm / crates.io changes for connect)
+- Registry publish outside the `release.yml` stable-tag gate (all connect surfaces ship lockstep via the top-level release workflow — see [`connect-publish-strategy.md`](connect-publish-strategy.md))
 - Changing baseline capability requirements or existing ops schemas
 - Re-defining `HostCapabilityManifest` fields (embed by `$ref` only)
 - Connect envelope shape changes for new ops families (registration uses vocabulary + capabilities + opaque payload)

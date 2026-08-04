@@ -23,7 +23,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/42ch-dev/spoke"
 Repository = "https://github.com/42ch-dev/spoke"
-Documentation = "https://github.com/42ch-dev/spoke/blob/main/docs/connect/bindings.md"
+Documentation = "https://github.com/42ch-dev/spoke/blob/main/docs/how-to/connect-native-bindings.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

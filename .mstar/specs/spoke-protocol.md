@@ -138,8 +138,10 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `tooling/codegen/` | Codegen runner (not published) |
 | `packages/spoke-schemas/` | Generated TypeScript |
 | `packages/spoke-operations/` | Hand-written TypeScript operations library — pure helpers plus injected adapter ports/orchestration |
+| `packages/spoke-connect-ts/` | TypeScript connect client — published as `@42ch/spoke-connect` |
 | `crates/spoke-schemas/` | Generated Rust wire types |
 | `crates/spoke-operations/` | Hand-written Rust operations library — behavioral port of TS helpers plus injected adapter traits/orchestration |
+| `crates/spoke-connect/` | Rust connect reference — session core, libp2p transport, uniffi binding surface (`bindings/`); published as `spoke-connect` |
 | `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; `@42ch/spoke-fixture-toy-world`) + reference `ToyWorldAdapter` (TS: `src/adapter/`; Rust: `rust/` crate `spoke-fixture-toy-world`, `publish = false`) |
 
 ## v0.1 acceptance (umbrella)
@@ -175,7 +177,7 @@ Current wire bar: eight data objects (including `HostCapabilityManifest`, `Rule`
 | Required WASM / compute engines in protocol | Optional `l2-computable` shapes I/O only — engines are product-owned |
 | Fork merge / rebase engines and world-history stores | Product-owned — protocol documents interchange fields only (`fork_id`, `parent_fork_id`, `Scope.fork_id`) |
 | Shared runtime, daemon, or MCP server | Protocol repo only |
-| npm/crates.io publish (including from CI) | Stable-tag registry publish via `release.yml`; fixture and codegen packages remain private |
+| Ad-hoc or unversioned registry publish | Registry publish happens only from stable tags via the top-level `release.yml` (Trusted Publishing); fixture and codegen packages remain private |
 
 ## Roadmap pointer
 

@@ -1,12 +1,12 @@
 ---
 module: spoke-connect
 date: 2026-08-01
-last_updated: 2026-08-02
+last_updated: 2026-08-04
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["extracting a pure session core for cross-language binding", "preparing a Rust crate for a uniffi FFI boundary", "deciding sync vs async surfaces on a foreign-language facade", "landing a first uniffi binding skeleton (Swift, Kotlin, …)", "verifying a community bindgen pipeline against the repo's pinned uniffi version"]
-tags: [spoke-connect, session-core, ffi-boundary, uniffi, swift, path-b, golden-vectors, csharp]
+applies_when: ["extracting a pure session core for cross-language binding", "preparing a Rust crate for a uniffi FFI boundary", "deciding sync vs async surfaces on a foreign-language facade", "landing a first uniffi binding skeleton (Swift, Kotlin, …)", "verifying a community bindgen pipeline against the repo's pinned uniffi version", "auditing TS↔Rust session-core parity surface and the helper boundary"]
+tags: [spoke-connect, session-core, ffi-boundary, uniffi, swift, path-b, golden-vectors, csharp, ts-rust-parity, helper-boundary]
 ---
 
 # connect session-core extraction and FFI facade boundary
@@ -52,7 +52,7 @@ Keys cross the boundary as raw bytes (`&[u8; 32]`), peer ids as strings, payload
 
 ### Landed Swift skeleton: uniffi proc-macro, JSON-string boundary
 
-The first binding (Swift, macOS) ships behind the non-default `ffi` feature via **uniffi 0.32 proc-macros — no `.udl` file**: `#[uniffi::export]` on free functions and object impl blocks, `#[derive(uniffi::Object)]` + `#[uniffi::constructor]` for stateful objects, `#[derive(uniffi::Error)]` for the error enums. The `bindgen-cli` feature (`uniffi/cli`) builds a crate-local `uniffi-bindgen` binary; generation runs `generate --library <cdylib>` against the `ffi`-built `cdylib` (`crate-type = ["rlib", "cdylib"]`, `publish = false`), so the uniffi 0.32 line needs no installable CLI crate.
+The first binding (Swift, macOS) ships behind the non-default `ffi` feature via **uniffi 0.32 proc-macros — no `.udl` file**: `#[uniffi::export]` on free functions and object impl blocks, `#[derive(uniffi::Object)]` + `#[uniffi::constructor]` for stateful objects, `#[derive(uniffi::Error)]` for the error enums. The `bindgen-cli` feature (`uniffi/cli`) builds a crate-local `uniffi-bindgen` binary; generation runs `generate --library <cdylib>` against the `ffi`-built `cdylib` (`crate-type = ["rlib", "cdylib"]`), so the uniffi 0.32 line needs no installable CLI crate.
 
 Boundary conventions the wrapper encodes:
 
@@ -66,15 +66,15 @@ Boundary conventions the wrapper encodes:
 
 ### Target-language matrix
 
-Order binding targets by uniffi maturity and product value; record the decision in the crate README so the next slice starts from a settled surface. Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin** — Swift remains the first **landed** skeleton; the order governs future binding work.
+The matrix records the landing order (priority per product direction, 2026-08-02: C#, Go, Python, Swift, Kotlin). All five targets are landed; each package ships on its own channel under the lockstep tag gate — see [`connect-publish-strategy.md`](../../specs/connect-publish-strategy.md) §7 for the current channel matrix.
 
 | Language | Embedding path | Priority |
 |---|---|---|
-| C# | Path B uniffi | **First target — landed** — desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (see binding-pipeline verification below) |
-| Go | Path B uniffi | Second — server/CLI hosts; community `uniffi-bindgen-go` |
-| Python | Path B uniffi | Third — async FFI / asyncio is historically finicky; core-only first |
-| Swift (iOS / macOS) | Path B uniffi | Fourth — **landed skeleton** (sync-core, core-only, macOS smoke) |
-| Kotlin (Android) | Path B uniffi | Fifth — same uniffi pipeline as Swift |
+| C# | Path B uniffi | **First — landed** — desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (see binding-pipeline verification below); NuGet `42ch.Spoke.Connect` on GitHub Packages |
+| Go | Path B uniffi | Second — **landed** — Go modules under `crates/spoke-connect/bindings/go` (golden-parity smoke) |
+| Python | Path B uniffi | Third — **landed** — PyPI `spoke-connect` platform wheels via Trusted Publishing OIDC (golden-parity smoke) |
+| Swift (iOS / macOS) | Path B uniffi | Fourth — **landed** — SPM product `SpokeConnect` from the repo at `vX.Y.Z` tags |
+| Kotlin (Android) | Path B uniffi | Fifth — **landed** — GitHub Packages Maven `dev.42ch:spoke-connect` via `publish-maven` |
 | TypeScript (browser / Node) | **Path A** language-direct | Parallel track — no uniffi/WASM assumed; decided by the TS route |
 
 ### Binding pipeline verification (community bindgens lag uniffi)
@@ -95,12 +95,39 @@ Community uniffi bindgen tools (C#/Go/Python) may lag the repo's pinned uniffi l
 
 An FFI boundary is a compatibility contract: once a foreign language imports the sync core, every subsequent core change is a breaking change for that language. Keeping the core pure keeps the contract small, testable, and byte-stable; keeping it sync means the first binding needs no runtime bridge at all. The landed Swift skeleton validates both claims end-to-end: the same eight-function surface crossed a real FFI boundary with no generated schema types on the wire and no tokio on the foreign side, and its golden-vector checks prove byte parity from a second language. The golden-vector discipline makes byte parity across languages an executable assertion instead of a hope, and the module boundary prevents transport concerns (dial state, identify buffering, stream lifecycle) from leaking into the portable rules.
 
+## Session-core TS↔Rust parity surface (and the helper boundary)
+
+The pure core in `crates/spoke-connect/src/core/` is mirrored by the TS client in `packages/spoke-connect-ts/src/core/`. The two sides implement the same session rules; the parity surface is the contract. Items inside the surface must agree on accept/reject outcomes; items outside the surface are host-runtime conveniences that one side may ship without the other.
+
+**Inside the parity surface (rules — both sides match):**
+
+| Rule | TS surface | Rust surface |
+|------|------------|--------------|
+| `peer_id` derivation + reverse-for-token-verify | `derivePeerIdFromEd25519Pubkey`, `ed25519PubkeyFromPeerId` (128-char decode cap) | `derive_peer_id_from_ed25519_pubkey`, `ed25519_pubkey_from_peer_id` (`MAX_PEER_ID_DECODE_INPUT_LEN = 128`) |
+| Hello JCS sign/verify (`spoke-connect-hello-jcs-v1`) | `signHelloEd25519`, `verifyHelloEd25519` | `sign_hello_ed25519`, `verify_hello_ed25519` |
+| Nonce single-use store | `NonceStore`, `generateNonce` | `NonceStore` |
+| Allowlist | `isAllowlisted` | `is_allowlisted` |
+| Sequence (per-direction, monotonic from 0, no wrap) | `OutboundSequence`, `InboundSequence`, `MAX_SEQUENCE` | `OutboundSequence`, `InboundSequence`, `MAX_SEQUENCE` |
+| Response correlation | `checkResponseCorrelation`, `correlationFromRequest`, `correlationFromResponse` | `check_response_correlation`, `Correlation::from(&request)`, `Correlation::from(&response)` |
+| Capability-token auth (issue + verify, canonical-sig, issuance ergonomics, `CLOCK_SKEW_SECONDS`) | `issueCapabilityToken`, `verifyCapabilityToken` | `issue_capability_token`, `verify_capability_token` |
+| Op dispatch gate + token-grant membership | `dispatchAllowed`, `requiredCapability`, `tokenAuthorizesOp` | `dispatch_allowed`, `required_capability`, `token_authorizes_op` |
+
+**Outside the parity surface (host-runtime conveniences — intentional asymmetry):**
+
+- TS exposes a thin `Session` class, `negotiatedCapabilities` helper, `SessionOptions`, and a `generateNonce` CSPRNG helper under `src/core/` for direct client consumers (browser/Node).
+- Rust keeps the equivalent session state (`PeerSession`), capability intersection, and runtime helpers in the transport layer (`src/session.rs`, `src/runtime.rs`, `src/node.rs`) because the Rust reference stack already owns the libp2p transport that hosts those concerns.
+
+The asymmetry is **intentional**: the parity contract scopes to rules, not thin wrappers. Adding a `Session` class to the Rust core would duplicate state the transport layer already owns; removing it from TS would harm direct-client ergonomics. Document the boundary in the parity spec (`.mstar/specs/spoke-connect-ts-route.md` §Session-core parity) so future language ports know what to mirror (rules) and what to leave host-local (thin session wrappers).
+
+When the core rules change, update both sides in the same release (lockstep SemVer on the `@42ch/spoke-connect` npm and `spoke-connect` crates.io packages). Cross-language golden vectors + round-trip parity tests catch coordinated drift that same-language tests cannot see.
+
 ## When to Apply
 
 - Preparing any Rust crate for a uniffi/bindgen boundary — extract the pure rules first, then freeze a minimal `Send + Sync` facade with private internals.
-- Porting connect session rules to a new language (Path A) — port against the pure core's behavior and golden vectors, not against spike internals.
+- Porting connect session rules to a new language (Path A) — port against the pure core's behavior and golden vectors, not against transport internals.
 - Choosing what a first binding skeleton exposes — start with the sync session rules; leave the async node lifecycle for the slice that solves runtime bridging.
 - Landing a first uniffi skeleton — export with proc-macros (no UDL), gate the surface behind a non-default feature + `cdylib`, keep generated bindings gitignored and scripted, and run a local-language smoke while CI exercises only the Rust surface.
+- Auditing TS↔Rust session-core parity — confirm every rule in the surface table above is mirrored; treat the `Session` / `negotiatedCapabilities` / `generateNonce` helper asymmetry as the documented boundary, not a defect to close.
 
 ## Examples
 

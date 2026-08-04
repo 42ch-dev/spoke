@@ -47,11 +47,14 @@
 //! All waits are bounded event waits (timeouts on `connect` / `invoke`
 //! futures) — no sleep-based synchronization.
 
-use ed25519_dalek::SigningKey;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use ed25519_dalek::{Signature, Signer, SigningKey};
 use libp2p::identity::Keypair;
 use libp2p::{Multiaddr, PeerId};
 use spoke_connect::core::{
     derive_peer_id_from_ed25519_pubkey, issue_capability_token, CapabilityClaims,
+    CapabilityTokenProof, TOKEN_VERSION,
 };
 use spoke_connect::{parse_multiaddr, ConnectConfig, ConnectError, InvokeError, SpokeConnectNode};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
@@ -193,13 +196,15 @@ fn issuer_peer_id(issuer_secret: &[u8; 32]) -> String {
 
 /// Mint a capability-token proof from `issuer_secret` for `subject` to
 /// present to `audience`, serialized as the wire `proof` object (`{ v,
-/// claims, sig }`).
+/// claims, sig }`). Issues with `now` (Unix seconds) and a one-hour
+/// lifetime (`exp = now + 3600`) — well-formed claims that pass the
+/// issuance-time guards.
 fn token_proof(
     issuer_secret: &[u8; 32],
     subject: &str,
     audience: &str,
     capabilities: &[&str],
-    exp: u64,
+    now: u64,
 ) -> serde_json::Value {
     let proof = issue_capability_token(
         issuer_secret,
@@ -208,23 +213,41 @@ fn token_proof(
             sub: subject.to_string(),
             aud: audience.to_string(),
             capabilities: capabilities.iter().map(|c| (*c).to_string()).collect(),
-            exp,
+            exp: now + 3600,
             iat: None,
             jti: None,
         },
+        now,
     )
-    .expect("issuer key derives iss");
+    .expect("issuer key derives iss and claims pass the issuance guards");
     serde_json::to_value(&proof).expect("proof serializes")
+}
+
+/// Sign arbitrary claims with `issuer_secret` directly (same bytes as the
+/// issue body), **bypassing** the issuance-time guards — for adversarial
+/// fixtures only (e.g. already-expired tokens the guarded issuer refuses
+/// to mint).
+fn token_proof_raw(issuer_secret: &[u8; 32], claims: CapabilityClaims) -> serde_json::Value {
+    let signing_key = SigningKey::from_bytes(issuer_secret);
+    let bytes = serde_jcs::to_vec(&claims).expect("claims canonicalize");
+    let signature: Signature = signing_key.sign(&bytes);
+    serde_json::to_value(CapabilityTokenProof {
+        v: TOKEN_VERSION,
+        claims,
+        sig: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
+    })
+    .expect("proof serializes")
 }
 
 /// A challenge-response token provider for `subject`: mints a token from
 /// `issuer_secret` for the challenger as the audience (so the returned proof
-/// carries `sub` = `subject` and `aud` = the challenger's peer id).
+/// carries `sub` = `subject` and `aud` = the challenger's peer id), issued
+/// at `now` with a one-hour lifetime.
 fn provider(
     issuer_secret: [u8; 32],
     subject: PeerId,
     capabilities: Vec<String>,
-    exp: u64,
+    now: u64,
 ) -> Arc<spoke_connect::CapabilityTokenProvider> {
     Arc::new(move |audience: &str| {
         let proof = issue_capability_token(
@@ -234,10 +257,11 @@ fn provider(
                 sub: subject.to_string(),
                 aud: audience.to_string(),
                 capabilities: capabilities.clone(),
-                exp,
+                exp: now + 3600,
                 iat: None,
                 jti: None,
             },
+            now,
         )
         .map_err(|e| e.to_string())?;
         serde_json::to_value(&proof).map_err(|e| e.to_string())
@@ -1091,7 +1115,7 @@ async fn capability_token_challenge_authorizes_invokes() {
         issuer_secret,
         peer_a,
         vec!["spoke-baseline".into()],
-        now_plus(3600),
+        now_plus(0),
     ));
     let mut cfg_b = config(
         key_b,
@@ -1109,7 +1133,7 @@ async fn capability_token_challenge_authorizes_invokes() {
         issuer_secret,
         peer_b,
         vec!["spoke-baseline".into()],
-        now_plus(3600),
+        now_plus(0),
     ));
     let node_a = SpokeConnectNode::start(cfg_a).await.expect("a starts");
     let node_b = SpokeConnectNode::start(cfg_b).await.expect("b starts");
@@ -1206,20 +1230,28 @@ async fn require_token_receiver_rejects_unauthenticated_invokes() {
         &peer_a.to_string(),
         &peer_b.to_string(),
         &["spoke-baseline"],
-        now_plus(3600),
+        now_plus(0),
     );
     session
         .invoke_with_auth("check", check_request(), Some(auth))
         .await
         .expect("per-invoke auth with a valid token is accepted");
 
-    // Expired token: rejected with auth_failed.
-    let expired = token_proof(
+    // Expired token: rejected with auth_failed. The claims are already
+    // unverifiable (exp in the past), which the issuance-time guards refuse
+    // to mint — sign them directly with the raw helper for this
+    // verify-side fixture.
+    let expired = token_proof_raw(
         &issuer_secret,
-        &peer_a.to_string(),
-        &peer_b.to_string(),
-        &["spoke-baseline"],
-        now_plus(0).saturating_sub(60),
+        CapabilityClaims {
+            iss: issuer_peer_id(&issuer_secret),
+            sub: peer_a.to_string(),
+            aud: peer_b.to_string(),
+            capabilities: vec!["spoke-baseline".into()],
+            exp: now_plus(0).saturating_sub(60),
+            iat: None,
+            jti: None,
+        },
     );
     let err = session
         .invoke_with_auth("check", check_request(), Some(expired))
@@ -1295,7 +1327,7 @@ async fn per_invoke_auth_validated_when_require_flag_false() {
         &peer_a.to_string(),
         &peer_b.to_string(),
         &["spoke-baseline"],
-        now_plus(3600),
+        now_plus(0),
     );
     session
         .invoke_with_auth("check", check_request(), Some(auth))
@@ -1308,7 +1340,7 @@ async fn per_invoke_auth_validated_when_require_flag_false() {
         &peer_a.to_string(),
         &peer_b.to_string(),
         &["spoke-baseline"],
-        now_plus(3600),
+        now_plus(0),
     );
     let err = session
         .invoke_with_auth("check", check_request(), Some(untrusted))
@@ -1326,7 +1358,7 @@ async fn per_invoke_auth_validated_when_require_flag_false() {
         &peer_a.to_string(),
         &peer_b.to_string(),
         &["spoke-baseline"],
-        now_plus(3600),
+        now_plus(0),
     );
     tampered["claims"]["capabilities"] = serde_json::json!(["spoke-baseline", "l2-computable"]);
     let err = session
@@ -1399,7 +1431,7 @@ async fn token_grant_capability_membership_gates_dispatch() {
         &peer_a.to_string(),
         &peer_b.to_string(),
         &["spoke-baseline"],
-        now_plus(3600),
+        now_plus(0),
     );
     let err = session
         .invoke_with_auth(
@@ -1426,7 +1458,7 @@ async fn token_grant_capability_membership_gates_dispatch() {
         &peer_a.to_string(),
         &peer_b.to_string(),
         &["spoke-baseline", "l2-computable", "unused-extra"],
-        now_plus(3600),
+        now_plus(0),
     );
     session
         .invoke_with_auth(

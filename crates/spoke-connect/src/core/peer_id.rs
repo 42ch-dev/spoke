@@ -18,6 +18,11 @@
 /// Bitcoin alphabet (base58btc), as used by libp2p's `bs58` encoding.
 const BITCOIN_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
+/// Max base58 input length accepted by [`ed25519_pubkey_from_peer_id`].
+/// Valid Ed25519 peer ids are ≤52 chars; this ceiling rejects adversarial
+/// over-long inputs before O(n²) base58 decode (parity with TS).
+const MAX_PEER_ID_DECODE_INPUT_LEN: usize = 128;
+
 /// Derive the wire `peer_id` string for an Ed25519 public key.
 #[must_use]
 pub fn derive_peer_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> String {
@@ -56,6 +61,9 @@ pub fn derive_peer_id_from_ed25519_pubkey(pubkey: &[u8; 32]) -> String {
 /// token signature.
 #[must_use]
 pub fn ed25519_pubkey_from_peer_id(peer_id: &str) -> Option<[u8; 32]> {
+    if peer_id.len() > MAX_PEER_ID_DECODE_INPUT_LEN {
+        return None;
+    }
     let bytes = base58_decode(peer_id)?;
     // Identity multihash (code 0x00, length 0x24 = 36) with the protobuf
     // `PublicKey` message as the digest (38 bytes total).
@@ -243,5 +251,28 @@ mod tests {
         );
         assert_eq!(ed25519_pubkey_from_peer_id("12D3KooW"), None);
         assert_eq!(ed25519_pubkey_from_peer_id(""), None);
+    }
+
+    #[test]
+    fn over_long_peer_id_fails_closed_before_decode() {
+        // 130 chars of the base58btc alphabet: structurally decodable, but
+        // beyond the decode-input ceiling — must fail closed in O(1) instead
+        // of burning O(n²) base58 work (parity with TS `peerId.length > 128`).
+        let over_long = "1".repeat(130);
+        assert_eq!(
+            ed25519_pubkey_from_peer_id(&over_long),
+            None,
+            "over-long peer id must reject before decode"
+        );
+        // Exactly at the ceiling is still rejected on structural grounds
+        // (38-byte identity multihash, not length): the cap is a DoS
+        // ceiling, not a structural allowance.
+        let at_ceiling = "1".repeat(MAX_PEER_ID_DECODE_INPUT_LEN);
+        assert_eq!(ed25519_pubkey_from_peer_id(&at_ceiling), None);
+        // A real (≤52-char) peer id is unaffected by the cap.
+        assert_eq!(
+            ed25519_pubkey_from_peer_id(&golden().peer_id),
+            Some(golden_pubkey())
+        );
     }
 }

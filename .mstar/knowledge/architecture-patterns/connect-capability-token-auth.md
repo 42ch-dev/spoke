@@ -1,11 +1,12 @@
 ---
 module: spoke-connect
 date: 2026-08-01
+last_updated: 2026-08-04
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["implementing step-up or delegated capability auth on a connect session", "designing token-based auth for a connect product", "extending the capability-token method (revocation, refresh)", "porting the capability-token rules to another language"]
-tags: [spoke-connect, capability-token, auth, jcs, ed25519, trusted-issuers, offline-validation, step-up]
+applies_when: ["implementing step-up or delegated capability auth on a connect session", "designing token-based auth for a connect product", "extending the capability-token method (revocation, refresh)", "porting the capability-token rules to another language", "issuing capability tokens in Rust or TS (issuance-side fail-fast)"]
+tags: [spoke-connect, capability-token, auth, jcs, ed25519, trusted-issuers, offline-validation, step-up, canonical-base64url, issuance-ergonomics, ts-rust-parity]
 ---
 
 # capability-token auth method (step-up capability grant)
@@ -36,6 +37,18 @@ tags: [spoke-connect, capability-token, auth, jcs, ed25519, trusted-issuers, off
 | `exp` | Required; reject when `now >= exp` |
 | `iat` | When present, must not be beyond the ±60 s clock-skew window ahead of `now` (`CLOCK_SKEW_SECONDS`); past `iat` is always accepted |
 | `jti` | When present, must be non-empty; **not consulted by protocol version 1 validation — reserved for a future revocation design** |
+
+### Issuance-side fail-fast (TS↔Rust parity)
+
+Both the TS client (`issueCapabilityToken`) and the Rust reference (`issue_capability_token`) apply the same **pre-signing** shape + time + non-empty-capabilities guards so a token that the verifier would deterministically reject never gets signed. The Rust signature is `issue_capability_token(issuer_secret, claims, now: u64) -> Result<CapabilityTokenProof, CoreError>` — `now` is the required 3rd positional `u64` (Unix seconds; pure core has no wall clock). TS exposes the same rule with an optional `now?` that defaults to the wall clock.
+
+Check order (both sides, identical): non-empty `capabilities` → `exp > now + CLOCK_SKEW_SECONDS` → `iat <= now + CLOCK_SKEW_SECONDS` (when present) → derived-issuer equality (`claims.iss` matches the issuer key) → JCS → sign. All failures return the `TokenInvalid` family. Verify-time rules are unchanged — the issuance guards only fail-fast on inputs that would otherwise burn a signature on an unverifiable token.
+
+For adversarial already-expired test fixtures that must be issued **past** the new guards, sign with the raw `SigningKey` + `serde_jcs::to_vec` + `URL_SAFE_NO_PAD.encode` directly in a test-local helper (the `two_node_exchange` integration test ships a `token_proof_raw` helper for exactly this case). Keep production issuers on the guarded path.
+
+### Canonical base64url signature (TS↔Rust parity)
+
+The `sig` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Both verify paths run a `decode → encode` round-trip equality check that rejects any non-canonical encoding of the final character's slack bits. The check is **load-bearing on the TS side** (TS uses an `atob`-derived slack-lenient decoder) and **defense-in-depth on the Rust side** (`base64` 0.22 `URL_SAFE_NO_PAD` strict config already rejects non-zero slack bits at decode). Both sides keep the check — see [`base64-canonical-sig-ts-rust-parity.md`](base64-canonical-sig-ts-rust-parity.md) for the rationale and the slack-bit mutation formula for the cross-language test fixture.
 
 ### base58btc inverse peer-id decode
 

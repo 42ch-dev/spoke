@@ -37,9 +37,9 @@ SPOKE 在所有 workspace 软件包与 Rust 消费方 crate 上发布**单一锁
 
 软件包 SemVer 与整数线上 `schema_version` 独立变动 —— 一方的升版不要求另一方升版。作为例外，当一次发布同时覆盖软件包升版与线上变更时，发布说明会显式耦合两者。
 
-## 规范参考
+## 更多资源
 
-- [spoke-version-release.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-version-release.md) —— 锁步面、标签约定、CI 要求、消费方固定
 - [CHANGELOG.md](https://github.com/42ch-dev/spoke/blob/main/CHANGELOG.md) —— 发布说明
 - [GitHub Releases](https://github.com/42ch-dev/spoke/releases) —— 发布物与源码归档
+- npm 上的 [@42ch/spoke-schemas](https://www.npmjs.com/package/@42ch/spoke-schemas) / crates.io 上的 [spoke-schemas](https://crates.io/crates/spoke-schemas) —— 已发布软件包
 - [README.md](https://github.com/42ch-dev/spoke/blob/main/README.md) —— 安装与固定示例

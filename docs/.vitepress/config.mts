@@ -22,47 +22,57 @@ const base = '/'
 // no separate `selectText`/`langLabel` switch keys; those exist only for the
 // search widgets, so the `label` field is the sole switch affordance here.)
 
-// English nav + sidebar (mirrors the former EN-only `themeConfig`).
+// Diátaxis quadrants: Tutorials → How-to guides → Reference → Explanation.
+// The "Maintainers" sidebar item links out to root `CONTRIBUTING.md` — the
+// release-cut procedure is maintainer-facing and lives there, not on the
+// integrator site.
+
 const enNav = [
   { text: 'Home', link: '/' },
-  { text: 'Protocol', link: '/guide/protocol' },
-  { text: 'Guides', link: '/guide/concepts' },
-  { text: 'Connect', link: '/connect/overview' },
+  { text: 'Tutorials', link: '/tutorials/install-and-first-entry' },
+  { text: 'How-to', link: '/how-to/implement-adapter' },
+  { text: 'Reference', link: '/reference/protocol' },
+  { text: 'Explanation', link: '/explanation/concepts' },
   { text: 'Packages', link: '/packages/quick-start' },
   { text: 'Release', link: '/release/versioning' },
 ]
 
 const enSidebar = [
   {
-    text: 'Guides',
+    text: 'Tutorials',
     collapsed: false,
     items: [
-      { text: 'Concepts', link: '/guide/concepts' },
-      { text: 'Protocol umbrella', link: '/guide/protocol' },
-      { text: 'Layers & capabilities', link: '/guide/layers' },
-      { text: 'Data model', link: '/guide/data-model' },
-      { text: 'Ops wire', link: '/guide/ops-wire' },
-      { text: 'Operations library', link: '/guide/operations-library' },
-      { text: 'Extensions & modules', link: '/guide/extensions-modules' },
+      { text: 'Install & first entry', link: '/tutorials/install-and-first-entry' },
+      { text: 'First connect session', link: '/tutorials/first-connect-session' },
     ],
   },
   {
-    text: 'Domain Profiles',
+    text: 'How-to guides',
     collapsed: false,
     items: [
-      { text: 'Narrative structure', link: '/profiles/narrative-structure' },
-      { text: 'Lore activation', link: '/profiles/lore-activation' },
-      { text: 'Knowledge pack', link: '/profiles/knowledge-pack' },
-      { text: 'Assemble module recipes', link: '/profiles/assemble-recipes' },
+      { text: 'Implement an adapter', link: '/how-to/implement-adapter' },
+      { text: 'Orchestrate operations', link: '/how-to/orchestrate-ops' },
+      { text: 'TypeScript client', link: '/how-to/connect-ts-client' },
+      { text: 'Native bindings', link: '/how-to/connect-native-bindings' },
+      { text: 'ToyWorld reference adapter', link: '/how-to/walk-toy-world' },
     ],
   },
   {
-    text: 'Connect',
+    text: 'Reference',
     collapsed: false,
     items: [
-      { text: 'Overview', link: '/connect/overview' },
-      { text: 'TypeScript route', link: '/connect/ts-route' },
-      { text: 'Native bindings', link: '/connect/bindings' },
+      { text: 'Protocol', link: '/reference/protocol' },
+      { text: 'Data model', link: '/reference/data-model' },
+      { text: 'Ops wire', link: '/reference/ops' },
+      { text: 'Connect', link: '/reference/connect' },
+    ],
+  },
+  {
+    text: 'Explanation',
+    collapsed: false,
+    items: [
+      { text: 'Concepts', link: '/explanation/concepts' },
+      { text: 'Domain profiles', link: '/explanation/domain-profiles' },
     ],
   },
   {
@@ -75,52 +85,68 @@ const enSidebar = [
     collapsed: false,
     items: [{ text: 'Version & release', link: '/release/versioning' }],
   },
+  {
+    text: 'Maintainers',
+    collapsed: false,
+    items: [
+      {
+        text: 'CONTRIBUTING.md',
+        link: 'https://github.com/42ch-dev/spoke/blob/main/CONTRIBUTING.md',
+      },
+    ],
+  },
 ]
 
 // 简体中文 nav + sidebar — CN labels follow the docs i18n glossary; link
-// targets point into the `/zh/` tree, one twin per EN page (same 17-page
-// scope). EN wire identifiers (KnowledgeEntry, ops, connect …) are kept
-// verbatim per the SSOT rule.
+// targets point into the `/zh/` tree, one twin per EN page. EN wire
+// identifiers (KnowledgeEntry, ops, connect …) are kept verbatim per the SSOT
+// rule.
 const zhNav = [
   { text: '首页', link: '/zh/' },
-  { text: '协议', link: '/zh/guide/protocol' },
-  { text: '指南', link: '/zh/guide/concepts' },
-  { text: '连接', link: '/zh/connect/overview' },
+  { text: '教程', link: '/zh/tutorials/install-and-first-entry' },
+  { text: '操作指南', link: '/zh/how-to/implement-adapter' },
+  { text: '参考', link: '/zh/reference/protocol' },
+  { text: '讲解', link: '/zh/explanation/concepts' },
   { text: '软件包', link: '/zh/packages/quick-start' },
   { text: '发布', link: '/zh/release/versioning' },
 ]
 
 const zhSidebar = [
   {
-    text: '指南',
+    text: '教程',
     collapsed: false,
     items: [
-      { text: '核心概念', link: '/zh/guide/concepts' },
-      { text: '协议总览', link: '/zh/guide/protocol' },
-      { text: '分层与能力', link: '/zh/guide/layers' },
-      { text: '数据模型', link: '/zh/guide/data-model' },
-      { text: '操作线上信封（Ops wire）', link: '/zh/guide/ops-wire' },
-      { text: '操作库', link: '/zh/guide/operations-library' },
-      { text: '扩展与模块', link: '/zh/guide/extensions-modules' },
+      { text: '安装与第一条 KnowledgeEntry', link: '/zh/tutorials/install-and-first-entry' },
+      { text: '首个 connect 会话', link: '/zh/tutorials/first-connect-session' },
     ],
   },
   {
-    text: '领域画像',
+    text: '操作指南',
     collapsed: false,
     items: [
-      { text: '叙事结构', link: '/zh/profiles/narrative-structure' },
-      { text: '世界观激活（lore activation）', link: '/zh/profiles/lore-activation' },
-      { text: '知识包', link: '/zh/profiles/knowledge-pack' },
-      { text: 'assemble 模块配方', link: '/zh/profiles/assemble-recipes' },
+      { text: '实现 Adapter', link: '/zh/how-to/implement-adapter' },
+      { text: '编排操作', link: '/zh/how-to/orchestrate-ops' },
+      { text: 'TypeScript 客户端', link: '/zh/how-to/connect-ts-client' },
+      { text: '原生绑定', link: '/zh/how-to/connect-native-bindings' },
+      { text: 'ToyWorld 参考适配器', link: '/zh/how-to/walk-toy-world' },
     ],
   },
   {
-    text: '连接',
+    text: '参考',
     collapsed: false,
     items: [
-      { text: '总览', link: '/zh/connect/overview' },
-      { text: 'TypeScript 路线', link: '/zh/connect/ts-route' },
-      { text: '原生绑定', link: '/zh/connect/bindings' },
+      { text: '协议', link: '/zh/reference/protocol' },
+      { text: '数据模型', link: '/zh/reference/data-model' },
+      { text: '操作线上（Ops wire）', link: '/zh/reference/ops' },
+      { text: 'connect', link: '/zh/reference/connect' },
+    ],
+  },
+  {
+    text: '讲解',
+    collapsed: false,
+    items: [
+      { text: '核心概念', link: '/zh/explanation/concepts' },
+      { text: '领域画像', link: '/zh/explanation/domain-profiles' },
     ],
   },
   {
@@ -133,12 +159,22 @@ const zhSidebar = [
     collapsed: false,
     items: [{ text: '版本与发布', link: '/zh/release/versioning' }],
   },
+  {
+    text: '维护者',
+    collapsed: false,
+    items: [
+      {
+        text: 'CONTRIBUTING.md',
+        link: 'https://github.com/42ch-dev/spoke/blob/main/CONTRIBUTING.md',
+      },
+    ],
+  },
 ]
 
 export default defineConfig({
   title: 'SPOKE Protocol',
   description:
-    'SPOKE — Standardized Programmable Ontology Knowledge Engine. Integrator documentation: protocol, Domain Profiles, connect, packages.',
+    'SPOKE — Standardized Programmable Ontology Knowledge Engine. Integrator documentation: tutorials, how-to guides, reference, and explanation.',
   base,
   vite: {
     build: {

@@ -1,33 +1,74 @@
 ---
 module: spoke-docs
 date: 2026-08-02
+last_updated: 2026-08-04
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
-applies_when: ["building consumer-facing documentation for a protocol repository", "deploying a VitePress docs site to GitHub Pages via Actions", "linking integrator pages to read-only spec SSOTs without duplicating them"]
-tags: [docs, vitepress, github-pages, ssot-links, integrator-docs, docs-workflow, concurrency]
+applies_when: ["building consumer-facing documentation for a protocol repository", "deploying a VitePress docs site to GitHub Pages via Actions", "structuring integrator docs to serve how-to-use as the primary job", "consolidating fragmented conceptual content without losing wire facts", "removing internal agent-spec links from integrator pages"]
+tags: [docs, vitepress, github-pages, ssot-links, integrator-docs, docs-workflow, concurrency, diataxis, audience-boundary, en-cn-twin]
 ---
 
-# Integrator docs site with SSOT links (VitePress + GitHub Pages)
+# Integrator docs site with consolidated reference and zero spec links (VitePress Diátaxis)
 
 ## Context
 
-Protocol facts live in `.mstar/specs/` (normative, read-only) — integrator docs must not fork them. The SPOKE docs site (`docs/`, VitePress, 17 pages) serves integrators with summaries and procedures while pointing every normative statement back at the spec SSOT via GitHub blob links. The site deploys to GitHub Pages from Actions, and the deploy workflow carries a concurrency lesson: a naive workflow-wide cancel-in-progress group would let a docs PR run cancel an in-flight main deploy.
+Protocol facts live in `.mstar/specs/` (normative, read-only) — integrator docs must not fork them, and integrators should not have to follow `.mstar/specs/` links to verify a wire fact. The SPOKE docs site (`docs/`, VitePress) serves integrators with a Diátaxis four-quadrant layout (Tutorials / How-to guides / Reference / Explanation): the **Reference** pages carry the field tables and wire shapes integrators need to answer "what fields / what values allowed" without leaving the site, while the **Tutorials** and **How-to guides** route the two primary integrator jobs (Build an Adapter / Open a Connect session) as first-class sidebar entries. The site deploys to GitHub Pages from Actions, and the deploy workflow carries a concurrency lesson: a naive workflow-wide cancel-in-progress group would let a docs PR run cancel an in-flight main deploy.
 
 ## Guidance
 
-### Content model: integrator summary + SSOT links, no body duplication
+### Audience boundary: no `.mstar/specs/` links on integrator pages
 
-- Every page is an integrator-facing summary or procedure; anything normative (wire tables, MUST blocks, invariants) links to the spec blob (`https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/<file>.md`) instead of being copied. Pages end with a "Normative references" section listing the spec links (e.g. `docs/connect/bindings.md` → `spoke-connect.md` §Embedding model, `connect-csharp-binding.md`).
-- `.mstar/specs/` stays read-only — the single source of truth; docs pages summarize and point at it. The same policy is documented for maintainers in `CONTRIBUTING.md` (Integrator docs site section).
-- Consistency checks grep the site for copied spec tables / MUST-block duplication against the specs.
+`docs/**/*.md` (EN + CN) **must not** link to `.mstar/specs/*.md`. The agent-facing specs are an internal SSOT for contributors working in this repository; integrators consume the published packages and need wire facts on the docs site itself. The CI twin-parity + dead-link gates plus a grep for `.mstar/specs` enforce the boundary. Replace removed spec links with:
+
+- **On-site Reference field tables** for wire shapes (the consolidated `reference/{protocol,data-model,ops,connect}.md` pages lift the field tables onto the page itself).
+- **External canonical references** (RFC 8785, RFC 4648, rust-docs, npm, crates.io, GitHub source paths under `schemas/` / `packages/` / `crates/`).
+- **Root `CONCEPTS.md`** as an optional vocabulary cross-link (vocabulary SSOT, not under `.mstar/specs/`).
+
+### Diátaxis four-quadrant content model
+
+The site is organized around the four Diátaxis quadrants, each with a single integrator purpose:
+
+| Quadrant | Purpose | Pages (EN + CN 1:1 twins) |
+|----------|---------|---------------------------|
+| **Tutorials** (learning-oriented) | First-time path — install, first KnowledgeEntry round-trip, then first connect session | `tutorials/install-and-first-entry.md`, `tutorials/first-connect-session.md` |
+| **How-to guides** (problem-oriented) | The two integrator jobs: Adapter implementation + Connect usage | `how-to/implement-adapter.md`, `how-to/orchestrate-ops.md`, `how-to/connect-ts-client.md`, `how-to/connect-native-bindings.md`, `how-to/walk-toy-world.md` |
+| **Reference** (information-oriented) | Field tables and wire shapes — the on-site replacement for spec links | `reference/protocol.md`, `reference/data-model.md`, `reference/ops.md`, `reference/connect.md` |
+| **Explanation** (understanding-oriented) | Key statements and vocabulary — no handbook sprawl | `explanation/concepts.md` (layers L0–L8 + capability flags + dual-concern pairs), `explanation/domain-profiles.md` (per-profile key statements + published open-string vocabulary tables) |
+
+Plus `packages/quick-start.md` (install pins) and `release/versioning.md` (lockstep SemVer) as standalone pages referenced from the tutorials and sidebar. The home page (`docs/index.md`) carries two primary CTAs that route both jobs in one click: **"Build an Adapter"** → `how-to/implement-adapter`, **"Open a Connect session"** → `tutorials/first-connect-session`.
+
+**Affirmative facts only** on every integrator page: state what the protocol and packages do, not what they do not do. No "out of scope", no anti-pattern lists, no "formerly / superseded", no agent-facing constraint tables. Negation and agent constraints belong only in root `AGENTS.md` and (when normative) in `.mstar/specs/`.
+
+### Maintainer procedure lives in `CONTRIBUTING.md`, not `docs/how-to/`
+
+Release-cut (`New release` workflow_dispatch → merge → `release.yml` publish) is a maintainer procedure that targets a different audience than the integrator docs. The sidebar links directly to root `CONTRIBUTING.md` on GitHub under a "Maintainers" group; `docs/how-to/cut-a-release` does **not** exist. The integrator-facing `docs/release/versioning.md` lockstep SemVer page stays — it serves integrators who consume published versions, not maintainers who cut them.
+
+### Wire-fact fidelity (no silent loss during consolidation)
+
+When consolidating fragmented conceptual content (e.g., merging the old 7-page `guide/` + 4-page `profiles/` + 3-page `connect/` trees into the four quadrants above), lift every normative fact onto its planned home. Facts at risk of silent loss in protocol-repo docs restructures:
+
+1. **Binding package coordinates** — inline on the native-bindings how-to (NuGet `42ch.Spoke.Connect`, Maven `dev.42ch:spoke-connect`, SPM `SpokeConnect`, Go module path, PyPI `spoke-connect`). Do not leave coordinates behind a spec link.
+2. **Domain Profile open-string vocabulary tables** — per-profile vocabulary (beat types, activation fields, pack dialect keys, placement hints) on the consolidated `explanation/domain-profiles.md`. Full mapping matrices remain agent SSOT in specs.
+3. **Schema inventory count + codegen verify posture** — explicit subsection on `reference/protocol.md` (e.g., 30 committed `*.schema.json` files; `verify-codegen` drift gate).
+4. **Discovery / peering boundary** (explicit peering as production path; mDNS as same-LAN dev convenience) — affirmative paragraph on `reference/connect.md`.
+5. **Operations purity boundary** (no I/O, storage, LLM, HTTP, ranking, retrieval, silent auto-promote) — affirmative form on `reference/ops.md` and `how-to/orchestrate-ops.md`.
 
 ### VitePress layout
 
 - `docs/` at repo root; `pnpm docs:build` is the CI gate; site config in `docs/.vitepress/config.mts`.
 - `base: '/'` for the custom domain `https://spoke.42ch.dev/` (GitHub Pages project site; `*.github.io/spoke/` redirects to the custom domain). Use `base: '/spoke/'` only if the custom domain is removed and the site is served under the github.io project path again.
-- One sidebar per audience: Guides, Domain Profiles, Connect, Packages, Release.
-- Complements the EN/CN README twin and `CONTRIBUTING.md`: the site is the consumer-facing entry; maintainer / local-dev / release how-to stays in CONTRIBUTING.
+- One sidebar per Diátaxis quadrant, in both locales (EN root + `zh/` CN tree). Sidebar labels: Tutorials / How-to guides / Reference / Explanation (CN: 教程 / 操作指南 / 参考 / 讲解).
+- Maintainer release procedure linked from a "Maintainers" sidebar group to root `CONTRIBUTING.md`; no `docs/how-to/cut-a-release` page.
+- Complements the EN/CN README twin and `CONTRIBUTING.md`: the site is the consumer-facing entry; maintainer / local-dev / release how-to stays in `CONTRIBUTING.md`.
+
+### EN ↔ CN twin parity (HARD CI gate)
+
+Every page under `docs/<path>.md` has a twin at `docs/zh/<path>.md`. Page set is 1:1; `tooling/docs/twin-parity.mjs` fails the docs build on drift. Wire identifiers (`KnowledgeEntry`, `peer_id`, `orchestrateUpsert`, `ConnectHello`, …) stay EN on CN pages per the docs i18n glossary. Author EN first, CN immediately after each page to avoid drift.
+
+### GitHub Pages deploy concurrency
+
+The deploy workflow (`.github/workflows/docs.yml`) uses a **per-branch** concurrency group (e.g., `docs-${{ github.ref }}`), not workflow-wide. A workflow-wide `cancel-in-progress: true` group would let a docs PR run cancel an in-flight main deploy — a subtle race that loses the published site for the window between the cancel and the next merge. Per-branch groups let long-running main deploys finish while PR previews cancel each other freely.
 
 ### GitHub Pages deploy via Actions (SHA-pinned)
 

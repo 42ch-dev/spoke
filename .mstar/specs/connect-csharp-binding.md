@@ -5,9 +5,10 @@ facade is proven end-to-end: generated bindings plus a net8.0 golden-parity
 smoke live under `crates/spoke-connect/bindings/csharp/`. Generation uses a
 **vendored fork of `uniffi-bindgen-cs` retargeted to uniffi 0.32** (the repo's
 cdylib pin); the fork is generation-only tooling and is dropped when upstream
-tags a uniffi 0.32+ release. Swift remains the other landed binding skeleton;
-the target-language matrix keeps Go / Python / Kotlin as the remaining
-targets.
+tags a uniffi 0.32+ release. All five binding targets now live under
+`crates/spoke-connect/bindings/` (C# / Swift / Kotlin / Go / Python) — see
+[`connect-publish-strategy.md`](connect-publish-strategy.md) §7 for the landed
+channel matrix.
 
 ## Current state
 

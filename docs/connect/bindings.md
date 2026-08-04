@@ -1,10 +1,10 @@
 ---
-title: Native bindings (Path B)
+title: Native bindings
 ---
 
-# Native bindings (Path B)
+# Native bindings
 
-Path B embeds a **shared session core** into host languages through FFI: the pure, synchronous session rules (`peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate) live in one core, while transport stays in each host language. The reference implementation is the `spoke-connect` crate's **Binding facade**.
+Native bindings embed a **shared session core** into host languages through FFI: the pure, synchronous session rules (`peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate) live in one core, while transport stays in each host language. The reference implementation is the `spoke-connect` crate's **Binding facade**.
 
 ## Binding facade
 
@@ -12,7 +12,7 @@ The crate's `src/core/` is the pure, synchronous, language-portable layer — li
 
 ## Publish channels
 
-Path B bindings ship on **four channel types** (five languages), all lockstep with spoke git tags `vX.Y.Z`:
+Native bindings ship on **four channel types** (five languages), all lockstep with spoke git tags `vX.Y.Z`:
 
 | Channel | Languages | Integrator entry |
 |---------|-----------|------------------|
@@ -158,7 +158,7 @@ version = spoke_connect.protocol_version()  # 1
 
 ## Target matrix
 
-C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (SPM `SpokeConnect`), **Kotlin** (GitHub Packages Maven), **Go** (Go modules + golden-parity smoke), and **Python** (PyPI platform wheels + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md); Swift [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md); Kotlin [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md); Python [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)). TypeScript is a parallel **Path A** track (language-direct).
+C#, Go, Python, Swift, Kotlin are the target languages (priority per product direction). **C#** (NuGet), **Swift** (SPM `SpokeConnect`), **Kotlin** (GitHub Packages Maven), **Go** (Go modules + golden-parity smoke), and **Python** (PyPI platform wheels + golden-parity smoke) are landed — C# and Go via vendored uniffi bindgen forks retargeted to uniffi 0.32 ([C# decision record](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md); Go [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md); Swift [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md); Kotlin [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md); Python [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)). TypeScript is a parallel **language-native client** track.
 
 ## Integrator notes
 
@@ -168,7 +168,7 @@ C#, Go, Python, Swift, Kotlin are the target languages (priority per product dir
 
 ## Normative references
 
-- [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) §Embedding model — Path B definition and purity rules
+- [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) §Embedding model — native bindings definition and purity rules
 - [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md) — publish staging and four-channel registry split
 - [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) — per-language packaging contract (coordinates, natives, CI jobs)
 - [crates/spoke-connect/README.md#binding-facade](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md#binding-facade) — sync/async boundary, exported surface, target-language matrix

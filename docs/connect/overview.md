@@ -24,12 +24,12 @@ Connect is the opt-in **interaction envelope family** (`spoke-connect` capabilit
 
 ## Embedding model
 
-- **Path A — language-direct** — implement wire + session-core rules in the host language (the [TypeScript route](/connect/ts-route)).
-- **Path B — shared core bindings** — export a session core via FFI into host languages ([native bindings](/connect/bindings)).
+- **Language-native client** — implement wire + session-core rules in the host language (the [TypeScript route](/connect/ts-route)).
+- **Native bindings** — embed a shared session core via FFI into host languages ([native bindings](/connect/bindings)).
 
 ## Transport
 
-One JSON connect envelope per message over an ordered, reliable, bidirectional byte stream (TCP, WebSocket, yamux, libp2p request-response). Framing delimiters, retries, and payload limits are transport-adapter-owned. The Rust reference stack (`crates/spoke-connect`) demonstrates one Path B-oriented binding over rust-libp2p.
+One JSON connect envelope per message over an ordered, reliable, bidirectional byte stream (TCP, WebSocket, yamux, libp2p request-response). Framing delimiters, retries, and payload limits are transport-adapter-owned. The Rust reference (`crates/spoke-connect`) ships libp2p transport plus a uniffi binding surface.
 
 ## Normative references
 

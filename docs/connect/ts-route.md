@@ -4,7 +4,7 @@ title: TypeScript connect route
 
 # TypeScript connect route
 
-The TypeScript route for connect Path A is **pure-TS-minimal**: the envelope rules and identity math are implemented in TypeScript with pure-JS primitives (WebCrypto where available, `@noble/ed25519` fallback) — js-libp2p and WASM are the fallback routes below.
+The TypeScript connect route is the **language-native client** — **pure-TS-minimal**: the envelope rules and identity math are implemented in TypeScript with pure-JS primitives (WebCrypto where available, `@noble/ed25519` fallback) — js-libp2p and WASM are the fallback routes below.
 
 ## Route shape
 

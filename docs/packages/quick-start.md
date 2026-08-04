@@ -4,7 +4,7 @@ title: Package quick-start
 
 # Package quick-start
 
-SPOKE ships consumer packages on **lockstep SemVer** — generated wire types, hand-written operations libraries, and Connect session clients (Path A TypeScript/Rust plus Path B native bindings). Pin all surfaces you use to the same `X.Y.Z`.
+SPOKE ships consumer packages on **lockstep SemVer** — generated wire types, hand-written operations libraries, and Connect session clients (language-native TypeScript client, Rust reference, and native bindings). Pin all surfaces you use to the same `X.Y.Z`.
 
 ## TypeScript (npm)
 
@@ -32,21 +32,21 @@ spoke-operations = "X.Y.Z"
 
 ## Connect
 
-Path A session clients ship alongside the wire/operations packages at the same lockstep SemVer:
+Connect session clients ship alongside the wire/operations packages at the same lockstep SemVer:
 
 ```bash
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-- **`@42ch/spoke-connect`** — TypeScript session client (Path A).
+- **`@42ch/spoke-connect`** — TypeScript language-native client.
 
 ```bash
 cargo add spoke-connect@X.Y.Z
 ```
 
-- **`spoke-connect`** — Rust reference crate (Path A).
+- **`spoke-connect`** — Rust reference crate (libp2p transport + uniffi binding surface).
 
-Path B host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings (Path B)](/connect/bindings).
+Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings](/connect/bindings).
 
 ## Integrator path
 

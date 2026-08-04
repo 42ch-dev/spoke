@@ -26,12 +26,12 @@ connect（连接层）是 SPOKE 主机之间的**交互信封族**（interaction
 
 ## 嵌入模型
 
-- **路径 A —— 语言直连（language-direct）** —— 在宿主语言中实现线上与会话核心规则（见 [TypeScript 路线](/zh/connect/ts-route)）。
-- **路径 B —— 共享核心绑定（shared core bindings）** —— 经 FFI 将会话核心导出到宿主语言（见 [原生绑定](/zh/connect/bindings)）。
+- **语言原生客户端** —— 在宿主语言中实现线上与会话核心规则（见 [TypeScript 路线](/zh/connect/ts-route)）。
+- **原生绑定** —— 经 FFI 将共享会话核心嵌入宿主语言（见 [原生绑定](/zh/connect/bindings)）。
 
 ## 传输
 
-每条消息一个 JSON connect 信封，承载于有序、可靠、双向的字节流（TCP、WebSocket、yamux、libp2p request-response）。分帧分隔符、重试与 payload 上限由传输适配器负责。Rust 参考栈（`crates/spoke-connect`）演示了一种面向路径 B 的 rust-libp2p 绑定。
+每条消息一个 JSON connect 信封，承载于有序、可靠、双向的字节流（TCP、WebSocket、yamux、libp2p request-response）。分帧分隔符、重试与 payload 上限由传输适配器负责。Rust 参考实现（`crates/spoke-connect`）提供 libp2p 传输与 uniffi 绑定面。
 
 ## 规范参考
 

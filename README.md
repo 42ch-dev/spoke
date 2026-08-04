@@ -130,7 +130,7 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-Connect is multi-language: Path A (language-direct, e.g. TypeScript on npm) and Path B (shared session core via native bindings on four publish channels — GitHub Packages NuGet/Maven, SPM git, Go modules git, PyPI). Overview, TypeScript route, and native bindings: [Connect](https://spoke.42ch.dev/connect/overview).
+Connect is multi-language: a language-native TypeScript client on npm, a Rust reference on crates.io (libp2p + uniffi binding surface), and native bindings on four publish channels — GitHub Packages NuGet/Maven, SPM git, Go modules git, PyPI. Overview, TypeScript route, and native bindings: [Connect](https://spoke.42ch.dev/connect/overview).
 
 ## Version and pinning
 

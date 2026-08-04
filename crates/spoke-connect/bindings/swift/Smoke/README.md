@@ -60,3 +60,22 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
 
 The generated bindings live in `bindings/swift/generated/` (committed).
 The smoke binary is a local build artifact; it is gitignored.
+
+## iOS simulator golden-parity smoke
+
+The macOS `swiftc` smoke above links the debug cdylib and cannot load an
+iOS-simulator staticlib. iOS golden parity runs through the committed
+xcframework simulator slice via the maintainer-local SwiftPM package
+`bindings/swift/IosSmoke/` (not part of the SPM product layout):
+
+```bash
+cd crates/spoke-connect/bindings/swift/IosSmoke
+xcodebuild test -scheme IosSmoke-Package \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath /tmp/ios-smoke-dd
+```
+
+Named simulator devices vary per Xcode install; `-destination
+'generic/platform=iOS Simulator'` is the portable fallback. The tests assert
+the same golden triad as the macOS smoke (peer id, hello signature, protocol
+version) against the registered golden fixture copy. See `IosSmoke/README.md`.

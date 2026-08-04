@@ -1,0 +1,4 @@
+module spoke_connectFFI {
+    header "spoke_connectFFI.h"
+    export *
+}

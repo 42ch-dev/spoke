@@ -42,6 +42,7 @@ const REGISTERED_COPIES = [
   "crates/spoke-connect/bindings/csharp/Smoke/fixtures/golden-hello.json",
   "crates/spoke-connect/bindings/kotlin/Smoke/fixtures/golden-hello.json",
   "crates/spoke-connect/bindings/swift/Smoke/fixtures/golden-hello.json",
+  "crates/spoke-connect/bindings/swift/IosSmoke/Tests/IosSmokeTests/fixtures/golden-hello.json",
 ].map((p) => join(REPO_ROOT, p));
 
 const HEX64 = /^[0-9a-f]{64}$/;

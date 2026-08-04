@@ -23,5 +23,6 @@ xcodebuild test -scheme IosSmoke-Package \
 
 Named simulator devices vary per Xcode install; the portable fallback is
 `-destination 'generic/platform=iOS Simulator'`. Requires an Xcode install with
-the iOS runtime and the committed four-coverage xcframework
-(`../xcframework/spoke_connectFFI.xcframework`).
+the iOS runtime and the committed xcframework with three slices
+(`macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator`) covering four target
+triples (`../xcframework/spoke_connectFFI.xcframework`).

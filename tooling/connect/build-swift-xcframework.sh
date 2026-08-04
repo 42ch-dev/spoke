@@ -30,8 +30,10 @@ XCFRAMEWORK="${SWIFT_BINDINGS}/xcframework/spoke_connectFFI.xcframework"
 
 # Prefer nightly locally (AGENTS.md); fall back to default cargo (CI stable).
 CARGO=(cargo)
+RUSTUP_TOOLCHAIN=()
 if command -v rustup >/dev/null 2>&1 && rustup toolchain list | grep -q '^nightly'; then
   CARGO=(cargo +nightly)
+  RUSTUP_TOOLCHAIN=(--toolchain nightly)
 fi
 
 # Slice id -> Apple target triple. All four builds are explicit `--target`.
@@ -44,7 +46,8 @@ SLICES=(
 
 echo "==> assert Apple target triples installed"
 if command -v rustup >/dev/null 2>&1; then
-  INSTALLED="$(rustup target list --installed)"
+  # Assert against the same toolchain that builds (nightly locally, default in CI).
+  INSTALLED="$(rustup target list --installed "${RUSTUP_TOOLCHAIN[@]}")"
   MISSING=()
   for entry in "${SLICES[@]}"; do
     triple="${entry#*|}"
@@ -54,8 +57,11 @@ if command -v rustup >/dev/null 2>&1; then
   done
   if [[ "${#MISSING[@]}" -gt 0 ]]; then
     echo "error: missing rustup targets for xcframework slices: ${MISSING[*]}" >&2
-    echo "install with: rustup target add ${MISSING[*]}" >&2
-    echo "(add --toolchain nightly when building with cargo +nightly)" >&2
+    if [[ "${#RUSTUP_TOOLCHAIN[@]}" -gt 0 ]]; then
+      echo "install with: rustup target add --toolchain nightly ${MISSING[*]}" >&2
+    else
+      echo "install with: rustup target add ${MISSING[*]}" >&2
+    fi
     exit 1
   fi
 fi

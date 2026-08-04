@@ -95,49 +95,51 @@ export class ToyWorldAdapter implements FullAdapter {
     return new ToyWorldAdapter(MemoryStore.fromCommittedFixtures());
   }
 
-  getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+  async getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>> {
     return this.store.getKnowledgeEntry(entryId);
   }
 
-  putKnowledgeEntry(
+  async putKnowledgeEntry(
     entry: KnowledgeEntry,
     expectedBaseRevision: number | null,
-  ): SpokeResult<KnowledgeEntry> {
+  ): Promise<SpokeResult<KnowledgeEntry>> {
     return this.store.putKnowledgeEntry(entry, expectedBaseRevision);
   }
 
-  getRelation(relationId: string): SpokeResult<Relation> {
+  async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
     return this.store.getRelation(relationId);
   }
 
-  putRelation(
+  async putRelation(
     relation: Relation,
     expectedBaseRevision: number | null,
-  ): SpokeResult<Relation> {
+  ): Promise<SpokeResult<Relation>> {
     return this.store.putRelation(relation, expectedBaseRevision);
   }
 
-  listKnowledgeEntries(_scope: Scope): SpokeResult<KnowledgeEntry[]> {
+  async listKnowledgeEntries(_scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>> {
     return this.store.listKnowledgeEntries();
   }
 
-  listTimelineEvents(_scope: Scope): SpokeResult<TimelineEvent[]> {
+  async listTimelineEvents(_scope: Scope): Promise<SpokeResult<TimelineEvent[]>> {
     return this.store.listTimelineEvents();
   }
 
-  putFindings(findings: Finding[]): SpokeResult<Finding[]> {
+  async putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>> {
     return this.store.putFindings(findings);
   }
 
-  listRules(ruleRefs: string[]): SpokeResult<Rule[]> {
+  async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
     return this.store.listRules(ruleRefs);
   }
 
-  getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+  async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
     return spokeOk(cloneHostCapabilityManifest(TOY_WORLD_SELF_MANIFEST));
   }
 
-  listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
+  async listPeerHostCapabilityManifests(): Promise<
+    SpokeResult<HostCapabilityManifest[]>
+  > {
     return spokeOk(
       normalizePeerManifests(
         TOY_WORLD_SELF_MANIFEST.host_id,
@@ -151,7 +153,7 @@ export class ToyWorldAdapter implements FullAdapter {
    * Echoes request session_id / entry_id; computable shape comes from the fixture.
    * Error-envelope fixtures are rejected (parity with the Rust adapter).
    */
-  project(request: ProjectRequest): SpokeResult<ProjectResponse> {
+  async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
     const fixture = loadOpFixture<ProjectResponse>("op_tw_project_response.json");
     if ("error" in fixture && !("computable" in fixture)) {
       return spokeReject(
@@ -170,7 +172,7 @@ export class ToyWorldAdapter implements FullAdapter {
    * Minimal wire-valid ComputeResponse from committed settle response fixture.
    * When settle is true, include fixture `state`; otherwise omit it.
    */
-  compute(request: ComputeRequest): SpokeResult<ComputeResponse> {
+  async compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>> {
     const fixture = loadOpFixture<ComputeResponse>(
       "op_tw_compute_settle_response.json",
     );
@@ -192,9 +194,9 @@ export class ToyWorldAdapter implements FullAdapter {
   /**
    * Fork timeline query — seeded events filtered by scope.fork_id.
    */
-  listForkTimelineEvents(
+  async listForkTimelineEvents(
     scope: Scope & { fork_id: ForkId },
-  ): SpokeResult<TimelineEvent[]> {
+  ): Promise<SpokeResult<TimelineEvent[]>> {
     const events = this.store.events.filter(
       (event) => event.fork_id === scope.fork_id,
     );

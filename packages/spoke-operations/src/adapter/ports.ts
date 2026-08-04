@@ -1,6 +1,7 @@
 /**
  * Capability-sliced adapter port contracts for injection orchestration.
- * Synchronous SpokeResult surface — adapters own async I/O behind this boundary.
+ * Async SpokeResult surface — port methods return awaitable results; the
+ * library stays I/O-free and only awaits injected ports.
  */
 
 import type {
@@ -22,7 +23,9 @@ import type { SpokeResult } from "../result.js";
 
 /** Knowledge entry persistence — get / put by entry id. */
 export interface KnowledgeEntryPort {
-  getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>;
+  getKnowledgeEntry(
+    entryId: string,
+  ): Promise<SpokeResult<KnowledgeEntry>>;
   /**
    * Persist a KnowledgeEntry with optimistic concurrency control.
    *
@@ -37,12 +40,12 @@ export interface KnowledgeEntryPort {
   putKnowledgeEntry(
     entry: KnowledgeEntry,
     expectedBaseRevision: number | null,
-  ): SpokeResult<KnowledgeEntry>;
+  ): Promise<SpokeResult<KnowledgeEntry>>;
 }
 
 /** Relation persistence — get / put by relation id. */
 export interface RelationPort {
-  getRelation(relationId: string): SpokeResult<Relation>;
+  getRelation(relationId: string): Promise<SpokeResult<Relation>>;
   /**
    * Persist a Relation with optimistic concurrency control.
    *
@@ -62,23 +65,25 @@ export interface RelationPort {
   putRelation(
     relation: Relation,
     expectedBaseRevision: number | null,
-  ): SpokeResult<Relation>;
+  ): Promise<SpokeResult<Relation>>;
 }
 
 /** Scope query for check / assemble — knowledge entries and timeline events. */
 export interface ScopeQueryPort {
-  listKnowledgeEntries(scope: Scope): SpokeResult<KnowledgeEntry[]>;
-  listTimelineEvents(scope: Scope): SpokeResult<TimelineEvent[]>;
+  listKnowledgeEntries(
+    scope: Scope,
+  ): Promise<SpokeResult<KnowledgeEntry[]>>;
+  listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>;
 }
 
 /** Finding persistence. */
 export interface FindingPort {
-  putFindings(findings: Finding[]): SpokeResult<Finding[]>;
+  putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>>;
 }
 
 /** Rule query by reference list. */
 export interface RuleQueryPort {
-  listRules(ruleRefs: string[]): SpokeResult<Rule[]>;
+  listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>>;
 }
 
 /**
@@ -86,14 +91,16 @@ export interface RuleQueryPort {
  * Integrators call explicitly; orchestrators do not auto-fetch manifests.
  */
 export interface HostManifestPort {
-  getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest>;
-  listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]>;
+  getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>>;
+  listPeerHostCapabilityManifests(): Promise<
+    SpokeResult<HostCapabilityManifest[]>
+  >;
 }
 
 /** Optional l2-computable session — project / compute. */
 export interface ComputablePort {
-  project(request: ProjectRequest): SpokeResult<ProjectResponse>;
-  compute(request: ComputeRequest): SpokeResult<ComputeResponse>;
+  project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>;
+  compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>;
 }
 
 /**
@@ -103,7 +110,7 @@ export interface ComputablePort {
 export interface ForkTimelineQueryPort {
   listForkTimelineEvents(
     scope: Scope & { fork_id: ForkId },
-  ): SpokeResult<TimelineEvent[]>;
+  ): Promise<SpokeResult<TimelineEvent[]>>;
 }
 
 /** Ports required for spoke-baseline orchestration. */

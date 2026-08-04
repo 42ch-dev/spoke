@@ -82,10 +82,12 @@ function createHostManifestPortMock(seed?: {
   const rawPeers = seed?.peers ?? [];
 
   return {
-    getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+    async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
       return spokeOk(self);
     },
-    listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
+    async listPeerHostCapabilityManifests(): Promise<
+      SpokeResult<HostCapabilityManifest[]>
+    > {
       return spokeOk(normalizePeerManifests(self.host_id, rawPeers));
     },
   };
@@ -95,14 +97,14 @@ function createBaselinePortStub(
   hostManifest?: HostManifestPort,
 ): BaselinePorts {
   return {
-    getKnowledgeEntry: () => spokeOk({} as KnowledgeEntry),
-    putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
-    getRelation: () => spokeOk({} as Relation),
-    putRelation: (relation, _expectedBaseRevision) => spokeOk(relation),
-    listKnowledgeEntries: () => spokeOk([]),
-    listTimelineEvents: () => spokeOk([]),
-    putFindings: (findings) => spokeOk(findings),
-    listRules: () => spokeOk([]),
+    getKnowledgeEntry: async () => spokeOk({} as KnowledgeEntry),
+    putKnowledgeEntry: async (entry, _expectedBaseRevision) => spokeOk(entry),
+    getRelation: async () => spokeOk({} as Relation),
+    putRelation: async (relation, _expectedBaseRevision) => spokeOk(relation),
+    listKnowledgeEntries: async () => spokeOk([]),
+    listTimelineEvents: async () => spokeOk([]),
+    putFindings: async (findings) => spokeOk(findings),
+    listRules: async () => spokeOk([]),
     ...createHostManifestPortMock(),
     ...hostManifest,
   };
@@ -131,8 +133,8 @@ describe("adapter port exports", () => {
 
   it("RelationPort shape exposes getRelation + putRelation(relation, expectedBaseRevision)", () => {
     const relation: RelationPort = {
-      getRelation: () => spokeOk({} as Relation),
-      putRelation: (r, _expectedBaseRevision) => spokeOk(r),
+      getRelation: async () => spokeOk({} as Relation),
+      putRelation: async (r, _expectedBaseRevision) => spokeOk(r),
     };
 
     // The port requires a two-arg putRelation (OCC expectedBaseRevision) and a
@@ -146,18 +148,18 @@ describe("adapter port exports", () => {
     const baseline: BaselinePorts = createBaselinePortStub();
 
     const computable: ComputablePort = {
-      project(request: ProjectRequest): SpokeResult<ProjectResponse> {
+      async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
         return spokeOk({} as ProjectResponse);
       },
-      compute(request: ComputeRequest): SpokeResult<ComputeResponse> {
+      async compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>> {
         return spokeOk({} as ComputeResponse);
       },
     };
 
     const fork: ForkTimelineQueryPort = {
-      listForkTimelineEvents(
+      async listForkTimelineEvents(
         _scope: Scope & { fork_id: ForkId },
-      ): SpokeResult<TimelineEvent[]> {
+      ): Promise<SpokeResult<TimelineEvent[]>> {
         return spokeOk([]);
       },
     };
@@ -176,12 +178,12 @@ describe("adapter port exports", () => {
     const baseline: BaselinePorts = createBaselinePortStub();
 
     const computable: ComputablePort = {
-      project: () => spokeOk({} as ProjectResponse),
-      compute: () => spokeOk({} as ComputeResponse),
+      project: async () => spokeOk({} as ProjectResponse),
+      compute: async () => spokeOk({} as ComputeResponse),
     };
 
     const fork: ForkTimelineQueryPort = {
-      listForkTimelineEvents: () => spokeOk([]),
+      listForkTimelineEvents: async () => spokeOk([]),
     };
 
     const baselineAdapter: BaselineAdapter = baseline;
@@ -197,22 +199,22 @@ describe("adapter port exports", () => {
 
   it("individual port interfaces are assignable by method shape", () => {
     const knowledge: KnowledgeEntryPort = {
-      getKnowledgeEntry: () => spokeOk({} as KnowledgeEntry),
-      putKnowledgeEntry: (entry, _expectedBaseRevision) => spokeOk(entry),
+      getKnowledgeEntry: async () => spokeOk({} as KnowledgeEntry),
+      putKnowledgeEntry: async (entry, _expectedBaseRevision) => spokeOk(entry),
     };
     const relation: RelationPort = {
-      getRelation: () => spokeOk({} as Relation),
-      putRelation: (r, _expectedBaseRevision) => spokeOk(r),
+      getRelation: async () => spokeOk({} as Relation),
+      putRelation: async (r, _expectedBaseRevision) => spokeOk(r),
     };
     const scope: ScopeQueryPort = {
-      listKnowledgeEntries: () => spokeOk([]),
-      listTimelineEvents: () => spokeOk([]),
+      listKnowledgeEntries: async () => spokeOk([]),
+      listTimelineEvents: async () => spokeOk([]),
     };
     const finding: FindingPort = {
-      putFindings: (f) => spokeOk(f),
+      putFindings: async (f) => spokeOk(f),
     };
     const rule: RuleQueryPort = {
-      listRules: () => spokeOk([]),
+      listRules: async () => spokeOk([]),
     };
     const hostManifest: HostManifestPort = createHostManifestPortMock();
 
@@ -226,7 +228,7 @@ describe("adapter port exports", () => {
 });
 
 describe("HostManifestPort", () => {
-  it("returns the self manifest from getHostCapabilityManifest", () => {
+  it("returns the self manifest from getHostCapabilityManifest", async () => {
     const self = makeManifest({
       host_id: "adapter-self",
       namespaces: ["alpha"],
@@ -234,7 +236,7 @@ describe("HostManifestPort", () => {
     });
     const ports = createHostManifestPortMock({ self });
 
-    const result = ports.getHostCapabilityManifest();
+    const result = await ports.getHostCapabilityManifest();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -243,10 +245,10 @@ describe("HostManifestPort", () => {
     expect(result.value).toEqual(self);
   });
 
-  it("accepts an empty peer list", () => {
+  it("accepts an empty peer list", async () => {
     const ports = createHostManifestPortMock({ peers: [] });
 
-    const result = ports.listPeerHostCapabilityManifests();
+    const result = await ports.listPeerHostCapabilityManifests();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -255,7 +257,7 @@ describe("HostManifestPort", () => {
     expect(result.value).toEqual([]);
   });
 
-  it("returns seeded peer manifests with disjoint namespaces", () => {
+  it("returns seeded peer manifests with disjoint namespaces", async () => {
     const self = makeManifest({ host_id: "self-host", namespaces: ["self-ns"] });
     const peerA = makeManifest({
       host_id: "peer-a",
@@ -272,7 +274,7 @@ describe("HostManifestPort", () => {
       peers: [peerB, peerA],
     });
 
-    const result = ports.listPeerHostCapabilityManifests();
+    const result = await ports.listPeerHostCapabilityManifests();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -284,7 +286,7 @@ describe("HostManifestPort", () => {
     expect(namespaces).not.toContain("self-ns");
   });
 
-  it("excludes self, dedupes by host_id, and sorts peers ascending by host_id", () => {
+  it("excludes self, dedupes by host_id, and sorts peers ascending by host_id", async () => {
     const self = makeManifest({ host_id: "self-host", namespaces: ["self-ns"] });
     const peerZ = makeManifest({ host_id: "peer-z", namespaces: ["z-ns"] });
     const peerADupe = makeManifest({
@@ -302,7 +304,7 @@ describe("HostManifestPort", () => {
       peers: [peerZ, self, peerADupe, peerA],
     });
 
-    const result = ports.listPeerHostCapabilityManifests();
+    const result = await ports.listPeerHostCapabilityManifests();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {

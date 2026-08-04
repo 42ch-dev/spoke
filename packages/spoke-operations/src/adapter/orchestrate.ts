@@ -69,11 +69,11 @@ export type CheckRunInput = {
   rules: Rule[];
 };
 
-function loadStoredKnowledgeEntry(
+async function loadStoredKnowledgeEntry(
   ports: KnowledgeEntryPort,
   entryId: string,
-): SpokeResult<KnowledgeEntry | undefined> {
-  const result = ports.getKnowledgeEntry(entryId);
+): Promise<SpokeResult<KnowledgeEntry | undefined>> {
+  const result = await ports.getKnowledgeEntry(entryId);
   if (!result.ok) {
     if (result.code === SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND) {
       // spokeOk(undefined) collapses to void SpokeOk; keep explicit value for absence.
@@ -84,11 +84,11 @@ function loadStoredKnowledgeEntry(
   return spokeOk(result.value);
 }
 
-function loadStoredRelation(
+async function loadStoredRelation(
   ports: RelationPort,
   relationId: string,
-): SpokeResult<Relation | undefined> {
-  const result = ports.getRelation(relationId);
+): Promise<SpokeResult<Relation | undefined>> {
+  const result = await ports.getRelation(relationId);
   if (!result.ok) {
     if (result.code === SpokeRejectCode.RELATION_NOT_FOUND) {
       return { ok: true, value: undefined };
@@ -135,15 +135,18 @@ function assertUniquenessWhenApplicable(
 /**
  * Upsert KnowledgeEntries: load context, validate, optional status/uniqueness, put.
  */
-export function orchestrateUpsert(
+export async function orchestrateUpsert(
   ports: BaselinePorts,
   request: UpsertRequest,
-): SpokeResult<UpsertResponse> {
+): Promise<SpokeResult<UpsertResponse>> {
   const persisted: KnowledgeEntry[] = [];
   const batchPeers: KnowledgeEntry[] = [];
 
   for (const candidate of request.knowledge_entries) {
-    const storedResult = loadStoredKnowledgeEntry(ports, candidate.entry_id);
+    const storedResult = await loadStoredKnowledgeEntry(
+      ports,
+      candidate.entry_id,
+    );
     if (!storedResult.ok) {
       return storedResult;
     }
@@ -170,7 +173,7 @@ export function orchestrateUpsert(
     const expectedBaseRevision =
       stored === undefined ? null : (stored.revision ?? 0);
 
-    const put = ports.putKnowledgeEntry(candidate, expectedBaseRevision);
+    const put = await ports.putKnowledgeEntry(candidate, expectedBaseRevision);
     if (!put.ok) {
       return put;
     }
@@ -185,11 +188,11 @@ export function orchestrateUpsert(
 /**
  * Promote a provisional candidate, then persist via KnowledgeEntryPort.
  */
-export function orchestratePromote(
+export async function orchestratePromote(
   ports: BaselinePorts,
   request: PromoteRequest,
-): SpokeResult<PromoteResponse> {
-  const storedResult = loadStoredKnowledgeEntry(
+): Promise<SpokeResult<PromoteResponse>> {
+  const storedResult = await loadStoredKnowledgeEntry(
     ports,
     request.candidate.entry_id,
   );
@@ -238,7 +241,7 @@ export function orchestratePromote(
   const expectedBaseRevision =
     stored === undefined ? null : (stored.revision ?? 0);
 
-  const put = ports.putKnowledgeEntry(toPersist, expectedBaseRevision);
+  const put = await ports.putKnowledgeEntry(toPersist, expectedBaseRevision);
   if (!put.ok) {
     return put;
   }
@@ -255,11 +258,11 @@ export function orchestratePromote(
  * Validate and persist a Relation: load stored, validate (create vs update),
  * run OCC-aware put. Mirrors orchestrateUpsert.
  */
-export function orchestrateRelate(
+export async function orchestrateRelate(
   ports: BaselinePorts,
   request: RelateRequest,
-): SpokeResult<RelateResponse> {
-  const storedResult = loadStoredRelation(
+): Promise<SpokeResult<RelateResponse>> {
+  const storedResult = await loadStoredRelation(
     ports,
     request.relation.relation_id,
   );
@@ -279,7 +282,7 @@ export function orchestrateRelate(
   const expectedBaseRevision =
     stored === undefined ? null : (stored.revision ?? 0);
 
-  const put = ports.putRelation(request.relation, expectedBaseRevision);
+  const put = await ports.putRelation(request.relation, expectedBaseRevision);
   if (!put.ok) {
     return put;
   }
@@ -287,16 +290,16 @@ export function orchestrateRelate(
   return spokeOk({ relation: put.value });
 }
 
-function resolveCheckRules(
+async function resolveCheckRules(
   ports: BaselinePorts,
   request: CheckRequest,
-): SpokeResult<Rule[]> {
+): Promise<SpokeResult<Rule[]>> {
   const embedded = request.rules ?? [];
   if (request.rule_refs === undefined || request.rule_refs.length === 0) {
     return spokeOk([...embedded]);
   }
 
-  const resolved = ports.listRules(request.rule_refs);
+  const resolved = await ports.listRules(request.rule_refs);
   if (!resolved.ok) {
     return resolved;
   }
@@ -317,22 +320,22 @@ function resolveCheckRules(
 /**
  * Load scoped data and rules, invoke product checker callback, persist findings.
  */
-export function orchestrateCheck(
+export async function orchestrateCheck(
   ports: BaselinePorts,
   request: CheckRequest,
   runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>,
-): SpokeResult<CheckResponse> {
-  const rulesResult = resolveCheckRules(ports, request);
+): Promise<SpokeResult<CheckResponse>> {
+  const rulesResult = await resolveCheckRules(ports, request);
   if (!rulesResult.ok) {
     return rulesResult;
   }
 
-  const entriesResult = ports.listKnowledgeEntries(request.scope);
+  const entriesResult = await ports.listKnowledgeEntries(request.scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = ports.listTimelineEvents(request.scope);
+  const eventsResult = await ports.listTimelineEvents(request.scope);
   if (!eventsResult.ok) {
     return eventsResult;
   }
@@ -353,7 +356,7 @@ export function orchestrateCheck(
     return checkResult;
   }
 
-  const put = ports.putFindings(checkResult.value);
+  const put = await ports.putFindings(checkResult.value);
   if (!put.ok) {
     return put;
   }
@@ -364,16 +367,16 @@ export function orchestrateCheck(
 /**
  * Query scoped KnowledgeEntries/events, apply scope helpers, build AssemblePacket.
  */
-export function orchestrateAssemble(
+export async function orchestrateAssemble(
   ports: BaselinePorts,
   request: AssembleRequest,
-): SpokeResult<AssembleResponse> {
-  const entriesResult = ports.listKnowledgeEntries(request.scope);
+): Promise<SpokeResult<AssembleResponse>> {
+  const entriesResult = await ports.listKnowledgeEntries(request.scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = ports.listTimelineEvents(request.scope);
+  const eventsResult = await ports.listTimelineEvents(request.scope);
   if (!eventsResult.ok) {
     return eventsResult;
   }
@@ -434,10 +437,10 @@ function requireForkScope(
 /**
  * Project Session computable view via ComputablePort after request validation.
  */
-export function orchestrateProject(
+export async function orchestrateProject(
   ports: ComputablePorts,
   request: ProjectRequest,
-): SpokeResult<ProjectResponse> {
+): Promise<SpokeResult<ProjectResponse>> {
   const capability = requirePortMethod(ports, "project");
   if (!capability.ok) {
     return capability;
@@ -448,17 +451,17 @@ export function orchestrateProject(
     return validation;
   }
 
-  return ports.project(request);
+  return await ports.project(request);
 }
 
 /**
  * Compute Session updates via ComputablePort after request validation.
  * Settled-state persistence remains an explicit adapter step.
  */
-export function orchestrateCompute(
+export async function orchestrateCompute(
   ports: ComputablePorts,
   request: ComputeRequest,
-): SpokeResult<ComputeResponse> {
+): Promise<SpokeResult<ComputeResponse>> {
   const capability = requirePortMethod(ports, "compute");
   if (!capability.ok) {
     return capability;
@@ -469,17 +472,17 @@ export function orchestrateCompute(
     return validation;
   }
 
-  return ports.compute(request);
+  return await ports.compute(request);
 }
 
 /**
  * Fork-aware check: KE via ScopeQueryPort; timeline via ForkTimelineQueryPort.
  */
-export function orchestrateForkCheck(
+export async function orchestrateForkCheck(
   ports: ForkPorts,
   request: CheckRequest,
   runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>,
-): SpokeResult<CheckResponse> {
+): Promise<SpokeResult<CheckResponse>> {
   const capability = requirePortMethod(ports, "listForkTimelineEvents");
   if (!capability.ok) {
     return capability;
@@ -490,17 +493,17 @@ export function orchestrateForkCheck(
     return forkScope;
   }
 
-  const rulesResult = resolveCheckRules(ports, request);
+  const rulesResult = await resolveCheckRules(ports, request);
   if (!rulesResult.ok) {
     return rulesResult;
   }
 
-  const entriesResult = ports.listKnowledgeEntries(request.scope);
+  const entriesResult = await ports.listKnowledgeEntries(request.scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = ports.listForkTimelineEvents(forkScope.value);
+  const eventsResult = await ports.listForkTimelineEvents(forkScope.value);
   if (!eventsResult.ok) {
     return eventsResult;
   }
@@ -521,7 +524,7 @@ export function orchestrateForkCheck(
     return checkResult;
   }
 
-  const put = ports.putFindings(checkResult.value);
+  const put = await ports.putFindings(checkResult.value);
   if (!put.ok) {
     return put;
   }
@@ -532,10 +535,10 @@ export function orchestrateForkCheck(
 /**
  * Fork-aware assemble: KE via ScopeQueryPort; timeline via ForkTimelineQueryPort.
  */
-export function orchestrateForkAssemble(
+export async function orchestrateForkAssemble(
   ports: ForkPorts,
   request: AssembleRequest,
-): SpokeResult<AssembleResponse> {
+): Promise<SpokeResult<AssembleResponse>> {
   const capability = requirePortMethod(ports, "listForkTimelineEvents");
   if (!capability.ok) {
     return capability;
@@ -546,12 +549,12 @@ export function orchestrateForkAssemble(
     return forkScope;
   }
 
-  const entriesResult = ports.listKnowledgeEntries(request.scope);
+  const entriesResult = await ports.listKnowledgeEntries(request.scope);
   if (!entriesResult.ok) {
     return entriesResult;
   }
 
-  const eventsResult = ports.listForkTimelineEvents(forkScope.value);
+  const eventsResult = await ports.listForkTimelineEvents(forkScope.value);
   if (!eventsResult.ok) {
     return eventsResult;
   }

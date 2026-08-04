@@ -240,7 +240,9 @@ function createMemoryBaselinePorts(seed?: {
   const peerManifests = seed?.peerManifests ?? [];
 
   const ports: BaselinePorts = {
-    getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+    async getKnowledgeEntry(
+      entryId: string,
+    ): Promise<SpokeResult<KnowledgeEntry>> {
       const entry = entries.get(entryId);
       if (entry === undefined) {
         return spokeReject(
@@ -251,13 +253,13 @@ function createMemoryBaselinePorts(seed?: {
       }
       return spokeOk(entry);
     },
-    putKnowledgeEntry(
+    async putKnowledgeEntry(
       entry: KnowledgeEntry,
       expectedBaseRevision: number | null,
-    ): SpokeResult<KnowledgeEntry> {
+    ): Promise<SpokeResult<KnowledgeEntry>> {
       return putKnowledgeEntryWithOcc(entries, entry, expectedBaseRevision);
     },
-    getRelation(relationId: string): SpokeResult<Relation> {
+    async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
       const relation = relations.get(relationId);
       if (relation === undefined) {
         return spokeReject(
@@ -268,23 +270,27 @@ function createMemoryBaselinePorts(seed?: {
       }
       return spokeOk(relation);
     },
-    putRelation(
+    async putRelation(
       relation: Relation,
       expectedBaseRevision: number | null,
-    ): SpokeResult<Relation> {
+    ): Promise<SpokeResult<Relation>> {
       return putRelationWithOcc(relations, relation, expectedBaseRevision);
     },
-    listKnowledgeEntries(_scope: Scope): SpokeResult<KnowledgeEntry[]> {
+    async listKnowledgeEntries(
+      _scope: Scope,
+    ): Promise<SpokeResult<KnowledgeEntry[]>> {
       return spokeOk([...entries.values()]);
     },
-    listTimelineEvents(_scope: Scope): SpokeResult<TimelineEvent[]> {
+    async listTimelineEvents(
+      _scope: Scope,
+    ): Promise<SpokeResult<TimelineEvent[]>> {
       return spokeOk([...events]);
     },
-    putFindings(next: Finding[]): SpokeResult<Finding[]> {
+    async putFindings(next: Finding[]): Promise<SpokeResult<Finding[]>> {
       findings.push(...next);
       return spokeOk(next);
     },
-    listRules(ruleRefs: string[]): SpokeResult<Rule[]> {
+    async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
       const resolved: Rule[] = [];
       for (const ref of ruleRefs) {
         const rule = rules.get(ref);
@@ -299,11 +305,17 @@ function createMemoryBaselinePorts(seed?: {
       }
       return spokeOk(resolved);
     },
-    getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+    async getHostCapabilityManifest(): Promise<
+      SpokeResult<HostCapabilityManifest>
+    > {
       return spokeOk(selfManifest);
     },
-    listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> {
-      return spokeOk(normalizePeerManifests(selfManifest.host_id, peerManifests));
+    async listPeerHostCapabilityManifests(): Promise<
+      SpokeResult<HostCapabilityManifest[]>
+    > {
+      return spokeOk(
+        normalizePeerManifests(selfManifest.host_id, peerManifests),
+      );
     },
   };
 
@@ -311,12 +323,12 @@ function createMemoryBaselinePorts(seed?: {
 }
 
 describe("baseline orchestration", () => {
-  it("orchestrateUpsert creates a KnowledgeEntry through ports", () => {
+  it("orchestrateUpsert creates a KnowledgeEntry through ports", async () => {
     const ports = createMemoryBaselinePorts();
     const candidate = makeKnowledgeEntry({ entry_id: "kb_new" });
     const request: UpsertRequest = { knowledge_entries: [candidate] };
 
-    const result = orchestrateUpsert(ports, request);
+    const result = await orchestrateUpsert(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -328,7 +340,7 @@ describe("baseline orchestration", () => {
     expect(ports.store.entries.get("kb_new")).toEqual(candidate);
   });
 
-  it("orchestratePromote persists confirmed KnowledgeEntry", () => {
+  it("orchestratePromote persists confirmed KnowledgeEntry", async () => {
     const candidate = makeKnowledgeEntry({
       entry_id: "kb_promote",
       status: "provisional",
@@ -337,7 +349,7 @@ describe("baseline orchestration", () => {
     const ports = createMemoryBaselinePorts();
     const request: PromoteRequest = { candidate };
 
-    const result = orchestratePromote(ports, request);
+    const result = await orchestratePromote(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -348,7 +360,7 @@ describe("baseline orchestration", () => {
     expect(ports.store.entries.get("kb_promote")?.status).toBe("confirmed");
   });
 
-  it("orchestratePromote rejects when stored status is terminal", () => {
+  it("orchestratePromote rejects when stored status is terminal", async () => {
     const stored = makeKnowledgeEntry({
       entry_id: "kb_promote_terminal",
       status: "merged",
@@ -361,7 +373,7 @@ describe("baseline orchestration", () => {
     });
     const ports = createMemoryBaselinePorts({ entries: [stored] });
 
-    const result = orchestratePromote(ports, { candidate });
+    const result = await orchestratePromote(ports, { candidate });
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -370,7 +382,7 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.KNOWLEDGE_ENTRY_TERMINAL_STATUS);
   });
 
-  it("orchestratePromote rejects on stored revision mismatch", () => {
+  it("orchestratePromote rejects on stored revision mismatch", async () => {
     const stored = makeKnowledgeEntry({
       entry_id: "kb_promote_rev",
       status: "provisional",
@@ -383,7 +395,7 @@ describe("baseline orchestration", () => {
     });
     const ports = createMemoryBaselinePorts({ entries: [stored] });
 
-    const result = orchestratePromote(ports, { candidate });
+    const result = await orchestratePromote(ports, { candidate });
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -392,7 +404,7 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
   });
 
-  it("orchestratePromote succeeds when stored provisional matches revision", () => {
+  it("orchestratePromote succeeds when stored provisional matches revision", async () => {
     const stored = makeKnowledgeEntry({
       entry_id: "kb_promote_match",
       status: "provisional",
@@ -405,7 +417,7 @@ describe("baseline orchestration", () => {
     });
     const ports = createMemoryBaselinePorts({ entries: [stored] });
 
-    const result = orchestratePromote(ports, { candidate });
+    const result = await orchestratePromote(ports, { candidate });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -415,7 +427,7 @@ describe("baseline orchestration", () => {
     expect(result.value.knowledge_entry.revision).toBe(3);
   });
 
-  it("orchestratePromote forces persisted revision to stored.revision + 1 when stored exists", () => {
+  it("orchestratePromote forces persisted revision to stored.revision + 1 when stored exists", async () => {
     const stored = makeKnowledgeEntry({
       entry_id: "kb_promote_force_rev",
       status: "provisional",
@@ -430,16 +442,16 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts({ entries: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      putKnowledgeEntry(
+      async putKnowledgeEntry(
         entry: KnowledgeEntry,
         expectedBaseRevision: number | null,
-      ): SpokeResult<KnowledgeEntry> {
+      ): Promise<SpokeResult<KnowledgeEntry>> {
         puts.push({ entry, expectedBaseRevision });
         return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
       },
     };
 
-    const result = orchestratePromote(ports, { candidate });
+    const result = await orchestratePromote(ports, { candidate });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -451,7 +463,7 @@ describe("baseline orchestration", () => {
     expect(result.value.knowledge_entry.revision).toBe(8);
   });
 
-  it("orchestratePromote propagates adapter OCC reject when concurrent promote advanced revision", () => {
+  it("orchestratePromote propagates adapter OCC reject when concurrent promote advanced revision", async () => {
     const snapshot = makeKnowledgeEntry({
       entry_id: "kb_promote_occ",
       status: "provisional",
@@ -461,19 +473,24 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts({ entries: [snapshot] });
     const ports: BaselinePorts = {
       ...baseline,
-      getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
-        const result = baseline.getKnowledgeEntry(entryId);
+      async getKnowledgeEntry(
+        entryId: string,
+      ): Promise<SpokeResult<KnowledgeEntry>> {
+        const result = await baseline.getKnowledgeEntry(entryId);
         if (result.ok) {
           // Concurrent writer advances the store after our read snapshot.
           storeRevision = 3;
         }
         return result;
       },
-      putKnowledgeEntry(
+      async putKnowledgeEntry(
         entry: KnowledgeEntry,
         expectedBaseRevision: number | null,
-      ): SpokeResult<KnowledgeEntry> {
-        if (expectedBaseRevision !== null && storeRevision !== expectedBaseRevision) {
+      ): Promise<SpokeResult<KnowledgeEntry>> {
+        if (
+          expectedBaseRevision !== null &&
+          storeRevision !== expectedBaseRevision
+        ) {
           return spokeReject(
             SpokeRejectCode.STORED_REVISION_STALE,
             `Store revision ${storeRevision} is ahead of expected base ${expectedBaseRevision}`,
@@ -490,7 +507,7 @@ describe("baseline orchestration", () => {
       revision: 2,
     });
 
-    const result = orchestratePromote(ports, { candidate });
+    const result = await orchestratePromote(ports, { candidate });
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -499,15 +516,15 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
   });
 
-  it("orchestrateUpsert passes null expectedBaseRevision on create", () => {
+  it("orchestrateUpsert passes null expectedBaseRevision on create", async () => {
     const puts: { entry: KnowledgeEntry; expectedBaseRevision: number | null }[] = [];
     const baseline = createMemoryBaselinePorts();
     const ports: BaselinePorts = {
       ...baseline,
-      putKnowledgeEntry(
+      async putKnowledgeEntry(
         entry: KnowledgeEntry,
         expectedBaseRevision: number | null,
-      ): SpokeResult<KnowledgeEntry> {
+      ): Promise<SpokeResult<KnowledgeEntry>> {
         puts.push({ entry, expectedBaseRevision });
         return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
       },
@@ -515,14 +532,14 @@ describe("baseline orchestration", () => {
     const candidate = makeKnowledgeEntry({ entry_id: "kb_create_occ" });
     const request: UpsertRequest = { knowledge_entries: [candidate] };
 
-    const result = orchestrateUpsert(ports, request);
+    const result = await orchestrateUpsert(ports, request);
 
     expect(result.ok).toBe(true);
     expect(puts).toHaveLength(1);
     expect(puts[0]?.expectedBaseRevision).toBeNull();
   });
 
-  it("orchestrateUpsert passes stored revision as expectedBaseRevision on update", () => {
+  it("orchestrateUpsert passes stored revision as expectedBaseRevision on update", async () => {
     const stored = makeKnowledgeEntry({
       entry_id: "kb_update_occ",
       revision: 4,
@@ -531,10 +548,10 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts({ entries: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      putKnowledgeEntry(
+      async putKnowledgeEntry(
         entry: KnowledgeEntry,
         expectedBaseRevision: number | null,
-      ): SpokeResult<KnowledgeEntry> {
+      ): Promise<SpokeResult<KnowledgeEntry>> {
         puts.push({ entry, expectedBaseRevision });
         return baseline.putKnowledgeEntry(entry, expectedBaseRevision);
       },
@@ -546,14 +563,14 @@ describe("baseline orchestration", () => {
     });
     const request: UpsertRequest = { knowledge_entries: [candidate] };
 
-    const result = orchestrateUpsert(ports, request);
+    const result = await orchestrateUpsert(ports, request);
 
     expect(result.ok).toBe(true);
     expect(puts).toHaveLength(1);
     expect(puts[0]?.expectedBaseRevision).toBe(4);
   });
 
-  it("orchestrateUpsert rejects concurrent update when expected base is stale", () => {
+  it("orchestrateUpsert rejects concurrent update when expected base is stale", async () => {
     const stored = makeKnowledgeEntry({
       entry_id: "kb_upsert_occ",
       revision: 1,
@@ -562,18 +579,23 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts({ entries: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
-        const result = baseline.getKnowledgeEntry(entryId);
+      async getKnowledgeEntry(
+        entryId: string,
+      ): Promise<SpokeResult<KnowledgeEntry>> {
+        const result = await baseline.getKnowledgeEntry(entryId);
         if (result.ok) {
           storeRevision = 2;
         }
         return result;
       },
-      putKnowledgeEntry(
+      async putKnowledgeEntry(
         entry: KnowledgeEntry,
         expectedBaseRevision: number | null,
-      ): SpokeResult<KnowledgeEntry> {
-        if (expectedBaseRevision !== null && storeRevision !== expectedBaseRevision) {
+      ): Promise<SpokeResult<KnowledgeEntry>> {
+        if (
+          expectedBaseRevision !== null &&
+          storeRevision !== expectedBaseRevision
+        ) {
           return spokeReject(
             SpokeRejectCode.STORED_REVISION_STALE,
             `Store revision ${storeRevision} does not match expected base ${expectedBaseRevision}`,
@@ -590,7 +612,7 @@ describe("baseline orchestration", () => {
       canonical_name: "Raced",
     });
 
-    const result = orchestrateUpsert(ports, {
+    const result = await orchestrateUpsert(ports, {
       knowledge_entries: [candidate],
     });
 
@@ -601,12 +623,12 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
   });
 
-  it("orchestrateRelate persists a Relation (create seeds revision 1)", () => {
+  it("orchestrateRelate persists a Relation (create seeds revision 1)", async () => {
     const ports = createMemoryBaselinePorts();
     const relation = makeRelation({ relation_id: "rel_1" });
     const request: RelateRequest = { relation };
 
-    const result = orchestrateRelate(ports, request);
+    const result = await orchestrateRelate(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -617,7 +639,7 @@ describe("baseline orchestration", () => {
     expect(ports.store.relations.get("rel_1")?.revision).toBe(1);
   });
 
-  it("orchestrateRelate passes null expectedBaseRevision on create", () => {
+  it("orchestrateRelate passes null expectedBaseRevision on create", async () => {
     const puts: {
       relation: Relation;
       expectedBaseRevision: number | null;
@@ -625,10 +647,10 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts();
     const ports: BaselinePorts = {
       ...baseline,
-      putRelation(
+      async putRelation(
         relation: Relation,
         expectedBaseRevision: number | null,
-      ): SpokeResult<Relation> {
+      ): Promise<SpokeResult<Relation>> {
         puts.push({ relation, expectedBaseRevision });
         return baseline.putRelation(relation, expectedBaseRevision);
       },
@@ -636,14 +658,14 @@ describe("baseline orchestration", () => {
     const relation = makeRelation({ relation_id: "rel_create_occ" });
     const request: RelateRequest = { relation };
 
-    const result = orchestrateRelate(ports, request);
+    const result = await orchestrateRelate(ports, request);
 
     expect(result.ok).toBe(true);
     expect(puts).toHaveLength(1);
     expect(puts[0]?.expectedBaseRevision).toBeNull();
   });
 
-  it("orchestrateRelate passes stored revision as expectedBaseRevision on update", () => {
+  it("orchestrateRelate passes stored revision as expectedBaseRevision on update", async () => {
     const stored = makeRelation({ relation_id: "rel_update_occ", revision: 4 });
     const puts: {
       relation: Relation;
@@ -652,10 +674,10 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      putRelation(
+      async putRelation(
         relation: Relation,
         expectedBaseRevision: number | null,
-      ): SpokeResult<Relation> {
+      ): Promise<SpokeResult<Relation>> {
         puts.push({ relation, expectedBaseRevision });
         return baseline.putRelation(relation, expectedBaseRevision);
       },
@@ -666,31 +688,31 @@ describe("baseline orchestration", () => {
     });
     const request: RelateRequest = { relation: candidate };
 
-    const result = orchestrateRelate(ports, request);
+    const result = await orchestrateRelate(ports, request);
 
     expect(result.ok).toBe(true);
     expect(puts).toHaveLength(1);
     expect(puts[0]?.expectedBaseRevision).toBe(4);
   });
 
-  it("orchestrateRelate rejects update when store revision is stale (ahead)", () => {
+  it("orchestrateRelate rejects update when store revision is stale (ahead)", async () => {
     const stored = makeRelation({ relation_id: "rel_stale", revision: 5 });
     let storeRevision = 5;
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      getRelation(relationId: string): SpokeResult<Relation> {
-        const result = baseline.getRelation(relationId);
+      async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
+        const result = await baseline.getRelation(relationId);
         if (result.ok) {
           // Concurrent writer advances the store after our read snapshot.
           storeRevision = 6;
         }
         return result;
       },
-      putRelation(
+      async putRelation(
         relation: Relation,
         expectedBaseRevision: number | null,
-      ): SpokeResult<Relation> {
+      ): Promise<SpokeResult<Relation>> {
         if (
           expectedBaseRevision !== null &&
           storeRevision !== expectedBaseRevision
@@ -710,7 +732,7 @@ describe("baseline orchestration", () => {
       revision: 5,
     });
 
-    const result = orchestrateRelate(ports, { relation: candidate });
+    const result = await orchestrateRelate(ports, { relation: candidate });
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -719,7 +741,7 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.STORED_REVISION_STALE);
   });
 
-  it("orchestrateRelate rejects update when candidate revision conflicts (ahead of store)", () => {
+  it("orchestrateRelate rejects update when candidate revision conflicts (ahead of store)", async () => {
     const stored = makeRelation({ relation_id: "rel_conflict", revision: 2 });
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
     // Candidate claims revision 7 while store holds 2 → validator returns
@@ -729,7 +751,7 @@ describe("baseline orchestration", () => {
       revision: 7,
     });
 
-    const result = orchestrateRelate(baseline, { relation: candidate });
+    const result = await orchestrateRelate(baseline, { relation: candidate });
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -738,7 +760,7 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.REVISION_CONFLICT);
   });
 
-  it("orchestrateRelate propagates RELATION_ALREADY_EXISTS when create races an existing id", () => {
+  it("orchestrateRelate propagates RELATION_ALREADY_EXISTS when create races an existing id", async () => {
     // The create-path `RELATION_ALREADY_EXISTS` can only surface through a
     // read-then-put CAS race: the orchestrator's `getRelation` snapshot missed
     // a concurrently-inserted row, so validate routes to create and the adapter
@@ -747,7 +769,7 @@ describe("baseline orchestration", () => {
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
     const ports: BaselinePorts = {
       ...baseline,
-      getRelation(relationId: string): SpokeResult<Relation> {
+      async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
         return spokeReject(
           SpokeRejectCode.RELATION_NOT_FOUND,
           `Stale snapshot missed: ${relationId}`,
@@ -759,7 +781,7 @@ describe("baseline orchestration", () => {
     const candidate = makeRelation({ relation_id: "rel_race" });
     const request: RelateRequest = { relation: candidate };
 
-    const result = orchestrateRelate(ports, request);
+    const result = await orchestrateRelate(ports, request);
 
     expect(result.ok).toBe(false);
     if (result.ok) {
@@ -768,7 +790,7 @@ describe("baseline orchestration", () => {
     expect(result.code).toBe(SpokeRejectCode.RELATION_ALREADY_EXISTS);
   });
 
-  it("orchestrateRelate persisted relation carries bumped revision on update", () => {
+  it("orchestrateRelate persisted relation carries bumped revision on update", async () => {
     const stored = makeRelation({ relation_id: "rel_bump", revision: 3 });
     const baseline = createMemoryBaselinePorts({ relations: [stored] });
     const candidate = makeRelation({
@@ -777,7 +799,7 @@ describe("baseline orchestration", () => {
       label: "updated-label",
     });
 
-    const result = orchestrateRelate(baseline, { relation: candidate });
+    const result = await orchestrateRelate(baseline, { relation: candidate });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -788,7 +810,7 @@ describe("baseline orchestration", () => {
     expect(baseline.store.relations.get("rel_bump")?.revision).toBe(4);
   });
 
-  it("orchestrateCheck loads scope data, runs checker, and puts findings", () => {
+  it("orchestrateCheck loads scope data, runs checker, and puts findings", async () => {
     const entry = makeKnowledgeEntry({ entry_id: "kb_check" });
     const event = makeTimelineEvent({ timeline_event_id: "te_1" });
     const rule = makeRule({ rule_id: "rule_1" });
@@ -803,7 +825,7 @@ describe("baseline orchestration", () => {
     };
     const finding = makeFinding({ finding_id: "f_1", target_entry_id: "kb_check" });
 
-    const result = orchestrateCheck(ports, request, (input: CheckRunInput) => {
+    const result = await orchestrateCheck(ports, request, (input: CheckRunInput) => {
       expect(input.request).toEqual(request);
       expect(input.entries).toEqual([entry]);
       expect(input.events).toEqual([event]);
@@ -819,7 +841,7 @@ describe("baseline orchestration", () => {
     expect(ports.store.findings).toEqual([finding]);
   });
 
-  it("orchestrateCheck lets embedded rules win by rule_id over refs", () => {
+  it("orchestrateCheck lets embedded rules win by rule_id over refs", async () => {
     const entry = makeKnowledgeEntry({ entry_id: "kb_check_merge" });
     const storedRule = makeRule({
       rule_id: "rule_shared",
@@ -851,7 +873,7 @@ describe("baseline orchestration", () => {
       rules: [embeddedOverride, embeddedNew],
     };
 
-    const result = orchestrateCheck(ports, request, (input: CheckRunInput) => {
+    const result = await orchestrateCheck(ports, request, (input: CheckRunInput) => {
       expect(input.rules).toHaveLength(3);
       expect(input.rules.map((rule) => rule.rule_id)).toEqual([
         "rule_shared",
@@ -867,7 +889,7 @@ describe("baseline orchestration", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("orchestrateAssemble builds a packet from scoped KnowledgeEntries", () => {
+  it("orchestrateAssemble builds a packet from scoped KnowledgeEntries", async () => {
     const entry = makeKnowledgeEntry({
       entry_id: "kb_assemble",
       canonical_name: "Assemble Hero",
@@ -879,7 +901,7 @@ describe("baseline orchestration", () => {
       max_entries: 10,
     };
 
-    const result = orchestrateAssemble(ports, request);
+    const result = await orchestrateAssemble(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -905,7 +927,7 @@ function withComputablePorts(
 
   const ports: ComputablePorts = {
     ...baseline,
-    project(request: ProjectRequest): SpokeResult<ProjectResponse> {
+    async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
       projected.push(request);
       return spokeOk({
         session_id: request.session_id,
@@ -913,7 +935,7 @@ function withComputablePorts(
         computable: { ...request.state, projected: true },
       });
     },
-    compute(request: ComputeRequest): SpokeResult<ComputeResponse> {
+    async compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>> {
       computed.push(request);
       return spokeOk({
         session_id: request.session_id,
@@ -936,9 +958,9 @@ function withForkPorts(
 
   const ports: ForkPorts = {
     ...baseline,
-    listForkTimelineEvents(scope: Scope & { fork_id: string }): SpokeResult<
-      TimelineEvent[]
-    > {
+    async listForkTimelineEvents(
+      scope: Scope & { fork_id: string },
+    ): Promise<SpokeResult<TimelineEvent[]>> {
       forkListCalls.push(scope);
       return spokeOk(
         baseline.store.events.filter((event) => event.fork_id === scope.fork_id),
@@ -950,7 +972,7 @@ function withForkPorts(
 }
 
 describe("optional computable orchestration", () => {
-  it("orchestrateProject validates then calls ComputablePort.project", () => {
+  it("orchestrateProject validates then calls ComputablePort.project", async () => {
     const ports = withComputablePorts(createMemoryBaselinePorts());
     const request: ProjectRequest = {
       session_id: "sess_1",
@@ -958,7 +980,7 @@ describe("optional computable orchestration", () => {
       state: { tide_level: 2.4 },
     };
 
-    const result = orchestrateProject(ports, request);
+    const result = await orchestrateProject(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -972,7 +994,7 @@ describe("optional computable orchestration", () => {
     expect(ports.projected).toEqual([request]);
   });
 
-  it("orchestrateCompute validates then calls ComputablePort.compute", () => {
+  it("orchestrateCompute validates then calls ComputablePort.compute", async () => {
     const ports = withComputablePorts(createMemoryBaselinePorts());
     const request: ComputeRequest = {
       session_id: "sess_1",
@@ -981,7 +1003,7 @@ describe("optional computable orchestration", () => {
       settle: true,
     };
 
-    const result = orchestrateCompute(ports, request);
+    const result = await orchestrateCompute(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -996,7 +1018,7 @@ describe("optional computable orchestration", () => {
     expect(ports.computed).toEqual([request]);
   });
 
-  it("returns CAPABILITY_PORT_MISSING when project is absent at a dynamic boundary", () => {
+  it("returns CAPABILITY_PORT_MISSING when project is absent at a dynamic boundary", async () => {
     const baseline = createMemoryBaselinePorts();
     const ports = baseline as unknown as ComputablePorts;
     const request: ProjectRequest = {
@@ -1005,7 +1027,7 @@ describe("optional computable orchestration", () => {
       state: {},
     };
 
-    const result = orchestrateProject(ports, request);
+    const result = await orchestrateProject(ports, request);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -1015,7 +1037,7 @@ describe("optional computable orchestration", () => {
 });
 
 describe("optional fork orchestration", () => {
-  it("orchestrateForkCheck loads KE via listKnowledgeEntries and events via listForkTimelineEvents", () => {
+  it("orchestrateForkCheck loads KE via listKnowledgeEntries and events via listForkTimelineEvents", async () => {
     const entry = makeKnowledgeEntry({ entry_id: "kb_fork" });
     const onFork = makeTimelineEvent({
       timeline_event_id: "te_fork",
@@ -1039,7 +1061,7 @@ describe("optional fork orchestration", () => {
     };
     const finding = makeFinding({ finding_id: "f_fork" });
 
-    const result = orchestrateForkCheck(ports, request, (input) => {
+    const result = await orchestrateForkCheck(ports, request, (input) => {
       expect(input.entries).toEqual([entry]);
       expect(input.events).toEqual([onFork]);
       return spokeOk([finding]);
@@ -1054,7 +1076,7 @@ describe("optional fork orchestration", () => {
     expect(baseline.store.findings).toEqual([finding]);
   });
 
-  it("orchestrateForkAssemble uses fork timeline port and builds a packet", () => {
+  it("orchestrateForkAssemble uses fork timeline port and builds a packet", async () => {
     const entry = makeKnowledgeEntry({
       entry_id: "kb_fork_assemble",
       canonical_name: "Fork Hero",
@@ -1078,7 +1100,7 @@ describe("optional fork orchestration", () => {
       },
     };
 
-    const result = orchestrateForkAssemble(ports, request);
+    const result = await orchestrateForkAssemble(ports, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -1089,14 +1111,14 @@ describe("optional fork orchestration", () => {
     expect(ports.forkListCalls).toHaveLength(1);
   });
 
-  it("returns CAPABILITY_PORT_MISSING when listForkTimelineEvents is absent", () => {
+  it("returns CAPABILITY_PORT_MISSING when listForkTimelineEvents is absent", async () => {
     const baseline = createMemoryBaselinePorts();
     const ports = baseline as unknown as ForkPorts;
     const request: CheckRequest = {
       scope: { scope_id: "world_1", fork_id: "fork_a" },
     };
 
-    const result = orchestrateForkCheck(ports, request, () => spokeOk([]));
+    const result = await orchestrateForkCheck(ports, request, () => spokeOk([]));
 
     expect(result.ok).toBe(false);
     if (!result.ok) {

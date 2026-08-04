@@ -157,10 +157,21 @@ pub fn verify_capability_token(
     let verifying_key = VerifyingKey::from_bytes(&issuer_pubkey)
         .map_err(|e| CoreError::Crypto(format!("invalid Ed25519 public key: {e}")))?;
     let bytes = serde_jcs::to_vec(&proof.claims).map_err(|e| CoreError::Jcs(e.to_string()))?;
-    let signature = URL_SAFE_NO_PAD
+    let raw = URL_SAFE_NO_PAD
         .decode(proof.sig.as_str())
         .map_err(|_| CoreError::TokenInvalid("signature is not valid base64url".into()))?;
-    let signature = Signature::from_slice(&signature)
+    // The spec mandates base64url **without padding**. `URL_SAFE_NO_PAD`
+    // accepts alternate encodings of the final character's slack bits (the
+    // 4 high bits of a 6-bit group with only 2 data bits); a canonical
+    // round-trip (`encode(decode(sig)) == sig`) admits exactly the one
+    // encoding RFC 4648 defines, so `sig` stays a canonical identifier
+    // (parity with TS `base64UrlEncode(decode(sig)) === sig`).
+    if URL_SAFE_NO_PAD.encode(&raw) != proof.sig {
+        return Err(CoreError::TokenInvalid(
+            "signature is not canonical base64url (no padding)".into(),
+        ));
+    }
+    let signature = Signature::from_slice(&raw)
         .map_err(|_| CoreError::TokenInvalid("signature is not 64 bytes".into()))?;
     if verifying_key.verify(&bytes, &signature).is_err() {
         return Err(CoreError::TokenInvalid("signature does not verify".into()));
@@ -417,6 +428,52 @@ mod tests {
         proof.sig = URL_SAFE_NO_PAD.encode([0u8; 1]);
         let err = verify_capability_token(&proof, &trusted, &peers[1], &peers[0], now)
             .expect_err("wrong length");
+        assert!(matches!(err, CoreError::TokenInvalid(_)));
+    }
+
+    #[test]
+    fn non_canonical_signature_rejected() {
+        use base64::alphabet::URL_SAFE as URL_SAFE_ALPHABET;
+
+        let now = 1_000_000_000u64;
+        let (mut proof, trusted, peers) = happy_token(now, &["spoke-baseline"]);
+
+        // A 64-byte Ed25519 signature encodes to 86 base64url (no pad)
+        // chars; the final char carries 2 data bits + 4 slack bits. Replace
+        // the last char with its slack-bit sibling (same low 2 data bits,
+        // different high 4 slack bits): a non-canonical encoding that
+        // decodes to the identical 64 bytes under a slack-lenient decoder
+        // (the TS side's `atob` — where the canonical round-trip check is
+        // live) but re-encodes to a different string.
+        let last = proof.sig.chars().last().expect("sig is non-empty");
+        let idx = URL_SAFE_ALPHABET
+            .as_str()
+            .find(last)
+            .expect("emitted sig uses the base64url alphabet");
+        let slack_flipped = (idx & 0b11) | (((idx >> 2) + 1) % 16) << 2;
+        let mutated_last = URL_SAFE_ALPHABET
+            .as_str()
+            .chars()
+            .nth(slack_flipped)
+            .expect("slack-flipped index stays in the alphabet");
+        assert_ne!(mutated_last, last, "slack-bit mutation must change the char");
+        proof.sig.pop();
+        proof.sig.push(mutated_last);
+
+        // A decodable-but-non-canonical input cannot be constructed with
+        // base64 0.22's `URL_SAFE_NO_PAD`: its default config rejects
+        // non-zero slack bits at decode (`InvalidLastSymbol`,
+        // `decode_allow_trailing_bits: false`), before the round-trip check
+        // runs. The round-trip check is therefore the parity invariant with
+        // TS (whose `atob` decoder is slack-lenient, making the check live
+        // there) and the fail-closed defense if the decoder config ever
+        // relaxes. Both gates surface the same observable rejection.
+        assert!(
+            URL_SAFE_NO_PAD.decode(proof.sig.as_str()).is_err(),
+            "the strict decoder rejects non-zero slack bits today"
+        );
+        let err = verify_capability_token(&proof, &trusted, &peers[1], &peers[0], now)
+            .expect_err("non-canonical signature");
         assert!(matches!(err, CoreError::TokenInvalid(_)));
     }
 

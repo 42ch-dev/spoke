@@ -554,9 +554,9 @@ The operations packages define the **implementation protocol** for storage and q
 
 ### Port policy
 
-Ports are synchronous on the normative v0.1 surface. TypeScript methods and Rust traits both return `SpokeResult<T>` directly. Adapters that perform asynchronous I/O present a synchronous boundary to the operations package. A future async surface MAY add distinct `Async*Port` interfaces and async orchestrators without changing these names or signatures. No normative method returns `T | Promise<T>`.
+Port methods are asynchronous on the normative surface. TypeScript port methods return `Promise<SpokeResult<T>>`; Rust port traits are `#[async_trait] async fn …(&self, …) -> SpokeResult<T>` with `Send` futures (normative ports use the default `#[async_trait]`, not `#[async_trait(?Send)]`). All nine `orchestrate*` entrypoints are `async` — `export async function orchestrateX(…): Promise<SpokeResult<R>>` in TypeScript, `pub async fn orchestrate_x(…) -> SpokeResult<R>` in Rust — and await every injected port call. The library itself stays I/O-free: `await` appears only on injected port method calls, and pure helpers remain synchronous. Checker callbacks stay synchronous: `orchestrateCheck` / `orchestrateForkCheck` accept `(input: CheckRunInput) => SpokeResult<Finding[]>` (TypeScript) / `F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>` (Rust) — pure product logic, not ports. Rust port traits use the `async-trait` crate, which keeps the dyn availability probes (`as_computable`, `as_fork_timeline`) object-safe. The async form is the only surface: methods never return `T | Promise<T>` unions, and no sync variants or compatibility shims exist.
 
-All port methods return `SpokeResult<T>`. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
+All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
 
 ### Capability matrix
 

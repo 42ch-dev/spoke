@@ -1716,7 +1716,7 @@ mod tests {
         }
 
         #[async_trait]
-    impl KnowledgeEntryPort for UpsertOccPorts {
+        impl KnowledgeEntryPort for UpsertOccPorts {
             async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
                 let result = self.baseline.get_knowledge_entry(entry_id).await;
                 if result.is_ok() {
@@ -1752,7 +1752,7 @@ mod tests {
         }
 
         #[async_trait]
-    impl RelationPort for UpsertOccPorts {
+        impl RelationPort for UpsertOccPorts {
             async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
                 self.baseline.get_relation(relation_id).await
             }
@@ -1765,7 +1765,7 @@ mod tests {
             }
         }
         #[async_trait]
-    impl ScopeQueryPort for UpsertOccPorts {
+        impl ScopeQueryPort for UpsertOccPorts {
             async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
                 self.baseline.list_knowledge_entries(scope).await
             }
@@ -1774,19 +1774,19 @@ mod tests {
             }
         }
         #[async_trait]
-    impl FindingPort for UpsertOccPorts {
+        impl FindingPort for UpsertOccPorts {
             async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
                 self.baseline.put_findings(findings).await
             }
         }
         #[async_trait]
-    impl RuleQueryPort for UpsertOccPorts {
+        impl RuleQueryPort for UpsertOccPorts {
             async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
                 self.baseline.list_rules(rule_refs).await
             }
         }
         #[async_trait]
-    impl HostManifestPort for UpsertOccPorts {
+        impl HostManifestPort for UpsertOccPorts {
             async fn get_host_capability_manifest(
                 &self,
             ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
@@ -1970,7 +1970,7 @@ mod tests {
         }
 
         #[async_trait]
-    impl KnowledgeEntryPort for RelateOccPorts {
+        impl KnowledgeEntryPort for RelateOccPorts {
             async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
                 self.baseline.get_knowledge_entry(entry_id).await
             }
@@ -1984,7 +1984,7 @@ mod tests {
             }
         }
         #[async_trait]
-    impl RelationPort for RelateOccPorts {
+        impl RelationPort for RelateOccPorts {
             async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
                 let result = self.baseline.get_relation(relation_id).await;
                 if result.is_ok() {
@@ -2017,7 +2017,7 @@ mod tests {
             }
         }
         #[async_trait]
-    impl ScopeQueryPort for RelateOccPorts {
+        impl ScopeQueryPort for RelateOccPorts {
             async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
                 self.baseline.list_knowledge_entries(scope).await
             }
@@ -2026,19 +2026,19 @@ mod tests {
             }
         }
         #[async_trait]
-    impl FindingPort for RelateOccPorts {
+        impl FindingPort for RelateOccPorts {
             async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
                 self.baseline.put_findings(findings).await
             }
         }
         #[async_trait]
-    impl RuleQueryPort for RelateOccPorts {
+        impl RuleQueryPort for RelateOccPorts {
             async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
                 self.baseline.list_rules(rule_refs).await
             }
         }
         #[async_trait]
-    impl HostManifestPort for RelateOccPorts {
+        impl HostManifestPort for RelateOccPorts {
             async fn get_host_capability_manifest(
                 &self,
             ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
@@ -2108,7 +2108,7 @@ mod tests {
             baseline: MemoryBaselinePorts,
         }
         #[async_trait]
-    impl KnowledgeEntryPort for RelateCreateRacePorts {
+        impl KnowledgeEntryPort for RelateCreateRacePorts {
             async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
                 self.baseline.get_knowledge_entry(entry_id).await
             }
@@ -2122,7 +2122,7 @@ mod tests {
             }
         }
         #[async_trait]
-    impl RelationPort for RelateCreateRacePorts {
+        impl RelationPort for RelateCreateRacePorts {
             async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
                 // Stale snapshot: pretend the row is absent so validate routes to
                 // create and the orchestrator passes expected_base_revision None.
@@ -2145,7 +2145,7 @@ mod tests {
             }
         }
         #[async_trait]
-    impl ScopeQueryPort for RelateCreateRacePorts {
+        impl ScopeQueryPort for RelateCreateRacePorts {
             async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
                 self.baseline.list_knowledge_entries(scope).await
             }
@@ -2154,19 +2154,19 @@ mod tests {
             }
         }
         #[async_trait]
-    impl FindingPort for RelateCreateRacePorts {
+        impl FindingPort for RelateCreateRacePorts {
             async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
                 self.baseline.put_findings(findings).await
             }
         }
         #[async_trait]
-    impl RuleQueryPort for RelateCreateRacePorts {
+        impl RuleQueryPort for RelateCreateRacePorts {
             async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
                 self.baseline.list_rules(rule_refs).await
             }
         }
         #[async_trait]
-    impl HostManifestPort for RelateCreateRacePorts {
+        impl HostManifestPort for RelateCreateRacePorts {
             async fn get_host_capability_manifest(
                 &self,
             ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {

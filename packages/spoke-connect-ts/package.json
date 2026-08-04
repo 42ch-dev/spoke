@@ -36,6 +36,16 @@
         "types": "./dist/node/connect-client.d.cts",
         "default": "./dist/node/connect-client.cjs"
       }
+    },
+    "./noise": {
+      "import": {
+        "types": "./dist/noise/index.d.ts",
+        "default": "./dist/noise/index.js"
+      },
+      "require": {
+        "types": "./dist/noise/index.d.cts",
+        "default": "./dist/noise/index.cjs"
+      }
     }
   },
   "files": [
@@ -61,9 +71,10 @@
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.1",
+    "tsup": "^8.0.0",
     "typescript": "^5.3.0",
-    "vitest": "^3.0.0",
-    "tsup": "^8.0.0"
+    "vitest": "^3.0.0"
   },
   "keywords": [
     "spoke",

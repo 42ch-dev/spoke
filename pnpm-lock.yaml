@@ -75,6 +75,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.22)(typescript@5.9.3)

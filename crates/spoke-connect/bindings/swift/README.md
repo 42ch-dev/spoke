@@ -37,17 +37,43 @@ Root `Package.swift` exposes product `SpokeConnect` from package `spoke`. The `s
 | Path | Contents |
 |------|----------|
 | `generated/` | Committed uniffi Swift (`spoke_connect.swift`) + FFI header/modulemap for swiftc smoke |
-| `xcframework/` | Committed `spoke_connectFFI.xcframework` (macOS arm64 static slice) |
+| `xcframework/` | Committed `spoke_connectFFI.xcframework` (three slices, four target triples) |
 | `Smoke/` | macOS swiftc golden-parity gate |
+| `IosSmoke/` | Maintainer-local SwiftPM package — iOS Simulator golden-parity test (not part of the SPM product layout) |
+
+## xcframework coverage
+
+The committed `spoke_connectFFI.xcframework` carries three library slices covering
+macOS arm64 hosts, iOS devices, and iOS simulators on both Apple Silicon and
+Intel hosts:
+
+| LibraryIdentifier | Architectures | Platform | Built from |
+|-------------------|---------------|----------|------------|
+| `macos-arm64` | arm64 | macOS | `aarch64-apple-darwin` staticlib |
+| `ios-arm64` | arm64 | iOS device | `aarch64-apple-ios` staticlib |
+| `ios-arm64_x86_64-simulator` | arm64 + x86_64 | iOS simulator | `aarch64-apple-ios-sim` + `x86_64-apple-ios` staticlibs, `lipo`-combined |
+
+An iOS integrator adds one SPM dependency and links on device and in both
+simulator hosts without running Rust or bindgen. `xcodebuild -create-xcframework`
+requires one `-library` entry per platform, so the two simulator staticlibs are
+combined into the single simulator slice before assembly.
 
 ## Maintainer: regenerate → xcframework → validate
 
 From the **repository root** (local nightly convention: `cargo +nightly …`):
 
 ```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios \
+  --toolchain nightly   # one-time prerequisite; the script asserts these
 ./tooling/connect/build-swift-xcframework.sh
 swift build
-# Smoke/README.md — swiftc golden-parity smoke
+# Smoke/README.md — swiftc golden-parity smoke (macOS)
+# IosSmoke/README.md — xcodebuild test (iOS Simulator)
 ```
 
-Rebuild and commit `generated/` and `xcframework/` when the FFI surface changes. Additional slices (macOS x86_64, iOS) follow the same `xcodebuild -create-xcframework` pattern when scheduled.
+Rebuild and commit `generated/` and `xcframework/` when the FFI surface
+changes. The script builds one release staticlib per target triple, lipo-combines
+the simulator pair, assembles the three-slice xcframework with
+`xcodebuild -create-xcframework`, and lints the result. The iOS smoke lives in
+`IosSmoke/` and is validated with `xcodebuild test` on an iOS Simulator
+destination — see `IosSmoke/README.md` for the exact invocation.

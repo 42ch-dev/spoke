@@ -558,6 +558,8 @@ Port methods are asynchronous on the normative surface. TypeScript port methods 
 
 All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
 
+**Remote adapter:** spoke-connect ships a `RemoteAdapter` that implements these port traits by proxying each call as a reserved `port.*` connect invoke over a message-oriented `Transport` (TS `./remote` subpath, Rust `remote-adapter` feature). It is a drop-in for the local adapters — the same `orchestrate*` entrypoints run against it unchanged, with all connect verification encapsulated. Port-method catalogue and error mapping: [spoke-remote-adapter.md](spoke-remote-adapter.md).
+
 ### Capability matrix
 
 | Capability | Required interface families | Orchestration enabled |

@@ -43,6 +43,10 @@ Connect is an **embeddable library contract**: wire shapes plus pure session rul
 
 Both paths MUST produce the same signed hello bytes, the same `peer_id` derivation, and the same session-core accept/reject outcomes for a given input. The rust-libp2p stack under `crates/spoke-connect` is one transport demonstration; it is evidence, not the definition of the rules.
 
+### RemoteAdapter layer (above session-core)
+
+A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session. It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
+
 ## User value
 
 | Without this spec | With this spec |

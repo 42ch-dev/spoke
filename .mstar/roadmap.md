@@ -4,9 +4,9 @@
 >
 > **Scope:** this repository only — protocol wire, pure ops libraries, fixtures, connect SDK prep, integrator docs. Consumer product engines (e.g. activation runtimes) are not scheduled here.
 
-**Updated:** 2026-08-03  
+**Updated:** 2026-08-04  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.  
-**Lockstep SemVer on main:** `0.7.1` · protocol schema inventory **30** (24 baseline + 6 opt-in connect envelopes).
+**Protocol schema inventory:** **30** (24 baseline + 6 opt-in connect envelopes).
 
 ---
 
@@ -22,9 +22,9 @@ No active delivery slice on `main`. See **Up next** for planned work; durable co
 
 | Slice | What ships | Notes |
 |-------|------------|-------|
-| **spoke-connect uniffi bindings** | Binding matrix complete on four publish channels: **GitHub Packages** (C# NuGet + Kotlin Maven landed), **SPM git** (Swift `SpokeConnect` landed), **Go modules git** (Go landed), **PyPI** OIDC (Python landed). Packaging contract: [connect-binding-channels.md](specs/connect-binding-channels.md), [connect-publish-strategy.md](specs/connect-publish-strategy.md) | Residual: cross-language golden hello vector sharing; additional Swift xcframework slices (iOS, macOS x86_64) when scheduled |
+| **spoke-connect native binding matrix completion** | Remaining cross-language golden-vector sharing and Swift xcframework target coverage (iOS, macOS x86_64) for the five landed language bindings (C#, Kotlin, Swift, Go, Python) | Binding capability itself is landed — see [connect-binding-channels.md](specs/connect-binding-channels.md) for the per-language surface |
 | **Docs CI hardening** | Docs twin-parity check (EN↔CN page-count drift) + dead-link gate for the VitePress site | **Trigger:** next `docs/**` slice; pairs with the cross-platform/CI slice above. EN+CN locale twins already landed |
-| **Integrator docs content** | Keep VitePress `docs/` + GitHub Pages aligned with `.mstar/specs/` SSOT (site scaffold already on main; EN root + `zh/` CN twins live) | Content/SSOT sync as profiles and connect docs evolve; CN terminology glossary: [docs-i18n-glossary.md](knowledge/conventions/docs-i18n-glossary.md) |
+| **Integrator docs content** | Keep VitePress `docs/` aligned with the protocol SSOT (site scaffold already on main; EN root + `zh/` CN twins live) | Content/SSOT sync as profiles and connect docs evolve; CN terminology glossary: [docs-i18n-glossary.md](knowledge/conventions/docs-i18n-glossary.md) |
 | **libp2p transitive vulnerability revisit** | Re-check yamux / hickory-proto pins in `Cargo.lock` when upstream libp2p ecosystem ships fixes | Last reviewed 2026-08-02 — no fix available on current libp2p 0.56 line |
 
 ---
@@ -35,15 +35,16 @@ Newest first. Dates are delivery dates on `main`.
 
 | When | Slice | What landed |
 |------|-------|-------------|
-| 2026-08-04 | Pre-stable-tag Path B hardening | Kotlin Maven groupId `io.github.42ch-dev` → `dev.42ch` (reverse-DNS of `42ch.dev`); cross-language golden hello vector consolidated into single JSON SSOT (`crates/spoke-connect/tests/fixtures/golden-hello.json`) with registered copies + sync gate (`tooling/connect/golden-vector-sync.mjs`); docs CI twin-parity (`tooling/docs/twin-parity.mjs`) + dead-link gate (`tooling/docs/deadlink-check.mjs`) wired into `docs.yml` |
-| 2026-08-03 | Swift `SpokeConnect` SPM + Kotlin Maven | Root `Package.swift` product `SpokeConnect` + committed xcframework; `dev.42ch:spoke-connect` on GitHub Packages with JNA natives + `publish-maven` on `release.yml`; golden-parity smokes for both |
-| 2026-08-03 | Python `spoke-connect` PyPI | Packable `pyproject.toml` + platform wheels (`manylinux_2_35_x86_64`, `macosx_11_0_arm64`, `win_amd64`) + golden-parity smoke + `publish-pypi` Trusted Publishing on `release.yml`; lockstep row in `spoke-version-release.md` |
-| 2026-08-03 | C# `42ch.Spoke.Connect` GitHub Packages NuGet | Packable net8.0 project + multi-RID `ffi` release matrix + `publish-nuget` on `release.yml`; PackageReference DX in docs/Smoke; four-channel binding publish strategy locked (GitHub Packages NuGet/Maven, SPM git, Go modules git, PyPI) |
-| 2026-08-03 | Integrator docs EN + CN i18n | VitePress locale support (`docs/.vitepress/config.mts` `locales`: EN root + `zh/` CN tree) + locale switch + CN twins of all 17 integrator pages (index, 7 guide, 4 profiles, 3 connect, packages, release); SSOT stays English (`.mstar/specs/`); CN terminology glossary promoted to [knowledge](knowledge/conventions/docs-i18n-glossary.md); `vitepress build` green bilingually, Pages deploy covers `/zh/` |
-| 2026-08-03 | spoke-connect TS↔Rust session-core parity | Port Rust `capability_token` module + `tokenAuthorizesOp` grant-membership + reverse peer_id to `@42ch/spoke-connect`; **verify-side** proof-shape u64 parity + canonical-sig + base58 cap; **issuance-side** shape + current-time validation (fail-fast — rejects claims the verifier would deterministically reject, e.g. already-expired `exp` or non-u64 timestamps); Rust-produced golden vector + cross-language verify test; TS↔Rust parity rule recorded in root `AGENTS.md` + [spoke-connect-ts-route.md](specs/spoke-connect-ts-route.md); 120 TS tests green |
-| 2026-08-03 | C# binding landed | Generated `spoke_connect.cs` binding + net8.0 golden-parity smoke (peer_id + hello signature + verify + tamper, protocol=1, plus allowlist / dispatch / capability / correlation / nonce / sequence lifecycle coverage — 11 checks) via a **vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32** ([connect-csharp-binding.md](specs/connect-csharp-binding.md)) — drop the fork when upstream tags a uniffi 0.32+ release |
+| 2026-08-04 | Integrator docs Diátaxis restructure | `docs/` reorganized into four quadrants (Tutorials / How-to guides / Reference / Explanation) with EN↔CN 1:1 twin parity; conceptual content slimmed to key statements; Adapter implementation + Connect usage promoted to top-level how-to branches; consolidated Reference pages carry field tables inline (no internal-spec links); maintainer release-cut procedure cross-linked from sidebar to `CONTRIBUTING.md` |
+| 2026-08-04 | connect TS↔Rust session-core full parity | Closed the four TS↔Rust asymmetries so the parity contract holds without footnotes: `peer_id` decode length cap (128 chars) on Rust; canonical base64url signature round-trip check on Rust verify; Rust issuance-side fail-fast on empty `capabilities` / `exp` inside clock-skew window / `iat` beyond skew (via required 3rd positional `now: u64` arg on `issue_capability_token`); intentional helper boundary documented (TS thin `Session` / `negotiatedCapabilities` / `generateNonce` stay client-side; Rust transport layer owns equivalents). Cross-language golden vector + 96 Rust + 17 integration + 120 TS tests green |
+| 2026-08-04 | connect Path B hardening | Kotlin binding groupId `io.github.42ch-dev` → `dev.42ch` (reverse-DNS of `42ch.dev`); cross-language golden hello vector consolidated into single JSON SSOT (`crates/spoke-connect/tests/fixtures/golden-hello.json`) with registered copies + sync gate (`tooling/connect/golden-vector-sync.mjs`); docs CI twin-parity (`tooling/docs/twin-parity.mjs`) + dead-link gate (`tooling/docs/deadlink-check.mjs`) wired into `docs.yml` |
+| 2026-08-03 | Swift + Kotlin connect bindings | Root `Package.swift` library product `SpokeConnect` + macOS xcframework + golden-parity smoke; Kotlin binding via JNA natives + golden-parity smoke |
+| 2026-08-03 | Python connect binding | Packable `pyproject.toml` + platform wheels (`manylinux_2_35_x86_64`, `macosx_11_0_arm64`, `win_amd64`) + golden-parity smoke |
+| 2026-08-03 | C# connect binding | Packable net8.0 project + multi-RID `ffi` matrix + `PackageReference` DX in docs/Smoke + golden-parity smoke (peer_id + hello signature + verify + tamper, protocol=1, plus allowlist / dispatch / capability / correlation / nonce / sequence lifecycle coverage — 11 checks) via a **vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32** ([connect-csharp-binding.md](specs/connect-csharp-binding.md)) — drop the fork when upstream tags a uniffi 0.32+ release |
+| 2026-08-03 | Integrator docs EN + CN i18n | VitePress locale support (`docs/.vitepress/config.mts` `locales`: EN root + `zh/` CN tree) + locale switch + CN twins of all integrator pages; SSOT stays English (`.mstar/specs/`); CN terminology glossary promoted to [knowledge](knowledge/conventions/docs-i18n-glossary.md); `vitepress build` green bilingually |
+| 2026-08-03 | spoke-connect TS↔Rust session-core parity (verify side) | Port Rust `capability_token` module + `tokenAuthorizesOp` grant-membership + reverse peer_id to `@42ch/spoke-connect`; **verify-side** proof-shape u64 parity + canonical-sig + base58 cap; **issuance-side** shape + current-time validation (fail-fast — rejects claims the verifier would deterministically reject, e.g. already-expired `exp` or non-u64 timestamps); Rust-produced golden vector + cross-language verify test; TS↔Rust parity rule recorded in root `AGENTS.md` + [spoke-connect-ts-route.md](specs/spoke-connect-ts-route.md); 120 TS tests green |
 | 2026-08-02 | Demote `modules.pack` (decision + SSOT) | **Pack ≠ AssemblePacket**; pack catalog → product transport envelope; remove `modules.pack` from ModuleMap examples (triad ADR, Knowledge Pack handbook, CONCEPTS, docs, schema descriptions, companion fixture); keep `modules.activation` on KE and assemble recipes on AssemblePacket |
-| 2026-08-02 | spoke-connect multi-language deepen & delivery prep | C# binding feasibility gate (decision record); publish strategy locked (Stage 1 = npm `@42ch/spoke-connect` + Pages docs); TS published-shape prep; **integrator docs site** (VitePress `docs/`, SSOT-linked pages, GitHub Pages deploy); knowledge `connect-publish-staging` + `integrator-docs-site-ssot-links` |
+| 2026-08-02 | spoke-connect multi-language deepen + integrator docs site | C# binding feasibility gate (decision record); `@42ch/spoke-connect` package surface locked (exports map, subpaths); **integrator docs site** (VitePress `docs/`, SSOT-linked pages); docs-site SSOT-link pattern captured as knowledge |
 | 2026-08-01 | spoke-connect multi-language SDK start | `@42ch/spoke-connect` first slice (pure-TS-minimal + golden parity + WS interop); uniffi Swift sync-core skeleton; capability-token auth normative; mDNS same-LAN discovery (non-default `mdns` feature) |
 | 2026-08-01 | spoke-connect multi-language pre-design | Three-layer embedding contract; pure `crates/spoke-connect` session core + golden vectors; TS route + identity-byte parity proof |
 | 2026-07-31 | spoke-connect foundation | `schemas/connect/` six envelopes + capability flag; JCS hello auth; Rust reference spike; codegen inventory 24 → 30 |
@@ -65,9 +66,9 @@ Newest first. Dates are delivery dates on `main`.
 | Data wire | KnowledgeEntry (closed L2 `body`; optional `modules` under `narrative-modules`; optional `body.state`/`computable` under `l2-computable`), Relation (optional `revision` OCC), SourceAnchor, Finding, AssemblePacket (optional `modules`), HostCapabilityManifest, Rule, TimelineEvent (+ optional fork fields), `extensions` |
 | Ops wire | upsert / promote / relate / check / assemble (+ Scope, error-envelope); optional project / compute (`l2-computable`). `relate` OCC-deep-integrated with upsert |
 | Ops library | Pure TS + Rust helpers + six baseline port families (incl. `HostManifestPort`) + `*Adapter` aliases + injection orchestration; `mergeModuleMaps` / `preserveModuleMaps` |
-| Connect wire (opt-in) | `schemas/connect/` six envelopes; hello JCS + auth paths; published `@42ch/spoke-connect` + crates.io `spoke-connect`; Path B bindings on four channels (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI — all landed per [connect-binding-channels.md](specs/connect-binding-channels.md)) |
+| Connect wire (opt-in) | `schemas/connect/` six envelopes; hello JCS + auth paths; `@42ch/spoke-connect` (TypeScript language-native client) + `spoke-connect` Rust reference; native bindings available for C#, Kotlin, Swift, Go, Python per [connect-binding-channels.md](specs/connect-binding-channels.md) |
 | Fixtures | `fixtures/toy-world/` samples + harness + reference adapters; pack companion under `proposed/` |
-| Codegen / CI | Schema inventory **30**; `verify-codegen`; release lockstep; Pages docs workflow |
+| Codegen / CI | Schema inventory **30**; `verify-codegen`; Pages docs workflow |
 | Specs | Umbrella, layers, data-model, ops, operations, extension-modules, Domain Profiles, assemble recipes, connect family under `.mstar/specs/` |
 
 ---
@@ -95,7 +96,6 @@ Do not schedule these into SPOKE itself unless strategy is explicitly reversed:
 | [`STRATEGY.md`](../STRATEGY.md) | Why / principles / three-column architecture |
 | [`CONCEPTS.md`](../CONCEPTS.md) | KnowledgeEntry / TimelineEvent spelling + dual-concern |
 | [`.mstar/specs/spoke-protocol.md`](specs/spoke-protocol.md) | Normative umbrella |
-| [`.mstar/specs/spoke-version-release.md`](specs/spoke-version-release.md) | Lockstep SemVer, tags, CI-gated GitHub Release, registry publish |
 | [`.mstar/specs/spoke-protocol-layers.md`](specs/spoke-protocol-layers.md) | L0–L8 + capability levels |
 | [`.mstar/specs/spoke-extension-modules.md`](specs/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.mstar/specs/domain-profile-lore-activation.md`](specs/domain-profile-lore-activation.md) | Lore-activation (`modules.activation`) |

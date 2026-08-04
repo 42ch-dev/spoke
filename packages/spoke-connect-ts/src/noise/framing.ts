@@ -244,6 +244,8 @@ export class NoiseHandshake {
   private phase = 0;
   /** Remote `NoiseHandshakePayload` from the last read flight. */
   private remotePayload: ReturnType<typeof decodeHandshakePayload> | null = null;
+  /** Single-shot completion result — shared by every `finish()` caller. */
+  private finishPromise: Promise<NoiseHandshakeResult> | null = null;
 
   constructor(options: NoiseHandshakeOptions) {
     this.initiator = options.initiator;
@@ -299,8 +301,20 @@ export class NoiseHandshake {
    * split the transport keys. Throws on any authentication failure — the
    * transport is not exposed unless the binding verifies (contract §4.3
    * step 3, §5).
+   *
+   * Single-shot contract: only the first invocation runs the completion;
+   * every subsequent or concurrent invocation returns the same result —
+   * including the same rejection when the first attempt failed (a failed
+   * handshake is terminal). One shared `NoiseTransport` is returned, so no
+   * second transport with reset nonce counters can be minted and a ChaCha
+   * nonce/key pair is never reused across "completions" (contract §3.1).
    */
   async finish(): Promise<NoiseHandshakeResult> {
+    this.finishPromise ??= this.computeFinish();
+    return this.finishPromise;
+  }
+
+  private async computeFinish(): Promise<NoiseHandshakeResult> {
     const split = this.xx.finish();
     const payload = this.remotePayload;
     if (

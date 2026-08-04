@@ -418,6 +418,40 @@ describe("NoiseHandshake", () => {
     await initiator.readMessage(f2);
     await initiator.writeMessage(); // flight 3 — verification happens at finish
     await expect(initiator.finish()).rejects.toThrow(/signature/);
+    // Single-shot: a failed completion is terminal — a retry observes the
+    // same rejection instead of starting a fresh attempt.
+    await expect(initiator.finish()).rejects.toThrow(/signature/);
+  });
+
+  it("finish() is single-shot: repeated calls share one transport and one nonce state", async () => {
+    const { initiator, responder } = await makeDriverPair();
+    await runDriverHandshake(initiator, responder);
+    const first = await initiator.finish();
+    const second = await initiator.finish();
+    const resp = await responder.finish();
+
+    // One shared transport — no second transport with reset nonces.
+    expect(second.transport).toBe(first.transport);
+    // The shared nonce counter advances, so identical plaintext seals to
+    // different ciphertext (a fresh nonce-0 transport would collide).
+    const plaintext = new TextEncoder().encode("nonce-reset-probe");
+    const frame1 = first.transport.writeFrame(plaintext);
+    const frame2 = second.transport.writeFrame(plaintext);
+    expect(toHex(frame1)).not.toBe(toHex(frame2));
+    // The pair still opens both frames in order.
+    expect(toHex(resp.transport.readFrame(frame1))).toBe(toHex(plaintext));
+    expect(toHex(resp.transport.readFrame(frame2))).toBe(toHex(plaintext));
+  });
+
+  it("finish() is single-shot under concurrency: concurrent calls share one result", async () => {
+    const { initiator, responder } = await makeDriverPair();
+    await runDriverHandshake(initiator, responder);
+    const [first, second] = await Promise.all([
+      initiator.finish(),
+      initiator.finish(),
+    ]);
+    expect(second.transport).toBe(first.transport);
+    expect(toHex(second.handshakeHash)).toBe(toHex(first.handshakeHash));
   });
 
   it("createNoiseStaticKeypair yields fresh usable X25519 keypairs", () => {

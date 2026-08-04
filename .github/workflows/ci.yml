@@ -97,6 +97,15 @@ jobs:
       - name: Test @42ch/spoke-connect
         run: pnpm run test:connect-ts
 
+      - name: Build @42ch/spoke-connect
+        run: pnpm -F @42ch/spoke-connect build
+
+      - name: Smoke @42ch/spoke-connect published shape (dist)
+        # Published-shape gate: resolves the package exports map against the
+        # built dist/ (ESM + CJS) — not the vitest source aliases. Fails if a
+        # require/import condition or a dist file is dropped.
+        run: pnpm -F @42ch/spoke-connect test:dist
+
       - name: Build @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations build
 

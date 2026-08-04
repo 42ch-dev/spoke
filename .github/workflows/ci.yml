@@ -85,6 +85,12 @@ jobs:
       - name: Test @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations test
 
+      - name: Build @42ch/spoke-operations
+        # Must precede the spoke-connect build + dist smoke: the ./remote
+        # subpath (RemoteAdapter) imports @42ch/spoke-operations, so its
+        # dist/ must exist before test:dist resolves the exports map.
+        run: pnpm -F @42ch/spoke-operations build
+
       - name: Test release scripts
         run: pnpm run test:release
 
@@ -105,9 +111,6 @@ jobs:
         # built dist/ (ESM + CJS) — not the vitest source aliases. Fails if a
         # require/import condition or a dist file is dropped.
         run: pnpm -F @42ch/spoke-connect test:dist
-
-      - name: Build @42ch/spoke-operations
-        run: pnpm -F @42ch/spoke-operations build
 
   connect-identity:
     name: connect-identity

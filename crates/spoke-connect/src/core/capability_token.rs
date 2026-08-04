@@ -500,7 +500,13 @@ mod tests {
             .as_str()
             .find(last)
             .expect("emitted sig uses the base64url alphabet");
-        let slack_flipped = (idx & 0b11) | (((idx >> 2) + 1) % 16) << 2;
+        // Mutate only the slack bits (preserve the low 2 data bits). The
+        // new slack is `(old % 15) + 1` ∈ 1..=15: it never wraps to the
+        // canonical 0 (the old `(old + 1) % 16` degenerated to 0 when the
+        // original char carried slack bits `1111`) and never equals the
+        // original, so the mutated char is always a non-canonical sibling
+        // of the same 64 bytes regardless of the signature content.
+        let slack_flipped = (idx & 0b11) | ((((idx >> 2) % 15) + 1) << 2);
         let mutated_last = URL_SAFE_ALPHABET
             .as_str()
             .chars()

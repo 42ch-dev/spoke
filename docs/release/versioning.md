@@ -35,9 +35,9 @@ SPOKE publishes a **single lockstep SemVer** across all workspace packages and R
 
 Package SemVer and the integer wire `schema_version` move independently — a bump to one does not require a bump to the other. As an exception, release notes explicitly couple the two when a release covers both a package bump and a wire change.
 
-## Normative references
+## More resources
 
-- [spoke-version-release.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-version-release.md) — lockstep surfaces, tag convention, CI requirements, consumer pinning
 - [CHANGELOG.md](https://github.com/42ch-dev/spoke/blob/main/CHANGELOG.md) — release notes
 - [GitHub Releases](https://github.com/42ch-dev/spoke/releases) — releases and source archives
+- [@42ch/spoke-schemas on npm](https://www.npmjs.com/package/@42ch/spoke-schemas) / [spoke-schemas on crates.io](https://crates.io/crates/spoke-schemas) — the published packages
 - [README.md](https://github.com/42ch-dev/spoke/blob/main/README.md) — install and pin examples

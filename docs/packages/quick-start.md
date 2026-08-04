@@ -46,7 +46,7 @@ cargo add spoke-connect@X.Y.Z
 
 - **`spoke-connect`** — Rust reference crate (libp2p transport + uniffi binding surface).
 
-Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings](/connect/bindings).
+Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings](/how-to/connect-native-bindings).
 
 ## Integrator path
 
@@ -59,11 +59,10 @@ Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven 
 
 All packages bump together (lockstep SemVer); annotated tags `vX.Y.Z` match. See [Version & release](/release/versioning) for the pin guide.
 
-## Normative references
+## More resources
 
 - [README.md](https://github.com/42ch-dev/spoke/blob/main/README.md) — install, quick start, operations overview
-- [@42ch/spoke-schemas README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-schemas/README.md)
-- [@42ch/spoke-operations README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-operations/README.md)
-- [spoke-schemas README (Rust)](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-schemas/README.md)
-- [spoke-operations README (Rust)](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-operations/README.md)
-- [spoke-version-release.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-version-release.md) — lockstep SemVer and consumer pinning
+- [@42ch/spoke-schemas on npm](https://www.npmjs.com/package/@42ch/spoke-schemas) and its [package README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-schemas/README.md)
+- [@42ch/spoke-operations on npm](https://www.npmjs.com/package/@42ch/spoke-operations) and its [package README](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-operations/README.md)
+- [spoke-schemas on crates.io](https://crates.io/crates/spoke-schemas) and its [crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-schemas/README.md)
+- [spoke-operations on crates.io](https://crates.io/crates/spoke-operations) and its [crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-operations/README.md)

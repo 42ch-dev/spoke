@@ -114,6 +114,10 @@ Optional capability flag: a product declaring it implements the connect envelope
 
 Six opt-in interaction envelopes in `schemas/connect/`: `ConnectHello` (signed manifest exchange), `ConnectSession` (session context snapshot), `ConnectInvokeRequest` / `ConnectInvokeResponse` (remote op call wrapping existing ops envelopes as opaque `payload`; failure reuses the shared `ErrorEnvelope`), `ConnectAuthChallenge` / `ConnectAuthResponse` (extensible `method` auth). Closed envelopes with required `extensions`; hello embeds `HostCapabilityManifest` by `$ref`. Normative semantics: [`spoke-connect.md`](.mstar/specs/spoke-connect.md).
 
+### Connect embedding path
+
+How a host language embeds connect session rules. **Path A (language-direct)** = language-native client — host-language session core, no Rust runtime (exemplar TypeScript `@42ch/spoke-connect`). **Path B (shared core bindings)** = native bindings — FFI into a shared session core (C# / Kotlin / Swift / Go / Python). **Rust `spoke-connect`** = Rust reference (session-core reference + Path B uniffi source + libp2p transport), not Path A. Consumer docs use the aliases, not the Path letters. Field table: [`spoke-connect.md`](.mstar/specs/spoke-connect.md) §Embedding model.
+
 ### Session (connect)
 
 Established cross-process invocation context: `session_id`, `initiator_peer_id` / `responder_peer_id`, `opened_at`, `negotiated_capabilities` (MUST include `spoke-connect` when both hosts declare it), `initial_sequence` (0 for protocol version 1). Per-session monotonic `sequence` ordering with `request_id` correlation; each peer keeps its own outbound counter. Distinct from [Session (computable lifecycle)](#session-computable-lifecycle) — the `l2-computable` projection lifecycle on `body.state` / `body.computable`.

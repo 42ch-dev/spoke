@@ -130,7 +130,7 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-Connect 支持多语言：路径 A（语言直连，例如 npm 上的 TypeScript）与路径 B（经原生绑定共享会话核心，四渠道发布 —— GitHub Packages NuGet/Maven、SPM git、Go modules git、PyPI）。总览、TypeScript 路线与原生绑定见 [连接](https://spoke.42ch.dev/zh/connect/overview)。
+Connect 支持多语言：npm 上的语言原生客户端（TypeScript）、crates.io 上的 Rust 参考实现（libp2p + uniffi 绑定面），以及经四种渠道发布的原生绑定 —— GitHub Packages NuGet/Maven、SPM git、Go modules git、PyPI。总览、TypeScript 路线与原生绑定见 [连接](https://spoke.42ch.dev/zh/connect/overview)。
 
 ## 版本与固定
 

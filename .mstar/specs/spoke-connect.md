@@ -32,14 +32,16 @@ Connect is an **embeddable library contract**: wire shapes plus pure session rul
 | **Session core** | Pure logic: hello accept/reject gates, nonce single-use, session state, per-direction sequence allocation and check, `request_id` correlation, allowlist evaluation, op dispatch gate | Language-portable rules; implementable without a shared native library |
 | **Transport adapter** | Byte-stream or RPC channel, authenticated transport identity when present, stream lifecycle, dialing, peer metadata (e.g. identify), delimiter choice | Per language and per product |
 
-**Two embedding paths:**
+**Two embedding paths** (internal labels **Path A** / **Path B**). Consumer-facing docs (`docs/`, root READMEs) use the aliases in the table — not the Path letters.
 
-| Path | Description |
-|------|-------------|
-| **Path A — language-direct** | Implement the wire contract and session-core rules in the host language; pair with that language’s network stack (js-libp2p, native sockets, WebSocket, etc.). No Rust runtime required. |
-| **Path B — shared core bindings** | Export a session-core implementation (e.g. Rust via uniffi) into the host language; the transport adapter may stay in the host language or in the shared core. |
+| Path (internal) | Consumer docs alias | Description | Current shipped surfaces |
+|-----------------|---------------------|-------------|--------------------------|
+| **Path A — language-direct** | **Language-native client** | Implement the wire contract and session-core rules in the host language; pair with that language’s network stack (js-libp2p, native sockets, WebSocket, etc.). No Rust runtime required. | TypeScript `@42ch/spoke-connect` (WebSocket) |
+| **Path B — shared core bindings** | **Native bindings** | Export a session-core implementation (Rust via uniffi) into the host language; the transport adapter may stay in the host language or in the shared core. | C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go modules under `crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect` |
 
-Both paths MUST produce the same signed hello bytes, the same `peer_id` derivation, and the same session-core accept/reject outcomes for a given input. The reference stack under `crates/spoke-connect` is one Path B-oriented transport demonstration over rust-libp2p; it is evidence, not the definition of the rules.
+**Rust reference (`spoke-connect` on crates.io):** the published crate is the **session-core reference** and the **Path B binding source** (uniffi facade + `bindings/**`). It also ships a rust-libp2p transport stack. It is **not** Path A — Path A means a host-language port with no Rust runtime. Consumer docs call this the **Rust reference**, not Path A or Path B.
+
+Both paths MUST produce the same signed hello bytes, the same `peer_id` derivation, and the same session-core accept/reject outcomes for a given input. The rust-libp2p stack under `crates/spoke-connect` is one transport demonstration; it is evidence, not the definition of the rules.
 
 ## User value
 
@@ -508,7 +510,7 @@ Minimal framing contract for any transport that carries connect envelopes. Delim
 
 ## Reference stack
 
-The reference stack maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. Identity, session rules, and framing follow §[Identity binding](#identity-binding), §[Session-core state machine](#session-core-state-machine), and §[Transport framing](#transport-framing) — the same rules Path A stacks implement in other languages. The reference spike lives in `crates/spoke-connect` (unpublished, `publish = false`) and demonstrates one transport binding; it is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
+The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenticated transport, **yamux** for stream multiplexing, **request-response** for invoke, **identify** for peer metadata. Identity, session rules, and framing follow §[Identity binding](#identity-binding), §[Session-core state machine](#session-core-state-machine), and §[Transport framing](#transport-framing) — the same rules Path A (language-native) stacks implement in other languages. The crate `crates/spoke-connect` also exports the Path B uniffi binding surface; the libp2p stack is a transport demonstration, not a protocol surface. Kademlia / DHT discovery is not part of this protocol version.
 
 ## Hard boundaries
 
@@ -572,6 +574,6 @@ The reference stack maps these envelopes onto rust-libp2p: **noise** for authent
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + error envelope (wrapped as opaque invoke payloads) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers; adapter ports; `HostManifestPort` |
 | [`schemas/README.md`](../../schemas/README.md) | Connect schema files under `schemas/connect/` |
-| [`crates/spoke-connect/README.md`](../../crates/spoke-connect/README.md) | Reference transport spike (Path B-oriented demonstration) |
+| [`crates/spoke-connect/README.md`](../../crates/spoke-connect/README.md) | Rust reference (libp2p transport + Path B uniffi binding surface) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Connect envelope family / Session (connect) / peer_id vocabulary |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning |

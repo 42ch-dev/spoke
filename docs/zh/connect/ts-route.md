@@ -4,7 +4,7 @@ title: TypeScript 连接路线
 
 # TypeScript 连接路线（TypeScript connect route）
 
-connect 路径 A 的 TypeScript 路线是**纯 TS 最小实现（pure-TS-minimal）**：信封规则与身份计算用纯 JS 原语在 TypeScript 中实现（WebCrypto 可用时使用，`@noble/ed25519` 回退）—— js-libp2p 与 WASM 是下方的回退路线。
+TypeScript 连接路线是**语言原生客户端** —— **纯 TS 最小实现（pure-TS-minimal）**：信封规则与身份计算用纯 JS 原语在 TypeScript 中实现（WebCrypto 可用时使用，`@noble/ed25519` 回退）—— js-libp2p 与 WASM 是下方的回退路线。
 
 本页为[英文原页](/connect/ts-route)（English）的中文概览。规范说明（specs）保持英文原文并作为 SSOT（单一事实来源）；完整细节见文末「规范参考」。
 

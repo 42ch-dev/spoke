@@ -4,7 +4,9 @@
 
 **Normative wire / identity / framing:** [spoke-connect.md](spoke-connect.md) §Identity binding, §Signature canonicalization, §Transport framing, §Embedding model. This document chooses a **client stack route** for browser and Node integrators; it does not fork identity rules or add schemas.
 
-**Updated:** 2026-08-02
+**Vocabulary:** This route is **Path A** (internal) = consumer **language-native client** — TypeScript implements wire + session-core with no Rust runtime. Distinct from **Path B** / **native bindings** (FFI) and from the **Rust reference** crate. Map: [spoke-connect.md](spoke-connect.md) §Embedding model.
+
+**Updated:** 2026-08-04
 
 ---
 

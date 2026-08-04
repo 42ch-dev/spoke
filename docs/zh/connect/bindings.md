@@ -2,9 +2,9 @@
 title: 原生绑定
 ---
 
-# 原生绑定（Native bindings，Path B）
+# 原生绑定
 
-路径 B 将**共享会话核心**经 FFI 嵌入宿主语言：纯同步的会话规则（`peer_id`（对等节点标识）派生、hello 签名/验证、allowlist、nonce 一次性使用、序列分配、关联、dispatch gate）全部位于一个核心中，传输留在各宿主语言。参考实现是 `spoke-connect` crate 的 **Binding facade**。
+原生绑定将**共享会话核心**经 FFI 嵌入宿主语言：纯同步的会话规则（`peer_id`（对等节点标识）派生、hello 签名/验证、allowlist、nonce 一次性使用、序列分配、关联、dispatch gate）全部位于一个核心中，传输留在各宿主语言。参考实现是 `spoke-connect` crate 的 **Binding facade**。
 
 本页为[英文原页](/connect/bindings)（English）的中文概览。规范说明（specs）保持英文原文并作为 SSOT（单一事实来源）；完整细节见文末「规范参考」。
 
@@ -14,7 +14,7 @@ crate 的 `src/core/` 是纯同步、语言可移植层 —— libp2p、tokio �
 
 ## 发布渠道
 
-路径 B 绑定通过**四种渠道类型**（五种语言）发布，均与 spoke 标签 `vX.Y.Z` 锁步：
+原生绑定通过**四种渠道类型**（五种语言）发布，均与 spoke 标签 `vX.Y.Z` 锁步：
 
 | 渠道 | 语言 | 集成方入口 |
 |------|------|------------|
@@ -160,7 +160,7 @@ version = spoke_connect.protocol_version()  # 1
 
 ## 目标语言矩阵
 
-目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（SPM `SpokeConnect`）、**Kotlin**（GitHub Packages Maven）、**Go**（Go modules + 黄金向量 smoke）与 **Python**（PyPI 平台 wheel + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)；Swift 见 [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md)；Kotlin 见 [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md)；Python 见 [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)）。TypeScript 是并行的**路径 A**（语言直连）轨道。
+目标语言为 C#、Go、Python、Swift、Kotlin（按产品方向优先级）。**C#**（NuGet）、**Swift**（SPM `SpokeConnect`）、**Kotlin**（GitHub Packages Maven）、**Go**（Go modules + 黄金向量 smoke）与 **Python**（PyPI 平台 wheel + 黄金向量 smoke）**已落地** —— C# 与 Go 经 vendored uniffi bindgen fork（重定向到 uniffi 0.32）实现（[C# 决策记录](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-csharp-binding.md)；Go 见 [`bindings/go/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/go/README.md)；Swift 见 [`bindings/swift/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/swift/README.md)；Kotlin 见 [`bindings/kotlin/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/kotlin/README.md)；Python 见 [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)）。TypeScript 是并行的**语言原生客户端**轨道。
 
 ## 集成方须知
 
@@ -170,7 +170,7 @@ version = spoke_connect.protocol_version()  # 1
 
 ## 规范参考
 
-- [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) §嵌入模型 —— 路径 B 定义与纯度规则
+- [spoke-connect.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-connect.md) §嵌入模型 —— 原生绑定定义与纯度规则
 - [connect-publish-strategy.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-publish-strategy.md) —— 发布阶段与四渠道注册表分工
 - [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) —— 各语言打包契约（坐标、原生库、CI 任务）
 - [crates/spoke-connect/README.md#binding-facade](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md#binding-facade) —— 同步/异步边界、导出面、目标语言矩阵

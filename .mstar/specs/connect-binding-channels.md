@@ -1,14 +1,16 @@
 # Connect binding channels — packaging contract
 
-**Status:** Informative decision record — freezes the per-language package shapes for Path B bindings. Does not change connect envelopes, the lockstep release policy, or the channel split.
+**Status:** Informative decision record — freezes the per-language package shapes for Path B (**native bindings**) packages. Does not change connect envelopes, the lockstep release policy, or the channel split.
 
 **Updated:** 2026-08-04
+
+**Vocabulary:** **Path B** (internal) = consumer **native bindings** — host languages that embed the shared Rust session core via FFI. Distinct from **Path A** / **language-native client** (TypeScript) and from the **Rust reference** crate itself. Normative map: [`spoke-connect.md`](spoke-connect.md) §Embedding model.
 
 ---
 
 ## 1. Purpose
 
-[`connect-publish-strategy.md`](connect-publish-strategy.md) decides **which** channel each connect surface uses and **when** publish runs. This record freezes **how** each Path B binding language is packaged: module paths, package coordinates, native artifact layout, generator route, and CI job shape — so implementers build one shape and integrators read one shape.
+[`connect-publish-strategy.md`](connect-publish-strategy.md) decides **which** channel each connect surface uses and **when** publish runs. This record freezes **how** each Path B (native binding) language is packaged: module paths, package coordinates, native artifact layout, generator route, and CI job shape — so implementers build one shape and integrators read one shape.
 
 | Spec | Role |
 |------|------|

@@ -93,8 +93,8 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 
 ## 嵌入模型
 
-| 路径 | 交付物 |
-|------|--------|
+| 嵌入方式 | 交付物 |
+|----------|--------|
 | **语言原生客户端（language-native client）** | 在宿主语言中实现的线上契约与会话核心规则（TypeScript `@42ch/spoke-connect` 客户端，WebSocket 传输） |
 | **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI） |
 | **Rust 参考实现（Rust reference）** | 已发布的 `spoke-connect` crate：会话核心参考、uniffi 绑定来源，以及 rust-libp2p 传输栈（[crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md)） |

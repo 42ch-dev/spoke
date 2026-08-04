@@ -93,8 +93,8 @@ One JSON connect envelope per message over an ordered, reliable, bidirectional b
 
 ## Embedding model
 
-| Path | What ships |
-|------|-----------|
+| Embedding | What ships |
+|-----------|------------|
 | **Language-native client** | The wire contract and session-core rules implemented in the host language (the TypeScript `@42ch/spoke-connect` client with WebSocket transport) |
 | **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI) |
 | **Rust reference** | The published `spoke-connect` crate: session-core reference, uniffi binding source, and a rust-libp2p transport stack ([crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md)) |

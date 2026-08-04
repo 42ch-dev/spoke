@@ -76,7 +76,9 @@ Scoring is High / Med / Low fitness for SPOKE Path A browser+Node clients that m
 
 ## Identity proof evidence
 
-**Location:** [`tooling/connect-identity-proof/`](../../tooling/connect-identity-proof/) (not a workspace package; not published; not CI-gated).
+**Location:** [`tooling/connect-identity-proof/`](../../tooling/connect-identity-proof/) (not a workspace package; not published).
+
+**CI gate:** the proof runs via the `connect-identity` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (Node 24) on the workflow's triggers (pull requests, pushes to `main`), path-filtered to `tooling/connect-identity-proof/**` and `packages/spoke-connect-ts/**` (plus the workflow file); a non-zero proof exit fails the workflow.
 
 **Command:**
 
@@ -133,10 +135,10 @@ RESULT: ALL CHECKS PASSED
 1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers (`derivePeerId`, `ed25519PubkeyFromPeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, `issueCapabilityToken` / `verifyCapabilityToken`, base64url). No swarm, no mDNS/DHT.
 2. **Transport adapter:** WebSocket client that sends/receives one JSON document per message; map to hello → session establish → invoke request/response correlation via existing wire fields only.
 3. **Session-core port (minimal):** protocol version check, allowlist on `peer_id`, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate — mirror [spoke-connect.md](spoke-connect.md) session-core rules; keep I/O at the adapter boundary.
-4. **Crypto matrix:** WebCrypto Ed25519 primary; `@noble/ed25519` fallback for older runtimes; keep the identity proof (or promote its vectors) as a regression check.
+4. **Crypto matrix:** WebCrypto Ed25519 primary; `@noble/ed25519` fallback for older runtimes; the identity proof runs as a CI regression gate (`connect-identity` job, see [Identity proof evidence](#identity-proof-evidence)).
 5. **Interop target:** envelope-level parity with Rust peers over WS (or a test double stream). Noise/js-libp2p mesh is an optional second track, not a blocker for slice 1.
 6. **Opt-in Noise transport subpath:** `@42ch/spoke-connect/noise` ships a pure-TS Noise XX stack — `Noise_XX_25519_ChaChaPoly_SHA256` (X25519 DH + ChaCha20-Poly1305 AEAD + HKDF-SHA256) — wire-compatible with the rust-libp2p Noise reference, proven by a recorded rust-libp2p golden-transcript round-trip. The XX `s` tokens carry a real X25519 static key; flights 2–3 carry a `NoiseHandshakePayload` binding the static key to the SPOKE peer's long-term Ed25519 identity (signature over `"noise-libp2p-static-key:" || static_public`). The subpath is transport-adapter-owned and outside session-core parity (`src/noise/`, never `src/core/`); its dependencies (`@noble/ciphers`, `@noble/curves`) load only via `./noise`, and the default `.` / `./node` export graphs stay unchanged, enforced by a bundle-isolation gate.
-7. **Later scope / transport-adapter extensions:** DHT discovery; CI-enforced identity gate (wire `tooling/connect-identity-proof` into CI as a regression gate). js-libp2p remains the documented heavy-mesh fallback when a product prefers that stack over the first-party subpath.
+7. **Later scope / transport-adapter extensions:** DHT discovery. js-libp2p remains the documented heavy-mesh fallback when a product prefers that stack over the first-party subpath.
 
 ---
 
@@ -149,4 +151,4 @@ RESULT: ALL CHECKS PASSED
 | [spoke-connect.md](spoke-connect.md) §Transport framing | One JSON document per message; ordered reliable stream |
 | [spoke-connect.md](spoke-connect.md) §Embedding model | Path A / Path B purity rules |
 | `crates/spoke-connect` core (`peer_id`, `hello_crypto`) | Rust golden vectors + pure session core reference |
-| `tooling/connect-identity-proof/` | Local JS reproducibility proof |
+| `tooling/connect-identity-proof/` | JS reproducibility proof (CI-gated via the `connect-identity` job) |

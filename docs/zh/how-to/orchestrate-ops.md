@@ -4,7 +4,7 @@ title: 编排操作（Orchestrate operations）
 
 # 编排操作（Orchestrate operations）
 
-操作库为每个 op 族暴露**一个编排器**。每个编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。
+操作库为每个 op 族暴露**一个编排器**。每个编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。
 
 ## 编排器一览
 
@@ -25,12 +25,14 @@ title: 编排操作（Orchestrate operations）
 import { orchestrateUpsert } from "@42ch/spoke-operations";
 import type { UpsertRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateUpsert(adapter, {
-  knowledge_entries: [mira, harbor],
-});
+async function runUpsert() {
+  const result = await orchestrateUpsert(adapter, {
+    knowledge_entries: [mira, harbor],
+  });
 
-if (result.ok) {
-  console.log(result.value.knowledge_entries.map((e) => e.entry_id));
+  if (result.ok) {
+    console.log(result.value.knowledge_entries.map((e) => e.entry_id));
+  }
 }
 ```
 
@@ -42,10 +44,12 @@ if (result.ok) {
 import { orchestratePromote } from "@42ch/spoke-operations";
 import type { PromoteRequest } from "@42ch/spoke-schemas";
 
-const result = orchestratePromote(adapter, {
-  candidate: provisionalEntry,      // 通常 status 为 "provisional"
-  target_entry_id: "kb_existing",   // 可选合并目标
-});
+async function runPromote() {
+  const result = await orchestratePromote(adapter, {
+    candidate: provisionalEntry,      // 通常 status 为 "provisional"
+    target_entry_id: "kb_existing",   // 可选合并目标
+  });
+}
 ```
 
 Promote 运行验收门禁（`CANDIDATE_NOT_PROVISIONAL`、`CANDIDATE_TERMINAL_STATUS` 等）与修订门禁，应用验收状态迁移，并经由 `putKnowledgeEntry` 持久化。携带 `target_entry_id` 时，响应会带上被合并条目的 `superseded_id`。
@@ -56,16 +60,18 @@ Promote 运行验收门禁（`CANDIDATE_NOT_PROVISIONAL`、`CANDIDATE_TERMINAL_S
 import { orchestrateRelate } from "@42ch/spoke-operations";
 import type { RelateRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateRelate(adapter, {
-  relation: {
-    schema_version: 1,
-    relation_id: "rel_mira_harbor",
-    relation_type: "located_in",
-    from_id: "kb_mira",
-    to_id: "kb_harbor",
-    extensions: {},
-  },
-});
+async function runRelate() {
+  const result = await orchestrateRelate(adapter, {
+    relation: {
+      schema_version: 1,
+      relation_id: "rel_mira_harbor",
+      relation_type: "located_in",
+      from_id: "kb_mira",
+      to_id: "kb_harbor",
+      extensions: {},
+    },
+  });
+}
 ```
 
 Relation 校验区分创建与更新（`RELATION_SELF_EDGE`、`RELATION_MISSING_ENDPOINT` 等），OCC 感知的 put 在 adapter 内处理修订号分配。
@@ -78,11 +84,13 @@ Relation 校验区分创建与更新（`RELATION_SELF_EDGE`、`RELATION_MISSING_
 import { orchestrateCheck, spokeOk, type CheckRunInput } from "@42ch/spoke-operations";
 import type { CheckRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateCheck(adapter, checkRequest, (input: CheckRunInput) => {
-  // input: { request, entries, events, rules }
-  const findings = myChecker(input.entries, input.rules);
-  return spokeOk(findings); // 或 spokeReject(SpokeRejectCode.INVALID_INPUT, "...")
-});
+async function runCheck() {
+  const result = await orchestrateCheck(adapter, checkRequest, (input: CheckRunInput) => {
+    // input: { request, entries, events, rules }
+    const findings = myChecker(input.entries, input.rules);
+    return spokeOk(findings); // 或 spokeReject(SpokeRejectCode.INVALID_INPUT, "...")
+  });
+}
 ```
 
 规则经 `RuleQueryPort` 从 `rule_refs` 解析，请求内嵌的 `rules[]` 按 `rule_id` 覆盖。`check` 只返回 findings —— 上下文包请用 `assemble`。
@@ -93,10 +101,12 @@ const result = orchestrateCheck(adapter, checkRequest, (input: CheckRunInput) =>
 import { orchestrateAssemble } from "@42ch/spoke-operations";
 import type { AssembleRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateAssemble(adapter, {
-  scope: { scope_id: "book-harbor", entry_types: ["character"] },
-  max_entries: 20, // 可选的条目数量提示
-});
+async function runAssemble() {
+  const result = await orchestrateAssemble(adapter, {
+    scope: { scope_id: "book-harbor", entry_types: ["character"] },
+    max_entries: 20, // 可选的条目数量提示
+  });
+}
 ```
 
 编排器加载作用域、应用作用域过滤，并构建仅线上（wire-only）的 `AssemblePacket`，带保序截断。组装本身 —— ranking、retrieval、token 预算 —— 由产品侧完成。

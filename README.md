@@ -73,8 +73,10 @@ declare const adapter: BaselineAdapter; // product implements BaselineAdapter / 
 declare const upsertRequest: UpsertRequest;
 declare const promoteRequest: PromoteRequest;
 
-const upserted = orchestrateUpsert(adapter, upsertRequest);
-const promoted = orchestratePromote(adapter, promoteRequest);
+async function runBaseline() {
+  const upserted = await orchestrateUpsert(adapter, upsertRequest);
+  const promoted = await orchestratePromote(adapter, promoteRequest);
+}
 ```
 
 Optional capabilities use `ComputableAdapter` / `ForkAdapter` (or `FullAdapter`) with `orchestrateProject`, `orchestrateCompute`, `orchestrateForkCheck`, and `orchestrateForkAssemble`. Pure helpers (`validatePromoteRequest`, `mergeExtensionMaps`, `buildAssemblePacket`, …) remain available for focused gates.
@@ -107,9 +109,9 @@ use spoke_operations::{
 };
 use spoke_operations::spoke_schemas::{PromoteRequest, UpsertRequest};
 
-fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
-    let _ = orchestrate_upsert(adapter, upsert);
-    let _ = orchestrate_promote(adapter, promote);
+async fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
+    let _ = orchestrate_upsert(adapter, upsert).await;
+    let _ = orchestrate_promote(adapter, promote).await;
 }
 ```
 
@@ -169,12 +171,15 @@ const candidate: KnowledgeEntry = {
 };
 
 const request: PromoteRequest = { candidate };
-const result = orchestratePromote(adapter, request);
 
-if (result.ok) {
-  // Confirmed entry persisted through adapter OCC ports
-} else {
-  console.error(result.code, result.message);
+async function promote() {
+  const result = await orchestratePromote(adapter, request);
+
+  if (result.ok) {
+    // Confirmed entry persisted through adapter OCC ports
+  } else {
+    console.error(result.code, result.message);
+  }
 }
 ```
 

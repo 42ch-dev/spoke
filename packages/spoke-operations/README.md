@@ -55,12 +55,14 @@ declare const ports: BaselinePorts;
 declare const upsertRequest: UpsertRequest;
 declare const checkRequest: CheckRequest;
 
-const upserted = orchestrateUpsert(ports, upsertRequest);
+async function runBaseline() {
+  const upserted = await orchestrateUpsert(ports, upsertRequest);
 
-const checked = orchestrateCheck(ports, checkRequest, (_input: CheckRunInput) => {
-  // Product-owned checker; library loads scope data and persists findings via ports
-  return spokeOk([]);
-});
+  const checked = await orchestrateCheck(ports, checkRequest, (_input: CheckRunInput) => {
+    // Product-owned checker; library loads scope data and persists findings via ports
+    return spokeOk([]);
+  });
+}
 ```
 
 Optional capabilities use the composed port types (`ComputablePorts`, `ForkPorts`) with `orchestrateProject` / `orchestrateCompute` and `orchestrateForkCheck` / `orchestrateForkAssemble`.

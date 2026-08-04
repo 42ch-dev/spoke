@@ -73,8 +73,10 @@ declare const adapter: BaselineAdapter; // 产品实现 BaselineAdapter / FullAd
 declare const upsertRequest: UpsertRequest;
 declare const promoteRequest: PromoteRequest;
 
-const upserted = orchestrateUpsert(adapter, upsertRequest);
-const promoted = orchestratePromote(adapter, promoteRequest);
+async function runBaseline() {
+  const upserted = await orchestrateUpsert(adapter, upsertRequest);
+  const promoted = await orchestratePromote(adapter, promoteRequest);
+}
 ```
 
 可选能力使用 `ComputableAdapter` / `ForkAdapter`（或 `FullAdapter`），配合 `orchestrateProject`、`orchestrateCompute`、`orchestrateForkCheck`、`orchestrateForkAssemble`。纯函数辅助（`validatePromoteRequest`、`mergeExtensionMaps`、`buildAssemblePacket` 等）仍可用于聚焦门控。
@@ -107,9 +109,9 @@ use spoke_operations::{
 };
 use spoke_operations::spoke_schemas::{PromoteRequest, UpsertRequest};
 
-fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
-    let _ = orchestrate_upsert(adapter, upsert);
-    let _ = orchestrate_promote(adapter, promote);
+async fn run_baseline(adapter: &impl BaselineAdapter, upsert: UpsertRequest, promote: PromoteRequest) {
+    let _ = orchestrate_upsert(adapter, upsert).await;
+    let _ = orchestrate_promote(adapter, promote).await;
 }
 ```
 
@@ -169,12 +171,15 @@ const candidate: KnowledgeEntry = {
 };
 
 const request: PromoteRequest = { candidate };
-const result = orchestratePromote(adapter, request);
 
-if (result.ok) {
-  // 已通过 adapter OCC ports 持久化 confirmed 条目
-} else {
-  console.error(result.code, result.message);
+async function promote() {
+  const result = await orchestratePromote(adapter, request);
+
+  if (result.ok) {
+    // 已通过 adapter OCC ports 持久化 confirmed 条目
+  } else {
+    console.error(result.code, result.message);
+  }
 }
 ```
 

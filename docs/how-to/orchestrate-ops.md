@@ -4,7 +4,7 @@ title: Orchestrate operations
 
 # Orchestrate operations
 
-The operations library exposes one **orchestrator per op family**. Each orchestrator takes your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, runs the protocol gates, loads and persists data through your ports, and returns a `SpokeResult` — never a throw for expected rejects.
+The operations library exposes one **orchestrator per op family**. Each orchestrator takes your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, runs the protocol gates, loads and persists data through your ports, and returns a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust).
 
 ## The orchestrators
 
@@ -25,12 +25,14 @@ The operations library exposes one **orchestrator per op family**. Each orchestr
 import { orchestrateUpsert } from "@42ch/spoke-operations";
 import type { UpsertRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateUpsert(adapter, {
-  knowledge_entries: [mira, harbor],
-});
+async function runUpsert() {
+  const result = await orchestrateUpsert(adapter, {
+    knowledge_entries: [mira, harbor],
+  });
 
-if (result.ok) {
-  console.log(result.value.knowledge_entries.map((e) => e.entry_id));
+  if (result.ok) {
+    console.log(result.value.knowledge_entries.map((e) => e.entry_id));
+  }
 }
 ```
 
@@ -42,10 +44,12 @@ if (result.ok) {
 import { orchestratePromote } from "@42ch/spoke-operations";
 import type { PromoteRequest } from "@42ch/spoke-schemas";
 
-const result = orchestratePromote(adapter, {
-  candidate: provisionalEntry,      // typically status "provisional"
-  target_entry_id: "kb_existing",   // optional merge target
-});
+async function runPromote() {
+  const result = await orchestratePromote(adapter, {
+    candidate: provisionalEntry,      // typically status "provisional"
+    target_entry_id: "kb_existing",   // optional merge target
+  });
+}
 ```
 
 Promote runs the acceptance gates (`CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, …) and the revision gate, applies the acceptance transition, and persists through `putKnowledgeEntry`. With a `target_entry_id`, the response carries `superseded_id` for the merged-away entry.
@@ -56,16 +60,18 @@ Promote runs the acceptance gates (`CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMI
 import { orchestrateRelate } from "@42ch/spoke-operations";
 import type { RelateRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateRelate(adapter, {
-  relation: {
-    schema_version: 1,
-    relation_id: "rel_mira_harbor",
-    relation_type: "located_in",
-    from_id: "kb_mira",
-    to_id: "kb_harbor",
-    extensions: {},
-  },
-});
+async function runRelate() {
+  const result = await orchestrateRelate(adapter, {
+    relation: {
+      schema_version: 1,
+      relation_id: "rel_mira_harbor",
+      relation_type: "located_in",
+      from_id: "kb_mira",
+      to_id: "kb_harbor",
+      extensions: {},
+    },
+  });
+}
 ```
 
 Relation validation distinguishes create vs update (`RELATION_SELF_EDGE`, `RELATION_MISSING_ENDPOINT`, …), and the OCC-aware put handles revision assignment in your adapter.
@@ -78,11 +84,13 @@ Relation validation distinguishes create vs update (`RELATION_SELF_EDGE`, `RELAT
 import { orchestrateCheck, spokeOk, type CheckRunInput } from "@42ch/spoke-operations";
 import type { CheckRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateCheck(adapter, checkRequest, (input: CheckRunInput) => {
-  // input: { request, entries, events, rules }
-  const findings = myChecker(input.entries, input.rules);
-  return spokeOk(findings); // or spokeReject(SpokeRejectCode.INVALID_INPUT, "...")
-});
+async function runCheck() {
+  const result = await orchestrateCheck(adapter, checkRequest, (input: CheckRunInput) => {
+    // input: { request, entries, events, rules }
+    const findings = myChecker(input.entries, input.rules);
+    return spokeOk(findings); // or spokeReject(SpokeRejectCode.INVALID_INPUT, "...")
+  });
+}
 ```
 
 Rules resolve from `rule_refs` via `RuleQueryPort`, with embedded `rules[]` overriding by `rule_id`. `check` returns findings only — use `assemble` for context packets.
@@ -93,10 +101,12 @@ Rules resolve from `rule_refs` via `RuleQueryPort`, with embedded `rules[]` over
 import { orchestrateAssemble } from "@42ch/spoke-operations";
 import type { AssembleRequest } from "@42ch/spoke-schemas";
 
-const result = orchestrateAssemble(adapter, {
-  scope: { scope_id: "book-harbor", entry_types: ["character"] },
-  max_entries: 20, // optional entry limit hint
-});
+async function runAssemble() {
+  const result = await orchestrateAssemble(adapter, {
+    scope: { scope_id: "book-harbor", entry_types: ["character"] },
+    max_entries: 20, // optional entry limit hint
+  });
+}
 ```
 
 The orchestrator loads the scope, applies scope filters, and builds a wire-only `AssemblePacket` with order-preserving truncation. Assembly itself — ranking, retrieval, token budgets — is product-side.

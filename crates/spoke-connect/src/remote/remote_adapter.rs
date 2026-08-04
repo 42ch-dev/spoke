@@ -43,7 +43,8 @@ use spoke_schemas::{
 
 use crate::core::{
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, is_allowlisted,
-    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, Correlation, OutboundSequence,
+    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, Correlation, NonceStore,
+    OutboundSequence,
 };
 use crate::hello::generate_nonce;
 use crate::remote::transport::{Transport, TransportError};
@@ -52,6 +53,34 @@ use crate::runtime::generate_request_id;
 /// Default bounded-wait deadline for the handshake and each invoke, ms
 /// (parity with TS `DEFAULT_INVOKE_TIMEOUT_MS`).
 const DEFAULT_INVOKE_TIMEOUT_MS: u64 = 5000;
+
+/// Process-wide single-use store of **accepted** server-hello
+/// `(peer_id, nonce)` pairs (spec §Nonce / replay protection: "Receiver MUST
+/// reject a hello whose `(peer_id, nonce)` pair was already accepted"; "an
+/// in-memory set for the life of the process is sufficient for the reference
+/// stack").
+///
+/// The host-side gate (`gate.rs`) records the client's hello on accept; the
+/// RemoteAdapter is the receiver of the **server's** hello, so it enforces
+/// the same receiver rule here. A replayed signed server hello — captured on
+/// an earlier dial through this process — is rejected before any
+/// `ConnectSession` snapshot is accepted, so an active transport attacker
+/// cannot re-enter `Established` with a stale signature. The store is
+/// process-scoped (shared across adapter instances) for exactly this reason:
+/// an adapter dials once, and the replay arrives on a later dial. Parity
+/// with the TS adapter's module-level `acceptedServerHellos`.
+static ACCEPTED_SERVER_HELLOS: Mutex<Option<NonceStore>> = Mutex::new(None);
+
+/// Record `(peer_id, nonce)` unless already accepted; `false` on replay.
+/// Call only after the hello passed every earlier gate (allowlist,
+/// signature) so a rejected hello is not burned (retry-safe, spec §Nonce).
+fn record_server_hello(peer_id: &str, nonce: &str) -> bool {
+    ACCEPTED_SERVER_HELLOS
+        .lock()
+        .expect("accepted-server-hellos lock")
+        .get_or_insert_with(NonceStore::new)
+        .check_and_record(peer_id, nonce)
+}
 
 /// Session-lifecycle labels (frozen contract §4) — parity with TS
 /// `RemoteAdapterState`.
@@ -789,6 +818,19 @@ pub async fn connect_remote_adapter(
         verify_hello_ed25519(&remote_pubkey, &remote_peer_id, &hello).map_err(|error| {
             RemoteAdapterError::Handshake(format!("remote hello verification failed: {error}"))
         })?;
+        // Receiver-side nonce single-use (spec §Nonce / replay protection;
+        // parity with the TS dial): record the accepted server hello and
+        // reject a replayed one. An active transport attacker cannot reuse a
+        // previously-signed hello from the allowlisted peer to re-enter
+        // `Established` on a later dial — the replay is rejected here,
+        // before any `ConnectSession` snapshot (which a forged-session
+        // attack would fabricate) is accepted.
+        if !record_server_hello(&remote_peer_id, hello.nonce.as_str()) {
+            return Err(RemoteAdapterError::Handshake(format!(
+                "server hello replay rejected: (peer_id {remote_peer_id}, nonce {}) was already accepted",
+                hello.nonce.as_str()
+            )));
+        }
         let remote_manifest: HostCapabilityManifest = {
             let wire: ConnectHostCapabilityManifest = hello.host;
             serde_json::from_value(serde_json::to_value(&wire).expect("hello host serializes"))

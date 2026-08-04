@@ -51,7 +51,7 @@ import {
   type Correlation,
 } from "../core/correlate.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
-import { generateNonce } from "../core/nonce.js";
+import { generateNonce, NonceStore } from "../core/nonce.js";
 import { negotiatedCapabilities, Session } from "../core/session.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../identity.js";
@@ -64,6 +64,24 @@ import { isValidSuccessPayload } from "./payload.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
+
+/**
+ * Process-wide single-use store of **accepted** server-hello
+ * `(peer_id, nonce)` pairs (spec §Nonce / replay protection: "Receiver MUST
+ * reject a hello whose `(peer_id, nonce)` pair was already accepted"; "an
+ * in-memory set for the life of the process is sufficient for the reference
+ * stack").
+ *
+ * The host-side gate (loopback-host.ts / Rust `gate.rs`) records the
+ * client's hello on accept; the RemoteAdapter is the receiver of the
+ * **server's** hello, so it enforces the same receiver rule here. A replayed
+ * signed server hello — captured on an earlier dial through this process —
+ * is rejected before any `ConnectSession` snapshot is accepted, so an active
+ * transport attacker cannot re-enter `Established` with a stale signature.
+ * The store is module-scoped (across adapter instances) for exactly this
+ * reason: an adapter dials once, and the replay arrives on a later dial.
+ */
+const acceptedServerHellos = new NonceStore();
 
 const textEncoder = new TextEncoder();
 
@@ -197,39 +215,44 @@ interface PendingInvoke {
  * yields an un-established adapter that fails closed on every port call.
  */
 export class RemoteAdapter implements BaselinePorts {
-  private readonly transport: Transport;
-  private readonly invokeTimeoutMs: number;
-  private readonly capabilityToken?: CapabilityTokenProof;
+  readonly #transport: Transport;
+  readonly #invokeTimeoutMs: number;
+  #capabilityToken?: CapabilityTokenProof;
 
-  private stateInternal: RemoteAdapterState = "Disconnected";
-  private session: Session | null = null;
-  private remoteManifestInternal: HostCapabilityManifest | null = null;
-  private receiveLoopRunning = false;
-  private readonly pending = new Map<string, PendingInvoke>();
+  // Verification-gating state. All of it is ECMAScript `#`-private (NOT TS
+  // `private`): the invoke gate reads these slots, and no JS consumer can
+  // write a `#`-slot from outside the class — a forged `Established` /
+  // forged `session` / forged remote-manifest cache is unreachable even
+  // through an `any` cast or a subclass.
+  #stateInternal: RemoteAdapterState = "Disconnected";
+  #session: Session | null = null;
+  #remoteManifestInternal: HostCapabilityManifest | null = null;
+  #receiveLoopRunning = false;
+  #pending = new Map<string, PendingInvoke>();
 
   constructor(
     transport: Transport,
     invokeTimeoutMs: number = DEFAULT_INVOKE_TIMEOUT_MS,
     capabilityToken?: CapabilityTokenProof,
   ) {
-    this.transport = transport;
-    this.invokeTimeoutMs = invokeTimeoutMs;
-    this.capabilityToken = capabilityToken;
+    this.#transport = transport;
+    this.#invokeTimeoutMs = invokeTimeoutMs;
+    this.#capabilityToken = capabilityToken;
   }
 
   /** Read-only session state (contract §4 labels). */
   get state(): RemoteAdapterState {
-    return this.stateInternal;
+    return this.#stateInternal;
   }
 
   /** The remote-assigned session id (empty before establishment). */
   get sessionId(): string {
-    return this.session?.session_id ?? "";
+    return this.#session?.session_id ?? "";
   }
 
   /** The verified remote peer id (empty before establishment). */
   get remotePeerId(): string {
-    return this.session?.responder_peer_id ?? "";
+    return this.#session?.responder_peer_id ?? "";
   }
 
   /**
@@ -238,16 +261,16 @@ export class RemoteAdapter implements BaselinePorts {
    * (programmer misuse — a dialed adapter always has one).
    */
   get remoteManifest(): HostCapabilityManifest {
-    if (this.remoteManifestInternal === null) {
+    if (this.#remoteManifestInternal === null) {
       throw new Error("connect session is not established — remote manifest unavailable");
     }
-    return this.remoteManifestInternal;
+    return this.#remoteManifestInternal;
   }
 
   // ── BaselinePorts (async) ───────────────────────────────────────────────
 
   async getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>> {
-    return this.invokeMapped<KnowledgeEntry>(PORT_OPS.getKnowledgeEntry, {
+    return this.#invokeMapped<KnowledgeEntry>(PORT_OPS.getKnowledgeEntry, {
       entry_id: entryId,
     });
   }
@@ -256,14 +279,14 @@ export class RemoteAdapter implements BaselinePorts {
     entry: KnowledgeEntry,
     expectedBaseRevision: number | null,
   ): Promise<SpokeResult<KnowledgeEntry>> {
-    return this.invokeMapped<KnowledgeEntry>(PORT_OPS.putKnowledgeEntry, {
+    return this.#invokeMapped<KnowledgeEntry>(PORT_OPS.putKnowledgeEntry, {
       entry,
       expected_base_revision: expectedBaseRevision,
     });
   }
 
   async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
-    return this.invokeMapped<Relation>(PORT_OPS.getRelation, {
+    return this.#invokeMapped<Relation>(PORT_OPS.getRelation, {
       relation_id: relationId,
     });
   }
@@ -272,30 +295,30 @@ export class RemoteAdapter implements BaselinePorts {
     relation: Relation,
     expectedBaseRevision: number | null,
   ): Promise<SpokeResult<Relation>> {
-    return this.invokeMapped<Relation>(PORT_OPS.putRelation, {
+    return this.#invokeMapped<Relation>(PORT_OPS.putRelation, {
       relation,
       expected_base_revision: expectedBaseRevision,
     });
   }
 
   async listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>> {
-    return this.invokeMapped<KnowledgeEntry[]>(PORT_OPS.listKnowledgeEntries, {
+    return this.#invokeMapped<KnowledgeEntry[]>(PORT_OPS.listKnowledgeEntries, {
       scope,
     });
   }
 
   async listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>> {
-    return this.invokeMapped<TimelineEvent[]>(PORT_OPS.listTimelineEvents, {
+    return this.#invokeMapped<TimelineEvent[]>(PORT_OPS.listTimelineEvents, {
       scope,
     });
   }
 
   async putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>> {
-    return this.invokeMapped<Finding[]>(PORT_OPS.putFindings, { findings });
+    return this.#invokeMapped<Finding[]>(PORT_OPS.putFindings, { findings });
   }
 
   async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
-    return this.invokeMapped<Rule[]>(PORT_OPS.listRules, { rule_refs: ruleRefs });
+    return this.#invokeMapped<Rule[]>(PORT_OPS.listRules, { rule_refs: ruleRefs });
   }
 
   /**
@@ -304,7 +327,7 @@ export class RemoteAdapter implements BaselinePorts {
    * cache — cache-only, no network round-trip.
    */
   async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
-    const manifest = this.remoteManifestInternal;
+    const manifest = this.#remoteManifestInternal;
     if (manifest === null) {
       return internalError("session_closed", "connect session is not established");
     }
@@ -315,7 +338,7 @@ export class RemoteAdapter implements BaselinePorts {
   async listPeerHostCapabilityManifests(): Promise<
     SpokeResult<HostCapabilityManifest[]>
   > {
-    return this.invokeMapped<HostCapabilityManifest[]>(
+    return this.#invokeMapped<HostCapabilityManifest[]>(
       PORT_OPS.listPeerHostCapabilityManifests,
       {},
     );
@@ -331,72 +354,89 @@ export class RemoteAdapter implements BaselinePorts {
 
   // ── Session lifecycle (hard-private — only `connectRemoteAdapter` dials) ─
   //
-  // ECMAScript `#`-private methods: invisible to consumers in the shipped
-  // `dist/remote/index.d.ts` AND unreachable at runtime (not even through an
-  // `any` cast), so no consumer can forge `Established` state past the
-  // hello/allowlist verification. The dial entrypoint lives on the class
-  // (`connectRemoteAdapter` static below) where these stay callable.
+  // ECMAScript `#`-private methods AND state fields: invisible to consumers
+  // in the shipped `dist/remote/index.d.ts` AND unreachable at runtime (not
+  // even through an `any` cast or a subclass), so no consumer can forge
+  // `Established` state past the hello/allowlist/nonce verification. The
+  // dial entrypoint lives on the class (`connectRemoteAdapter` static below)
+  // where these stay callable.
 
   /** Dial-only. Adapter is in `Handshaking` while dialing. */
   #beginHandshake(): void {
-    this.stateInternal = "Handshaking";
+    this.#stateInternal = "Handshaking";
   }
 
   /** Dial-only: send one handshake envelope. */
   async #sendEnvelope(doc: unknown): Promise<void> {
-    await this.transport.send(encodeEnvelope(doc));
+    await this.#transport.send(encodeEnvelope(doc));
   }
 
   /** Dial-only: receive + decode the next handshake envelope. */
   async #recvEnvelope(): Promise<unknown> {
-    return decodeJsonMessage(await this.transport.recv());
+    return decodeJsonMessage(await this.#transport.recv());
   }
 
   /** Dial-only: bind the authenticated session and start the receive loop. */
   #establish(session: Session, remoteManifest: HostCapabilityManifest): void {
-    this.session = session;
-    this.remoteManifestInternal = remoteManifest;
-    this.stateInternal = "Established";
-    this.runReceiveLoop();
+    this.#session = session;
+    this.#remoteManifestInternal = remoteManifest;
+    this.#stateInternal = "Established";
+    this.#runReceiveLoop();
   }
 
-  /** All failure paths that make the session unusable. */
+  /**
+   * All failure paths that make the session unusable. Transitions to
+   * `Closed`, settles every pending waiter, and releases the transport
+   * (fire-and-forget).
+   */
   #closeSession(reason: string): void {
-    if (this.stateInternal === "Closed") {
+    if (this.#stateInternal === "Closed") {
       return;
     }
-    this.stateInternal = "Closed";
-    this.transport.close?.();
-    this.failAllPending(
+    this.#stateInternal = "Closed";
+    const closeResult: unknown = this.#transport.close?.();
+    // Fire-and-forget teardown (contract §2.1: close is optional and
+    // idempotent; `close()` is void): a rejecting async close must not
+    // surface as an unhandled rejection — the adapter has already
+    // transitioned to `Closed` and every pending invoke is failed below,
+    // so there is no caller that could receive the failure (§8.2 defines
+    // no close-failure row).
+    if (closeResult instanceof Promise) {
+      closeResult.catch(() => {
+        // Transport close failure is intentionally swallowed: the session
+        // is unusable either way and the adapter already settled waiters.
+      });
+    }
+    this.#failAllPending(
       new RemoteError("session_closed", `connect session closed: ${reason}`),
     );
   }
 
-  private failAllPending(error: RemoteError): void {
-    for (const entry of this.pending.values()) {
+  #failAllPending(error: RemoteError): void {
+    for (const entry of this.#pending.values()) {
       clearTimeout(entry.timer);
       entry.reject(error);
     }
-    this.pending.clear();
+    this.#pending.clear();
   }
 
   // ── Receive loop (adapter-owned; port methods never call recv) ──────────
 
-  private runReceiveLoop(): void {
-    if (this.receiveLoopRunning) {
+  #runReceiveLoop(): void {
+    if (this.#receiveLoopRunning) {
       return;
     }
-    this.receiveLoopRunning = true;
-    void this.receiveLoop().finally(() => {
-      this.receiveLoopRunning = false;
+    this.#receiveLoopRunning = true;
+    void this.#receiveLoop().finally(() => {
+      this.#receiveLoopRunning = false;
     });
   }
 
-  private async receiveLoop(): Promise<void> {
-    while (this.stateInternal === "Established") {
+  async #receiveLoop(): Promise<void> {
+    while (this.#stateInternal === "Established") {
       let doc: unknown;
       try {
-        doc = decodeJsonMessage(await this.transport.recv());
+        doc = decodeJsonMessage(await this.#transport.recv());
       } catch (error) {
         // Transport loss: fail every pending waiter and transition to
         // `Closed` (contract §6 "Transport close mid-flight" / §8.2).
@@ -409,12 +449,12 @@ export class RemoteAdapter implements BaselinePorts {
       if (isConnectInvokeResponse(doc)) {
         // Demux by request_id; unknown/duplicate responses are dropped
         // (protocol v1 defines no retry).
-        const entry = this.pending.get(doc.request_id);
+        const entry = this.#pending.get(doc.request_id);
         if (entry === undefined) {
           continue;
         }
         clearTimeout(entry.timer);
-        this.pending.delete(doc.request_id);
+        this.#pending.delete(doc.request_id);
         try {
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
           entry.resolve(doc);
@@ -442,19 +482,19 @@ export class RemoteAdapter implements BaselinePorts {
    * Rejects with `RemoteError` on timeout / transport failure / session
    * close / correlation mismatch / sequence exhaustion.
    */
-  private invokeOp(
+  #invokeOp(
     op: string,
     payload: Record<string, unknown>,
   ): Promise<ConnectInvokeResponse> {
-    if (this.stateInternal !== "Established" || this.session === null) {
+    if (this.#stateInternal !== "Established" || this.#session === null) {
       return Promise.reject(
         new RemoteError(
           "session_closed",
-          `connect session is not established (state ${this.stateInternal})`,
+          `connect session is not established (state ${this.#stateInternal})`,
         ),
       );
     }
-    const session = this.session;
+    const session = this.#session;
     let request: ConnectInvokeRequest;
     try {
       request = {
@@ -463,8 +503,8 @@ export class RemoteAdapter implements BaselinePorts {
         request_id: globalThis.crypto.randomUUID(),
         op,
         payload,
-        ...(this.capabilityToken !== undefined
-          ? { auth: this.capabilityToken as unknown as Record<string, unknown> }
+        ...(this.#capabilityToken !== undefined
+          ? { auth: this.#capabilityToken as unknown as Record<string, unknown> }
           : {}),
         extensions: {},
       };
@@ -481,26 +521,26 @@ export class RemoteAdapter implements BaselinePorts {
     }
     return new Promise<ConnectInvokeResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(request.request_id);
+        this.#pending.delete(request.request_id);
         reject(
           new RemoteError(
             "timeout",
-            `invoke ${op} (${request.request_id}) timed out after ${this.invokeTimeoutMs}ms`,
+            `invoke ${op} (${request.request_id}) timed out after ${this.#invokeTimeoutMs}ms`,
           ),
         );
-      }, this.invokeTimeoutMs);
-      this.pending.set(request.request_id, {
+      }, this.#invokeTimeoutMs);
+      this.#pending.set(request.request_id, {
         correlation: correlationFromRequest(request),
         resolve,
         reject,
         timer,
       });
       try {
-        this.transport.send(encodeEnvelope(request)).catch((sendError) => {
+        this.#transport.send(encodeEnvelope(request)).catch((sendError) => {
           // Async send failure (transport closed between setup and send):
           // settle this invoke now — no dead entry waits out the timeout.
           clearTimeout(timer);
-          this.pending.delete(request.request_id);
+          this.#pending.delete(request.request_id);
           reject(
             new RemoteError(
               "transport",
@@ -512,7 +552,7 @@ export class RemoteAdapter implements BaselinePorts {
         // Synchronous encode/send failure (e.g. non-JSON-serializable
         // payload): same cleanup, same mapping.
         clearTimeout(timer);
-        this.pending.delete(request.request_id);
+        this.#pending.delete(request.request_id);
         reject(
           new RemoteError(
             "transport",
@@ -524,12 +564,12 @@ export class RemoteAdapter implements BaselinePorts {
   }
 
   /** Invoke a port op and map the response to `SpokeResult` (contract §5.3/§8). */
-  private async invokeMapped<T>(
+  async #invokeMapped<T>(
     op: string,
     payload: Record<string, unknown>,
   ): Promise<SpokeResult<T>> {
     try {
-      const response = await this.invokeOp(op, payload);
+      const response = await this.#invokeOp(op, payload);
       if ("error" in response) {
         return mapErrorEnvelope(response.error);
       }
@@ -552,6 +592,29 @@ export class RemoteAdapter implements BaselinePorts {
         error instanceof Error ? error.message : String(error),
       );
     }
+  }
+
+  /**
+   * Test-only: position the outbound counter of the established session so
+   * the loopback suite can exercise sequence exhaustion without 2⁵³ real
+   * invokes (mirrors the Rust in-module unit test, which reaches
+   * `OutboundSequence::set_next` under `#[cfg(test)]`; TS has no cfg(test),
+   * so the hook is a guarded public method instead).
+   *
+   * It never grants state forgery: it throws unless the adapter is already
+   * `Established` and only advances an established session's counter.
+   *
+   * @internal test-only — the sequence-exhaustion fixture. Not part of the
+   * RemoteAdapter public API.
+   */
+  setOutboundNextForTest(next: number): void {
+    if (this.#stateInternal !== "Established" || this.#session === null) {
+      throw new Error("setOutboundNextForTest requires an Established session");
+    }
+    const session = this.#session as unknown as {
+      outbound: { setNext(value: number): void };
+    };
+    session.outbound.setNext(next);
   }
 
   /**
@@ -613,6 +676,17 @@ export class RemoteAdapter implements BaselinePorts {
         throw new Error("expected ConnectHello from server");
       }
       await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
+      // Receiver-side nonce single-use (spec §Nonce / replay protection):
+      // record the accepted server hello and reject a replayed one. An
+      // active transport attacker cannot reuse a previously-signed hello
+      // from the allowlisted peer to re-enter `Established` on a later dial
+      // — the replay is rejected here, before any `ConnectSession` snapshot
+      // (which Greptile's scenario would otherwise fabricate) is accepted.
+      if (!acceptedServerHellos.checkAndRecord(remotePeerId, helloDoc.nonce)) {
+        throw new Error(
+          `server hello replay rejected: (peer_id ${remotePeerId}, nonce ${helloDoc.nonce}) was already accepted`,
+        );
+      }
       const remoteManifest: HostCapabilityManifest = helloDoc.host;
 
       // 3. Await + validate the A-assigned session snapshot.

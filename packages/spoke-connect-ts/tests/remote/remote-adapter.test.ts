@@ -38,13 +38,14 @@ import { ToyWorldAdapter } from "@42ch/spoke-fixture-toy-world";
 import {
   connectRemoteAdapter,
   loopbackTransportPair,
-  type RemoteAdapter,
+  RemoteAdapter,
+  type EnvelopeBytes,
+  type Transport,
 } from "@42ch/spoke-connect/remote";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { issueCapabilityToken } from "../../src/core/capability-token.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
-import type { Session } from "../../src/core/session.js";
 import { schemaConformantManifest } from "../../src/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import { startLoopbackHost, type LoopbackHost } from "./loopback-host.js";
@@ -172,6 +173,23 @@ describe("RemoteAdapter loopback interop", () => {
           "recvEnvelope",
           "establish",
           "closeSession",
+          // Verification-gating STATE is `#`-private too (Greptile #2): the
+          // invoke gate reads `#stateInternal` / `#session`, and a JS
+          // consumer cannot overwrite `#`-slots with inert own properties.
+          "stateInternal",
+          "session",
+          "remoteManifestInternal",
+          "receiveLoopRunning",
+          "pending",
+          "transport",
+          "invokeTimeoutMs",
+          "capabilityToken",
+          // The remaining internal machinery is `#`-private as well.
+          "failAllPending",
+          "runReceiveLoop",
+          "receiveLoop",
+          "invokeOp",
+          "invokeMapped",
         ]) {
           expect(runtime[hidden], `verification helper ${hidden} must not leak`).toBeUndefined();
         }
@@ -219,6 +237,181 @@ describe("RemoteAdapter loopback interop", () => {
         client.close();
         host.close();
       }
+    },
+    15000,
+  );
+
+  it(
+    "rejects a forged Established state — verification-gating fields are ECMAScript #private (Greptile #2)",
+    async () => {
+      // A JS consumer who constructs the adapter directly (never dialed)
+      // cannot overwrite the state the invoke gate reads: TS `private`
+      // compiles to writable own properties, ECMAScript `#private` slots do
+      // not — every write below creates an inert own property (or a
+      // strict-mode TypeError on the constructor-created accessor-less
+      // slot) that the gate never reads.
+      const pair = loopbackTransportPair();
+      const adapter = new RemoteAdapter(pair.client, 100);
+      const raw = adapter as unknown as Record<string, unknown>;
+      raw.stateInternal = "Established";
+      raw.session = {
+        session_id: "forged-session",
+        initiator_peer_id: "forged-initiator",
+        responder_peer_id: "forged-responder",
+        negotiated_capabilities: ["spoke-baseline"],
+      };
+      raw.remoteManifestInternal = {
+        ...schemaConformantManifest(),
+        host_id: "forged-host",
+      };
+      raw.receiveLoopRunning = true;
+      raw.pending = new Map();
+
+      // The invoke gate reads the real `#`-slots: the forged writes changed
+      // nothing, so a port call still fails closed (never `Established`).
+      expect(adapter.state).toBe("Disconnected");
+      const result = await adapter.getKnowledgeEntry("kb_tw_mira");
+      expect(result).toEqual({
+        ok: false,
+        code: SpokeRejectCode.INTERNAL_ERROR,
+        message: expect.stringContaining("connect session is not established"),
+        details: { kind: "session_closed" },
+      });
+    },
+    15000,
+  );
+
+  it(
+    "does not leak an unhandled rejection when Transport.close() rejects (Greptile #3)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      let host: LoopbackHost | undefined;
+      try {
+        const pair = loopbackTransportPair();
+        // Delegate everything except close(), which rejects: the adapter
+        // must swallow the failure (fire-and-forget teardown, contract
+        // §2.1/§8.2) without surfacing an unhandled rejection, and still
+        // transition to `Closed`.
+        const rejectingClose: Transport = {
+          send: (envelope) => pair.client.send(envelope),
+          recv: () => pair.client.recv(),
+          close: () => Promise.reject(new Error("close boom")),
+        };
+        host = await startLoopbackHost({
+          transport: pair.server,
+          seed: seed(0xa0),
+          clientPubkey: getPublicKeyEd25519(seed(0x10)),
+          allowlist: [
+            derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
+          ],
+          adapter: hostAdapter,
+        });
+        const client = await connectRemoteAdapter({
+          transport: rejectingClose,
+          localIdentity: { seed: seed(0x10) },
+          localManifest: clientManifest(),
+          remotePubkey: getPublicKeyEd25519(seed(0xa0)),
+          allowlist: [
+            derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0xa0))),
+          ],
+        });
+        expect(client.state).toBe("Established");
+
+        client.close();
+        // Let a discarded close() rejection surface if the fix is absent
+        // (Node reports unhandled rejections on the next macrotask).
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(unhandled, "close() rejection must be handled").toEqual([]);
+        expect(client.state).toBe("Closed");
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+        host?.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects a replayed server hello — accepted (peer_id, nonce) pairs are single-use (Greptile #1)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const seedHost = seed(0xa0);
+      const seedClient = seed(0x10);
+      const pubkeyHost = getPublicKeyEd25519(seedHost);
+      const pubkeyClient = getPublicKeyEd25519(seedClient);
+      const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
+      const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
+
+      // Dial 1 through a recording transport — the view an active transport
+      // attacker has after one legitimate dial (server hello + session
+      // snapshot captured at the wire).
+      const pair1 = loopbackTransportPair();
+      const captured: EnvelopeBytes[] = [];
+      const recording: Transport = {
+        send: (envelope) => pair1.client.send(envelope),
+        recv: async () => {
+          const bytes = await pair1.client.recv();
+          captured.push(bytes);
+          return bytes;
+        },
+        close: () => pair1.client.close(),
+      };
+      const host = await startLoopbackHost({
+        transport: pair1.server,
+        seed: seedHost,
+        clientPubkey: pubkeyClient,
+        allowlist: [peerIdClient],
+        adapter: hostAdapter,
+      });
+      const client = await connectRemoteAdapter({
+        transport: recording,
+        localIdentity: { seed: seedClient },
+        localManifest: clientManifest(),
+        remotePubkey: pubkeyHost,
+        allowlist: [peerIdHost],
+      });
+      expect(client.state).toBe("Established");
+      client.close();
+      host.close();
+      expect(captured.length).toBeGreaterThanOrEqual(2);
+      const [replayHello, replaySession] = captured;
+
+      // Dial 2: replay the captured envelopes through a scripted transport
+      // with NO real host on the other end. Without receiver-side nonce
+      // single-use this dial would succeed — the signature is genuinely the
+      // allowlisted peer's — and the attacker could fabricate a session and
+      // answer invokes; the fix rejects the replay before any
+      // `ConnectSession` snapshot is accepted.
+      let replayIndex = 0;
+      const replayTransport: Transport = {
+        send: async () => {},
+        recv: async () => {
+          if (replayIndex === 0) {
+            replayIndex += 1;
+            return replayHello;
+          }
+          if (replayIndex === 1) {
+            replayIndex += 1;
+            return replaySession;
+          }
+          throw new Error("scripted replay transport closed");
+        },
+        close: () => {},
+      };
+      await expect(
+        connectRemoteAdapter({
+          transport: replayTransport,
+          localIdentity: { seed: seedClient },
+          localManifest: clientManifest(),
+          remotePubkey: pubkeyHost,
+          allowlist: [peerIdHost],
+        }),
+      ).rejects.toThrow(/replay/);
     },
     15000,
   );
@@ -537,14 +730,11 @@ describe("RemoteAdapter loopback interop", () => {
       try {
         // Position the adapter's outbound counter past the JSON-safe wire
         // maximum so the next allocate fails deterministically — 2⁵³ real
-        // invokes are not an option (test-only `setNext`, the documented
-        // transport-test hook; mirrors the Rust `set_next` unit test).
-        const session = (client as unknown as { session: Session | null })
-          .session;
-        expect(session).not.toBeNull();
-        (
-          session as unknown as { outbound: { setNext: (value: number) => void } }
-        ).outbound.setNext(MAX_SEQUENCE + 1);
+        // invokes are not an option. The hook is guarded (throws unless
+        // `Established`) and only advances an established session's counter;
+        // it is the TS twin of the Rust in-module unit test reaching
+        // `OutboundSequence::set_next` under `#[cfg(test)]`.
+        client.setOutboundNextForTest(MAX_SEQUENCE + 1);
 
         const result = await client.getKnowledgeEntry("kb_tw_mira");
         expect(result).toEqual({

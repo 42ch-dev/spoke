@@ -25,10 +25,11 @@
 #![cfg(feature = "remote-adapter")]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use ed25519_dalek::SigningKey;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -39,7 +40,7 @@ use spoke_connect::core::{
 };
 use spoke_connect::remote::{
     connect_remote_adapter, loopback_transport_pair, RemoteAdapter, RemoteAdapterError,
-    RemoteAdapterOptions, RemoteIdentity, Transport,
+    RemoteAdapterOptions, RemoteIdentity, Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
@@ -741,6 +742,62 @@ fn reject_kind(result: &SpokeResult<KnowledgeEntry>) -> Option<String> {
     }
 }
 
+// ── Greptile #1 fixture transports (replayed server hello) ────────────────
+
+/// Delegating transport that records every inbound envelope (the view an
+/// active transport attacker has after one legitimate dial).
+struct RecordingTransport {
+    inner: Arc<dyn Transport>,
+    captured: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+#[async_trait]
+#[async_trait]
+impl Transport for RecordingTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        self.inner.send(envelope).await
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        let bytes = self.inner.recv().await?;
+        self.captured.lock().expect("captured lock").push(bytes.clone());
+        Ok(bytes)
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        self.inner.close().await
+    }
+}
+
+/// Scripted transport that answers like an attacker replaying captured
+/// envelopes: server hello, then session snapshot, then "connection closed".
+struct ReplayTransport {
+    hello: Vec<u8>,
+    session: Vec<u8>,
+    index: AtomicUsize,
+}
+
+#[async_trait]
+#[async_trait]
+impl Transport for ReplayTransport {
+    async fn send(&self, _envelope: &[u8]) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        let index = self.index.fetch_add(1, Ordering::SeqCst);
+        match index {
+            0 => Ok(self.hello.clone()),
+            1 => Ok(self.session.clone()),
+            _ => Err(TransportError::Closed),
+        }
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        Ok(())
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -1141,4 +1198,79 @@ async fn maps_correlation_mismatch_to_internal_error_kind_correlation_mismatch()
 
     client.close();
     host.close();
+}
+
+#[tokio::test]
+async fn rejects_a_replayed_server_hello_before_any_session_is_accepted() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+
+    // Dial 1 through a recording transport — the view an active transport
+    // attacker has after one legitimate dial (server hello + session
+    // snapshot captured at the wire).
+    let pair = loopback_transport_pair();
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let host = start_loopback_host(LoopbackHostOptions {
+        transport: Arc::new(pair.server),
+        host_seed: seed_host(),
+        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+        adapter: Arc::new(host_adapter),
+        delay: Box::new(|_| 0),
+        response_override: None,
+    })
+    .await;
+    let client = connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(RecordingTransport {
+            inner: Arc::new(pair.client),
+            captured: Arc::clone(&captured),
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    .expect("first dial");
+    assert_eq!(client.state().as_str(), "Established");
+    client.close();
+    host.close();
+    let captured = captured.lock().expect("captured lock").clone();
+    assert!(captured.len() >= 2, "captured hello + session snapshot");
+    let replay_hello = captured[0].clone();
+    let replay_session = captured[1].clone();
+
+    // Dial 2: replay the captured envelopes through a scripted transport
+    // with NO real host on the other end. Without receiver-side nonce
+    // single-use this dial would succeed — the signature is genuinely the
+    // allowlisted peer's — and the attacker could fabricate a session and
+    // answer invokes; the fix rejects the replay before any
+    // `ConnectSession` snapshot is accepted.
+    let error = match connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(ReplayTransport {
+            hello: replay_hello,
+            session: replay_session,
+            index: AtomicUsize::new(0),
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    {
+        Ok(_) => panic!("replayed server hello must be rejected"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, RemoteAdapterError::Handshake(ref message) if message.contains("replay")),
+        "unexpected dial error: {error:?}"
+    );
 }

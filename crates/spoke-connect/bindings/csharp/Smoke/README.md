@@ -15,7 +15,7 @@ In-repo golden-parity smoke for the **`42ch.Spoke.Connect`** packable project (g
 <PackageReference Include="42ch.Spoke.Connect" Version="0.7.1" />
 ```
 
-See [`PACKAGE.md`](../PACKAGE.md) and [`docs/connect/bindings.md`](../../../../../docs/connect/bindings.md).
+See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`](../../../../../docs/how-to/connect-native-bindings.md).
 
 ## What's here
 

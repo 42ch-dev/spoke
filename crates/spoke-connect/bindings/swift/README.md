@@ -32,6 +32,8 @@ let version = protocolVersion() // 1
 
 Root `Package.swift` exposes product `SpokeConnect` from package `spoke`. The `spoke_connectFFI` binary target ships the committed xcframework; generated Swift sources live under `generated/`.
 
+**git-lfs:** the xcframework static libraries are tracked via [git-lfs](https://git-lfs.com) (`.gitattributes`). Xcode resolves them transparently; command-line `swift build` users run `git lfs install` once so the real binaries are smudged on clone.
+
 ## Layout
 
 | Path | Contents |

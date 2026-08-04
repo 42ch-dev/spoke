@@ -2871,14 +2871,17 @@ dependencies = [
  "futures",
  "getrandom 0.2.17",
  "libp2p",
+ "libp2p-identity",
  "serde",
  "serde_jcs",
  "serde_json",
+ "snow",
  "spoke-schemas",
  "thiserror 2.0.19",
  "tokio",
  "uniffi",
  "uuid",
+ "x25519-dalek",
 ]
 
 [[package]]

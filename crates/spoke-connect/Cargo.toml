@@ -10,7 +10,7 @@ description = "SPOKE Connect reference spike — libp2p transport, noise-peerid 
 # own channels — not crates.io. Exclude the whole tree so natives and binding
 # sources stay out of the crate tarball (including them bloated the package
 # and tripped crates.io upload failures).
-exclude = ["bindings/**"]
+exclude = ["bindings/**", "examples/**"]
 
 [dependencies]
 spoke-schemas = { version = "0.8.2", path = "../spoke-schemas" }
@@ -54,4 +54,17 @@ crate-type = ["rlib", "cdylib"]
 name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
 required-features = ["bindgen-cli"]
+
+# Dev-only (examples/ only — excluded from the crate tarball via `exclude`):
+# the Noise XX golden-transcript recorder (`examples/noise_recorder.rs`)
+# drives the exact engine behind libp2p-noise 0.46.1 — snow 0.9.6 with the
+# `ring-resolver` feature libp2p-noise itself requests — plus libp2p-identity
+# for the identity payload signing and x25519-dalek for static-key public
+# derivation. None of these enter the published surface.
+[dev-dependencies]
+snow = { version = "0.9.6", default-features = false, features = ["ring-resolver"] }
+libp2p-identity = "0.2"
+# X25519 DH — the same `x25519`/`X25519_BASEPOINT_BYTES` primitives
+# libp2p-noise's own snow DH impl uses.
+x25519-dalek = "2"
 

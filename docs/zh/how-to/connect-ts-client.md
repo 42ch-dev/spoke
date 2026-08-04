@@ -10,10 +10,11 @@ title: 从 TypeScript 客户端连接
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-两个入口：
+入口：
 
 - **`.`** —— 同构核心：身份、密码学、JCS 与会话核心。浏览器与 Node 均可用。
 - **`./node`** —— Node 版 `connectClient`（依赖 `ws`），负责拨号 WebSocket 并完成握手。
+- **`./noise`** —— 可选的 Noise XX mesh 传输子路径，用于直接的 libp2p-noise 互操作（见 [Noise 传输子路径](#noise-传输子路径)）。其依赖仅在导入该子路径时加载，默认的 `.` 与 `./node` 包体保持精简。
 
 ## 身份
 
@@ -143,6 +144,18 @@ client.close();
 ## 浏览器 vs Node
 
 核心导入（`@42ch/spoke-connect`）可在浏览器替换使用 —— Node 客户端及其 `ws` 依赖留在 `./node` 子路径。浏览器消费者只导入核心，并配合原生 WebSocket。
+
+## Noise 传输子路径
+
+需要直接的 libp2p-mesh 安全传输时，语言原生客户端提供可选的 Noise 子路径：
+
+```ts
+import { NoiseXX, NoiseTransport, createNoiseStaticKeypair } from "@42ch/spoke-connect/noise";
+```
+
+`@42ch/spoke-connect/noise` 是纯 TS Noise XX 栈 —— `Noise_XX_25519_ChaChaPoly_SHA256`（X25519 + ChaCha20-Poly1305 + HKDF-SHA256）—— 与 rust-libp2p Noise 参考实现线上兼容。静态密钥是真实的 X25519 密钥；握手第 2–3 飞携带 `NoiseHandshakePayload`，把静态密钥绑定到 SPOKE 对等节点的长期 Ed25519 身份（对 `"noise-libp2p-static-key:" || static_public` 的签名），与 rust-libp2p 对等节点的预期一致。
+
+子路径自带其依赖（`@noble/ciphers`、`@noble/curves`）；从 `.` 或 `./node` 导入核心保持默认包体精简。SPOKE connect 握手与会话核心规则运行在 Noise 传输层之上。
 
 ## 对端互操作
 

@@ -10,10 +10,11 @@ The **language-native client** (`@42ch/spoke-connect`) implements the connect wi
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-Two entry points:
+Entry points:
 
 - **`.`** — the isomorphic core: identity, crypto, JCS, and session core. Works in browsers and Node.
 - **`./node`** — the Node `connectClient` (depends on `ws`), which dials a WebSocket and completes the handshake.
+- **`./noise`** — the opt-in Noise XX mesh transport subpath for direct libp2p-noise interoperability (see [Noise transport subpath](#noise-transport-subpath)). Its dependencies load only when the subpath is imported, so the default `.` and `./node` bundles stay thin.
 
 ## Identity
 
@@ -143,6 +144,18 @@ The client rejects before dialing when the remote peer id is missing from the al
 ## Browsers vs Node
 
 The core imports (`@42ch/spoke-connect`) are browser-swappable — the Node client and its `ws` dependency stay behind the `./node` subpath. Browser consumers import the core only and pair it with the native WebSocket.
+
+## Noise transport subpath
+
+For direct libp2p-mesh secure transport, the language-native client offers an opt-in Noise subpath:
+
+```ts
+import { NoiseXX, NoiseTransport, createNoiseStaticKeypair } from "@42ch/spoke-connect/noise";
+```
+
+`@42ch/spoke-connect/noise` is a pure-TS Noise XX stack — `Noise_XX_25519_ChaChaPoly_SHA256` (X25519 + ChaCha20-Poly1305 + HKDF-SHA256) — wire-compatible with the rust-libp2p Noise reference. The static key is a real X25519 key, and handshake flights 2–3 carry a `NoiseHandshakePayload` that binds the static key to the SPOKE peer's long-term Ed25519 identity (signature over `"noise-libp2p-static-key:" || static_public`), matching what rust-libp2p peers expect.
+
+The subpath loads its own dependencies (`@noble/ciphers`, `@noble/curves`); importing the core from `.` or `./node` keeps the default bundle thin. The SPOKE connect hello and session-core rules run above the Noise transport.
 
 ## Peer-side interoperability
 

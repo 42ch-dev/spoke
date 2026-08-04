@@ -115,7 +115,7 @@ RESULT: ALL CHECKS PASSED
 
 ## TypeScript connect first-slice scope
 
-**Shipped slice:** `packages/spoke-connect-ts` — a product-facing TS client published on npm as `@42ch/spoke-connect` (a client library, not a daemon). Items 1–5 below are implemented; item 6 lists the later scope.
+**Shipped slice:** `packages/spoke-connect-ts` — a product-facing TS client published on npm as `@42ch/spoke-connect` (a client library, not a daemon). Items 1–6 below are implemented; item 7 lists the later scope.
 
 **Session-core parity:** the TS session core (`packages/spoke-connect-ts/src/core/`, plus `src/identity.ts` for `peer_id`) maintains capability parity with the Rust reference (`crates/spoke-connect/src/core/`) across allowlist, `peer_id` (derive and reverse), hello crypto, nonce, correlation, sequence, capability-token auth, and the dispatch gate / product-op capability map (including `tokenAuthorizesOp`), proven by shared golden vectors and round-trip parity tests. **Transport adapters are outside the parity surface** — including the default TS WebSocket path, the Rust reference libp2p stack (Noise/yamux/tcp/identify), and any opt-in pure-TS Noise mesh path under a package subpath. Parity covers session-core **rules** only; Noise handshake state, length-prefix framing, and static-key identity payloads are transport-adapter-owned and MUST NOT expand the parity table or live under `src/core/`.
 
@@ -135,7 +135,8 @@ RESULT: ALL CHECKS PASSED
 3. **Session-core port (minimal):** protocol version check, allowlist on `peer_id`, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate — mirror [spoke-connect.md](spoke-connect.md) session-core rules; keep I/O at the adapter boundary.
 4. **Crypto matrix:** WebCrypto Ed25519 primary; `@noble/ed25519` fallback for older runtimes; keep the identity proof (or promote its vectors) as a regression check.
 5. **Interop target:** envelope-level parity with Rust peers over WS (or a test double stream). Noise/js-libp2p mesh is an optional second track, not a blocker for slice 1.
-6. **Later scope / transport-adapter extensions:** CI-enforced identity gate; DHT discovery; full Noise XX stack in pure TS as an **opt-in package subpath** (transport-adapter-owned, outside session-core parity; static-key ↔ long-term Ed25519 identity payload required for rust-libp2p mesh interop). js-libp2p remains the documented heavy-mesh fallback when a product prefers that stack over a first-party subpath.
+6. **Opt-in Noise transport subpath:** `@42ch/spoke-connect/noise` ships a pure-TS Noise XX stack — `Noise_XX_25519_ChaChaPoly_SHA256` (X25519 DH + ChaCha20-Poly1305 AEAD + HKDF-SHA256) — wire-compatible with the rust-libp2p Noise reference, proven by a recorded rust-libp2p golden-transcript round-trip. The XX `s` tokens carry a real X25519 static key; flights 2–3 carry a `NoiseHandshakePayload` binding the static key to the SPOKE peer's long-term Ed25519 identity (signature over `"noise-libp2p-static-key:" || static_public`). The subpath is transport-adapter-owned and outside session-core parity (`src/noise/`, never `src/core/`); its dependencies (`@noble/ciphers`, `@noble/curves`) load only via `./noise`, and the default `.` / `./node` export graphs stay unchanged, enforced by a bundle-isolation gate.
+7. **Later scope / transport-adapter extensions:** DHT discovery; CI-enforced identity gate (wire `tooling/connect-identity-proof` into CI as a regression gate). js-libp2p remains the documented heavy-mesh fallback when a product prefers that stack over the first-party subpath.
 
 ---
 

@@ -19,6 +19,7 @@ pub use ports::{
 #[cfg(test)]
 mod parity_export_checklist {
     use crate::SpokeRejectCode;
+    use async_trait::async_trait;
 
     /// Normative TS ↔ Rust adapter symbols that must remain flat-exported from `lib.rs`.
     const TS_RUST_ADAPTER_PARITY: &[(&str, &str)] = &[
@@ -65,14 +66,15 @@ mod parity_export_checklist {
     /// Minimal probe type so generic orchestrator paths monomorphize in the checklist.
     struct ExportProbePorts;
 
+    #[async_trait]
     impl KnowledgeEntryPort for ExportProbePorts {
-        fn get_knowledge_entry(
+        async fn get_knowledge_entry(
             &self,
             _entry_id: &str,
         ) -> crate::SpokeResult<spoke_schemas::KnowledgeEntry> {
             unreachable!("parity checklist probe")
         }
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: spoke_schemas::KnowledgeEntry,
             _expected_base_revision: Option<u64>,
@@ -80,14 +82,15 @@ mod parity_export_checklist {
             crate::spoke_ok(entry)
         }
     }
+    #[async_trait]
     impl RelationPort for ExportProbePorts {
-        fn get_relation(
+        async fn get_relation(
             &self,
             _relation_id: &str,
         ) -> crate::SpokeResult<spoke_schemas::Relation> {
             unreachable!("parity checklist probe")
         }
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: spoke_schemas::Relation,
             _expected_base_revision: Option<u64>,
@@ -95,58 +98,64 @@ mod parity_export_checklist {
             crate::spoke_ok(relation)
         }
     }
+    #[async_trait]
     impl ScopeQueryPort for ExportProbePorts {
-        fn list_knowledge_entries(
+        async fn list_knowledge_entries(
             &self,
             _scope: &spoke_schemas::Scope,
         ) -> crate::SpokeResult<Vec<spoke_schemas::KnowledgeEntry>> {
             crate::spoke_ok(Vec::new())
         }
-        fn list_timeline_events(
+        async fn list_timeline_events(
             &self,
             _scope: &spoke_schemas::Scope,
         ) -> crate::SpokeResult<Vec<spoke_schemas::TimelineEvent>> {
             crate::spoke_ok(Vec::new())
         }
     }
+    #[async_trait]
     impl FindingPort for ExportProbePorts {
-        fn put_findings(
+        async fn put_findings(
             &self,
             findings: Vec<spoke_schemas::Finding>,
         ) -> crate::SpokeResult<Vec<spoke_schemas::Finding>> {
             crate::spoke_ok(findings)
         }
     }
+    #[async_trait]
     impl RuleQueryPort for ExportProbePorts {
-        fn list_rules(
+        async fn list_rules(
             &self,
             _rule_refs: &[String],
         ) -> crate::SpokeResult<Vec<spoke_schemas::Rule>> {
             crate::spoke_ok(Vec::new())
         }
     }
+    #[async_trait]
     impl HostManifestPort for ExportProbePorts {
-        fn get_host_capability_manifest(
+        async fn get_host_capability_manifest(
             &self,
         ) -> crate::SpokeResult<spoke_schemas::HostCapabilityManifest> {
             unreachable!("parity checklist probe")
         }
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> crate::SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
             unreachable!("parity checklist probe")
         }
     }
+    #[async_trait]
     impl ForkTimelineQueryPort for ExportProbePorts {
-        fn list_fork_timeline_events(
+        async fn list_fork_timeline_events(
             &self,
             _scope: &spoke_schemas::Scope,
         ) -> crate::SpokeResult<Vec<spoke_schemas::TimelineEvent>> {
             crate::spoke_ok(Vec::new())
         }
     }
+    #[async_trait]
     impl ComputablePort for ExportProbePorts {
-        fn project(
+        async fn project(
             &self,
             request: spoke_schemas::ProjectRequest,
         ) -> crate::SpokeResult<spoke_schemas::ProjectResponse> {
@@ -166,7 +175,7 @@ mod parity_export_checklist {
                 crate::spoke_ok,
             )
         }
-        fn compute(
+        async fn compute(
             &self,
             request: spoke_schemas::ComputeRequest,
         ) -> crate::SpokeResult<spoke_schemas::ComputeResponse> {

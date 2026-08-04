@@ -1,6 +1,12 @@
 //! Capability-sliced adapter port contracts for injection orchestration.
-//! Synchronous `SpokeResult` surface — adapters own async I/O behind this boundary.
+//! Async `SpokeResult` surface — port methods return awaitable results; the
+//! library stays I/O-free and only awaits injected ports.
+//!
+//! Port traits use `#[async_trait]` (Send futures) so the dyn probes
+//! ([`ComputablePorts::as_computable`], [`ForkPorts::as_fork_timeline`])
+//! stay object-safe. No runtime is required by this crate itself.
 
+use async_trait::async_trait;
 use crate::result::SpokeResult;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
@@ -8,8 +14,9 @@ use spoke_schemas::{
 };
 
 /// Knowledge entry persistence — get / put by entry id.
+#[async_trait]
 pub trait KnowledgeEntryPort {
-    fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry>;
+    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry>;
     /// Persist a KnowledgeEntry with optimistic concurrency control.
     ///
     /// Adapters MUST treat `expected_base_revision` as the store’s required current
@@ -19,7 +26,7 @@ pub trait KnowledgeEntryPort {
     /// `expected_base_revision`; otherwise reject with `STORED_REVISION_STALE` or
     /// `REVISION_CONFLICT`. True concurrent safety requires atomic compare-and-put
     /// in the adapter; the library stays I/O-free.
-    fn put_knowledge_entry(
+    async fn put_knowledge_entry(
         &self,
         entry: KnowledgeEntry,
         expected_base_revision: Option<u64>,
@@ -27,8 +34,9 @@ pub trait KnowledgeEntryPort {
 }
 
 /// Relation persistence — get / put by relation id.
+#[async_trait]
 pub trait RelationPort {
-    fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation>;
+    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation>;
     /// Persist a Relation with optimistic concurrency control.
     ///
     /// Adapters MUST treat `expected_base_revision` as the store’s required current
@@ -44,7 +52,7 @@ pub trait RelationPort {
     /// on an accepted update it MUST persist `revision = stored + 1`. The
     /// returned Relation carries the assigned revision — callers must not set
     /// it themselves.
-    fn put_relation(
+    async fn put_relation(
         &self,
         relation: Relation,
         expected_base_revision: Option<u64>,
@@ -52,40 +60,46 @@ pub trait RelationPort {
 }
 
 /// Scope query for check / assemble — knowledge entries and timeline events.
+#[async_trait]
 pub trait ScopeQueryPort {
-    fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>>;
-    fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>;
+    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>>;
+    async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>;
 }
 
 /// Finding persistence.
+#[async_trait]
 pub trait FindingPort {
-    fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>>;
+    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>>;
 }
 
 /// Rule query by reference list.
+#[async_trait]
 pub trait RuleQueryPort {
-    fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>>;
+    async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>>;
 }
 
 /// Host collaboration metadata — self manifest and product-known peer manifests.
 ///
 /// Integrators call explicitly; orchestrators do not auto-fetch manifests.
+#[async_trait]
 pub trait HostManifestPort {
-    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest>;
-    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>>;
+    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest>;
+    async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>>;
 }
 
 /// Optional l2-computable session — project / compute.
+#[async_trait]
 pub trait ComputablePort {
-    fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse>;
-    fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse>;
+    async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse>;
+    async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse>;
 }
 
 /// Optional l5-fork timeline query.
 ///
 /// Capability-specific refinement of [`ScopeQueryPort`]; one type MAY satisfy both.
+#[async_trait]
 pub trait ForkTimelineQueryPort {
-    fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>;
+    async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>;
 }
 
 /// Ports required for spoke-baseline orchestration.
@@ -222,12 +236,13 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl HostManifestPort for HostManifestPortMock {
-        fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
             spoke_ok(self.self_manifest.clone())
         }
 
-        fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
             spoke_ok(normalize_peer_manifests(
                 self.self_manifest.host_id.as_str(),
                 &self.raw_peers,
@@ -245,12 +260,13 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for BaselinePortStub {
-        fn get_knowledge_entry(&self, _entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+        async fn get_knowledge_entry(&self, _entry_id: &str) -> SpokeResult<KnowledgeEntry> {
             unreachable!("baseline port stub")
         }
 
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             _expected_base_revision: Option<u64>,
@@ -259,12 +275,13 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl RelationPort for BaselinePortStub {
-        fn get_relation(&self, _relation_id: &str) -> SpokeResult<Relation> {
+        async fn get_relation(&self, _relation_id: &str) -> SpokeResult<Relation> {
             unreachable!("baseline port stub")
         }
 
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             _expected_base_revision: Option<u64>,
@@ -273,35 +290,41 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl ScopeQueryPort for BaselinePortStub {
-        fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             spoke_ok(Vec::new())
         }
 
-        fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             spoke_ok(Vec::new())
         }
     }
 
+    #[async_trait]
     impl FindingPort for BaselinePortStub {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
             spoke_ok(findings)
         }
     }
 
+    #[async_trait]
     impl RuleQueryPort for BaselinePortStub {
-        fn list_rules(&self, _rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+        async fn list_rules(&self, _rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
             spoke_ok(Vec::new())
         }
     }
 
+    #[async_trait]
     impl HostManifestPort for BaselinePortStub {
-        fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
-            self.host_manifest.get_host_capability_manifest()
+        async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+            self.host_manifest.get_host_capability_manifest().await
         }
 
-        fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
-            self.host_manifest.list_peer_host_capability_manifests()
+        async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+            self.host_manifest
+                .list_peer_host_capability_manifests()
+                .await
         }
     }
 
@@ -342,7 +365,7 @@ mod tests {
         );
         let ports = HostManifestPortMock::new(self_manifest.clone(), Vec::new());
 
-        let result = ports.get_host_capability_manifest();
+        let result = pollster::block_on(ports.get_host_capability_manifest());
 
         match result {
             SpokeResult::Ok(value) => assert_eq!(value.host_id.as_str(), "adapter-self"),
@@ -357,7 +380,7 @@ mod tests {
             Vec::new(),
         );
 
-        let result = ports.list_peer_host_capability_manifests();
+        let result = pollster::block_on(ports.list_peer_host_capability_manifests());
 
         match result {
             SpokeResult::Ok(value) => assert!(value.is_empty()),
@@ -372,7 +395,7 @@ mod tests {
         let peer_b = make_manifest("peer-b", &["peer-b-ns"], &["assembler"]);
         let ports = HostManifestPortMock::new(self_manifest, vec![peer_b.clone(), peer_a.clone()]);
 
-        let result = ports.list_peer_host_capability_manifests();
+        let result = pollster::block_on(ports.list_peer_host_capability_manifests());
 
         match result {
             SpokeResult::Ok(value) => {
@@ -402,7 +425,7 @@ mod tests {
             vec![peer_z.clone(), self_manifest, peer_a_dupe, peer_a.clone()],
         );
 
-        let result = ports.list_peer_host_capability_manifests();
+        let result = pollster::block_on(ports.list_peer_host_capability_manifests());
 
         match result {
             SpokeResult::Ok(value) => {

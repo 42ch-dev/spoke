@@ -108,11 +108,11 @@ fn require_port_method(available: bool, method: &str) -> SpokeResult<()> {
     )
 }
 
-fn load_stored_knowledge_entry(
+async fn load_stored_knowledge_entry(
     ports: &impl KnowledgeEntryPort,
     entry_id: &str,
 ) -> SpokeResult<Option<KnowledgeEntry>> {
-    match ports.get_knowledge_entry(entry_id) {
+    match ports.get_knowledge_entry(entry_id).await {
         SpokeResult::Ok(entry) => spoke_ok(Some(entry)),
         SpokeResult::Reject(reject)
             if reject.code == SpokeRejectCode::KnowledgeEntryNotFound =>
@@ -123,11 +123,11 @@ fn load_stored_knowledge_entry(
     }
 }
 
-fn load_stored_relation(
+async fn load_stored_relation(
     ports: &impl RelationPort,
     relation_id: &str,
 ) -> SpokeResult<Option<Relation>> {
-    match ports.get_relation(relation_id) {
+    match ports.get_relation(relation_id).await {
         SpokeResult::Ok(relation) => spoke_ok(Some(relation)),
         SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::RelationNotFound => {
             spoke_ok(None)
@@ -178,7 +178,7 @@ fn assert_uniqueness_when_applicable(
 }
 
 /// Upsert KnowledgeEntries: load context, validate, optional status/uniqueness, put.
-pub fn orchestrate_upsert(
+pub async fn orchestrate_upsert(
     ports: &impl BaselinePorts,
     request: UpsertRequest,
 ) -> SpokeResult<UpsertResponse> {
@@ -191,7 +191,7 @@ pub fn orchestrate_upsert(
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
 
-        let stored = match load_stored_knowledge_entry(ports, &candidate.entry_id) {
+        let stored = match load_stored_knowledge_entry(ports, &candidate.entry_id).await {
             SpokeResult::Ok(stored) => stored,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -227,7 +227,7 @@ pub fn orchestrate_upsert(
             return SpokeResult::Reject(reject);
         }
 
-        let put = match ports.put_knowledge_entry(candidate, expected_base_revision) {
+        let put = match ports.put_knowledge_entry(candidate, expected_base_revision).await {
             SpokeResult::Ok(entry) => entry,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -240,11 +240,11 @@ pub fn orchestrate_upsert(
 }
 
 /// Promote a provisional candidate, then persist via KnowledgeEntryPort.
-pub fn orchestrate_promote(
+pub async fn orchestrate_promote(
     ports: &impl BaselinePorts,
     request: PromoteRequest,
 ) -> SpokeResult<PromoteResponse> {
-    let stored = match load_stored_knowledge_entry(ports, &request.candidate.entry_id) {
+    let stored = match load_stored_knowledge_entry(ports, &request.candidate.entry_id).await {
         SpokeResult::Ok(stored) => stored,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -285,7 +285,7 @@ pub fn orchestrate_promote(
 
     let expected_base_revision = stored.as_ref().map(|stored| stored.revision.unwrap_or(0));
 
-    let put = match ports.put_knowledge_entry(accepted, expected_base_revision) {
+    let put = match ports.put_knowledge_entry(accepted, expected_base_revision).await {
         SpokeResult::Ok(entry) => entry,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -299,7 +299,7 @@ pub fn orchestrate_promote(
 
 /// Validate and persist a Relation: load stored, validate (create vs update),
 /// run OCC-aware put. Mirrors orchestrate_upsert.
-pub fn orchestrate_relate(
+pub async fn orchestrate_relate(
     ports: &impl BaselinePorts,
     request: RelateRequest,
 ) -> SpokeResult<RelateResponse> {
@@ -308,7 +308,7 @@ pub fn orchestrate_relate(
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let stored = match load_stored_relation(ports, &relation.relation_id) {
+    let stored = match load_stored_relation(ports, &relation.relation_id).await {
         SpokeResult::Ok(stored) => stored,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -329,7 +329,7 @@ pub fn orchestrate_relate(
 
     let expected_base_revision = stored.as_ref().map(|stored| stored.revision.unwrap_or(0));
 
-    let put = match ports.put_relation(relation, expected_base_revision) {
+    let put = match ports.put_relation(relation, expected_base_revision).await {
         SpokeResult::Ok(relation) => relation,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -337,7 +337,7 @@ pub fn orchestrate_relate(
     success_response(json!({ "relation": put }))
 }
 
-fn resolve_check_rules(
+async fn resolve_check_rules(
     ports: &impl BaselinePorts,
     request: &CheckRequest,
 ) -> SpokeResult<Vec<Rule>> {
@@ -353,7 +353,7 @@ fn resolve_check_rules(
         return spoke_ok(embedded);
     }
 
-    let resolved = match ports.list_rules(&request.rule_refs) {
+    let resolved = match ports.list_rules(&request.rule_refs).await {
         SpokeResult::Ok(rules) => rules,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -371,7 +371,7 @@ fn resolve_check_rules(
 }
 
 /// Load scoped data and rules, invoke product checker callback, persist findings.
-pub fn orchestrate_check<F>(
+pub async fn orchestrate_check<F>(
     ports: &impl BaselinePorts,
     request: CheckRequest,
     run_checker: F,
@@ -379,7 +379,7 @@ pub fn orchestrate_check<F>(
 where
     F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>,
 {
-    let rules = match resolve_check_rules(ports, &request) {
+    let rules = match resolve_check_rules(ports, &request).await {
         SpokeResult::Ok(rules) => rules,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -389,12 +389,12 @@ where
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries_result = match ports.list_knowledge_entries(&scope) {
+    let entries_result = match ports.list_knowledge_entries(&scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let events_result = match ports.list_timeline_events(&scope) {
+    let events_result = match ports.list_timeline_events(&scope).await {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -419,7 +419,7 @@ where
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let put = match ports.put_findings(findings) {
+    let put = match ports.put_findings(findings).await {
         SpokeResult::Ok(findings) => findings,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -468,7 +468,7 @@ fn assemble_packet_response(
 }
 
 /// Query scoped KnowledgeEntries/events, apply scope helpers, build AssemblePacket.
-pub fn orchestrate_assemble(
+pub async fn orchestrate_assemble(
     ports: &impl BaselinePorts,
     request: AssembleRequest,
 ) -> SpokeResult<AssembleResponse> {
@@ -477,12 +477,12 @@ pub fn orchestrate_assemble(
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries_result = match ports.list_knowledge_entries(&scope) {
+    let entries_result = match ports.list_knowledge_entries(&scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let events_result = match ports.list_timeline_events(&scope) {
+    let events_result = match ports.list_timeline_events(&scope).await {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -499,7 +499,7 @@ pub fn orchestrate_assemble(
 }
 
 /// Project Session computable view via ComputablePort after request validation.
-pub fn orchestrate_project(
+pub async fn orchestrate_project(
     ports: &impl ComputablePorts,
     request: ProjectRequest,
 ) -> SpokeResult<ProjectResponse> {
@@ -516,12 +516,12 @@ pub fn orchestrate_project(
     let computable = ports
         .as_computable()
         .expect("require_port_method gated availability");
-    computable.project(request)
+    computable.project(request).await
 }
 
 /// Compute Session updates via ComputablePort after request validation.
 /// Settled-state persistence remains an explicit adapter step.
-pub fn orchestrate_compute(
+pub async fn orchestrate_compute(
     ports: &impl ComputablePorts,
     request: ComputeRequest,
 ) -> SpokeResult<ComputeResponse> {
@@ -538,7 +538,7 @@ pub fn orchestrate_compute(
     let computable = ports
         .as_computable()
         .expect("require_port_method gated availability");
-    computable.compute(request)
+    computable.compute(request).await
 }
 
 fn require_fork_scope(scope: &Scope) -> SpokeResult<Scope> {
@@ -557,7 +557,7 @@ fn require_fork_scope(scope: &Scope) -> SpokeResult<Scope> {
 }
 
 /// Fork-aware check: KE via ScopeQueryPort; timeline via ForkTimelineQueryPort.
-pub fn orchestrate_fork_check<F>(
+pub async fn orchestrate_fork_check<F>(
     ports: &impl ForkPorts,
     request: CheckRequest,
     run_checker: F,
@@ -581,12 +581,12 @@ where
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let rules = match resolve_check_rules(ports, &request) {
+    let rules = match resolve_check_rules(ports, &request).await {
         SpokeResult::Ok(rules) => rules,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries_result = match ports.list_knowledge_entries(&scope) {
+    let entries_result = match ports.list_knowledge_entries(&scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -594,7 +594,7 @@ where
     let fork_timeline = ports
         .as_fork_timeline()
         .expect("require_port_method gated availability");
-    let events_result = match fork_timeline.list_fork_timeline_events(&fork_scope) {
+    let events_result = match fork_timeline.list_fork_timeline_events(&fork_scope).await {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -619,7 +619,7 @@ where
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let put = match ports.put_findings(findings) {
+    let put = match ports.put_findings(findings).await {
         SpokeResult::Ok(findings) => findings,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -628,7 +628,7 @@ where
 }
 
 /// Fork-aware assemble: KE via ScopeQueryPort; timeline via ForkTimelineQueryPort.
-pub fn orchestrate_fork_assemble(
+pub async fn orchestrate_fork_assemble(
     ports: &impl ForkPorts,
     request: AssembleRequest,
 ) -> SpokeResult<AssembleResponse> {
@@ -648,7 +648,7 @@ pub fn orchestrate_fork_assemble(
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
 
-    let entries_result = match ports.list_knowledge_entries(&scope) {
+    let entries_result = match ports.list_knowledge_entries(&scope).await {
         SpokeResult::Ok(entries) => entries,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -656,7 +656,7 @@ pub fn orchestrate_fork_assemble(
     let fork_timeline = ports
         .as_fork_timeline()
         .expect("require_port_method gated availability");
-    let events_result = match fork_timeline.list_fork_timeline_events(&fork_scope) {
+    let events_result = match fork_timeline.list_fork_timeline_events(&fork_scope).await {
         SpokeResult::Ok(events) => events,
         SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
     };
@@ -675,13 +675,13 @@ pub fn orchestrate_fork_assemble(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use crate::adapter::ports::{
         ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
         RelationPort, RuleQueryPort, ScopeQueryPort,
     };
     use crate::result::SpokeResult;
     use serde_json::json;
-    use std::cell::RefCell;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -814,8 +814,9 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for MemoryBaselinePorts {
-        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
             let store = self.store.lock().expect("store lock");
             match store.entries.get(entry_id) {
                 Some(entry) => spoke_ok(entry.clone()),
@@ -831,7 +832,7 @@ mod tests {
             }
         }
 
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             expected_base_revision: Option<u64>,
@@ -841,8 +842,9 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl RelationPort for MemoryBaselinePorts {
-        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
             let store = self.store.lock().expect("store lock");
             match store.relations.get(relation_id) {
                 Some(relation) => spoke_ok(relation.clone()),
@@ -858,7 +860,7 @@ mod tests {
             }
         }
 
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             expected_base_revision: Option<u64>,
@@ -868,28 +870,31 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl ScopeQueryPort for MemoryBaselinePorts {
-        fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
             let store = self.store.lock().expect("store lock");
             spoke_ok(store.entries.values().cloned().collect())
         }
 
-        fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
             let store = self.store.lock().expect("store lock");
             spoke_ok(store.events.clone())
         }
     }
 
+    #[async_trait]
     impl FindingPort for MemoryBaselinePorts {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
             let mut store = self.store.lock().expect("store lock");
             store.findings.extend(findings.iter().cloned());
             spoke_ok(findings)
         }
     }
 
+    #[async_trait]
     impl RuleQueryPort for MemoryBaselinePorts {
-        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
             let store = self.store.lock().expect("store lock");
             let mut resolved = Vec::new();
             for rule_ref in rule_refs {
@@ -922,12 +927,13 @@ mod tests {
         .expect("valid HostCapabilityManifest")
     }
 
+    #[async_trait]
     impl HostManifestPort for MemoryBaselinePorts {
-        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+        async fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
             spoke_ok(memory_baseline_host_manifest())
         }
 
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
             spoke_ok(Vec::new())
@@ -936,77 +942,84 @@ mod tests {
 
     struct MemoryComputablePorts {
         baseline: MemoryBaselinePorts,
-        projected: RefCell<Vec<ProjectRequest>>,
-        computed: RefCell<Vec<ComputeRequest>>,
+        projected: Mutex<Vec<ProjectRequest>>,
+        computed: Mutex<Vec<ComputeRequest>>,
     }
 
     impl MemoryComputablePorts {
         fn new(baseline: MemoryBaselinePorts) -> Self {
             Self {
                 baseline,
-                projected: RefCell::new(Vec::new()),
-                computed: RefCell::new(Vec::new()),
+                projected: Mutex::new(Vec::new()),
+                computed: Mutex::new(Vec::new()),
             }
         }
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for MemoryComputablePorts {
-        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.get_knowledge_entry(entry_id)
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            self.baseline.get_knowledge_entry(entry_id).await
         }
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<KnowledgeEntry> {
             self.baseline
-                .put_knowledge_entry(entry, expected_base_revision)
+                .put_knowledge_entry(entry, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl RelationPort for MemoryComputablePorts {
-        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-            self.baseline.get_relation(relation_id)
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id).await
         }
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation, expected_base_revision)
+            self.baseline.put_relation(relation, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl ScopeQueryPort for MemoryComputablePorts {
-        fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-            self.baseline.list_knowledge_entries(scope)
+        async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            self.baseline.list_knowledge_entries(scope).await
         }
-        fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            self.baseline.list_timeline_events(scope)
+        async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.baseline.list_timeline_events(scope).await
         }
     }
+    #[async_trait]
     impl FindingPort for MemoryComputablePorts {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-            self.baseline.put_findings(findings)
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            self.baseline.put_findings(findings).await
         }
     }
+    #[async_trait]
     impl RuleQueryPort for MemoryComputablePorts {
-        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-            self.baseline.list_rules(rule_refs)
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            self.baseline.list_rules(rule_refs).await
         }
     }
+    #[async_trait]
     impl HostManifestPort for MemoryComputablePorts {
-        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-            self.baseline.get_host_capability_manifest()
+        async fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest().await
         }
 
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-            self.baseline.list_peer_host_capability_manifests()
+            self.baseline.list_peer_host_capability_manifests().await
         }
     }
+    #[async_trait]
     impl ComputablePort for MemoryComputablePorts {
-        fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
-            self.projected.borrow_mut().push(request.clone());
+        async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
+            self.projected.lock().expect("projected lock").push(request.clone());
             let mut computable = request.state.clone();
             computable.insert("projected".into(), json!(true));
             success_response(json!({
@@ -1016,8 +1029,8 @@ mod tests {
             }))
         }
 
-        fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
-            self.computed.borrow_mut().push(request.clone());
+        async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
+            self.computed.lock().expect("computed lock").push(request.clone());
             let mut body = json!({
                 "session_id": request.session_id,
                 "entry_id": request.entry_id,
@@ -1032,75 +1045,82 @@ mod tests {
 
     struct MemoryForkPorts {
         baseline: MemoryBaselinePorts,
-        fork_list_calls: RefCell<Vec<Scope>>,
+        fork_list_calls: Mutex<Vec<Scope>>,
     }
 
     impl MemoryForkPorts {
         fn new(baseline: MemoryBaselinePorts) -> Self {
             Self {
                 baseline,
-                fork_list_calls: RefCell::new(Vec::new()),
+                fork_list_calls: Mutex::new(Vec::new()),
             }
         }
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for MemoryForkPorts {
-        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.get_knowledge_entry(entry_id)
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            self.baseline.get_knowledge_entry(entry_id).await
         }
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<KnowledgeEntry> {
             self.baseline
-                .put_knowledge_entry(entry, expected_base_revision)
+                .put_knowledge_entry(entry, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl RelationPort for MemoryForkPorts {
-        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-            self.baseline.get_relation(relation_id)
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id).await
         }
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation, expected_base_revision)
+            self.baseline.put_relation(relation, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl ScopeQueryPort for MemoryForkPorts {
-        fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-            self.baseline.list_knowledge_entries(scope)
+        async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            self.baseline.list_knowledge_entries(scope).await
         }
-        fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            self.baseline.list_timeline_events(scope)
+        async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.baseline.list_timeline_events(scope).await
         }
     }
+    #[async_trait]
     impl FindingPort for MemoryForkPorts {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-            self.baseline.put_findings(findings)
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            self.baseline.put_findings(findings).await
         }
     }
+    #[async_trait]
     impl RuleQueryPort for MemoryForkPorts {
-        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-            self.baseline.list_rules(rule_refs)
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            self.baseline.list_rules(rule_refs).await
         }
     }
+    #[async_trait]
     impl HostManifestPort for MemoryForkPorts {
-        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-            self.baseline.get_host_capability_manifest()
+        async fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest().await
         }
 
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-            self.baseline.list_peer_host_capability_manifests()
+            self.baseline.list_peer_host_capability_manifests().await
         }
     }
+    #[async_trait]
     impl ForkTimelineQueryPort for MemoryForkPorts {
-        fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            self.fork_list_calls.borrow_mut().push(scope.clone());
+        async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.fork_list_calls.lock().expect("fork list lock").push(scope.clone());
             let store = self.baseline.store.lock().expect("store lock");
             let fork_id = scope.fork_id.as_ref().map(|value| value.as_str());
             let events = store
@@ -1124,58 +1144,64 @@ mod tests {
         baseline: MemoryBaselinePorts,
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for MissingComputablePorts {
-        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.get_knowledge_entry(entry_id)
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            self.baseline.get_knowledge_entry(entry_id).await
         }
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<KnowledgeEntry> {
             self.baseline
-                .put_knowledge_entry(entry, expected_base_revision)
+                .put_knowledge_entry(entry, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl RelationPort for MissingComputablePorts {
-        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-            self.baseline.get_relation(relation_id)
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id).await
         }
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation, expected_base_revision)
+            self.baseline.put_relation(relation, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl ScopeQueryPort for MissingComputablePorts {
-        fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-            self.baseline.list_knowledge_entries(scope)
+        async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            self.baseline.list_knowledge_entries(scope).await
         }
-        fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            self.baseline.list_timeline_events(scope)
+        async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.baseline.list_timeline_events(scope).await
         }
     }
+    #[async_trait]
     impl FindingPort for MissingComputablePorts {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-            self.baseline.put_findings(findings)
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            self.baseline.put_findings(findings).await
         }
     }
+    #[async_trait]
     impl RuleQueryPort for MissingComputablePorts {
-        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-            self.baseline.list_rules(rule_refs)
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            self.baseline.list_rules(rule_refs).await
         }
     }
+    #[async_trait]
     impl HostManifestPort for MissingComputablePorts {
-        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-            self.baseline.get_host_capability_manifest()
+        async fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest().await
         }
 
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-            self.baseline.list_peer_host_capability_manifests()
+            self.baseline.list_peer_host_capability_manifests().await
         }
     }
     impl ComputablePorts for MissingComputablePorts {
@@ -1188,58 +1214,64 @@ mod tests {
         baseline: MemoryBaselinePorts,
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for MissingForkPorts {
-        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-            self.baseline.get_knowledge_entry(entry_id)
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            self.baseline.get_knowledge_entry(entry_id).await
         }
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<KnowledgeEntry> {
             self.baseline
-                .put_knowledge_entry(entry, expected_base_revision)
+                .put_knowledge_entry(entry, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl RelationPort for MissingForkPorts {
-        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-            self.baseline.get_relation(relation_id)
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id).await
         }
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation, expected_base_revision)
+            self.baseline.put_relation(relation, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl ScopeQueryPort for MissingForkPorts {
-        fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-            self.baseline.list_knowledge_entries(scope)
+        async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            self.baseline.list_knowledge_entries(scope).await
         }
-        fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            self.baseline.list_timeline_events(scope)
+        async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.baseline.list_timeline_events(scope).await
         }
     }
+    #[async_trait]
     impl FindingPort for MissingForkPorts {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-            self.baseline.put_findings(findings)
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            self.baseline.put_findings(findings).await
         }
     }
+    #[async_trait]
     impl RuleQueryPort for MissingForkPorts {
-        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-            self.baseline.list_rules(rule_refs)
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            self.baseline.list_rules(rule_refs).await
         }
     }
+    #[async_trait]
     impl HostManifestPort for MissingForkPorts {
-        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-            self.baseline.get_host_capability_manifest()
+        async fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest().await
         }
 
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-            self.baseline.list_peer_host_capability_manifests()
+            self.baseline.list_peer_host_capability_manifests().await
         }
     }
     impl ForkPorts for MissingForkPorts {
@@ -1309,7 +1341,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_upsert(&ports, upsert_request(vec![candidate.clone()]));
+        let result = pollster::block_on(orchestrate_upsert(&ports, upsert_request(vec![candidate.clone()])));
         assert!(result.is_ok());
         if let SpokeResult::Ok(UpsertResponse::Variant0 { knowledge_entries, .. }) = result {
             assert_eq!(knowledge_entries.len(), 1);
@@ -1318,8 +1350,8 @@ mod tests {
             panic!("expected upsert success");
         }
 
-        let stored = ports
-            .get_knowledge_entry("kb_new")
+        let stored = pollster::block_on(ports
+            .get_knowledge_entry("kb_new"))
             .expect_ok_entry("stored after upsert");
         assert_eq!(stored.entry_id, "kb_new");
     }
@@ -1338,7 +1370,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_promote(&ports, promote_request(candidate));
+        let result = pollster::block_on(orchestrate_promote(&ports, promote_request(candidate)));
         assert!(result.is_ok());
         if let SpokeResult::Ok(PromoteResponse::Variant0 { knowledge_entry, .. }) = result {
             assert_eq!(knowledge_entry.status, "confirmed");
@@ -1375,7 +1407,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_promote(&ports, promote_request(candidate));
+        let result = pollster::block_on(orchestrate_promote(&ports, promote_request(candidate)));
         assert!(!result.is_ok());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(
@@ -1414,7 +1446,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_promote(&ports, promote_request(candidate));
+        let result = pollster::block_on(orchestrate_promote(&ports, promote_request(candidate)));
         assert!(!result.is_ok());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
@@ -1450,7 +1482,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_promote(&ports, promote_request(candidate));
+        let result = pollster::block_on(orchestrate_promote(&ports, promote_request(candidate)));
         assert!(result.is_ok());
         if let SpokeResult::Ok(PromoteResponse::Variant0 { knowledge_entry, .. }) = result {
             assert_eq!(knowledge_entry.status, "confirmed");
@@ -1481,9 +1513,10 @@ mod tests {
         }
     }
 
+    #[async_trait]
     impl KnowledgeEntryPort for OccBaselinePorts {
-        fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-            let result = self.baseline.get_knowledge_entry(entry_id);
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            let result = self.baseline.get_knowledge_entry(entry_id).await;
             if result.is_ok() {
                 let mut advance = self.advance_on_get.lock().expect("advance lock");
                 if *advance {
@@ -1494,7 +1527,7 @@ mod tests {
             result
         }
 
-        fn put_knowledge_entry(
+        async fn put_knowledge_entry(
             &self,
             entry: KnowledgeEntry,
             expected_base_revision: Option<u64>,
@@ -1520,49 +1553,54 @@ mod tests {
                 .expect("puts lock")
                 .push((entry.clone(), expected_base_revision));
             self.baseline
-                .put_knowledge_entry(entry, expected_base_revision)
+                .put_knowledge_entry(entry, expected_base_revision).await
         }
     }
 
+    #[async_trait]
     impl RelationPort for OccBaselinePorts {
-        fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-            self.baseline.get_relation(relation_id)
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            self.baseline.get_relation(relation_id).await
         }
-        fn put_relation(
+        async fn put_relation(
             &self,
             relation: Relation,
             expected_base_revision: Option<u64>,
         ) -> SpokeResult<Relation> {
-            self.baseline.put_relation(relation, expected_base_revision)
+            self.baseline.put_relation(relation, expected_base_revision).await
         }
     }
+    #[async_trait]
     impl ScopeQueryPort for OccBaselinePorts {
-        fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-            self.baseline.list_knowledge_entries(scope)
+        async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            self.baseline.list_knowledge_entries(scope).await
         }
-        fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-            self.baseline.list_timeline_events(scope)
+        async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            self.baseline.list_timeline_events(scope).await
         }
     }
+    #[async_trait]
     impl FindingPort for OccBaselinePorts {
-        fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-            self.baseline.put_findings(findings)
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            self.baseline.put_findings(findings).await
         }
     }
+    #[async_trait]
     impl RuleQueryPort for OccBaselinePorts {
-        fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-            self.baseline.list_rules(rule_refs)
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            self.baseline.list_rules(rule_refs).await
         }
     }
+    #[async_trait]
     impl HostManifestPort for OccBaselinePorts {
-        fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-            self.baseline.get_host_capability_manifest()
+        async fn get_host_capability_manifest(&self) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
+            self.baseline.get_host_capability_manifest().await
         }
 
-        fn list_peer_host_capability_manifests(
+        async fn list_peer_host_capability_manifests(
             &self,
         ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-            self.baseline.list_peer_host_capability_manifests()
+            self.baseline.list_peer_host_capability_manifests().await
         }
     }
 
@@ -1591,7 +1629,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_promote(&ports, promote_request(candidate));
+        let result = pollster::block_on(orchestrate_promote(&ports, promote_request(candidate)));
         assert!(result.is_ok());
         let puts = ports.puts.lock().expect("puts lock");
         assert_eq!(puts.len(), 1);
@@ -1629,7 +1667,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_promote(&ports, promote_request(candidate));
+        let result = pollster::block_on(orchestrate_promote(&ports, promote_request(candidate)));
         assert!(!result.is_ok());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
@@ -1651,7 +1689,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_upsert(&ports, upsert_request(vec![candidate]));
+        let result = pollster::block_on(orchestrate_upsert(&ports, upsert_request(vec![candidate])));
         assert!(result.is_ok());
     }
 
@@ -1677,9 +1715,10 @@ mod tests {
             advance_on_get: Mutex<bool>,
         }
 
-        impl KnowledgeEntryPort for UpsertOccPorts {
-            fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-                let result = self.baseline.get_knowledge_entry(entry_id);
+        #[async_trait]
+    impl KnowledgeEntryPort for UpsertOccPorts {
+            async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+                let result = self.baseline.get_knowledge_entry(entry_id).await;
                 if result.is_ok() {
                     let mut advance = self.advance_on_get.lock().expect("advance lock");
                     if *advance {
@@ -1690,7 +1729,7 @@ mod tests {
                 result
             }
 
-            fn put_knowledge_entry(
+            async fn put_knowledge_entry(
                 &self,
                 entry: KnowledgeEntry,
                 expected_base_revision: Option<u64>,
@@ -1708,51 +1747,56 @@ mod tests {
                     }
                 }
                 self.baseline
-                    .put_knowledge_entry(entry, expected_base_revision)
+                    .put_knowledge_entry(entry, expected_base_revision).await
             }
         }
 
-        impl RelationPort for UpsertOccPorts {
-            fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-                self.baseline.get_relation(relation_id)
+        #[async_trait]
+    impl RelationPort for UpsertOccPorts {
+            async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+                self.baseline.get_relation(relation_id).await
             }
-            fn put_relation(
+            async fn put_relation(
                 &self,
                 relation: Relation,
                 expected_base_revision: Option<u64>,
             ) -> SpokeResult<Relation> {
-                self.baseline.put_relation(relation, expected_base_revision)
+                self.baseline.put_relation(relation, expected_base_revision).await
             }
         }
-        impl ScopeQueryPort for UpsertOccPorts {
-            fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-                self.baseline.list_knowledge_entries(scope)
+        #[async_trait]
+    impl ScopeQueryPort for UpsertOccPorts {
+            async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+                self.baseline.list_knowledge_entries(scope).await
             }
-            fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-                self.baseline.list_timeline_events(scope)
-            }
-        }
-        impl FindingPort for UpsertOccPorts {
-            fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-                self.baseline.put_findings(findings)
+            async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+                self.baseline.list_timeline_events(scope).await
             }
         }
-        impl RuleQueryPort for UpsertOccPorts {
-            fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-                self.baseline.list_rules(rule_refs)
+        #[async_trait]
+    impl FindingPort for UpsertOccPorts {
+            async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+                self.baseline.put_findings(findings).await
             }
         }
-        impl HostManifestPort for UpsertOccPorts {
-            fn get_host_capability_manifest(
+        #[async_trait]
+    impl RuleQueryPort for UpsertOccPorts {
+            async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+                self.baseline.list_rules(rule_refs).await
+            }
+        }
+        #[async_trait]
+    impl HostManifestPort for UpsertOccPorts {
+            async fn get_host_capability_manifest(
                 &self,
             ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-                self.baseline.get_host_capability_manifest()
+                self.baseline.get_host_capability_manifest().await
             }
 
-            fn list_peer_host_capability_manifests(
+            async fn list_peer_host_capability_manifests(
                 &self,
             ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-                self.baseline.list_peer_host_capability_manifests()
+                self.baseline.list_peer_host_capability_manifests().await
             }
         }
 
@@ -1773,7 +1817,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_upsert(&ports, upsert_request(vec![candidate]));
+        let result = pollster::block_on(orchestrate_upsert(&ports, upsert_request(vec![candidate])));
         assert!(!result.is_ok());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
@@ -1794,7 +1838,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_relate(&ports, relate_request(rel.clone()));
+        let result = pollster::block_on(orchestrate_relate(&ports, relate_request(rel.clone())));
         assert!(result.is_ok());
         if let SpokeResult::Ok(RelateResponse::Variant0 { relation: got, .. }) = result {
             assert_eq!(got.relation_id, "rel_1");
@@ -1818,7 +1862,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_relate(&ports, relate_request(rel));
+        let result = pollster::block_on(orchestrate_relate(&ports, relate_request(rel)));
         assert!(result.is_ok());
     }
 
@@ -1847,7 +1891,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_relate(&ports, relate_request(candidate));
+        let result = pollster::block_on(orchestrate_relate(&ports, relate_request(candidate)));
         assert!(result.is_ok());
         if let SpokeResult::Ok(RelateResponse::Variant0 { relation: got, .. }) = result {
             // Update bumps stored revision 4 -> 5.
@@ -1884,7 +1928,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_relate(&ports, relate_request(candidate));
+        let result = pollster::block_on(orchestrate_relate(&ports, relate_request(candidate)));
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::RevisionConflict);
@@ -1925,22 +1969,24 @@ mod tests {
             advance_on_get: Mutex<bool>,
         }
 
-        impl KnowledgeEntryPort for RelateOccPorts {
-            fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-                self.baseline.get_knowledge_entry(entry_id)
+        #[async_trait]
+    impl KnowledgeEntryPort for RelateOccPorts {
+            async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+                self.baseline.get_knowledge_entry(entry_id).await
             }
-            fn put_knowledge_entry(
+            async fn put_knowledge_entry(
                 &self,
                 entry: KnowledgeEntry,
                 expected_base_revision: Option<u64>,
             ) -> SpokeResult<KnowledgeEntry> {
                 self.baseline
-                    .put_knowledge_entry(entry, expected_base_revision)
+                    .put_knowledge_entry(entry, expected_base_revision).await
             }
         }
-        impl RelationPort for RelateOccPorts {
-            fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-                let result = self.baseline.get_relation(relation_id);
+        #[async_trait]
+    impl RelationPort for RelateOccPorts {
+            async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+                let result = self.baseline.get_relation(relation_id).await;
                 if result.is_ok() {
                     let mut advance = self.advance_on_get.lock().expect("advance lock");
                     if *advance {
@@ -1950,7 +1996,7 @@ mod tests {
                 }
                 result
             }
-            fn put_relation(
+            async fn put_relation(
                 &self,
                 relation: Relation,
                 expected_base_revision: Option<u64>,
@@ -1967,37 +2013,41 @@ mod tests {
                         );
                     }
                 }
-                self.baseline.put_relation(relation, expected_base_revision)
+                self.baseline.put_relation(relation, expected_base_revision).await
             }
         }
-        impl ScopeQueryPort for RelateOccPorts {
-            fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-                self.baseline.list_knowledge_entries(scope)
+        #[async_trait]
+    impl ScopeQueryPort for RelateOccPorts {
+            async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+                self.baseline.list_knowledge_entries(scope).await
             }
-            fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-                self.baseline.list_timeline_events(scope)
-            }
-        }
-        impl FindingPort for RelateOccPorts {
-            fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-                self.baseline.put_findings(findings)
+            async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+                self.baseline.list_timeline_events(scope).await
             }
         }
-        impl RuleQueryPort for RelateOccPorts {
-            fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-                self.baseline.list_rules(rule_refs)
+        #[async_trait]
+    impl FindingPort for RelateOccPorts {
+            async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+                self.baseline.put_findings(findings).await
             }
         }
-        impl HostManifestPort for RelateOccPorts {
-            fn get_host_capability_manifest(
+        #[async_trait]
+    impl RuleQueryPort for RelateOccPorts {
+            async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+                self.baseline.list_rules(rule_refs).await
+            }
+        }
+        #[async_trait]
+    impl HostManifestPort for RelateOccPorts {
+            async fn get_host_capability_manifest(
                 &self,
             ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-                self.baseline.get_host_capability_manifest()
+                self.baseline.get_host_capability_manifest().await
             }
-            fn list_peer_host_capability_manifests(
+            async fn list_peer_host_capability_manifests(
                 &self,
             ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-                self.baseline.list_peer_host_capability_manifests()
+                self.baseline.list_peer_host_capability_manifests().await
             }
         }
 
@@ -2017,7 +2067,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_relate(&ports, relate_request(candidate));
+        let result = pollster::block_on(orchestrate_relate(&ports, relate_request(candidate)));
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
@@ -2057,21 +2107,23 @@ mod tests {
         struct RelateCreateRacePorts {
             baseline: MemoryBaselinePorts,
         }
-        impl KnowledgeEntryPort for RelateCreateRacePorts {
-            fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-                self.baseline.get_knowledge_entry(entry_id)
+        #[async_trait]
+    impl KnowledgeEntryPort for RelateCreateRacePorts {
+            async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+                self.baseline.get_knowledge_entry(entry_id).await
             }
-            fn put_knowledge_entry(
+            async fn put_knowledge_entry(
                 &self,
                 entry: KnowledgeEntry,
                 expected_base_revision: Option<u64>,
             ) -> SpokeResult<KnowledgeEntry> {
                 self.baseline
-                    .put_knowledge_entry(entry, expected_base_revision)
+                    .put_knowledge_entry(entry, expected_base_revision).await
             }
         }
-        impl RelationPort for RelateCreateRacePorts {
-            fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        #[async_trait]
+    impl RelationPort for RelateCreateRacePorts {
+            async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
                 // Stale snapshot: pretend the row is absent so validate routes to
                 // create and the orchestrator passes expected_base_revision None.
                 let mut details = Map::new();
@@ -2082,44 +2134,48 @@ mod tests {
                     Some(details),
                 )
             }
-            fn put_relation(
+            async fn put_relation(
                 &self,
                 relation: Relation,
                 expected_base_revision: Option<u64>,
             ) -> SpokeResult<Relation> {
                 // Delegate to the real baseline OCC store, which still holds the
                 // seeded relation and rejects create-when-exists.
-                self.baseline.put_relation(relation, expected_base_revision)
+                self.baseline.put_relation(relation, expected_base_revision).await
             }
         }
-        impl ScopeQueryPort for RelateCreateRacePorts {
-            fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-                self.baseline.list_knowledge_entries(scope)
+        #[async_trait]
+    impl ScopeQueryPort for RelateCreateRacePorts {
+            async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+                self.baseline.list_knowledge_entries(scope).await
             }
-            fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-                self.baseline.list_timeline_events(scope)
-            }
-        }
-        impl FindingPort for RelateCreateRacePorts {
-            fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-                self.baseline.put_findings(findings)
+            async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+                self.baseline.list_timeline_events(scope).await
             }
         }
-        impl RuleQueryPort for RelateCreateRacePorts {
-            fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-                self.baseline.list_rules(rule_refs)
+        #[async_trait]
+    impl FindingPort for RelateCreateRacePorts {
+            async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+                self.baseline.put_findings(findings).await
             }
         }
-        impl HostManifestPort for RelateCreateRacePorts {
-            fn get_host_capability_manifest(
+        #[async_trait]
+    impl RuleQueryPort for RelateCreateRacePorts {
+            async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+                self.baseline.list_rules(rule_refs).await
+            }
+        }
+        #[async_trait]
+    impl HostManifestPort for RelateCreateRacePorts {
+            async fn get_host_capability_manifest(
                 &self,
             ) -> SpokeResult<spoke_schemas::HostCapabilityManifest> {
-                self.baseline.get_host_capability_manifest()
+                self.baseline.get_host_capability_manifest().await
             }
-            fn list_peer_host_capability_manifests(
+            async fn list_peer_host_capability_manifests(
                 &self,
             ) -> SpokeResult<Vec<spoke_schemas::HostCapabilityManifest>> {
-                self.baseline.list_peer_host_capability_manifests()
+                self.baseline.list_peer_host_capability_manifests().await
             }
         }
 
@@ -2135,7 +2191,7 @@ mod tests {
             "extensions": {}
         });
 
-        let result = orchestrate_relate(&ports, relate_request(candidate));
+        let result = pollster::block_on(orchestrate_relate(&ports, relate_request(candidate)));
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::RelationAlreadyExists);
@@ -2187,14 +2243,14 @@ mod tests {
             "extensions": {}
         }));
 
-        let result = orchestrate_check(&ports, request.clone(), |input| {
+        let result = pollster::block_on(orchestrate_check(&ports, request.clone(), |input| {
             assert_eq!(input.entries.len(), 1);
             assert_eq!(input.entries[0].entry_id, "kb_check");
             assert_eq!(input.events.len(), 1);
             assert_eq!(input.rules.len(), 1);
             assert_eq!(input.rules[0].rule_id, "rule_1");
             spoke_ok(vec![finding.clone()])
-        });
+        }));
 
         assert!(result.is_ok());
         if let SpokeResult::Ok(CheckResponse::Variant0 { findings, .. }) = result {
@@ -2264,7 +2320,7 @@ mod tests {
             "rules": [embedded_override, embedded_new]
         }));
 
-        let result = orchestrate_check(&ports, request, |input| {
+        let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
             assert_eq!(input.rules.len(), 3);
             assert_eq!(input.rules[0].rule_id, "rule_shared");
             assert_eq!(input.rules[0].canonical_name.as_str(), "Embedded wins");
@@ -2277,7 +2333,7 @@ mod tests {
             assert_eq!(input.rules[2].rule_id, "rule_new");
             assert_eq!(input.rules[2].statement.as_deref(), Some("append-me"));
             spoke_ok(vec![])
-        });
+        }));
 
         assert!(result.is_ok());
         let _ = other_stored;
@@ -2300,7 +2356,7 @@ mod tests {
             "max_entries": 10
         }));
 
-        let result = orchestrate_assemble(&ports, request);
+        let result = pollster::block_on(orchestrate_assemble(&ports, request));
         assert!(result.is_ok());
         if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
             assert_eq!(packet.packet_id, "assemble:world_1");
@@ -2321,7 +2377,7 @@ mod tests {
             "state": { "tide_level": 2.4 }
         }));
 
-        let result = orchestrate_project(&ports, request);
+        let result = pollster::block_on(orchestrate_project(&ports, request));
         assert!(result.is_ok());
         if let SpokeResult::Ok(ProjectResponse::Variant0 {
             session_id,
@@ -2337,7 +2393,7 @@ mod tests {
         } else {
             panic!("expected project success");
         }
-        assert_eq!(ports.projected.borrow().len(), 1);
+        assert_eq!(ports.projected.lock().expect("projected lock").len(), 1);
     }
 
     #[test]
@@ -2350,7 +2406,7 @@ mod tests {
             "settle": true
         }));
 
-        let result = orchestrate_compute(&ports, request);
+        let result = pollster::block_on(orchestrate_compute(&ports, request));
         assert!(result.is_ok());
         if let SpokeResult::Ok(ComputeResponse::Variant0 {
             session_id,
@@ -2367,7 +2423,7 @@ mod tests {
         } else {
             panic!("expected compute success");
         }
-        assert_eq!(ports.computed.borrow().len(), 1);
+        assert_eq!(ports.computed.lock().expect("computed lock").len(), 1);
     }
 
     #[test]
@@ -2418,15 +2474,15 @@ mod tests {
             "extensions": {}
         }));
 
-        let result = orchestrate_fork_check(&ports, request, |input| {
+        let result = pollster::block_on(orchestrate_fork_check(&ports, request, |input| {
             assert_eq!(input.entries.len(), 1);
             assert_eq!(input.events.len(), 1);
             assert_eq!(input.events[0].timeline_event_id, "te_fork");
             spoke_ok(vec![finding.clone()])
-        });
+        }));
 
         assert!(result.is_ok());
-        assert_eq!(ports.fork_list_calls.borrow().len(), 1);
+        assert_eq!(ports.fork_list_calls.lock().expect("fork list lock").len(), 1);
         let _ = on_fork;
     }
 
@@ -2441,7 +2497,7 @@ mod tests {
             "state": {}
         }));
 
-        let result = orchestrate_project(&ports, request);
+        let result = pollster::block_on(orchestrate_project(&ports, request));
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
@@ -2457,7 +2513,7 @@ mod tests {
             "scope": { "scope_id": "world_1", "fork_id": "fork_a" }
         }));
 
-        let result = orchestrate_fork_check(&ports, request, |_| spoke_ok(Vec::new()));
+        let result = pollster::block_on(orchestrate_fork_check(&ports, request, |_| spoke_ok(Vec::new())));
         assert!(result.is_reject());
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);

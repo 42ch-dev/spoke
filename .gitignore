@@ -150,6 +150,13 @@ tooling/codegen/.schemas-dereferenced/
 target/
 **/target/
 
+# SwiftPM build artifacts (repo-root `swift build`; IosSmoke package builds)
+.build/
+**/.build/
+# Xcode/SPM scheme state (xcodebuild test populates .swiftpm/<pkg>/xcode/xcschemes)
+.swiftpm/
+**/.swiftpm/
+
 # C# bindgen clone target — the bindgen README recipe clones the upstream
 # uniffi-bindgen-cs checkout into the repo root; keep it out of `git add -A`
 # reach

@@ -1,0 +1,55 @@
+{
+  "flights": {
+    "flight1": "00200faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+    "flight2": "00c8ff2ee45601ec1b67310c7790404585ae697331eee1c1f8cf2419731c1fff3e6b5cda1c2d8029877d73fad62823946ccd0c5da35c129100f43d33a59cf19ea8fcdcc0e3e57a6099ef8d8c471633442810f7b53910cdb5387961017d6f71ec6ccf66f49c07777fa311a3a71e6622df2e1c8ce94aa85c086d6c035b279355b1ac98705df65c334cbb6ecba25c859270c261b61289d7cd5f6edc15c4d8ccb0bdcb8542ab2e7ccef82173c4363c6d29e8e452978e32b8da004c579d22921533c281454f917c6844369239",
+    "flight3": "00a8f4e4988e97bdcbf0f799d02dd2242624bda72d200e97e322c4f723213896a31e7ce81446799adbce9e65b18d094e3bb8f12958cf4fae54b8c2147329fc9b3bff9ff4f68293f7afd0389f741b6ade0914b9d6d7d32886aff51ad8f89552fa0c1cd567253ec9e1cd4b16239f3a30089cfbb7100bcccfd48fe72f54bb3764e0ce992a6cc8d68027e42f029f75e7a53ab67190a6a2084263ebe61e659c6446e210d2e0d3e44370919e26"
+  },
+  "framing": "u16-BE length prefix; pure Noise frames after multistream (the /noise negotiation lives outside the Noise messages — contract §6)",
+  "handshake": {
+    "handshakeHash": "316d9a0c94c3d5d81687685812ef1deef038bf2e49093dc13b85051b9cf9e8d7"
+  },
+  "keys": {
+    "initiator": {
+      "ephemeralPrivate": "2222222222222222222222222222222222222222222222222222222222222222",
+      "ephemeralPublic": "0faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20",
+      "identityPublic": "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
+      "identitySeed": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "peerId": "12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf",
+      "staticPrivate": "1111111111111111111111111111111111111111111111111111111111111111",
+      "staticPublic": "7b4e909bbe7ffe44c465a220037d608ee35897d31ef972f07f74892cb0f73f13"
+    },
+    "responder": {
+      "ephemeralPrivate": "4444444444444444444444444444444444444444444444444444444444444444",
+      "ephemeralPublic": "ff2ee45601ec1b67310c7790404585ae697331eee1c1f8cf2419731c1fff3e6b",
+      "identityPublic": "29acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd7",
+      "identitySeed": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "peerId": "12D3KooWCd3eX8r5ihRvzK7P1yPq5aakaBJhG5GNj18YTztPhoCa",
+      "staticPrivate": "3333333333333333333333333333333333333333333333333333333333333333",
+      "staticPublic": "7b0d47d93427f8311160781c7c733fd89f88970aef490d8aa0ee19a4cb8a1b14"
+    }
+  },
+  "payloads": {
+    "flight1": "",
+    "flight2": "0a240801122029acbae141bccaf0b22e1a94d34d0bc7361e526d0bfe12c89794bc9322966dd71240227aedf280b53bf3d503ef258a296a8ccd5b15ea6d1bf3e0075831d6abb566f1382de6c0ff79af9d44baddb0a79a3da55a87b1cffcb444c3abe206cbdf36f906",
+    "flight3": "0a240801122079b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad0496641240bcf83eea4c62dbc9a1d1267e89f8b955a28a285064a8354c5419f169c80115597a6e55a9c139526a93b6584ad44fbe892514b0cbe2310a82aec5dbbb6a7e0b08"
+  },
+  "prologue": "",
+  "protocol": "Noise_XX_25519_ChaChaPoly_SHA256",
+  "roles": {
+    "initiator": "I (dialer) — recorded flights 1 and 3; seals the initiator→responder transport frame",
+    "responder": "R (listener) — the TS interop test plays this role"
+  },
+  "source": "rust-libp2p Noise stack recording: libp2p-noise 0.46.1 (libp2p 0.56.0) engine = snow 0.9.6, driven with the same builder parameters libp2p_noise::Config composes (noise_params_into_builder) and pinned static + ephemeral + identity keys; dev-only recorder crates/spoke-connect/examples/noise_recorder.rs",
+  "transport": {
+    "initiatorToResponder": {
+      "frame": "00205436d7cbe456bee12191f2d9b34b7d6789d2e9918c7a17c65c1846770db0dcd7",
+      "note": "spoke-over-noise (ASCII) — sealed under the initiator TX key (Split c1), nonce 0; opens with the responder RX key",
+      "plaintext": "73706f6b652d6f7665722d6e6f697365"
+    },
+    "responderToInitiator": {
+      "frame": "00200bee6323cfcb43ecd52364f9558a9f2366a4c6789270c0273fd18ef0b7461b41",
+      "note": "spoke-over-noise (ASCII) — sealed under the responder TX key (Split c2), nonce 0; opens with the initiator RX key",
+      "plaintext": "73706f6b652d6f7665722d6e6f697365"
+    }
+  }
+}

@@ -317,8 +317,9 @@ keys, `spoke-schemas` connect types, and opaque `serde_json` payloads; the
 transport layer converts `libp2p::PeerId` ↔ `String` at the boundary and
 calls into the core.
 
-This section records the binding facade decision for the spec's Path B
-(shared core bindings, `../../.mstar/specs/spoke-connect.md` §Embedding model):
+This section records the binding facade decision for the spec's
+**native-bindings** embedding path (shared core bindings,
+`../../.mstar/specs/spoke-connect.md` §Embedding model):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
 first binding exposes, and which languages are targeted. **Swift (SPM
 `SpokeConnect`)** and **Kotlin (GitHub Packages Maven)** are landed alongside
@@ -374,7 +375,7 @@ the wrapper), peer ids as strings, and the host manifest / hello envelope as
 JSON strings deserialized with `serde_json` inside Rust — `Multiaddr`,
 swarm, libp2p, and generated schema types stay Rust-side.
 
-### Path B scope for the first language
+### Native-binding scope (first language)
 
 **Core-only** is the landed shape: the sync surface above is bound, and the
 host language implements its own transport adapter (hello exchange, session
@@ -389,12 +390,12 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
 
 | Language | Embedding path | Publish channel | Priority | Rationale |
 |----------|----------------|-----------------|----------|-----------|
-| C# | Path B uniffi | **GitHub Packages NuGet** (`42ch.Spoke.Connect`) | First target — **landed** | Desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (fork dropped when a bindgen-cs tag targets 0.32+); the community pipeline's latest tag (v0.11.0+v0.31.0) targets uniffi 0.31 and cannot read the 0.32 cdylib metadata |
-| Go | Path B uniffi | **Go modules** (`go get …/bindings/go@vX.Y.Z`) | Second — **landed** | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
-| Python | Path B uniffi | **PyPI** (`pip install spoke-connect`) | Third — **landed** | Platform wheels + golden-parity smoke via first-party uniffi 0.32 bindgen; `publish-pypi` on `release.yml` |
-| **Swift (iOS / macOS)** | Path B uniffi | **SPM git** (root `Package.swift` + `vX.Y.Z` tags) | Fourth — **landed** | Product `SpokeConnect`; macOS golden-parity smoke; [`bindings/swift/README.md`](bindings/swift/README.md) |
-| **Kotlin (Android)** | Path B uniffi | **GitHub Packages Maven** (`dev.42ch:spoke-connect`) | Fifth — **landed** | Same sync core surface; `publish-maven` on `release.yml`; [`bindings/kotlin/README.md`](bindings/kotlin/README.md) |
-| TypeScript (browser / Node) | **Path A** (language-direct) | **npm** (`@42ch/spoke-connect`) | Parallel track | The TypeScript route decision lives with the TS identity proof |
+| C# | Native binding (uniffi) | **GitHub Packages NuGet** (`42ch.Spoke.Connect`) | First target — **landed** | Desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (fork dropped when a bindgen-cs tag targets 0.32+); the community pipeline's latest tag (v0.11.0+v0.31.0) targets uniffi 0.31 and cannot read the 0.32 cdylib metadata |
+| Go | Native binding (uniffi) | **Go modules** (`go get …/bindings/go@vX.Y.Z`) | Second — **landed** | Server/CLI hosts; community `uniffi-bindgen-go` pipeline |
+| Python | Native binding (uniffi) | **PyPI** (`pip install spoke-connect`) | Third — **landed** | Platform wheels + golden-parity smoke via first-party uniffi 0.32 bindgen; `publish-pypi` on `release.yml` |
+| **Swift (iOS / macOS)** | Native binding (uniffi) | **SPM git** (root `Package.swift` + `vX.Y.Z` tags) | Fourth — **landed** | Product `SpokeConnect`; macOS golden-parity smoke; [`bindings/swift/README.md`](bindings/swift/README.md) |
+| **Kotlin (Android)** | Native binding (uniffi) | **GitHub Packages Maven** (`dev.42ch:spoke-connect`) | Fifth — **landed** | Same sync core surface; `publish-maven` on `release.yml`; [`bindings/kotlin/README.md`](bindings/kotlin/README.md) |
+| TypeScript (browser / Node) | **Language-native client** (TypeScript, direct) | **npm** (`@42ch/spoke-connect`) | Parallel track | The TypeScript route decision lives with the TS identity proof |
 
 ### Binding checklist
 
@@ -402,7 +403,7 @@ node start/listen/shutdown and `connect(addr)` stay Rust-side today.
      peer ids and byte-oriented keys.
 - [x] 2. Error code mapping table (`CoreError` / `CoreInvokeError` →
      foreign enums).
-- [x] 3. Path B choice for a second language — core-only is landed for
+- [x] 3. Native-binding choice for a second language — core-only is landed for
      Swift and Kotlin; the core + async-node option stays open for a later iteration.
 - [x] 4. Golden hello vector — JCS bytes + signature + `peer_id` for a known
      Ed25519 keypair — shared across every language: a single SSOT at

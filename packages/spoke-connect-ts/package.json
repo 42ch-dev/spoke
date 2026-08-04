@@ -36,6 +36,16 @@
         "types": "./dist/node/connect-client.d.cts",
         "default": "./dist/node/connect-client.cjs"
       }
+    },
+    "./noise": {
+      "import": {
+        "types": "./dist/noise/index.d.ts",
+        "default": "./dist/noise/index.js"
+      },
+      "require": {
+        "types": "./dist/noise/index.d.cts",
+        "default": "./dist/noise/index.cjs"
+      }
     }
   },
   "files": [
@@ -46,11 +56,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:dist": "node tests/dist-shape.mjs",
     "build": "tsup",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@42ch/spoke-schemas": "workspace:*",
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
     "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.2.0",
     "canonicalize": "3.0.0",
@@ -59,9 +72,10 @@
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.1",
+    "tsup": "^8.0.0",
     "typescript": "^5.3.0",
-    "vitest": "^3.0.0",
-    "tsup": "^8.0.0"
+    "vitest": "^3.0.0"
   },
   "keywords": [
     "spoke",

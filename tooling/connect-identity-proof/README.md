@@ -2,7 +2,7 @@
 
 Throwaway Node proof that SPOKE connect identity bytes are reproducible in JavaScript.
 
-Local-only proof script: run with `node proof.mjs`; kept outside workspace packages and CI gates by design. Run before a TypeScript connect client slice.
+Run locally with `node proof.mjs` (kept outside workspace packages). The proof also runs in CI as a regression gate — see [CI gate](#ci-gate).
 
 ## What it checks
 
@@ -25,3 +25,7 @@ node tooling/connect-identity-proof/proof.mjs
 ```
 
 Exit `0` on full pass; non-zero on any mismatch.
+
+## CI gate
+
+The `connect-identity` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs the proof on Node 24 for pull requests and pushes to `main`, path-filtered to `tooling/connect-identity-proof/**` and `packages/spoke-connect-ts/**` (plus the workflow file). A non-zero proof exit fails the job and the workflow.

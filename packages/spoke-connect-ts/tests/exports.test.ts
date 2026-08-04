@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 // machine-checks the published-shape contract before any Stage 1 publish.
 import { derivePeerIdFromEd25519Pubkey } from "@42ch/spoke-connect";
 import { connectClient } from "@42ch/spoke-connect/node";
+import {
+  NoiseHandshake,
+  NoiseTransport,
+  NoiseXX,
+} from "@42ch/spoke-connect/noise";
 
 describe("package exports map", () => {
   it("resolves the root subpath by package name and exposes its entry points", () => {
@@ -13,5 +18,11 @@ describe("package exports map", () => {
 
   it("resolves the node subpath by package name and exposes its entry points", () => {
     expect(typeof connectClient).toBe("function");
+  });
+
+  it("resolves the noise subpath by package name and exposes its entry points", () => {
+    expect(typeof NoiseXX).toBe("function");
+    expect(typeof NoiseHandshake).toBe("function");
+    expect(typeof NoiseTransport).toBe("function");
   });
 });

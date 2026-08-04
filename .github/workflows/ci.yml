@@ -97,8 +97,70 @@ jobs:
       - name: Test @42ch/spoke-connect
         run: pnpm run test:connect-ts
 
+      - name: Build @42ch/spoke-connect
+        run: pnpm -F @42ch/spoke-connect build
+
+      - name: Smoke @42ch/spoke-connect published shape (dist)
+        # Published-shape gate: resolves the package exports map against the
+        # built dist/ (ESM + CJS) — not the vitest source aliases. Fails if a
+        # require/import condition or a dist file is dropped.
+        run: pnpm -F @42ch/spoke-connect test:dist
+
       - name: Build @42ch/spoke-operations
         run: pnpm -F @42ch/spoke-operations build
+
+  connect-identity:
+    name: connect-identity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # Full history so the path-filter diff below can compare base vs head.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        # actions/setup-node@v4.4.0 — Node 24 matches the release.yml npm publish surface
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Check identity-related paths changed
+        id: paths
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.event.after }}"
+          fi
+          # First push to a branch has an all-zero `before` sha — diff against
+          # the empty tree so the gate still runs.
+          if [[ "$base" =~ ^0+$ ]]; then
+            base="$(git hash-object -t tree /dev/null)"
+          fi
+          # Fail open on diff errors: if git diff cannot resolve the base/head
+          # shas (e.g. force-push GC'd the old commit), run the proof anyway —
+          # a regression gate that silently skips on its own filter error is
+          # a vacuous pass. The warning makes the fallback visible.
+          if ! changed="$(git diff --name-only "$base" "$head" 2>/dev/null)"; then
+            echo "::warning::git diff failed for $base..$head; running identity proof anyway"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            matches="$(printf '%s\n' "$changed" | grep -Ec '^(tooling/connect-identity-proof/|packages/spoke-connect-ts/|\.github/workflows/ci\.yml)' || true)"
+            if [[ "${matches:-0}" -gt 0 ]]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Run connect identity proof
+        if: steps.paths.outputs.run == 'true'
+        run: node tooling/connect-identity-proof/proof.mjs
 
   rust:
     name: rust

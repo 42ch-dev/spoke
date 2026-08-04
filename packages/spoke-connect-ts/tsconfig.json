@@ -19,6 +19,9 @@
       ],
       "@42ch/spoke-connect/node": [
         "./src/node/connect-client.ts"
+      ],
+      "@42ch/spoke-connect/noise": [
+        "./src/noise/index.ts"
       ]
     }
   },

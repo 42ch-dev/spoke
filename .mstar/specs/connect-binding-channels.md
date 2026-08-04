@@ -83,8 +83,8 @@
 | Product | Library `SpokeConnect`; consumers `.package(url: "https://github.com/42ch-dev/spoke.git", from: "X.Y.Z")` + `.product(name: "SpokeConnect", package: "spoke")` |
 | Targets | `SpokeConnect` — Swift sources at the committed generated path `crates/spoke-connect/bindings/swift/generated/`; `spoke_connectFFI` — local `.binaryTarget` xcframework committed under `crates/spoke-connect/bindings/swift/xcframework/` (module name matches the generated `import spoke_connectFFI`) |
 | Generated policy | `bindings/swift/generated/` flips from gitignored to **committed** (mirroring C#); regenerated when the FFI surface changes |
-| xcframework | Maintainer-built from `staticlib` slices via `xcodebuild -create-xcframework` (tooling script under `tooling/connect/`); macOS arm64 first slice, x86_64 / iOS slices on demand; rebuilt + committed when the FFI surface changes |
-| Smoke | The macOS-local swiftc smoke (`bindings/swift/Smoke/`) stays the golden-parity gate; `swift build` on the root package validates the SPM layout |
+| xcframework | Maintainer-built from `staticlib` slices via `xcodebuild -create-xcframework` (tooling script under `tooling/connect/`); three library slices — `macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator` (arm64 + x86_64 lipo-combined) — covering macOS arm64 hosts, iOS devices, and iOS simulators on both Apple Silicon and Intel hosts; rebuilt + committed when the FFI surface changes |
+| Smoke | The macOS-local swiftc smoke (`bindings/swift/Smoke/`) stays the golden-parity gate; `swift build` on the root package validates the SPM layout; `bindings/swift/IosSmoke/` (maintainer-local SwiftPM package) runs the same golden triad through the simulator slice via `xcodebuild test` |
 | Scale-out | A release-asset `binaryTarget` (URL + checksum) replaces the committed xcframework only when pre-tag artifact + manifest-checksum automation exists — recorded deferral |
 
 ### 3.5 Kotlin — GitHub Packages Maven
@@ -131,7 +131,7 @@ Full technique: [`.mstar/knowledge/architecture-patterns/connect-uniffi-bindgen-
 | Go | Community `uniffi-bindgen-go` | Gate required — upstream's latest tag targets uniffi 0.31 (checked 2026-08-03); the vendored-fork route is the expected path |
 | Kotlin | First-party (crate-local CLI) | No skew possible; gate = generate + Gradle compile + JNA load + golden parity |
 | Python | First-party (crate-local CLI) | No skew possible; gate = generate + import + golden parity |
-| Swift | First-party (crate-local CLI) | Landed (macOS smoke, golden parity) |
+| Swift | First-party (crate-local CLI) | Landed (macOS smoke + iOS Simulator golden parity through the committed xcframework) |
 
 ---
 

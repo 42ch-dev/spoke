@@ -142,12 +142,20 @@ jobs:
           if [[ "$base" =~ ^0+$ ]]; then
             base="$(git hash-object -t tree /dev/null)"
           fi
-          changed="$(git diff --name-only "$base" "$head" 2>/dev/null || true)"
-          matches="$(printf '%s\n' "$changed" | grep -Ec '^(tooling/connect-identity-proof/|packages/spoke-connect-ts/|\.github/workflows/ci\.yml)' || true)"
-          if [[ "${matches:-0}" -gt 0 ]]; then
+          # Fail open on diff errors: if git diff cannot resolve the base/head
+          # shas (e.g. force-push GC'd the old commit), run the proof anyway —
+          # a regression gate that silently skips on its own filter error is
+          # a vacuous pass. The warning makes the fallback visible.
+          if ! changed="$(git diff --name-only "$base" "$head" 2>/dev/null)"; then
+            echo "::warning::git diff failed for $base..$head; running identity proof anyway"
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            matches="$(printf '%s\n' "$changed" | grep -Ec '^(tooling/connect-identity-proof/|packages/spoke-connect-ts/|\.github/workflows/ci\.yml)' || true)"
+            if [[ "${matches:-0}" -gt 0 ]]; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
       - name: Run connect identity proof

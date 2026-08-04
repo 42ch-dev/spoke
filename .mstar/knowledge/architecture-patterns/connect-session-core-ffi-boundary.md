@@ -1,12 +1,12 @@
 ---
 module: spoke-connect
 date: 2026-08-01
-last_updated: 2026-08-02
+last_updated: 2026-08-04
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["extracting a pure session core for cross-language binding", "preparing a Rust crate for a uniffi FFI boundary", "deciding sync vs async surfaces on a foreign-language facade", "landing a first uniffi binding skeleton (Swift, Kotlin, …)", "verifying a community bindgen pipeline against the repo's pinned uniffi version"]
-tags: [spoke-connect, session-core, ffi-boundary, uniffi, swift, path-b, golden-vectors, csharp]
+applies_when: ["extracting a pure session core for cross-language binding", "preparing a Rust crate for a uniffi FFI boundary", "deciding sync vs async surfaces on a foreign-language facade", "landing a first uniffi binding skeleton (Swift, Kotlin, …)", "verifying a community bindgen pipeline against the repo's pinned uniffi version", "auditing TS↔Rust session-core parity surface and the helper boundary"]
+tags: [spoke-connect, session-core, ffi-boundary, uniffi, swift, path-b, golden-vectors, csharp, ts-rust-parity, helper-boundary]
 ---
 
 # connect session-core extraction and FFI facade boundary
@@ -95,12 +95,39 @@ Community uniffi bindgen tools (C#/Go/Python) may lag the repo's pinned uniffi l
 
 An FFI boundary is a compatibility contract: once a foreign language imports the sync core, every subsequent core change is a breaking change for that language. Keeping the core pure keeps the contract small, testable, and byte-stable; keeping it sync means the first binding needs no runtime bridge at all. The landed Swift skeleton validates both claims end-to-end: the same eight-function surface crossed a real FFI boundary with no generated schema types on the wire and no tokio on the foreign side, and its golden-vector checks prove byte parity from a second language. The golden-vector discipline makes byte parity across languages an executable assertion instead of a hope, and the module boundary prevents transport concerns (dial state, identify buffering, stream lifecycle) from leaking into the portable rules.
 
+## Session-core TS↔Rust parity surface (and the helper boundary)
+
+The pure core in `crates/spoke-connect/src/core/` is mirrored by the TS client in `packages/spoke-connect-ts/src/core/`. The two sides implement the same session rules; the parity surface is the contract. Items inside the surface must agree on accept/reject outcomes; items outside the surface are host-runtime conveniences that one side may ship without the other.
+
+**Inside the parity surface (rules — both sides match):**
+
+| Rule | TS surface | Rust surface |
+|------|------------|--------------|
+| `peer_id` derivation + reverse-for-token-verify | `derivePeerIdFromEd25519Pubkey`, `ed25519PubkeyFromPeerId` (128-char decode cap) | `derive_peer_id_from_ed25519_pubkey`, `ed25519_pubkey_from_peer_id` (`MAX_PEER_ID_DECODE_INPUT_LEN = 128`) |
+| Hello JCS sign/verify (`spoke-connect-hello-jcs-v1`) | `signHelloEd25519`, `verifyHelloEd25519` | `sign_hello_ed25519`, `verify_hello_ed25519` |
+| Nonce single-use store | `NonceStore`, `generateNonce` | `NonceStore` |
+| Allowlist | `isAllowlisted` | `is_allowlisted` |
+| Sequence (per-direction, monotonic from 0, no wrap) | `OutboundSequence`, `InboundSequence`, `MAX_SEQUENCE` | `OutboundSequence`, `InboundSequence`, `MAX_SEQUENCE` |
+| Response correlation | `checkResponseCorrelation`, `correlationFromRequest`, `correlationFromResponse` | `check_response_correlation`, `Correlation::from(&request)`, `Correlation::from(&response)` |
+| Capability-token auth (issue + verify, canonical-sig, issuance ergonomics, `CLOCK_SKEW_SECONDS`) | `issueCapabilityToken`, `verifyCapabilityToken` | `issue_capability_token`, `verify_capability_token` |
+| Op dispatch gate + token-grant membership | `dispatchAllowed`, `requiredCapability`, `tokenAuthorizesOp` | `dispatch_allowed`, `required_capability`, `token_authorizes_op` |
+
+**Outside the parity surface (host-runtime conveniences — intentional asymmetry):**
+
+- TS exposes a thin `Session` class, `negotiatedCapabilities` helper, `SessionOptions`, and a `generateNonce` CSPRNG helper under `src/core/` for direct client consumers (browser/Node).
+- Rust keeps the equivalent session state (`PeerSession`), capability intersection, and runtime helpers in the transport layer (`src/session.rs`, `src/runtime.rs`, `src/node.rs`) because the Rust reference stack already owns the libp2p transport that hosts those concerns.
+
+The asymmetry is **intentional**: the parity contract scopes to rules, not thin wrappers. Adding a `Session` class to the Rust core would duplicate state the transport layer already owns; removing it from TS would harm direct-client ergonomics. Document the boundary in the parity spec (`.mstar/specs/spoke-connect-ts-route.md` §Session-core parity) so future language ports know what to mirror (rules) and what to leave host-local (thin session wrappers).
+
+When the core rules change, update both sides in the same release (lockstep SemVer on the `@42ch/spoke-connect` npm and `spoke-connect` crates.io packages). Cross-language golden vectors + round-trip parity tests catch coordinated drift that same-language tests cannot see.
+
 ## When to Apply
 
 - Preparing any Rust crate for a uniffi/bindgen boundary — extract the pure rules first, then freeze a minimal `Send + Sync` facade with private internals.
 - Porting connect session rules to a new language (Path A) — port against the pure core's behavior and golden vectors, not against transport internals.
 - Choosing what a first binding skeleton exposes — start with the sync session rules; leave the async node lifecycle for the slice that solves runtime bridging.
 - Landing a first uniffi skeleton — export with proc-macros (no UDL), gate the surface behind a non-default feature + `cdylib`, keep generated bindings gitignored and scripted, and run a local-language smoke while CI exercises only the Rust surface.
+- Auditing TS↔Rust session-core parity — confirm every rule in the surface table above is mirrored; treat the `Session` / `negotiatedCapabilities` / `generateNonce` helper asymmetry as the documented boundary, not a defect to close.
 
 ## Examples
 

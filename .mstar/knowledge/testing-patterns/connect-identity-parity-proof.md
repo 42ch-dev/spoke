@@ -1,6 +1,7 @@
 ---
 module: spoke-connect
 date: 2026-08-01
+last_updated: 2026-08-04
 problem_type: testing_pattern
 category: testing-patterns
 severity: high
@@ -29,12 +30,13 @@ Define one fixed input and one set of committed outputs; every language implemen
 
 Capture vectors **before** refactoring — from the working implementation (e.g. rust-libp2p `PeerId::to_string()` / `Keypair::sign` over `serde_jcs`) — then assert against the committed constants; never assert against values the code under test computes itself.
 
-### Throwaway proof script pattern
+### Standalone proof script pattern
 
-For a one-off cross-language parity question, use a small standalone script rather than a workspace package or CI gate:
+The parity check lives in one zero-dependency standalone script that runs locally and in CI:
 
 - `tooling/connect-identity-proof/proof.mjs` — zero npm dependencies; WebCrypto `Ed25519` (`subtle.sign` / `subtle.verify`); pure-JS JCS subset and base58btc; run locally with `node tooling/connect-identity-proof/proof.mjs`; exit 0 on full pass.
-- Not a workspace package, not published, not CI-gated — it proves a hypothesis (identity reproducible in JavaScript) and stays off the build and release surfaces.
+- Not a workspace package, not published; zero-dep and local-fixture (no npm install, no network).
+- **CI-gated:** the `connect-identity` job in `.github/workflows/ci.yml` runs the proof on Node 24 (SHA-pinned `actions/setup-node`) and fails the workflow on non-zero exit. The job is path-filtered to `tooling/connect-identity-proof/**`, `packages/spoke-connect-ts/**`, and the workflow file; if the git-diff path filter itself errors, the job fails open and runs the proof anyway (the proof is cheap and zero-dep).
 - Re-run it before a TypeScript connect client slice; the same vectors are the regression check for any future pure-TS or uniffi implementation.
 
 ### Gotchas (the non-obvious parts that break byte parity)
@@ -82,6 +84,6 @@ pubkey (32 bytes)
 
 ## See also
 
-- [`spoke-connect-ts-route.md`](../../specs/spoke-connect-ts-route.md) — the decision record whose evidence this proof produced (pure-TS-minimal route locked; proof deliberately not CI-gated).
+- [`spoke-connect-ts-route.md`](../../specs/spoke-connect-ts-route.md) — the decision record whose evidence this proof produced (pure-TS-minimal route locked; the proof runs as a CI regression gate via the `connect-identity` job).
 - [`spoke-connect-wire-and-auth.md`](../architecture-patterns/spoke-connect-wire-and-auth.md) — the wire family and identity-binding model.
 - [`connect-session-core-ffi-boundary.md`](../architecture-patterns/connect-session-core-ffi-boundary.md) — the pure-core extraction that hosts the Rust golden vectors.

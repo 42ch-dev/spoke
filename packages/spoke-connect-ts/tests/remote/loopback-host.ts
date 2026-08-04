@@ -86,6 +86,13 @@ export interface LoopbackHostOptions {
   opCapabilityRequirements?: Record<string, string>;
   /** Optional per-request response delay (ms) — out-of-order fixtures. */
   delay?: (request: ConnectInvokeRequest) => number;
+  /**
+   * Test-only: when non-undefined for a request, the returned envelope is
+   * sent verbatim instead of the host's real response (deterministic
+   * malformed-response fixtures, e.g. corrupted echo fields or a garbage
+   * success payload).
+   */
+  responseOverride?: (request: ConnectInvokeRequest) => unknown;
 }
 
 export interface LoopbackHostStats {
@@ -226,6 +233,16 @@ export async function startLoopbackHost(
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     if (closed) {
+      return;
+    }
+
+    // Test-only response override: replace the envelope the host would send
+    // (malformed-response fixtures). The request already passed the gates, so
+    // the client has a pending waiter to exercise against.
+    const override = options.responseOverride?.(doc);
+    if (override !== undefined) {
+      stats.responseOrder.push(doc.sequence);
+      sendEnvelope(override);
       return;
     }
 

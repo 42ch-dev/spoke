@@ -23,6 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import type {
   CheckRequest,
+  ConnectInvokeRequest,
   HostCapabilityManifest,
   KnowledgeEntry,
   UpsertRequest,
@@ -42,6 +43,8 @@ import {
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { issueCapabilityToken } from "../../src/core/capability-token.js";
+import { MAX_SEQUENCE } from "../../src/core/sequence.js";
+import type { Session } from "../../src/core/session.js";
 import { schemaConformantManifest } from "../../src/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import { startLoopbackHost, type LoopbackHost } from "./loopback-host.js";
@@ -81,6 +84,8 @@ async function dial(
     invokeTimeoutMs?: number;
     hostDelay?: (request: { sequence: number }) => number;
     hostAllowlist?: readonly string[];
+    /** Replace the host's response envelope for a request (malformed fixtures). */
+    hostResponseOverride?: (request: ConnectInvokeRequest) => unknown;
     /** Issue a real capability token and attach it as `auth` on invokes. */
     attachToken?: boolean;
   } = {},
@@ -106,6 +111,7 @@ async function dial(
     allowlist: options.hostAllowlist ?? [peerIdClient],
     adapter: hostAdapter,
     delay: options.hostDelay,
+    responseOverride: options.hostResponseOverride,
   });
   const capabilityToken =
     options.attachToken === true
@@ -440,6 +446,118 @@ describe("RemoteAdapter loopback interop", () => {
         ).rejects.toThrow();
       } finally {
         host?.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects a malformed success payload with INTERNAL_ERROR kind transport (Rust §8.2 parity)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // The host answers with a success envelope whose payload is not a
+      // KnowledgeEntry shape (missing all required fields) — the Rust
+      // adapter's `serde_json::from_value::<T>` rejects this; the TS side
+      // must not surface `spokeOk(garbage)`.
+      const { client, host } = await dial(hostAdapter, {
+        hostResponseOverride: (request) => ({
+          session_id: request.session_id,
+          sequence: request.sequence,
+          request_id: request.request_id,
+          payload: { garbage: true },
+          extensions: {},
+        }),
+      });
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("payload decode failed"),
+          details: { kind: "transport" },
+        });
+        // A malformed payload fails only this waiter — the session stays
+        // usable (parity with the Rust invoke_mapped path).
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "maps a correlation mismatch to INTERNAL_ERROR kind correlation_mismatch without closing the session",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      let mangled = true;
+      const { client, host } = await dial(hostAdapter, {
+        // Same request_id (so the demux still finds the pending waiter) but
+        // a wrong sequence echo — a correlation failure (§6 echo rules).
+        hostResponseOverride: (request) => {
+          if (!mangled) {
+            return undefined;
+          }
+          mangled = false;
+          return {
+            session_id: request.session_id,
+            sequence: request.sequence + 1,
+            request_id: request.request_id,
+            payload: {},
+            extensions: {},
+          };
+        },
+      });
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: "response echo fields do not match the request",
+          details: { kind: "correlation_mismatch" },
+        });
+        // Mismatch fails only the waiter — the session stays usable.
+        expect(client.state).toBe("Established");
+        const retry = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(retry.ok).toBe(true);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "maps outbound sequence exhaustion to INTERNAL_ERROR kind sequence_exhausted and closes the session",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter);
+      try {
+        // Position the adapter's outbound counter past the JSON-safe wire
+        // maximum so the next allocate fails deterministically — 2⁵³ real
+        // invokes are not an option (test-only `setNext`, the documented
+        // transport-test hook; mirrors the Rust `set_next` unit test).
+        const session = (client as unknown as { session: Session | null })
+          .session;
+        expect(session).not.toBeNull();
+        (
+          session as unknown as { outbound: { setNext: (value: number) => void } }
+        ).outbound.setNext(MAX_SEQUENCE + 1);
+
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("sequence"),
+          details: { kind: "sequence_exhausted" },
+        });
+        // Exhaustion makes the session unusable (no wrap-around) — Closed.
+        expect(client.state).toBe("Closed");
+      } finally {
+        client.close();
+        host.close();
       }
     },
     15000,

@@ -60,6 +60,7 @@ import {
   isConnectInvokeResponse,
   isConnectSession,
 } from "./guards.js";
+import { isValidSuccessPayload } from "./payload.js";
 import type { EnvelopeBytes, Transport } from "./transport.js";
 
 const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
@@ -531,6 +532,15 @@ export class RemoteAdapter implements BaselinePorts {
       const response = await this.invokeOp(op, payload);
       if ("error" in response) {
         return mapErrorEnvelope(response.error);
+      }
+      // Success-payload shape gate (Rust parity, contract §8.2): a malformed
+      // payload must reject with `INTERNAL_ERROR` `details.kind = "transport"`
+      // instead of surfacing `spokeOk(garbage)`.
+      if (!isValidSuccessPayload(op, response.payload)) {
+        return internalError(
+          "transport",
+          `response payload decode failed: payload does not match the ${op} success shape`,
+        );
       }
       return spokeOk(response.payload as unknown as T);
     } catch (error) {

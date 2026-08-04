@@ -151,6 +151,10 @@ struct HostInner {
     adapter: Arc<ToyWorldAdapter>,
     requirements: HashMap<String, String>,
     delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
+    /// Test-only: when a request maps to `Some(envelope)`, that envelope is
+    /// sent verbatim instead of the host's real response (malformed-response
+    /// fixtures, e.g. corrupted echo fields).
+    response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
     session: Mutex<Option<HostSession>>,
     nonce_store: Mutex<NonceStore>,
     stats: Mutex<LoopbackHostStats>,
@@ -285,6 +289,21 @@ impl HostInner {
         }
         if self.closed.load(Ordering::SeqCst) {
             return;
+        }
+
+        // Test-only response override: replace the envelope the host would
+        // send (malformed-response fixtures). The request already passed the
+        // gates, so the client has a pending waiter to exercise against.
+        if let Some(override_fn) = self.response_override.as_ref() {
+            if let Some(envelope) = override_fn(&request) {
+                self.stats
+                    .lock()
+                    .expect("stats lock")
+                    .response_order
+                    .push(request.sequence);
+                self.send_envelope(&envelope).await;
+                return;
+            }
         }
 
         // 3. Dispatch to the local adapter.
@@ -586,6 +605,7 @@ struct LoopbackHostOptions {
     allowlist: Vec<String>,
     adapter: Arc<ToyWorldAdapter>,
     delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
+    response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
 }
 
 async fn start_loopback_host(options: LoopbackHostOptions) -> LoopbackHost {
@@ -604,6 +624,7 @@ async fn start_loopback_host(options: LoopbackHostOptions) -> LoopbackHost {
             .map(|(op, requirement)| ((*op).to_string(), (*requirement).to_string()))
             .collect(),
         delay: options.delay,
+        response_override: options.response_override,
         session: Mutex::new(None),
         nonce_store: Mutex::new(NonceStore::new()),
         stats: Mutex::new(LoopbackHostStats::default()),
@@ -633,6 +654,8 @@ struct DialOptions {
     invoke_timeout_ms: Option<u64>,
     host_delay: Option<HostDelay>,
     host_allowlist: Option<Vec<String>>,
+    host_response_override:
+        Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
     capability_token: Option<CapabilityTokenProof>,
 }
 
@@ -674,6 +697,7 @@ async fn dial(
             .unwrap_or_else(|| vec![peer_id_client.clone()]),
         adapter: Arc::new(host_adapter),
         delay: options.host_delay.unwrap_or_else(|| Box::new(|_| 0)),
+        response_override: options.host_response_override,
     })
     .await;
     let client = connect_remote_adapter(RemoteAdapterOptions {
@@ -1007,6 +1031,7 @@ async fn fails_dial_fail_closed_when_remote_peer_is_not_on_allowlist() {
         allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
+        response_override: None,
     })
     .await;
 
@@ -1046,6 +1071,7 @@ async fn fails_dial_when_host_rejects_client_hello() {
         allowlist: vec![other_peer_id], // the real client is NOT allowed
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
+        response_override: None,
     })
     .await;
 
@@ -1071,5 +1097,48 @@ async fn fails_dial_when_host_rejects_client_hello() {
         matches!(error, RemoteAdapterError::Handshake(_)),
         "unexpected dial error: {error:?}"
     );
+    host.close();
+}
+
+#[tokio::test]
+async fn maps_correlation_mismatch_to_internal_error_kind_correlation_mismatch() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let mangled = Arc::new(AtomicBool::new(true));
+    let mangled_clone = Arc::clone(&mangled);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // Same request_id (so the demux still finds the pending waiter)
+            // but a wrong sequence echo — a correlation failure (§6 echo
+            // rules). Fires once; the retry below uses the real response.
+            host_response_override: Some(Box::new(move |request| {
+                if !mangled_clone.swap(false, Ordering::SeqCst) {
+                    return None;
+                }
+                Some(json!({
+                    "session_id": request.session_id,
+                    "sequence": request.sequence + 1,
+                    "request_id": request.request_id,
+                    "payload": {},
+                    "extensions": {},
+                }))
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(result.is_reject());
+    assert_eq!(
+        reject_kind(&result).as_deref(),
+        Some("correlation_mismatch")
+    );
+    // Mismatch fails only the waiter — the session stays usable.
+    assert_eq!(client.state().as_str(), "Established");
+    let retry = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(retry.is_ok());
+
+    client.close();
     host.close();
 }

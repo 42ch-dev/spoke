@@ -898,3 +898,68 @@ where
         ))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::MAX_SEQUENCE;
+    use crate::remote::transport::loopback_transport_pair;
+
+    /// Outbound sequence exhaustion: the next `allocate` fails, the session
+    /// is closed (no wrap-around), and the port call settles to
+    /// `INTERNAL_ERROR` `details.kind = "sequence_exhausted"` (contract
+    /// §8.2 / §6 "Sequence overflow").
+    ///
+    /// This sits in the adapter module (not `tests/remote_loopback.rs`)
+    /// because the private counter is only reachable through the test-only
+    /// `OutboundSequence::set_next` (`#[cfg(test)] pub(crate)`), which
+    /// integration tests cannot see; the TS twin (`setNext`) covers the same
+    /// path in the loopback suite.
+    #[tokio::test]
+    async fn sequence_exhaustion_maps_to_internal_error_and_closes_session() {
+        let pair = loopback_transport_pair();
+        let adapter = Arc::new(RemoteAdapter::new(
+            Arc::new(pair.client),
+            Duration::from_millis(DEFAULT_INVOKE_TIMEOUT_MS),
+            None,
+        ));
+        adapter.begin_handshake();
+        let mut sequence = OutboundSequence::new();
+        sequence.set_next(MAX_SEQUENCE + 1);
+        let manifest: HostCapabilityManifest = serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": "test-host",
+            "roles": ["data-store"],
+            "capabilities": ["spoke-baseline"],
+            "namespaces": ["toy_world"],
+            "extensions": {},
+        }))
+        .expect("valid manifest");
+        adapter.establish(
+            EstablishedSession {
+                session_id: "test-session-exhausted".into(),
+                responder_peer_id: "test-remote-peer".into(),
+                sequence: Mutex::new(sequence),
+            },
+            manifest,
+        );
+
+        let result = adapter.get_knowledge_entry("kb_tw_mira").await;
+        match result {
+            SpokeResult::Ok(_) => panic!("exhausted sequence must reject"),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InternalError);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("kind"))
+                        .and_then(|kind| kind.as_str()),
+                    Some("sequence_exhausted")
+                );
+            }
+        }
+        // Exhaustion makes the session unusable (no wrap-around) — Closed.
+        assert_eq!(adapter.state(), RemoteAdapterState::Closed);
+    }
+}

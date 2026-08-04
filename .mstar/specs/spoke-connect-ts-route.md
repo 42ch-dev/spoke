@@ -57,7 +57,7 @@ Scoring is High / Med / Low fitness for SPOKE Path A browser+Node clients that m
 
 1. **P0 contract is language-neutral.** Connect envelopes ride an ordered reliable stream; libp2p is one reference binding, not the wire definition ([spoke-connect.md](spoke-connect.md) §Embedding model, §Transport framing).
 2. **Identity is reproducible in JS.** The throwaway proof matches Rust golden vectors for `peer_id`, JCS bytes, Ed25519 signature, and base64url encoding — so pure-TS is not blocked on crypto or PeerId math.
-3. **Lowest coupling and dependency weight** for a future private TS helper that products may embed; matches the repo pattern of thin `@42ch/*` packages without introducing a swarm runtime into the protocol tree.
+3. **Lowest coupling and dependency weight** for a thin `@42ch/*` helper that products embed; matches the repo pattern of thin `@42ch/*` packages without introducing a swarm runtime into the protocol tree.
 4. **Fallback is explicit.** Products that need Noise mesh interop with `crates/spoke-connect` choose js-libp2p without changing wire schemas. WASM stays a contingency, not the first cut.
 
 **Overturn check:** C2 allowed overturning pure-TS-minimal only if identity-byte parity or framing reliability failed. T2 **passed**; no overturn.
@@ -115,16 +115,27 @@ RESULT: ALL CHECKS PASSED
 
 ## TypeScript connect first-slice scope
 
-**Shipped slice:** `packages/spoke-connect-ts` — a workspace-private, product-facing TS helper, not a published connect daemon. Items 1–5 below are implemented; item 6 lists the later scope.
+**Shipped slice:** `packages/spoke-connect-ts` — a product-facing TS client published on npm as `@42ch/spoke-connect` (a client library, not a daemon). Items 1–5 below are implemented; item 6 lists the later scope.
 
 **Session-core parity:** the TS session core (`packages/spoke-connect-ts/src/core/`, plus `src/identity.ts` for `peer_id`) maintains capability parity with the Rust reference (`crates/spoke-connect/src/core/`) across allowlist, `peer_id` (derive and reverse), hello crypto, nonce, correlation, sequence, capability-token auth, and the dispatch gate / product-op capability map (including `tokenAuthorizesOp`), proven by shared golden vectors and round-trip parity tests. Transport (WebSocket for TS, libp2p for Rust) is adapter-owned and outside the parity surface.
+
+**Parity surface (shared rules — both implementations):**
+
+| Rule | Behavior |
+|------|----------|
+| **`peer_id` reverse length cap** | `ed25519PubkeyFromPeerId` / `ed25519_pubkey_from_peer_id` rejects inputs longer than **128** characters before base58 decode (DoS ceiling; valid Ed25519 peer ids are ≤52 chars). |
+| **Canonical base64url signatures** | The capability-token verify path accepts only the **canonical** base64url-without-padding encoding: after decode, re-encode must equal the wire `sig` string. Non-canonical slack-bit encodings of the same 64 raw bytes are rejected. |
+| **Capability-token issuance ergonomics** | `issueCapabilityToken` / `issue_capability_token` fail-fast before signing when claims cannot verify: non-empty `capabilities`; `exp > now + CLOCK_SKEW_SECONDS`; when `iat` is present, `iat <= now + CLOCK_SKEW_SECONDS`. Both take `now` as Unix seconds (TS may default to wall clock; Rust pure core requires an explicit `now: u64`). Derived-issuer binding (`claims.iss` must match the signing key) remains required on both sides. |
+| **Verify-time token rules** | Unchanged shared contract: token version, signature over JCS(`claims`), trusted-issuer membership, `sub`/`aud` binding, `now >= exp` reject, `iat` skew window, non-empty `jti` when present. |
+
+**Helper boundary (intentional asymmetry):** thin client conveniences — TS `Session`, `negotiatedCapabilities`, `generateNonce`, and correlation helpers under `src/core/` — are **outside** session-core parity. Rust keeps the equivalent session state in the transport layer (`session` / `runtime` / `node`). Parity covers the **rules** listed above and in the AGENTS.md session-core paragraph; it does not require identical wrapper APIs.
 
 1. **Package shape (suggested):** private workspace or consumer-owned module — pure helpers (`derivePeerId`, `ed25519PubkeyFromPeerId`, `canonicalHelloBytes` / JCS, `signHello` / `verifyHello`, `issueCapabilityToken` / `verifyCapabilityToken`, base64url). No swarm, no mDNS/DHT.
 2. **Transport adapter:** WebSocket client that sends/receives one JSON document per message; map to hello → session establish → invoke request/response correlation via existing wire fields only.
 3. **Session-core port (minimal):** protocol version check, allowlist on `peer_id`, nonce single-use, per-direction sequence, `request_id` correlation, dispatch gate — mirror [spoke-connect.md](spoke-connect.md) session-core rules; keep I/O at the adapter boundary.
 4. **Crypto matrix:** WebCrypto Ed25519 primary; `@noble/ed25519` fallback for older runtimes; keep the identity proof (or promote its vectors) as a regression check.
 5. **Interop target:** envelope-level parity with Rust peers over WS (or a test double stream). Noise/js-libp2p mesh is an optional second track, not a blocker for slice 1.
-6. **Later scope (after the shipped slice):** published npm connect package, CI-enforced identity gate (optional), DHT discovery, full Noise stack in pure TS.
+6. **Later scope:** CI-enforced identity gate (optional), DHT discovery, full Noise stack in pure TS.
 
 ---
 

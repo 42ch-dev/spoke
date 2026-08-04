@@ -13,15 +13,15 @@ tags: [spoke-connect, connect-ts, path-a, pure-ts, websocket-framing, jcs, webcr
 
 ## Context
 
-The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript was proven first by the throwaway proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the landed first slice: a workspace-private client library whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
+The TypeScript connectivity route (`.mstar/specs/spoke-connect-ts-route.md`) locks **pure-TS-minimal** as the primary Path A client stack: WebSocket as an ordered reliable stream carrying one JSON connect envelope per message, WebCrypto Ed25519 with an `@noble/ed25519` fallback, RFC 8785 JCS canonicalization, and a small behavior port of the Rust session core — no js-libp2p mesh, no WASM. Identity-byte reproducibility in JavaScript was proven first by the throwaway proof (`tooling/connect-identity-proof/proof.mjs`), and `packages/spoke-connect-ts` (`@42ch/spoke-connect`) is the landed first slice: a pure-TS client library published on npm whose `src/core/` mirrors the pure Rust core accept/reject outcomes without sharing code.
 
 ## Guidance
 
-### Package layout (workspace-private, lockstep)
+### Package layout (published, lockstep)
 
 | Decision | Rule |
 |---|---|
-| Visibility | `"private": true` — ships inside the monorepo; not published (future publish is governed by the connect publish strategy) |
+| Visibility | Published on npm as `@42ch/spoke-connect` (publish governed by the connect publish strategy); versioned in lockstep with the monorepo |
 | Version | Tracks the monorepo lockstep SemVer — asserted by `verify:version`, bumped by `release:bump` |
 | Engine floor | `node >= 20.19.0` (see Node floor rationale below) |
 | Module style | ESM (`"type": "module"`); monorepo-internal imports resolve TypeScript sources under `NodeNext` |

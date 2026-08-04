@@ -52,7 +52,7 @@ Keys cross the boundary as raw bytes (`&[u8; 32]`), peer ids as strings, payload
 
 ### Landed Swift skeleton: uniffi proc-macro, JSON-string boundary
 
-The first binding (Swift, macOS) ships behind the non-default `ffi` feature via **uniffi 0.32 proc-macros — no `.udl` file**: `#[uniffi::export]` on free functions and object impl blocks, `#[derive(uniffi::Object)]` + `#[uniffi::constructor]` for stateful objects, `#[derive(uniffi::Error)]` for the error enums. The `bindgen-cli` feature (`uniffi/cli`) builds a crate-local `uniffi-bindgen` binary; generation runs `generate --library <cdylib>` against the `ffi`-built `cdylib` (`crate-type = ["rlib", "cdylib"]`, `publish = false`), so the uniffi 0.32 line needs no installable CLI crate.
+The first binding (Swift, macOS) ships behind the non-default `ffi` feature via **uniffi 0.32 proc-macros — no `.udl` file**: `#[uniffi::export]` on free functions and object impl blocks, `#[derive(uniffi::Object)]` + `#[uniffi::constructor]` for stateful objects, `#[derive(uniffi::Error)]` for the error enums. The `bindgen-cli` feature (`uniffi/cli`) builds a crate-local `uniffi-bindgen` binary; generation runs `generate --library <cdylib>` against the `ffi`-built `cdylib` (`crate-type = ["rlib", "cdylib"]`), so the uniffi 0.32 line needs no installable CLI crate.
 
 Boundary conventions the wrapper encodes:
 
@@ -66,15 +66,15 @@ Boundary conventions the wrapper encodes:
 
 ### Target-language matrix
 
-Order binding targets by uniffi maturity and product value; record the decision in the crate README so the next slice starts from a settled surface. Priority per product direction (2026-08-02): **C#, Go, Python, Swift, Kotlin** — Swift remains the first **landed** skeleton; the order governs future binding work.
+The matrix records the landing order (priority per product direction, 2026-08-02: C#, Go, Python, Swift, Kotlin). All five targets are landed; each package ships on its own channel under the lockstep tag gate — see [`connect-publish-strategy.md`](../../specs/connect-publish-strategy.md) §7 for the current channel matrix.
 
 | Language | Embedding path | Priority |
 |---|---|---|
-| C# | Path B uniffi | **First target — landed** — desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (see binding-pipeline verification below) |
-| Go | Path B uniffi | Second — server/CLI hosts; community `uniffi-bindgen-go` |
-| Python | Path B uniffi | Third — async FFI / asyncio is historically finicky; core-only first |
-| Swift (iOS / macOS) | Path B uniffi | Fourth — **landed skeleton** (sync-core, core-only, macOS smoke) |
-| Kotlin (Android) | Path B uniffi | Fifth — same uniffi pipeline as Swift |
+| C# | Path B uniffi | **First — landed** — desktop/server hosts; generated binding + net8.0 golden-parity smoke via a vendored `uniffi-bindgen-cs` fork retargeted to uniffi 0.32 (see binding-pipeline verification below); NuGet `42ch.Spoke.Connect` on GitHub Packages |
+| Go | Path B uniffi | Second — **landed** — Go modules under `crates/spoke-connect/bindings/go` (golden-parity smoke) |
+| Python | Path B uniffi | Third — **landed** — PyPI `spoke-connect` platform wheels via Trusted Publishing OIDC (golden-parity smoke) |
+| Swift (iOS / macOS) | Path B uniffi | Fourth — **landed** — SPM product `SpokeConnect` from the repo at `vX.Y.Z` tags |
+| Kotlin (Android) | Path B uniffi | Fifth — **landed** — GitHub Packages Maven `dev.42ch:spoke-connect` via `publish-maven` |
 | TypeScript (browser / Node) | **Path A** language-direct | Parallel track — no uniffi/WASM assumed; decided by the TS route |
 
 ### Binding pipeline verification (community bindgens lag uniffi)
@@ -98,7 +98,7 @@ An FFI boundary is a compatibility contract: once a foreign language imports the
 ## When to Apply
 
 - Preparing any Rust crate for a uniffi/bindgen boundary — extract the pure rules first, then freeze a minimal `Send + Sync` facade with private internals.
-- Porting connect session rules to a new language (Path A) — port against the pure core's behavior and golden vectors, not against spike internals.
+- Porting connect session rules to a new language (Path A) — port against the pure core's behavior and golden vectors, not against transport internals.
 - Choosing what a first binding skeleton exposes — start with the sync session rules; leave the async node lifecycle for the slice that solves runtime bridging.
 - Landing a first uniffi skeleton — export with proc-macros (no UDL), gate the surface behind a non-default feature + `cdylib`, keep generated bindings gitignored and scripted, and run a local-language smoke while CI exercises only the Rust surface.
 

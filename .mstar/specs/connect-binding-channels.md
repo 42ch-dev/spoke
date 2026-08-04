@@ -69,10 +69,10 @@
 | Field | Value |
 |-------|-------|
 | Project dir | `crates/spoke-connect/bindings/python/` — `pyproject.toml` + import package `spoke_connect/` (generated module committed) + `Smoke/` |
-| PyPI name | **`spoke-connect`** — registered Pending publisher for repository `42ch-dev/spoke` + workflow `release.yml` |
+| PyPI name | **`spoke-connect`** — Trusted Publishing publisher registered for repository `42ch-dev/spoke` + workflow `release.yml` |
 | Wheel shape | One platform wheel per ffi-matrix RID, PEP 425 tags `manylinux_2_35_x86_64` (linux-x64), `macosx_11_0_arm64` (osx-arm64), `win_amd64` (win-x64), each tagged `py3-none-<platform>`; each wheel bundles exactly its RID's shared library beside the generated module (the uniffi Python loader resolves the cdylib relative to the module file). The manylinux tag matches the CI build image glibc floor (`ubuntu-22.04` → `manylinux_2_35_x86_64`) |
 | sdist | Not published in v1 (a source install cannot produce the native library without a Rust toolchain) — recorded deferral |
-| CI job | `publish-pypi` on `release.yml` — sibling to `publish-nuget`, `needs: build-connect-ffi`, same non-`-rc.` tag gate; `pypa/gh-action-pypi-publish` with OIDC Trusted Publishing (no long-lived `PYPI_TOKEN`); if the Pending publisher registered an environment, the job declares the same `environment:` |
+| CI job | `publish-pypi` on `release.yml` — sibling to `publish-nuget`, `needs: build-connect-ffi`, same non-`-rc.` tag gate; `pypa/gh-action-pypi-publish` with OIDC Trusted Publishing (no long-lived `PYPI_TOKEN`); if the publisher registered an environment, the job declares the same `environment:` |
 | Generator | First-party `--language python` from the crate-local CLI (uniffi 0.32) — no community skew |
 
 ### 3.4 Swift — Swift Package Manager over git

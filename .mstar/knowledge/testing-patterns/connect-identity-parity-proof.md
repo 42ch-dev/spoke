@@ -12,7 +12,7 @@ tags: [spoke-connect, identity-parity, golden-vectors, peer-id, jcs, ed25519, cr
 
 ## Context
 
-Connect identity bytes must be **byte-identical** across every language target: the Rust spike signs hellos and derives `peer_id`s, the TypeScript route must reproduce the same bytes in browser and Node, and future uniffi targets (Swift, Kotlin, …) re-expose the Rust core. The hello signature scheme (`spoke-connect-hello-jcs-v1`) uses RFC 8785 JCS precisely so that one deterministic byte sequence — canonical JSON → UTF-8 bytes → Ed25519 sign → base64url — is portable. Parity is not a nice-to-have: a single-byte divergence in the canonical bytes breaks signature verification between peers implemented in different languages.
+Connect identity bytes must be **byte-identical** across every language target: the Rust reference signs hellos and derives `peer_id`s, the TypeScript route must reproduce the same bytes in browser and Node, and the native bindings (Swift, Kotlin, C#, Go, Python) re-expose the Rust core. The hello signature scheme (`spoke-connect-hello-jcs-v1`) uses RFC 8785 JCS precisely so that one deterministic byte sequence — canonical JSON → UTF-8 bytes → Ed25519 sign → base64url — is portable. Parity is not a nice-to-have: a single-byte divergence in the canonical bytes breaks signature verification between peers implemented in different languages.
 
 ## Guidance
 
@@ -49,7 +49,7 @@ For a one-off cross-language parity question, use a small standalone script rath
 
 ## Why This Matters
 
-Every connect implementation — Rust spike, pure-TS client, future uniffi bindings, future Go host — must agree byte-for-byte on `peer_id`, canonical hello bytes, and signatures. Golden vectors turn that requirement into an executable check per language; the proof-script pattern keeps the check cheap enough to run before any port. The gotchas above are exactly where naive ports diverge: hashing instead of identity multihash, raw keys instead of protobuf, `null` instead of omission, padded base64url.
+Every connect implementation — Rust reference, pure-TS client, native bindings — must agree byte-for-byte on `peer_id`, canonical hello bytes, and signatures. Golden vectors turn that requirement into an executable check per language; the proof-script pattern keeps the check cheap enough to run before any port. The gotchas above are exactly where naive ports diverge: hashing instead of identity multihash, raw keys instead of protobuf, `null` instead of omission, padded base64url.
 
 ## When to Apply
 

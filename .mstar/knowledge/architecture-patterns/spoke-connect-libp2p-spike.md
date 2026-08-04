@@ -13,7 +13,7 @@ tags: [spoke-connect, libp2p, rust, noise, identify, allowlist, pending-dial, md
 
 ## Context
 
-The `crates/spoke-connect` reference spike (workspace-private, `publish = false`) implements the `spoke-connect` wire family over rust-libp2p to prove two independent client processes can discover/connect, authenticate, exchange `HostCapabilityManifest`s, and invoke each other's ops in order. rust-libp2p was a first-time dependency for this repo; the spike surfaced several non-obvious integration patterns and two latent reliability root causes during QC.
+The `crates/spoke-connect` crate (published on crates.io) implements the `spoke-connect` wire family over rust-libp2p to prove two independent client processes can discover/connect, authenticate, exchange `HostCapabilityManifest`s, and invoke each other's ops in order. rust-libp2p was a first-time dependency for this repo; the spike surfaced several non-obvious integration patterns and two latent reliability root causes during QC.
 
 ## Guidance
 

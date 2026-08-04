@@ -189,12 +189,15 @@ pub fn verify_capability_token(
     let raw = URL_SAFE_NO_PAD
         .decode(proof.sig.as_str())
         .map_err(|_| CoreError::TokenInvalid("signature is not valid base64url".into()))?;
-    // The spec mandates base64url **without padding**. `URL_SAFE_NO_PAD`
-    // accepts alternate encodings of the final character's slack bits (the
-    // 4 high bits of a 6-bit group with only 2 data bits); a canonical
-    // round-trip (`encode(decode(sig)) == sig`) admits exactly the one
-    // encoding RFC 4648 defines, so `sig` stays a canonical identifier
-    // (parity with TS `base64UrlEncode(decode(sig)) === sig`).
+    // Canonical base64url (RFC 4648) round-trip check. The signature MUST
+    // be the unique canonical encoding of its 64 raw bytes: decode followed
+    // by re-encode must reproduce the original string exactly. The check is
+    // a TS↔Rust parity invariant (TS uses an atob-based decoder that is
+    // slack-lenient, so the round-trip is load-bearing there; Rust's
+    // `URL_SAFE_NO_PAD` strict config already rejects non-zero slack bits
+    // at decode, so the check is defense-in-depth on the Rust side — it
+    // preserves source-level parity with TS and protects against future
+    // decoder relaxation).
     if URL_SAFE_NO_PAD.encode(&raw) != proof.sig {
         return Err(CoreError::TokenInvalid(
             "signature is not canonical base64url (no padding)".into(),

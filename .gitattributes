@@ -1,0 +1,13 @@
+# Git LFS — large committed native binaries.
+#
+# The Swift xcframework static libraries are maintainer-built, committed
+# artifacts (refreshed when the uniffi FFI surface changes), tracked via LFS
+# so the repository does not accumulate ~120 MB of staticlib churn on every
+# refresh. SPM consumers resolve the xcframework from git; git-lfs is bundled
+# with Xcode (CLI `swift build` users run `git lfs install` once).
+#
+# Other Path B natives (Go `native/`, Kotlin `native/`, Python `spoke_connect/`)
+# stay as plain git blobs: Go modules resolve through the module proxy (no LFS
+# smudge), and the Kotlin/Python dylibs are small build inputs for the
+# Maven/PyPI artifacts.
+crates/spoke-connect/bindings/swift/xcframework/**/*.a filter=lfs diff=lfs merge=lfs -text

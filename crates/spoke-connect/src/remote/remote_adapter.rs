@@ -208,26 +208,6 @@ fn map_error_envelope(error: &WireErrorEnvelope) -> SpokeReject {
     from_error_envelope(&data_error)
 }
 
-/// Negotiated capabilities = intersection of both hosts' manifests
-/// (normative rule, `spoke-connect.md` §Negotiation), deterministic in local
-/// manifest order — same rule as `crate::node`.
-fn negotiated_capabilities(
-    local: &HostCapabilityManifest,
-    remote: &HostCapabilityManifest,
-) -> Vec<String> {
-    local
-        .capabilities
-        .iter()
-        .filter(|cap| {
-            remote
-                .capabilities
-                .iter()
-                .any(|remote_cap| remote_cap == *cap)
-        })
-        .cloned()
-        .collect()
-}
-
 /// Convert the ops/data `HostCapabilityManifest` to the field-identical
 /// hello wire type (codegen-inline shapes; lossless).
 fn connect_manifest(manifest: &HostCapabilityManifest) -> ConnectHostCapabilityManifest {
@@ -236,18 +216,12 @@ fn connect_manifest(manifest: &HostCapabilityManifest) -> ConnectHostCapabilityM
 }
 
 /// Established-session state, per peer (frozen contract §4: `peer_id`,
-/// `session_id`, outbound sequence, negotiated capabilities — adapter-local,
-/// never a process-global singleton).
+/// `session_id`, outbound sequence — adapter-local, never a process-global
+/// singleton).
 struct EstablishedSession {
     session_id: String,
     /// The verified remote peer id (the peer the session is bound to).
     responder_peer_id: String,
-    /// The negotiated capability intersection — part of the frozen per-peer
-    /// state for the multi-peer registry (contract §4); the outbound dispatch
-    /// gate itself is host-side, so nothing reads this in the single-peer
-    /// client yet.
-    #[allow(dead_code)]
-    negotiated_capabilities: Vec<String>,
     sequence: Mutex<OutboundSequence>,
 }
 
@@ -855,12 +829,10 @@ pub async fn connect_remote_adapter(
         }
 
         // 4. Bind the authenticated session and start the receive loop.
-        let negotiated = negotiated_capabilities(&local_manifest, &remote_manifest);
         adapter.establish(
             EstablishedSession {
                 session_id: session_doc.session_id.to_string(),
                 responder_peer_id: remote_peer_id,
-                negotiated_capabilities: negotiated,
                 sequence: Mutex::new(OutboundSequence::new()),
             },
             remote_manifest,

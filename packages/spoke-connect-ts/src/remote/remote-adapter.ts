@@ -400,9 +400,10 @@ export class RemoteAdapter implements BaselinePorts {
     // surface as an unhandled rejection — the adapter has already
     // transitioned to `Closed` and every pending invoke is failed below,
     // so there is no caller that could receive the failure (§8.2 defines
-    // no close-failure row).
-    if (closeResult instanceof Promise) {
-      closeResult.catch(() => {
+    // no close-failure row). `Promise.resolve` (not `instanceof Promise`)
+    // so cross-realm / non-native thenables are drained too.
+    if (closeResult !== undefined) {
+      void Promise.resolve(closeResult).catch(() => {
         // Transport close failure is intentionally swallowed: the session
         // is unusable either way and the adapter already settled waiters.
       });

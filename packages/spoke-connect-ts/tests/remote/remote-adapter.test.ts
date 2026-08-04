@@ -337,6 +337,79 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "does not leak an unhandled rejection when Transport.close() returns a rejecting non-native thenable (Greptile #4)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      let host: LoopbackHost | undefined;
+      try {
+        const pair = loopbackTransportPair();
+        // close() returns a PLAIN-OBJECT thenable — `instanceof Promise` is
+        // FALSE (a cross-realm / library-interop object is not a native
+        // Promise), yet it rejects through `.then(onRejected)`. The old
+        // `instanceof Promise` guard skipped the handler entirely, so the
+        // inner rejection surfaced as an unhandled rejection.
+        const rejectingThenableClose = (): unknown => {
+          const inner = Promise.reject(new Error("close boom"));
+          return {
+            then(
+              onFulfilled?: (value: never) => unknown,
+              onRejected?: (reason: unknown) => unknown,
+            ) {
+              inner.then(onFulfilled, onRejected);
+            },
+          };
+        };
+        const thenableClose: Transport = {
+          send: (envelope) => pair.client.send(envelope),
+          recv: () => pair.client.recv(),
+          // `Transport.close` is typed `void | Promise<void>`; the adapter
+          // reads the return as `unknown`, so the thenable needs a narrow
+          // cast at the seam.
+          close: rejectingThenableClose as () => void,
+        };
+        host = await startLoopbackHost({
+          transport: pair.server,
+          seed: seed(0xa0),
+          clientPubkey: getPublicKeyEd25519(seed(0x10)),
+          allowlist: [
+            derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
+          ],
+          adapter: hostAdapter,
+        });
+        const client = await connectRemoteAdapter({
+          transport: thenableClose,
+          localIdentity: { seed: seed(0x10) },
+          localManifest: clientManifest(),
+          remotePubkey: getPublicKeyEd25519(seed(0xa0)),
+          allowlist: [
+            derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0xa0))),
+          ],
+        });
+        expect(client.state).toBe("Established");
+
+        client.close();
+        // Let a discarded thenable rejection surface if the fix is absent
+        // (Node reports unhandled rejections on the next macrotask).
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(
+          unhandled,
+          "thenable close() rejection must be handled",
+        ).toEqual([]);
+        expect(client.state).toBe("Closed");
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+        host?.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "rejects a replayed server hello — accepted (peer_id, nonce) pairs are single-use (Greptile #1)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();

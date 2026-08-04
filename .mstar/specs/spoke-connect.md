@@ -429,6 +429,8 @@ The **signed claims object** is canonicalized with **RFC 8785 JCS** → UTF-8 by
 | `claims` | yes | Signed claims object (table above) |
 | `sig` | yes | base64url (no padding) of the 64 raw Ed25519 signature bytes over JCS(`claims`) only |
 
+**Canonical encoding (normative):** the `sig` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Receivers MUST reject any `sig` that does not round-trip through `decode → encode` equality (non-canonical encodings of the final character's slack bits are rejected). Both language implementations enforce this at verify time.
+
 Issuance MUST bind the issuer key to `claims.iss`: the Ed25519 public key used to sign MUST derive `claims.iss` per §[Identity binding](#identity-binding).
 
 #### Trust root and validation rules

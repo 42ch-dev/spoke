@@ -149,6 +149,7 @@ describe("RemoteAdapter loopback interop", () => {
         expect(ports).toBe(client);
         const runtime = client as unknown as Record<string, unknown>;
         for (const hidden of [
+          // Session-core verification helpers must not exist at runtime.
           "allocateOutboundSequence",
           "acceptInboundSequence",
           "generateNonce",
@@ -157,6 +158,14 @@ describe("RemoteAdapter loopback interop", () => {
           "checkResponseCorrelation",
           "isAllowlisted",
           "correlationFromRequest",
+          // Session-lifecycle methods are `#`-private: absent from the shipped
+          // .d.ts AND unreachable at runtime (no forging `Established` state
+          // past hello/allowlist verification, not even via an `any` cast).
+          "beginHandshake",
+          "sendEnvelope",
+          "recvEnvelope",
+          "establish",
+          "closeSession",
         ]) {
           expect(runtime[hidden], `verification helper ${hidden} must not leak`).toBeUndefined();
         }

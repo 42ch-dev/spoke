@@ -325,36 +325,42 @@ export class RemoteAdapter implements BaselinePorts {
    * `INTERNAL_ERROR` `details.kind = "session_closed"`.
    */
   close(): void {
-    this.closeSession("local shutdown");
+    this.#closeSession("local shutdown");
   }
 
-  // ── Session lifecycle (internal; called by connectRemoteAdapter) ────────
+  // ── Session lifecycle (hard-private — only `connectRemoteAdapter` dials) ─
+  //
+  // ECMAScript `#`-private methods: invisible to consumers in the shipped
+  // `dist/remote/index.d.ts` AND unreachable at runtime (not even through an
+  // `any` cast), so no consumer can forge `Established` state past the
+  // hello/allowlist verification. The dial entrypoint lives on the class
+  // (`connectRemoteAdapter` static below) where these stay callable.
 
-  /** @internal — dial-only. Adapter is in `Handshaking` while dialing. */
-  beginHandshake(): void {
+  /** Dial-only. Adapter is in `Handshaking` while dialing. */
+  #beginHandshake(): void {
     this.stateInternal = "Handshaking";
   }
 
-  /** @internal — dial-only: send one handshake envelope. */
-  async sendEnvelope(doc: unknown): Promise<void> {
+  /** Dial-only: send one handshake envelope. */
+  async #sendEnvelope(doc: unknown): Promise<void> {
     await this.transport.send(encodeEnvelope(doc));
   }
 
-  /** @internal — dial-only: receive + decode the next handshake envelope. */
-  async recvEnvelope(): Promise<unknown> {
+  /** Dial-only: receive + decode the next handshake envelope. */
+  async #recvEnvelope(): Promise<unknown> {
     return decodeJsonMessage(await this.transport.recv());
   }
 
-  /** @internal — dial-only: bind the authenticated session and start the receive loop. */
-  establish(session: Session, remoteManifest: HostCapabilityManifest): void {
+  /** Dial-only: bind the authenticated session and start the receive loop. */
+  #establish(session: Session, remoteManifest: HostCapabilityManifest): void {
     this.session = session;
     this.remoteManifestInternal = remoteManifest;
     this.stateInternal = "Established";
     this.runReceiveLoop();
   }
 
-  /** @internal — all failure paths that make the session unusable. */
-  closeSession(reason: string): void {
+  /** All failure paths that make the session unusable. */
+  #closeSession(reason: string): void {
     if (this.stateInternal === "Closed") {
       return;
     }
@@ -393,7 +399,7 @@ export class RemoteAdapter implements BaselinePorts {
       } catch (error) {
         // Transport loss: fail every pending waiter and transition to
         // `Closed` (contract §6 "Transport close mid-flight" / §8.2).
-        this.closeSession(
+        this.#closeSession(
           `transport loss: ${error instanceof Error ? error.message : String(error)}`,
         );
         return;
@@ -464,7 +470,7 @@ export class RemoteAdapter implements BaselinePorts {
     } catch (error) {
       // Outbound sequence exhaustion: the session is unusable (no wrap);
       // close it and fail this invoke with `sequence_exhausted` (§6/§8.2).
-      this.closeSession("outbound sequence exhausted");
+      this.#closeSession("outbound sequence exhausted");
       return Promise.reject(
         new RemoteError(
           "sequence_exhausted",
@@ -537,6 +543,114 @@ export class RemoteAdapter implements BaselinePorts {
       );
     }
   }
+
+  /**
+   * Dial a remote peer over `transport`: perform the signed hello exchange +
+   * session snapshot, then return an `Established` adapter. Throws on any
+   * handshake / allowlist / verification failure (contract §3.3/§8.2 — no
+   * half-open `BaselinePorts` instance).
+   *
+   * Lives on the class because the session-lifecycle methods are `#`-private
+   * and only reachable from inside the class body; the module-level
+   * `connectRemoteAdapter` below is the same entrypoint for consumers.
+   */
+  static async connectRemoteAdapter(
+    options: RemoteAdapterOptions,
+  ): Promise<RemoteAdapter> {
+    const { transport, localIdentity, localManifest, remotePubkey, allowlist } =
+      options;
+    const invokeTimeoutMs = options.invokeTimeoutMs ?? DEFAULT_INVOKE_TIMEOUT_MS;
+    if (localIdentity.seed.length !== 32) {
+      throw new Error("localIdentity.seed must be 32 bytes");
+    }
+    if (remotePubkey.length !== 32) {
+      throw new Error("remotePubkey must be 32 bytes");
+    }
+    const remotePeerId = derivePeerIdFromEd25519Pubkey(remotePubkey);
+    if (!isAllowlisted(allowlist, remotePeerId)) {
+      throw new Error(
+        `remote peer ${remotePeerId} is not on the allowlist (fail-closed)`,
+      );
+    }
+    const localPeerId = derivePeerIdFromEd25519Pubkey(
+      getPublicKeyEd25519(localIdentity.seed),
+    );
+
+    const adapter = new RemoteAdapter(
+      transport,
+      invokeTimeoutMs,
+      options.capabilityToken,
+    );
+    adapter.#beginHandshake();
+
+    try {
+      // 1. Send our signed hello (nonce generated internally — single-use).
+      await withTimeout(
+        adapter.#sendEnvelope(
+          await signHelloEd25519(localIdentity.seed, generateNonce(), localManifest),
+        ),
+        invokeTimeoutMs,
+        "hello send",
+      );
+
+      // 2. Await + verify the server's signed hello (signature + identity).
+      const helloDoc = await withTimeout(
+        adapter.#recvEnvelope(),
+        invokeTimeoutMs,
+        "server hello",
+      );
+      if (!isConnectHello(helloDoc)) {
+        throw new Error("expected ConnectHello from server");
+      }
+      await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
+      const remoteManifest: HostCapabilityManifest = helloDoc.host;
+
+      // 3. Await + validate the A-assigned session snapshot.
+      const sessionDoc = await withTimeout(
+        adapter.#recvEnvelope(),
+        invokeTimeoutMs,
+        "session snapshot",
+      );
+      if (!isConnectSession(sessionDoc)) {
+        throw new Error("expected ConnectSession snapshot after server hello");
+      }
+      if (
+        sessionDoc.initiator_peer_id !== localPeerId ||
+        sessionDoc.responder_peer_id !== remotePeerId
+      ) {
+        throw new Error(
+          "session snapshot peer ids do not match the authenticated hellos",
+        );
+      }
+      if (sessionDoc.session_id.length === 0) {
+        throw new Error("session snapshot session_id must not be empty");
+      }
+      if (sessionDoc.initial_sequence !== 0) {
+        throw new Error(
+          "session snapshot initial_sequence must be 0 for protocol_version 1",
+        );
+      }
+
+      adapter.#establish(
+        new Session({
+          session_id: sessionDoc.session_id,
+          initiator_peer_id: localPeerId,
+          responder_peer_id: remotePeerId,
+          negotiated_capabilities: negotiatedCapabilities(
+            localManifest.capabilities,
+            remoteManifest.capabilities,
+          ),
+        }),
+        remoteManifest,
+      );
+      return adapter;
+    } catch (error) {
+      // Handshake rejection: release the transport so the peer sees a clean
+      // disconnect (mirrors the connect-client handshake-rejection pattern).
+      adapter.close();
+      throw error;
+    }
+  }
 }
 
 /**
@@ -548,97 +662,5 @@ export class RemoteAdapter implements BaselinePorts {
 export async function connectRemoteAdapter(
   options: RemoteAdapterOptions,
 ): Promise<RemoteAdapter> {
-  const { transport, localIdentity, localManifest, remotePubkey, allowlist } =
-    options;
-  const invokeTimeoutMs = options.invokeTimeoutMs ?? DEFAULT_INVOKE_TIMEOUT_MS;
-  if (localIdentity.seed.length !== 32) {
-    throw new Error("localIdentity.seed must be 32 bytes");
-  }
-  if (remotePubkey.length !== 32) {
-    throw new Error("remotePubkey must be 32 bytes");
-  }
-  const remotePeerId = derivePeerIdFromEd25519Pubkey(remotePubkey);
-  if (!isAllowlisted(allowlist, remotePeerId)) {
-    throw new Error(
-      `remote peer ${remotePeerId} is not on the allowlist (fail-closed)`,
-    );
-  }
-  const localPeerId = derivePeerIdFromEd25519Pubkey(
-    getPublicKeyEd25519(localIdentity.seed),
-  );
-
-  const adapter = new RemoteAdapter(
-    transport,
-    invokeTimeoutMs,
-    options.capabilityToken,
-  );
-  adapter.beginHandshake();
-
-  try {
-    // 1. Send our signed hello (nonce generated internally — single-use).
-    await withTimeout(
-      adapter.sendEnvelope(
-        await signHelloEd25519(localIdentity.seed, generateNonce(), localManifest),
-      ),
-      invokeTimeoutMs,
-      "hello send",
-    );
-
-    // 2. Await + verify the server's signed hello (signature + identity).
-    const helloDoc = await withTimeout(
-      adapter.recvEnvelope(),
-      invokeTimeoutMs,
-      "server hello",
-    );
-    if (!isConnectHello(helloDoc)) {
-      throw new Error("expected ConnectHello from server");
-    }
-    await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
-    const remoteManifest: HostCapabilityManifest = helloDoc.host;
-
-    // 3. Await + validate the A-assigned session snapshot.
-    const sessionDoc = await withTimeout(
-      adapter.recvEnvelope(),
-      invokeTimeoutMs,
-      "session snapshot",
-    );
-    if (!isConnectSession(sessionDoc)) {
-      throw new Error("expected ConnectSession snapshot after server hello");
-    }
-    if (
-      sessionDoc.initiator_peer_id !== localPeerId ||
-      sessionDoc.responder_peer_id !== remotePeerId
-    ) {
-      throw new Error(
-        "session snapshot peer ids do not match the authenticated hellos",
-      );
-    }
-    if (sessionDoc.session_id.length === 0) {
-      throw new Error("session snapshot session_id must not be empty");
-    }
-    if (sessionDoc.initial_sequence !== 0) {
-      throw new Error(
-        "session snapshot initial_sequence must be 0 for protocol_version 1",
-      );
-    }
-
-    adapter.establish(
-      new Session({
-        session_id: sessionDoc.session_id,
-        initiator_peer_id: localPeerId,
-        responder_peer_id: remotePeerId,
-        negotiated_capabilities: negotiatedCapabilities(
-          localManifest.capabilities,
-          remoteManifest.capabilities,
-        ),
-      }),
-      remoteManifest,
-    );
-    return adapter;
-  } catch (error) {
-    // Handshake rejection: release the transport so the peer sees a clean
-    // disconnect (mirrors the connect-client handshake-rejection pattern).
-    adapter.close();
-    throw error;
-  }
+  return RemoteAdapter.connectRemoteAdapter(options);
 }

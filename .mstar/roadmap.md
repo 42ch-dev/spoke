@@ -12,7 +12,13 @@
 
 ## Now (in progress)
 
-No active delivery slice on `main`. See **Up next** for planned work; durable contract facts live under **Done → Baseline inventory** and `.mstar/specs/`.
+Capability tracks in flight on the integration branch; land on `main` when their plans close.
+
+| Capability track | What it gives integrators |
+|------------------|---------------------------|
+| Swift SPM iOS coverage | The `SpokeConnect` SPM product carries a four-slice `spoke_connectFFI.xcframework` — macOS arm64, iOS device (`ios-arm64`), iOS simulator on Apple Silicon (`ios-arm64-simulator`), and iOS simulator on Intel (`ios-x86_64-simulator`) — so iOS integrators link on device and both simulator hosts without running bindgen. macOS stays arm64-only |
+| Pure-TS Noise transport (opt-in) | `@42ch/spoke-connect/noise` provides a pure-TypeScript Noise XX stack (X25519 + ChaCha20-Poly1305 + HKDF-SHA256) wire-compatible with the Rust libp2p reference, for integrators that need direct mesh interop; the default `.` / `./node` exports keep their thin dependency surface |
+| CI identity-byte gate | The zero-dep connect identity proof runs in CI, catching drift between the TS identity derivation and the golden `peer_id` / JCS / Ed25519-signature vectors automatically |
 
 **Durable decision (2026-08-02) — Knowledge Pack vs AssemblePacket; demote `modules.pack`:** A **Narrative Knowledge Pack** is a durable lore-library interchange pattern (full KnowledgeEntry + Relation atoms + product transport envelope). An **AssemblePacket** is an ephemeral `assemble` output (slim AI context projection). They share a vague “list of entries” shape but are **not** the same object and must not be merged. Pack catalog metadata (`title` / `version` / `creator`) is **product-envelope** — **not** `modules.*` on KnowledgeEntry or AssemblePacket. Keep `modules.activation` on KnowledgeEntry and `modules.placement` / `modules.activation_trace` on AssemblePacket. Handbook, triad ADR, CONCEPTS, docs, schemas descriptions, and companion fixture updated accordingly.
 
@@ -20,11 +26,12 @@ No active delivery slice on `main`. See **Up next** for planned work; durable co
 
 ## Up next (planned)
 
-| Slice | What ships | Notes |
-|-------|------------|-------|
-| **spoke-connect native binding matrix completion** | Remaining cross-language golden-vector sharing and Swift xcframework target coverage (iOS, macOS x86_64) for the five landed language bindings (C#, Kotlin, Swift, Go, Python) | Binding capability itself is landed — see [connect-binding-channels.md](specs/connect-binding-channels.md) for the per-language surface |
-| **Docs CI hardening** | Docs twin-parity check (EN↔CN page-count drift) + dead-link gate for the VitePress site | **Trigger:** next `docs/**` slice; pairs with the cross-platform/CI slice above. EN+CN locale twins already landed |
-| **Integrator docs content** | Keep VitePress `docs/` aligned with the protocol SSOT (site scaffold already on main; EN root + `zh/` CN twins live) | Content/SSOT sync as profiles and connect docs evolve; CN terminology glossary: [docs-i18n-glossary.md](knowledge/conventions/docs-i18n-glossary.md) |
+| Slice | What ships | Trigger / notes |
+|-------|------------|-----------------|
+| **DHT discovery** | Libp2p Kademlia DHT peer discovery layered on the Noise mesh transport, for hosts that need peer routing beyond explicit relay/dial lists | A product host requires libp2p-mesh peer discovery; builds on the pure-TS Noise foundation and the Rust reference mesh |
+| **iOS xcframework CI automation** | A CI job that assembles the multi-slice `spoke_connectFFI.xcframework` when the FFI surface changes, removing the maintainer manual-refresh step | Follows the four-slice matrix; the xcframework stays repo-committed between FFI-surface changes per [connect-binding-channels.md](specs/connect-binding-channels.md) |
+| **Cross-language capability-token golden-vector TS-minted counterpart** | A TS-minted capability-token golden vector that the Rust verify path (and other bindings) round-trip, closing the current Rust-minted-only direction | Token auth is session-core parity; this adds the reverse-direction shared vector |
+| **Integrator docs content** | Keep VitePress `docs/` aligned with the protocol SSOT; document the `./noise` subpath and the four iOS slices in the connect how-to pages | EN+CN twin parity enforced by `tooling/docs/twin-parity.mjs`; CN terminology glossary: [docs-i18n-glossary.md](knowledge/conventions/docs-i18n-glossary.md) |
 | **libp2p transitive vulnerability revisit** | Re-check yamux / hickory-proto pins in `Cargo.lock` when upstream libp2p ecosystem ships fixes | Last reviewed 2026-08-02 — no fix available on current libp2p 0.56 line |
 
 ---

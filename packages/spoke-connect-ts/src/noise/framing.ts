@@ -2,8 +2,7 @@
  * libp2p Noise wire framing — the u16-BE length-prefix codec, the
  * `NoiseHandshake` driver that wraps `NoiseXX` with framing + identity
  * payload, and the post-split `NoiseTransport` AEAD frame codec (frozen
- * contract `.mstar/iterations/v0-iter029/guides/noise-xx-libp2p-contract.md`
- * §3, §5).
+ * contract `.mstar/specs/noise-xx-libp2p-contract.md` §3, §5).
  *
  * Wire shape of every Noise message (handshake flights and post-handshake
  * transport frames alike):

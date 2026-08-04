@@ -1,7 +1,7 @@
 /**
  * Noise crypto primitives — thin wrappers over the noble suite with
- * Noise-constant semantics (frozen contract `.mstar/iterations/.../
- * guides/noise-xx-libp2p-contract.md` §7).
+ * Noise-constant semantics (frozen contract
+ * `.mstar/specs/noise-xx-libp2p-contract.md` §7).
  *
  * Surface (consumed by `src/noise/xx.ts`, Task 2):
  *

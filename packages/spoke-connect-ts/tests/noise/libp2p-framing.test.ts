@@ -1,6 +1,6 @@
 /**
  * libp2p Noise wire framing gates (Task 3, connect-ts-noise-stack) —
- * frozen contract `.mstar/iterations/v0-iter029/guides/noise-xx-libp2p-contract.md`
+ * frozen contract `.mstar/specs/noise-xx-libp2p-contract.md`
  * §3 (u16-BE length-prefix codec, max sizes) and §5 (role handshake
  * sequence), plus the `NoiseTransport` post-split AEAD frame codec and the
  * `NoiseHandshake` driver that binds `NoiseXX` + framing + identity payload.

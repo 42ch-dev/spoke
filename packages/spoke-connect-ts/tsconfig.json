@@ -14,6 +14,12 @@
       "@42ch/spoke-schemas": [
         "../spoke-schemas/src/index.ts"
       ],
+      "@42ch/spoke-operations": [
+        "../spoke-operations/src/index.ts"
+      ],
+      "@42ch/spoke-fixture-toy-world": [
+        "../../fixtures/toy-world/src/adapter/index.ts"
+      ],
       "@42ch/spoke-connect": [
         "./src/index.ts"
       ],
@@ -22,6 +28,9 @@
       ],
       "@42ch/spoke-connect/noise": [
         "./src/noise/index.ts"
+      ],
+      "@42ch/spoke-connect/remote": [
+        "./src/remote/index.ts"
       ]
     }
   },

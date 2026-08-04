@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Built-package published-shape smoke (connect-ts-noise-stack QC wave, W2).
+ * Built-package published-shape smoke (connect-ts-noise-stack QC wave, W2;
+ * remote surface added with the RemoteAdapter module).
  *
- * Resolves `@42ch/spoke-connect` and `@42ch/spoke-connect/noise` against the
- * BUILT `dist/` through the package `exports` map (Node self-reference) —
- * deliberately NOT the vitest source aliases. A dropped `require` condition,
- * a missing dist file, or a wrong conditional target fails here exactly as
- * it would for a packed consumer.
+ * Resolves `@42ch/spoke-connect`, `@42ch/spoke-connect/noise` and
+ * `@42ch/spoke-connect/remote` against the BUILT `dist/` through the package
+ * `exports` map (Node self-reference) — deliberately NOT the vitest source
+ * aliases. A dropped `require` condition, a missing dist file, or a wrong
+ * conditional target fails here exactly as it would for a packed consumer.
  *
  * Prerequisite: `pnpm --filter @42ch/spoke-connect build` (and a built
  * `@42ch/spoke-schemas`, which CI builds earlier in the same job).
@@ -47,14 +48,29 @@ const NOISE_BARREL_SYMBOLS = [
 ];
 /** Internal raw-crypto wrappers that must stay out of the public barrel. */
 const NOISE_FORBIDDEN_IN_BARREL = ["encrypt", "decrypt", "dh", "hkdf"];
+/** `./remote` barrel symbols (src/remote/index.ts re-export table). */
+const REMOTE_BARREL_SYMBOLS = [
+  "connectRemoteAdapter",
+  "RemoteAdapter",
+  "loopbackTransportPair",
+  "LoopbackTransport",
+  "isConnectHello",
+  "isConnectInvokeRequest",
+  "isConnectInvokeResponse",
+  "isConnectSession",
+];
+/** RemoteAdapter symbols that must NOT leak into the default root bundle. */
+const REMOTE_FORBIDDEN_IN_ROOT = ["connectRemoteAdapter", "RemoteAdapter"];
 
 // ── ESM self-reference ("import" conditions) ───────────────────────────────
 const rootEsm = await import("@42ch/spoke-connect");
 const noiseEsm = await import("@42ch/spoke-connect/noise");
+const remoteEsm = await import("@42ch/spoke-connect/remote");
 
 // ── CJS self-reference ("require" conditions) ──────────────────────────────
 const rootCjs = require("@42ch/spoke-connect");
 const noiseCjs = require("@42ch/spoke-connect/noise");
+const remoteCjs = require("@42ch/spoke-connect/remote");
 
 for (const [label, mod] of [
   ["ESM", rootEsm],
@@ -72,6 +88,13 @@ for (const [label, mod] of [
       mod[sym],
       undefined,
       `${label} root: Noise symbol ${sym} must not leak into the default bundle`,
+    );
+  }
+  for (const sym of REMOTE_FORBIDDEN_IN_ROOT) {
+    assert.equal(
+      mod[sym],
+      undefined,
+      `${label} root: RemoteAdapter symbol ${sym} must not leak into the default bundle`,
     );
   }
 }
@@ -95,7 +118,19 @@ for (const [label, mod] of [
   }
 }
 
+for (const [label, mod] of [
+  ["ESM", remoteEsm],
+  ["CJS", remoteCjs],
+]) {
+  for (const sym of REMOTE_BARREL_SYMBOLS) {
+    assert.ok(
+      mod[sym] !== undefined,
+      `${label} ./remote: barrel symbol ${sym} must resolve`,
+    );
+  }
+}
+
 console.log(
-  "dist-shape smoke PASS: `.` and `./noise` resolve in ESM + CJS; " +
-    "root excludes Noise; noise barrel surface intact.",
+  "dist-shape smoke PASS: `.`, `./noise` and `./remote` resolve in ESM + CJS; " +
+    "root excludes Noise; noise barrel surface intact; remote barrel surface intact.",
 );

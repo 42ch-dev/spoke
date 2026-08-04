@@ -155,7 +155,7 @@ export class ToyWorldAdapter implements FullAdapter {
    */
   async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
     const fixture = loadOpFixture<ProjectResponse>("op_tw_project_response.json");
-    if ("error" in fixture && !("computable" in fixture)) {
+    if ("error" in fixture) {
       return spokeReject(
         SpokeRejectCode.INVALID_INPUT,
         `fixture project response is an error envelope: ${fixture.error.message}`,
@@ -176,6 +176,12 @@ export class ToyWorldAdapter implements FullAdapter {
     const fixture = loadOpFixture<ComputeResponse>(
       "op_tw_compute_settle_response.json",
     );
+    if ("error" in fixture) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        `fixture compute response is an error envelope: ${fixture.error.message}`,
+      );
+    }
     if (request.settle === true) {
       return spokeOk({
         session_id: request.session_id,

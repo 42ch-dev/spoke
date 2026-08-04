@@ -18,10 +18,8 @@
  */
 
 import type {
-  ConnectHello,
   ConnectInvokeRequest,
   ConnectInvokeResponse,
-  ConnectSession,
   HostCapabilityManifest,
 } from "@42ch/spoke-schemas";
 import { WebSocket } from "ws";
@@ -107,57 +105,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
 }
 
 // Wire-shape discrimination (spec §Transport framing: envelope types are
-// distinguishable by JSON shape). Exported for adapters and tests.
+// distinguishable by JSON shape). Exported for adapters and tests; the
+// guards live in the isomorphic `src/remote/guards.ts` so the Node client
+// and the remote module share one implementation.
 
-/** `ConnectHello` guard: `{protocol_version, peer_id, nonce, host, signature, …}`. */
-export function isConnectHello(doc: unknown): doc is ConnectHello {
-  return (
-    typeof doc === "object" &&
-    doc !== null &&
-    "protocol_version" in doc &&
-    "peer_id" in doc &&
-    "nonce" in doc &&
-    "host" in doc &&
-    "signature" in doc
-  );
-}
-
-/** `ConnectSession` snapshot guard (wire shape; full field validation happens in the caller). */
-export function isConnectSession(doc: unknown): doc is ConnectSession {
-  return (
-    typeof doc === "object" &&
-    doc !== null &&
-    "session_id" in doc &&
-    "initiator_peer_id" in doc &&
-    "responder_peer_id" in doc &&
-    "initial_sequence" in doc
-  );
-}
-
-/** `ConnectInvokeRequest` guard. */
-export function isConnectInvokeRequest(doc: unknown): doc is ConnectInvokeRequest {
-  return (
-    typeof doc === "object" &&
-    doc !== null &&
-    "session_id" in doc &&
-    "sequence" in doc &&
-    "request_id" in doc &&
-    "op" in doc &&
-    "payload" in doc
-  );
-}
-
-/** `ConnectInvokeResponse` guard (success `payload` branch or error branch). */
-export function isConnectInvokeResponse(doc: unknown): doc is ConnectInvokeResponse {
-  return (
-    typeof doc === "object" &&
-    doc !== null &&
-    "session_id" in doc &&
-    "sequence" in doc &&
-    "request_id" in doc &&
-    ("payload" in doc || "error" in doc)
-  );
-}
+import {
+  isConnectHello,
+  isConnectInvokeRequest,
+  isConnectInvokeResponse,
+  isConnectSession,
+} from "../remote/guards.js";
+export {
+  isConnectHello,
+  isConnectSession,
+  isConnectInvokeRequest,
+  isConnectInvokeResponse,
+} from "../remote/guards.js";
 
 interface PendingInvoke {
   correlation: Correlation;

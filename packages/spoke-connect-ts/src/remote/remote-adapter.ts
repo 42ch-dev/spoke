@@ -1,0 +1,644 @@
+/**
+ * `RemoteAdapter` — drop-in async `BaselinePorts` over a connect session
+ * (frozen contract: `.mstar/iterations/v0-iter030/guides/remote-adapter-contract.md`).
+ *
+ * PUBLIC surface: the async `BaselinePorts` (six families) + the
+ * `connectRemoteAdapter` dial entrypoint + read-only session info
+ * (`sessionId`, `remotePeerId`, `remoteManifest`, `state`) + `close`.
+ *
+ * INTERNAL (encapsulated — consumers never touch these): hello sign/verify,
+ * allowlist, nonce single-use, sequence allocate/advance, `request_id`
+ * correlation, the dispatch gate, optional capability-token attach, the
+ * receive-loop demux, and invoke timeout timers. All of it reuses the pure
+ * session-core (`src/core/`) — nothing is reimplemented here.
+ *
+ * Each `BaselinePorts` method maps to a reserved `port.*` product op with an
+ * opaque JSON payload (frozen contract §5.2), sent as a `ConnectInvokeRequest`
+ * over the `Transport`, awaited via the adapter-owned receive loop, and
+ * deserialized back to `SpokeResult`. The WebSocket implementation is
+ * consumer-side; only the loopback `Transport` ships in-repo.
+ */
+
+import type {
+  ConnectInvokeRequest,
+  ConnectInvokeResponse,
+  ErrorEnvelope,
+  Finding,
+  HostCapabilityManifest,
+  KnowledgeEntry,
+  Relation,
+  Rule,
+  Scope,
+  TimelineEvent,
+} from "@42ch/spoke-schemas";
+import {
+  fromErrorEnvelope,
+  SpokeRejectCode,
+  spokeOk,
+  spokeReject,
+  type BaselinePorts,
+  type SpokeReject,
+  type SpokeResult,
+} from "@42ch/spoke-operations";
+
+import { getPublicKeyEd25519 } from "../crypto.js";
+import { isAllowlisted } from "../core/allowlist.js";
+import type { CapabilityTokenProof } from "../core/capability-token.js";
+import {
+  checkResponseCorrelation,
+  correlationFromRequest,
+  correlationFromResponse,
+  type Correlation,
+} from "../core/correlate.js";
+import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
+import { generateNonce } from "../core/nonce.js";
+import { negotiatedCapabilities, Session } from "../core/session.js";
+import { decodeJsonMessage, encodeJsonMessage } from "../framing.js";
+import { derivePeerIdFromEd25519Pubkey } from "../identity.js";
+import {
+  isConnectHello,
+  isConnectInvokeResponse,
+  isConnectSession,
+} from "./guards.js";
+import type { EnvelopeBytes, Transport } from "./transport.js";
+
+const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
+
+const textEncoder = new TextEncoder();
+
+function encodeEnvelope(doc: unknown): EnvelopeBytes {
+  return textEncoder.encode(encodeJsonMessage(doc));
+}
+
+/**
+ * Bounded wait: race `promise` against a deadline; rejects with a
+ * descriptive error on elapse. Every dial await is bounded (no bare waits).
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`connect: ${what} timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Internal invoke-failure classes. Consumers only ever observe these mapped
+ * to `SpokeResult` `INTERNAL_ERROR` rejects with `details.kind` (contract
+ * §8.2) — except `connectRemoteAdapter`, which throws for dial/hello
+ * failures (§8.2 last row).
+ */
+type RemoteErrorKind =
+  | "transport"
+  | "session_closed"
+  | "timeout"
+  | "correlation_mismatch"
+  | "sequence_exhausted";
+
+class RemoteError extends Error {
+  readonly kind: RemoteErrorKind;
+
+  constructor(kind: RemoteErrorKind, message: string) {
+    super(message);
+    this.name = "RemoteError";
+    this.kind = kind;
+  }
+}
+
+function internalError(kind: RemoteErrorKind, message: string): SpokeReject {
+  return spokeReject(SpokeRejectCode.INTERNAL_ERROR, message, { kind });
+}
+
+/**
+ * Dispatch-deny wire codes (contract §8.2): the host answered that the op or
+ * its required capability is not available → `CAPABILITY_PORT_MISSING`.
+ */
+const DISPATCH_DENY_CODES = new Set(["op_unsupported", "capability_missing"]);
+
+/** Map an error-branch envelope to a `SpokeResult` reject (contract §8.2). */
+function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
+  if (DISPATCH_DENY_CODES.has(error.code)) {
+    return spokeReject(SpokeRejectCode.CAPABILITY_PORT_MISSING, error.message, {
+      ...(error.details ?? {}),
+      wire_code: error.code,
+    });
+  }
+  return fromErrorEnvelope(error);
+}
+
+/** Port-method → `port.*` product-op catalogue (frozen contract §5.2). */
+const PORT_OPS = {
+  getKnowledgeEntry: "port.knowledge.get",
+  putKnowledgeEntry: "port.knowledge.put",
+  getRelation: "port.relation.get",
+  putRelation: "port.relation.put",
+  listKnowledgeEntries: "port.scope.list_knowledge_entries",
+  listTimelineEvents: "port.scope.list_timeline_events",
+  putFindings: "port.finding.put",
+  listRules: "port.rule.list",
+  listPeerHostCapabilityManifests: "port.host.list_peer_manifests",
+} as const;
+
+export type RemoteAdapterState =
+  | "Disconnected"
+  | "Handshaking"
+  | "Established"
+  | "Closed";
+
+/** Raw Ed25519 keypair material for the local connect peer. */
+export interface RemoteIdentity {
+  /** 32-byte Ed25519 seed (raw). */
+  seed: Uint8Array;
+}
+
+export interface RemoteAdapterOptions {
+  /** Message-oriented transport (consumer-provided; loopback ships in-repo). */
+  transport: Transport;
+  /** This adapter's raw Ed25519 seed. */
+  localIdentity: RemoteIdentity;
+  /** Host manifest advertised in this adapter's signed hello. */
+  localManifest: HostCapabilityManifest;
+  /**
+   * Preconfigured remote Ed25519 public key. How the key is obtained is
+   * transport-adapter-owned (spec §Auth model); the remote's peer_id is
+   * derived from it and must be on `allowlist` (fail-closed).
+   */
+  remotePubkey: Uint8Array;
+  /** Trusted remote peer ids — must contain the remote's derived peer_id (fail-closed). */
+  allowlist: readonly string[];
+  /** Bounded-wait deadline for the handshake and each invoke, ms (default 5000). */
+  invokeTimeoutMs?: number;
+  /** Optional capability-token proof attached as `auth` on outbound invokes (§3.2/§3.3). */
+  capabilityToken?: CapabilityTokenProof;
+}
+
+interface PendingInvoke {
+  correlation: Correlation;
+  resolve: (response: ConnectInvokeResponse) => void;
+  reject: (error: RemoteError) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Single-peer async `BaselinePorts` proxy over an established connect
+ * session. Construct via `connectRemoteAdapter` — the constructor alone
+ * yields an un-established adapter that fails closed on every port call.
+ */
+export class RemoteAdapter implements BaselinePorts {
+  private readonly transport: Transport;
+  private readonly invokeTimeoutMs: number;
+  private readonly capabilityToken?: CapabilityTokenProof;
+
+  private stateInternal: RemoteAdapterState = "Disconnected";
+  private session: Session | null = null;
+  private remoteManifestInternal: HostCapabilityManifest | null = null;
+  private receiveLoopRunning = false;
+  private readonly pending = new Map<string, PendingInvoke>();
+
+  constructor(
+    transport: Transport,
+    invokeTimeoutMs: number = DEFAULT_INVOKE_TIMEOUT_MS,
+    capabilityToken?: CapabilityTokenProof,
+  ) {
+    this.transport = transport;
+    this.invokeTimeoutMs = invokeTimeoutMs;
+    this.capabilityToken = capabilityToken;
+  }
+
+  /** Read-only session state (contract §4 labels). */
+  get state(): RemoteAdapterState {
+    return this.stateInternal;
+  }
+
+  /** The remote-assigned session id (empty before establishment). */
+  get sessionId(): string {
+    return this.session?.session_id ?? "";
+  }
+
+  /** The verified remote peer id (empty before establishment). */
+  get remotePeerId(): string {
+    return this.session?.responder_peer_id ?? "";
+  }
+
+  /**
+   * The remote peer's `HostCapabilityManifest`, from the authenticated hello
+   * `host` (contract §7). Throws when accessed before establishment
+   * (programmer misuse — a dialed adapter always has one).
+   */
+  get remoteManifest(): HostCapabilityManifest {
+    if (this.remoteManifestInternal === null) {
+      throw new Error("connect session is not established — remote manifest unavailable");
+    }
+    return this.remoteManifestInternal;
+  }
+
+  // ── BaselinePorts (async) ───────────────────────────────────────────────
+
+  async getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>> {
+    return this.invokeMapped<KnowledgeEntry>(PORT_OPS.getKnowledgeEntry, {
+      entry_id: entryId,
+    });
+  }
+
+  async putKnowledgeEntry(
+    entry: KnowledgeEntry,
+    expectedBaseRevision: number | null,
+  ): Promise<SpokeResult<KnowledgeEntry>> {
+    return this.invokeMapped<KnowledgeEntry>(PORT_OPS.putKnowledgeEntry, {
+      entry,
+      expected_base_revision: expectedBaseRevision,
+    });
+  }
+
+  async getRelation(relationId: string): Promise<SpokeResult<Relation>> {
+    return this.invokeMapped<Relation>(PORT_OPS.getRelation, {
+      relation_id: relationId,
+    });
+  }
+
+  async putRelation(
+    relation: Relation,
+    expectedBaseRevision: number | null,
+  ): Promise<SpokeResult<Relation>> {
+    return this.invokeMapped<Relation>(PORT_OPS.putRelation, {
+      relation,
+      expected_base_revision: expectedBaseRevision,
+    });
+  }
+
+  async listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>> {
+    return this.invokeMapped<KnowledgeEntry[]>(PORT_OPS.listKnowledgeEntries, {
+      scope,
+    });
+  }
+
+  async listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>> {
+    return this.invokeMapped<TimelineEvent[]>(PORT_OPS.listTimelineEvents, {
+      scope,
+    });
+  }
+
+  async putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>> {
+    return this.invokeMapped<Finding[]>(PORT_OPS.putFindings, { findings });
+  }
+
+  async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
+    return this.invokeMapped<Rule[]>(PORT_OPS.listRules, { rule_refs: ruleRefs });
+  }
+
+  /**
+   * HostManifestPort: "self" on a RemoteAdapter is the **remote** peer
+   * (contract §7). Returns the authenticated hello `host` from the session
+   * cache — cache-only, no network round-trip.
+   */
+  async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
+    const manifest = this.remoteManifestInternal;
+    if (manifest === null) {
+      return internalError("session_closed", "connect session is not established");
+    }
+    return spokeOk(structuredClone(manifest));
+  }
+
+  /** Proxy to the remote's product-seeded peer list (contract §7). */
+  async listPeerHostCapabilityManifests(): Promise<
+    SpokeResult<HostCapabilityManifest[]>
+  > {
+    return this.invokeMapped<HostCapabilityManifest[]>(
+      PORT_OPS.listPeerHostCapabilityManifests,
+      {},
+    );
+  }
+
+  /**
+   * Release the session and transport. Idempotent; pending invokes fail with
+   * `INTERNAL_ERROR` `details.kind = "session_closed"`.
+   */
+  close(): void {
+    this.closeSession("local shutdown");
+  }
+
+  // ── Session lifecycle (internal; called by connectRemoteAdapter) ────────
+
+  /** @internal — dial-only. Adapter is in `Handshaking` while dialing. */
+  beginHandshake(): void {
+    this.stateInternal = "Handshaking";
+  }
+
+  /** @internal — dial-only: send one handshake envelope. */
+  async sendEnvelope(doc: unknown): Promise<void> {
+    await this.transport.send(encodeEnvelope(doc));
+  }
+
+  /** @internal — dial-only: receive + decode the next handshake envelope. */
+  async recvEnvelope(): Promise<unknown> {
+    return decodeJsonMessage(await this.transport.recv());
+  }
+
+  /** @internal — dial-only: bind the authenticated session and start the receive loop. */
+  establish(session: Session, remoteManifest: HostCapabilityManifest): void {
+    this.session = session;
+    this.remoteManifestInternal = remoteManifest;
+    this.stateInternal = "Established";
+    this.runReceiveLoop();
+  }
+
+  /** @internal — all failure paths that make the session unusable. */
+  closeSession(reason: string): void {
+    if (this.stateInternal === "Closed") {
+      return;
+    }
+    this.stateInternal = "Closed";
+    this.transport.close?.();
+    this.failAllPending(
+      new RemoteError("session_closed", `connect session closed: ${reason}`),
+    );
+  }
+
+  private failAllPending(error: RemoteError): void {
+    for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  // ── Receive loop (adapter-owned; port methods never call recv) ──────────
+
+  private runReceiveLoop(): void {
+    if (this.receiveLoopRunning) {
+      return;
+    }
+    this.receiveLoopRunning = true;
+    void this.receiveLoop().finally(() => {
+      this.receiveLoopRunning = false;
+    });
+  }
+
+  private async receiveLoop(): Promise<void> {
+    while (this.stateInternal === "Established") {
+      let doc: unknown;
+      try {
+        doc = decodeJsonMessage(await this.transport.recv());
+      } catch (error) {
+        // Transport loss: fail every pending waiter and transition to
+        // `Closed` (contract §6 "Transport close mid-flight" / §8.2).
+        this.closeSession(
+          `transport loss: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return;
+      }
+
+      if (isConnectInvokeResponse(doc)) {
+        // Demux by request_id; unknown/duplicate responses are dropped
+        // (protocol v1 defines no retry).
+        const entry = this.pending.get(doc.request_id);
+        if (entry === undefined) {
+          continue;
+        }
+        clearTimeout(entry.timer);
+        this.pending.delete(doc.request_id);
+        try {
+          checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
+          entry.resolve(doc);
+        } catch {
+          entry.reject(
+            new RemoteError(
+              "correlation_mismatch",
+              "response echo fields do not match the request",
+            ),
+          );
+        }
+        continue;
+      }
+
+      // Post-handshake stray envelope (hello / session / unknown shape):
+      // ignored. Unexpected invoke requests are host-role — out of the
+      // single-peer client scope (contract §4).
+    }
+  }
+
+  // ── Invoke path ─────────────────────────────────────────────────────────
+
+  /**
+   * Send one op invoke and resolve with its correlated response envelope.
+   * Rejects with `RemoteError` on timeout / transport failure / session
+   * close / correlation mismatch / sequence exhaustion.
+   */
+  private invokeOp(
+    op: string,
+    payload: Record<string, unknown>,
+  ): Promise<ConnectInvokeResponse> {
+    if (this.stateInternal !== "Established" || this.session === null) {
+      return Promise.reject(
+        new RemoteError(
+          "session_closed",
+          `connect session is not established (state ${this.stateInternal})`,
+        ),
+      );
+    }
+    const session = this.session;
+    let request: ConnectInvokeRequest;
+    try {
+      request = {
+        session_id: session.session_id,
+        sequence: session.allocateOutboundSequence(),
+        request_id: globalThis.crypto.randomUUID(),
+        op,
+        payload,
+        ...(this.capabilityToken !== undefined
+          ? { auth: this.capabilityToken as unknown as Record<string, unknown> }
+          : {}),
+        extensions: {},
+      };
+    } catch (error) {
+      // Outbound sequence exhaustion: the session is unusable (no wrap);
+      // close it and fail this invoke with `sequence_exhausted` (§6/§8.2).
+      this.closeSession("outbound sequence exhausted");
+      return Promise.reject(
+        new RemoteError(
+          "sequence_exhausted",
+          "outbound sequence space exhausted — reopen session",
+        ),
+      );
+    }
+    return new Promise<ConnectInvokeResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(request.request_id);
+        reject(
+          new RemoteError(
+            "timeout",
+            `invoke ${op} (${request.request_id}) timed out after ${this.invokeTimeoutMs}ms`,
+          ),
+        );
+      }, this.invokeTimeoutMs);
+      this.pending.set(request.request_id, {
+        correlation: correlationFromRequest(request),
+        resolve,
+        reject,
+        timer,
+      });
+      try {
+        this.transport.send(encodeEnvelope(request)).catch((sendError) => {
+          // Async send failure (transport closed between setup and send):
+          // settle this invoke now — no dead entry waits out the timeout.
+          clearTimeout(timer);
+          this.pending.delete(request.request_id);
+          reject(
+            new RemoteError(
+              "transport",
+              `invoke send failed: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+            ),
+          );
+        });
+      } catch (error) {
+        // Synchronous encode/send failure (e.g. non-JSON-serializable
+        // payload): same cleanup, same mapping.
+        clearTimeout(timer);
+        this.pending.delete(request.request_id);
+        reject(
+          new RemoteError(
+            "transport",
+            `invoke encode failed: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
+    });
+  }
+
+  /** Invoke a port op and map the response to `SpokeResult` (contract §5.3/§8). */
+  private async invokeMapped<T>(
+    op: string,
+    payload: Record<string, unknown>,
+  ): Promise<SpokeResult<T>> {
+    try {
+      const response = await this.invokeOp(op, payload);
+      if ("error" in response) {
+        return mapErrorEnvelope(response.error);
+      }
+      return spokeOk(response.payload as unknown as T);
+    } catch (error) {
+      if (error instanceof RemoteError) {
+        return internalError(error.kind, error.message);
+      }
+      return internalError(
+        "transport",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
+/**
+ * Dial a remote peer over `transport`: perform the signed hello exchange +
+ * session snapshot, then return an `Established` adapter. Throws on any
+ * handshake / allowlist / verification failure (contract §3.3/§8.2 — no
+ * half-open `BaselinePorts` instance).
+ */
+export async function connectRemoteAdapter(
+  options: RemoteAdapterOptions,
+): Promise<RemoteAdapter> {
+  const { transport, localIdentity, localManifest, remotePubkey, allowlist } =
+    options;
+  const invokeTimeoutMs = options.invokeTimeoutMs ?? DEFAULT_INVOKE_TIMEOUT_MS;
+  if (localIdentity.seed.length !== 32) {
+    throw new Error("localIdentity.seed must be 32 bytes");
+  }
+  if (remotePubkey.length !== 32) {
+    throw new Error("remotePubkey must be 32 bytes");
+  }
+  const remotePeerId = derivePeerIdFromEd25519Pubkey(remotePubkey);
+  if (!isAllowlisted(allowlist, remotePeerId)) {
+    throw new Error(
+      `remote peer ${remotePeerId} is not on the allowlist (fail-closed)`,
+    );
+  }
+  const localPeerId = derivePeerIdFromEd25519Pubkey(
+    getPublicKeyEd25519(localIdentity.seed),
+  );
+
+  const adapter = new RemoteAdapter(
+    transport,
+    invokeTimeoutMs,
+    options.capabilityToken,
+  );
+  adapter.beginHandshake();
+
+  try {
+    // 1. Send our signed hello (nonce generated internally — single-use).
+    await withTimeout(
+      adapter.sendEnvelope(
+        await signHelloEd25519(localIdentity.seed, generateNonce(), localManifest),
+      ),
+      invokeTimeoutMs,
+      "hello send",
+    );
+
+    // 2. Await + verify the server's signed hello (signature + identity).
+    const helloDoc = await withTimeout(
+      adapter.recvEnvelope(),
+      invokeTimeoutMs,
+      "server hello",
+    );
+    if (!isConnectHello(helloDoc)) {
+      throw new Error("expected ConnectHello from server");
+    }
+    await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
+    const remoteManifest: HostCapabilityManifest = helloDoc.host;
+
+    // 3. Await + validate the A-assigned session snapshot.
+    const sessionDoc = await withTimeout(
+      adapter.recvEnvelope(),
+      invokeTimeoutMs,
+      "session snapshot",
+    );
+    if (!isConnectSession(sessionDoc)) {
+      throw new Error("expected ConnectSession snapshot after server hello");
+    }
+    if (
+      sessionDoc.initiator_peer_id !== localPeerId ||
+      sessionDoc.responder_peer_id !== remotePeerId
+    ) {
+      throw new Error(
+        "session snapshot peer ids do not match the authenticated hellos",
+      );
+    }
+    if (sessionDoc.session_id.length === 0) {
+      throw new Error("session snapshot session_id must not be empty");
+    }
+    if (sessionDoc.initial_sequence !== 0) {
+      throw new Error(
+        "session snapshot initial_sequence must be 0 for protocol_version 1",
+      );
+    }
+
+    adapter.establish(
+      new Session({
+        session_id: sessionDoc.session_id,
+        initiator_peer_id: localPeerId,
+        responder_peer_id: remotePeerId,
+        negotiated_capabilities: negotiatedCapabilities(
+          localManifest.capabilities,
+          remoteManifest.capabilities,
+        ),
+      }),
+      remoteManifest,
+    );
+    return adapter;
+  } catch (error) {
+    // Handshake rejection: release the transport so the peer sees a clean
+    // disconnect (mirrors the connect-client handshake-rejection pattern).
+    adapter.close();
+    throw error;
+  }
+}

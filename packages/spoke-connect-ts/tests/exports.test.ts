@@ -10,6 +10,7 @@ import {
   NoiseTransport,
   NoiseXX,
 } from "@42ch/spoke-connect/noise";
+import { connectRemoteAdapter } from "@42ch/spoke-connect/remote";
 
 describe("package exports map", () => {
   it("resolves the root subpath by package name and exposes its entry points", () => {
@@ -24,5 +25,9 @@ describe("package exports map", () => {
     expect(typeof NoiseXX).toBe("function");
     expect(typeof NoiseHandshake).toBe("function");
     expect(typeof NoiseTransport).toBe("function");
+  });
+
+  it("resolves the remote subpath by package name and exposes its entry points", () => {
+    expect(typeof connectRemoteAdapter).toBe("function");
   });
 });

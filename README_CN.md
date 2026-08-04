@@ -32,7 +32,7 @@
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数辅助、adapter ports 与编排 — 与 `@42ch/spoke-operations` 行为对齐 |
 | [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | 可选连接参考 — libp2p 传输、会话核心、uniffi 绑定接口 |
 
-产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry 与 AssemblePacket 上一个可选、按能力启用的字段袋。见 [扩展与模块](https://spoke.42ch.dev/zh/guide/extensions-modules)。
+产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry 与 AssemblePacket 上一个可选、按能力启用的字段袋。见 [数据模型](https://spoke.42ch.dev/zh/reference/data-model)。
 
 安装固定与软件包职责：[软件包快速开始](https://spoke.42ch.dev/zh/packages/quick-start)。
 
@@ -130,7 +130,7 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-Connect 支持多语言：npm 上的语言原生客户端（TypeScript）、crates.io 上的 Rust 参考实现（libp2p + uniffi 绑定面），以及经四种渠道发布的原生绑定 —— GitHub Packages NuGet/Maven、SPM git、Go modules git、PyPI。总览、TypeScript 路线与原生绑定见 [连接](https://spoke.42ch.dev/zh/connect/overview)。
+Connect 支持多语言：npm 上的语言原生客户端（TypeScript）、crates.io 上的 Rust 参考实现（libp2p + uniffi 绑定面），以及经四种渠道发布的原生绑定 —— GitHub Packages NuGet/Maven、SPM git、Go modules git、PyPI。总览、TypeScript 路线与原生绑定见 [TypeScript 客户端](https://spoke.42ch.dev/zh/how-to/connect-ts-client) 与 [原生绑定](https://spoke.42ch.dev/zh/how-to/connect-native-bindings)。
 
 ## 版本与固定
 
@@ -197,7 +197,7 @@ if (result.ok) {
 | **Adapter ports** | 注入式读写面（`KnowledgeEntryPort`、`HostManifestPort` 等），由产品负责持久化 |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` 序列：加载 scope、执行门控、经 ports 持久化 |
 
-词汇与定位：[`CONCEPTS.md`](CONCEPTS.md)、[`STRATEGY.md`](STRATEGY.md)，以及 [核心概念](https://spoke.42ch.dev/zh/guide/concepts)。
+词汇与定位：[`CONCEPTS.md`](CONCEPTS.md)、[`STRATEGY.md`](STRATEGY.md)，以及 [核心概念](https://spoke.42ch.dev/zh/explanation/concepts)。
 
 ## 可选能力
 
@@ -212,7 +212,7 @@ if (result.ok) {
 
 需要签名的跨进程交互的产品可声明 **`spoke-connect`**。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
 
-基线集成方使用核心 schema；可选能力按需启用。细节：[分层与能力](https://spoke.42ch.dev/zh/guide/layers)。
+基线集成方使用核心 schema；可选能力按需启用。细节：[核心概念](https://spoke.42ch.dev/zh/explanation/concepts)。
 
 ## 操作层
 
@@ -229,20 +229,20 @@ if (result.ok) {
 
 参考 **FullAdapter**（baseline + `l2-computable` + `l5-fork`，含 `HostCapabilityManifest` 对等主机）：[`fixtures/toy-world/`](fixtures/toy-world/) — TypeScript `ToyWorldAdapter`，Rust crate `spoke-fixture-toy-world`。
 
-细节：[操作库](https://spoke.42ch.dev/zh/guide/operations-library)。
+细节：[编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops)。
 
 ## 延伸阅读
 
 | 主题 | 指南 |
-|------|------|
-| 协议总览 | [协议](https://spoke.42ch.dev/zh/guide/protocol) |
-| 九层模型与能力等级 | [分层与能力](https://spoke.42ch.dev/zh/guide/layers) |
-| 数据对象与开放词汇 | [数据模型](https://spoke.42ch.dev/zh/guide/data-model) |
-| Ops 请求/响应信封 | [操作线上信封](https://spoke.42ch.dev/zh/guide/ops-wire) |
-| 操作库行为 | [操作库](https://spoke.42ch.dev/zh/guide/operations-library) |
-| Core / modules / extensions | [扩展与模块](https://spoke.42ch.dev/zh/guide/extensions-modules) |
-| Connect 信封与绑定 | [连接](https://spoke.42ch.dev/zh/connect/overview) |
-| Domain Profiles | [叙事结构](https://spoke.42ch.dev/zh/profiles/narrative-structure) 及同组页面 |
+|-------|------|
+| 协议总览 | [协议](https://spoke.42ch.dev/zh/reference/protocol) |
+| 九层模型与能力等级 | [核心概念](https://spoke.42ch.dev/zh/explanation/concepts) |
+| 数据对象与开放词汇 | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
+| Ops 请求/响应信封 | [操作线上信封](https://spoke.42ch.dev/zh/reference/ops) |
+| 操作库行为 | [编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops) |
+| Core / modules / extensions | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
+| Connect 信封与绑定 | [连接](https://spoke.42ch.dev/zh/reference/connect) |
+| Domain Profiles | [领域画像](https://spoke.42ch.dev/zh/explanation/domain-profiles) |
 | JSON Schema SSOT | [`schemas/`](schemas/) |
 | 参考 adapters 与样例图 | [`fixtures/toy-world/`](fixtures/toy-world/) |
 

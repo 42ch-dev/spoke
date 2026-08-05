@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(any(test, feature = "ffi-smoke-host"))]
 pub mod loopback_oracle {
     mod spoke_connect {
         pub use crate::core;

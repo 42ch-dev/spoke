@@ -68,8 +68,10 @@ fi
 
 TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 
-echo "==> build ffi cdylib (bindgen metadata source)"
-"${CARGO[@]}" build -p spoke-connect --features ffi --release
+FFI_FEATURES="ffi,remote-adapter"
+
+echo "==> build ffi cdylib (bindgen metadata source; production surface — no ffi-smoke-host)"
+"${CARGO[@]}" build -p spoke-connect --features "${FFI_FEATURES}" --release
 CDYLIB="${TARGET_DIR}/release/libspoke_connect.dylib"
 if [[ ! -f "${CDYLIB}" ]]; then
   echo "missing cdylib: ${CDYLIB}" >&2
@@ -102,7 +104,7 @@ for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
   echo "  -> ${slice} (${triple})"
-  "${CARGO[@]}" rustc -p spoke-connect --features ffi --release --crate-type staticlib --target "${triple}"
+  "${CARGO[@]}" rustc -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
   STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
   if [[ ! -f "${STATICLIB}" ]]; then
     echo "missing staticlib: ${STATICLIB}" >&2

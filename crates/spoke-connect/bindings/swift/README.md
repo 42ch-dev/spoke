@@ -34,6 +34,16 @@ Root `Package.swift` exposes product `SpokeConnect` from package `spoke`. The `s
 
 **git-lfs:** the xcframework static libraries are tracked via [git-lfs](https://git-lfs.com) (`.gitattributes`). Xcode resolves them transparently; command-line `swift build` users run `git lfs install` once so the real binaries are smudged on clone.
 
+## Build features
+
+| Artifact | Cargo features | Notes |
+|----------|----------------|-------|
+| Committed xcframework + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Local smoke cdylib + smoke Swift bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
+
+`ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
+Full loopback smoke procedure: [`Smoke/README.md`](Smoke/README.md).
+
 ## Layout
 
 | Path | Contents |

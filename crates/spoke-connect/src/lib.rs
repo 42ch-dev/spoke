@@ -99,7 +99,7 @@ pub mod core;
 #[cfg(feature = "remote-adapter")]
 pub mod remote;
 
-#[cfg(all(test, feature = "remote-adapter"))]
+#[cfg(any(test, feature = "ffi-smoke-host"))]
 pub mod test_support;
 
 #[cfg(feature = "ffi")]

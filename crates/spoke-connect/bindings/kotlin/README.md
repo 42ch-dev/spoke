@@ -38,15 +38,26 @@ val version = protocolVersion() // 1
 
 Namespace: **`uniffi.spoke_connect`**. Transport / WebSocket stays in the host product.
 
+## Build features
+
+| Artifact | Cargo features | Notes |
+|----------|----------------|-------|
+| Committed `generated/` + `native/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Local loopback smoke cdylib + bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter section |
+
+`ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
+Full loopback smoke procedure: [`Smoke/README.md`](Smoke/README.md).
+
 ## Layout
 
 | Path | Contents |
 |------|----------|
 | `generated/uniffi/spoke_connect/` | Committed generated Kotlin (post-generate patch applied) |
-| `bindgen/` | Post-generate patch recipe (`message` → `detail` on four `CoreException` variants) |
+| `bindgen/` | Post-generate patch recipe — see `bindgen/README.md` (`CoreException`/`FfiException` `message`→`detail`, domain `close()` collision on loopback types) |
 | `native/<jna-rid>/` | Committed host native for smoke; jar also packs CI-assembled `src/main/resources/` |
 | `src/main/resources/<jna-rid>/` | CI-assembled JNA classpath natives (gitignored; see `assemble-kotlin-natives.sh`) |
 | `Smoke/` | Golden-parity smoke (`gradle test`) |
+| `loopback-smoke/` | RemoteAdapter loopback smoke (requires `-PsmokeHost=true`; see `Smoke/README.md`) |
 | `build.gradle.kts` | JVM library, `maven-publish`, smoke harness |
 
 JNA resource prefixes inside the jar: `darwin-aarch64/`, `linux-x86-64/`, `win32-x86-64/`.
@@ -56,8 +67,8 @@ JNA resource prefixes inside the jar: `darwin-aarch64/`, `linux-x86-64/`, `win32
 Commands from the **repository root** (local nightly convention: `cargo +nightly …`):
 
 ```bash
-cargo +nightly build -p spoke-connect --features ffi
-cargo +nightly run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter
+cargo +nightly run -p spoke-connect --features ffi,bindgen-cli --bin uniffi-bindgen -- \
   generate --library target/debug/libspoke_connect.dylib \
   --language kotlin \
   --out-dir crates/spoke-connect/bindings/kotlin/generated \

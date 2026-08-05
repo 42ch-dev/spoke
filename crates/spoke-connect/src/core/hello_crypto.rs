@@ -211,7 +211,7 @@ mod tests {
     // the shared cross-language fixture `tests/fixtures/golden-hello.json`
     // (SSOT; transcribed from libp2p-captured constants — never regenerated).
     use super::*;
-    use crate::core::golden::{golden, golden_manifest, golden_pubkey, golden_seed};
+    use crate::core::golden::{golden, golden_manifest, golden_pubkey, golden_responder, golden_seed};
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -272,6 +272,69 @@ mod tests {
             .expect("sign golden hello");
         verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello, None)
             .expect("verify golden hello");
+    }
+
+    // ── Responder golden (5-field signed object, dial binding) ──────────────
+    // The `responder` block of the shared fixture pins the 5-field vector:
+    // the SAME golden key pair / manifest signed over `peer_nonce` = the
+    // initiator golden nonce. These tests assert the Rust signer reproduces
+    // the pinned bytes (cross-language byte parity: the TS client pins the
+    // identical constants in `src/golden.ts` and asserts them in
+    // `tests/hello.test.ts`).
+
+    #[test]
+    fn golden_responder_signature_matches_fixture() {
+        let responder = golden_responder();
+        let hello = sign_hello_ed25519(
+            &golden_seed(),
+            responder.nonce.as_str(),
+            &golden_manifest(),
+            Some(responder.peer_nonce.as_str()),
+        )
+        .expect("sign golden responder hello");
+        assert_eq!(
+            hello.peer_nonce.as_ref().map(|pn| pn.as_str()),
+            Some(responder.peer_nonce.as_str()),
+            "responder hello must carry peer_nonce = the initiator golden nonce"
+        );
+        assert_eq!(hello.signature.as_str(), responder.signature_b64u.as_str());
+    }
+
+    #[test]
+    fn golden_responder_canonical_bytes_match_fixture() {
+        let responder = golden_responder();
+        let bytes = canonical_hello_bytes(
+            golden().peer_id.as_str(),
+            responder.nonce.as_str(),
+            &golden_manifest(),
+            Some(responder.peer_nonce.as_str()),
+        )
+        .expect("jcs");
+        assert_eq!(hex(&bytes), responder.jcs_hex);
+        // The 5-field object must differ from the 4-field initiator object —
+        // `peer_nonce` is inside the signed bytes, not an envelope extra.
+        assert_ne!(hex(&bytes), golden().jcs_hex);
+    }
+
+    #[test]
+    fn golden_responder_hello_verifies_with_dial_binding() {
+        let responder = golden_responder();
+        let hello = sign_hello_ed25519(
+            &golden_seed(),
+            responder.nonce.as_str(),
+            &golden_manifest(),
+            Some(responder.peer_nonce.as_str()),
+        )
+        .expect("sign golden responder hello");
+        verify_hello_ed25519(
+            &golden_pubkey(),
+            golden().peer_id.as_str(),
+            &hello,
+            Some(responder.peer_nonce.as_str()),
+        )
+        .expect("verify golden responder hello with the initiator's dial assert");
+        verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello, None)
+            .expect("verify golden responder hello role-aware");
     }
 
     #[test]

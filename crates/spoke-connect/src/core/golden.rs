@@ -5,7 +5,9 @@
 //! signature) lives in `tests/fixtures/golden-hello.json` — the single
 //! cross-language source of truth. This crate is the historical libp2p
 //! capture authority, so the fixture sits under the crate and tests load it
-//! with `include_str!` + `serde_json`.
+//! with `include_str!` + `serde_json`. The fixture also carries the
+//! **responder vector** (`golden_responder`) — the 5-field dial-binding
+//! signed object pinned when that mechanism landed.
 //!
 //! Pinned outputs are **transcribed from committed libp2p-captured
 //! constants, never regenerated** by running the code under test. This
@@ -13,6 +15,18 @@
 //! production modules must not import the artifact.
 
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
+
+/// The 5-field responder golden (dial binding): the same golden key pair and
+/// manifest signed over `peer_nonce` = the initiator golden nonce. Pinned
+/// alongside the initiator vector when the dial-binding mechanism landed —
+/// it does not change the initiator vector's bytes.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ResponderGolden {
+    pub(crate) nonce: String,
+    pub(crate) peer_nonce: String,
+    pub(crate) jcs_hex: String,
+    pub(crate) signature_b64u: String,
+}
 
 /// Raw parsed golden vector (field access is crate-test-facing).
 #[derive(Debug, serde::Deserialize)]
@@ -25,6 +39,7 @@ pub(crate) struct GoldenHello {
     pub(crate) jcs_hex: String,
     pub(crate) signature_b64u: String,
     pub(crate) manifest_json: String,
+    pub(crate) responder: ResponderGolden,
 }
 
 const FIXTURE: &str = include_str!(concat!(
@@ -39,6 +54,13 @@ pub(crate) fn golden() -> &'static GoldenHello {
     GOLDEN.get_or_init(|| {
         serde_json::from_str(FIXTURE).expect("tests/fixtures/golden-hello.json parses")
     })
+}
+
+/// The 5-field responder golden (dial binding): nonce, `peer_nonce` (= the
+/// initiator golden nonce), pinned JCS bytes + signature over the same key
+/// pair / manifest.
+pub(crate) fn golden_responder() -> &'static ResponderGolden {
+    &golden().responder
 }
 
 /// Golden Ed25519 seed (32 bytes, hex-decoded from the fixture).

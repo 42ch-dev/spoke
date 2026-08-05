@@ -131,8 +131,11 @@ pub fn sign_hello_ed25519(
 /// is supplied the initiator asserts the responder's `peer_nonce` equals its
 /// own — a replayed responder hello (signed over a different or absent
 /// initiator nonce) fails here, which is the cross-restart replay defense.
-/// A hello without `peer_nonce` (initiator) is verified over the 4-field
-/// signed object.
+/// Fail-closed: when `expected_peer_nonce` is supplied (the dial expects a
+/// responder), a hello WITHOUT `peer_nonce` is rejected — the mixed-version
+/// downgrade (an old responder omits the field) must not bypass the binding.
+/// A hello without `peer_nonce` is verified over the 4-field signed object
+/// only when no `expected_peer_nonce` is asserted.
 ///
 /// Allowlist and nonce gates are separate core checks (see `allowlist` and
 /// `nonce` modules).
@@ -174,8 +177,12 @@ pub fn verify_hello_ed25519(
     // canonicalizing over `expected_peer_id` reproduces the signer's bytes.
     // Role-aware signed object: 5 fields (incl. `peer_nonce`) for a responder
     // hello, 4 fields for an initiator hello. When the initiator supplies
-    // `expected_peer_nonce`, the responder's `peer_nonce` must equal it —
-    // this is the dial binding that defeats cross-restart replay.
+    // `expected_peer_nonce`, the responder's `peer_nonce` must be PRESENT AND
+    // equal to it — this is the dial binding that defeats cross-restart
+    // replay. Fail-closed (spec §Dial binding): a dial that expects a
+    // responder MUST NOT accept an initiator-shaped hello — a mixed-version
+    // old responder omits `peer_nonce`, and silently falling back to the
+    // 4-field verify would skip the binding assert entirely.
     let bytes = match hello.peer_nonce.as_ref() {
         Some(peer_nonce) => {
             if let Some(expected) = expected_peer_nonce {
@@ -190,7 +197,14 @@ pub fn verify_hello_ed25519(
             }
             canonical_hello_bytes(expected_peer_id, hello.nonce.as_str(), &hello.host, Some(peer_nonce.as_str()))?
         }
-        None => canonical_hello_bytes(expected_peer_id, hello.nonce.as_str(), &hello.host, None)?,
+        None => {
+            if expected_peer_nonce.is_some() {
+                return Err(CoreError::HandshakeFailed {
+                    reason: "responder hello is missing peer_nonce (dial binding)".into(),
+                });
+            }
+            canonical_hello_bytes(expected_peer_id, hello.nonce.as_str(), &hello.host, None)?
+        }
     };
     let signature = URL_SAFE_NO_PAD
         .decode(hello.signature.as_str())
@@ -514,6 +528,42 @@ mod tests {
         )
         .expect_err("mismatched peer_nonce");
         assert!(matches!(err, CoreError::HandshakeFailed { reason } if reason.contains("dial binding")));
+    }
+
+    /// Fail-closed dial binding: a dial that expects a responder (it
+    /// supplies its own nonce) MUST reject an initiator-shaped hello — a
+    /// mixed-version OLD responder omits `peer_nonce` (4-field signed
+    /// object), and accepting it would skip the binding assert entirely
+    /// (fail-open downgrade).
+    #[test]
+    fn responder_hello_without_peer_nonce_is_rejected_when_dial_expects_one() {
+        let secret = [16u8; 32];
+        let public_key = SigningKey::from_bytes(&secret).verifying_key().to_bytes();
+        let peer_id = derive_peer_id_from_ed25519_pubkey(&public_key);
+        // Runtime-joined fixture nonces (see `test_nonce`): exactly
+        // "legacy-nonce-1234567" (the old responder's own nonce) and
+        // "initiator-nonce-1234567" (the fresh dial's expected nonce).
+        let legacy = sign_hello_ed25519(
+            &secret,
+            &test_nonce(&["legacy-nonce", "1234567"]),
+            &golden_manifest(),
+            None,
+        )
+        .expect("sign legacy 4-field hello");
+        // The dial expects a responder: the missing `peer_nonce` must fail
+        // closed with the dial-binding error, not silently fall back to the
+        // 4-field verify.
+        let err = verify_hello_ed25519(
+            &public_key,
+            &peer_id,
+            &legacy,
+            Some(&test_nonce(&["initiator-nonce", "1234567"])),
+        )
+        .expect_err("missing peer_nonce must fail the dial");
+        assert!(matches!(err, CoreError::HandshakeFailed { reason } if reason.contains("dial binding")));
+        // Role-aware verify alone (no expected nonce) still accepts an
+        // initiator hello — the fail-closed rule is dial-scoped.
+        verify_hello_ed25519(&public_key, &peer_id, &legacy, None).expect("4-field verify alone");
     }
 
     /// A responder hello that carries `peer_nonce` signs a different object

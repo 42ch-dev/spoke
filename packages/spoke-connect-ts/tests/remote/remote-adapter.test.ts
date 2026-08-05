@@ -6,7 +6,10 @@
  * Asserts, per the plan:
  * (a) ENCAPSULATION — the consumer surface is ONLY the async `BaselinePorts`
  *     (+ `connectRemoteAdapter`): this file imports no session-core
- *     verification helpers, and the adapter exposes none of them at runtime.
+ *     verification helpers through the adapter surface, and the adapter
+ *     exposes none of them at runtime. (Test fixtures MAY import session-core
+ *     helpers directly to craft hostile wire envelopes — see the fail-closed
+ *     dial-binding tests.)
  * (b) DROP-IN — `orchestrateUpsert(remoteAdapter, req)` /
  *     `orchestrateCheck(...)` return the same `SpokeResult` as the local
  *     `ToyWorldAdapter` for identical requests (upsert + conflict-reject +
@@ -45,7 +48,12 @@ import {
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { issueCapabilityToken } from "../../src/core/capability-token.js";
+// Fixture crafting for the fail-closed dial tests: a genuinely-signed
+// 4-field (pre-dial-binding) responder hello, served over a scripted
+// transport (test-only import; the adapter surface stays clean).
+import { signHelloEd25519 } from "../../src/core/hello.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
+import { encodeJsonMessage } from "../../src/framing.js";
 import { schemaConformantManifest } from "../../src/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 // Test-only reset hook for the process-wide accepted-server-hello store
@@ -560,6 +568,48 @@ describe("RemoteAdapter loopback interop", () => {
       await expect(
         connectRemoteAdapter({
           transport: replayTransport,
+          localIdentity: { seed: seedClient },
+          localManifest: clientManifest(),
+          remotePubkey: pubkeyHost,
+          allowlist: [peerIdHost],
+        }),
+      ).rejects.toThrow(/dial binding/);
+    },
+    15000,
+  );
+
+  it(
+    "fails the dial fail-closed when the responder hello omits peer_nonce (mixed-version downgrade)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const seedHost = seed(0xa0);
+      const seedClient = seed(0x10);
+      const pubkeyHost = getPublicKeyEd25519(seedHost);
+      const pubkeyClient = getPublicKeyEd25519(seedClient);
+      const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
+      const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
+
+      // An OLD responder (pre-dial-binding) signs the 4-field initiator
+      // object — no `peer_nonce` on the wire, with a GENUINELY valid
+      // signature from the allowlisted host key (passes identity checks).
+      // The NEW initiator dial expects a responder (it supplies its own
+      // nonce), so the missing `peer_nonce` must fail the dial closed — not
+      // silently fall back to the 4-field verify (fail-open downgrade).
+      const legacyHello = await signHelloEd25519(
+        seedHost,
+        "legacy-host-nonce-1234567",
+        schemaConformantManifest(),
+      );
+      const legacyBytes = new TextEncoder().encode(encodeJsonMessage(legacyHello));
+
+      const legacyTransport: Transport = {
+        send: async () => {},
+        recv: async () => legacyBytes,
+        close: () => {},
+      };
+      await expect(
+        connectRemoteAdapter({
+          transport: legacyTransport,
           localIdentity: { seed: seedClient },
           localManifest: clientManifest(),
           remotePubkey: pubkeyHost,

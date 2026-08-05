@@ -112,9 +112,12 @@ export async function signHelloEd25519(
  * verified over the 5-field signed object, and when `expectedPeerNonce` is
  * supplied the initiator asserts the responder's `peer_nonce` equals its own
  * nonce — a replayed responder hello (signed over a different or absent
- * initiator nonce) fails here, which is the cross-restart replay defense. A
- * hello without `peer_nonce` (initiator) is verified over the 4-field signed
- * object.
+ * initiator nonce) fails here, which is the cross-restart replay defense.
+ * Fail-closed: when `expectedPeerNonce` is supplied (the dial expects a
+ * responder), a hello WITHOUT `peer_nonce` is rejected — the mixed-version
+ * downgrade (an old responder omits the field) must not bypass the binding.
+ * A hello without `peer_nonce` is verified over the 4-field signed object
+ * only when no `expectedPeerNonce` is asserted.
  *
  * Allowlist and nonce gates are separate core checks (`allowlist` and
  * `nonce` modules).
@@ -158,8 +161,12 @@ export async function verifyHelloEd25519(
   // canonicalizing over `expectedPeerId` reproduces the signer's bytes.
   // Role-aware signed object: 5 fields (incl. `peer_nonce`) for a responder
   // hello, 4 fields for an initiator hello. When the initiator supplies
-  // `expectedPeerNonce`, the responder's `peer_nonce` must equal it — this
-  // is the dial binding that defeats cross-restart replay.
+  // `expectedPeerNonce`, the responder's `peer_nonce` must be PRESENT AND
+  // equal to it — this is the dial binding that defeats cross-restart
+  // replay. Fail-closed (spec §Dial binding): a dial that expects a
+  // responder MUST NOT accept an initiator-shaped hello — a mixed-version
+  // old responder omits `peer_nonce`, and silently falling back to the
+  // 4-field verify would skip the binding assert entirely.
   let bytes: Uint8Array;
   if (hello.peer_nonce !== undefined) {
     if (
@@ -178,6 +185,12 @@ export async function verifyHelloEd25519(
       hello.peer_nonce,
     );
   } else {
+    if (expectedPeerNonce !== undefined) {
+      throw new CoreError(
+        "handshake_failed",
+        "responder hello is missing peer_nonce (dial binding)",
+      );
+    }
     bytes = canonicalBytes(expectedPeerId, hello.nonce, hello.host);
   }
 

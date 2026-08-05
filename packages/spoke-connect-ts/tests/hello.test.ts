@@ -179,6 +179,34 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
     );
   });
 
+  it("rejects a responder hello WITHOUT peer_nonce when the dial expects one (fail-closed downgrade)", async () => {
+    // A mixed-version OLD responder signs the 4-field initiator object (no
+    // `peer_nonce`); the NEW initiator dial supplies its own nonce and
+    // expects a responder — the missing `peer_nonce` must fail the dial
+    // closed (dial-binding error), not silently skip the binding assert.
+    const secret = new Uint8Array(32).fill(16);
+    const publicKey = getPublicKeyEd25519(secret);
+    const peerId = derivePeerIdFromEd25519Pubkey(publicKey);
+    const legacy = await signHelloEd25519(
+      secret,
+      "legacy-nonce-1234567",
+      schemaConformantManifest(),
+    );
+    await expect(
+      verifyHelloEd25519(publicKey, peerId, legacy, "initiator-nonce-1234567"),
+    ).rejects.toThrowError(
+      expect.objectContaining({
+        code: "handshake_failed",
+        message: expect.stringContaining("dial binding"),
+      }),
+    );
+    // Role-aware verify alone (no expected nonce) still accepts an initiator
+    // hello — the fail-closed rule is dial-scoped.
+    await expect(
+      verifyHelloEd25519(publicKey, peerId, legacy),
+    ).resolves.toBeUndefined();
+  });
+
   it("keeps the initiator hello 4-field (no peer_nonce key on the wire)", async () => {
     const hello = await signHelloEd25519(
       GOLDEN_SEED,

@@ -279,9 +279,7 @@ Branches MUST NOT include both `payload` and `error`.
 
 Receivers MUST NOT use top-level hello `extensions` for authorization or trust decisions; only the signed fields and the embedded `host` manifest participate in `noise-peerid` accept/reject.
 
-**Verify (role-aware):** recompute JCS over the signed-field set indicated by the received hello — 4 fields when `peer_nonce` is absent (initiator hello), 5 fields when it is present (responder hello); verify the signature with the public key that derives `peer_id` (identity multihash of protobuf `PublicKey`, base58btc); reject on mismatch. An initiator verifying a responder hello MUST additionally assert `peer_nonce` equals its own nonce (dial binding).
-
-**Verify:** recompute JCS over the same four fields from the received hello; verify the signature with the public key that derives `peer_id` (identity multihash of protobuf `PublicKey`, base58btc); reject on mismatch.
+**Verify (role-aware):** recompute JCS over the signed-field set indicated by the received hello — 4 fields when `peer_nonce` is absent (initiator hello), 5 fields when it is present (responder hello); verify the signature with the public key that derives `peer_id` (identity multihash of protobuf `PublicKey`, base58btc); reject on mismatch. An initiator verifying a responder hello MUST additionally assert `peer_nonce` equals its own nonce (dial binding). Fail-closed: an initiator dial that expects a responder MUST reject a hello WITHOUT `peer_nonce` — a mixed-version old responder omits the field, and accepting it would skip the dial-binding assert.
 
 **Why JCS:** multi-language SDKs need one deterministic byte sequence; JCS is standardized (RFC 8785) and library-backed. Implementations MUST NOT invent field-order rules.
 
@@ -295,7 +293,7 @@ Receivers MUST NOT use top-level hello `extensions` for authorization or trust d
 | Replay window | In-memory set for the life of the process is sufficient for the reference stack; products MAY persist nonces with TTL — not specified in this protocol version |
 | Bound into signature | Yes — nonce is inside the signed object |
 | Rejected hello | Nonce of a **rejected** hello MUST NOT be recorded (retry-safe) |
-| **Dial binding** | The responder MUST sign its hello with `peer_nonce` = the initiator's nonce (5-field signed object); the initiator MUST reject a responder hello whose signed `peer_nonce` differs from its own nonce. This defeats replay of a captured responder hello **across a client restart** — the scenario the in-memory `(peer_id, nonce)` store alone cannot cover, because the store resets with the process |
+| **Dial binding** | A responder hello MUST carry `peer_nonce` = the initiator's nonce (5-field signed object). The initiator MUST reject a responder hello whose signed `peer_nonce` differs from its own nonce, and MUST reject a responder hello WITHOUT `peer_nonce` (fail-closed — an old/mixed-version responder that omits the field must not bypass the binding). This defeats replay of a captured responder hello **across a client restart** — the scenario the in-memory `(peer_id, nonce)` store alone cannot cover, because the store resets with the process |
 
 ## Ordering semantics
 

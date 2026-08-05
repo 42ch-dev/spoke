@@ -803,6 +803,29 @@ impl Transport for ReplayTransport {
     }
 }
 
+/// Scripted transport that answers like a mixed-version OLD responder: it
+/// serves a 4-field signed hello (no `peer_nonce`) and nothing else — the
+/// new initiator's fail-closed dial must reject at the hello, before the
+/// session snapshot is even requested.
+struct LegacyHelloTransport {
+    hello: Vec<u8>,
+}
+
+#[async_trait]
+impl Transport for LegacyHelloTransport {
+    async fn send(&self, _envelope: &[u8]) -> Result<(), TransportError> {
+        Ok(())
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        Ok(self.hello.clone())
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        Ok(())
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -1353,6 +1376,47 @@ async fn replayed_server_hello_is_rejected_across_restart_by_dial_binding() {
     .await
     {
         Ok(_) => panic!("replayed server hello must be rejected after a restart"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, RemoteAdapterError::Handshake(ref message) if message.contains("dial binding")),
+        "unexpected dial error: {error:?}"
+    );
+}
+
+#[tokio::test]
+async fn responder_hello_without_peer_nonce_fails_the_dial_closed() {
+    // Mixed-version downgrade: an OLD responder (pre-dial-binding) signs the
+    // 4-field initiator object — no `peer_nonce` on the wire, with a
+    // genuinely valid signature from the allowlisted host key. The NEW
+    // initiator dial expects a responder (it supplies its own nonce), so the
+    // missing `peer_nonce` must fail the dial closed — not silently skip
+    // the binding assert (fail-open downgrade).
+    let legacy_hello = sign_hello_ed25519(
+        &seed_host(),
+        &host_nonce(),
+        &connect_manifest(&manifest("test-host", &["spoke-baseline"])),
+        None,
+    )
+    .expect("sign legacy 4-field hello");
+    let legacy_bytes = serde_json::to_vec(&legacy_hello).expect("legacy hello serializes");
+
+    let error = match connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(LegacyHelloTransport {
+            hello: legacy_bytes,
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    {
+        Ok(_) => panic!("responder hello without peer_nonce must fail the dial"),
         Err(error) => error,
     };
     assert!(

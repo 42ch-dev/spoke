@@ -43,8 +43,8 @@ use spoke_schemas::{
 
 use crate::core::{
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, is_allowlisted,
-    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, Correlation, NonceStore,
-    OutboundSequence,
+    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, Correlation, EnvelopeAuthError,
+    EnvelopeAuthErrorKind, NonceStore, OutboundSequence,
 };
 use crate::hello::generate_nonce;
 use crate::remote::transport::{Transport, TransportError};
@@ -177,6 +177,11 @@ enum RemoteErrorKind {
     Timeout,
     CorrelationMismatch,
     SequenceExhausted,
+    // Envelope-auth rejections (envelope-auth contract §8): the locked
+    // `details.kind` vocabulary, surfaced via `INTERNAL_ERROR` SpokeRejects.
+    EnvelopeAuthMissing,
+    EnvelopeAuthInvalid,
+    EnvelopeAuthSessionUnbound,
 }
 
 impl RemoteErrorKind {
@@ -187,7 +192,22 @@ impl RemoteErrorKind {
             Self::Timeout => "timeout",
             Self::CorrelationMismatch => "correlation_mismatch",
             Self::SequenceExhausted => "sequence_exhausted",
+            Self::EnvelopeAuthMissing => "envelope_auth_missing",
+            Self::EnvelopeAuthInvalid => "envelope_auth_invalid",
+            Self::EnvelopeAuthSessionUnbound => "envelope_auth_session_unbound",
         }
+    }
+}
+
+/// Map an envelope-auth wire-rejection kind (contract §8) to the internal
+/// `RemoteError` kind so `invoke_mapped` surfaces it as an `INTERNAL_ERROR`
+/// `SpokeResult` reject with `details.kind` verbatim (parity with the TS
+/// `RemoteError(error.kind, ...)` mapping).
+fn envelope_auth_kind_to_remote_error(kind: EnvelopeAuthErrorKind) -> RemoteErrorKind {
+    match kind {
+        EnvelopeAuthErrorKind::Missing => RemoteErrorKind::EnvelopeAuthMissing,
+        EnvelopeAuthErrorKind::Invalid => RemoteErrorKind::EnvelopeAuthInvalid,
+        EnvelopeAuthErrorKind::SessionUnbound => RemoteErrorKind::EnvelopeAuthSessionUnbound,
     }
 }
 
@@ -221,6 +241,18 @@ fn is_dispatch_deny(code: &str) -> bool {
     matches!(code, "op_unsupported" | "capability_missing")
 }
 
+/// Extract the correlation echo fields from a response-shaped wire document
+/// (both `payload` and `error` branches carry the three fields at the top
+/// level). `None` for any other envelope shape — the receive-loop
+/// discriminator (mirror of TS `isConnectInvokeResponse`).
+fn wire_response_correlation(doc: &Value) -> Option<Correlation> {
+    Some(Correlation {
+        session_id: doc.get("session_id")?.as_str()?.to_string(),
+        sequence: doc.get("sequence")?.as_i64()?,
+        request_id: doc.get("request_id")?.as_str()?.to_string(),
+    })
+}
+
 /// Map an error-branch envelope to a `SpokeResult` reject (contract §8.2).
 ///
 /// The error branch carries the codegen-inline wire `ErrorEnvelope`, which is
@@ -232,6 +264,18 @@ fn map_error_envelope(error: &WireErrorEnvelope) -> SpokeReject {
         details.insert("wire_code".into(), Value::String(error.code.clone()));
         return SpokeReject {
             code: SpokeRejectCode::CapabilityPortMissing,
+            message: error.message.clone(),
+            details: Some(details),
+        };
+    }
+    // Envelope-auth rejection (contract §8): the host answered `auth_failed`
+    // for a request that failed envelope verification. `auth_failed` is not
+    // a SpokeRejectCode, so the generic mapping would produce
+    // INVALID_INPUT; the locked mapping is INTERNAL_ERROR with the
+    // envelope-auth `details.kind` surfaced verbatim.
+    if error.code == EnvelopeAuthError::CODE {
+        return SpokeReject {
+            code: SpokeRejectCode::InternalError,
             message: error.message.clone(),
             details: Some(details),
         };
@@ -287,6 +331,11 @@ pub struct RemoteAdapter {
     transport: Arc<dyn Transport>,
     invoke_timeout: Duration,
     capability_token: Option<CapabilityTokenProof>,
+    /// The remote peer's 32-byte hello Ed25519 public key — every inbound
+    /// post-hello envelope (`ConnectSession` snapshot, `ConnectInvokeResponse`)
+    /// is verified against it (`spoke-connect-session-jcs-v1` /
+    /// `spoke-connect-invoke-response-jcs-v1`; envelope-auth contract §7).
+    remote_pubkey: [u8; 32],
 
     state: Mutex<RemoteAdapterState>,
     session: Mutex<Option<EstablishedSession>>,
@@ -298,6 +347,7 @@ pub struct RemoteAdapter {
 impl RemoteAdapter {
     fn new(
         transport: Arc<dyn Transport>,
+        remote_pubkey: [u8; 32],
         invoke_timeout: Duration,
         capability_token: Option<CapabilityTokenProof>,
     ) -> Self {
@@ -305,6 +355,7 @@ impl RemoteAdapter {
             transport,
             invoke_timeout,
             capability_token,
+            remote_pubkey,
             state: Mutex::new(RemoteAdapterState::Disconnected),
             session: Mutex::new(None),
             remote_manifest: Mutex::new(None),
@@ -441,16 +492,18 @@ impl RemoteAdapter {
                     return;
                 }
             };
-            let Ok(response) = serde_json::from_value::<ConnectInvokeResponse>(doc) else {
-                // Post-handshake stray envelope (hello / session / unknown
-                // shape): ignored. Unexpected invoke requests are host-role —
-                // out of the single-peer client scope (contract §4).
+            // Response-shape discriminator on the wire form (mirror of TS
+            // `isConnectInvokeResponse`): both branches carry the three echo
+            // fields at the top level. Everything else (hello / session /
+            // unknown shape) is a post-handshake stray envelope — ignored.
+            // Unexpected invoke requests are host-role — out of the
+            // single-peer client scope (contract §4).
+            let Some(correlation) = wire_response_correlation(&doc) else {
                 continue;
             };
 
             // Demux by request_id; unknown/duplicate responses are dropped
             // (protocol v1 defines no retry).
-            let correlation = Correlation::from(&response);
             let request_id = correlation.request_id.clone();
             let entry = self
                 .pending
@@ -461,13 +514,54 @@ impl RemoteAdapter {
                 continue;
             };
             entry.timeout_task.abort();
+            let session_id = self
+                .session
+                .lock()
+                .expect("session lock")
+                .as_ref()
+                .map(|session| session.session_id.clone());
+            let Some(session_id) = session_id else {
+                // The session vanished mid-loop (close raced this response):
+                // fail every pending waiter and transition to `Closed`.
+                self.close_session("session state missing in receive loop");
+                return;
+            };
+            // Correlation echo check first (non-mutating wire-position
+            // validation), then envelope-auth verify (contract §7: the
+            // response must carry the peer's authentic signature over the
+            // exact wire branch, against the peer's hello Ed25519 public
+            // key). A forged/tampered response fails closed — only this
+            // waiter, never a session-state mutation.
             let outcome = check_response_correlation(&entry.correlation, &correlation)
-                .map(|()| response)
                 .map_err(|_| {
                     RemoteError::new(
                         RemoteErrorKind::CorrelationMismatch,
                         "response echo fields do not match the request",
                     )
+                })
+                .and_then(|()| {
+                    crate::core::verify_invoke_response_auth(&self.remote_pubkey, &doc, &session_id)
+                        .map_err(|error| match error.kind() {
+                            Some(kind) => RemoteError::new(
+                                envelope_auth_kind_to_remote_error(kind),
+                                error.to_string(),
+                            ),
+                            None => RemoteError::new(
+                                RemoteErrorKind::CorrelationMismatch,
+                                "response echo fields do not match the request",
+                            ),
+                        })
+                })
+                .and_then(|()| {
+                    // Verify passed ⇒ the wire doc is a well-formed response
+                    // branch (the signer signed exactly the wire branch), so
+                    // typed deserialization cannot fail.
+                    serde_json::from_value::<ConnectInvokeResponse>(doc).map_err(|error| {
+                        RemoteError::new(
+                            RemoteErrorKind::Transport,
+                            format!("response decode failed: {error}"),
+                        )
+                    })
                 });
             let _ = entry.tx.try_send(outcome);
         }
@@ -826,6 +920,7 @@ pub async fn connect_remote_adapter(
 
     let adapter = Arc::new(RemoteAdapter::new(
         transport,
+        remote_pubkey,
         invoke_timeout,
         capability_token,
     ));
@@ -891,23 +986,39 @@ pub async fn connect_remote_adapter(
         };
 
         // 3. Await + validate the responder-assigned session snapshot.
+        //    Envelope-auth verify runs on the wire form BEFORE typed
+        //    deserialization (`spoke-connect-session-jcs-v1` against the
+        //    responder's hello Ed25519 public key; the step-6 peer-id
+        //    binding assert replaces the old manual comparison). A missing /
+        //    invalid signature or peer-id mismatch fails the dial closed —
+        //    no session state exists yet.
         let recv: Result<Vec<u8>, TransportError> =
             bounded(adapter.transport.recv(), invoke_timeout, "session snapshot").await?;
         let bytes = recv.map_err(|error| {
             RemoteAdapterError::Handshake(format!("session snapshot recv failed: {error}"))
         })?;
-        let session_doc: ConnectSession = serde_json::from_slice(&bytes).map_err(|_| {
+        let session_doc: Value = serde_json::from_slice(&bytes).map_err(|_| {
             RemoteAdapterError::Handshake(
                 "expected ConnectSession snapshot after server hello".into(),
             )
         })?;
-        if session_doc.initiator_peer_id.as_str() != local_peer_id
-            || session_doc.responder_peer_id.as_str() != remote_peer_id
-        {
-            return Err(RemoteAdapterError::Handshake(
-                "session snapshot peer ids do not match the authenticated hellos".into(),
-            ));
-        }
+        crate::core::verify_session_auth(
+            &remote_pubkey,
+            &session_doc,
+            &local_peer_id,
+            &remote_peer_id,
+        )
+        .map_err(|error| {
+            RemoteAdapterError::Handshake(format!(
+                "session snapshot verification failed: {error}"
+            ))
+        })?;
+        let session_doc: ConnectSession =
+            serde_json::from_value(session_doc).map_err(|_| {
+                RemoteAdapterError::Handshake(
+                    "expected ConnectSession snapshot after server hello".into(),
+                )
+            })?;
         if session_doc.session_id.as_str().is_empty() {
             return Err(RemoteAdapterError::Handshake(
                 "session snapshot session_id must not be empty".into(),
@@ -984,6 +1095,7 @@ mod tests {
         let pair = loopback_transport_pair();
         let adapter = Arc::new(RemoteAdapter::new(
             Arc::new(pair.client),
+            [0xaa; 32], // unused here — no inbound responses are received
             Duration::from_millis(DEFAULT_INVOKE_TIMEOUT_MS),
             None,
         ));

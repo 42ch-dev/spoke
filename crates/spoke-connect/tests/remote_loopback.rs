@@ -32,7 +32,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::Serialize;
 use serde_json::{json, Value};
 use spoke_connect::core::{
@@ -135,6 +135,7 @@ struct LoopbackHostStats {
     hellos_verified: usize,
     invokes_dispatched: usize,
     sequence_rejections: usize,
+    auth_rejections: usize,
     dispatch_denials: usize,
     response_order: Vec<i64>,
     auth_seen: bool,
@@ -142,6 +143,10 @@ struct LoopbackHostStats {
 
 struct HostSession {
     session_id: String,
+    /// The client's hello Ed25519 public key (the key that verified the
+    /// client's hello at establish) — inbound invoke request signatures are
+    /// verified against it (envelope-auth contract §4/§7).
+    client_pubkey: [u8; 32],
     negotiated_capabilities: Vec<String>,
     inbound: Mutex<InboundSequence>,
 }
@@ -177,45 +182,113 @@ impl HostInner {
     /// response branch object (`payload` success XOR `error`) — the same
     /// object becomes the signed object, mirroring the contract's
     /// branch-exact signed field set (`{session_id, sequence, request_id}`
-    /// + branch).
-    async fn send_signed_response(&self, request: &ConnectInvokeRequest, branch: Value) {
+    /// + branch). The echo fields come from the wire document, so reject
+    /// paths that run before typed deserialization (sequence gate,
+    /// envelope-auth verify) can still answer the sender.
+    async fn send_signed_response(
+        &self,
+        session_id: &str,
+        sequence: i64,
+        request_id: &str,
+        branch: Value,
+    ) {
         self.stats
             .lock()
             .expect("stats lock")
             .response_order
-            .push(request.sequence);
+            .push(sequence);
         let branch = branch.as_object().expect("branch is an object").clone();
         let mut signed = serde_json::Map::new();
-        signed.insert("session_id".into(), json!(request.session_id));
-        signed.insert("sequence".into(), json!(request.sequence));
-        signed.insert("request_id".into(), json!(request.request_id));
+        signed.insert("session_id".into(), json!(session_id));
+        signed.insert("sequence".into(), json!(sequence));
+        signed.insert("request_id".into(), json!(request_id));
         signed.extend(branch.clone());
         let signature = sign_envelope(&self.host_seed, &serde_json::Value::Object(signed));
         let mut wire = serde_json::Map::new();
-        wire.insert("session_id".into(), json!(request.session_id));
-        wire.insert("sequence".into(), json!(request.sequence));
-        wire.insert("request_id".into(), json!(request.request_id));
+        wire.insert("session_id".into(), json!(session_id));
+        wire.insert("sequence".into(), json!(sequence));
+        wire.insert("request_id".into(), json!(request_id));
         wire.extend(branch);
         wire.insert("extensions".into(), json!({}));
         wire.insert("signature".into(), json!(signature));
         self.send_envelope(&serde_json::Value::Object(wire)).await;
     }
 
-    async fn send_error_response(&self, request: &ConnectInvokeRequest, code: &str, message: &str) {
+    async fn send_error_response(
+        &self,
+        session_id: &str,
+        sequence: i64,
+        request_id: &str,
+        code: &str,
+        message: &str,
+    ) {
         self.send_signed_response(
-            request,
+            session_id,
+            sequence,
+            request_id,
             json!({ "error": { "code": code, "message": message, "extensions": {} } }),
         )
         .await;
     }
 
-    async fn send_ok_response(&self, request: &ConnectInvokeRequest, payload: Value) {
-        self.send_signed_response(request, json!({ "payload": payload })).await;
+    /// Answer with a signed `auth_failed` error branch carrying the locked
+    /// `details.kind` (envelope-auth contract §8) for a request that failed
+    /// envelope verification — no advance, no dispatch, no handler side
+    /// effect.
+    async fn send_auth_failed_response(
+        &self,
+        session_id: &str,
+        sequence: i64,
+        request_id: &str,
+        error: &HostEnvelopeAuthError,
+    ) {
+        // The locked machine kind (contract §8): every wire rejection
+        // carries its `details.kind`; the local key-misuse case (unreachable
+        // here — the key is the client's verified hello key) carries none
+        // and is encoded without `details.kind`.
+        let mut error_obj = serde_json::Map::new();
+        error_obj.insert("code".into(), json!("auth_failed"));
+        error_obj.insert("message".into(), json!(error.message));
+        if let Some(kind) = error.kind {
+            error_obj.insert("details".into(), json!({ "kind": kind }));
+        }
+        error_obj.insert("extensions".into(), json!({}));
+        self.send_signed_response(
+            session_id,
+            sequence,
+            request_id,
+            json!({ "error": Value::Object(error_obj) }),
+        )
+        .await;
     }
 
-    async fn send_reject_response(&self, request: &ConnectInvokeRequest, reject: &SpokeReject) {
+    async fn send_ok_response(
+        &self,
+        session_id: &str,
+        sequence: i64,
+        request_id: &str,
+        payload: Value,
+    ) {
         self.send_signed_response(
-            request,
+            session_id,
+            sequence,
+            request_id,
+            json!({ "payload": payload }),
+        )
+        .await;
+    }
+
+    async fn send_reject_response(
+        &self,
+        session_id: &str,
+        sequence: i64,
+        request_id: &str,
+        reject: &SpokeReject,
+    ) {
+        self.send_signed_response(
+            session_id,
+            sequence,
+            request_id,
             json!({
                 "error": {
                     "code": reject.code.as_str(),
@@ -228,47 +301,106 @@ impl HostInner {
         .await;
     }
 
-    async fn handle_invoke(&self, request: ConnectInvokeRequest) {
+    async fn handle_invoke(&self, wire: Value) {
         // Session gates run under the std Mutex guard — all guard usage is
         // confined to this block so no MutexGuard crosses an await (the
         // handler runs in a spawned Send future).
-        let (sequence_ok, negotiated) = {
+        let Some(session_id) = wire.get("session_id").and_then(Value::as_str) else {
+            return; // stray envelope — ignored
+        };
+        let Some(sequence) = wire.get("sequence").and_then(Value::as_i64) else {
+            return; // stray envelope — ignored
+        };
+        let Some(request_id) = wire
+            .get("request_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        else {
+            return; // stray envelope — ignored
+        };
+        let (session_id, client_pubkey, negotiated) = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
                 return; // stray request — ignored
             };
-            if request.session_id.as_str() != session.session_id {
+            if session_id != session.session_id {
                 return; // stray request — ignored
             }
-            let sequence_ok = session
-                .inbound
-                .lock()
-                .expect("inbound lock")
-                .advance(request.sequence)
-                .is_ok();
-            (sequence_ok, session.negotiated_capabilities.clone())
+            (
+                session.session_id.clone(),
+                session.client_pubkey,
+                session.negotiated_capabilities.clone(),
+            )
         };
-        if request.auth.is_some() {
+        if wire.get("auth").is_some() {
             self.stats.lock().expect("stats lock").auth_seen = true;
         }
 
-        // 1. Inbound sequence gate — replay/out-of-order fails; no handler
-        //    side effect on failure.
-        if !sequence_ok {
+        // 1. Inbound sequence gate — non-mutating `peek` (auth-before-
+        //    advance, contract §7): the wire position is validated WITHOUT
+        //    consuming it, so a bogus-signature envelope cannot desync the
+        //    session. A replay / out-of-order sequence fails here with no
+        //    handler side effect.
+        let peek_ok = {
+            let session_guard = self.session.lock().expect("session lock");
+            let Some(session) = session_guard.as_ref() else {
+                return;
+            };
+            let inbound = session.inbound.lock().expect("inbound lock");
+            inbound.peek(sequence).is_ok()
+        };
+        if !peek_ok {
             self.stats.lock().expect("stats lock").sequence_rejections += 1;
             self.send_error_response(
-                &request,
+                &session_id,
+                sequence,
+                &request_id,
                 "inbound_sequence_mismatch",
-                &format!(
-                    "inbound sequence {} is not the next expected",
-                    request.sequence
-                ),
+                &format!("inbound sequence {sequence} is not the next expected"),
             )
             .await;
             return;
         }
 
-        // 2. Dispatch gate — product map first, then the core table; unknown
+        // 2. Envelope-auth verify (contract §7 — auth-before-advance): the
+        //    request signature is verified over the wire form against the
+        //    client's hello Ed25519 public key BEFORE the inbound counter
+        //    advances. A forged / tampered / missing signature is answered
+        //    `auth_failed` carrying the locked `details.kind`, and the
+        //    session state is left untouched — no advance, no dispatch, no
+        //    handler side effect.
+        if let Err(error) = self.verify_invoke_request_auth(&wire, &session_id, &client_pubkey) {
+            self.stats.lock().expect("stats lock").auth_rejections += 1;
+            self.send_auth_failed_response(&session_id, sequence, &request_id, &error)
+                .await;
+            return;
+        }
+
+        // 3. Advance the inbound counter — `peek` validated the position
+        //    above, so `advance` cannot fail (auth-before-advance). The
+        //    sequence is consumed once accepted, whatever the response
+        //    outcome (mirrors the outbound direction: a failed invoke still
+        //    consumes its sequence).
+        {
+            let session_guard = self.session.lock().expect("session lock");
+            let Some(session) = session_guard.as_ref() else {
+                return;
+            };
+            session
+                .inbound
+                .lock()
+                .expect("inbound lock")
+                .advance(sequence)
+                .expect("peek passed, advance cannot fail");
+        }
+
+        // The signature verified ⇒ the wire doc is a well-formed
+        // `ConnectInvokeRequest` (the signer signed exactly the wire
+        // fields); typed deserialization cannot fail.
+        let request: ConnectInvokeRequest =
+            serde_json::from_value(wire).expect("verified request deserializes");
+
+        // 4. Dispatch gate — product map first, then the core table; unknown
         //    ops and missing capabilities answer `op_unsupported`.
         let op = request.op.as_str();
         let required = self
@@ -281,7 +413,9 @@ impl HostInner {
         if !allowed {
             self.stats.lock().expect("stats lock").dispatch_denials += 1;
             self.send_error_response(
-                &request,
+                &session_id,
+                sequence,
+                &request_id,
                 "op_unsupported",
                 &format!("op {op} is not authorized by this session"),
             )
@@ -309,7 +443,7 @@ impl HostInner {
                     .lock()
                     .expect("stats lock")
                     .response_order
-                    .push(request.sequence);
+                    .push(sequence);
                 let mut envelope = envelope;
                 let mut signed = envelope
                     .as_object()
@@ -328,13 +462,36 @@ impl HostInner {
             }
         }
 
-        // 3. Dispatch to the local adapter.
+        // 5. Dispatch to the local adapter.
         let result = self.dispatch_op(&request).await;
         self.stats.lock().expect("stats lock").invokes_dispatched += 1;
         match result {
-            SpokeResult::Ok(payload) => self.send_ok_response(&request, payload).await,
-            SpokeResult::Reject(reject) => self.send_reject_response(&request, &reject).await,
+            SpokeResult::Ok(payload) => {
+                self.send_ok_response(&session_id, sequence, &request_id, payload)
+                    .await
+            }
+            SpokeResult::Reject(reject) => {
+                self.send_reject_response(&session_id, sequence, &request_id, &reject)
+                    .await
+            }
         }
+    }
+
+    /// Verify an inbound invoke request's envelope signature (contract §7
+    /// steps 1–6) over the wire form, against the client's hello Ed25519
+    /// public key (the key that verified the client's hello at establish —
+    /// a session can only exist after that verify, so the
+    /// signer-is-session-peer binding is the key itself). Mirrors
+    /// `node.rs::verify_inbound_invoke_auth`. The inbound counter is NOT
+    /// touched here (auth-before-advance): the caller advances only after
+    /// this returns `Ok`.
+    fn verify_invoke_request_auth(
+        &self,
+        wire: &Value,
+        session_id: &str,
+        client_pubkey: &[u8; 32],
+    ) -> Result<(), HostEnvelopeAuthError> {
+        verify_invoke_request_envelope(wire, session_id, client_pubkey)
     }
 
     /// Map an adapter `SpokeResult<T>` to the opaque success `Value` (or
@@ -537,6 +694,7 @@ impl HostInner {
             .collect::<Vec<String>>();
         *self.session.lock().expect("session lock") = Some(HostSession {
             session_id: SESSION_ID.to_string(),
+            client_pubkey,
             negotiated_capabilities: negotiated.clone(),
             inbound: Mutex::new(InboundSequence::new()),
         });
@@ -594,18 +752,22 @@ impl HostInner {
             .map_err(|error| error.to_string())?;
 
         // Serve invokes; each handler runs concurrently (out-of-order
-        // fixtures). Transport close ends the loop.
+        // fixtures). Transport close ends the loop. The raw wire document is
+        // handed to the handler so envelope-auth verify runs on the wire
+        // form BEFORE typed deserialization (contract §7 / §1 — a missing
+        // or invalid signature is rejected with its locked `details.kind`
+        // instead of a generic serde error).
         while !self.closed.load(Ordering::SeqCst) {
             let bytes = match self.transport.recv().await {
                 Ok(bytes) => bytes,
                 Err(_) => return Ok(()),
             };
-            let Ok(request) = serde_json::from_slice::<ConnectInvokeRequest>(&bytes) else {
+            let Ok(wire) = serde_json::from_slice::<Value>(&bytes) else {
                 continue; // stray envelope — ignored
             };
             let inner = Arc::clone(self);
             tokio::spawn(async move {
-                inner.handle_invoke(request).await;
+                inner.handle_invoke(wire).await;
             });
         }
         Ok(())
@@ -623,6 +785,25 @@ impl LoopbackHost {
 
     fn stats(&self) -> LoopbackHostStats {
         self.inner.stats.lock().expect("stats lock").clone()
+    }
+
+    /// Test-only: the session's next expected inbound sequence — proves
+    /// auth-before-advance (a rejected envelope does not consume the
+    /// counter; `0` with no session).
+    fn inbound_next_expected(&self) -> u64 {
+        self.inner
+            .session
+            .lock()
+            .expect("session lock")
+            .as_ref()
+            .map(|session| {
+                session
+                    .inbound
+                    .lock()
+                    .expect("inbound lock")
+                    .next_expected()
+            })
+            .unwrap_or(0)
     }
 
     /// Close the connection (fails the client's pending recv / invokes).
@@ -696,6 +877,11 @@ struct DialOptions {
     host_response_override:
         Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
     capability_token: Option<CapabilityTokenProof>,
+    /// Wrap the client's transport end (wire-level injector fixtures:
+    /// tamper / strip signatures on outbound requests or inbound responses).
+    /// Mirror of the TS dial's `clientTransport` option.
+    client_transport:
+        Option<Box<dyn Fn(Arc<dyn Transport>) -> Arc<dyn Transport> + Send + Sync>>,
 }
 
 fn seed_host() -> [u8; 32] {
@@ -712,6 +898,146 @@ fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
     let jcs_bytes = serde_jcs::to_vec(signed_object).expect("signed object JCS-canonicalizes");
     let signature = SigningKey::from_bytes(secret).sign(&jcs_bytes);
     URL_SAFE_NO_PAD.encode(signature.to_bytes())
+}
+
+/// Envelope-auth rejection surfaced by the loopback host's verify — the
+/// locked `details.kind` + message for the wire `auth_failed` answer
+/// (contract §8). Mirror of the core `EnvelopeAuthError` (that type is
+/// `pub(crate)` — encapsulation HARD, contract §9 — and unreachable from
+/// this integration test; the locked kinds + wire code are the contract's
+/// surface).
+#[derive(Debug)]
+struct HostEnvelopeAuthError {
+    /// The locked `details.kind` (`envelope_auth_missing` /
+    /// `envelope_auth_invalid` / `envelope_auth_session_unbound`); `None`
+    /// for the local key-misuse case, which carries no wire kind.
+    kind: Option<&'static str>,
+    message: String,
+}
+
+impl HostEnvelopeAuthError {
+    fn missing(message: impl Into<String>) -> Self {
+        Self {
+            kind: Some("envelope_auth_missing"),
+            message: message.into(),
+        }
+    }
+
+    fn invalid(message: impl Into<String>) -> Self {
+        Self {
+            kind: Some("envelope_auth_invalid"),
+            message: message.into(),
+        }
+    }
+
+    fn session_unbound(message: impl Into<String>) -> Self {
+        Self {
+            kind: Some("envelope_auth_session_unbound"),
+            message: message.into(),
+        }
+    }
+}
+
+/// Verify an inbound invoke request's envelope signature (contract §7 steps
+/// 1–6) over the wire form, against the client's hello Ed25519 public key.
+/// Mirrors the core `verify_invoke_request_auth` step-for-step — the core
+/// helper is `pub(crate)` (encapsulation HARD, contract §9) and unreachable
+/// from this integration test, so the loopback double re-derives the same
+/// 7-step check; the core helper itself is pinned by golden vectors.
+fn verify_invoke_request_envelope(
+    wire: &Value,
+    session_id: &str,
+    client_pubkey: &[u8; 32],
+) -> Result<(), HostEnvelopeAuthError> {
+    // Steps 1–2 (locked order): `signature` present and non-empty
+    // (`envelope_auth_missing`), then canonical base64url round-trip of
+    // exactly 64 bytes (`envelope_auth_invalid`).
+    let signature_field = wire.get("signature");
+    let Some(Value::String(signature)) = signature_field else {
+        return Err(HostEnvelopeAuthError::missing(
+            "envelope is missing a signature",
+        ));
+    };
+    if signature.is_empty() {
+        return Err(HostEnvelopeAuthError::missing(
+            "envelope is missing a signature",
+        ));
+    }
+    let raw = URL_SAFE_NO_PAD
+        .decode(signature)
+        .map_err(|_| HostEnvelopeAuthError::invalid("signature is not valid base64url"))?;
+    if URL_SAFE_NO_PAD.encode(&raw) != signature.as_str() {
+        return Err(HostEnvelopeAuthError::invalid(
+            "signature is not canonical base64url (no padding)",
+        ));
+    }
+    let raw: [u8; 64] = raw.try_into().map_err(|_| {
+        HostEnvelopeAuthError::invalid("signature is not 64 bytes (86-char base64url expected)")
+    })?;
+
+    // Step 3: signed-object construction — exact keys (unknown key =
+    // field-set drift ⇒ `envelope_auth_invalid`; missing signed field ⇒
+    // `envelope_auth_invalid`); `auth` is trust-affecting and bound into
+    // the signed object when present on the wire.
+    let object = wire
+        .as_object()
+        .ok_or_else(|| HostEnvelopeAuthError::invalid("signed envelope is not a JSON object"))?;
+    const WIRE_KEYS: &[&str] = &[
+        "session_id",
+        "sequence",
+        "request_id",
+        "op",
+        "payload",
+        "auth",
+        "signature",
+        "extensions",
+    ];
+    const SIGNED_KEYS: &[&str] = &["session_id", "sequence", "request_id", "op", "payload"];
+    for key in object.keys() {
+        if !WIRE_KEYS.contains(&key.as_str()) {
+            return Err(HostEnvelopeAuthError::invalid(format!(
+                "unknown key {key} in signed envelope (field-set drift)"
+            )));
+        }
+    }
+    for key in SIGNED_KEYS {
+        if !object.contains_key(*key) {
+            return Err(HostEnvelopeAuthError::invalid(format!(
+                "missing signed field {key}"
+            )));
+        }
+    }
+    let mut signed = serde_json::Map::new();
+    for key in SIGNED_KEYS {
+        signed.insert((*key).to_string(), object[*key].clone());
+    }
+    if let Some(auth) = object.get("auth") {
+        signed.insert("auth".to_string(), auth.clone());
+    }
+
+    // Steps 4–5: JCS-canonicalize the signed object and Ed25519-verify the
+    // decoded signature against the client's hello key.
+    let verifying_key = VerifyingKey::from_bytes(client_pubkey)
+        .map_err(|_| HostEnvelopeAuthError::invalid("invalid Ed25519 public key"))?;
+    let bytes = serde_jcs::to_vec(&serde_json::Value::Object(signed)).map_err(|error| {
+        HostEnvelopeAuthError::invalid(format!("signed object is not JSON-serializable: {error}"))
+    })?;
+    let signature = Signature::from_bytes(&raw);
+    if verifying_key.verify(&bytes, &signature).is_err() {
+        return Err(HostEnvelopeAuthError::invalid("signature does not verify"));
+    }
+
+    // Step 6: session binding — the envelope's `session_id` must equal the
+    // bound session (the signer-is-session-peer binding is the key itself,
+    // since the session only exists after the client's hello verified).
+    let wire_session_id = wire.get("session_id").and_then(Value::as_str);
+    if wire_session_id != Some(session_id) {
+        let wire_session_id = wire_session_id.unwrap_or("<non-string>");
+        return Err(HostEnvelopeAuthError::session_unbound(format!(
+            "session_id {wire_session_id} is not bound to session {session_id}"
+        )));
+    }
+    Ok(())
 }
 
 fn seed_client() -> [u8; 32] {
@@ -752,7 +1078,10 @@ async fn dial(
     })
     .await;
     let client = connect_remote_adapter(RemoteAdapterOptions {
-        transport: Arc::new(pair.client),
+        transport: match options.client_transport {
+            Some(wrap) => wrap(Arc::new(pair.client)),
+            None => Arc::new(pair.client),
+        },
         local_identity: RemoteIdentity {
             seed: seed_client(),
         },
@@ -812,6 +1141,55 @@ impl Transport for RecordingTransport {
         let bytes = self.inner.recv().await?;
         self.captured.lock().expect("captured lock").push(bytes.clone());
         Ok(bytes)
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        self.inner.close().await
+    }
+}
+
+/// Wire-level injector transport wrapper (mirror of the TS
+/// `tamperOutboundRequests` / `tamperInboundResponses` helpers): mutates
+/// envelopes in one direction on the wire — the view an active transport
+/// attacker has of the peers' signed envelopes. A `None` mutation returns
+/// `None` to pass the envelope through unchanged (the handshake hello /
+/// session snapshot traverse untouched so the dial still establishes).
+struct TamperTransport {
+    inner: Arc<dyn Transport>,
+    /// Outbound (client → host) mutation; `None` = pass through.
+    outbound: Option<Arc<dyn Fn(Value) -> Option<Value> + Send + Sync>>,
+    /// Inbound (host → client) mutation; `None` = pass through.
+    inbound: Option<Arc<dyn Fn(Value) -> Option<Value> + Send + Sync>>,
+}
+
+#[async_trait]
+impl Transport for TamperTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        let Some(mutate) = self.outbound.as_ref() else {
+            return self.inner.send(envelope).await;
+        };
+        let doc: Value = serde_json::from_slice(envelope).map_err(|_| TransportError::Closed)?;
+        match mutate(doc) {
+            Some(mutated) => {
+                let bytes = serde_json::to_vec(&mutated).map_err(|_| TransportError::Closed)?;
+                self.inner.send(&bytes).await
+            }
+            None => self.inner.send(envelope).await,
+        }
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        let bytes = self.inner.recv().await?;
+        let Some(mutate) = self.inbound.as_ref() else {
+            return Ok(bytes);
+        };
+        let doc: Value = serde_json::from_slice(&bytes).map_err(|_| TransportError::Closed)?;
+        match mutate(doc) {
+            Some(mutated) => {
+                Ok(serde_json::to_vec(&mutated).map_err(|_| TransportError::Closed)?)
+            }
+            None => Ok(bytes),
+        }
     }
 
     async fn close(&self) -> Result<(), TransportError> {
@@ -1465,7 +1843,307 @@ async fn responder_hello_without_peer_nonce_fails_the_dial_closed() {
         Err(error) => error,
     };
     assert!(
-        matches!(error, RemoteAdapterError::Handshake(ref message) if message.contains("dial binding")),
+        matches!(&error, RemoteAdapterError::Handshake(message) if message.contains("dial binding")),
         "unexpected dial error: {error:?}"
     );
+}
+
+// ── Envelope-auth enforcement (contract §7/§8) ─────────────────────────────
+
+/// Extract the `details.kind` of an `INTERNAL_ERROR` reject (or `None`).
+fn reject_kind_of(result: &SpokeResult<KnowledgeEntry>) -> Option<&str> {
+    match result {
+        SpokeResult::Reject(reject) => reject
+            .details
+            .as_ref()
+            .and_then(|details| details.get("kind"))
+            .and_then(Value::as_str),
+        SpokeResult::Ok(_) => None,
+    }
+}
+
+#[tokio::test]
+async fn host_rejects_a_wire_tampered_invoke_request_with_auth_failed_and_no_advance_or_dispatch() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let tampered = Arc::new(AtomicBool::new(false));
+    let tampered_flag = Arc::clone(&tampered);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // One-shot wire-level injector: only the FIRST outbound invoke
+            // request's payload is mutated AFTER the signature was computed
+            // — the host's envelope-auth verify must reject it.
+            client_transport: Some(Box::new(move |client_end| {
+                let tampered_flag = Arc::clone(&tampered_flag);
+                Arc::new(TamperTransport {
+                    inner: client_end,
+                    outbound: Some(Arc::new(move |doc| {
+                        if doc.get("op").is_some() && !tampered_flag.swap(true, Ordering::SeqCst) {
+                            let mut doc = doc;
+                            doc["payload"]["tampered"] = json!(true);
+                            return Some(doc);
+                        }
+                        None
+                    })),
+                    inbound: None,
+                })
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // The host answered `auth_failed` (wire code) with the locked
+    // `details.kind`; the client maps it to `INTERNAL_ERROR` verbatim.
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    assert_eq!(reject_kind_of(&result), Some("envelope_auth_invalid"));
+    assert!(matches!(
+        &result,
+        SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::InternalError
+    ));
+
+    // Auth-before-advance: the forged envelope consumed nothing. The
+    // host's inbound counter is still at 0 (the next expected sequence was
+    // NOT consumed) and the host's counters prove the forged envelope was
+    // neither dispatched nor counted as a sequence rejection. (The client's
+    // own outbound counter has moved on — protocol v1 defines no retry —
+    // so the session is deliberately not reused here, mirroring the TS
+    // twin.)
+    let stats = host.stats();
+    assert_eq!(host.inbound_next_expected(), 0);
+    assert_eq!(stats.auth_rejections, 1);
+    assert_eq!(stats.sequence_rejections, 0);
+    assert_eq!(stats.invokes_dispatched, 0);
+
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn host_rejects_an_invoke_request_with_a_stripped_signature_as_auth_failed() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let stripped = Arc::new(AtomicBool::new(false));
+    let stripped_flag = Arc::clone(&stripped);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // Wire-level injector: strip the signature from the FIRST
+            // outbound invoke request — the host must answer `auth_failed`
+            // with `envelope_auth_missing` (v2 requires the signature on
+            // every post-hello envelope; a missing authenticator is never
+            // dispatched).
+            client_transport: Some(Box::new(move |client_end| {
+                let stripped_flag = Arc::clone(&stripped_flag);
+                Arc::new(TamperTransport {
+                    inner: client_end,
+                    outbound: Some(Arc::new(move |doc| {
+                        if doc.get("op").is_some() && !stripped_flag.swap(true, Ordering::SeqCst) {
+                            let mut doc = doc;
+                            if let Some(object) = doc.as_object_mut() {
+                                object.remove("signature");
+                            }
+                            return Some(doc);
+                        }
+                        None
+                    })),
+                    inbound: None,
+                })
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    assert_eq!(reject_kind_of(&result), Some("envelope_auth_missing"));
+    assert!(matches!(
+        &result,
+        SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::InternalError
+    ));
+
+    // No advance, no dispatch — the host's inbound counter is untouched
+    // (next expected still 0) and the stripped envelope was never
+    // dispatched nor counted as a sequence rejection.
+    let stats = host.stats();
+    assert_eq!(host.inbound_next_expected(), 0);
+    assert_eq!(stats.auth_rejections, 1);
+    assert_eq!(stats.sequence_rejections, 0);
+    assert_eq!(stats.invokes_dispatched, 0);
+
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn rejects_a_wire_tampered_invoke_response_with_envelope_auth_invalid() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let tampered = Arc::new(AtomicBool::new(false));
+    let tampered_flag = Arc::clone(&tampered);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // One-shot wire-level injector: only the FIRST response's
+            // payload is mutated after the host signed it — the client's
+            // envelope-auth verify must reject it (fail-closed, only this
+            // waiter).
+            client_transport: Some(Box::new(move |client_end| {
+                let tampered_flag = Arc::clone(&tampered_flag);
+                Arc::new(TamperTransport {
+                    inner: client_end,
+                    outbound: None,
+                    inbound: Some(Arc::new(move |doc| {
+                        if doc.get("request_id").is_some()
+                            && doc.get("payload").is_some()
+                            && !tampered_flag.swap(true, Ordering::SeqCst)
+                        {
+                            let mut doc = doc;
+                            doc["payload"]["tampered"] = json!(true);
+                            return Some(doc);
+                        }
+                        None
+                    })),
+                })
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // The client's `verify_invoke_response_auth` rejects the tampered
+    // response with the locked `details.kind` via `INTERNAL_ERROR`.
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    assert_eq!(reject_kind_of(&result), Some("envelope_auth_invalid"));
+    assert!(matches!(
+        &result,
+        SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::InternalError
+    ));
+
+    // A forged response fails only this waiter — no session-state mutation:
+    // the next invoke round-trips (the host dispatched the first request
+    // normally; only the response was tampered with).
+    let retry = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(retry.is_ok());
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, 2);
+    assert_eq!(client.state().as_str(), "Established");
+
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn rejects_an_invoke_response_with_a_stripped_signature_as_envelope_auth_missing() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let stripped = Arc::new(AtomicBool::new(false));
+    let stripped_flag = Arc::clone(&stripped);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // Wire-level injector: delete the `signature` field of the FIRST
+            // response — the client must fail closed with
+            // `envelope_auth_missing` (v2 requires the signature on every
+            // response branch).
+            client_transport: Some(Box::new(move |client_end| {
+                let stripped_flag = Arc::clone(&stripped_flag);
+                Arc::new(TamperTransport {
+                    inner: client_end,
+                    outbound: None,
+                    inbound: Some(Arc::new(move |doc| {
+                        if doc.get("request_id").is_some()
+                            && !stripped_flag.swap(true, Ordering::SeqCst)
+                        {
+                            let mut doc = doc;
+                            if let Some(object) = doc.as_object_mut() {
+                                object.remove("signature");
+                            }
+                            return Some(doc);
+                        }
+                        None
+                    })),
+                })
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    assert_eq!(reject_kind_of(&result), Some("envelope_auth_missing"));
+    assert!(matches!(
+        &result,
+        SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::InternalError
+    ));
+
+    let retry = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(retry.is_ok());
+    assert_eq!(client.state().as_str(), "Established");
+
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn fails_the_dial_when_the_session_snapshot_signature_is_stripped() {
+    // Wire-level injector on the client end: strip the `signature` from the
+    // session snapshot — the dial must fail closed at the snapshot verify
+    // (`verify_session_auth` runs before typed checks / before establish;
+    // contract §7 — a v2 snapshot without a valid authenticator never
+    // establishes a session).
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let stripped = Arc::new(AtomicBool::new(false));
+    let stripped_flag = Arc::clone(&stripped);
+    let pair = loopback_transport_pair();
+    let host = start_loopback_host(LoopbackHostOptions {
+        transport: Arc::new(pair.server),
+        host_seed: seed_host(),
+        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+        adapter: Arc::new(host_adapter),
+        delay: Box::new(|_| 0),
+        response_override: None,
+    })
+    .await;
+
+    let error = match connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(TamperTransport {
+            inner: Arc::new(pair.client),
+            outbound: None,
+            inbound: Some(Arc::new(move |doc| {
+                // Session shape only — the signed server hello (no
+                // `session_id`) passes through so the dial reaches the
+                // snapshot step.
+                if doc.get("session_id").is_some()
+                    && doc.get("initiator_peer_id").is_some()
+                    && doc.get("request_id").is_none()
+                    && !stripped_flag.swap(true, Ordering::SeqCst)
+                {
+                    let mut doc = doc;
+                    if let Some(object) = doc.as_object_mut() {
+                        object.remove("signature");
+                    }
+                    return Some(doc);
+                }
+                None
+            })),
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    {
+        Ok(_) => panic!("dial must fail closed on a stripped session snapshot signature"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(&error, RemoteAdapterError::Handshake(message) if message.contains("missing a signature")),
+        "unexpected dial error: {error:?}"
+    );
+
+    host.close();
 }

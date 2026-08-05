@@ -246,6 +246,14 @@ fn is_dispatch_deny(code: &str) -> bool {
 /// level). `None` for any other envelope shape — the receive-loop
 /// discriminator (mirror of TS `isConnectInvokeResponse`).
 fn wire_response_correlation(doc: &Value) -> Option<Correlation> {
+    // Parity with TS `isConnectInvokeResponse`: the doc must carry at
+    // least one response branch — the wire type is a `payload` XOR `error`
+    // sum branch, so a branch-less fragment is not a response and is not
+    // demuxed. (The exactly-one rule is enforced later by
+    // `verify_invoke_response_auth`, which rejects a merged branch.)
+    if doc.get("payload").is_none() && doc.get("error").is_none() {
+        return None;
+    }
     Some(Correlation {
         session_id: doc.get("session_id")?.as_str()?.to_string(),
         sequence: doc.get("sequence")?.as_i64()?,

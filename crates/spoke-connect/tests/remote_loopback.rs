@@ -38,7 +38,7 @@ use serde_json::{json, Value};
 use spoke_connect::core::{
     derive_peer_id_from_ed25519_pubkey, ed25519_pubkey_from_peer_id, is_allowlisted,
     required_capability, sign_hello_ed25519, verify_hello_ed25519, CapabilityClaims,
-    CapabilityTokenProof, InboundSequence, NonceStore,
+    CapabilityTokenProof, CoreInvokeError, InboundSequence, NonceStore,
 };
 use spoke_connect::remote::{
     connect_remote_adapter, loopback_transport_pair, reset_accepted_server_hellos_for_test,
@@ -164,6 +164,10 @@ struct HostInner {
     /// sent verbatim instead of the host's real response (malformed-response
     /// fixtures, e.g. corrupted echo fields).
     response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
+    /// Test-only: sign the session snapshot with these (initiator,
+    /// responder) peer ids instead of the authenticated hellos' ids
+    /// (session-binding fixtures — `envelope_auth_session_unbound`).
+    session_peer_ids: Option<(String, String)>,
     session: Mutex<Option<HostSession>>,
     nonce_store: Mutex<NonceStore>,
     stats: Mutex<LoopbackHostStats>,
@@ -377,21 +381,41 @@ impl HostInner {
         }
 
         // 3. Advance the inbound counter — `peek` validated the position
-        //    above, so `advance` cannot fail (auth-before-advance). The
-        //    sequence is consumed once accepted, whatever the response
-        //    outcome (mirrors the outbound direction: a failed invoke still
-        //    consumes its sequence).
-        {
+        //    above, so `advance` only fails under a concurrent same-sequence
+        //    injection (peek → verify → advance is not atomic across
+        //    spawned tasks, and the fixture may hand two envelopes the same
+        //    sequence). A lost race is non-fatal: answer the same
+        //    `inbound_sequence_mismatch` rejection as the peek gate
+        //    (counter increments, no advance, no dispatch) — never panic.
+        let advance_rejected = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
                 return;
             };
-            session
+            let advance_result = session
                 .inbound
                 .lock()
                 .expect("inbound lock")
-                .advance(sequence)
-                .expect("peek passed, advance cannot fail");
+                .advance(sequence);
+            matches!(
+                advance_result,
+                // `advance` reports only `InboundSequenceMismatch` (see
+                // `core::InboundSequence::advance`); a duplicate that lost
+                // the race hits exactly this variant.
+                Err(CoreInvokeError::InboundSequenceMismatch { .. })
+            )
+        };
+        if advance_rejected {
+            self.stats.lock().expect("stats lock").sequence_rejections += 1;
+            self.send_error_response(
+                &session_id,
+                sequence,
+                &request_id,
+                "inbound_sequence_mismatch",
+                &format!("inbound sequence {sequence} is not the next expected"),
+            )
+            .await;
+            return;
         }
 
         // The signature verified ⇒ the wire doc is a well-formed
@@ -727,10 +751,17 @@ impl HostInner {
             } else {
                 negotiated
             };
+            // Test-only session-binding fixture: sign the snapshot over
+            // altered peer ids so the client's `verify_session_auth` step-6
+            // binding assert fires `envelope_auth_session_unbound`.
+            let (initiator_peer_id, responder_peer_id) = self
+                .session_peer_ids
+                .clone()
+                .unwrap_or_else(|| (client_peer_id.clone(), self.host_peer_id.clone()));
             let signed = json!({
                 "session_id": SESSION_ID,
-                "initiator_peer_id": client_peer_id,
-                "responder_peer_id": self.host_peer_id,
+                "initiator_peer_id": initiator_peer_id,
+                "responder_peer_id": responder_peer_id,
                 "opened_at": "2026-01-01T00:00:00Z",
                 "negotiated_capabilities": wire_caps,
                 "initial_sequence": 0,
@@ -826,6 +857,7 @@ struct LoopbackHostOptions {
     adapter: Arc<ToyWorldAdapter>,
     delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
     response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
+    session_peer_ids: Option<(String, String)>,
 }
 
 async fn start_loopback_host(options: LoopbackHostOptions) -> LoopbackHost {
@@ -845,6 +877,7 @@ async fn start_loopback_host(options: LoopbackHostOptions) -> LoopbackHost {
             .collect(),
         delay: options.delay,
         response_override: options.response_override,
+        session_peer_ids: options.session_peer_ids,
         session: Mutex::new(None),
         nonce_store: Mutex::new(NonceStore::new()),
         stats: Mutex::new(LoopbackHostStats::default()),
@@ -1075,6 +1108,7 @@ async fn dial(
         adapter: Arc::new(host_adapter),
         delay: options.host_delay.unwrap_or_else(|| Box::new(|_| 0)),
         response_override: options.host_response_override,
+        session_peer_ids: None,
     })
     .await;
     let client = connect_remote_adapter(RemoteAdapterOptions {
@@ -1540,6 +1574,7 @@ async fn fails_dial_fail_closed_when_remote_peer_is_not_on_allowlist() {
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
         response_override: None,
+        session_peer_ids: None,
     })
     .await;
 
@@ -1580,6 +1615,7 @@ async fn fails_dial_when_host_rejects_client_hello() {
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
         response_override: None,
+        session_peer_ids: None,
     })
     .await;
 
@@ -1668,6 +1704,7 @@ async fn rejects_a_replayed_server_hello_before_any_session_is_accepted() {
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
         response_override: None,
+        session_peer_ids: None,
     })
     .await;
     let client = connect_remote_adapter(RemoteAdapterOptions {
@@ -1748,6 +1785,7 @@ async fn replayed_server_hello_is_rejected_across_restart_by_dial_binding() {
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
         response_override: None,
+        session_peer_ids: None,
     })
     .await;
     let client = connect_remote_adapter(RemoteAdapterOptions {
@@ -2101,6 +2139,7 @@ async fn fails_the_dial_when_the_session_snapshot_signature_is_stripped() {
         adapter: Arc::new(host_adapter),
         delay: Box::new(|_| 0),
         response_override: None,
+        session_peer_ids: None,
     })
     .await;
 
@@ -2145,5 +2184,192 @@ async fn fails_the_dial_when_the_session_snapshot_signature_is_stripped() {
         "unexpected dial error: {error:?}"
     );
 
+    host.close();
+}
+
+#[tokio::test]
+async fn rejects_a_host_signed_response_with_wrong_session_id_fail_closed() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let fired = Arc::new(AtomicBool::new(false));
+    let fired_flag = Arc::clone(&fired);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // The host signs its own response envelope — but over a
+            // `session_id` that is not bound to the established session
+            // (the override is signed by the host after the request passed
+            // every inbound gate). The signature verifies against the
+            // host's hello key; the response still fails closed.
+            //
+            // NOTE: the surfaced kind is `correlation_mismatch`, not
+            // `envelope_auth_session_unbound`: `session_id` is one of the
+            // three correlation echo fields, and the locked check order
+            // (mirrored in TS) runs the correlation echo check BEFORE
+            // envelope-auth verify — so a wrong `session_id` is caught by
+            // the correlation gate first. The session-binding kind is
+            // covered end-to-end by
+            // `fails_the_dial_when_the_session_snapshot_carries_unbound_peer_ids`
+            // and at the core level by `verify_invoke_response_auth` unit
+            // tests. Fires once; the retry below uses the real response.
+            host_response_override: Some(Box::new(move |request| {
+                if !fired_flag.swap(true, Ordering::SeqCst) {
+                    return Some(json!({
+                        "session_id": "not-the-established-session",
+                        "sequence": request.sequence,
+                        "request_id": request.request_id,
+                        "payload": {},
+                        "extensions": {},
+                    }));
+                }
+                None
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // The wrong-session response fails only this waiter — correlation
+    // mismatch, fail-closed, no session-state mutation.
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    assert_eq!(reject_kind_of(&result), Some("correlation_mismatch"));
+    assert!(matches!(
+        &result,
+        SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::InternalError
+    ));
+
+    // The session stays established and the next invoke round-trips
+    // normally.
+    let retry = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(retry.is_ok());
+    assert_eq!(client.state().as_str(), "Established");
+
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn fails_the_dial_when_the_session_snapshot_carries_unbound_peer_ids() {
+    // The host signs a `ConnectSession` snapshot whose responder peer id is
+    // not one of the authenticated hellos' peer ids. The client's
+    // `verify_session_auth` verifies the host's signature over the wire
+    // form and then fires the step-6 session-binding assert
+    // (`envelope_auth_session_unbound`) — the dial fails closed, no
+    // adapter instance is created.
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let pair = loopback_transport_pair();
+    let foreign_peer = derive_peer_id_from_ed25519_pubkey(&[0x70u8; 32]);
+    let host = start_loopback_host(LoopbackHostOptions {
+        transport: Arc::new(pair.server),
+        host_seed: seed_host(),
+        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+        adapter: Arc::new(host_adapter),
+        delay: Box::new(|_| 0),
+        response_override: None,
+        session_peer_ids: Some((
+            derive_peer_id_from_ed25519_pubkey(&pubkey_client()),
+            foreign_peer.clone(),
+        )),
+    })
+    .await;
+
+    let error = match connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(pair.client),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    {
+        Ok(_) => panic!("unbound-peer-id snapshot must fail the dial"),
+        Err(error) => error,
+    };
+    // `verify_session_auth` step 6 fired `EnvelopeAuthError::SessionUnbound`
+    // (host-signed snapshot, binding mismatch) — the message names the
+    // unbound peer id and the authenticated hellos.
+    assert!(
+        matches!(&error, RemoteAdapterError::Handshake(message) if message.contains("session peer ids")),
+        "unexpected dial error: {error:?}"
+    );
+
+    host.close();
+}
+
+/// Wire-level transport wrapper that duplicates the FIRST outbound invoke
+/// request (an envelope carrying `op`) — the host then serves two
+/// same-sequence envelopes concurrently (one task per envelope, §10
+/// concurrency rows), racing peek → verify → advance.
+struct DuplicateOnceTransport {
+    inner: Arc<dyn Transport>,
+    duplicated: AtomicBool,
+}
+
+#[async_trait]
+impl Transport for DuplicateOnceTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        let doc: Value = serde_json::from_slice(envelope).map_err(|_| TransportError::Closed)?;
+        if doc.get("op").is_some() && !self.duplicated.swap(true, Ordering::SeqCst) {
+            // Deliver the request twice: both copies hit the host's
+            // serve loop and run `handle_invoke` concurrently.
+            self.inner.send(envelope).await?;
+            return self.inner.send(envelope).await;
+        }
+        self.inner.send(envelope).await
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        self.inner.recv().await
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        self.inner.close().await
+    }
+}
+
+#[tokio::test]
+async fn concurrent_same_sequence_duplicate_is_rejected_non_fatally() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // Duplicate the first invoke request on the wire: the host
+            // races two same-sequence envelopes through
+            // peek → verify → advance. Exactly one wins; the loser must be
+            // answered `inbound_sequence_mismatch` (non-fatal, counter
+            // increments) — the fixture must NOT panic on the lost race.
+            client_transport: Some(Box::new(|client_end| {
+                Arc::new(DuplicateOnceTransport {
+                    inner: client_end,
+                    duplicated: AtomicBool::new(false),
+                })
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // The invoke settles exactly once (ok or reject — response order of the
+    // payload vs. the mismatch error is not deterministic), the host
+    // dispatched exactly one handler, and the duplicate was rejected as a
+    // sequence mismatch — never a panic, never a poisoned session.
+    let _result = client.get_knowledge_entry("kb_tw_mira").await;
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, 1);
+    assert_eq!(stats.sequence_rejections, 1);
+    assert_eq!(stats.auth_rejections, 0);
+    assert_eq!(client.state().as_str(), "Established");
+
+    // The session remains usable: the next invoke round-trips normally.
+    let retry = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(retry.is_ok());
+    assert_eq!(host.stats().invokes_dispatched, 2);
+    assert_eq!(client.state().as_str(), "Established");
+
+    client.close();
     host.close();
 }

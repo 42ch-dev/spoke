@@ -1066,6 +1066,266 @@ public func FfiConverterTypeLoopbackTransportPair_lower(_ value: LoopbackTranspo
 
 
 
+public protocol MultiPeerRouterFfiProtocol: AnyObject, Sendable {
+    
+    func getHostCapabilityManifest() throws  -> String
+    
+    func getKnowledgeEntry(entryId: String) throws  -> String
+    
+    func getRelation(relationId: String) throws  -> String
+    
+    func listKnowledgeEntries(scopeJson: String) throws  -> String
+    
+    func listPeerHostCapabilityManifests() throws  -> String
+    
+    func listPeers()  -> [String]
+    
+    func listRules(ruleRefs: [String]) throws  -> String
+    
+    func listTimelineEvents(scopeJson: String) throws  -> String
+    
+    func putFindings(findingsJson: String) throws  -> String
+    
+    func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func putRelation(relationJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func registerPeer(adapter: RemoteAdapterFfi) throws  -> String
+    
+    func unregisterPeer(peerId: String) 
+    
+}
+open class MultiPeerRouterFfi: MultiPeerRouterFfiProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_spoke_connect_fn_clone_multipeerrouterffi(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_spoke_connect_fn_free_multipeerrouterffi(handle, $0) }
+    }
+
+    
+
+    
+open func getHostCapabilityManifest()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func getKnowledgeEntry(entryId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryId),uniffiCallStatus
+    )
+})
+}
+    
+open func getRelation(relationId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(relationId),uniffiCallStatus
+    )
+})
+}
+    
+open func listKnowledgeEntries(scopeJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scopeJson),uniffiCallStatus
+    )
+})
+}
+    
+open func listPeerHostCapabilityManifests()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func listPeers() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func listRules(ruleRefs: [String])throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(ruleRefs),uniffiCallStatus
+    )
+})
+}
+    
+open func listTimelineEvents(scopeJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scopeJson),uniffiCallStatus
+    )
+})
+}
+    
+open func putFindings(findingsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(findingsJson),uniffiCallStatus
+    )
+})
+}
+    
+open func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryJson),
+        FfiConverterOptionUInt64.lower(expectedBaseRevision),uniffiCallStatus
+    )
+})
+}
+    
+open func putRelation(relationJson: String, expectedBaseRevision: UInt64?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(relationJson),
+        FfiConverterOptionUInt64.lower(expectedBaseRevision),uniffiCallStatus
+    )
+})
+}
+    
+open func registerPeer(adapter: RemoteAdapterFfi)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeRemoteAdapterFFI_lower(adapter),uniffiCallStatus
+    )
+})
+}
+    
+open func unregisterPeer(peerId: String)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(peerId),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMultiPeerRouterFFI: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = MultiPeerRouterFfi
+
+    public static func lift(_ handle: UInt64) throws -> MultiPeerRouterFfi {
+        return MultiPeerRouterFfi(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: MultiPeerRouterFfi) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MultiPeerRouterFfi {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: MultiPeerRouterFfi, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiPeerRouterFFI_lift(_ handle: UInt64) throws -> MultiPeerRouterFfi {
+    return try FfiConverterTypeMultiPeerRouterFFI.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMultiPeerRouterFFI_lower(_ value: MultiPeerRouterFfi) -> UInt64 {
+    return FfiConverterTypeMultiPeerRouterFFI.lower(value)
+}
+
+
+
+
+
+
 /**
  * Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
  * the core store.
@@ -2497,6 +2757,13 @@ public func loopbackTransportPair() -> LoopbackTransportPair  {
     )
 })
 }
+public func newMultiPeerRouterFfi() -> MultiPeerRouterFfi  {
+    return try!  FfiConverterTypeMultiPeerRouterFFI_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi(uniffiCallStatus
+    )
+})
+}
 public func connectRemoteAdapterFfi(transport: Transport, localSeed: Data, localManifestJson: String, remotePubkey: Data, allowlist: [String], invokeTimeoutMs: UInt64?)throws  -> RemoteAdapterFfi  {
     return try  FfiConverterTypeRemoteAdapterFFI_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
@@ -2553,6 +2820,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi() != 46664) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() != 44915) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2578,6 +2848,45 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest() != 59432) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry() != 22722) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() != 18470) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() != 38484) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests() != 61680) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers() != 20421) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules() != 33290) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events() != 63418) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings() != 49739) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry() != 21998) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation() != 128) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer() != 58386) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer() != 56292) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {

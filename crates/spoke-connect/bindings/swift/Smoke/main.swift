@@ -219,6 +219,7 @@ func run() throws {
     }
 
     try runLoopbackRemoteAdapterSmoke(r)
+    try runMultiPeerRouterSmoke(r)
 
     print("\(r.passed) checks passed")
 }

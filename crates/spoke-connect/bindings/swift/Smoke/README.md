@@ -68,6 +68,7 @@ swiftc -Xcc -fmodule-map-file="${SMOKE_GEN}/spoke_connectFFI.modulemap" \
   -o crates/spoke-connect/bindings/swift/Smoke/smoke \
   crates/spoke-connect/bindings/swift/Smoke/main.swift \
   crates/spoke-connect/bindings/swift/Smoke/loopback_smoke.swift \
+  crates/spoke-connect/bindings/swift/Smoke/multi_peer_router_smoke.swift \
   "${SMOKE_GEN}/spoke_connect.swift"
 
 # 5. Run it — every line must print PASS.

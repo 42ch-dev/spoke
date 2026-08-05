@@ -465,6 +465,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi()
+	})
+	if checksum != 46664 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 		return C.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi()
 	})
 	if checksum != 44915 {
@@ -542,6 +551,123 @@ func uniffiCheckChecksums() {
 	if checksum != 13605 {
 		// If this happens try cleaning and rebuilding your project
 		panic("spoke_connect: uniffi_spoke_connect_checksum_method_loopbacktransportpair_server: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest()
+	})
+	if checksum != 59432 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry()
+	})
+	if checksum != 22722 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation()
+	})
+	if checksum != 18470 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries()
+	})
+	if checksum != 38484 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests()
+	})
+	if checksum != 61680 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers()
+	})
+	if checksum != 20421 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules()
+	})
+	if checksum != 33290 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events()
+	})
+	if checksum != 63418 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings()
+	})
+	if checksum != 49739 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry()
+	})
+	if checksum != 21998 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation()
+	})
+	if checksum != 128 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer()
+	})
+	if checksum != 58386 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer()
+	})
+	if checksum != 56292 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer: UniFFI API checksum mismatch")
 	}
 	}
 	{
@@ -1309,6 +1435,294 @@ func LowerToExternalLoopbackTransportPair(value *LoopbackTransportPair) uint64 {
 type FfiDestroyerLoopbackTransportPair struct {}
 
 func (_ FfiDestroyerLoopbackTransportPair) Destroy(value *LoopbackTransportPair) {
+		value.Destroy()
+}
+
+
+
+type MultiPeerRouterFfiInterface interface {
+	GetHostCapabilityManifest() (string, error)
+	GetKnowledgeEntry(entryId string) (string, error)
+	GetRelation(relationId string) (string, error)
+	ListKnowledgeEntries(scopeJson string) (string, error)
+	ListPeerHostCapabilityManifests() (string, error)
+	ListPeers() []string
+	ListRules(ruleRefs []string) (string, error)
+	ListTimelineEvents(scopeJson string) (string, error)
+	PutFindings(findingsJson string) (string, error)
+	PutKnowledgeEntry(entryJson string, expectedBaseRevision *uint64) (string, error)
+	PutRelation(relationJson string, expectedBaseRevision *uint64) (string, error)
+	RegisterPeer(adapter *RemoteAdapterFfi) (string, error)
+	UnregisterPeer(peerId string) 
+}
+type MultiPeerRouterFfi struct {
+	ffiObject FfiObject
+}
+
+
+
+
+func (_self *MultiPeerRouterFfi) GetHostCapabilityManifest() (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest(
+		_pointer,_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) GetKnowledgeEntry(entryId string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry(
+		_pointer,FfiConverterStringINSTANCE.Lower(entryId),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) GetRelation(relationId string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation(
+		_pointer,FfiConverterStringINSTANCE.Lower(relationId),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) ListKnowledgeEntries(scopeJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries(
+		_pointer,FfiConverterStringINSTANCE.Lower(scopeJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) ListPeerHostCapabilityManifests() (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests(
+		_pointer,_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) ListPeers() []string {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterSequenceStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers(
+		_pointer,_uniffiStatus),
+	}
+	}))
+}
+
+func (_self *MultiPeerRouterFfi) ListRules(ruleRefs []string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules(
+		_pointer,FfiConverterSequenceStringINSTANCE.Lower(ruleRefs),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) ListTimelineEvents(scopeJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events(
+		_pointer,FfiConverterStringINSTANCE.Lower(scopeJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) PutFindings(findingsJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings(
+		_pointer,FfiConverterStringINSTANCE.Lower(findingsJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) PutKnowledgeEntry(entryJson string, expectedBaseRevision *uint64) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry(
+		_pointer,FfiConverterStringINSTANCE.Lower(entryJson), FfiConverterOptionalUint64INSTANCE.Lower(expectedBaseRevision),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) PutRelation(relationJson string, expectedBaseRevision *uint64) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation(
+		_pointer,FfiConverterStringINSTANCE.Lower(relationJson), FfiConverterOptionalUint64INSTANCE.Lower(expectedBaseRevision),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) RegisterPeer(adapter *RemoteAdapterFfi) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer(
+		_pointer,FfiConverterRemoteAdapterFfiINSTANCE.Lower(adapter),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *MultiPeerRouterFfi) UnregisterPeer(peerId string)  {
+	_pointer := _self.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer _self.ffiObject.decrementPointer()
+	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer(
+		_pointer,FfiConverterStringINSTANCE.Lower(peerId),_uniffiStatus)
+		return false
+	})
+}
+func (object *MultiPeerRouterFfi) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterMultiPeerRouterFfi struct {}
+
+var FfiConverterMultiPeerRouterFfiINSTANCE = FfiConverterMultiPeerRouterFfi{}
+
+
+func (c FfiConverterMultiPeerRouterFfi) Lift(handle C.uint64_t) *MultiPeerRouterFfi {
+	result := &MultiPeerRouterFfi {
+		newFfiObject(
+			handle,
+			func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+				return C.uniffi_spoke_connect_fn_clone_multipeerrouterffi(handle, status)
+			},
+			func(handle C.uint64_t, status *C.RustCallStatus) {
+				C.uniffi_spoke_connect_fn_free_multipeerrouterffi(handle, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*MultiPeerRouterFfi).Destroy)
+	return result
+}
+
+func (c FfiConverterMultiPeerRouterFfi) Read(reader io.Reader) *MultiPeerRouterFfi {
+	return c.Lift(C.uint64_t(readUint64(reader)))
+}
+
+func (c FfiConverterMultiPeerRouterFfi) Lower(value *MultiPeerRouterFfi) C.uint64_t {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the handle will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked handle.
+	handle := value.ffiObject.incrementPointer("*MultiPeerRouterFfi")
+	defer value.ffiObject.decrementPointer()
+	return handle
+}
+
+func (c FfiConverterMultiPeerRouterFfi) Write(writer io.Writer, value *MultiPeerRouterFfi) {
+	writeUint64(writer, uint64(c.Lower(value)))
+}
+
+func LiftFromExternalMultiPeerRouterFfi(handle uint64) *MultiPeerRouterFfi {
+	return FfiConverterMultiPeerRouterFfiINSTANCE.Lift(C.uint64_t(handle))
+}
+
+func LowerToExternalMultiPeerRouterFfi(value *MultiPeerRouterFfi) uint64 {
+	return uint64(FfiConverterMultiPeerRouterFfiINSTANCE.Lower(value))
+}
+
+type FfiDestroyerMultiPeerRouterFfi struct {}
+
+func (_ FfiDestroyerMultiPeerRouterFfi) Destroy(value *MultiPeerRouterFfi) {
 		value.Destroy()
 }
 
@@ -3142,6 +3556,12 @@ func VerifyHelloEd25519(publicKey []byte, expectedPeerId string, helloJson strin
 func NewLoopbackTransportPair() *LoopbackTransportPair {
 	return FfiConverterLoopbackTransportPairINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
 		return C.uniffi_spoke_connect_fn_func_loopback_transport_pair(_uniffiStatus)
+	}))
+}
+
+func NewMultiPeerRouterFfi() *MultiPeerRouterFfi {
+	return FfiConverterMultiPeerRouterFfiINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
+		return C.uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi(_uniffiStatus)
 	}))
 }
 

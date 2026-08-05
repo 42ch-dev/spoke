@@ -42,6 +42,11 @@ try
     GoldenParity.AssertSequenceObjectsLifecycle();
     Console.WriteLine("sequence objects: PASS      # outbound 0/1; inbound advance + replay mismatch");
 
+#if SMOKE_HOST
+    LoopbackSmoke.Run();
+    Console.WriteLine("loopback RemoteAdapterFFI: PASS");
+#endif
+
     Console.WriteLine();
     Console.WriteLine("GOLDEN PARITY: ALL PASS");
     return 0;

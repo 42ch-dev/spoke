@@ -26,6 +26,31 @@ See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`]
 | `Smoke.csproj` | net8.0 console — `ProjectReference` to the packable project |
 | `Program.cs` / `tests/GoldenParity.cs` | Golden-parity checks across the exported surface |
 
+
+## RemoteAdapter loopback smoke (optional)
+
+The loopback section dials `RemoteAdapterFFI` through a C# `Transport`
+implementation, runs `PutKnowledgeEntry` → `GetKnowledgeEntry`, and asserts the
+golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
+
+Requires a smoke-host cdylib (`ffi-smoke-host`) and C# bindings regenerated from
+that cdylib. Build with `-p:SmokeHost=true`:
+
+```bash
+# From repository root
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter,ffi-smoke-host
+SMOKE_GEN="$(mktemp -d)"
+<fork>/target/debug/uniffi-bindgen-cs target/debug/libspoke_connect.dylib   --library --config crates/spoke-connect/bindings/csharp/uniffi.toml   --out-dir "${SMOKE_GEN}" --no-format
+cp "${SMOKE_GEN}/spoke_connect.cs" crates/spoke-connect/bindings/csharp/generated/
+cp target/debug/libspoke_connect.dylib crates/spoke-connect/bindings/csharp/bin/Debug/net8.0/
+dotnet build -p:SmokeHost=true crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
+dotnet run -p:SmokeHost=true --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
+```
+
+Expected tail: `loopback RemoteAdapterFFI: PASS` then `GOLDEN PARITY: ALL PASS`.
+Restore production `generated/spoke_connect.cs` (from `ffi,remote-adapter` only)
+before landing binding changes.
+
 ## Maintainer: regenerate → build → run
 
 Prefer **PackageReference** for product hosts. Regenerate only when changing the Rust FFI surface.

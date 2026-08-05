@@ -411,14 +411,19 @@ export class RemoteAdapter implements BaselinePorts {
       return;
     }
     this.#stateInternal = "Closed";
-    const closeResult: unknown = this.#transport.close?.();
     // Fire-and-forget teardown (contract §2.1: close is optional and
-    // idempotent; `close()` is void): a rejecting async close must not
-    // surface as an unhandled rejection — the adapter has already
+    // idempotent; `close()` is void): neither a synchronous throw nor a
+    // rejecting async close may surface — the adapter has already
     // transitioned to `Closed` and every pending invoke is failed below,
     // so there is no caller that could receive the failure (§8.2 defines
-    // no close-failure row). `Promise.resolve` (not `instanceof Promise`)
-    // so cross-realm / non-native thenables are drained too.
+    // no close-failure row). A sync throw is caught here; `Promise.resolve`
+    // (not `instanceof Promise`) drains cross-realm / non-native thenables.
+    let closeResult: unknown;
+    try {
+      closeResult = this.#transport.close?.();
+    } catch {
+      closeResult = undefined;
+    }
     if (closeResult !== undefined) {
       void Promise.resolve(closeResult).catch(() => {
         // Transport close failure is intentionally swallowed: the session

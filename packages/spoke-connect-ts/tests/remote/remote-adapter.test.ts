@@ -421,6 +421,54 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "does not let a synchronous Transport.close() throw escape (Greptile #5)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      let host: LoopbackHost | undefined;
+      try {
+        const pair = loopbackTransportPair();
+        // Delegate everything except close(), which THROWS synchronously:
+        // the adapter must catch the throw at the call site (the state is
+        // already `Closed` and waiters are failed below), so the public
+        // `close()` returns normally and the session ends cleanly.
+        const throwingClose: Transport = {
+          send: (envelope) => pair.client.send(envelope),
+          recv: () => pair.client.recv(),
+          close: () => {
+            throw new Error("close boom");
+          },
+        };
+        host = await startLoopbackHost({
+          transport: pair.server,
+          seed: seed(0xa0),
+          clientPubkey: getPublicKeyEd25519(seed(0x10)),
+          allowlist: [
+            derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
+          ],
+          adapter: hostAdapter,
+        });
+        const client = await connectRemoteAdapter({
+          transport: throwingClose,
+          localIdentity: { seed: seed(0x10) },
+          localManifest: clientManifest(),
+          remotePubkey: getPublicKeyEd25519(seed(0xa0)),
+          allowlist: [
+            derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0xa0))),
+          ],
+        });
+        expect(client.state).toBe("Established");
+
+        // The synchronous throw must NOT escape the public close().
+        expect(() => client.close()).not.toThrow();
+        expect(client.state).toBe("Closed");
+      } finally {
+        host?.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "rejects a replayed server hello — accepted (peer_id, nonce) pairs are single-use (Greptile #1)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();

@@ -31,7 +31,7 @@ export interface ConnectSession {
    */
   negotiated_capabilities: [string, ...string[]];
   /**
-   * First invoke request uses sequence = initial_sequence (0 for protocol version 1).
+   * First invoke request uses sequence = initial_sequence (0 for protocol versions 1 and 2).
    */
   initial_sequence: 0;
   /**

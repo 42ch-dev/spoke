@@ -47,11 +47,12 @@
       "type": "integer",
       "minimum": 0,
       "const": 0,
-      "description": "First invoke request uses sequence = initial_sequence (0 for protocol version 1)."
+      "description": "First invoke request uses sequence = initial_sequence (0 for protocol versions 1 and 2)."
     },
     "signature": {
       "type": "string",
-      "minLength": 1,
+      "minLength": 86,
+      "maxLength": 86,
       "description": "base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-session-jcs-v1)."
     },
     "extensions": {

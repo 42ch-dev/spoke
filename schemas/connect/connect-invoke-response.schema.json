@@ -28,7 +28,8 @@
         },
         "signature": {
           "type": "string",
-          "minLength": 1,
+          "minLength": 86,
+          "maxLength": 86,
           "description": "base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-response-jcs-v1)."
         },
         "extensions": {
@@ -62,7 +63,8 @@
         },
         "signature": {
           "type": "string",
-          "minLength": 1,
+          "minLength": 86,
+          "maxLength": 86,
           "description": "base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-response-jcs-v1)."
         },
         "extensions": {

@@ -41,10 +41,16 @@
 //! request-response id, their wire echo (`session_id`, `sequence`,
 //! `request_id`) is verified, and the caller receives `InvokeSuccess` or
 //! `InvokeError` (wire error branch → `InvokeError::Wire`). Inbound invokes
-//! are checked for per-session monotonicity before dispatch: the loop tracks
-//! the next expected inbound sequence (starts at 0) per sessioned peer and
-//! answers a replayed or out-of-order sequence with an `invalid_sequence`
-//! wire envelope — no handler side effect runs for it (normative ordering
+//! are envelope-auth verified and checked for per-session monotonicity
+//! before dispatch: the loop verifies the request signature against the
+//! session peer's hello Ed25519 public key (contract §7 —
+//! auth-before-advance), tracks the next expected inbound sequence (starts
+//! at 0) per sessioned peer with a non-mutating `peek`, and advances the
+//! counter only after verify passes. A forged or tampered signature is
+//! answered with an `auth_failed` wire envelope carrying the locked
+//! `details.kind` and leaves the session state untouched; a replayed or
+//! out-of-order sequence is answered with an `invalid_sequence` wire
+//! envelope — no handler side effect runs for either (normative ordering
 //! rule, `.mstar/specs/spoke-connect.md` §Ordering semantics). Accepted
 //! invokes pass the op dispatch gate first: an op whose required capability
 //! is absent from the session's `negotiated_capabilities` (the intersection
@@ -1142,180 +1148,293 @@ impl EventLoop {
         request: ConnectInvokeRequest,
         channel: ResponseChannel<ConnectInvokeResponse>,
     ) {
-        let response = if !inbound_sequence_valid(request.sequence) {
-            // The generated `sequence` is a bare i64; the schema minimum
-            // (0) and JSON-safe ceiling are enforced here on the wire path.
-            self.error_response(
-                &request,
-                "invalid_sequence",
-                format!("sequence {} is outside the wire range", request.sequence),
-            )
-        } else {
-            match self.sessions.get(&peer) {
-                Some(_session) => {
-                    // Inbound monotonicity (normative ordering rule): the
-                    // receiver tracks the next expected inbound sequence per
-                    // session, starting at 0 — the pure rule is
-                    // `InboundSequence::advance` (core). A replayed or
-                    // out-of-order sequence is answered with a wire
-                    // `invalid_sequence` envelope and is never dispatched —
-                    // no duplicate or reordered handler side effects.
-                    let gate = {
-                        let inbound = self
-                            .inbound_sequences
-                            .get_mut(&peer)
-                            .expect("session and its inbound sequence state are created and removed together");
-                        inbound.advance(request.sequence)
-                    };
-                    match gate {
-                        Ok(_next) => {
-                            // The sequence is consumed once accepted, whatever
-                            // the response outcome (mirrors the outbound
-                            // direction: a failed invoke still consumes its
-                            // sequence).
-                            // Capability-token gate (normative §Method —
-                            // capability-token, dispatch order step 2): when
-                            // the request carries `auth`, the proof is
-                            // validated on **every** invoke (same rules as
-                            // the challenge); when the token policy is
-                            // active, an invoke from a session that has not
-                            // completed the challenge and carries no `auth`
-                            // is rejected with an `auth_failed` wire
-                            // envelope — before any dispatch.
-                            match self.evaluate_invoke_token_gate(&peer, &request) {
-                                Err(message) => {
-                                    self.error_response(&request, "auth_failed", message)
-                                }
-                                Ok(token_grant) => {
-                                    match &self.config.invoke_handler {
-                                        None => self.error_response(
-                                            &request,
-                                            "op_unsupported",
-                                            "no invoke handler configured on this node".into(),
-                                        ),
-                                        Some(handler) => {
-                                            // Op dispatch gate (normative MUST,
-                                            // `.mstar/specs/spoke-connect.md` §Op
-                                            // dispatch gate): a host that performs
-                                            // op dispatch must not run an op whose
-                                            // required capability is absent from the
-                                            // session's `negotiated_capabilities`.
-                                            // Denied ops are answered with an
-                                            // `op_unsupported` wire envelope and the
-                                            // handler is never invoked — no side
-                                            // effects. The core table (pure
-                                            // `dispatch_allowed`, fail-closed for
-                                            // unknown ops) is consulted first; ops
-                                            // outside the core table fall back to
-                                            // the product-configured
-                                            // `op_capability_requirements` map.
-                                            // When a capability token is in effect
-                                            // (session grant or per-invoke `auth`),
-                                            // the token grant AND the negotiated
-                                            // set must both allow the op —
-                                            // capability-not-granted reuses the
-                                            // same `op_unsupported` deny path.
-                                            let session = self
-                                                .sessions
-                                                .get(&peer)
-                                                .expect("session verified above");
-                                            let required = crate::core::required_capability(
-                                                request.op.as_str(),
-                                            )
-                                            .or_else(|| {
-                                                self.config
-                                                    .op_capability_requirements
-                                                    .get(request.op.as_str())
-                                                    .map(String::as_str)
-                                            });
-                                            let negotiated_allowed = required.is_some_and(
-                                                |required| {
-                                                    session
-                                                        .negotiated_capabilities
-                                                        .iter()
-                                                        .any(|granted| granted == required)
-                                                },
-                                            );
-                                            let token_allowed = token_grant
-                                                .as_deref()
-                                                .is_none_or(|grant| {
-                                                    token_authorizes_op(required, grant)
-                                                });
-                                            if !negotiated_allowed || !token_allowed {
-                                                self.error_response(
-                                                    &request,
-                                                    "op_unsupported",
-                                                    format!(
-                                                        "op {} requires a capability that is not granted in this session",
-                                                        request.op.as_str()
-                                                    ),
-                                                )
-                                            } else {
-                                                // The handler runs synchronously on the
-                                                // event loop: it must return promptly
-                                                // and must not block on I/O (see
-                                                // ConnectConfig::invoke_handler).
-                                                // Panics are contained so a
-                                                // misbehaving adapter cannot kill the
-                                                // node; the invoke is answered with an
-                                                // `internal_error` wire envelope.
-                                                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                                    || handler(&request.op, request.payload.clone()),
-                                                ));
-                                                match result {
-                                                    Ok(Ok(payload)) => self.sign_invoke_response(
-                                                        crate::core::InvokeResponseSignInput::Success {
-                                                            session_id: request.session_id.to_string(),
-                                                            sequence: request.sequence,
-                                                            request_id: request.request_id.to_string(),
-                                                            payload,
-                                                        },
-                                                    ),
-                                                    Ok(Err(error)) => self.sign_invoke_response(
-                                                        crate::core::InvokeResponseSignInput::Error {
-                                                            session_id: request.session_id.to_string(),
-                                                            sequence: request.sequence,
-                                                            request_id: request.request_id.to_string(),
-                                                            error,
-                                                        },
-                                                    ),
-                                                    Err(_) => self.error_response(
-                                                        &request,
-                                                        "internal_error",
-                                                        "invoke handler panicked".into(),
-                                                    ),
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Err(CoreInvokeError::InboundSequenceMismatch {
-                            expected,
-                            actual,
-                        }) => self.error_response(
-                            &request,
-                            "invalid_sequence",
-                            format!(
-                                "sequence {actual} is not the next expected inbound sequence {expected} (replay or out-of-order)"
-                            ),
-                        ),
-                        Err(_) => unreachable!("advance only reports InboundSequenceMismatch"),
-                    }
-                }
-                _ => self.error_response(
-                    &request,
-                    "session_not_found",
-                    format!("no session with {peer} for this request"),
-                ),
-            }
-        };
+        let response = self.answer_inbound_invoke(&peer, &request);
         let _ = self
             .swarm
             .behaviour_mut()
             .invoke
             .send_response(channel, response);
+    }
+
+    /// The full inbound invoke accept path: wire-range sequence gate →
+    /// session existence → envelope-auth verify (contract §7 —
+    /// auth-before-advance) → non-mutating sequence `peek` → counter
+    /// `advance` → capability-token gate → op dispatch gate → handler.
+    /// Returns the wire response envelope, signed by this node; sending it
+    /// is the caller's job.
+    fn answer_inbound_invoke(
+        &mut self,
+        peer: &PeerId,
+        request: &ConnectInvokeRequest,
+    ) -> ConnectInvokeResponse {
+        if !inbound_sequence_valid(request.sequence) {
+            // The generated `sequence` is a bare i64; the schema minimum
+            // (0) and JSON-safe ceiling are enforced here on the wire path.
+            return self.error_response(
+                request,
+                "invalid_sequence",
+                format!("sequence {} is outside the wire range", request.sequence),
+            );
+        }
+        let Some(_session) = self.sessions.get(peer) else {
+            return self.error_response(
+                request,
+                "session_not_found",
+                format!("no session with {peer} for this request"),
+            );
+        };
+        // Envelope-auth verify (contract §7 — auth-before-advance): the
+        // request signature is verified against the session peer's hello
+        // Ed25519 public key BEFORE the inbound sequence counter advances.
+        // A forged or tampered signature is answered with `auth_failed`
+        // carrying the locked `details.kind`, and the session state is left
+        // untouched — no advance, no handler side effect, so a bogus-
+        // signature envelope cannot desync the session.
+        if let Some(rejection) = self.verify_inbound_invoke_auth(peer, request) {
+            return rejection;
+        }
+        // Inbound monotonicity (normative ordering rule): the receiver
+        // tracks the next expected inbound sequence per session, starting
+        // at 0 — the pure rule is `InboundSequence::advance` (core). The
+        // wire position is validated with `peek` first (non-mutating); the
+        // counter advances only after envelope-auth verify has passed
+        // (auth-before-advance). A replayed or out-of-order sequence is
+        // answered with a wire `invalid_sequence` envelope and is never
+        // dispatched — no duplicate or reordered handler side effects.
+        let gate = {
+            let inbound = self
+                .inbound_sequences
+                .get_mut(peer)
+                .expect("session and its inbound sequence state are created and removed together");
+            inbound.peek(request.sequence)
+        };
+        match gate {
+            Ok(()) => {
+                // Verify passed and the wire position is the next expected
+                // sequence — consume it now (`peek` just validated it, so
+                // `advance` cannot fail).
+                {
+                    let inbound = self
+                        .inbound_sequences
+                        .get_mut(peer)
+                        .expect("session and its inbound sequence state are created and removed together");
+                    inbound
+                        .advance(request.sequence)
+                        .expect("peek passed, advance cannot fail");
+                }
+                // The sequence is consumed once accepted, whatever
+                // the response outcome (mirrors the outbound
+                // direction: a failed invoke still consumes its
+                // sequence).
+                // Capability-token gate (normative §Method —
+                // capability-token, dispatch order step 2): when
+                // the request carries `auth`, the proof is
+                // validated on **every** invoke (same rules as
+                // the challenge); when the token policy is
+                // active, an invoke from a session that has not
+                // completed the challenge and carries no `auth`
+                // is rejected with an `auth_failed` wire
+                // envelope — before any dispatch.
+                match self.evaluate_invoke_token_gate(peer, request) {
+                    Err(message) => {
+                        self.error_response(request, "auth_failed", message)
+                    }
+                    Ok(token_grant) => {
+                        match &self.config.invoke_handler {
+                            None => self.error_response(
+                                request,
+                                "op_unsupported",
+                                "no invoke handler configured on this node".into(),
+                            ),
+                            Some(handler) => {
+                                // Op dispatch gate (normative MUST,
+                                // `.mstar/specs/spoke-connect.md` §Op
+                                // dispatch gate): a host that performs
+                                // op dispatch must not run an op whose
+                                // required capability is absent from the
+                                // session's `negotiated_capabilities`.
+                                // Denied ops are answered with an
+                                // `op_unsupported` wire envelope and the
+                                // handler is never invoked — no side
+                                // effects. The core table (pure
+                                // `dispatch_allowed`, fail-closed for
+                                // unknown ops) is consulted first; ops
+                                // outside the core table fall back to
+                                // the product-configured
+                                // `op_capability_requirements` map.
+                                // When a capability token is in effect
+                                // (session grant or per-invoke `auth`),
+                                // the token grant AND the negotiated
+                                // set must both allow the op —
+                                // capability-not-granted reuses the
+                                // same `op_unsupported` deny path.
+                                let session = self
+                                    .sessions
+                                    .get(peer)
+                                    .expect("session verified above");
+                                let required = crate::core::required_capability(
+                                    request.op.as_str(),
+                                )
+                                .or_else(|| {
+                                    self.config
+                                        .op_capability_requirements
+                                        .get(request.op.as_str())
+                                        .map(String::as_str)
+                                });
+                                let negotiated_allowed = required.is_some_and(
+                                    |required| {
+                                        session
+                                            .negotiated_capabilities
+                                            .iter()
+                                            .any(|granted| granted == required)
+                                    },
+                                );
+                                let token_allowed = token_grant
+                                    .as_deref()
+                                    .is_none_or(|grant| {
+                                        token_authorizes_op(required, grant)
+                                    });
+                                if !negotiated_allowed || !token_allowed {
+                                    self.error_response(
+                                        request,
+                                        "op_unsupported",
+                                        format!(
+                                            "op {} requires a capability that is not granted in this session",
+                                            request.op.as_str()
+                                        ),
+                                    )
+                                } else {
+                                    // The handler runs synchronously on the
+                                    // event loop: it must return promptly
+                                    // and must not block on I/O (see
+                                    // ConnectConfig::invoke_handler).
+                                    // Panics are contained so a
+                                    // misbehaving adapter cannot kill the
+                                    // node; the invoke is answered with an
+                                    // `internal_error` wire envelope.
+                                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                        || handler(&request.op, request.payload.clone()),
+                                    ));
+                                    match result {
+                                        Ok(Ok(payload)) => self.sign_invoke_response(
+                                            crate::core::InvokeResponseSignInput::Success {
+                                                session_id: request.session_id.to_string(),
+                                                sequence: request.sequence,
+                                                request_id: request.request_id.to_string(),
+                                                payload,
+                                            },
+                                        ),
+                                        Ok(Err(error)) => self.sign_invoke_response(
+                                            crate::core::InvokeResponseSignInput::Error {
+                                                session_id: request.session_id.to_string(),
+                                                sequence: request.sequence,
+                                                request_id: request.request_id.to_string(),
+                                                error,
+                                            },
+                                        ),
+                                        Err(_) => self.error_response(
+                                            request,
+                                            "internal_error",
+                                            "invoke handler panicked".into(),
+                                        ),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(CoreInvokeError::InboundSequenceMismatch {
+                expected,
+                actual,
+            }) => self.error_response(
+                request,
+                "invalid_sequence",
+                format!(
+                    "sequence {actual} is not the next expected inbound sequence {expected} (replay or out-of-order)"
+                ),
+            ),
+            Err(_) => unreachable!("peek only reports InboundSequenceMismatch"),
+        }
+    }
+
+    /// Verify an inbound invoke request's envelope signature (contract §7
+    /// steps 1–6) over the wire form, against the session peer's hello
+    /// Ed25519 public key (the key that verified the peer's hello at
+    /// establish — a session can only exist after that verify, so the
+    /// signer-is-session-peer binding is the key itself).
+    ///
+    /// Session ids are per-side in protocol v1 (each node records its own
+    /// opaque id; there is no session-announce message), so the request's
+    /// `session_id` is opaque correlation material echoed in responses —
+    /// the typed round-trip already guarantees it is the non-empty string
+    /// the envelope was signed over. The inbound counter is NOT touched
+    /// here (auth-before-advance): the caller advances only after this
+    /// returns `None`.
+    ///
+    /// Returns `None` when the signature verifies; `Some(response)` — an
+    /// `auth_failed` envelope carrying the locked `details.kind` — when it
+    /// does not (no advance, no handler side effect).
+    fn verify_inbound_invoke_auth(
+        &self,
+        peer: &PeerId,
+        request: &ConnectInvokeRequest,
+    ) -> Option<ConnectInvokeResponse> {
+        // The session peer's hello Ed25519 public key. Missing / non-Ed25519
+        // is a bound-session invariant violation (the session exists, so
+        // the hello — and its key — verified); fail closed rather than
+        // panic: `auth_failed` with no machine kind (local state issue, not
+        // a wire rejection).
+        let Some(public_key) = self
+            .remote_keys
+            .get(peer)
+            .and_then(|key| key.clone().try_into_ed25519().ok())
+        else {
+            return Some(self.error_response(
+                request,
+                crate::core::EnvelopeAuthError::CODE,
+                "session peer hello key is unavailable for envelope verification".into(),
+            ));
+        };
+        // Verify over the wire form of the typed request (the same JSON the
+        // sender's signature covers: exact signed-field set, `auth` bound
+        // when present).
+        let wire = serde_json::to_value(request).expect("typed request serializes to wire form");
+        match crate::core::verify_invoke_request_auth(
+            &public_key.to_bytes(),
+            &wire,
+            request.session_id.as_str(),
+        ) {
+            Ok(()) => None,
+            Err(error) => {
+                let message = error.to_string();
+                // The locked machine kind (contract §8): every wire
+                // rejection carries its `details.kind`; the local `Crypto`
+                // case (unreachable here — the key is the session peer's
+                // verified hello key) carries none and is encoded without
+                // `details.kind`.
+                let details = error
+                    .kind()
+                    .map(|kind| {
+                        serde_json::json!({ "kind": kind.as_str() })
+                            .as_object()
+                            .expect("kind object")
+                            .clone()
+                    })
+                    .unwrap_or_default();
+                Some(self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
+                    session_id: request.session_id.to_string(),
+                    sequence: request.sequence,
+                    request_id: request.request_id.to_string(),
+                    error: ErrorEnvelope {
+                        code: crate::core::EnvelopeAuthError::CODE.into(),
+                        message,
+                        details,
+                        extensions: Default::default(),
+                    },
+                }))
+            }
+        }
     }
 
     /// Build a `ConnectInvokeResponse` error branch echoing the request.
@@ -2057,6 +2176,129 @@ mod tests {
             inbound.advance(-1),
             Err(CoreInvokeError::InboundSequenceMismatch { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn inbound_invoke_forged_signature_does_not_advance_or_dispatch() {
+        // Contract §7 — auth-before-advance: a schema-valid but forged-
+        // signature invoke at the correct inbound sequence must be answered
+        // with `auth_failed` carrying the locked `details.kind`
+        // (`envelope_auth_invalid`), must NOT advance the inbound counter,
+        // and must NOT run the handler — a bogus-signature envelope cannot
+        // desync the session. The next legitimate invoke with the same
+        // sequence still dispatches.
+        let peer_keypair = Keypair::generate_ed25519();
+        let peer = peer_keypair.public().to_peer_id();
+        let peer_seed =
+            crate::hello::ed25519_seed(&peer_keypair).expect("connect identity is Ed25519");
+
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_for_handler = Arc::clone(&calls);
+        let mut cfg = config(Keypair::generate_ed25519(), vec![peer]);
+        cfg.invoke_handler = Some(Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            calls_for_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "ok": true }))
+        }));
+
+        let (listen_tx, _listen_rx) = mpsc::channel(16);
+        let (cmd_tx, cmd_rx) = mpsc::channel(32);
+        let swarm = build_swarm(&cfg.identity, &cfg).expect("swarm builds without network I/O");
+        let mut loop_ = EventLoop {
+            swarm,
+            identity: cfg.identity.clone(),
+            config: cfg,
+            remote_keys: HashMap::from([(peer, peer_keypair.public())]),
+            pending_hellos: HashMap::new(),
+            nonces: NonceStore::new(),
+            listen_tx,
+            cmd_rx,
+            cmd_tx: cmd_tx.clone(),
+            pending_connect: None,
+            handshakes: HashMap::new(),
+            sessions: HashMap::from([(
+                peer,
+                Arc::new(SessionHandle::new(
+                    "local-session-id".into(),
+                    peer,
+                    manifest("remote-host"),
+                    vec!["spoke-baseline".into()],
+                    [0x2a; 32],
+                    Duration::from_secs(5),
+                    cmd_tx,
+                )),
+            )]),
+            inbound_sequences: HashMap::from([(peer, InboundSequence::new())]),
+            peer_listen_addrs: HashMap::new(),
+            session_connections: HashMap::new(),
+            pending_invokes: HashMap::new(),
+            pending_challenges: HashMap::new(),
+            #[cfg(feature = "mdns")]
+            mdns_candidates: Vec::new(),
+        };
+
+        let signed_request = |seed: &[u8; 32], sequence: i64, request_id: &str| {
+            crate::core::authenticate_invoke_request(
+                seed,
+                &crate::core::InvokeRequestSignInput {
+                    session_id: "peer-side-session-id".into(),
+                    sequence,
+                    request_id: request_id.into(),
+                    op: "upsert".into(),
+                    payload: serde_json::json!({ "collection": "notes" }),
+                    auth: None,
+                },
+                HashMap::new(),
+            )
+            .expect("request signs")
+        };
+
+        // Legitimate invoke (sequence 0, signed by the session peer):
+        // dispatched, counter advances to 1.
+        let legit = signed_request(&peer_seed, 0, "req-0001");
+        let response = loop_.answer_inbound_invoke(&peer, &legit);
+        assert!(
+            matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+            "a legitimate invoke dispatches"
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(loop_.inbound_sequences[&peer].next_expected(), 1);
+
+        // Forged signature (an attacker key) at the correct next sequence:
+        // rejected with `auth_failed` + `envelope_auth_invalid`; the
+        // counter does NOT advance and the handler does NOT run.
+        let attacker_seed = [0x99; 32];
+        let forged = signed_request(&attacker_seed, 1, "req-0002");
+        let response = loop_.answer_inbound_invoke(&peer, &forged);
+        let ConnectInvokeResponse::Variant1 { error, .. } = response else {
+            panic!("forged signature must be answered with the error branch");
+        };
+        assert_eq!(error.code, "auth_failed");
+        assert_eq!(
+            error.details.get("kind").and_then(|kind| kind.as_str()),
+            Some("envelope_auth_invalid"),
+            "an envelope-auth rejection carries the locked details.kind"
+        );
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the handler must not run for a forged signature"
+        );
+        assert_eq!(
+            loop_.inbound_sequences[&peer].next_expected(),
+            1,
+            "a forged-signature envelope must not advance the inbound counter"
+        );
+
+        // The session is not desynced: the next legitimate invoke with the
+        // same sequence (1) still dispatches and the counter advances to 2.
+        let legit2 = signed_request(&peer_seed, 1, "req-0003");
+        let response = loop_.answer_inbound_invoke(&peer, &legit2);
+        assert!(
+            matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+            "the session stays in sync after a forged-signature rejection"
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(loop_.inbound_sequences[&peer].next_expected(), 2);
     }
 
     #[test]

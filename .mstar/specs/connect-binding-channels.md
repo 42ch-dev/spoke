@@ -2,7 +2,7 @@
 
 **Status:** Informative decision record — freezes the per-language package shapes for Path B (**native bindings**) packages. Does not change connect envelopes, the lockstep release policy, or the channel split.
 
-**Updated:** 2026-08-04
+**Updated:** 2026-08-06
 
 **Vocabulary:** **Path B** (internal) = consumer **native bindings** — host languages that embed the shared Rust session core via FFI. Distinct from **Path A** / **language-native client** (TypeScript) and from the **Rust reference** crate itself. Normative map: [`spoke-connect.md`](spoke-connect.md) §Embedding model.
 
@@ -27,7 +27,7 @@
 | Rule | Fact |
 |------|------|
 | Single cdylib | One `spoke-connect` build — `ffi` feature, uniffi **0.32**, `crate-type = ["rlib", "cdylib"]` — carries the exported-surface metadata for every language. No per-language uniffi pins |
-| Exported surface | 8 functions + 3 objects + 2 error enums (crate README "Binding facade"); **core-only sync** surface; transport stays product-owned |
+| Exported surface | Core sync facade (8 functions + 3 objects + 2 error enums) plus the additive remote-adapter FFI: sync `RemoteAdapterFFI` / `MultiPeerRouterFFI` objects, the foreign-callback `Transport` interface, and the `FfiError` / `TransportError` enums (crate README "Binding facade"); the cdylib owns a process-wide tokio runtime and the RemoteAdapter / router FFI is a synchronous block-on-async surface; concrete transports stay product-owned |
 | Generator routes | **First-party** (Swift, Kotlin, Python): the crate-local `uniffi-bindgen` bin (`bindgen-cli` feature, `uniffi::uniffi_bindgen_main`) generates from the pinned cdylib — no community version skew. **Community** (C#, Go): external bindgen behind the feasibility gate (§5) |
 | Generated sources | **Committed** per language (C# `generated/spoke_connect.cs` is the reference); regenerated only when the FFI surface changes. Consumers never run bindgen |
 | Golden parity | Every language smoke asserts the committed Rust fixtures: golden peer id `12D3KooWJ1TsijH7H5F74hfAD5XishQz3sxrmAtVY37GtNd9CqYf`, the golden base64url hello signature, and protocol version `1` |
@@ -141,7 +141,7 @@ Full technique: [`.mstar/knowledge/architecture-patterns/connect-uniffi-bindgen-
 |----------|--------|
 | GitHub Packages for Swift / Go / Python | SPM git, Go modules git, and PyPI are the locked channels for those languages |
 | Registry mirrors | No nuget.org / Maven Central / Swift Package Registry primary feeds |
-| Async node over FFI | Core-only sync surface; node lifecycle stays Rust-side |
+| Async node over FFI | The cdylib owns a process-wide tokio runtime; `RemoteAdapterFFI` / `MultiPeerRouterFFI` are synchronous block-on-async surfaces over that runtime; node lifecycle stays Rust-side |
 | Per-language SemVer | Lockstep with the monorepo tag until the strategy's revisit trigger fires |
 | Consumer-side bindgen | Generated sources and natives ship in the package; bindgen is maintainer tooling |
 | Split binding repositories | Monorepo paths are the contract; dedicated repos are a recorded escape hatch (Go §3.2) |

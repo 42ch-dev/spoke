@@ -2,7 +2,7 @@
 
 > **Owns:** Library-level decisions for the single-peer remote `BaselinePorts` adapter over connect, the multi-peer capability router over registered adapters, and the message-oriented Transport seam in spoke-connect.  
 > **Status:** Implemented — normative surface in `@42ch/spoke-connect` (TS `./remote` subpath) and `spoke-connect` (Rust `remote-adapter` feature).  
-> **Does not own:** Wire schema changes, native-binding FFI exposure, or in-repo WebSocket clients.
+> **Does not own:** Wire schema changes or in-repo WebSocket clients.
 
 ## Relationship
 
@@ -134,6 +134,16 @@ A multi-peer capability router (`connectMultiPeerRouter` / `connect_multi_peer_r
 
 **Public surface:** `connectMultiPeerRouter(options)` / `connect_multi_peer_router(options)` plus `registerPeer` / `register_peer`, `unregisterPeer` / `unregister_peer`, `listPeers` / `list_peers`, and the async `BaselinePorts` six families. Per-peer adapters stay encapsulated after registration — the router holds only the adapter references the consumer dialed. The constructor carries no dial options; consumers dial each peer's `RemoteAdapter` and register the established adapter, and an unconfigured router uses the `multi-peer-router` host id.
 
+### D12 — Native-binding FFI surface (delivered)
+
+The RemoteAdapter contract ships over FFI as a synchronous surface on the `spoke-connect` cdylib (`ffi` + `remote-adapter` features), so native binding hosts consume the same adapter lifecycle as the Rust and TypeScript clients. The surface is generated into all five native binding channels (C#, Go, Kotlin, Python, Swift).
+
+- **Cdylib-owned runtime:** the cdylib owns a process-wide multi-thread tokio runtime, initialized once. Every exported adapter call is a synchronous block-on-async call over that runtime; foreign callbacks run through the runtime's `spawn_blocking` pool, so a blocking `recv` never monopolizes an async worker.
+- **`RemoteAdapterFFI` object:** `connect_remote_adapter_ffi(transport, local_seed, local_manifest_json, remote_pubkey, allowlist, invoke_timeout_ms)` dials through the binding's transport (signed-hello handshake, allowlist, session establishment) and returns an established adapter handle. The object exposes session info — `state` / `session_id` / `remote_peer_id` / `remote_manifest` — and the async `BaselinePorts` methods as synchronous calls. Payloads and manifests cross the boundary as JSON strings, keys as raw 32-byte arrays, peer ids as strings.
+- **Foreign-callback `Transport` interface:** the binding implements the message-oriented `Transport` (`send` accepts exactly one envelope's bytes; `recv` blocks until one envelope arrives or the connection closes; `close` is idempotent resource release). `loopback_transport_pair()` / `LoopbackTransport` / `LoopbackTransportPair` expose the in-memory loopback over FFI so bindings exercise the surface without a network carrier.
+- **`FfiError` (D7 mapping):** `Dial { kind, message }` for constructor / dial failures before an adapter exists (`config` / `handshake` / `timeout` kinds); `Rejected { code, message, kind, wire_code }` for invoke-path `SpokeResult` rejects — application codes preserved, `INTERNAL_ERROR` rows carry `kind`, dispatch deny and unknown wire codes carry `wire_code`. The callback transport's own failures surface as `TransportError` (`Closed` / `Io`).
+- **`MultiPeerRouterFFI`:** `new_multi_peer_router_ffi()` returns the router as a synchronous object — registry (`register_peer` / `unregister_peer` / `list_peers`), the async `BaselinePorts` six families, and the two `HostManifestPort` aggregation views, all block-on-async over the same runtime. `register_peer` accepts an established `RemoteAdapterFFI` handle and returns its `peer_id`.
+
 ## TS↔Rust parity
 
 The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback interop suites in both languages):
@@ -148,7 +158,6 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 
 ## Non-goals
 
-- Native-binding (FFI) exposure of RemoteAdapter  
 - WebSocket (or libp2p) implementation inside the Transport interface module beyond loopback tests  
 - New connect or ops JSON Schema files  
 - Silent sync compatibility shims on operations  
@@ -156,7 +165,7 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 ## Staged follow-ons
 
 1. Optional computable/fork port ops (`port.computable.*`, `port.fork.*`) when product needs remote optional capabilities  
-2. FFI exposure after the TS/Rust contract stabilizes  
+2. ~~FFI exposure after the TS/Rust contract stabilizes~~ — delivered (D12)  
 3. Consumer-side WebSocket Transport packages  
 
 ## Acceptance

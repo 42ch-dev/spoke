@@ -45,7 +45,7 @@ Both paths MUST produce the same signed hello bytes, the same `peer_id` derivati
 
 ### RemoteAdapter layer (above session-core)
 
-A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session. It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
+A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session. It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. The RemoteAdapter runs at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope: signed `ConnectInvokeRequest` emission, and `ConnectSession` / `ConnectInvokeResponse` verification on receipt (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); enforcement details: [spoke-remote-adapter.md](spoke-remote-adapter.md) D10). All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
 
 ## User value
 
@@ -594,6 +594,15 @@ Order relative to existing session-core checks: sequence/correlation checks run 
 ### FFI / binding exposure
 
 No new FFI APIs. Envelope-auth `authenticate*` / `verify*` helpers are module-internal (TS) / crate-private (Rust). Bindings continue to call the encapsulated RemoteAdapter / connect-client surfaces, which attach and verify authenticators internally. TS↔Rust core parity (canonical bytes + algorithm ids + verify outcomes) is the gate; binding golden-parity smokes that cover hello stay green.
+
+### Enforcement (shipped)
+
+The TS RemoteAdapter (`./remote` subpath) and connect-client, and the Rust RemoteAdapter (`remote-adapter` cargo feature), run at `protocol_version: 2` and enforce the verify rules above on every post-hello envelope they emit or accept:
+
+- **Emission:** every outbound `ConnectInvokeRequest` (RemoteAdapter, connect-client, node session path) and every inbound-answer `ConnectInvokeResponse` (node event loop) attaches the required `signature` via the core `authenticate_invoke_request` / `authenticate_invoke_response` helpers; host-side test doubles (`loopback-host.ts`, Rust loopback host) sign their `ConnectSession` snapshots and responses with the same helpers.
+- **Receipt:** the RemoteAdapter (TS + Rust) and the TS connect-client verify the `ConnectSession` snapshot at establish (`verify_session_auth`, peer-id binding) and every correlated `ConnectInvokeResponse` (`verify_invoke_response_auth`, after the correlation echo check); hosts (node event loop, loopback doubles) verify every inbound `ConnectInvokeRequest` before dispatch (`verify_invoke_request_auth`, auth-before-advance). Rejections carry the locked `details.kind` and leave session state untouched.
+
+Enforcement placement and error mapping: [spoke-remote-adapter.md](spoke-remote-adapter.md) D10 + D7.
 
 ### Out of scope (envelope auth, protocol_version 2)
 

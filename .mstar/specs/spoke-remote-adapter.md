@@ -94,6 +94,7 @@ Concurrent port calls on one established session are allowed. Outbound `sequence
 | Invoke timeout | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "timeout"` (waiter only) |
 | Correlation mismatch | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "correlation_mismatch"` |
 | Sequence exhaustion | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "sequence_exhausted"`; session closed |
+| Envelope-auth rejection (missing / invalid / session-unbound response or request) | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} (waiter only; session state untouched, session stays usable) |
 | Dial / hello / allowlist / nonce failure | Constructor error — no adapter instance |
 
 Port methods always settle to `SpokeResult`; typed transport errors stay on lower-level connect APIs.
@@ -106,6 +107,16 @@ Operations port traits use the `async-trait` crate so existing dyn availability 
 
 spoke-connect depends on spoke-operations for port and result types used by RemoteAdapter — gated so default builds stay lean: the TS `./remote` subpath export (root bundle excludes RemoteAdapter symbols) and the Rust `remote-adapter` cargo feature (default `spoke-connect` builds do not require spoke-operations). Operations stays pure (no reverse dependency on connect).
 
+### D10 — Per-envelope authentication enforcement (protocol_version 2)
+
+RemoteAdapter runs connect at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope (normative field sets, canonicalization, and verify rules: [`spoke-connect.md`](spoke-connect.md) §[Envelope authentication (protocol_version 2)](spoke-connect.md#envelope-authentication-protocol_version-2)):
+
+- **Establish:** the dial verifies the responder hello (`peer_nonce` dial-binding assert) and then the responder's `ConnectSession` snapshot with `spoke-connect-session-jcs-v1` against the responder's hello Ed25519 public key — wire form, before typed deserialization — including the step-6 peer-id binding (`initiator_peer_id` / `responder_peer_id` equal the authenticated hello peer ids). A snapshot that fails verification fails the dial; no adapter instance is created.
+- **Invoke — outbound:** every `ConnectInvokeRequest` carries a `spoke-connect-invoke-request-jcs-v1` signature over `{session_id, sequence, request_id, op, payload}` (plus `auth` when attached), computed with the adapter's hello-identity seed. The pending waiter registers synchronously before signing, and sends serialize in allocation order.
+- **Invoke — inbound:** every `ConnectInvokeResponse` runs the correlation echo check first and then `spoke-connect-invoke-response-jcs-v1` verification over the exact wire branch against the peer's hello Ed25519 public key. A forged, tampered, stripped-signature, or session-unbound response fails only that waiter and leaves session state untouched; the session stays usable.
+
+The `authenticate_*` / `verify_*` helpers are module-internal (TS) / crate-private (Rust); consumers reach enforcement only through the adapter surface. Rejections surface as `SpokeResult` rejects with `INTERNAL_ERROR` and `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} (D7 rows).
+
 ## TS↔Rust parity
 
 The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback interop suites in both languages):
@@ -113,7 +124,7 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 - **Public surface:** async `BaselinePorts` (six families) + dial (`connectRemoteAdapter` / `connect_remote_adapter`) + read-only session info (`sessionId`, `remotePeerId`, `remoteManifest`, `state`; Rust returns `Option` where TS returns `""` / throws) + `close` (TS sync, Rust sync; the Rust `Transport::close` itself is async, matching the trait).
 - **Signature mapping:** TS `async`/`Promise` ↔ Rust `#[async_trait] async fn → SpokeResult` (Send futures). `orchestrateUpsert(remoteAdapter, req)` / `orchestrate_upsert(&remote_adapter, req)` compile against the same `BaselinePorts` surface.
 - **Port-method → invoke mapping:** identical `port.*` catalogue, snake_case payloads, `ConnectInvokeRequest`/`ConnectInvokeResponse` reuse, no core-op reuse.
-- **Encapsulation:** all connect verification (hello sign/verify, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token attach) is internal in both; consumers never call it.
+- **Encapsulation:** all connect verification (hello sign/verify, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token attach, protocol_version 2 per-envelope auth sign/verify) is internal in both; consumers never call it.
 - **Deviations (both languages, by design):** `remotePubkey` in dial options (hello verification requires the remote public key; the derived peer_id is checked against the allowlist — key acquisition is transport-adapter-owned); `close()` and `state` on the public surface (lifecycle resource release + read-only session info, not verification helpers).
 - **Surface non-widening:** session-core parity table unchanged; RemoteAdapter sits strictly above session-core; transports remain intentionally asymmetric and outside parity.
 
@@ -141,4 +152,5 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 - [x] Session-core parity surface non-widening recorded  
 - [x] Loopback interop suites land with the connect remote module in TS (`./remote`) and Rust (`remote-adapter` feature); both green  
 - [x] TS↔Rust parity statement recorded above (surface, signature mapping, deviations)  
+- [x] Per-envelope auth (protocol_version 2) enforced on establish + invoke in both languages; enforcement recorded in D10  
 - [x] Consumer docs describe language-native client + native bindings wording (no internal path labels)

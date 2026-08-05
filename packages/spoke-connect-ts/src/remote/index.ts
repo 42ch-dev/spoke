@@ -4,7 +4,10 @@
  *
  * Public surface: the message-oriented `Transport` interface + in-repo
  * loopback implementation, the wire-shape guards, and the drop-in async
- * `BaselinePorts` `RemoteAdapter` + `connectRemoteAdapter` dial entrypoint.
+ * `BaselinePorts` `RemoteAdapter` + `connectRemoteAdapter` dial entrypoint,
+ * plus the multi-peer capability router (`connectMultiPeerRouter` /
+ * `MultiPeerRouter`) composing N registered adapters behind the same
+ * `BaselinePorts` surface.
  * WebSocket (or any product) transports are consumer-side and never
  * imported here.
  */
@@ -15,6 +18,12 @@ export type {
   RemoteAdapterState,
   RemoteIdentity,
 } from "./remote-adapter.js";
+
+export { connectMultiPeerRouter, MultiPeerRouter } from "./multi-peer-router.js";
+export type {
+  MultiPeerRouterOptions,
+  RoutedRemoteAdapter,
+} from "./multi-peer-router.js";
 
 export type { EnvelopeBytes, Transport } from "./transport.js";
 export {

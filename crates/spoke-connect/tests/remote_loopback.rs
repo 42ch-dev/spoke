@@ -41,9 +41,9 @@ use spoke_connect::core::{
     CapabilityTokenProof, CoreInvokeError, InboundSequence, NonceStore,
 };
 use spoke_connect::remote::{
-    connect_remote_adapter, loopback_transport_pair, reset_accepted_server_hellos_for_test,
-    RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions, RemoteIdentity, Transport,
-    TransportError,
+    connect_multi_peer_router, connect_remote_adapter, loopback_transport_pair,
+    reset_accepted_server_hellos_for_test, MultiPeerRouterOptions, RemoteAdapter,
+    RemoteAdapterError, RemoteAdapterOptions, RemoteIdentity, Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
@@ -2633,4 +2633,201 @@ async fn host_answers_invalid_request_non_fatally_when_verified_extensions_are_m
 
     client.close();
     host.close();
+}
+
+// ── Multi-peer router loopback proof (contract §9) ────────────────────────
+
+/// Dial a client against a fresh loopback host with a CUSTOM host identity
+/// seed + host manifest — the multi-peer proof needs distinct remote peer
+/// ids (tie-break) and disjoint capability manifests (routing), which the
+/// fixed `dial` fixture cannot express. The client side keeps the standard
+/// fixture identity; per-peer session state stays independent (contract §1).
+async fn dial_peer(
+    host_seed: [u8; 32],
+    host_manifest: HostCapabilityManifest,
+) -> (Arc<RemoteAdapter>, LoopbackHost) {
+    let host_pubkey = SigningKey::from_bytes(&host_seed)
+        .verifying_key()
+        .to_bytes();
+    let peer_id_host = derive_peer_id_from_ed25519_pubkey(&host_pubkey);
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+
+    let pair = loopback_transport_pair();
+    let host = start_loopback_host(LoopbackHostOptions {
+        transport: Arc::new(pair.server),
+        host_seed,
+        host_manifest,
+        allowlist: vec![peer_id_client.clone()],
+        adapter: Arc::new(ToyWorldAdapter::default()),
+        delay: Box::new(|_| 0),
+        response_override: None,
+        session_peer_ids: None,
+    })
+    .await;
+    let client = connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(pair.client),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: host_pubkey,
+        allowlist: vec![peer_id_host],
+        invoke_timeout_ms: None,
+        capability_token: None,
+    })
+    .await
+    .expect("dial");
+    (client, host)
+}
+
+#[tokio::test]
+async fn multi_peer_router_routes_upsert_and_check_to_the_capable_peer() {
+    // Two peers with DISJOINT capabilities: baseline vs l2-computable.
+    let (baseline_adapter, baseline_host) =
+        dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline"])).await;
+    let (computable_adapter, computable_host) =
+        dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await;
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+    let baseline_id = router
+        .register_peer(baseline_adapter.clone())
+        .expect("register baseline");
+    let computable_id = router
+        .register_peer(computable_adapter.clone())
+        .expect("register computable");
+    // Registry holds both; selection (not registration order) routes.
+    assert_eq!(router.list_peers(), vec![baseline_id, computable_id]);
+
+    // orchestrateUpsert → port.knowledge.get + port.knowledge.put — both
+    // baseline ops → the spoke-baseline peer; the l2-computable peer is
+    // never touched.
+    let request = upsert_request(&[fresh_entry("kb_mpr_upsert", "Multi-Peer Upsert")]);
+    let upsert = orchestrate_upsert(&router, request).await;
+    assert!(
+        upsert.is_ok(),
+        "upsert must route to the baseline peer: {upsert:?}"
+    );
+    assert_eq!(baseline_host.stats().invokes_dispatched, 2);
+    assert_eq!(computable_host.stats().invokes_dispatched, 0);
+    // The remote write actually landed on the selected peer's host store.
+    assert!(baseline_host
+        .inner
+        .adapter
+        .with_store(|store| store.entries.contains_key("kb_mpr_upsert")));
+
+    // orchestrateCheck → listKnowledgeEntries + listTimelineEvents +
+    // putFindings (listRules is skipped: the fixture request carries no
+    // rule_refs) — all baseline ops → the same peer.
+    let checker = |_: CheckRunInput| spoke_ok(Vec::<Finding>::new());
+    let check = orchestrate_check(&router, check_request("toy-scope-001"), checker).await;
+    assert!(
+        check.is_ok(),
+        "check must route to the baseline peer: {check:?}"
+    );
+    assert_eq!(baseline_host.stats().invokes_dispatched, 5);
+    assert_eq!(computable_host.stats().invokes_dispatched, 0);
+
+    baseline_adapter.close();
+    computable_adapter.close();
+    baseline_host.close();
+    computable_host.close();
+}
+
+#[tokio::test]
+async fn multi_peer_router_rejects_no_capable_peer_when_no_peer_has_the_capability() {
+    // Only an l2-computable peer registered — every baseline op on the
+    // router's six-family surface has no capable peer.
+    let (computable_adapter, computable_host) =
+        dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await;
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+    router
+        .register_peer(computable_adapter.clone())
+        .expect("register computable");
+
+    let request = upsert_request(&[fresh_entry("kb_mpr_nomatch", "No Match")]);
+    let result = orchestrate_upsert(&router, request).await;
+    match &result {
+        SpokeResult::Reject(reject) => {
+            // §5 locked reject: CAPABILITY_PORT_MISSING + details.kind /
+            // wire_code = no_capable_peer — terminal, stable.
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("kind"))
+                    .and_then(Value::as_str),
+                Some("no_capable_peer")
+            );
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("no_capable_peer")
+            );
+        }
+        SpokeResult::Ok(_) => panic!("no capable peer must reject"),
+    }
+    // Terminal: no delegate ran (no wrong-peer fallback).
+    assert_eq!(computable_host.stats().invokes_dispatched, 0);
+
+    computable_adapter.close();
+    computable_host.close();
+}
+
+#[tokio::test]
+async fn multi_peer_router_breaks_ties_on_the_lowest_peer_id_across_two_baseline_peers() {
+    // Three peers: alpha (baseline-only), beta (baseline + l2-computable),
+    // gamma (l2-computable-only). A baseline op has TWO candidates (alpha +
+    // beta); the locked §4 tie-break picks the lowest peer_id in UTF-8 byte
+    // order — the host ids derive from the seeds, so the expected recipient
+    // is computed at runtime rather than hunted for.
+    let (alpha_adapter, alpha_host) =
+        dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline"])).await;
+    let (beta_adapter, beta_host) = dial_peer(
+        [0xd4; 32],
+        manifest("host-beta", &["spoke-baseline", "l2-computable"]),
+    )
+    .await;
+    let (gamma_adapter, gamma_host) =
+        dial_peer([0xe5; 32], manifest("host-gamma", &["l2-computable"])).await;
+
+    let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
+    let beta_id = beta_adapter.remote_peer_id().expect("beta peer id");
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+    router
+        .register_peer(alpha_adapter.clone())
+        .expect("register alpha");
+    router
+        .register_peer(beta_adapter.clone())
+        .expect("register beta");
+    router
+        .register_peer(gamma_adapter.clone())
+        .expect("register gamma");
+
+    let request = upsert_request(&[fresh_entry("kb_mpr_tiebreak", "Tie-Break")]);
+    let upsert = orchestrate_upsert(&router, request).await;
+    assert!(upsert.is_ok(), "tie-break upsert must route: {upsert:?}");
+
+    let (expected_host, other_host) = if alpha_id < beta_id {
+        (&alpha_host, &beta_host)
+    } else {
+        (&beta_host, &alpha_host)
+    };
+    // Both baseline port calls (get + put) select the same lowest-id peer.
+    assert_eq!(expected_host.stats().invokes_dispatched, 2);
+    assert_eq!(other_host.stats().invokes_dispatched, 0);
+    // The l2-computable-only peer is never a candidate for baseline ops.
+    assert_eq!(gamma_host.stats().invokes_dispatched, 0);
+
+    alpha_adapter.close();
+    beta_adapter.close();
+    gamma_adapter.close();
+    alpha_host.close();
+    beta_host.close();
+    gamma_host.close();
 }

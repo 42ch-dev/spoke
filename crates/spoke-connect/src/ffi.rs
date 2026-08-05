@@ -222,6 +222,11 @@ mod foreign_transport {
         fn from_remote(inner: transport::LoopbackTransport) -> Arc<Self> {
             Arc::new(Self { inner })
         }
+
+        /// Clone the async loopback end wrapped by this FFI object.
+        pub(crate) fn clone_async_inner(&self) -> transport::LoopbackTransport {
+            self.inner.clone()
+        }
     }
 
     /// Back-to-back loopback transport pair — `client` and `server` ends of
@@ -635,8 +640,68 @@ mod remote_adapter_ffi {
     }
 }
 
+// ── Loopback smoke host (binding smokes) ─────────────────────────────────
+#[cfg(feature = "remote-adapter")]
+mod loopback_smoke_host {
+    use std::sync::Arc;
+
+    use spoke_fixture_toy_world::ToyWorldAdapter;
+
+    use crate::core::derive_peer_id_from_ed25519_pubkey;
+    use crate::test_support::loopback_oracle::{
+        manifest, pubkey_client, seed_host, start_loopback_host, LoopbackHost,
+        LoopbackHostOptions,
+    };
+
+    use super::foreign_transport::LoopbackTransport;
+    use super::ffi_runtime;
+
+    /// Reference loopback host for binding smokes (ToyWorld fixtures, fixed
+    /// test seeds). Serves the server end of a [`loopback_transport_pair`].
+    #[derive(uniffi::Object)]
+    pub struct LoopbackSmokeHost {
+        host: LoopbackHost,
+    }
+
+    #[uniffi::export]
+    impl LoopbackSmokeHost {
+        /// Fixed loopback session id (`test-session-loopback-0001`).
+        pub fn session_id(&self) -> String {
+            self.host.session_id().to_string()
+        }
+
+        /// Close the connection (fails the client's pending recv / invokes).
+        pub fn close(&self) {
+            self.host.close();
+        }
+    }
+
+    /// Start the reference loopback smoke host on the server end of a
+    /// loopback pair. Uses the same seeds, manifests, and ToyWorld adapter
+    /// as the Rust FFI parity tests.
+    #[uniffi::export]
+    pub fn start_loopback_smoke_host(
+        server: Arc<LoopbackTransport>,
+    ) -> Arc<LoopbackSmokeHost> {
+        let transport = Arc::new(server.clone_async_inner());
+        let host = ffi_runtime().block_on(start_loopback_host(LoopbackHostOptions {
+            transport,
+            host_seed: seed_host(),
+            host_manifest: manifest("test-host", &["spoke-baseline"]),
+            allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+            adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            delay: Box::new(|_| 0),
+            response_override: None,
+            session_peer_ids: None,
+        }));
+        Arc::new(LoopbackSmokeHost { host })
+    }
+}
+
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+#[cfg(feature = "remote-adapter")]
+pub use loopback_smoke_host::{start_loopback_smoke_host, LoopbackSmokeHost};
 
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::ConnectHello;

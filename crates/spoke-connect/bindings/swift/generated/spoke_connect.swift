@@ -460,7 +460,13 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 
 
 // Public interface members begin here.
-
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -729,6 +735,477 @@ public func FfiConverterTypeInboundSequence_lift(_ handle: UInt64) throws -> Inb
 #endif
 public func FfiConverterTypeInboundSequence_lower(_ value: InboundSequence) -> UInt64 {
     return FfiConverterTypeInboundSequence.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Reference loopback host for binding smokes (ToyWorld fixtures, fixed
+ * test seeds). Serves the server end of a [`loopback_transport_pair`].
+ */
+public protocol LoopbackSmokeHostProtocol: AnyObject, Sendable {
+    
+    /**
+     * Close the connection (fails the client's pending recv / invokes).
+     */
+    func close() 
+    
+    /**
+     * Fixed loopback session id (`test-session-loopback-0001`).
+     */
+    func sessionId()  -> String
+    
+}
+/**
+ * Reference loopback host for binding smokes (ToyWorld fixtures, fixed
+ * test seeds). Serves the server end of a [`loopback_transport_pair`].
+ */
+open class LoopbackSmokeHost: LoopbackSmokeHostProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_spoke_connect_fn_clone_loopbacksmokehost(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_spoke_connect_fn_free_loopbacksmokehost(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Close the connection (fails the client's pending recv / invokes).
+     */
+open func close()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacksmokehost_close(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Fixed loopback session id (`test-session-loopback-0001`).
+     */
+open func sessionId() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacksmokehost_session_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLoopbackSmokeHost: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LoopbackSmokeHost
+
+    public static func lift(_ handle: UInt64) throws -> LoopbackSmokeHost {
+        return LoopbackSmokeHost(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LoopbackSmokeHost) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoopbackSmokeHost {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LoopbackSmokeHost, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackSmokeHost_lift(_ handle: UInt64) throws -> LoopbackSmokeHost {
+    return try FfiConverterTypeLoopbackSmokeHost.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackSmokeHost_lower(_ value: LoopbackSmokeHost) -> UInt64 {
+    return FfiConverterTypeLoopbackSmokeHost.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One end of an in-memory loopback connection, exposed over FFI (AR-7)
+ * so a binding can exercise the callback `Transport` surface without a
+ * real network carrier. `send` delivers to the peer's `recv`; `close`
+ * closes the whole connection (both directions). Each method
+ * `block_on`s the shared runtime — the same synchronous block-on-async
+ * surface a binding uses (AR-1 / AR-6).
+ */
+public protocol LoopbackTransportProtocol: AnyObject, Sendable {
+    
+    /**
+     * Close the whole connection (both directions). Idempotent.
+     */
+    func close() throws 
+    
+    /**
+     * Receive the next inbound envelope. Errors when the connection
+     * closes.
+     */
+    func recv() throws  -> Data
+    
+    /**
+     * Send one envelope; delivered to the peer end's `recv`.
+     */
+    func send(envelope: Data) throws 
+    
+}
+/**
+ * One end of an in-memory loopback connection, exposed over FFI (AR-7)
+ * so a binding can exercise the callback `Transport` surface without a
+ * real network carrier. `send` delivers to the peer's `recv`; `close`
+ * closes the whole connection (both directions). Each method
+ * `block_on`s the shared runtime — the same synchronous block-on-async
+ * surface a binding uses (AR-1 / AR-6).
+ */
+open class LoopbackTransport: LoopbackTransportProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_spoke_connect_fn_clone_loopbacktransport(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_spoke_connect_fn_free_loopbacktransport(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Close the whole connection (both directions). Idempotent.
+     */
+open func close()throws   {try rustCallWithError(FfiConverterTypeTransportError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacktransport_close(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Receive the next inbound envelope. Errors when the connection
+     * closes.
+     */
+open func recv()throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeTransportError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacktransport_recv(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Send one envelope; delivered to the peer end's `recv`.
+     */
+open func send(envelope: Data)throws   {try rustCallWithError(FfiConverterTypeTransportError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacktransport_send(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(envelope),uniffiCallStatus
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLoopbackTransport: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LoopbackTransport
+
+    public static func lift(_ handle: UInt64) throws -> LoopbackTransport {
+        return LoopbackTransport(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LoopbackTransport) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoopbackTransport {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LoopbackTransport, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackTransport_lift(_ handle: UInt64) throws -> LoopbackTransport {
+    return try FfiConverterTypeLoopbackTransport.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackTransport_lower(_ value: LoopbackTransport) -> UInt64 {
+    return FfiConverterTypeLoopbackTransport.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Back-to-back loopback transport pair — `client` and `server` ends of
+ * the same in-memory connection (mirror of
+ * [`transport::loopback_transport_pair`]).
+ */
+public protocol LoopbackTransportPairProtocol: AnyObject, Sendable {
+    
+    /**
+     * The client end of the connection.
+     */
+    func client()  -> LoopbackTransport
+    
+    /**
+     * The server end of the connection.
+     */
+    func server()  -> LoopbackTransport
+    
+}
+/**
+ * Back-to-back loopback transport pair — `client` and `server` ends of
+ * the same in-memory connection (mirror of
+ * [`transport::loopback_transport_pair`]).
+ */
+open class LoopbackTransportPair: LoopbackTransportPairProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_spoke_connect_fn_clone_loopbacktransportpair(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_spoke_connect_fn_free_loopbacktransportpair(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The client end of the connection.
+     */
+open func client() -> LoopbackTransport  {
+    return try!  FfiConverterTypeLoopbackTransport_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacktransportpair_client(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * The server end of the connection.
+     */
+open func server() -> LoopbackTransport  {
+    return try!  FfiConverterTypeLoopbackTransport_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_loopbacktransportpair_server(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLoopbackTransportPair: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LoopbackTransportPair
+
+    public static func lift(_ handle: UInt64) throws -> LoopbackTransportPair {
+        return LoopbackTransportPair(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LoopbackTransportPair) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoopbackTransportPair {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LoopbackTransportPair, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackTransportPair_lift(_ handle: UInt64) throws -> LoopbackTransportPair {
+    return try FfiConverterTypeLoopbackTransportPair.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLoopbackTransportPair_lower(_ value: LoopbackTransportPair) -> UInt64 {
+    return FfiConverterTypeLoopbackTransportPair.lower(value)
 }
 
 
@@ -1028,6 +1505,286 @@ public func FfiConverterTypeOutboundSequence_lower(_ value: OutboundSequence) ->
 
 
 
+
+
+public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
+    
+    func close() 
+    
+    func getHostCapabilityManifest() throws  -> String
+    
+    func getKnowledgeEntry(entryId: String) throws  -> String
+    
+    func getRelation(relationId: String) throws  -> String
+    
+    func listKnowledgeEntries(scopeJson: String) throws  -> String
+    
+    func listPeerHostCapabilityManifests() throws  -> String
+    
+    func listRules(ruleRefs: [String]) throws  -> String
+    
+    func listTimelineEvents(scopeJson: String) throws  -> String
+    
+    func putFindings(findingsJson: String) throws  -> String
+    
+    func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func putRelation(relationJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func remoteManifest()  -> String?
+    
+    func remotePeerId()  -> String?
+    
+    func sessionId()  -> String?
+    
+    func state()  -> String
+    
+}
+open class RemoteAdapterFfi: RemoteAdapterFfiProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_spoke_connect_fn_clone_remoteadapterffi(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_spoke_connect_fn_free_remoteadapterffi(handle, $0) }
+    }
+
+    
+
+    
+open func close()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_close(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+open func getHostCapabilityManifest()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func getKnowledgeEntry(entryId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_get_knowledge_entry(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryId),uniffiCallStatus
+    )
+})
+}
+    
+open func getRelation(relationId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_get_relation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(relationId),uniffiCallStatus
+    )
+})
+}
+    
+open func listKnowledgeEntries(scopeJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scopeJson),uniffiCallStatus
+    )
+})
+}
+    
+open func listPeerHostCapabilityManifests()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func listRules(ruleRefs: [String])throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_list_rules(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(ruleRefs),uniffiCallStatus
+    )
+})
+}
+    
+open func listTimelineEvents(scopeJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scopeJson),uniffiCallStatus
+    )
+})
+}
+    
+open func putFindings(findingsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_put_findings(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(findingsJson),uniffiCallStatus
+    )
+})
+}
+    
+open func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_put_knowledge_entry(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(entryJson),
+        FfiConverterOptionUInt64.lower(expectedBaseRevision),uniffiCallStatus
+    )
+})
+}
+    
+open func putRelation(relationJson: String, expectedBaseRevision: UInt64?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_put_relation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(relationJson),
+        FfiConverterOptionUInt64.lower(expectedBaseRevision),uniffiCallStatus
+    )
+})
+}
+    
+open func remoteManifest() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_remote_manifest(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func remotePeerId() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_remote_peer_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func sessionId() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_session_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func state() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_state(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRemoteAdapterFFI: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RemoteAdapterFfi
+
+    public static func lift(_ handle: UInt64) throws -> RemoteAdapterFfi {
+        return RemoteAdapterFfi(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RemoteAdapterFfi) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RemoteAdapterFfi {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RemoteAdapterFfi, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteAdapterFFI_lift(_ handle: UInt64) throws -> RemoteAdapterFfi {
+    return try FfiConverterTypeRemoteAdapterFFI.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRemoteAdapterFFI_lower(_ value: RemoteAdapterFfi) -> UInt64 {
+    return FfiConverterTypeRemoteAdapterFFI.lower(value)
+}
+
+
+
+
 /**
  * FFI-facing mirror of [`crate::core::CoreError`] (hello-gate / identity
  * failures). Mapped 1:1 in [`From<CoreErrorImpl>`].
@@ -1289,6 +2046,430 @@ public func FfiConverterTypeCoreInvokeError_lower(_ value: CoreInvokeError) -> R
     return FfiConverterTypeCoreInvokeError.lower(value)
 }
 
+
+/**
+ * FFI error surface — 1:1 with frozen-contract D7 (AR-5).
+ *
+ * - [`FfiError::Dial`] — constructor / dial failures before an adapter
+ * exists (`config` / `handshake` / `timeout`).
+ * - [`FfiError::Rejected`] — invoke-path `SpokeResult::Reject` passthrough:
+ * application codes preserved; `INTERNAL_ERROR` rows carry `kind`;
+ * dispatch deny and unknown wire codes carry `wire_code`.
+ */
+public 
+enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case Dial(kind: String, message: String
+    )
+    case Rejected(code: String, message: String, kind: String?, wireCode: String?
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension FfiError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
+    typealias SwiftType = FfiError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Dial(
+            kind: try FfiConverterString.read(from: &buf), 
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Rejected(
+            code: try FfiConverterString.read(from: &buf), 
+            message: try FfiConverterString.read(from: &buf), 
+            kind: try FfiConverterOptionString.read(from: &buf), 
+            wireCode: try FfiConverterOptionString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Dial(kind,message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(kind, into: &buf)
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .Rejected(code,message,kind,wireCode):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(code, into: &buf)
+            FfiConverterString.write(message, into: &buf)
+            FfiConverterOptionString.write(kind, into: &buf)
+            FfiConverterOptionString.write(wireCode, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiError_lift(_ buf: RustBuffer) throws -> FfiError {
+    return try FfiConverterTypeFfiError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
+    return FfiConverterTypeFfiError.lower(value)
+}
+
+
+/**
+ * FFI-facing mirror of [`transport::TransportError`] — the
+ * callback `Transport`'s own error vocabulary. 1:1 with the remote
+ * error; the bridge maps both directions.
+ */
+public 
+enum TransportError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * The transport is closed. A pending `recv` must fail fast on
+     * connection loss so the adapter can fail its in-flight invokes.
+     */
+    case Closed
+    /**
+     * Transport-level I/O failure.
+     */
+    case Io(String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension TransportError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTransportError: FfiConverterRustBuffer {
+    typealias SwiftType = TransportError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TransportError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Closed
+        case 2: return .Io(
+            try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TransportError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .Closed:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .Io(v1):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(v1, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTransportError_lift(_ buf: RustBuffer) throws -> TransportError {
+    return try FfiConverterTypeTransportError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTransportError_lower(_ value: TransportError) -> RustBuffer {
+    return FfiConverterTypeTransportError.lower(value)
+}
+
+
+
+
+/**
+ * Message-oriented transport implemented by the foreign binding.
+ *
+ * Mirrors the async [`transport::Transport`] seam 1:1 over the
+ * FFI boundary (frozen contract §2.1): `send` accepts exactly one
+ * envelope's bytes, `recv` returns the next inbound envelope and fails
+ * fast on close, `close` is idempotent resource release.
+ */
+public protocol Transport: AnyObject, Sendable {
+    
+    /**
+     * Send one envelope. Resolves when the transport has accepted the
+     * bytes.
+     */
+    func send(envelope: Data) throws 
+    
+    /**
+     * Receive the next inbound envelope. Errors when the transport
+     * closes.
+     */
+    func recv() throws  -> Data
+    
+    /**
+     * Release resources. Idempotent.
+     */
+    func close() throws 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceTransport {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceTransport = UniffiVTableCallbackInterfaceTransport(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceTransport.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface Transport: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceTransport.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface Transport: handle missing in uniffiClone")
+            }
+        },
+        send: { (
+            uniffiHandle: UInt64,
+            envelope: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTransport.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.send(
+                     envelope: try FfiConverterData.lift(envelope)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeTransportError_lower
+            )
+        },
+        recv: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Data in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTransport.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.recv(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterData.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeTransportError_lower
+            )
+        },
+        close: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceTransport.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.close(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeTransportError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceTransport> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceTransport>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitTransport() {
+    uniffi_spoke_connect_fn_init_callback_vtable_transport(UniffiCallbackInterfaceTransport.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceTransport {
+    fileprivate static let handleMap = UniffiHandleMap<Transport>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceTransport : FfiConverter {
+    typealias SwiftType = Transport
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceTransport_lift(_ handle: UInt64) throws -> Transport {
+    return try FfiConverterCallbackInterfaceTransport.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceTransport_lower(_ v: Transport) -> UInt64 {
+    return FfiConverterCallbackInterfaceTransport.lower(v)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -1453,6 +2634,42 @@ public func verifyHelloEd25519(publicKey: Data, expectedPeerId: String, helloJso
     )
 }
 }
+/**
+ * Create a back-to-back loopback transport pair (client + server ends).
+ */
+public func loopbackTransportPair() -> LoopbackTransportPair  {
+    return try!  FfiConverterTypeLoopbackTransportPair_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_func_loopback_transport_pair(uniffiCallStatus
+    )
+})
+}
+/**
+ * Start the reference loopback smoke host on the server end of a
+ * loopback pair. Uses the same seeds, manifests, and ToyWorld adapter
+ * as the Rust FFI parity tests.
+ */
+public func startLoopbackSmokeHost(server: LoopbackTransport) -> LoopbackSmokeHost  {
+    return try!  FfiConverterTypeLoopbackSmokeHost_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_func_start_loopback_smoke_host(
+        FfiConverterTypeLoopbackTransport_lower(server),uniffiCallStatus
+    )
+})
+}
+public func connectRemoteAdapterFfi(transport: Transport, localSeed: Data, localManifestJson: String, remotePubkey: Data, allowlist: [String], invokeTimeoutMs: UInt64?)throws  -> RemoteAdapterFfi  {
+    return try  FfiConverterTypeRemoteAdapterFFI_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_func_connect_remote_adapter_ffi(
+        FfiConverterCallbackInterfaceTransport_lower(transport),
+        FfiConverterData.lower(localSeed),
+        FfiConverterString.lower(localManifestJson),
+        FfiConverterData.lower(remotePubkey),
+        FfiConverterSequenceString.lower(allowlist),
+        FfiConverterOptionUInt64.lower(invokeTimeoutMs),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -1493,6 +2710,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_func_verify_hello_ed25519() != 15847) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_func_start_loopback_smoke_host() != 55037) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() != 44915) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_inboundsequence_advance() != 17976) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1500,6 +2726,72 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_outboundsequence_allocate() != 57422) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacktransport_close() != 20355) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacktransport_recv() != 39606) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacktransport_send() != 16974) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacktransportpair_client() != 9696) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacksmokehost_close() != 65256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_loopbacksmokehost_session_id() != 13641) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry() != 44466) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation() != 47371) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests() != 7630) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules() != 57745) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events() != 30715) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings() != 8509) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry() != 46465) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation() != 40493) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest() != 12957) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id() != 25676) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id() != 15819) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_state() != 28869) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_constructor_inboundsequence_new() != 21926) {
@@ -1511,7 +2803,17 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_transport_send() != 34348) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_transport_recv() != 49799) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_transport_close() != 43413) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitTransport()
     return InitializationResult.ok
 }()
 

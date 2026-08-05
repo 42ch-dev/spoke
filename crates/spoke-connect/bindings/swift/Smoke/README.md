@@ -4,7 +4,9 @@ macOS-only smoke for the uniffi Swift bindings of the `spoke-connect` sync-core
 facade. `main.swift` derives the golden peer id from the golden Ed25519 seed,
 signs and verifies the golden hello (asserting base64url signature parity), and
 exercises the rest of the exported surface (allowlist, sequences, nonce store,
-dispatch gate, correlation, protocol version) with the mapped error cases.
+dispatch gate, correlation, protocol version) with the mapped error cases, then
+exercises `RemoteAdapterFFI` over a callback `Transport` on the in-repo loopback pair
+(put → get knowledge entry round-trip, session state, host peer id).
 
 > Local env quirk: this machine's `~/.cargo/config.toml` carries
 > `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).
@@ -14,7 +16,7 @@ dispatch gate, correlation, protocol version) with the mapped error cases.
 > Footgun: a plain `cargo build` (default features) between steps replaces the
 > ffi cdylib in the shared `target/debug`. If the next smoke run fails with
 > `dyld: Symbol not found: _ffi_spoke_connect_rustbuffer_free`, re-run step 1
-> (`cargo build -p spoke-connect --features ffi`) before recompiling the smoke.
+> (`cargo build -p spoke-connect --features ffi,remote-adapter`) before recompiling the smoke.
 
 SPM layout validation: from the repository root, `swift build` compiles the
 root package (`SpokeConnect` + `spoke_connectFFI` xcframework). See
@@ -32,10 +34,10 @@ swift build
 # swiftc golden-parity smoke (links the debug cdylib directly):
 
 # 1. Build the cdylib that carries the exported-surface metadata.
-cargo build -p spoke-connect --features ffi
+cargo build -p spoke-connect --features ffi,remote-adapter
 
 # 2. Regenerate only when FFI surface changed (otherwise use committed generated/).
-cargo run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+cargo run -p spoke-connect --features ffi,bindgen-cli,remote-adapter --bin uniffi-bindgen -- \
   generate --library target/debug/libspoke_connect.dylib \
   --language swift --out-dir crates/spoke-connect/bindings/swift/generated
 

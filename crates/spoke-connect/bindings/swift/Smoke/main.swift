@@ -218,6 +218,8 @@ func run() throws {
         r.check("correlation mismatch surfaces as CoreInvokeError (got \(error))", false)
     }
 
+    try runLoopbackRemoteAdapterSmoke(r)
+
     print("\(r.passed) checks passed")
 }
 

@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(any(test, all(feature = "ffi", feature = "remote-adapter")))]
 pub mod loopback_oracle {
     mod spoke_connect {
         pub use crate::core;

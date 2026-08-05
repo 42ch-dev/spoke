@@ -464,7 +464,9 @@ mod remote_adapter_ffi {
         }
 
         pub fn close(&self) {
-            self.inner.close();
+            ffi_runtime().block_on(async {
+                self.inner.close();
+            });
         }
     }
 
@@ -477,8 +479,11 @@ mod remote_adapter_ffi {
         allowlist: Vec<String>,
         invoke_timeout_ms: Option<u64>,
     ) -> Result<Arc<RemoteAdapterFFI>, FfiError> {
-        let local_manifest: HostCapabilityManifest =
-            parse_json_field(&local_manifest_json, "local host manifest")?;
+        let local_manifest: HostCapabilityManifest = serde_json::from_str(&local_manifest_json)
+            .map_err(|error| FfiError::Dial {
+                kind: "config".into(),
+                message: format!("invalid local host manifest JSON: {error}"),
+            })?;
         let adapter = ffi_runtime()
             .block_on(connect_remote_adapter(RemoteAdapterOptions {
                 transport: Arc::new(ForeignCallbackTransport::new(Arc::from(transport))),
@@ -1189,10 +1194,6 @@ mod tests {
 
 
 #[cfg(all(test, feature = "remote-adapter"))]
-#[path = "ffi_loopback_oracle.rs"]
-mod ffi_loopback_oracle;
-
-#[cfg(all(test, feature = "remote-adapter"))]
 mod remote_adapter_ffi_tests {
     use std::sync::Arc;
     use std::thread;
@@ -1205,8 +1206,9 @@ mod remote_adapter_ffi_tests {
     use crate::core::golden::{golden, golden_pubkey, golden_seed};
     use crate::remote::transport::Transport as RemoteAsyncTransport;
 
-    use super::ffi_loopback_oracle::{
-        dial, fresh_entry, manifest, pubkey_host, seed_client, seed_host, DialOptions,
+    use crate::test_support::loopback_oracle::{
+        dial, fresh_entry, manifest, pubkey_client, pubkey_host, seed_client, seed_host,
+        start_loopback_host, DialOptions, LoopbackHostOptions,
     };
     use super::foreign_transport::{ForeignCallbackTransport, Transport, TransportError};
     use super::remote_adapter_ffi::{
@@ -1278,6 +1280,25 @@ mod remote_adapter_ffi_tests {
     }
 
     #[test]
+    fn connect_remote_adapter_ffi_rejects_invalid_local_manifest_json() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let callback = Box::new(LoopbackCallback { inner: pair.client });
+        let err = match connect_remote_adapter_ffi(
+            callback,
+            seed_client().to_vec(),
+            "{ not json".to_string(),
+            pubkey_host().to_vec(),
+            vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+            None,
+        ) {
+            Err(err) => err,
+            Ok(_) => panic!("invalid manifest JSON must fail at dial"),
+        };
+        assert!(matches!(err, FfiError::Dial { kind, .. } if kind == "config"));
+    }
+
+
+    #[test]
     fn remote_adapter_ffi_put_get_round_trip_and_session_info() {
         let (async_client, host) = ffi_runtime().block_on(async {
             let host_adapter = ToyWorldAdapter::with_committed_fixtures();
@@ -1317,13 +1338,13 @@ mod remote_adapter_ffi_tests {
         let (client, host) = ffi_runtime().block_on(async {
             let host_adapter = ToyWorldAdapter::with_committed_fixtures();
             let pair = crate::remote::transport::loopback_transport_pair();
-            let host = super::ffi_loopback_oracle::start_loopback_host(
-                super::ffi_loopback_oracle::LoopbackHostOptions {
+            let host = crate::test_support::loopback_oracle::start_loopback_host(
+                crate::test_support::loopback_oracle::LoopbackHostOptions {
                     transport: Arc::new(pair.server),
                     host_seed: seed_host(),
                     host_manifest: manifest("test-host", &["spoke-baseline"]),
                     allowlist: vec![derive_peer_id_from_ed25519_pubkey(
-                        &super::ffi_loopback_oracle::pubkey_client(),
+                        &crate::test_support::loopback_oracle::pubkey_client(),
                     )],
                     adapter: Arc::new(host_adapter),
                     delay: Box::new(|_| 0),
@@ -1374,6 +1395,50 @@ mod remote_adapter_ffi_tests {
     }
 
     #[test]
+    fn remote_adapter_ffi_close_closes_loopback_transport() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_client = pair.client.clone();
+        let peer_server = pair.server.clone();
+        let host = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            start_loopback_host(LoopbackHostOptions {
+                transport: Arc::new(pair.server),
+                host_seed: seed_host(),
+                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+                adapter: Arc::new(host_adapter),
+                delay: Box::new(|_| 0),
+                response_override: None,
+                session_peer_ids: None,
+            })
+            .await
+        });
+        let ffi = dial_ffi(pair.client);
+        assert_eq!(ffi.state(), "Established");
+        ffi.close();
+        assert_eq!(ffi.state(), "Closed");
+
+        let client_recv = ffi_runtime().block_on(peer_client.recv());
+        assert!(
+            matches!(
+                client_recv,
+                Err(crate::remote::transport::TransportError::Closed)
+            ),
+            "client transport should report closed after ffi close: {client_recv:?}"
+        );
+        let server_recv = ffi_runtime().block_on(peer_server.recv());
+        assert!(
+            matches!(
+                server_recv,
+                Err(crate::remote::transport::TransportError::Closed)
+            ),
+            "server transport should report closed after ffi close: {server_recv:?}"
+        );
+        host.close();
+    }
+
+
+    #[test]
     fn remote_adapter_ffi_concurrent_invokes_from_os_threads() {
         let (async_client, host) = ffi_runtime().block_on(async {
             let host_adapter = ToyWorldAdapter::with_committed_fixtures();
@@ -1401,8 +1466,8 @@ mod remote_adapter_ffi_tests {
         let (client, host) = ffi_runtime().block_on(async {
             let host_adapter = ToyWorldAdapter::with_committed_fixtures();
             let pair = crate::remote::transport::loopback_transport_pair();
-            let host = super::ffi_loopback_oracle::start_loopback_host(
-                super::ffi_loopback_oracle::LoopbackHostOptions {
+            let host = crate::test_support::loopback_oracle::start_loopback_host(
+                crate::test_support::loopback_oracle::LoopbackHostOptions {
                     transport: Arc::new(pair.server),
                     host_seed: golden_seed(),
                     host_manifest: manifest("golden-host", &["spoke-baseline"]),

@@ -99,6 +99,9 @@ pub mod core;
 #[cfg(feature = "remote-adapter")]
 pub mod remote;
 
+#[cfg(all(test, feature = "remote-adapter"))]
+pub mod test_support;
+
 #[cfg(feature = "ffi")]
 pub mod ffi;
 

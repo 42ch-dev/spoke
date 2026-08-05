@@ -1,6 +1,4 @@
-//! Loopback oracle for FFI tests (extracted from `remote_loopback.rs`).
-
-#![allow(dead_code)]
+// Shared loopback host oracle impl (`loopback_oracle_impl.rs`); wrappers in `tests/common/loopback_oracle.rs` and `src/test_support/mod.rs`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -13,12 +11,12 @@ use base64::Engine;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::Serialize;
 use serde_json::{json, Value};
-use crate::core::{
+use spoke_connect::core::{
     derive_peer_id_from_ed25519_pubkey, ed25519_pubkey_from_peer_id, is_allowlisted,
     required_capability, sign_hello_ed25519, verify_hello_ed25519, CapabilityClaims,
     CapabilityTokenProof, CoreInvokeError, InboundSequence, NonceStore,
 };
-use crate::remote::{
+use spoke_connect::remote::{
     connect_multi_peer_router, connect_remote_adapter, loopback_transport_pair,
     reset_accepted_server_hellos_for_test, MultiPeerRouterOptions, RemoteAdapter,
     RemoteAdapterError, RemoteAdapterOptions, RemoteIdentity, Transport, TransportError,
@@ -39,7 +37,7 @@ use spoke_schemas::{
 };
 
 /// Schema-conformant host manifest (mirror of TS `schemaConformantManifest`).
-pub(crate) fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
+pub fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
     serde_json::from_value(json!({
         "schema_version": 1,
         "host_id": host_id,
@@ -51,13 +49,13 @@ pub(crate) fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityMa
     .expect("valid HostCapabilityManifest")
 }
 
-fn connect_manifest(manifest: &HostCapabilityManifest) -> ConnectHostCapabilityManifest {
+pub fn connect_manifest(manifest: &HostCapabilityManifest) -> ConnectHostCapabilityManifest {
     serde_json::from_value(serde_json::to_value(manifest).expect("manifest serializes"))
         .expect("field-identical manifest converts")
 }
 
 /// Minimal schema-valid provisional KnowledgeEntry for the upsert parity.
-pub(crate) fn fresh_entry(entry_id: &str, canonical_name: &str) -> KnowledgeEntry {
+pub fn fresh_entry(entry_id: &str, canonical_name: &str) -> KnowledgeEntry {
     serde_json::from_value(json!({
         "schema_version": 1,
         "entry_id": entry_id,
@@ -70,11 +68,11 @@ pub(crate) fn fresh_entry(entry_id: &str, canonical_name: &str) -> KnowledgeEntr
     .expect("valid KnowledgeEntry")
 }
 
-fn upsert_request(entries: &[KnowledgeEntry]) -> UpsertRequest {
+pub fn upsert_request(entries: &[KnowledgeEntry]) -> UpsertRequest {
     serde_json::from_value(json!({ "knowledge_entries": entries })).expect("valid UpsertRequest")
 }
 
-fn check_request(scope_id: &str) -> CheckRequest {
+pub fn check_request(scope_id: &str) -> CheckRequest {
     serde_json::from_value(json!({ "scope": { "scope_id": scope_id } }))
         .expect("valid CheckRequest")
 }
@@ -104,20 +102,20 @@ const SESSION_ID: &str = "test-session-loopback-0001";
 /// single-use one the host records).
 static HOST_NONCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn host_nonce() -> String {
+pub fn host_nonce() -> String {
     let n = HOST_NONCE_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("test-host-nonce-{n:04}")
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct LoopbackHostStats {
-    hellos_verified: usize,
-    invokes_dispatched: usize,
-    sequence_rejections: usize,
-    auth_rejections: usize,
-    dispatch_denials: usize,
-    response_order: Vec<i64>,
-    auth_seen: bool,
+pub struct LoopbackHostStats {
+    pub hellos_verified: usize,
+    pub invokes_dispatched: usize,
+    pub sequence_rejections: usize,
+    pub auth_rejections: usize,
+    pub dispatch_denials: usize,
+    pub response_order: Vec<i64>,
+    pub auth_seen: bool,
 }
 
 /// What the serialized inbound gate passes to the dispatch phase: the
@@ -140,13 +138,13 @@ struct HostSession {
     inbound: Mutex<InboundSequence>,
 }
 
-struct HostInner {
+pub struct HostInner {
     transport: Arc<dyn Transport>,
     host_seed: [u8; 32],
     host_manifest: HostCapabilityManifest,
     host_peer_id: String,
     allowlist: Vec<String>,
-    adapter: Arc<ToyWorldAdapter>,
+    pub adapter: Arc<ToyWorldAdapter>,
     requirements: HashMap<String, String>,
     delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
     /// Test-only: when a request maps to `Some(envelope)`, that envelope is
@@ -852,23 +850,23 @@ impl HostInner {
     }
 }
 
-pub(crate) struct LoopbackHost {
-    inner: Arc<HostInner>,
+pub struct LoopbackHost {
+    pub inner: Arc<HostInner>,
 }
 
 impl LoopbackHost {
-    pub(crate) fn session_id(&self) -> &str {
+    pub fn session_id(&self) -> &str {
         SESSION_ID
     }
 
-    fn stats(&self) -> LoopbackHostStats {
+    pub fn stats(&self) -> LoopbackHostStats {
         self.inner.stats.lock().expect("stats lock").clone()
     }
 
     /// Test-only: the session's next expected inbound sequence — proves
     /// auth-before-advance (a rejected envelope does not consume the
     /// counter; `0` with no session).
-    fn inbound_next_expected(&self) -> u64 {
+    pub fn inbound_next_expected(&self) -> u64 {
         self.inner
             .session
             .lock()
@@ -885,7 +883,7 @@ impl LoopbackHost {
     }
 
     /// Close the connection (fails the client's pending recv / invokes).
-    pub(crate) fn close(&self) {
+    pub fn close(&self) {
         self.inner.closed.store(true, Ordering::SeqCst);
         let transport = Arc::clone(&self.inner.transport);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -896,18 +894,18 @@ impl LoopbackHost {
     }
 }
 
-pub(crate) struct LoopbackHostOptions {
-    pub(crate) transport: Arc<dyn Transport>,
-    pub(crate) host_seed: [u8; 32],
-    pub(crate) host_manifest: HostCapabilityManifest,
-    pub(crate) allowlist: Vec<String>,
-    pub(crate) adapter: Arc<ToyWorldAdapter>,
-    pub(crate) delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
-    pub(crate) response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
-    pub(crate) session_peer_ids: Option<(String, String)>,
+pub struct LoopbackHostOptions {
+    pub transport: Arc<dyn Transport>,
+    pub host_seed: [u8; 32],
+    pub host_manifest: HostCapabilityManifest,
+    pub allowlist: Vec<String>,
+    pub adapter: Arc<ToyWorldAdapter>,
+    pub delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
+    pub response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
+    pub session_peer_ids: Option<(String, String)>,
 }
 
-pub(crate) async fn start_loopback_host(options: LoopbackHostOptions) -> LoopbackHost {
+pub async fn start_loopback_host(options: LoopbackHostOptions) -> LoopbackHost {
     let host_pubkey = SigningKey::from_bytes(&options.host_seed)
         .verifying_key()
         .to_bytes();
@@ -948,23 +946,23 @@ pub(crate) async fn start_loopback_host(options: LoopbackHostOptions) -> Loopbac
 type HostDelay = Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>;
 
 #[derive(Default)]
-pub(crate) struct DialOptions {
-    allowlist: Option<Vec<String>>,
-    client_manifest: Option<HostCapabilityManifest>,
-    invoke_timeout_ms: Option<u64>,
-    host_delay: Option<HostDelay>,
-    host_allowlist: Option<Vec<String>>,
-    host_response_override:
+pub struct DialOptions {
+    pub allowlist: Option<Vec<String>>,
+    pub client_manifest: Option<HostCapabilityManifest>,
+    pub invoke_timeout_ms: Option<u64>,
+    pub host_delay: Option<HostDelay>,
+    pub host_allowlist: Option<Vec<String>>,
+    pub host_response_override:
         Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
-    capability_token: Option<CapabilityTokenProof>,
+    pub capability_token: Option<CapabilityTokenProof>,
     /// Wrap the client's transport end (wire-level injector fixtures:
     /// tamper / strip signatures on outbound requests or inbound responses).
     /// Mirror of the TS dial's `clientTransport` option.
-    client_transport:
+    pub client_transport:
         Option<Box<dyn Fn(Arc<dyn Transport>) -> Arc<dyn Transport> + Send + Sync>>,
 }
 
-pub(crate) fn seed_host() -> [u8; 32] {
+pub fn seed_host() -> [u8; 32] {
     [0xa0u8; 32]
 }
 
@@ -983,7 +981,7 @@ fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
 /// Envelope-auth rejection surfaced by the loopback host's verify — the
 /// locked `details.kind` + message for the wire `auth_failed` answer
 /// (contract §8). Mirror of the core `EnvelopeAuthError` (that type is
-/// `pub(crate)` — encapsulation HARD, contract §9 — and unreachable from
+/// `pub` — encapsulation HARD, contract §9 — and unreachable from
 /// this integration test; the locked kinds + wire code are the contract's
 /// surface).
 #[derive(Debug)]
@@ -1021,7 +1019,7 @@ impl HostEnvelopeAuthError {
 /// Verify an inbound invoke request's envelope signature (contract §7 steps
 /// 1–6) over the wire form, against the client's hello Ed25519 public key.
 /// Mirrors the core `verify_invoke_request_auth` step-for-step — the core
-/// helper is `pub(crate)` (encapsulation HARD, contract §9) and unreachable
+/// helper is `pub` (encapsulation HARD, contract §9) and unreachable
 /// from this integration test, so the loopback double re-derives the same
 /// 7-step check; the core helper itself is pinned by golden vectors.
 fn verify_invoke_request_envelope(
@@ -1120,24 +1118,24 @@ fn verify_invoke_request_envelope(
     Ok(())
 }
 
-pub(crate) fn seed_client() -> [u8; 32] {
+pub fn seed_client() -> [u8; 32] {
     [0x10u8; 32]
 }
 
-pub(crate) fn pubkey_host() -> [u8; 32] {
+pub fn pubkey_host() -> [u8; 32] {
     SigningKey::from_bytes(&seed_host())
         .verifying_key()
         .to_bytes()
 }
 
-pub(crate) fn pubkey_client() -> [u8; 32] {
+pub fn pubkey_client() -> [u8; 32] {
     SigningKey::from_bytes(&seed_client())
         .verifying_key()
         .to_bytes()
 }
 
 /// Dial a client against a fresh loopback host serving `host_adapter`.
-pub(crate) async fn dial(
+pub async fn dial(
     host_adapter: ToyWorldAdapter,
     options: DialOptions,
 ) -> (Arc<RemoteAdapter>, LoopbackHost) {

@@ -1,6 +1,6 @@
 /**
  * `RemoteAdapter` — drop-in async `BaselinePorts` over a connect session
- * (frozen contract: `.mstar/iterations/v0-iter030/guides/remote-adapter-contract.md`).
+ * (frozen contract: `.mstar/specs/spoke-remote-adapter.md`).
  *
  * PUBLIC surface: the async `BaselinePorts` (six families) + the
  * `connectRemoteAdapter` dial entrypoint + read-only session info

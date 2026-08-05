@@ -1,5 +1,5 @@
 //! RemoteAdapter + message-oriented Transport (frozen contract:
-//! `.mstar/iterations/v0-iter030/guides/remote-adapter-contract.md`).
+//! `.mstar/specs/spoke-remote-adapter.md`).
 //!
 //! This module is gated behind the `remote-adapter` cargo feature so default
 //! connect builds stay lean (no `spoke-operations` dependency); the TS

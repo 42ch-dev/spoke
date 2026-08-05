@@ -1,8 +1,8 @@
 # RemoteAdapter + message-oriented Transport
 
-> **Owns:** Library-level decisions for a single-peer remote `BaselinePorts` adapter over connect, and the message-oriented Transport seam in spoke-connect.  
+> **Owns:** Library-level decisions for the single-peer remote `BaselinePorts` adapter over connect, the multi-peer capability router over registered adapters, and the message-oriented Transport seam in spoke-connect.  
 > **Status:** Implemented — normative surface in `@42ch/spoke-connect` (TS `./remote` subpath) and `spoke-connect` (Rust `remote-adapter` feature).  
-> **Does not own:** Wire schema changes, multi-peer routing, native-binding FFI exposure, or in-repo WebSocket clients.
+> **Does not own:** Wire schema changes, native-binding FFI exposure, or in-repo WebSocket clients.
 
 ## Relationship
 
@@ -76,7 +76,7 @@ Optional families (reserved, not shipped in the baseline RemoteAdapter): `projec
 - `getHostCapabilityManifest` → remote peer’s `HostCapabilityManifest` (hello `host`, cached at session establish). Not the local client manifest.
 - `listPeerHostCapabilityManifests` → proxy to the remote via `port.host.list_peer_manifests` (peers-only semantics enforced on the host; empty list valid).
 
-Session state is per peer so a later multi-peer registry can compose multiple RemoteAdapters without changing consumer orchestrator callsites.
+Session state is per peer so the multi-peer router (D11) composes multiple RemoteAdapters without changing consumer orchestrator callsites.
 
 ### D6 — Concurrent invokes
 
@@ -117,6 +117,23 @@ RemoteAdapter enforces envelope-authentication (protocol_version 2 post-hello ru
 
 The `authenticate_*` / `verify_*` helpers are module-internal (TS) / crate-private (Rust); consumers reach enforcement only through the adapter surface. Rejections surface as `SpokeResult` rejects with `INTERNAL_ERROR` and `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} (D7 rows).
 
+### D11 — Multi-peer capability router (shipped)
+
+A multi-peer capability router (`connectMultiPeerRouter` / `connect_multi_peer_router`) composes N registered per-peer `RemoteAdapter` instances behind the same async `BaselinePorts` surface, so `orchestrate*(router, req)` selects and reaches a capable peer without a per-op `peer_id`. The router sits above the per-peer adapters and below `orchestrate*`; consumers dial each peer's adapter (signed-hello handshake, allowlist, session establishment) and register the established adapter. Shipped in TypeScript (`@42ch/spoke-connect/remote`) and Rust (`remote-adapter` feature) with behavioral parity.
+
+**Registry (`registerPeer` / `unregisterPeer` / `listPeers`):** `registerPeer(adapter)` accepts an established adapter, returns its `peer_id`, and caches the peer's `HostCapabilityManifest` (the `host` field from the authenticated hello) at registration; re-registering the same `peer_id` replaces the stored adapter. `unregisterPeer(peer_id)` removes the peer from selection and leaves the adapter's lifecycle with the consumer; unregistering an unknown `peer_id` leaves the registry unchanged. `listPeers()` returns the registered `peer_id`s in registration order. A registered peer whose session leaves `Established` (e.g. `Closed`, `Disconnected`, `Handshaking`) is excluded from selection on the next call; the registry keeps the peer until the consumer unregisters it.
+
+**Selection (inputs + algorithm):** selection matches each registered peer's cached `HostCapabilityManifest` against the operation request:
+- **Hard filters:** the peer's `capabilities[]` includes the operation's required capability (`spoke-baseline` for the `upsert` / `promote` / `relate` / `check` / `assemble` families and the `port.*` baseline ops; `l2-computable` for `project` / `compute` and the `port.computable.*` ops); when the request carries a namespace (derived from the payload `Scope`), the peer's `namespaces[]` includes it exactly — v1 namespace matching is exact, so a peer declaring `namespaces: ["*"]` declares the literal string `"*"`; when the peer manifest and the request both declare `authority.scope_key`, the two match exactly, and a single-sided declaration passes that gate.
+- **Soft preference:** peers whose `roles[]` include the operation's preferred role (`checker` for `check`, `assembler` for `assemble`, `l2-computable` for `project` / `compute`) sort ahead of equally capable peers; capable peers without the role stay eligible.
+- **Deterministic tie-break:** the surviving candidates resolve to the lowest `peer_id` in lexicographic UTF-8 byte order — a pure function of the candidate set, so the same peers and the same request always select the same peer.
+
+**Aggregation:** the router implements `HostManifestPort` over the composed peer set with two views, both aggregated locally from the cached per-peer manifests. `getHostCapabilityManifest` returns a synthesized manifest carrying the router's own `host_id`, the set-union (deduplicated) of connected peers' `capabilities` / `roles` / `namespaces`, and `extensions.router.peers` listing the contributing `peer_id`s in lexicographic UTF-8 byte order; per-peer authority reads use the per-peer view. `listPeerHostCapabilityManifests` returns one entry per connected peer — each peer's own cached hello manifest — ordered by `peer_id` in lexicographic UTF-8 byte order; a router with zero registered peers returns `[]`. The composed view is an introspection surface and stays separate from selection, which reads each peer's own cached manifest.
+
+**Failure policy:** when no registered peer passes the hard filters, the router rejects with the locked terminal reject — `SpokeResult` `CAPABILITY_PORT_MISSING` with `details.wire_code = "no_capable_peer"` and `details.kind = "no_capable_peer"`. The reject is deterministic for a given peer set and terminal for that request; the consumer registers a satisfying peer and re-invokes with a fresh `request_id`. When the selected peer's session fails mid-operation, the router returns the underlying `SpokeResult` reject exactly as the peer's adapter produced it (`INTERNAL_ERROR` with `details.kind` preserved, e.g. `transport` or `session_closed`), keeping the failure attributable to the peer that served the call; the router re-selects against the current peer set on the consumer's next invocation.
+
+**Public surface:** `connectMultiPeerRouter(options)` / `connect_multi_peer_router(options)` plus `registerPeer` / `register_peer`, `unregisterPeer` / `unregister_peer`, `listPeers` / `list_peers`, and the async `BaselinePorts` six families. Per-peer adapters stay encapsulated after registration — the router holds only the adapter references the consumer dialed. The constructor carries no dial options; consumers dial each peer's `RemoteAdapter` and register the established adapter, and an unconfigured router uses the `multi-peer-router` host id.
+
 ## TS↔Rust parity
 
 The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback interop suites in both languages):
@@ -125,12 +142,12 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 - **Signature mapping:** TS `async`/`Promise` ↔ Rust `#[async_trait] async fn → SpokeResult` (Send futures). `orchestrateUpsert(remoteAdapter, req)` / `orchestrate_upsert(&remote_adapter, req)` compile against the same `BaselinePorts` surface.
 - **Port-method → invoke mapping:** identical `port.*` catalogue, snake_case payloads, `ConnectInvokeRequest`/`ConnectInvokeResponse` reuse, no core-op reuse.
 - **Encapsulation:** all connect verification (hello sign/verify, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token attach, protocol_version 2 per-envelope auth sign/verify) is internal in both; consumers never call it.
+- **Multi-peer parity:** identical `MultiPeerRouter` surface in both languages — registry (`registerPeer` / `unregisterPeer` / `listPeers`), selection inputs + algorithm (D11), composed/per-peer aggregation, and the `no_capable_peer` + as-is failure policy; dual-peer loopback routing proofs in both languages (disjoint manifests route `orchestrateUpsert` / `orchestrateCheck` to the capable peer, the deterministic tie-break resolves a third matching peer, and a no-match request returns `no_capable_peer`).
 - **Deviations (both languages, by design):** `remotePubkey` in dial options (hello verification requires the remote public key; the derived peer_id is checked against the allowlist — key acquisition is transport-adapter-owned); `close()` and `state` on the public surface (lifecycle resource release + read-only session info, not verification helpers).
 - **Surface non-widening:** session-core parity table unchanged; RemoteAdapter sits strictly above session-core; transports remain intentionally asymmetric and outside parity.
 
 ## Non-goals
 
-- Multi-peer capability-based routing among N connected peers  
 - Native-binding (FFI) exposure of RemoteAdapter  
 - WebSocket (or libp2p) implementation inside the Transport interface module beyond loopback tests  
 - New connect or ops JSON Schema files  
@@ -138,10 +155,9 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 
 ## Staged follow-ons
 
-1. **Multi-peer registry/composer over per-peer RemoteAdapter state** — *design-intent (not yet shipped)*. A multi-peer router (`connectMultiPeerRouter` / `connect_multi_peer_router`) sits above N per-peer `RemoteAdapter` instances, selects a peer per `BaselinePorts` call using `HostCapabilityManifest` fields (`capabilities` / `namespaces` / `roles` / `authority.scope_key`), and exposes the same async `BaselinePorts` surface so `orchestrate*(router, req)` works without per-op `peer_id`. Selection inputs, deterministic tie-break (lexicographic `peer_id`), no-match reject (`no_capable_peer`), `HostManifest` aggregation model (composed view for `getHostCapabilityManifest` + per-peer array for `listPeerHostCapabilityManifests`), and minimal failure/failover depth (no automatic alternate-retry) are architect-locked. Status here is **design-intent** — shipped-fact promotion lands in this ADR when the router ships. Envelope authentication is enforced on each per-peer session before the router selects.
-2. Optional computable/fork port ops (`port.computable.*`, `port.fork.*`) when product needs remote optional capabilities  
-3. FFI exposure after the TS/Rust contract stabilizes  
-4. Consumer-side WebSocket Transport packages  
+1. Optional computable/fork port ops (`port.computable.*`, `port.fork.*`) when product needs remote optional capabilities  
+2. FFI exposure after the TS/Rust contract stabilizes  
+3. Consumer-side WebSocket Transport packages  
 
 ## Acceptance
 
@@ -153,4 +169,5 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 - [x] Loopback interop suites land with the connect remote module in TS (`./remote`) and Rust (`remote-adapter` feature); both green  
 - [x] TS↔Rust parity statement recorded above (surface, signature mapping, deviations)  
 - [x] Per-envelope auth (protocol_version 2) enforced on establish + invoke in both languages; enforcement recorded in D10  
-- [x] Consumer docs describe language-native client + native bindings wording (no internal path labels)
+- [x] Multi-peer capability router shipped (TS+Rust): registry + capability selection, HostManifest aggregation (composed view + per-peer array), failure policy (terminal `no_capable_peer` + selected-peer-down as-is), and public API (`connectMultiPeerRouter` / `registerPeer` / `unregisterPeer` / `listPeers`) recorded in D11  
+- [x] Consumer docs describe language-native client + native binding wording (no internal path labels)

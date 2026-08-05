@@ -4,7 +4,7 @@ title: Use RemoteAdapter from a native binding
 
 # Use RemoteAdapter from a native binding
 
-**Native bindings** expose the remote Adapter contract as a synchronous FFI surface: your host language implements a message-oriented `Transport`, dials through it, and then calls the same `BaselinePorts` methods the Rust reference and the TypeScript language-native client call. The shared library owns a process-wide tokio runtime; every exported call is a synchronous block-on-async call over that runtime, and the session core stays encapsulated on the Rust side — hello sign/verify, allowlist, nonce single-use, sequence, correlation, and envelope authentication all run inside the binding, never in your host code.
+**Native bindings** expose the remote Adapter contract as a synchronous FFI surface: your binding implements a message-oriented `Transport`; the adapter dials and exchanges envelopes through it, and you then call the same `BaselinePorts` methods the Rust reference and the TypeScript language-native client call. The shared library owns a process-wide tokio runtime; every exported call is a synchronous block-on-async call over that runtime, and the session core stays encapsulated on the Rust side — hello sign/verify, allowlist, nonce single-use, sequence, correlation, and envelope authentication all run inside the binding, never in your host code.
 
 The exported objects are `RemoteAdapterFFI` (single peer) and `MultiPeerRouterFFI` (multi-peer routing). This page walks the full flow with the Python binding; the same surface exists in C#, Go, Kotlin, and Swift with language-idiomatic names (see the [symbol map](#symbol-map-across-the-bindings)).
 
@@ -123,7 +123,7 @@ result_json = router.get_knowledge_entry(entry_id)  # routed to a capable peer
 
 Selection reads each registered peer's cached `HostCapabilityManifest` — hard gates on the operation's required capability and exact namespace, a soft role preference, and a deterministic lowest-`peer_id` tie-break. When no registered peer passes the hard gates, the call rejects with `CAPABILITY_PORT_MISSING` and `wire_code = "no_capable_peer"`; register a satisfying peer and re-invoke with a fresh `request_id`. The router also exposes the composed and per-peer `HostManifestPort` views (`get_host_capability_manifest` and `list_peer_host_capability_manifests`). The full selection contract is in [Route across multiple peers](/how-to/multi-peer-routing).
 
-## 6. Symbol map across the bindings
+## Symbol map across the bindings
 
 | Surface | C# | Go | Kotlin | Python | Swift |
 |---------|----|----|--------|--------|-------|

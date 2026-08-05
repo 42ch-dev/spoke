@@ -4,7 +4,7 @@ title: 从原生绑定使用 RemoteAdapter
 
 # 从原生绑定使用 RemoteAdapter（Use RemoteAdapter from a native binding）
 
-**原生绑定（native bindings）**把远程 Adapter 契约暴露为同步 FFI 面：你的宿主语言实现一个消息导向 `Transport`（传输接口），经它拨号，然后调用与 Rust 参考实现、TypeScript 语言原生客户端相同的 `BaselinePorts` 方法。共享库拥有一个进程级 tokio 运行时；每个导出调用都是该运行时之上的同步 block-on-async（同步阻塞执行异步调用），会话核心始终封装在 Rust 侧 —— 握手签名/校验、allowlist、nonce 单次使用、sequence、关联校验与信封认证全部在绑定内部运行，永不进入你的宿主代码。
+**原生绑定（native bindings）**把远程 Adapter 契约暴露为同步 FFI 面：你的绑定实现一个消息导向 `Transport`（传输接口）；adapter 经它拨号并收发信封，然后你调用与 Rust 参考实现、TypeScript 语言原生客户端相同的 `BaselinePorts` 方法。共享库拥有一个进程级 tokio 运行时；每个导出调用都是该运行时之上的同步 block-on-async（同步阻塞执行异步调用），会话核心始终封装在 Rust 侧 —— 握手签名/校验、allowlist、nonce 单次使用、sequence、关联校验与信封认证全部在绑定内部运行，永不进入你的宿主代码。
 
 导出的对象是 `RemoteAdapterFFI`（单对等节点）与 `MultiPeerRouterFFI`（多对等节点路由）。本页以 Python 绑定走完完整流程；C#、Go、Kotlin 与 Swift 存在相同的面，只是使用各语言惯用名称（见[符号对照表](#各绑定符号对照表)）。
 
@@ -123,7 +123,7 @@ result_json = router.get_knowledge_entry(entry_id)  # 路由到有能力的对�
 
 选择过程读取每个已注册对等节点缓存的 `HostCapabilityManifest` —— 对操作必需能力与精确命名空间的硬门禁、软角色偏好，以及确定性的最小 `peer_id` 决胜规则。当没有已注册对等节点通过硬门禁时，调用以 `CAPABILITY_PORT_MISSING` 与 `wire_code = "no_capable_peer"` 拒绝；注册一个满足条件的对等节点，然后用新的 `request_id` 重新调用。路由器还暴露合成视图与逐对等节点视图的 `HostManifestPort`（`get_host_capability_manifest` 与 `list_peer_host_capability_manifests`）。完整选择契约见[跨多个对等节点路由](/zh/how-to/multi-peer-routing)。
 
-## 6. 各绑定符号对照表
+## 各绑定符号对照表
 
 | 面 | C# | Go | Kotlin | Python | Swift |
 |---------|----|----|--------|--------|-------|

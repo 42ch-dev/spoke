@@ -11,7 +11,10 @@
     },
     "extensions": {}
   },
+  "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   "extensions": {
-    "peer_demo": { "display_name": "Toy World peer checker host" }
+    "peer_demo": {
+      "display_name": "Toy World peer checker host"
+    }
   }
 }

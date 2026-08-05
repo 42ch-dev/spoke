@@ -6,7 +6,9 @@
   "payload": {
     "scope": {
       "scope_id": "toy-scope-check",
-      "entry_types": ["character"],
+      "entry_types": [
+        "character"
+      ],
       "fork_id": "fork_tw_storm_branch",
       "extensions": {
         "toy": {
@@ -18,9 +20,14 @@
         }
       }
     },
-    "checker_kinds": ["spoke-baseline"]
+    "checker_kinds": [
+      "spoke-baseline"
+    ]
   },
+  "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   "extensions": {
-    "toy_world": { "display_name": "Toy World primary host" }
+    "toy_world": {
+      "display_name": "Toy World primary host"
+    }
   }
 }

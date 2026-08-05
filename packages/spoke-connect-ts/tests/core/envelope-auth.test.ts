@@ -56,6 +56,19 @@ function peerOf(seed: Uint8Array): string {
   return derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed));
 }
 
+/**
+ * Cast an OpaqueJson `auth` value (any JSON — scalar, null, array, object)
+ * through the generated schema type, whose `auth` is object-only. The
+ * contract (§3) types `auth` as `<OpaqueJson>` and both runtimes bind
+ * arbitrary JSON (Rust `Option<serde_json::Value>`), so the generated type
+ * is narrower than the contract — the cast is a type-level accommodation
+ * only (schema codegen nit tracked as QC F-5; the schema itself is not
+ * widened in this wave).
+ */
+function opaqueAuth(auth: unknown): ConnectInvokeRequest["auth"] {
+  return auth as ConnectInvokeRequest["auth"];
+}
+
 /** Assert a verify call rejects with exactly the locked machine kind. */
 async function rejectsWithKind(
   promise: Promise<unknown>,
@@ -236,7 +249,7 @@ describe("ConnectInvokeRequest envelope auth (spoke-connect-invoke-request-jcs-v
   });
 
   it("signs a request with scalar auth and verifies (OpaqueJson bound verbatim)", async () => {
-    const auth = "opaque-token";
+    const auth = opaqueAuth("opaque-token");
     const request = await authenticateInvokeRequest(EMITTER_SEED, requestInput({ auth }));
     expect(request.auth).toBe(auth);
     await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
@@ -245,14 +258,14 @@ describe("ConnectInvokeRequest envelope auth (spoke-connect-invoke-request-jcs-v
   it("signs a request with null auth and verifies (OpaqueJson bound verbatim)", async () => {
     const request = await authenticateInvokeRequest(
       EMITTER_SEED,
-      requestInput({ auth: null }),
+      requestInput({ auth: opaqueAuth(null) }),
     );
     expect(request.auth).toBeNull();
     await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
   });
 
   it("signs a request with array auth and verifies (OpaqueJson bound verbatim)", async () => {
-    const auth = ["capability-token", { sig: "opaque" }];
+    const auth = opaqueAuth(["capability-token", { sig: "opaque" }]);
     const request = await authenticateInvokeRequest(EMITTER_SEED, requestInput({ auth }));
     expect(request.auth).toEqual(auth);
     await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
@@ -261,9 +274,9 @@ describe("ConnectInvokeRequest envelope auth (spoke-connect-invoke-request-jcs-v
   it("rejects a tampered scalar auth (envelope_auth_invalid)", async () => {
     const request = await authenticateInvokeRequest(
       EMITTER_SEED,
-      requestInput({ auth: "opaque-token" }),
+      requestInput({ auth: opaqueAuth("opaque-token") }),
     );
-    const tampered = { ...request, auth: "forged-token" };
+    const tampered = { ...request, auth: opaqueAuth("forged-token") };
     await rejectsWithKind(
       verifyInvokeRequestAuth(EMITTER_PUBKEY, tampered, SESSION_ID),
       "envelope_auth_invalid",

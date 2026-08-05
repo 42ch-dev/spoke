@@ -50,6 +50,218 @@ pub(crate) fn ffi_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+// ── Foreign-callback `Transport` over the async seam (AR-2 / AR-3) ───────
+//
+// The `RemoteAdapter`'s `Transport` seam is async (`send`/`recv`/`close`,
+// `Send + Sync`). Over FFI the binding implements a *synchronous* callback
+// `Transport` — a binding's `recv` blocks until an envelope arrives or the
+// connection closes (the message-transport model). [`ForeignCallbackTransport`]
+// bridges the two: each foreign callback is run through the shared runtime's
+// `spawn_blocking` pool so a blocking `recv` never monopolizes an async
+// worker (AR-2), and close ordering is fixed end-to-end (AR-3) — a foreign
+// `close` makes a pending/next `recv` fail fast with [`TransportError::Closed`].
+#[cfg(feature = "remote-adapter")]
+mod foreign_transport {
+    use async_trait::async_trait;
+    use std::sync::Arc;
+
+    use crate::remote::transport;
+    use crate::remote::transport::Transport as RemoteAsyncTransport;
+
+    use super::ffi_runtime;
+
+    /// FFI-facing mirror of [`transport::TransportError`] — the
+    /// callback `Transport`'s own error vocabulary. 1:1 with the remote
+    /// error; the bridge maps both directions.
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+    pub enum TransportError {
+        /// The transport is closed. A pending `recv` must fail fast on
+        /// connection loss so the adapter can fail its in-flight invokes.
+        #[error("transport is closed")]
+        Closed,
+        /// Transport-level I/O failure.
+        #[error("transport I/O error: {0}")]
+        Io(String),
+    }
+
+    impl From<transport::TransportError> for TransportError {
+        fn from(error: transport::TransportError) -> Self {
+            match error {
+                transport::TransportError::Closed => TransportError::Closed,
+                transport::TransportError::Io(message) => TransportError::Io(message),
+            }
+        }
+    }
+
+    impl From<TransportError> for transport::TransportError {
+        fn from(error: TransportError) -> Self {
+            match error {
+                TransportError::Closed => transport::TransportError::Closed,
+                TransportError::Io(message) => transport::TransportError::Io(message),
+            }
+        }
+    }
+
+    /// Message-oriented transport implemented by the foreign binding.
+    ///
+    /// Mirrors the async [`transport::Transport`] seam 1:1 over the
+    /// FFI boundary (frozen contract §2.1): `send` accepts exactly one
+    /// envelope's bytes, `recv` returns the next inbound envelope and fails
+    /// fast on close, `close` is idempotent resource release.
+    #[uniffi::export(callback_interface)]
+    pub trait Transport: Send + Sync {
+        /// Send one envelope. Resolves when the transport has accepted the
+        /// bytes.
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError>;
+        /// Receive the next inbound envelope. Errors when the transport
+        /// closes.
+        fn recv(&self) -> Result<Vec<u8>, TransportError>;
+        /// Release resources. Idempotent.
+        fn close(&self) -> Result<(), TransportError>;
+    }
+
+    /// Async bridge from a synchronous foreign-callback [`Transport`] to the
+    /// async [`transport::Transport`] seam (AR-2).
+    ///
+    /// Each callback call is executed via `runtime.spawn_blocking(...)` on
+    /// the shared FFI runtime, so a blocking foreign `recv` runs on the
+    /// runtime's blocking thread pool — never on an async worker. The
+    /// `RemoteAdapter`'s receive loop stays a normal async task; only the
+    /// foreign-callback invocation is offloaded.
+    #[derive(Clone)]
+    pub struct ForeignCallbackTransport {
+        inner: Arc<dyn Transport>,
+    }
+
+    impl ForeignCallbackTransport {
+        /// Wrap a foreign-callback [`Transport`] into an async-capable
+        /// transport.
+        #[must_use]
+        pub fn new(inner: Arc<dyn Transport>) -> Self {
+            Self { inner }
+        }
+    }
+
+    #[async_trait]
+    impl transport::Transport for ForeignCallbackTransport {
+        async fn send(&self, envelope: &[u8]) -> Result<(), transport::TransportError> {
+            let inner = Arc::clone(&self.inner);
+            let envelope = envelope.to_vec();
+            ffi_runtime()
+                .spawn_blocking(move || inner.send(envelope))
+                .await
+                .map_err(|join| {
+                    transport::TransportError::Io(format!("send task failed: {join}"))
+                })?
+                .map_err(Into::into)
+        }
+
+        async fn recv(&self) -> Result<Vec<u8>, transport::TransportError> {
+            let inner = Arc::clone(&self.inner);
+            ffi_runtime()
+                .spawn_blocking(move || inner.recv())
+                .await
+                .map_err(|join| {
+                    transport::TransportError::Io(format!("recv task failed: {join}"))
+                })?
+                .map_err(Into::into)
+        }
+
+        async fn close(&self) -> Result<(), transport::TransportError> {
+            let inner = Arc::clone(&self.inner);
+            ffi_runtime()
+                .spawn_blocking(move || inner.close())
+                .await
+                .map_err(|join| {
+                    transport::TransportError::Io(format!("close task failed: {join}"))
+                })?
+                .map_err(Into::into)
+        }
+    }
+
+    /// One end of an in-memory loopback connection, exposed over FFI (AR-7)
+    /// so a binding can exercise the callback `Transport` surface without a
+    /// real network carrier. `send` delivers to the peer's `recv`; `close`
+    /// closes the whole connection (both directions). Each method
+    /// `block_on`s the shared runtime — the same synchronous block-on-async
+    /// surface a binding uses (AR-1 / AR-6).
+    #[derive(uniffi::Object)]
+    pub struct LoopbackTransport {
+        inner: transport::LoopbackTransport,
+    }
+
+    #[uniffi::export]
+    impl LoopbackTransport {
+        /// Send one envelope; delivered to the peer end's `recv`.
+        pub fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        /// Receive the next inbound envelope. Errors when the connection
+        /// closes.
+        pub fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        /// Close the whole connection (both directions). Idempotent.
+        pub fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    impl LoopbackTransport {
+        fn from_remote(inner: transport::LoopbackTransport) -> Arc<Self> {
+            Arc::new(Self { inner })
+        }
+    }
+
+    /// Back-to-back loopback transport pair — `client` and `server` ends of
+    /// the same in-memory connection (mirror of
+    /// [`transport::loopback_transport_pair`]).
+    #[derive(uniffi::Object)]
+    pub struct LoopbackTransportPair {
+        client: Arc<LoopbackTransport>,
+        server: Arc<LoopbackTransport>,
+    }
+
+    #[uniffi::export]
+    impl LoopbackTransportPair {
+        /// The client end of the connection.
+        pub fn client(&self) -> Arc<LoopbackTransport> {
+            Arc::clone(&self.client)
+        }
+
+        /// The server end of the connection.
+        pub fn server(&self) -> Arc<LoopbackTransport> {
+            Arc::clone(&self.server)
+        }
+    }
+
+    /// Create a back-to-back loopback transport pair (client + server ends).
+    #[uniffi::export]
+    pub fn loopback_transport_pair() -> LoopbackTransportPair {
+        let pair = transport::loopback_transport_pair();
+        LoopbackTransportPair {
+            client: LoopbackTransport::from_remote(pair.client),
+            server: LoopbackTransport::from_remote(pair.server),
+        }
+    }
+}
+
+#[cfg(feature = "remote-adapter")]
+pub use foreign_transport::{
+    loopback_transport_pair, ForeignCallbackTransport, LoopbackTransport, LoopbackTransportPair,
+    Transport, TransportError,
+};
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::ConnectHello;
 
@@ -387,6 +599,101 @@ mod runtime_tests {
             assert_eq!(main_addr, thread_addr);
             assert_eq!(main_addr, ffi_runtime() as *const tokio::runtime::Runtime as usize);
         }
+    }
+}
+
+#[cfg(feature = "remote-adapter")]
+#[cfg(test)]
+mod foreign_transport_tests {
+    use super::*;
+
+    use crate::remote::transport::Transport as RemoteAsyncTransport;
+    /// Rust impl of the callback [`Transport`] wrapping a loopback end — the
+    /// same synchronous block-on-async surface a foreign binding uses. Sends
+    /// and receives through the real in-repo loopback, so it exercises the
+    /// callback → [`ForeignCallbackTransport`] bridge → async-trait path end
+    /// to end (AR-2).
+    struct LoopbackCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+    }
+
+    impl Transport for LoopbackCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    #[test]
+    fn foreign_callback_transport_round_trips_send_recv_close_through_bridge() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        // Each end is bridged through the async↔callback seam: the callback
+        // is a Rust impl of the FFI `Transport`, exactly what a binding
+        // provides.
+        let client = ForeignCallbackTransport::new(Arc::new(LoopbackCallback {
+            inner: pair.client,
+        }));
+        let server = ForeignCallbackTransport::new(Arc::new(LoopbackCallback {
+            inner: pair.server,
+        }));
+
+        ffi_runtime().handle().block_on(async {
+            // client → server
+            client
+                .send(b"hello from client")
+                .await
+                .expect("client send delivers to server recv");
+            let got = server.recv().await.expect("server recv");
+            assert_eq!(got, b"hello from client");
+
+            // server → client
+            server
+                .send(b"reply from server")
+                .await
+                .expect("server send delivers to client recv");
+            let got = client.recv().await.expect("client recv");
+            assert_eq!(got, b"reply from server");
+
+            // Close fails the peer's pending recv fast (AR-3): the receive
+            // loop sees `Closed` and fails every pending waiter with
+            // `session_closed`.
+            server.close().await.expect("server close");
+            let err = client
+                .recv()
+                .await
+                .expect_err("client recv after peer close fails fast");
+            assert_eq!(err, crate::remote::transport::TransportError::Closed);
+        });
+    }
+
+    #[test]
+    fn ffi_loopback_pair_smoke_round_trips_send_recv_close() {
+        // The binding-facing loopback object surface: send/recv/close via the
+        // shared runtime, mirroring the callback trait's block-on-async shape.
+        let pair = loopback_transport_pair();
+        pair.client().send(b"ping".to_vec()).expect("client send");
+        let got = pair.server().recv().expect("server recv");
+        assert_eq!(got, b"ping");
+
+        pair.client().close().expect("client close");
+        let err = pair.server().recv().expect_err("server recv after close");
+        assert_eq!(err, TransportError::Closed);
     }
 }
 

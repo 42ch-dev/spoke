@@ -33,6 +33,22 @@
 //! hello stay green and are not extended to envelope auth.
 
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "ffi")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "ffi")]
+static FFI_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
+/// Process-wide tokio runtime for the FFI surface (AR-1: multi-thread).
+#[cfg(feature = "ffi")]
+pub(crate) fn ffi_runtime() -> &'static tokio::runtime::Runtime {
+    FFI_RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("cdylib tokio runtime initializes once")
+    })
+}
 
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::ConnectHello;
@@ -342,6 +358,36 @@ pub fn required_capability(op: String) -> Option<String> {
 #[must_use]
 pub fn protocol_version() -> u64 {
     crate::core::PROTOCOL_VERSION
+}
+
+#[cfg(feature = "ffi")]
+#[cfg(test)]
+mod runtime_tests {
+    use super::ffi_runtime;
+    use std::thread;
+
+    #[test]
+    fn ffi_runtime_is_lazy_initialized_once_and_reused_across_threads() {
+        let main_runtime = ffi_runtime();
+        main_runtime.handle().block_on(async {});
+
+        let main_addr = main_runtime as *const tokio::runtime::Runtime as usize;
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                thread::spawn(|| {
+                    let thread_runtime = ffi_runtime();
+                    thread_runtime.handle().block_on(async {});
+                    thread_runtime as *const tokio::runtime::Runtime as usize
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            let thread_addr = handle.join().expect("thread joined");
+            assert_eq!(main_addr, thread_addr);
+            assert_eq!(main_addr, ffi_runtime() as *const tokio::runtime::Runtime as usize);
+        }
+    }
 }
 
 #[cfg(test)]

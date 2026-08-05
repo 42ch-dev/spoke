@@ -52,7 +52,7 @@ remote-adapter = ["dep:spoke-operations"]
 mdns = ["libp2p/mdns"]
 # Exports the sync-core facade through uniffi (see src/ffi.rs). Non-default:
 # `cargo test -p spoke-connect` keeps compiling without the binding surface.
-ffi = ["dep:uniffi"]
+ffi = ["dep:uniffi", "tokio/rt-multi-thread"]
 # Builds the crate-local `uniffi-bindgen` CLI binary (uniffi 0.32 pattern —
 # no installable CLI crate on this line). Generation target only; the
 # exported-surface metadata is read from the cdylib built with `ffi`.

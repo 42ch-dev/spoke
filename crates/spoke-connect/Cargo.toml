@@ -18,8 +18,7 @@ spoke-schemas = { version = "0.8.2", path = "../spoke-schemas" }
 # BaselinePorts + SpokeResult types; optional so default connect builds stay
 # lean (TS equivalent: the `./remote` subpath export).
 spoke-operations = { version = "0.8.2", path = "../spoke-operations", optional = true }
-# Loopback smoke host (RemoteAdapter FFI binding smokes) serves committed
-# ToyWorld fixtures over the in-repo loopback transport.
+# Loopback smoke host (RemoteAdapter FFI binding smokes; `ffi-smoke-host` only).
 spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust", optional = true }
 libp2p.workspace = true
 serde.workspace = true
@@ -46,7 +45,9 @@ default = []
 # implements the async BaselinePorts by proxying port.* ops over a connect
 # session (contract §9 — feature-gated so default connect builds do not
 # depend on spoke-operations; TS equivalent is the `./remote` subpath).
-remote-adapter = ["dep:spoke-operations", "dep:spoke-fixture-toy-world"]
+remote-adapter = ["dep:spoke-operations"]
+# Loopback smoke host FFI (binding smokes only — NOT implied by remote-adapter or ffi).
+ffi-smoke-host = ["remote-adapter", "dep:spoke-fixture-toy-world"]
 # Same-LAN discovery convenience (non-default): wires libp2p's mDNS
 # behaviour into the node. Discovery only — it never grants trust:
 # discovered peers still pass the allowlist + signed-hello gates, and

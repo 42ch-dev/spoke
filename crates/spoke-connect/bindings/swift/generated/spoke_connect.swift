@@ -743,153 +743,6 @@ public func FfiConverterTypeInboundSequence_lower(_ value: InboundSequence) -> U
 
 
 /**
- * Reference loopback host for binding smokes (ToyWorld fixtures, fixed
- * test seeds). Serves the server end of a [`loopback_transport_pair`].
- */
-public protocol LoopbackSmokeHostProtocol: AnyObject, Sendable {
-    
-    /**
-     * Close the connection (fails the client's pending recv / invokes).
-     */
-    func close() 
-    
-    /**
-     * Fixed loopback session id (`test-session-loopback-0001`).
-     */
-    func sessionId()  -> String
-    
-}
-/**
- * Reference loopback host for binding smokes (ToyWorld fixtures, fixed
- * test seeds). Serves the server end of a [`loopback_transport_pair`].
- */
-open class LoopbackSmokeHost: LoopbackSmokeHostProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_spoke_connect_fn_clone_loopbacksmokehost(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_spoke_connect_fn_free_loopbacksmokehost(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * Close the connection (fails the client's pending recv / invokes).
-     */
-open func close()  {try! rustCall() {
-        uniffiCallStatus in
-    uniffi_spoke_connect_fn_method_loopbacksmokehost_close(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-}
-}
-    
-    /**
-     * Fixed loopback session id (`test-session-loopback-0001`).
-     */
-open func sessionId() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_spoke_connect_fn_method_loopbacksmokehost_session_id(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-})
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeLoopbackSmokeHost: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = LoopbackSmokeHost
-
-    public static func lift(_ handle: UInt64) throws -> LoopbackSmokeHost {
-        return LoopbackSmokeHost(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: LoopbackSmokeHost) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LoopbackSmokeHost {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: LoopbackSmokeHost, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLoopbackSmokeHost_lift(_ handle: UInt64) throws -> LoopbackSmokeHost {
-    return try FfiConverterTypeLoopbackSmokeHost.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeLoopbackSmokeHost_lower(_ value: LoopbackSmokeHost) -> UInt64 {
-    return FfiConverterTypeLoopbackSmokeHost.lower(value)
-}
-
-
-
-
-
-
-/**
  * One end of an in-memory loopback connection, exposed over FFI (AR-7)
  * so a binding can exercise the callback `Transport` surface without a
  * real network carrier. `send` delivers to the peer's `recv`; `close`
@@ -2644,19 +2497,6 @@ public func loopbackTransportPair() -> LoopbackTransportPair  {
     )
 })
 }
-/**
- * Start the reference loopback smoke host on the server end of a
- * loopback pair. Uses the same seeds, manifests, and ToyWorld adapter
- * as the Rust FFI parity tests.
- */
-public func startLoopbackSmokeHost(server: LoopbackTransport) -> LoopbackSmokeHost  {
-    return try!  FfiConverterTypeLoopbackSmokeHost_lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_spoke_connect_fn_func_start_loopback_smoke_host(
-        FfiConverterTypeLoopbackTransport_lower(server),uniffiCallStatus
-    )
-})
-}
 public func connectRemoteAdapterFfi(transport: Transport, localSeed: Data, localManifestJson: String, remotePubkey: Data, allowlist: [String], invokeTimeoutMs: UInt64?)throws  -> RemoteAdapterFfi  {
     return try  FfiConverterTypeRemoteAdapterFFI_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
@@ -2713,9 +2553,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_func_start_loopback_smoke_host() != 55037) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() != 44915) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2741,12 +2578,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_spoke_connect_checksum_method_loopbacksmokehost_close() != 65256) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_spoke_connect_checksum_method_loopbacksmokehost_session_id() != 13641) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {

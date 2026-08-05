@@ -641,7 +641,7 @@ mod remote_adapter_ffi {
 }
 
 // ── Loopback smoke host (binding smokes) ─────────────────────────────────
-#[cfg(feature = "remote-adapter")]
+#[cfg(feature = "ffi-smoke-host")]
 mod loopback_smoke_host {
     use std::sync::Arc;
 
@@ -700,7 +700,7 @@ mod loopback_smoke_host {
 
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
-#[cfg(feature = "remote-adapter")]
+#[cfg(feature = "ffi-smoke-host")]
 pub use loopback_smoke_host::{start_loopback_smoke_host, LoopbackSmokeHost};
 
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;

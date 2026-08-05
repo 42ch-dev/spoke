@@ -1046,9 +1046,9 @@ mod foreign_transport_tests {
             let got = client.recv().await.expect("client recv");
             assert_eq!(got, b"reply from server");
 
-            // Close fails the peer's pending recv fast (AR-3): the receive
-            // loop sees `Closed` and fails every pending waiter with
-            // `session_closed`.
+            // Close fails the peer's pending recv fast (AR-3): fails fast at
+            // the transport level, the same error the adapter receive loop
+            // converts into close_session.
             server.close().await.expect("server close");
             let err = client
                 .recv()

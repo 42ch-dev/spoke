@@ -981,7 +981,7 @@ fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
 /// Envelope-auth rejection surfaced by the loopback host's verify — the
 /// locked `details.kind` + message for the wire `auth_failed` answer
 /// (contract §8). Mirror of the core `EnvelopeAuthError` (that type is
-/// `pub` — encapsulation HARD, contract §9 — and unreachable from
+/// `pub(crate)` — encapsulation HARD, contract §9 — and unreachable from
 /// this integration test; the locked kinds + wire code are the contract's
 /// surface).
 #[derive(Debug)]
@@ -1019,7 +1019,7 @@ impl HostEnvelopeAuthError {
 /// Verify an inbound invoke request's envelope signature (contract §7 steps
 /// 1–6) over the wire form, against the client's hello Ed25519 public key.
 /// Mirrors the core `verify_invoke_request_auth` step-for-step — the core
-/// helper is `pub` (encapsulation HARD, contract §9) and unreachable
+/// helper is `pub(crate)` (encapsulation HARD, contract §9) and unreachable
 /// from this integration test, so the loopback double re-derives the same
 /// 7-step check; the core helper itself is pinned by golden vectors.
 fn verify_invoke_request_envelope(

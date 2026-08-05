@@ -85,6 +85,18 @@ export class Session {
     this.inbound.advance(sequence);
   }
 
+  /**
+   * Validate an inbound invoke sequence against the next expected one
+   * WITHOUT advancing the expectation (auth-before-advance — envelope-auth
+   * contract §7 amendment: the wire position is checked at acceptance, but
+   * the counter only advances after envelope-auth verify passes). Throws
+   * `inbound_sequence_mismatch` on mismatch and leaves the expectation
+   * unchanged, exactly like `acceptInboundSequence`.
+   */
+  peekInboundSequence(sequence: number): void {
+    this.inbound.peek(sequence);
+  }
+
   /** Dispatch gate: does this session's negotiated capabilities authorize `op`? */
   dispatchAllowed(op: string): boolean {
     return coreDispatchAllowed(op, this.negotiated_capabilities);

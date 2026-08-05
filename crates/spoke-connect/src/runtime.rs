@@ -85,6 +85,11 @@ pub(crate) struct SessionHandle {
     pub(crate) session_id: String,
     pub(crate) remote_peer_id: PeerId,
     pub(crate) remote_manifest: HostCapabilityManifest,
+    /// This node's raw Ed25519 identity seed (the hello signing key). The
+    /// outbound invoke request is signed with it
+    /// (`spoke-connect-invoke-request-jcs-v1`); the node event loop signs
+    /// inbound invoke responses with the same identity.
+    pub(crate) local_secret: [u8; 32],
     /// Capabilities negotiated at session establishment: the intersection of
     /// the local and remote `HostCapabilityManifest.capabilities` (normative
     /// rule, `.mstar/specs/spoke-connect.md` §Negotiation). The inbound op
@@ -120,6 +125,7 @@ impl SessionHandle {
         remote_peer_id: PeerId,
         remote_manifest: HostCapabilityManifest,
         negotiated_capabilities: Vec<String>,
+        local_secret: [u8; 32],
         timeout: Duration,
         cmd_tx: mpsc::Sender<LoopCommand>,
     ) -> Self {
@@ -128,6 +134,7 @@ impl SessionHandle {
             remote_peer_id,
             remote_manifest,
             negotiated_capabilities,
+            local_secret,
             next_sequence: Mutex::new(core::OutboundSequence::new()),
             closed: AtomicBool::new(false),
             token_ok: AtomicBool::new(false),
@@ -285,9 +292,17 @@ mod tests {
             PeerId::random(),
             manifest.clone(),
             manifest.capabilities,
+            test_seed(),
             timeout,
             cmd_tx,
         ))
+    }
+
+    /// Deterministic 32-byte test identity seed (parameterized helper — no
+    /// key material as a literal in a crypto call site, mirroring the
+    /// envelope-auth unit-test convention).
+    fn test_seed() -> [u8; 32] {
+        [0x2a; 32]
     }
 
     fn correlation(sequence: i64) -> InvokeCorrelation {
@@ -300,28 +315,36 @@ mod tests {
     }
 
     fn success_response(sequence: i64, request_id: &str) -> ConnectInvokeResponse {
-        ConnectInvokeResponse::Variant0 {
-            extensions: Default::default(),
-            payload: serde_json::json!({ "findings": [] }),
-            request_id: request_id.into(),
-            sequence,
-            session_id: "sess-1".into(),
-        }
+        crate::core::authenticate_invoke_response(
+            &test_seed(),
+            &crate::core::InvokeResponseSignInput::Success {
+                session_id: "sess-1".into(),
+                sequence,
+                request_id: request_id.into(),
+                payload: serde_json::json!({ "findings": [] }),
+            },
+            Default::default(),
+        )
+        .expect("test seed is 32 bytes — signing is infallible")
     }
 
     fn error_response(sequence: i64) -> ConnectInvokeResponse {
-        ConnectInvokeResponse::Variant1 {
-            error: ErrorEnvelope {
-                code: "check_failed".into(),
-                details: Default::default(),
-                extensions: Default::default(),
-                message: "spike check failed".into(),
+        crate::core::authenticate_invoke_response(
+            &test_seed(),
+            &crate::core::InvokeResponseSignInput::Error {
+                session_id: "sess-1".into(),
+                sequence,
+                request_id: "req-1".into(),
+                error: ErrorEnvelope {
+                    code: "check_failed".into(),
+                    details: Default::default(),
+                    extensions: Default::default(),
+                    message: "spike check failed".into(),
+                },
             },
-            extensions: Default::default(),
-            request_id: "req-1".into(),
-            sequence,
-            session_id: "sess-1".into(),
-        }
+            Default::default(),
+        )
+        .expect("test seed is 32 bytes — signing is infallible")
     }
 
     #[test]

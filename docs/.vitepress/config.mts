@@ -51,6 +51,7 @@ const enSidebar = [
     collapsed: false,
     items: [
       { text: 'Implement an adapter', link: '/how-to/implement-adapter' },
+      { text: 'Route across multiple peers', link: '/how-to/multi-peer-routing' },
       { text: 'Orchestrate operations', link: '/how-to/orchestrate-ops' },
       { text: 'TypeScript client', link: '/how-to/connect-ts-client' },
       { text: 'Native bindings', link: '/how-to/connect-native-bindings' },
@@ -125,6 +126,7 @@ const zhSidebar = [
     collapsed: false,
     items: [
       { text: '实现 Adapter', link: '/zh/how-to/implement-adapter' },
+      { text: '跨对等节点路由', link: '/zh/how-to/multi-peer-routing' },
       { text: '编排操作', link: '/zh/how-to/orchestrate-ops' },
       { text: 'TypeScript 客户端', link: '/zh/how-to/connect-ts-client' },
       { text: '原生绑定', link: '/zh/how-to/connect-native-bindings' },

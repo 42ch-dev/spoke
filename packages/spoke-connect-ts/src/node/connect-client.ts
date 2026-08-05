@@ -3,7 +3,8 @@
  *
  * Dial a WebSocket, perform the signed hello exchange + session snapshot,
  * then invoke ops with correlation over the framing layer (AD-P0-3):
- * - send a signed `ConnectHello` (nonce ≥16, protocol_version 1);
+ * - send a signed `ConnectHello` (nonce ≥16; hello stays at the core
+ *   protocol version while post-hello envelopes carry v2 signatures);
  * - verify the server's signed hello against a preconfigured public key
  *   (obtaining the key is transport-adapter-owned, spec §Auth model) and
  *   require the server's peer_id on the allowlist (fail-closed);
@@ -18,7 +19,6 @@
  */
 
 import type {
-  ConnectInvokeRequest,
   ConnectInvokeResponse,
   HostCapabilityManifest,
 } from "@42ch/spoke-schemas";
@@ -29,10 +29,15 @@ import { derivePeerIdFromEd25519Pubkey } from "../identity.js";
 import { isAllowlisted } from "../core/allowlist.js";
 import {
   checkResponseCorrelation,
-  correlationFromRequest,
   correlationFromResponse,
 } from "../core/correlate.js";
 import type { Correlation } from "../core/correlate.js";
+import {
+  authenticateInvokeRequest,
+  verifyInvokeResponseAuth,
+  verifySessionAuth,
+  type InvokeRequestSignInput,
+} from "../core/envelope-auth.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce } from "../core/nonce.js";
 import { negotiatedCapabilities, Session } from "../core/session.js";
@@ -185,6 +190,14 @@ export async function connectClient(
   // Post-handshake, stray non-invoke envelopes are dropped (see below);
   // only the handshake phase buffers ahead-of-waiter frames.
   let sessionEstablished = false;
+  /**
+   * Outbound send serialization tail. Sequences are allocated synchronously
+   * in call order, but the Ed25519 sign is async (WebCrypto) — without a
+   * chain, signs complete out of order and requests hit the wire out of
+   * sequence, which the peer's strict inbound gate rejects. Every invoke
+   * chains its send behind the previous invoke's send.
+   */
+  let sendTail: Promise<void> = Promise.resolve();
 
   function nextMessage(): Promise<unknown> {
     const buffered = inbox.shift();
@@ -213,7 +226,7 @@ export async function connectClient(
 
   onJsonMessage(
     socket,
-    (doc) => {
+    async (doc) => {
       const waiter = waiters.shift();
       if (waiter) {
         waiter.resolve(doc);
@@ -227,7 +240,13 @@ export async function connectClient(
         clearTimeout(entry.timer);
         pending.delete(doc.request_id);
         try {
+          // Correlation echo check first (non-mutating wire-position
+          // validation), then envelope-auth verify (contract §7: the
+          // response must carry the peer's authentic signature over the
+          // exact wire branch). A forged/tampered response fails closed —
+          // only this waiter, never a session-state mutation.
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
+          await verifyInvokeResponseAuth(remotePubkey, doc, session.session_id);
           entry.resolve(doc);
         } catch (error) {
           entry.reject(error instanceof Error ? error : new Error(String(error)));
@@ -285,21 +304,24 @@ export async function connectClient(
     remoteManifest = helloDoc.host;
 
     // Await the session snapshot carrying the A-assigned session id + binding.
+    // Envelope-auth verify runs on the wire form before the typed checks
+    // (`spoke-connect-session-jcs-v1` against the responder's hello key; the
+    // step-6 peer-id binding assert replaces the old manual comparison).
     const sessionDoc = await withTimeout(nextMessage(), timeoutMs, "session snapshot");
     if (!isConnectSession(sessionDoc)) {
       throw new Error("expected ConnectSession snapshot after server hello");
     }
-    if (
-      sessionDoc.initiator_peer_id !== localPeerId ||
-      sessionDoc.responder_peer_id !== remotePeerId
-    ) {
-      throw new Error("session snapshot peer ids do not match the authenticated hellos");
-    }
+    await verifySessionAuth(
+      remotePubkey,
+      sessionDoc,
+      localPeerId,
+      remotePeerId,
+    );
     if (sessionDoc.session_id.length === 0) {
       throw new Error("session snapshot session_id must not be empty");
     }
     if (sessionDoc.initial_sequence !== 0) {
-      throw new Error("session snapshot initial_sequence must be 0 for protocol_version 1");
+      throw new Error("session snapshot initial_sequence must be 0");
     }
 
     session = new Session({
@@ -328,17 +350,10 @@ export async function connectClient(
     remotePeerId,
     remoteManifest,
 
-    invoke(op, payload): Promise<ConnectInvokeResponse> {
-      let request: ConnectInvokeRequest;
+    async invoke(op: string, payload: Record<string, unknown>): Promise<ConnectInvokeResponse> {
+      let sequence: number;
       try {
-        request = {
-          session_id: session.session_id,
-          sequence: session.allocateOutboundSequence(),
-          request_id: globalThis.crypto.randomUUID(),
-          op,
-          payload,
-          extensions: {},
-        };
+        sequence = session.allocateOutboundSequence();
       } catch (error) {
         // Outbound sequence exhaustion is a reject, not a synchronous throw —
         // callers always observe the promise API.
@@ -346,30 +361,103 @@ export async function connectClient(
           error instanceof Error ? error : new Error(String(error)),
         );
       }
+      // Outbound wire-order serialization: the tail entry is created HERE,
+      // synchronously, so the wire order matches the allocation order even
+      // though the Ed25519 sign completes asynchronously.
+      const prevSend = sendTail;
+      let releaseSend: () => void = () => {};
+      sendTail = new Promise<void>((resolveTail) => {
+        releaseSend = resolveTail;
+      });
+      // The wire request to sign (`spoke-connect-invoke-request-jcs-v1`,
+      // envelope-auth contract §2/§3). `request_id` is allocated here,
+      // synchronously, so the pending waiter can be registered before the
+      // async sign below.
+      const unsigned: InvokeRequestSignInput = {
+        session_id: session.session_id,
+        sequence,
+        request_id: globalThis.crypto.randomUUID(),
+        op,
+        payload,
+      };
       return new Promise<ConnectInvokeResponse>((resolve, reject) => {
+        // The waiter is registered SYNCHRONOUSLY, before the async sign:
+        // from the caller's perspective the invoke is in flight immediately,
+        // so a socket close during signing fails it with the failAll
+        // message (contract §8.2 mid-flight) — not a send-after-close ws
+        // error. Signing failures (non-JSON-serializable payload) are local
+        // client bugs and reject immediately with the sign error.
         const timer = setTimeout(() => {
-          pending.delete(request.request_id);
+          pending.delete(unsigned.request_id);
           reject(
-            new Error(`invoke ${op} (${request.request_id}) timed out after ${timeoutMs}ms`),
+            new Error(`invoke ${op} (${unsigned.request_id}) timed out after ${timeoutMs}ms`),
           );
         }, timeoutMs);
-        pending.set(request.request_id, {
-          correlation: correlationFromRequest(request),
+        pending.set(unsigned.request_id, {
+          correlation: {
+            session_id: unsigned.session_id,
+            sequence: unsigned.sequence,
+            request_id: unsigned.request_id,
+          },
           resolve,
           reject,
           timer,
         });
-        try {
-          sendJsonMessage(socket, request);
-        } catch (error) {
-          // Synchronous send failure (the socket closed between the invoke
-          // setup and the send): reject this invoke now and remove its
-          // pending entry + timer immediately — no dead entry waits out the
-          // timeout, and a later failAll cannot touch a settled promise.
-          clearTimeout(timer);
-          pending.delete(request.request_id);
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
+        void authenticateInvokeRequest(identity.seed, unsigned).then(
+          (request) => {
+            // Send in allocation order (behind the previous invoke's send).
+            void prevSend
+              .then(() => {
+                // The invoke may have settled while this send waited behind
+                // the tail (timeout fired → entry deleted; socket closed →
+                // failAll cleared the map). Do NOT transmit late: the caller
+                // already observed the failure, and a retry would otherwise
+                // produce a duplicate dispatch on the host. A timeout drop is
+                // worse than a duplicate dispatch though: the allocated
+                // outbound sequence was never transmitted, so the host's
+                // inbound gate is stuck at that sequence and every later
+                // invoke fails `inbound_sequence_mismatch` — the wire state
+                // is unreconcilable. Tear the connection down (fail remaining
+                // pending + close the socket, mirroring the RemoteAdapter's
+                // `session_closed` close) instead of leaving a silently
+                // poisoned session.
+                if (!pending.has(unsigned.request_id)) {
+                  failAll(
+                    new Error(
+                      "connect session closed: deferred invoke skipped (settled while queued) — outbound sequence never transmitted",
+                    ),
+                  );
+                  socket.close();
+                  return;
+                }
+                return sendJsonMessage(socket, request);
+              })
+              .then(
+                () => {
+                  releaseSend();
+                },
+                (error) => {
+                  // Send failure (the socket closed between the invoke
+                  // setup and the send): reject this invoke now and remove
+                  // its pending entry + timer immediately — no dead entry
+                  // waits out the timeout, and a later failAll cannot touch
+                  // a settled promise.
+                  releaseSend();
+                  clearTimeout(timer);
+                  pending.delete(unsigned.request_id);
+                  reject(error instanceof Error ? error : new Error(String(error)));
+                },
+              );
+          },
+          (error) => {
+            // Signing failure (e.g. non-JSON-serializable payload) is a
+            // local client bug — reject immediately, no dead timer.
+            releaseSend();
+            clearTimeout(timer);
+            pending.delete(unsigned.request_id);
+            reject(error instanceof Error ? error : new Error(String(error)));
+          },
+        );
       });
     },
 

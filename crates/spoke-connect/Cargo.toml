@@ -21,6 +21,9 @@ spoke-operations = { version = "0.8.2", path = "../spoke-operations", optional =
 libp2p.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Session snapshots carry RFC 3339 timestamps (`ConnectSession.opened_at`);
+# the envelope-auth sign input names the schema's chrono DateTime type.
+chrono.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
@@ -81,4 +84,8 @@ x25519-dalek = "2"
 # ToyWorldAdapter, and the dial fixture derives peer ids from raw seeds.
 spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust" }
 ed25519-dalek = "2"
+# Loopback host emits schema-v2 signed post-hello envelopes (session
+# snapshot + invoke responses) with the same RFC 8785 JCS canonicalization
+# the core `authenticate_*` helpers use (envelope-auth contract §3/§5).
+serde_jcs = "0.2"
 

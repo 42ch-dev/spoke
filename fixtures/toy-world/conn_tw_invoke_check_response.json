@@ -16,7 +16,10 @@
         "source_anchor": {
           "schema_version": 1,
           "source_id": "manuscript:tw-ch1",
-          "span": { "start": 90, "end": 140 },
+          "span": {
+            "start": 90,
+            "end": 140
+          },
           "extensions": {}
         },
         "suggested_fix": "Add a located_in relation from kb_tw_mira to the specific quay berth KnowledgeEntry.",
@@ -26,7 +29,10 @@
       }
     ]
   },
+  "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   "extensions": {
-    "peer_demo": { "display_name": "Toy World peer checker host" }
+    "peer_demo": {
+      "display_name": "Toy World peer checker host"
+    }
   }
 }

@@ -94,6 +94,29 @@ impl InboundSequence {
         Ok(self.next_expected)
     }
 
+    /// Validate `sequence` against the next expected inbound sequence WITHOUT
+    /// advancing the expectation (auth-before-advance — contract §7
+    /// amendment: the inbound sequence position is checked at wire position,
+    /// but the counter only advances after envelope-auth verify passes).
+    /// Rejects exactly like [`Self::advance`] and leaves the expectation
+    /// unchanged, so a bogus-signature envelope cannot desync the session.
+    pub fn peek(&self, sequence: i64) -> Result<(), CoreInvokeError> {
+        if sequence < 0 {
+            return Err(CoreInvokeError::InboundSequenceMismatch {
+                expected: self.next_expected,
+                actual: sequence,
+            });
+        }
+        let sequence = sequence as u64;
+        if sequence != self.next_expected {
+            return Err(CoreInvokeError::InboundSequenceMismatch {
+                expected: self.next_expected,
+                actual: sequence as i64,
+            });
+        }
+        Ok(())
+    }
+
     /// The next inbound sequence that will be accepted.
     #[must_use]
     pub fn next_expected(&self) -> u64 {
@@ -175,6 +198,41 @@ mod tests {
                 actual: -1
             }
         ));
+    }
+
+    #[test]
+    fn inbound_peek_validates_without_advancing() {
+        let mut inbound = InboundSequence::new();
+
+        // Wire-position check passes at 0...
+        inbound.peek(0).expect("peek at the next expected sequence");
+        // ...but the expectation is unchanged — the counter only advances
+        // after envelope-auth verify passes (contract §7 amendment).
+        assert_eq!(inbound.next_expected(), 0);
+
+        // Mismatch rejects exactly like advance, and still does not advance.
+        let err = inbound.peek(1).expect_err("peek ahead");
+        assert!(matches!(
+            err,
+            CoreInvokeError::InboundSequenceMismatch {
+                expected: 0,
+                actual: 1
+            }
+        ));
+        let err = inbound.peek(-1).expect_err("peek negative");
+        assert!(matches!(
+            err,
+            CoreInvokeError::InboundSequenceMismatch {
+                expected: 0,
+                actual: -1
+            }
+        ));
+        assert_eq!(inbound.next_expected(), 0);
+
+        // After a real advance, peek tracks the new expectation.
+        assert_eq!(inbound.advance(0).expect("advance"), 1);
+        inbound.peek(1).expect("peek at the next expected sequence");
+        assert_eq!(inbound.next_expected(), 1);
     }
 
     #[test]

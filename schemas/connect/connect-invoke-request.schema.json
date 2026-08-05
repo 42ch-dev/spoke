@@ -10,6 +10,7 @@
     "request_id",
     "op",
     "payload",
+    "signature",
     "extensions"
   ],
   "properties": {
@@ -41,6 +42,12 @@
     "auth": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
       "description": "Optional mid-session proof blob; primary auth is hello. Shape method-specific when used."
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 86,
+      "maxLength": 86,
+      "description": "base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-request-jcs-v1)."
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

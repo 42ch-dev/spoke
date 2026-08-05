@@ -7,6 +7,13 @@ import type { ConnectSession } from "@42ch/spoke-schemas";
 
 import { getPublicKeyEd25519 } from "../src/crypto.js";
 import { isAllowlisted } from "../src/core/allowlist.js";
+import {
+  authenticateInvokeResponse,
+  authenticateSession,
+  EnvelopeAuthError,
+  verifyInvokeRequestAuth,
+  type InvokeResponseSignInput,
+} from "../src/core/envelope-auth.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../src/core/hello.js";
 import { NonceStore } from "../src/core/nonce.js";
 import { negotiatedCapabilities, Session } from "../src/core/session.js";
@@ -82,15 +89,21 @@ async function startHandshakeServer(options: {
                   doc.nonce,
                 ),
               );
-              const snapshot: ConnectSession = {
-                session_id: SESSION_ID,
-                initiator_peer_id: doc.peer_id,
-                responder_peer_id: peerIdA,
-                opened_at: new Date().toISOString(),
-                negotiated_capabilities: ["spoke-baseline"],
-                initial_sequence: 0,
-                extensions: {},
-              };
+              // A's session snapshot, signed with A's hello identity
+              // (`spoke-connect-session-jcs-v1`) — the client's dial
+              // verifies it against A's hello public key.
+              const snapshot: ConnectSession = await authenticateSession(
+                seedA,
+                {
+                  session_id: SESSION_ID,
+                  initiator_peer_id: doc.peer_id,
+                  responder_peer_id: peerIdA,
+                  opened_at: new Date().toISOString(),
+                  negotiated_capabilities: ["spoke-baseline"],
+                  initial_sequence: 0,
+                },
+                {},
+              );
               sendJsonMessage(socket, snapshot);
             })()
           : (async () => onMessage(socket, doc))();
@@ -185,15 +198,21 @@ describe("two-node local WebSocket interop", () => {
             doc.nonce,
           ),
         );
-        const snapshot: ConnectSession = {
-          session_id: SESSION_ID,
-          initiator_peer_id: peerIdB,
-          responder_peer_id: peerIdA,
-          opened_at: new Date().toISOString(),
-          negotiated_capabilities: ["spoke-baseline"],
-          initial_sequence: 0,
-          extensions: {},
-        };
+        // A's session snapshot, signed with A's hello identity
+        // (`spoke-connect-session-jcs-v1`) — the client's dial verifies it
+        // against A's hello public key.
+        const snapshot: ConnectSession = await authenticateSession(
+          seedA,
+          {
+            session_id: SESSION_ID,
+            initiator_peer_id: peerIdB,
+            responder_peer_id: peerIdA,
+            opened_at: new Date().toISOString(),
+            negotiated_capabilities: ["spoke-baseline"],
+            initial_sequence: 0,
+          },
+          {},
+        );
         sendJsonMessage(socket, snapshot);
       }
 
@@ -206,56 +225,92 @@ describe("two-node local WebSocket interop", () => {
           throw new Error("invoke session_id does not match the session");
         }
 
-        // 1. Inbound sequence gate — replay/out-of-order throws; no handler
-        //    side effect on failure.
+        // 1. Inbound sequence gate — non-mutating peek (auth-before-advance,
+        //    envelope-auth contract §7): the counter advances only after the
+        //    envelope-auth verify passes below. No handler side effect on
+        //    failure.
+        session.peekInboundSequence(doc.sequence);
+
+        // 2. Envelope-auth verify — fail-closed BEFORE dispatch and before
+        //    the counter advances: the request must carry B's authentic
+        //    signature (`spoke-connect-invoke-request-jcs-v1`).
+        try {
+          await verifyInvokeRequestAuth(pubkeyB, doc, session.session_id);
+        } catch (error) {
+          if (error instanceof EnvelopeAuthError) {
+            throw new Error(
+              `invoke envelope auth failed (${error.kind}): ${error.message}`,
+            );
+          }
+          throw error;
+        }
+
+        // 3. Advance the inbound counter only after envelope-auth verify
+        //    passed.
         session.acceptInboundSequence(doc.sequence);
 
-        // 2. Dispatch gate — unknown op or missing capability → op_unsupported
+        // 4. Dispatch gate — unknown op or missing capability → op_unsupported
         //    error branch (AD-P0-3: map to wire code on the server path).
         if (!session.dispatchAllowed(doc.op)) {
-          sendJsonMessage(socket, {
-            session_id: doc.session_id,
-            sequence: doc.sequence,
-            request_id: doc.request_id,
-            error: {
-              code: "op_unsupported",
-              message: `op ${doc.op} is not authorized by this session`,
-              extensions: {},
-            },
-            extensions: {},
-          });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              session_id: doc.session_id,
+              sequence: doc.sequence,
+              request_id: doc.request_id,
+              error: {
+                code: "op_unsupported",
+                message: `op ${doc.op} is not authorized by this session`,
+                extensions: {},
+              },
+            }),
+          );
           return;
         }
 
-        // 3. Handler stub — only `check` is implemented in this fixture;
+        // 5. Handler stub — only `check` is implemented in this fixture;
         //    `payload.fail === true` selects the error branch.
         if (doc.op !== "check") {
-          sendJsonMessage(socket, {
-            session_id: doc.session_id,
-            sequence: doc.sequence,
-            request_id: doc.request_id,
-            error: {
-              code: "op_unsupported",
-              message: `unimplemented op ${doc.op}`,
-              extensions: {},
-            },
-            extensions: {},
-          });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              session_id: doc.session_id,
+              sequence: doc.sequence,
+              request_id: doc.request_id,
+              error: {
+                code: "op_unsupported",
+                message: `unimplemented op ${doc.op}`,
+                extensions: {},
+              },
+            }),
+          );
           return;
         }
         const echo = {
           session_id: doc.session_id,
           sequence: doc.sequence,
           request_id: doc.request_id,
-          extensions: {},
         };
         if (doc.payload?.fail === true) {
-          sendJsonMessage(socket, {
-            ...echo,
-            error: { code: "check_failed", message: "spike check failed", extensions: {} },
-          });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              ...echo,
+              error: {
+                code: "check_failed",
+                message: "spike check failed",
+                extensions: {},
+              },
+            }),
+          );
         } else {
-          sendJsonMessage(socket, { ...echo, payload: { findings: [] } });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              ...echo,
+              payload: { findings: [] },
+            }),
+          );
         }
       }
 
@@ -379,6 +434,52 @@ describe("two-node local WebSocket interop", () => {
 });
 
 describe("connectClient transport robustness", () => {
+  it(
+    "rejects an invoke with the failAll message when the socket closes during signing (not a raw ws error)",
+    async () => {
+      const seedA = seed(0xe0);
+      const pubkeyA = getPublicKeyEd25519(seedA);
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+      const seedB = seed(0x60);
+
+      const server = await startHandshakeServer({
+        seed: seedA,
+        peerId: peerIdA,
+        onMessage: () => {
+          // Unreachable in this test: the invoke must never reach the wire
+          // (the socket is closed before its sign completes).
+        },
+      });
+
+      let client: ConnectClient | null = null;
+      try {
+        client = await connectClient({
+          url: `ws://127.0.0.1:${server.port}`,
+          identity: { seed: seedB },
+          manifest: schemaConformantManifest(),
+          remotePubkey: pubkeyA,
+          allowlist: [peerIdA],
+          timeoutMs: 5000,
+        });
+
+        // The pending waiter is registered SYNCHRONOUSLY — before the async
+        // Ed25519 sign — so a close immediately after `invoke` fails the
+        // in-flight invoke with the failAll message ("client closed"). If
+        // the entry were registered only after the sign, failAll would miss
+        // it and the deferred send would hit the closed socket, rejecting
+        // with a raw ws error instead.
+        const pending = client.invoke("check", {});
+        client.close();
+        await expect(pending).rejects.toThrow(/client closed/);
+      } finally {
+        client?.close();
+        for (const c of server.connections) c.close();
+        await server.close();
+      }
+    },
+    15000,
+  );
+
   it(
     "closes the socket when the dial times out (no leaked connection)",
     async () => {
@@ -530,4 +631,97 @@ describe("connectClient transport robustness", () => {
     },
     15000,
   );
+  it(
+    "closes the socket when a timed-out queued invoke's send is skipped (no silent sequence poisoning)",
+    async () => {
+      // F-3: an invoke whose send is still queued behind an earlier
+      // invoke's slow sign/send times out before its send starts. The skip
+      // guard must not just drop the send: the allocated outbound sequence
+      // was never transmitted, so the host's inbound gate is stuck at it
+      // and every later invoke fails `inbound_sequence_mismatch` — a
+      // silently poisoned session. The client must tear the connection
+      // down: the server observes the socket close and neither invoke ever
+      // reaches the wire.
+      //
+      // Real timers are deliberate here (integration-test exception): the
+      // race under test IS the real-clock race between the client's invoke
+      // timeout timer and the WebCrypto sign of a large payload — fake
+      // timers cannot drive WebCrypto. The large payload's JCS
+      // canonicalization + Ed25519 sign reliably outlasts the 100ms invoke
+      // timeout (~310ms measured for 800k elements), and the localhost
+      // handshake completes in ~10ms, well inside the same timeout — so
+      // the ordering is deterministic under load. (The test is last in
+      // this file so its main-thread canonicalization does not overlap
+      // other suites' tight invoke-timeout windows.)
+      const seedA = seed(0xf0);
+      const pubkeyA = getPublicKeyEd25519(seedA);
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+      const seedB = seed(0x70);
+
+      const receivedOps: string[] = [];
+      const server = await startHandshakeServer({
+        seed: seedA,
+        peerId: peerIdA,
+        onMessage: (_socket, doc) => {
+          if (isConnectInvokeRequest(doc)) {
+            receivedOps.push(doc.op);
+          }
+        },
+      });
+
+      let client: ConnectClient | null = null;
+      try {
+        client = await connectClient({
+          url: `ws://127.0.0.1:${server.port}`,
+          identity: { seed: seedB },
+          manifest: schemaConformantManifest(),
+          remotePubkey: pubkeyA,
+          allowlist: [peerIdA],
+          timeoutMs: 100,
+        });
+
+        // The skip branch closes the socket; the server observes the
+        // disconnect (bounded race, no bare sleep).
+        const serverSideClosed = new Promise<void>((resolve) => {
+          server.connections[0].once("close", () => resolve());
+        });
+
+        // First invoke: a payload large enough that signing it (JCS
+        // canonicalization + Ed25519 over the full signed object) reliably
+        // outlasts the invoke timeout — its send call completes late, so
+        // the second invoke times out while still queued behind it.
+        const slow = client.invoke("check", {
+          findings: Array.from({ length: 800_000 }, (_, i) => ({ a: i })),
+        });
+        const queued = client.invoke("check", {});
+
+        const [slowResult, queuedResult] = await Promise.allSettled([
+          slow,
+          queued,
+        ]);
+        expect(slowResult.status).toBe("rejected");
+        expect(queuedResult.status).toBe("rejected");
+
+        await Promise.race([
+          serverSideClosed,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("server never observed the client socket close")),
+              5000,
+            ),
+          ),
+        ]);
+
+        // Neither invoke was ever transmitted (both sends were skipped) —
+        // the host's inbound gate was never advanced past a gap.
+        expect(receivedOps).toEqual([]);
+      } finally {
+        client?.close();
+        for (const c of server.connections) c.close();
+        await server.close();
+      }
+    },
+    15000,
+  );
+
 });

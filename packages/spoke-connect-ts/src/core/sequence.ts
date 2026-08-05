@@ -97,6 +97,24 @@ export class InboundSequence {
     return this.nextExpectedValue;
   }
 
+  /**
+   * Validate `sequence` against the next expected inbound sequence WITHOUT
+   * advancing the expectation (auth-before-advance — contract §7 amendment:
+   * the inbound sequence position is checked at wire position, but the
+   * counter only advances after envelope-auth verify passes). Throws
+   * `inbound_sequence_mismatch` on mismatch and leaves the expectation
+   * unchanged, exactly like `advance`.
+   */
+  peek(sequence: number): void {
+    if (sequence !== this.nextExpectedValue) {
+      throw new CoreInvokeError(
+        "inbound_sequence_mismatch",
+        `inbound sequence ${sequence} is not the next expected ${this.nextExpectedValue}`,
+        { expected: this.nextExpectedValue, actual: sequence },
+      );
+    }
+  }
+
   /** The next inbound sequence that will be accepted. */
   nextExpected(): number {
     return this.nextExpectedValue;

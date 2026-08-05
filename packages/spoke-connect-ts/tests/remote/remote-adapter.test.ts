@@ -52,9 +52,9 @@ import { issueCapabilityToken } from "../../src/core/capability-token.js";
 // 4-field (pre-dial-binding) responder hello, served over a scripted
 // transport (test-only import; the adapter surface stays clean).
 import { signHelloEd25519 } from "../../src/core/hello.js";
-import { MAX_SEQUENCE } from "../../src/core/sequence.js";
-import { encodeJsonMessage } from "../../src/framing.js";
 import { schemaConformantManifest } from "../../src/golden.js";
+import { MAX_SEQUENCE } from "../../src/core/sequence.js";
+import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 // Test-only reset hook for the process-wide accepted-server-hello store
 // (simulates a restart in the cross-restart dial-binding replay test).
@@ -100,6 +100,11 @@ async function dial(
     hostResponseOverride?: (request: ConnectInvokeRequest) => unknown;
     /** Issue a real capability token and attach it as `auth` on invokes. */
     attachToken?: boolean;
+    /**
+     * Wrap the client's transport end (wire-level injector fixtures: tamper
+     * / strip signatures on outbound requests or inbound responses).
+     */
+    clientTransport?: (clientEnd: Transport) => Transport;
   } = {},
 ): Promise<{
   client: RemoteAdapter;
@@ -139,7 +144,7 @@ async function dial(
         })
       : undefined;
   const client = await connectRemoteAdapter({
-    transport: pair.client,
+    transport: options.clientTransport?.(pair.client) ?? pair.client,
     localIdentity: { seed: seedClient },
     localManifest: options.clientManifest ?? clientManifest(),
     remotePubkey: pubkeyHost,
@@ -148,6 +153,68 @@ async function dial(
     capabilityToken,
   });
   return { client, host, pair, peerIdHost, peerIdClient };
+}
+
+/**
+ * Decode wire bytes to a JSON document (wire-level injector fixtures).
+ */
+function decodeWire(bytes: EnvelopeBytes): Record<string, unknown> {
+  return decodeJsonMessage(bytes) as Record<string, unknown>;
+}
+
+/** Re-encode a mutated document as wire bytes (wire-level injector fixtures). */
+function encodeWire(doc: unknown): EnvelopeBytes {
+  return new TextEncoder().encode(encodeJsonMessage(doc));
+}
+
+/**
+ * Transport wrapper: mutates outbound invoke requests on the wire (the view
+ * an active transport attacker has of the client's signed envelopes).
+ * `mutate` receives the decoded request and must return the mutated doc.
+ */
+function tamperOutboundRequests(
+  clientEnd: Transport,
+  mutate: (doc: Record<string, unknown>) => Record<string, unknown>,
+): Transport {
+  return {
+    send: async (envelope) => {
+      const doc = decodeWire(envelope);
+      if ("op" in doc) {
+        // Outbound invoke request — apply the wire-level mutation. The
+        // handshake hello passes through unchanged so the host's hello
+        // gates still succeed.
+        await clientEnd.send(encodeWire(mutate(doc)));
+        return;
+      }
+      await clientEnd.send(envelope);
+    },
+    recv: () => clientEnd.recv(),
+    close: () => clientEnd.close?.(),
+  };
+}
+
+/**
+ * Transport wrapper: mutates inbound invoke responses on the wire. `mutate`
+ * receives the decoded response and must return the mutated doc. The hello
+ * / session snapshot pass through unchanged so the dial still establishes.
+ */
+function tamperInboundResponses(
+  clientEnd: Transport,
+  mutate: (doc: Record<string, unknown>) => Record<string, unknown>,
+): Transport {
+  return {
+    send: (envelope) => clientEnd.send(envelope),
+    recv: async () => {
+      const bytes = await clientEnd.recv();
+      const doc = decodeWire(bytes);
+      if ("request_id" in doc && ("payload" in doc || "error" in doc)) {
+        // Inbound invoke response — apply the wire-level mutation.
+        return encodeWire(mutate(doc));
+      }
+      return bytes;
+    },
+    close: () => clientEnd.close?.(),
+  };
 }
 
 describe("RemoteAdapter loopback interop", () => {
@@ -176,6 +243,15 @@ describe("RemoteAdapter loopback interop", () => {
           "checkResponseCorrelation",
           "isAllowlisted",
           "correlationFromRequest",
+          // Envelope-auth helpers are module-internal imports (contract §9):
+          // absent from the instance at runtime, exactly like the
+          // session-core helpers above.
+          "authenticateSession",
+          "verifySessionAuth",
+          "authenticateInvokeRequest",
+          "verifyInvokeRequestAuth",
+          "authenticateInvokeResponse",
+          "verifyInvokeResponseAuth",
           // Session-lifecycle methods are `#`-private: absent from the shipped
           // .d.ts AND unreachable at runtime (no forging `Established` state
           // past hello/allowlist verification, not even via an `any` cast).
@@ -262,7 +338,14 @@ describe("RemoteAdapter loopback interop", () => {
       // strict-mode TypeError on the constructor-created accessor-less
       // slot) that the gate never reads.
       const pair = loopbackTransportPair();
-      const adapter = new RemoteAdapter(pair.client, 100);
+      // Direct construction is dial-only; the key material is required but
+      // irrelevant here — the adapter never dials, so it never signs.
+      const adapter = new RemoteAdapter(
+        pair.client,
+        seed(0x10),
+        getPublicKeyEd25519(seed(0xa0)),
+        100,
+      );
       const raw = adapter as unknown as Record<string, unknown>;
       raw.stateInternal = "Established";
       raw.session = {
@@ -700,9 +783,12 @@ describe("RemoteAdapter loopback interop", () => {
     "maps an invoke timeout to INTERNAL_ERROR kind timeout without closing the session",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      let delayMs = 100;
+      // The invoke timeout also gates the dial handshake, so keep it well
+      // above the handshake's worst-case latency under parallel-suite load
+      // (a 20ms budget here flakes the dial with "server hello timed out").
+      let delayMs = 200;
       const { client, host } = await dial(hostAdapter, {
-        invokeTimeoutMs: 20,
+        invokeTimeoutMs: 100,
         hostDelay: () => delayMs,
       });
       try {
@@ -710,7 +796,7 @@ describe("RemoteAdapter loopback interop", () => {
         expect(result).toEqual({
           ok: false,
           code: SpokeRejectCode.INTERNAL_ERROR,
-          message: expect.stringContaining("timed out after 20ms"),
+          message: expect.stringContaining("timed out after 100ms"),
           details: { kind: "timeout" },
         });
         // Timeout fails only the waiter — the session stays usable.
@@ -727,6 +813,126 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "closes the session when a timed-out queued invoke's send is skipped (never transmitted, no silent poisoning)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // Wire-level injector: the FIRST outbound invoke request's send is
+      // delayed on the wire, and every transmission (plus every inbound
+      // response) is recorded by sequence. The second invoke's send is
+      // serialized behind the first (send tail) and times out while
+      // waiting — before its send ever starts. The F-1 guard must skip
+      // that late send: the host must never see the timed-out request, so
+      // a retry cannot duplicate a handler dispatch.
+      //
+      // F-3 (this test's extension): skipping the send without tearing the
+      // session down would leave the allocated outbound sequence
+      // untransmitted — the host's inbound gate is stuck at it, so every
+      // later invoke fails `inbound_sequence_mismatch` (silent poisoning).
+      // The skip must instead close the session: the adapter state becomes
+      // `Closed` and the next invoke fails `session_closed`.
+      //
+      // Real timers are deliberate here (integration-test exception): the
+      // race under test IS a real-clock race between the adapter's invoke
+      // timeout timer and a slow transport send, with both peers running
+      // on real timers — fake timers cannot drive the loopback transport
+      // or WebCrypto signing. The 200ms wire delay sits far outside the
+      // 100ms invoke timeout (which also gates the dial handshake, so it
+      // must stay well above the handshake's worst-case latency under
+      // parallel-suite load), so the ordering is deterministic under load.
+      const sentSequences: number[] = [];
+      const receivedSequences: number[] = [];
+      let firstSendDelayed = false;
+      const { client, host } = await dial(hostAdapter, {
+        invokeTimeoutMs: 100,
+        clientTransport: (clientEnd) => ({
+          send: async (envelope) => {
+            const doc = decodeWire(envelope);
+            if ("op" in doc) {
+              if (!firstSendDelayed) {
+                firstSendDelayed = true;
+                await new Promise((resolve) => setTimeout(resolve, 200));
+              }
+              sentSequences.push(doc.sequence as number);
+            }
+            await clientEnd.send(envelope);
+          },
+          recv: async () => {
+            const bytes = await clientEnd.recv();
+            const doc = decodeWire(bytes);
+            if ("request_id" in doc && ("payload" in doc || "error" in doc)) {
+              receivedSequences.push(doc.sequence as number);
+            }
+            return bytes;
+          },
+          close: () => clientEnd.close?.(),
+        }),
+      });
+      try {
+        const [first, second] = await Promise.all([
+          client.getKnowledgeEntry("kb_tw_mira"), // sequence 0 — send delayed
+          client.getKnowledgeEntry("kb_tw_harbor"), // sequence 1 — times out queued behind it
+        ]);
+        expect(first).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("timed out after 100ms"),
+          details: { kind: "timeout" },
+        });
+        expect(second).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("timed out after 100ms"),
+          details: { kind: "timeout" },
+        });
+        // Both invokes observed the timeout. The skip (F-3) closes the
+        // session as soon as the queued send is dropped — wait for the
+        // adapter's state to become `Closed` (the transport is torn down,
+        // so no further transmission is possible), then assert the second
+        // (timed-out-while-queued) invoke was never transmitted.
+        //
+        // The host processes the first invoke on a detached chain that
+        // outlives the client's close (gate verify → dispatch → response
+        // attempt), so also wait for its `responseOrder` to be recorded —
+        // the host-side completion point. Without this second condition the
+        // dispatch-count assertion below would race the host's async gate.
+        const closeDeadline = Date.now() + 5000;
+        while (
+          client.state !== "Closed" ||
+          host.stats.responseOrder.length === 0
+        ) {
+          if (Date.now() >= closeDeadline) {
+            throw new Error(
+              "adapter never closed / host never finished processing after the skipped send",
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(sentSequences).toEqual([0]);
+        // The first invoke's response never made it back: the session
+        // closed (transport torn down) before the host's delayed response
+        // arrived — no silent continuation on a poisoned wire.
+        expect(receivedSequences).toEqual([]);
+        expect(client.state).toBe("Closed");
+        expect(host.stats.invokesDispatched).toBe(1);
+        // The session is closed, not poisoned: a follow-up invoke fails
+        // with `session_closed` instead of hanging or being mis-rejected
+        // by the host's stuck inbound gate.
+        const after = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(after).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("connect session is not established"),
+          details: { kind: "session_closed" },
+        });
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "fails pending invokes with INTERNAL_ERROR kind session_closed when the transport closes mid-flight",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
@@ -734,8 +940,10 @@ describe("RemoteAdapter loopback interop", () => {
         hostDelay: () => 100,
       });
       try {
-        // The request is registered + sent synchronously, then the host
-        // drops the connection while the response is still delayed.
+        // The pending waiter is registered synchronously (the request is in
+        // flight from the caller's perspective immediately; only the
+        // Ed25519 sign is deferred), so the host drops the connection
+        // while the response is still delayed.
         const pending = client.getKnowledgeEntry("kb_tw_mira");
         host.close();
         const result = await pending;
@@ -999,6 +1207,217 @@ describe("RemoteAdapter loopback interop", () => {
         expect(client.state).toBe("Closed");
       } finally {
         client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "round-trips an authenticated invoke (host verifies client request signatures; client verifies host response signatures)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter);
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result.ok).toBe(true);
+        // The client's signed request passed the host's envelope-auth gate
+        // (zero rejections) and the host's signed response passed the
+        // client's verify — the wire carried genuine
+        // `spoke-connect-invoke-request-jcs-v1` / `-response-jcs-v1`
+        // signatures in both directions.
+        expect(host.stats.authRejections).toBe(0);
+        expect(host.stats.invokesDispatched).toBe(1);
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects a wire-tampered invoke response with envelope_auth_invalid (fail-closed, session stays usable)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // One-shot wire-level injector: only the FIRST response is tampered,
+      // so the follow-up invoke proves the session stayed usable.
+      let tampered = false;
+      const { client, host } = await dial(hostAdapter, {
+        // Wire-level injector: the host's signed success response has its
+        // payload mutated after the signature was computed.
+        clientTransport: (clientEnd) =>
+          tamperInboundResponses(clientEnd, (doc) => {
+            if (!tampered && "payload" in doc) {
+              tampered = true;
+              (doc.payload as Record<string, unknown>).tampered = true;
+            }
+            return doc;
+          }),
+      });
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("signature does not verify"),
+          details: { kind: "envelope_auth_invalid" },
+        });
+        // A forged signature fails only this waiter — no session-state
+        // mutation, the session stays usable (parity with the
+        // correlation-mismatch path).
+        expect(client.state).toBe("Established");
+        const retry = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(retry.ok).toBe(true);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects an invoke response with a stripped signature (envelope_auth_missing)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter, {
+        // Wire-level injector: delete the response signature field.
+        clientTransport: (clientEnd) =>
+          tamperInboundResponses(clientEnd, (doc) => {
+            delete doc.signature;
+            return doc;
+          }),
+      });
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("signature"),
+          details: { kind: "envelope_auth_missing" },
+        });
+        // Mixed-version fail-closed: an unauthenticated envelope is never
+        // accepted because a transport supplied peer identity — the session
+        // stays usable but the strip is rejected every time.
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "host rejects a wire-tampered invoke request with auth_failed envelope_auth_invalid",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter, {
+        // Wire-level injector: mutate the client's outbound request payload
+        // after signing — the host's envelope-auth verify must reject it
+        // BEFORE dispatch, with no handler side effect.
+        clientTransport: (clientEnd) =>
+          tamperOutboundRequests(clientEnd, (doc) => {
+            (doc.payload as Record<string, unknown>).tampered = true;
+            return doc;
+          }),
+      });
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        // The host answered `auth_failed` (wire code) with the locked
+        // `details.kind`; the client maps it to INTERNAL_ERROR verbatim.
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("signature does not verify"),
+          details: { kind: "envelope_auth_invalid" },
+        });
+        expect(host.stats.authRejections).toBe(1);
+        expect(host.stats.invokesDispatched).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "host rejects an invoke request with a stripped signature (auth_failed envelope_auth_missing)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter, {
+        // Wire-level injector: strip the request signature — the host must
+        // treat the unauthenticated envelope as missing its authenticator
+        // (mixed-version fail-closed, contract §8).
+        clientTransport: (clientEnd) =>
+          tamperOutboundRequests(clientEnd, (doc) => {
+            delete doc.signature;
+            return doc;
+          }),
+      });
+      try {
+        const result = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("signature"),
+          details: { kind: "envelope_auth_missing" },
+        });
+        expect(host.stats.authRejections).toBe(1);
+        expect(host.stats.invokesDispatched).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "fails the dial when the session snapshot signature is stripped (verify before establish)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const pair = loopbackTransportPair();
+      const host = await startLoopbackHost({
+        transport: pair.server,
+        seed: seed(0xa0),
+        clientPubkey: getPublicKeyEd25519(seed(0x10)),
+        allowlist: [
+          derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0x10))),
+        ],
+        adapter: hostAdapter,
+      });
+      try {
+        // Wire-level injector on the client end: strip the signature from
+        // the host's session snapshot; the hello passes through unchanged.
+        const stripping: Transport = {
+          send: (envelope) => pair.client.send(envelope),
+          recv: async () => {
+            const bytes = await pair.client.recv();
+            const doc = decodeWire(bytes);
+            if ("initiator_peer_id" in doc) {
+              delete doc.signature;
+              return encodeWire(doc);
+            }
+            return bytes;
+          },
+          close: () => pair.client.close(),
+        };
+        await expect(
+          connectRemoteAdapter({
+            transport: stripping,
+            localIdentity: { seed: seed(0x10) },
+            localManifest: clientManifest(),
+            remotePubkey: getPublicKeyEd25519(seed(0xa0)),
+            allowlist: [
+              derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed(0xa0))),
+            ],
+          }),
+        ).rejects.toThrow(/missing a signature/);
+      } finally {
         host.close();
       }
     },

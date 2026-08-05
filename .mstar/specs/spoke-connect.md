@@ -45,7 +45,7 @@ Both paths MUST produce the same signed hello bytes, the same `peer_id` derivati
 
 ### RemoteAdapter layer (above session-core)
 
-A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session. It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
+A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session. It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. The RemoteAdapter runs at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope: signed `ConnectInvokeRequest` emission, and `ConnectSession` / `ConnectInvokeResponse` verification on receipt (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); enforcement details: [spoke-remote-adapter.md](spoke-remote-adapter.md) D10). All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
 
 ## User value
 
@@ -160,7 +160,7 @@ Six envelopes — all `type: object`, `additionalProperties: false`, required `e
 
 | Field | Req | Type | Notes |
 |-------|-----|------|-------|
-| `protocol_version` | yes | integer ≥ 1 | Connect protocol version (not data `schema_version`). Protocol version **1** is current. |
+| `protocol_version` | yes | integer ≥ 1 | Connect protocol version (not data `schema_version`). **Protocol version 2 is current** (normative lock — see [§Envelope authentication](#envelope-authentication-protocol_version-2)); the post-hello field tables below document the version-1 base wire — v2 adds the required `signature` field per that section. Hello `signature` is unchanged. |
 | `peer_id` | yes | string, minLength 1 | Sender network identity (see §[Identity binding](#identity-binding)). |
 | `nonce` | yes | string, minLength 16 | Single-use replay nonce (see [§Nonce / replay](#nonce--replay-protection)). |
 | `peer_nonce` | no | string, minLength 16 | Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object. Absent in initiator hellos; initiators MUST reject a responder hello whose `peer_nonce` does not equal their own nonce (see [§Nonce / replay](#nonce--replay-protection)). |
@@ -177,7 +177,8 @@ Six envelopes — all `type: object`, `additionalProperties: false`, required `e
 | `responder_peer_id` | yes | string, minLength 1 | Peer that accepted. |
 | `opened_at` | yes | Timestamp (RFC 3339) | Session open time (UTC). |
 | `negotiated_capabilities` | yes | string[], minItems 1, uniqueItems | Intersection (or agreed subset) of both hosts' `capabilities[]`; MUST include `spoke-connect` when both declare it. |
-| `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol_version 1 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). Runtime validators MUST enforce the `const 0` rule at the wire boundary; generated Rust types do not encode it. |
+| `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol versions 1 and 2 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). Runtime validators MUST enforce the `const 0` rule at the wire boundary; generated Rust types do not encode it. |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 Session is a **wire-visible snapshot** (fixtures + optional session-announce messages). A runtime may keep richer local state; the public wire shape stays this table.
@@ -193,14 +194,15 @@ Session is a **wire-visible snapshot** (fixtures + optional session-announce mes
 | `request_id` | yes | string, minLength 1 | Caller-generated correlation id (UUID recommended). |
 | `op` | yes | string, minLength 1 | Open vocabulary — see [§`op` core vocabulary](#op-core-vocabulary). |
 | `payload` | yes | `$ref` OpaqueJson | Opaque JSON — MUST be a full existing ops **request** envelope for the named `op` when targeting SPOKE ops. Dispatchers MUST validate the payload against the named `op`'s ops request schema. |
-| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary session identity is hello (`noise-peerid`). For `capability-token`, same proof object as auth response (see [§Method — capability-token](#method--capability-token)). |
+| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary session identity is hello (`noise-peerid`). For `capability-token`, same proof object as auth response (see [§Method — capability-token](#method--capability-token)). When present on protocol_version 2 wire, `auth` is included in the JCS signed object for `spoke-connect-invoke-request-jcs-v1` (see [§Envelope authentication](#envelope-authentication-protocol_version-2)). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-request-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 ### ConnectInvokeResponse — remote op reply
 
 Mirrors ops response style: **oneOf** success | error (no parallel `status` enum — discriminator is `payload` vs `error`).
 
-**Success branch** — required: `session_id`, `sequence`, `request_id`, `payload`, `extensions`
+**Success branch** — required: `session_id`, `sequence`, `request_id`, `payload`, `extensions` (+ `signature` in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2))
 
 | Field | Req | Type | Notes |
 |-------|-----|------|-------|
@@ -208,14 +210,16 @@ Mirrors ops response style: **oneOf** success | error (no parallel `status` enum
 | `sequence` | yes | integer ≥ 0 | Echo of request `sequence`. |
 | `request_id` | yes | string | Echo of request `request_id`. |
 | `payload` | yes | OpaqueJson | Ops **response** success envelope (or product-defined success body for non-core `op`). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
-**Error branch** — required: `session_id`, `sequence`, `request_id`, `error`, `extensions`
+**Error branch** — required: `session_id`, `sequence`, `request_id`, `error`, `extensions` (+ `signature` in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2))
 
 | Field | Req | Type | Notes |
 |-------|-----|------|-------|
 | `session_id` / `sequence` / `request_id` | yes | (echo) | Same as success. |
 | `error` | yes | `$ref` ErrorEnvelope | Shared failure shape — **no** parallel connect error object. |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 Branches MUST NOT include both `payload` and `error`.
@@ -519,6 +523,94 @@ Implementations MAY distinguish failure reasons in `message` and optional `detai
 - Using `jti` for uniqueness enforcement in protocol_version 1 (field reserved only)
 - Replacing `noise-peerid` hello identity with a token-only handshake
 
+## Envelope authentication (protocol_version 2)
+
+> **Status:** Normative — protocol_version 2 envelope-authentication hardening slice. Schemas for protocol_version 2 gain the authenticator fields; enforcement lives in the connect session-core and the RemoteAdapter / connect-client layers.
+
+Protocol_version **2** authenticates every post-hello trust-affecting envelope (`ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse`) at the protocol layer using per-envelope JCS + Ed25519 signed-field sets — the same construction as `spoke-connect-hello-jcs-v1`, extended to three new algorithm ids. This closes the Greptile P1 "Session snapshot remains unauthenticated" finding and the roadmap envelope-auth Up-next row: receivers no longer rely on TLS/Noise for envelope authenticity.
+
+### Auth model — A locked (per-envelope JCS + Ed25519)
+
+The auth model is **A — per-envelope JCS + Ed25519 signed-field sets** (locked; B — session-derived MAC via handshake KEX — rejected). Rationale and the full field sets follow in this section.
+
+### Algorithm ids
+
+| Algorithm id | Envelope |
+|--------------|----------|
+| `spoke-connect-hello-jcs-v1` | `ConnectHello` (unchanged) |
+| `spoke-connect-session-jcs-v1` | `ConnectSession` |
+| `spoke-connect-invoke-request-jcs-v1` | `ConnectInvokeRequest` |
+| `spoke-connect-invoke-response-jcs-v1` | `ConnectInvokeResponse` |
+
+All four share the construction: RFC 8785 JCS → UTF-8 bytes → Ed25519 sign/verify → base64url (no padding). The signing key is the sender's peer-identity Ed25519 private key (same key as hello). Verification uses the public key that derives the authenticated hello `peer_id`.
+
+### Authenticated field sets
+
+Each signed object is a strict subset of the wire envelope (exact keys, no others). `extensions` and `signature` are excluded. Receivers MUST NOT use envelope `extensions` for authorization or trust decisions — `extensions` are not covered by the signature and are forgeable at the wire level under the transport-independent v2 threat model (same rule as hello `extensions`, see [§Signature canonicalization (hello)](#signature-canonicalization-hello)).
+
+- **`ConnectSession`**: `{session_id, initiator_peer_id, responder_peer_id, opened_at, negotiated_capabilities, initial_sequence}`
+- **`ConnectInvokeRequest`**: `{session_id, sequence, request_id, op, payload}` and additionally `auth` **when present** on the wire (trust-affecting; MUST be bound).
+- **`ConnectInvokeResponse`** success branch: `{session_id, sequence, request_id, payload}`
+- **`ConnectInvokeResponse`** error branch: `{session_id, sequence, request_id, error}`
+
+The two response branches are signed over their respective field sets (oneOf); they MUST NOT be merged into one signed object with optional `payload`/`error`.
+
+### Canonicalization (normative)
+
+1. Build the signed object per the field sets above — exact keys, no others (`extensions` and `signature` excluded).
+2. Canonicalize with **RFC 8785 JCS** → UTF-8 bytes. Implementations MUST NOT invent field-order rules; JCS is the sole canonicalizer.
+3. `Ed25519.sign(peer_identity_private_key, jcs_bytes)` → 64 raw bytes.
+4. Encode as **base64url without padding** → wire `signature`, **required** on every v2 post-hello envelope.
+
+**Canonical encoding (parity-binding):** the `signature` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Receivers MUST reject any `signature` that does not round-trip through `decode → encode` equality (non-canonical encodings of the final character's slack bits are rejected) — the same rule as the `capability-token` `sig` field ([§Method — capability-token](#method--capability-token)) and the hello `signature`. TS and Rust enforce this identically at verify time.
+
+### Session binding
+
+Signatures bind to the session via the signed `session_id` and the session-core binding rules (already required: `initiator_peer_id` / `responder_peer_id` MUST equal the authenticated hello `peer_id`s). The verify public key is the peer's hello Ed25519 public key. No new key exchange, no new MAC, no new KDF. A `session_id` not bound to an established session ⇒ reject `auth_failed`. Cross-session replay fails closed: an envelope captured from session S1 and replayed into session S2 is rejected because the S2 receiver verifies against the S2 peer's hello public key (which signed S2, not S1) and the `session_id` does not match the bound session.
+
+### Version strategy — `protocol_version` 1 → 2 (fail-closed, no compat shim)
+
+`protocol_version` is bumped from 1 to 2. The `signature` field is **required** on v2 `ConnectSession`, `ConnectInvokeRequest`, and `ConnectInvokeResponse` (both oneOf branches). A capability flag is not sufficient: mixed-version peers MUST fail closed. This is a pre-1.0 breaking wire change — a SemVer bump on the protocol, with no compat shim, no silent downgrade path, and no dual-write period.
+
+| Direction | Behavior |
+|-----------|----------|
+| v2 → v1 | The v2 peer observes `protocol_version: 1` in the verified responder/initiator hello and MUST refuse to establish — cannot trust unauthenticated session/invoke envelopes. Dial fails closed. |
+| v1 → v2 | Symmetric — the v2 responder refuses the v1 initiator. Dial fails closed. |
+| Both v2 | Both peers advertise `protocol_version: 2`; session establishes under v2 rules; all post-hello envelopes carry required `signature`. |
+| Both v1 | Legacy v1 interop only — v1-only peers are not modified. |
+
+The dial-binding `peer_nonce` rule (already fail-closed for mixed-version responder hellos per [§Nonce / replay](#nonce--replay-protection)) is preserved unchanged. An unknown `protocol_version` (> 2) in a **verified** hello MUST fail closed — treated like mixed-version: refuse to establish. Version policy applies **after** hello signature verification — the version is inside the signed object, so an unverifiable hello is rejected on signature grounds first, and only a signature-valid hello's version is consulted. The hello signed-field set (4-field initiator / 5-field responder) is unchanged — hello golden vectors and binding golden smokes stay byte-identical. `connect-hello`, `connect-auth-challenge`, and `connect-auth-response` schemas are unchanged; all connect schemas retain `additionalProperties: false`.
+
+### Verify rules (fail-closed, no transport-trust fallback)
+
+For every v2 post-hello envelope, the receiver MUST: (1) presence-check `signature`; (2) canonical-encoding round-trip check; (3) build the signed object per the locked field set; (4) RFC 8785 JCS canonicalize; (5) `Ed25519.verify` with the peer's hello public key; (6) session-binding assert; (7) reject `auth_failed` on any failure. A transport that supplies an authenticated peer identity (Noise) does not relax any of these — protocol auth stands alone.
+
+Order relative to existing session-core checks: sequence/correlation checks run first **but MUST NOT mutate session state** (inbound sequence-counter advance, correlation bookkeeping) until envelope-auth verify passes — the sequence check validates wire position without consuming it; the inbound counter advances only after envelope-auth verification succeeds. Envelope-auth verify runs as part of inbound envelope acceptance, before the dispatch gate and handler. A failed envelope-auth verify produces no handler side effect and **no session-state mutation** — the peer's sequence position is unchanged, so a bogus-signature envelope cannot desync the session: under the transport-independent v2 threat model, a wire-level injector must not be able to advance the inbound counter.
+
+### Error mapping
+
+`ErrorEnvelope.code` remains an open string. `auth_failed` is added to the documented connect auth vocabulary for all envelope-auth failures (missing signature, invalid signature, field-set drift, session-binding mismatch, mixed-version unauthenticated envelope). `SpokeResult` reject `INTERNAL_ERROR` with `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`}. Mixed-version at hello is a constructor error (`details.kind = protocol_version_mismatch`).
+
+### FFI / binding exposure
+
+No new FFI APIs. Envelope-auth `authenticate*` / `verify*` helpers are module-internal (TS) / crate-private (Rust). Bindings continue to call the encapsulated RemoteAdapter / connect-client surfaces, which attach and verify authenticators internally. TS↔Rust core parity (canonical bytes + algorithm ids + verify outcomes) is the gate; binding golden-parity smokes that cover hello stay green.
+
+### Enforcement (shipped)
+
+The TS RemoteAdapter (`./remote` subpath) and connect-client, and the Rust RemoteAdapter (`remote-adapter` cargo feature), enforce envelope-authentication (protocol_version 2 post-hello rules) on every post-hello envelope they emit or accept, while the hello exchange remains at the core `PROTOCOL_VERSION` until a dedicated hello bump:
+
+- **Emission:** every outbound `ConnectInvokeRequest` (RemoteAdapter, connect-client, node session path) and every inbound-answer `ConnectInvokeResponse` (node event loop) attaches the required `signature` via the core `authenticate_invoke_request` / `authenticate_invoke_response` helpers; host-side test doubles (`loopback-host.ts`, Rust loopback host) sign their `ConnectSession` snapshots and responses with the same helpers.
+- **Receipt:** the RemoteAdapter (TS + Rust) and the TS connect-client verify the `ConnectSession` snapshot at establish (`verify_session_auth`, peer-id binding) and every correlated `ConnectInvokeResponse` (`verify_invoke_response_auth`, after the correlation echo check); hosts (node event loop, loopback doubles) verify every inbound `ConnectInvokeRequest` before dispatch (`verify_invoke_request_auth`, auth-before-advance). Rejections carry the locked `details.kind` and leave session state untouched.
+
+Enforcement placement and error mapping: [spoke-remote-adapter.md](spoke-remote-adapter.md) D10 + D7.
+
+### Out of scope (envelope auth, protocol_version 2)
+
+- Authenticating `ConnectAuthChallenge` / `ConnectAuthResponse` (deferred — method-specific proofs are already signature-bound).
+- Session-derived MAC / KEX (Option B — rejected).
+- Compat shim or dual-write period for v1 → v2 (rejected — fail-closed mixed-version).
+- Per-op idempotency keys (relevant to multi-peer failover; out of scope for the hardening slice).
+
 ## Discovery boundary
 
 - Connect **wire** has no mDNS/DHT/multiaddr fields.
@@ -579,6 +671,10 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - [ ] `spoke-connect` optional flag registered in `spoke-protocol-layers.md`; baseline unchanged
 - [ ] Discovery default is explicit peering; mDNS described as non-default convenience only
 - [ ] No transport-specific fields (multiaddr, DHT keys, HTTP/gRPC mapping) in connect schemas
+- [ ] Envelope authentication (protocol_version 2): `signature` required on `ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse` (both oneOf branches); `connect-hello` / `connect-auth-*` unchanged (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2))
+- [ ] Envelope-auth verify is fail-closed: missing / invalid / non-canonical `signature`, field-set drift, and session-binding mismatch reject `auth_failed`; no transport-trust fallback on protocol_version 2
+- [ ] Version strategy: `protocol_version` 1 → 2 with fail-closed mixed-version policy — no compat shim, no silent downgrade, no dual-write period
+- [ ] Greptile P1 (unauthenticated session snapshot) closed as addressed-by-design — roadmap envelope-auth Up-next row resolved by the [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) section
 
 ## Non-goals (connect)
 

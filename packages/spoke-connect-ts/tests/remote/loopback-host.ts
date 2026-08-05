@@ -20,7 +20,9 @@
 
 import type {
   ConnectInvokeRequest,
+  ErrorEnvelope,
   Finding,
+  HostCapabilityManifest,
   KnowledgeEntry,
   Relation,
   Scope,
@@ -28,7 +30,6 @@ import type {
 import {
   SpokeRejectCode,
   spokeReject,
-  toErrorEnvelope,
   type BaselinePorts,
   type SpokeResult,
 } from "@42ch/spoke-operations";
@@ -36,6 +37,13 @@ import {
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { isAllowlisted } from "../../src/core/allowlist.js";
 import { requiredCapability } from "../../src/core/dispatch.js";
+import {
+  authenticateInvokeResponse,
+  authenticateSession,
+  EnvelopeAuthError,
+  verifyInvokeRequestAuth,
+  type InvokeResponseSignInput,
+} from "../../src/core/envelope-auth.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../../src/core/hello.js";
 import { generateNonce, NonceStore } from "../../src/core/nonce.js";
 import { negotiatedCapabilities, Session } from "../../src/core/session.js";
@@ -79,6 +87,13 @@ export interface LoopbackHostOptions {
   /** Local async BaselinePorts served on the remote side (e.g. ToyWorldAdapter). */
   adapter: BaselinePorts;
   /**
+   * Override the host's advertised capability manifest (the `host` field of
+   * its signed hello — what the client caches as `remoteManifest` and a
+   * multi-peer router selects on). Defaults to `schemaConformantManifest()`;
+   * the dual-peer loopback proof dials disjoint per-peer manifests.
+   */
+  hostManifest?: HostCapabilityManifest;
+  /**
    * Product `op_capability_requirements` map (contract §5.1). Ops not
    * listed fall back to the core table; unknown ops are denied. Defaults to
    * the baseline `port.*` → `spoke-baseline` map.
@@ -102,6 +117,8 @@ export interface LoopbackHostStats {
   invokesDispatched: number;
   /** Invokes rejected by the inbound sequence gate. */
   sequenceRejections: number;
+  /** Invokes rejected by the envelope-auth verify gate (fail-closed). */
+  authRejections: number;
   /** Invokes rejected by the dispatch gate. */
   dispatchDenials: number;
   /** Request sequence numbers in response-arrival order (out-of-order fixture). */
@@ -126,6 +143,37 @@ function encodeEnvelope(doc: unknown): EnvelopeBytes {
 }
 
 /**
+ * Normalize a raw response override (test fixture) into an
+ * `InvokeResponseSignInput`: strip `signature`/`extensions` and select the
+ * wire branch (`payload` XOR `error`) so the signed object mirrors the wire
+ * exactly (envelope-auth contract §3 — the two branches are never merged).
+ */
+function overrideSignInput(override: unknown): InvokeResponseSignInput {
+  const wire = override as {
+    session_id?: string;
+    sequence?: number;
+    request_id?: string;
+    payload?: unknown;
+    error?: unknown;
+  };
+  const base = {
+    session_id: wire.session_id as string,
+    sequence: wire.sequence as number,
+    request_id: wire.request_id as string,
+  };
+  if (wire.payload !== undefined) {
+    return {
+      ...base,
+      payload: wire.payload as Record<string, unknown>,
+    };
+  }
+  if (wire.error === undefined) {
+    throw new Error("response override must carry exactly one of payload or error");
+  }
+  return { ...base, error: wire.error as ErrorEnvelope };
+}
+
+/**
  * Start a loopback host: performs the signed-hello handshake over
  * `transport` (allowlist + signature + nonce single-use gates), sends its
  * own signed hello + `ConnectSession` snapshot, then serves invokes — all
@@ -141,7 +189,7 @@ export async function startLoopbackHost(
   const hostPeerId = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(seed),
   );
-  const hostManifest = schemaConformantManifest();
+  const hostManifest = options.hostManifest ?? schemaConformantManifest();
   const nonceStore = new NonceStore();
   const requirements = {
     ...DEFAULT_PORT_CAPABILITY_REQUIREMENTS,
@@ -152,6 +200,7 @@ export async function startLoopbackHost(
     hellosVerified: 0,
     invokesDispatched: 0,
     sequenceRejections: 0,
+    authRejections: 0,
     dispatchDenials: 0,
     responseOrder: [],
     authSeen: false,
@@ -166,60 +215,120 @@ export async function startLoopbackHost(
     });
   }
 
-  function sendErrorResponse(doc: ConnectInvokeRequest, code: string, message: string): void {
+  async function sendErrorResponse(
+    doc: ConnectInvokeRequest,
+    code: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ): Promise<void> {
     stats.responseOrder.push(doc.sequence);
-    sendEnvelope({
-      session_id: doc.session_id,
-      sequence: doc.sequence,
-      request_id: doc.request_id,
-      error: { code, message, extensions: {} },
-      extensions: {},
-    });
+    sendEnvelope(
+      await authenticateInvokeResponse(seed, {
+        session_id: doc.session_id,
+        sequence: doc.sequence,
+        request_id: doc.request_id,
+        error: {
+          code,
+          message,
+          ...(details !== undefined ? { details } : {}),
+          extensions: {},
+        },
+      }),
+    );
   }
 
-  function sendOkResponse(doc: ConnectInvokeRequest, payload: unknown): void {
+  async function sendOkResponse(doc: ConnectInvokeRequest, payload: unknown): Promise<void> {
     stats.responseOrder.push(doc.sequence);
-    sendEnvelope({
-      session_id: doc.session_id,
-      sequence: doc.sequence,
-      request_id: doc.request_id,
-      payload: (payload ?? {}) as Record<string, unknown>,
-      extensions: {},
-    });
+    sendEnvelope(
+      await authenticateInvokeResponse(seed, {
+        session_id: doc.session_id,
+        sequence: doc.sequence,
+        request_id: doc.request_id,
+        payload: (payload ?? {}) as Record<string, unknown>,
+      }),
+    );
   }
 
+/** Result of the serialized gate phase (peek → verify → advance). */
+type GateResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      details?: Record<string, unknown>;
+    }
+  | null;
+
+  /**
+   * Gate phase — inbound sequence peek (non-mutating) → envelope-auth
+   * verify → advance. Fail-closed per envelope-auth contract §7: a
+   * forged/tampered/stripped signature produces no handler side effect and
+   * no session-state mutation. Returns `null` for stray requests (ignored),
+   * a rejection spec for gate failures, or `{ok: true}` when the invoke
+   * may dispatch.
+   *
+   * Serialization requirement: this phase must not interleave with a
+   * concurrent invoke — the async verify would otherwise let a second
+   * request peek against the pre-advance counter and be mis-rejected as
+   * `inbound_sequence_mismatch`. The serve loop queues invokes on
+   * `gateTail` so peek → verify → advance run to completion per request;
+   * the dispatch phase below then runs concurrently (the deterministic-
+   * delay out-of-order fixture needs concurrent dispatch).
+   */
+  async function runGate(doc: ConnectInvokeRequest): Promise<GateResult> {
+    const current = session;
+    if (current === null || doc.session_id !== current.session_id) {
+      return null; // stray request — ignored
+    }
+    try {
+      current.peekInboundSequence(doc.sequence);
+    } catch {
+      stats.sequenceRejections += 1;
+      return {
+        ok: false,
+        code: "inbound_sequence_mismatch",
+        message: `inbound sequence ${doc.sequence} is not the next expected`,
+      };
+    }
+    try {
+      await verifyInvokeRequestAuth(clientPubkey, doc, current.session_id);
+    } catch (error) {
+      if (error instanceof EnvelopeAuthError) {
+        stats.authRejections += 1;
+        return {
+          ok: false,
+          code: "auth_failed",
+          message: error.message,
+          details: { kind: error.kind },
+        };
+      }
+      throw error; // wrong-length key is host misconfiguration — fail loudly
+    }
+    // Advance the inbound counter only after envelope-auth verify passed.
+    current.acceptInboundSequence(doc.sequence);
+    return { ok: true };
+  }
+
+  /** Dispatch phase — runs after the serialized gate; may interleave. */
   async function handleInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const current = session;
     if (current === null || doc.session_id !== current.session_id) {
-      return; // stray request — ignored
+      return; // stray request — ignored (belt-and-braces; the gate checked)
     }
     if (doc.auth !== undefined) {
       stats.authSeen = true;
     }
 
-    // 1. Inbound sequence gate — replay/out-of-order throws; no handler
-    //    side effect on failure.
-    try {
-      current.acceptInboundSequence(doc.sequence);
-    } catch {
-      stats.sequenceRejections += 1;
-      sendErrorResponse(
-        doc,
-        "inbound_sequence_mismatch",
-        `inbound sequence ${doc.sequence} is not the next expected`,
-      );
-      return;
-    }
-
-    // 2. Dispatch gate — product map first, then the core table; unknown
-    //    ops and missing capabilities answer `op_unsupported`.
+    // Dispatch gate — product map first, then the core table; unknown
+    // ops and missing capabilities answer `op_unsupported`.
     const required = requirements[doc.op] ?? requiredCapability(doc.op);
     if (
       required === undefined ||
       !current.negotiated_capabilities.includes(required)
     ) {
       stats.dispatchDenials += 1;
-      sendErrorResponse(
+      await sendErrorResponse(
         doc,
         "op_unsupported",
         `op ${doc.op} is not authorized by this session`,
@@ -238,29 +347,31 @@ export async function startLoopbackHost(
 
     // Test-only response override: replace the envelope the host would send
     // (malformed-response fixtures). The request already passed the gates, so
-    // the client has a pending waiter to exercise against.
+    // the client has a pending waiter to exercise against. The override is
+    // still signed with the host identity, so the client's envelope-auth
+    // verify runs before the malformed-fixture assertions (garbage payload /
+    // corrupted echo fields must reach the payload/correlation checks, not
+    // fail as a missing authenticator).
     const override = options.responseOverride?.(doc);
     if (override !== undefined) {
       stats.responseOrder.push(doc.sequence);
-      sendEnvelope(override);
+      sendEnvelope(
+        await authenticateInvokeResponse(
+          seed,
+          overrideSignInput(override as Partial<ConnectInvokeRequest>),
+        ),
+      );
       return;
     }
 
-    // 3. Dispatch to the local adapter.
+    // 5. Dispatch to the local adapter.
     const result = await dispatchOp(doc);
     if (result.ok) {
       stats.invokesDispatched += 1;
-      sendOkResponse(doc, "value" in result ? result.value : {});
+      await sendOkResponse(doc, "value" in result ? result.value : {});
     } else {
       stats.invokesDispatched += 1;
-      stats.responseOrder.push(doc.sequence);
-      sendEnvelope({
-        session_id: doc.session_id,
-        sequence: doc.sequence,
-        request_id: doc.request_id,
-        error: toErrorEnvelope(result),
-        extensions: {},
-      });
+      await sendErrorResponse(doc, result.code, result.message, result.details);
     }
   }
 
@@ -342,22 +453,64 @@ export async function startLoopbackHost(
         helloDoc.nonce,
       ),
     );
-    const snapshot = {
-      session_id: SESSION_ID,
-      initiator_peer_id: clientPeerId,
-      responder_peer_id: hostPeerId,
-      opened_at: new Date().toISOString(),
-      // The wire snapshot requires ≥1 negotiated capability; the client
-      // derives its own negotiated set from the hellos, so the fallback
-      // only covers the degenerate empty-intersection test fixture.
-      negotiated_capabilities:
-        session.negotiated_capabilities.length > 0
-          ? (session.negotiated_capabilities as [string, ...string[]])
-          : (["spoke-baseline"] as [string, ...string[]]),
-      initial_sequence: 0,
-      extensions: {},
-    };
+    // Then the A-assigned session snapshot, signed with the host identity
+    // (`spoke-connect-session-jcs-v1`, envelope-auth contract §2/§3) — the
+    // client's dial verifies it against this host's hello public key.
+    const snapshot = await authenticateSession(
+      seed,
+      {
+        session_id: SESSION_ID,
+        initiator_peer_id: clientPeerId,
+        responder_peer_id: hostPeerId,
+        opened_at: new Date().toISOString(),
+        // The wire snapshot requires ≥1 negotiated capability; the client
+        // derives its own negotiated set from the hellos, so the fallback
+        // only covers the degenerate empty-intersection test fixture.
+        negotiated_capabilities:
+          session.negotiated_capabilities.length > 0
+            ? (session.negotiated_capabilities as [string, ...string[]])
+            : (["spoke-baseline"] as [string, ...string[]]),
+        initial_sequence: 0,
+      },
+      {},
+    );
     sendEnvelope(snapshot);
+  }
+
+  // Gate-phase serialization: `runGate` (peek → verify → advance) must not
+  // interleave with a concurrent invoke (the async verify would let a
+  // second request peek against the pre-advance counter), so invokes queue
+  // on `gateTail`; after the gate releases, the dispatch phase runs
+  // concurrently — the deterministic-delay out-of-order fixture needs
+  // concurrent dispatch.
+  let gateTail: Promise<void> = Promise.resolve();
+
+  function queueInvoke(doc: ConnectInvokeRequest): void {
+    const prev = gateTail;
+    let release: () => void = () => {};
+    gateTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    void (async () => {
+      await prev;
+      try {
+        const gate = await runGate(doc);
+        release();
+        if (gate === null) {
+          return; // stray request — ignored
+        }
+        if (!gate.ok) {
+          await sendErrorResponse(doc, gate.code, gate.message, gate.details);
+          return;
+        }
+        await handleInvoke(doc);
+      } catch (error) {
+        release();
+        throw error;
+      }
+    })().catch(() => {
+      // Host-side handler failure must not crash the loop.
+    });
   }
 
   async function serve(): Promise<void> {
@@ -371,9 +524,7 @@ export async function startLoopbackHost(
       if (!isConnectInvokeRequest(doc)) {
         continue; // stray envelope — ignored
       }
-      void handleInvoke(doc).catch(() => {
-        // Host-side handler failure must not crash the loop.
-      });
+      queueInvoke(doc);
     }
   }
 

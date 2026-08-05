@@ -714,11 +714,16 @@ describe("HostManifest aggregation (§6)", () => {
   });
 
   it("excludes non-Established registered peers from the composed view", async () => {
-    const router = connectMultiPeerRouter();
+    const router = connectMultiPeerRouter({ hostId: "router-only-live" });
     router.registerPeer(
       new FakePeer(
         "peer-closed",
-        manifest({ host_id: "h-closed" }),
+        manifest({
+          host_id: "h-closed",
+          capabilities: ["archive-scan"],
+          roles: ["ghost"],
+          namespaces: ["zeta"],
+        }),
         "Closed",
       ),
     );
@@ -728,15 +733,36 @@ describe("HostManifest aggregation (§6)", () => {
         manifest({
           host_id: "h-live",
           capabilities: ["spoke-baseline", "l2-computable"],
+          roles: ["data-store", "checker"],
+          namespaces: ["alpha", "beta"],
         }),
       ),
     );
 
-    const result = await router.listPeerHostCapabilityManifests();
+    // Per-peer array: only the Established peer's cached manifest.
+    const perPeer = await router.listPeerHostCapabilityManifests();
+    expect(perPeer.ok).toBe(true);
+    if (perPeer.ok) {
+      expect(perPeer.value.map((entry) => entry.host_id)).toEqual(["h-live"]);
+    }
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.map((entry) => entry.host_id)).toEqual(["h-live"]);
+    // Composed view (§6 "connected peers"): the Closed peer's unique unions
+    // are absent — only the Established peer contributes, and
+    // extensions.router.peers lists only it.
+    const composed = await router.getHostCapabilityManifest();
+    expect(composed.ok).toBe(true);
+    if (composed.ok) {
+      expect(composed.value.host_id).toBe("router-only-live");
+      expect([...composed.value.capabilities].sort()).toEqual([
+        "l2-computable",
+        "spoke-baseline",
+      ]);
+      expect([...composed.value.roles].sort()).toEqual([
+        "checker",
+        "data-store",
+      ]);
+      expect([...composed.value.namespaces].sort()).toEqual(["alpha", "beta"]);
+      expect(composed.value.extensions.router).toEqual({ peers: ["peer-live"] });
     }
   });
 });

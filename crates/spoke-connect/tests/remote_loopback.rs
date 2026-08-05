@@ -52,6 +52,7 @@ use spoke_operations::{
     SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
+use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
@@ -2830,4 +2831,129 @@ async fn multi_peer_router_breaks_ties_on_the_lowest_peer_id_across_two_baseline
     alpha_host.close();
     beta_host.close();
     gamma_host.close();
+}
+
+#[tokio::test]
+async fn multi_peer_router_composes_host_manifests_over_loopback_peers() {
+    // §6 over real wires: two loopback peers with overlapping capabilities
+    // and distinct roles/namespaces. The composed view must union + dedup
+    // the real signed-hello manifests, carry the ROUTER's own host_id
+    // (never a peer's), omit authority, and list contributing peer ids
+    // sorted; the per-peer array must return each peer's OWN cached hello
+    // manifest sorted by peer_id — per-peer data, never the union.
+    let peer_a_manifest: HostCapabilityManifest = serde_json::from_value(json!({
+        "schema_version": 1,
+        "host_id": "host-a",
+        "capabilities": ["spoke-baseline", "l2-computable"],
+        "roles": ["data-store", "checker"],
+        "namespaces": ["alpha", "beta"],
+        "extensions": {},
+    }))
+    .expect("valid host-a manifest");
+    let peer_b_manifest: HostCapabilityManifest = serde_json::from_value(json!({
+        "schema_version": 1,
+        "host_id": "host-b",
+        "capabilities": ["spoke-baseline", "l2-computable"],
+        "roles": ["data-store", "assembler"],
+        "namespaces": ["beta", "gamma"],
+        "extensions": {},
+    }))
+    .expect("valid host-b manifest");
+
+    let (peer_a_adapter, peer_a_host) = dial_peer([0xd1; 32], peer_a_manifest).await;
+    let (peer_b_adapter, peer_b_host) = dial_peer([0xe2; 32], peer_b_manifest).await;
+    let peer_a_id = peer_a_adapter.remote_peer_id().expect("peer-a id");
+    let peer_b_id = peer_b_adapter.remote_peer_id().expect("peer-b id");
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions {
+        host_id: Some("test-router".to_string()),
+    });
+    router
+        .register_peer(peer_a_adapter.clone())
+        .expect("register a");
+    router
+        .register_peer(peer_b_adapter.clone())
+        .expect("register b");
+
+    // Composed view (§6).
+    let composed = router.get_host_capability_manifest().await;
+    match composed {
+        SpokeResult::Ok(composed) => {
+            assert_eq!(composed.host_id.as_str(), "test-router");
+            let mut capabilities = composed.capabilities.clone();
+            capabilities.sort();
+            assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+            let mut roles = composed.roles.clone();
+            roles.sort();
+            assert_eq!(roles, vec!["assembler", "checker", "data-store"]);
+            let mut namespaces: Vec<&str> =
+                composed.namespaces.iter().map(|ns| ns.as_str()).collect();
+            namespaces.sort();
+            assert_eq!(namespaces, vec!["alpha", "beta", "gamma"]);
+            assert!(composed.authority.is_none());
+            let router_ext = composed
+                .extensions
+                .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("key"))
+                .expect("router extensions");
+            let peers = router_ext
+                .get("peers")
+                .and_then(Value::as_array)
+                .expect("peers array");
+            let mut peer_ids: Vec<&str> = peers
+                .iter()
+                .map(|value| value.as_str().expect("peer id string"))
+                .collect();
+            peer_ids.sort();
+            let mut expected_ids = vec![peer_a_id.as_str(), peer_b_id.as_str()];
+            expected_ids.sort();
+            assert_eq!(peer_ids, expected_ids);
+        }
+        SpokeResult::Reject(reject) => panic!("composed view must succeed: {reject:?}"),
+    }
+
+    // Per-peer array: each peer's own hello manifest, sorted by peer_id.
+    let per_peer = router.list_peer_host_capability_manifests().await;
+    match per_peer {
+        SpokeResult::Ok(manifests) => {
+            assert_eq!(manifests.len(), 2);
+            let mut host_ids: Vec<&str> = manifests
+                .iter()
+                .map(|manifest| manifest.host_id.as_str())
+                .collect();
+            host_ids.sort();
+            assert_eq!(host_ids, vec!["host-a", "host-b"]);
+            let host_a = manifests
+                .iter()
+                .find(|manifest| manifest.host_id.as_str() == "host-a")
+                .expect("host-a entry");
+            let host_a_roles: Vec<&str> =
+                host_a.roles.iter().map(|role| role.as_str()).collect();
+            assert_eq!(host_a_roles, vec!["data-store", "checker"]);
+            let host_a_namespaces: Vec<&str> = host_a
+                .namespaces
+                .iter()
+                .map(|ns| ns.as_str())
+                .collect();
+            assert_eq!(host_a_namespaces, vec!["alpha", "beta"]);
+            let host_b = manifests
+                .iter()
+                .find(|manifest| manifest.host_id.as_str() == "host-b")
+                .expect("host-b entry");
+            let host_b_roles: Vec<&str> =
+                host_b.roles.iter().map(|role| role.as_str()).collect();
+            assert_eq!(host_b_roles, vec!["data-store", "assembler"]);
+            let host_b_namespaces: Vec<&str> = host_b
+                .namespaces
+                .iter()
+                .map(|ns| ns.as_str())
+                .collect();
+            assert_eq!(host_b_namespaces, vec!["beta", "gamma"]);
+        }
+        SpokeResult::Reject(reject) => panic!("per-peer list must succeed: {reject:?}"),
+    }
+
+    peer_a_adapter.close();
+    peer_b_adapter.close();
+    peer_a_host.close();
+    peer_b_host.close();
 }

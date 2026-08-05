@@ -154,26 +154,30 @@ function closePeer(peer: LoopbackPeer): void {
   peer.host.close();
 }
 
+const textEncoder = new TextEncoder();
+
 /**
- * Lowest `peer_id` in lexicographic UTF-8 byte order — the same comparison
- * the router applies for its §4 deterministic tie-break. (Peer ids are
- * base58btc ASCII, so byte order and code-unit order coincide; the explicit
- * byte compare keeps the mirror faithful to the contract.)
+ * Lexicographic UTF-8 byte order on strings — the same comparison the
+ * router applies for its §4 deterministic tie-break and §6 peer_id
+ * ordering. (Peer ids are base58btc ASCII, so byte order and code-unit
+ * order coincide; the explicit byte compare keeps the mirror faithful to
+ * the contract.)
  */
-function lowestPeerId(ids: readonly string[]): string {
-  const textEncoder = new TextEncoder();
-  const compareUtf8 = (a: string, b: string): number => {
-    const aBytes = textEncoder.encode(a);
-    const bBytes = textEncoder.encode(b);
-    const shared = Math.min(aBytes.length, bBytes.length);
-    for (let i = 0; i < shared; i++) {
-      if (aBytes[i] !== bBytes[i]) {
-        return aBytes[i] < bBytes[i] ? -1 : 1;
-      }
+function compareUtf8Strings(a: string, b: string): number {
+  const aBytes = textEncoder.encode(a);
+  const bBytes = textEncoder.encode(b);
+  const shared = Math.min(aBytes.length, bBytes.length);
+  for (let i = 0; i < shared; i++) {
+    if (aBytes[i] !== bBytes[i]) {
+      return aBytes[i] < bBytes[i] ? -1 : 1;
     }
-    return aBytes.length - bBytes.length;
-  };
-  return [...ids].sort(compareUtf8)[0];
+  }
+  return aBytes.length - bBytes.length;
+}
+
+/** Lowest `peer_id` in lexicographic UTF-8 byte order (contract §4). */
+function lowestPeerId(ids: readonly string[]): string {
+  return [...ids].sort(compareUtf8Strings)[0];
 }
 
 describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
@@ -370,6 +374,92 @@ describe("MultiPeerRouter dual-peer loopback proof (§9)", () => {
         for (const peer of peers) {
           closePeer(peer);
         }
+      }
+    },
+    15000,
+  );
+
+  it(
+    "aggregates a composed view and a per-peer manifest list over real loopback peers (§6)",
+    async () => {
+      // Overlapping capabilities with distinct roles/namespaces: the
+      // composed view unions + dedups the real signed-hello manifests,
+      // carries the ROUTER's own host_id (never a peer's), omits
+      // authority, and lists contributing peer ids sorted; the per-peer
+      // array returns each peer's OWN cached hello manifest, sorted by
+      // peer_id — per-peer data, never the union.
+      const peerA = await dialPeer(
+        seed(0xe1),
+        seed(0x41),
+        peerManifest(
+          "host-a",
+          ["spoke-baseline", "l2-computable"],
+          ["alpha", "beta"],
+          ["data-store", "checker"],
+        ),
+      );
+      const peerB = await dialPeer(
+        seed(0xf2),
+        seed(0x52),
+        peerManifest(
+          "host-b",
+          ["spoke-baseline", "l2-computable"],
+          ["beta", "gamma"],
+          ["data-store", "assembler"],
+        ),
+      );
+      try {
+        const router = connectMultiPeerRouter({ hostId: "test-router" });
+        router.registerPeer(peerA.client);
+        router.registerPeer(peerB.client);
+
+        const composed = await router.getHostCapabilityManifest();
+        expect(composed.ok).toBe(true);
+        if (composed.ok) {
+          // §6: the router's own identity, not a peer's host_id.
+          expect(composed.value.host_id).toBe("test-router");
+          // Set-union, deduplicated across the two peers.
+          expect([...composed.value.capabilities].sort()).toEqual([
+            "l2-computable",
+            "spoke-baseline",
+          ]);
+          expect([...composed.value.roles].sort()).toEqual([
+            "assembler",
+            "checker",
+            "data-store",
+          ]);
+          expect([...composed.value.namespaces].sort()).toEqual([
+            "alpha",
+            "beta",
+            "gamma",
+          ]);
+          // §6: the composed view synthesizes no authority scope.
+          expect(composed.value.authority).toBeUndefined();
+          // Contributing peer ids, lexicographic UTF-8 byte order.
+          expect(composed.value.extensions.router).toEqual({
+            peers: [peerA.peerId, peerB.peerId].sort(compareUtf8Strings),
+          });
+        }
+
+        const perPeer = await router.listPeerHostCapabilityManifests();
+        expect(perPeer.ok).toBe(true);
+        if (perPeer.ok) {
+          // Each entry is one peer's cached hello manifest (per-peer, not
+          // the union), ordered by peer_id.
+          expect(perPeer.value.map((entry) => entry.host_id).sort()).toEqual([
+            "host-a",
+            "host-b",
+          ]);
+          const hostA = perPeer.value.find((entry) => entry.host_id === "host-a");
+          const hostB = perPeer.value.find((entry) => entry.host_id === "host-b");
+          expect(hostA?.roles).toEqual(["data-store", "checker"]);
+          expect(hostA?.namespaces).toEqual(["alpha", "beta"]);
+          expect(hostB?.roles).toEqual(["data-store", "assembler"]);
+          expect(hostB?.namespaces).toEqual(["beta", "gamma"]);
+        }
+      } finally {
+        closePeer(peerA);
+        closePeer(peerB);
       }
     },
     15000,

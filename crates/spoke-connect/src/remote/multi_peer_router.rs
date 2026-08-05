@@ -1996,11 +1996,18 @@ mod tests {
 
     #[tokio::test]
     async fn excludes_non_established_registered_peers_from_the_composed_view() {
-        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let router = connect_multi_peer_router(MultiPeerRouterOptions {
+            host_id: Some("router-only-live".to_string()),
+        });
         router
             .register_peer(FakePeer::new(
                 "peer-closed",
-                manifest("h-closed", &["spoke-baseline"]),
+                manifest_with(
+                    "h-closed",
+                    &["archive-scan"],
+                    &["ghost"],
+                    &["zeta"],
+                ),
                 RemoteAdapterState::Closed,
             ))
             .expect("register closed");
@@ -2010,16 +2017,16 @@ mod tests {
                 manifest_with(
                     "h-live",
                     &["spoke-baseline", "l2-computable"],
-                    &["data-store"],
-                    &["toy_world"],
+                    &["data-store", "checker"],
+                    &["alpha", "beta"],
                 ),
                 RemoteAdapterState::Established,
             ))
             .expect("register live");
 
-        let result = router.list_peer_host_capability_manifests().await;
-
-        match result {
+        // Per-peer array: only the Established peer's cached manifest.
+        let per_peer = router.list_peer_host_capability_manifests().await;
+        match per_peer {
             SpokeResult::Ok(manifests) => {
                 let host_ids: Vec<&str> = manifests
                     .iter()
@@ -2028,6 +2035,40 @@ mod tests {
                 assert_eq!(host_ids, vec!["h-live"]);
             }
             SpokeResult::Reject(reject) => panic!("per-peer list must succeed: {reject:?}"),
+        }
+
+        // Composed view (§6 "connected peers"): the Closed peer's unique
+        // unions are absent — only the Established peer contributes, and
+        // extensions.router.peers lists only it.
+        let composed = router.get_host_capability_manifest().await;
+        match composed {
+            SpokeResult::Ok(composed) => {
+                assert_eq!(composed.host_id.as_str(), "router-only-live");
+                let mut capabilities = composed.capabilities.clone();
+                capabilities.sort();
+                assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+                let mut roles = composed.roles.clone();
+                roles.sort();
+                assert_eq!(roles, vec!["checker", "data-store"]);
+                let mut namespaces: Vec<&str> =
+                    composed.namespaces.iter().map(|ns| ns.as_str()).collect();
+                namespaces.sort();
+                assert_eq!(namespaces, vec!["alpha", "beta"]);
+                let router_ext = composed
+                    .extensions
+                    .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("key"))
+                    .expect("router extensions");
+                let peers = router_ext
+                    .get("peers")
+                    .and_then(Value::as_array)
+                    .expect("peers array");
+                let peer_ids: Vec<&str> = peers
+                    .iter()
+                    .map(|value| value.as_str().expect("peer id string"))
+                    .collect();
+                assert_eq!(peer_ids, vec!["peer-live"]);
+            }
+            SpokeResult::Reject(reject) => panic!("composed view must succeed: {reject:?}"),
         }
     }
 }

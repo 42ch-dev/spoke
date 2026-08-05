@@ -26,12 +26,16 @@ kotlin {
 sourceSets {
     main {
         kotlin {
-            srcDir("generated")
+            val smokeBindingsDir = project.findProperty("smokeBindingsDir") as String?
+            srcDir(smokeBindingsDir ?: "generated")
         }
     }
     test {
         kotlin {
             srcDir("Smoke")
+            if (project.findProperty("smokeHost") == "true") {
+                srcDir("loopback-smoke")
+            }
         }
     }
 }

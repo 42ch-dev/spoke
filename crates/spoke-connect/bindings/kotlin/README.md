@@ -47,6 +47,7 @@ Namespace: **`uniffi.spoke_connect`**. Transport / WebSocket stays in the host p
 | `native/<jna-rid>/` | Committed host native for smoke; jar also packs CI-assembled `src/main/resources/` |
 | `src/main/resources/<jna-rid>/` | CI-assembled JNA classpath natives (gitignored; see `assemble-kotlin-natives.sh`) |
 | `Smoke/` | Golden-parity smoke (`gradle test`) |
+| `loopback-smoke/` | RemoteAdapter loopback smoke (requires `-PsmokeHost=true`; see `Smoke/README.md`) |
 | `build.gradle.kts` | JVM library, `maven-publish`, smoke harness |
 
 JNA resource prefixes inside the jar: `darwin-aarch64/`, `linux-x86-64/`, `win32-x86-64/`.
@@ -56,8 +57,8 @@ JNA resource prefixes inside the jar: `darwin-aarch64/`, `linux-x86-64/`, `win32
 Commands from the **repository root** (local nightly convention: `cargo +nightly …`):
 
 ```bash
-cargo +nightly build -p spoke-connect --features ffi
-cargo +nightly run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter
+cargo +nightly run -p spoke-connect --features ffi,bindgen-cli --bin uniffi-bindgen -- \
   generate --library target/debug/libspoke_connect.dylib \
   --language kotlin \
   --out-dir crates/spoke-connect/bindings/kotlin/generated \

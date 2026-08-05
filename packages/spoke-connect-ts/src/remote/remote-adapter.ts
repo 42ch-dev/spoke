@@ -635,6 +635,14 @@ export class RemoteAdapter implements BaselinePorts {
         (signed) => {
           void prevSend
             .then(() => {
+              // The invoke may have settled while this send waited behind
+              // the tail (timeout fired → entry deleted; session closed →
+              // `#failAllPending` cleared the map). Do NOT transmit late:
+              // the caller already observed the failure, and a retry would
+              // otherwise produce a duplicate dispatch on the host.
+              if (!this.#pending.has(unsigned.request_id)) {
+                return;
+              }
               try {
                 return this.#transport.send(encodeEnvelope(signed));
               } catch (error) {

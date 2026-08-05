@@ -810,6 +810,102 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "never transmits a timed-out invoke that is still queued behind an earlier send (no host dispatch on retry)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // Wire-level injector: the FIRST outbound invoke request's send is
+      // delayed on the wire, and every transmission (plus every inbound
+      // response) is recorded by sequence. The second invoke's send is
+      // serialized behind the first (send tail) and times out while
+      // waiting — before its send ever starts. The F-1 guard must skip
+      // that late send: the host must never see the timed-out request, so
+      // a retry cannot duplicate a handler dispatch.
+      //
+      // Real timers are deliberate here (integration-test exception): the
+      // race under test IS a real-clock race between the adapter's invoke
+      // timeout timer and a slow transport send, with both peers running
+      // on real timers — fake timers cannot drive the loopback transport
+      // or WebCrypto signing. The 200ms wire delay sits far outside the
+      // 20ms invoke timeout, so the ordering is deterministic under load.
+      const sentSequences: number[] = [];
+      const receivedSequences: number[] = [];
+      // Executor form: `Promise.withResolvers` is not in the package's
+      // ES2022 target lib.
+      let resolveFirstResponse: (() => void) | null = null;
+      const firstResponse = new Promise<void>((resolve) => {
+        resolveFirstResponse = resolve;
+      });
+      let firstSendDelayed = false;
+      const { client, host } = await dial(hostAdapter, {
+        invokeTimeoutMs: 20,
+        clientTransport: (clientEnd) => ({
+          send: async (envelope) => {
+            const doc = decodeWire(envelope);
+            if ("op" in doc) {
+              if (!firstSendDelayed) {
+                firstSendDelayed = true;
+                await new Promise((resolve) => setTimeout(resolve, 200));
+              }
+              sentSequences.push(doc.sequence as number);
+            }
+            await clientEnd.send(envelope);
+          },
+          recv: async () => {
+            const bytes = await clientEnd.recv();
+            const doc = decodeWire(bytes);
+            if ("request_id" in doc && ("payload" in doc || "error" in doc)) {
+              receivedSequences.push(doc.sequence as number);
+              resolveFirstResponse?.();
+            }
+            return bytes;
+          },
+          close: () => clientEnd.close?.(),
+        }),
+      });
+      try {
+        const [first, second] = await Promise.all([
+          client.getKnowledgeEntry("kb_tw_mira"), // sequence 0 — send delayed
+          client.getKnowledgeEntry("kb_tw_harbor"), // sequence 1 — times out queued behind it
+        ]);
+        expect(first).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("timed out after 20ms"),
+          details: { kind: "timeout" },
+        });
+        expect(second).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("timed out after 20ms"),
+          details: { kind: "timeout" },
+        });
+        // Both invokes observed the timeout, but the first invoke's send
+        // was already in flight when its timer fired. Wait until the
+        // host's response to that request arrives back — the point at
+        // which every transmission the adapter was going to make has been
+        // made — then assert the second (timed-out-while-queued) invoke
+        // was never transmitted.
+        await Promise.race([
+          firstResponse,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("host never responded to the first invoke")),
+              5000,
+            ),
+          ),
+        ]);
+        expect(sentSequences).toEqual([0]);
+        expect(receivedSequences).toEqual([0]);
+        expect(host.stats.invokesDispatched).toBe(1);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "fails pending invokes with INTERNAL_ERROR kind session_closed when the transport closes mid-flight",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();

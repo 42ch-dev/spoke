@@ -435,6 +435,52 @@ describe("two-node local WebSocket interop", () => {
 
 describe("connectClient transport robustness", () => {
   it(
+    "rejects an invoke with the failAll message when the socket closes during signing (not a raw ws error)",
+    async () => {
+      const seedA = seed(0xe0);
+      const pubkeyA = getPublicKeyEd25519(seedA);
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+      const seedB = seed(0x60);
+
+      const server = await startHandshakeServer({
+        seed: seedA,
+        peerId: peerIdA,
+        onMessage: () => {
+          // Unreachable in this test: the invoke must never reach the wire
+          // (the socket is closed before its sign completes).
+        },
+      });
+
+      let client: ConnectClient | null = null;
+      try {
+        client = await connectClient({
+          url: `ws://127.0.0.1:${server.port}`,
+          identity: { seed: seedB },
+          manifest: schemaConformantManifest(),
+          remotePubkey: pubkeyA,
+          allowlist: [peerIdA],
+          timeoutMs: 5000,
+        });
+
+        // The pending waiter is registered SYNCHRONOUSLY — before the async
+        // Ed25519 sign — so a close immediately after `invoke` fails the
+        // in-flight invoke with the failAll message ("client closed"). If
+        // the entry were registered only after the sign, failAll would miss
+        // it and the deferred send would hit the closed socket, rejecting
+        // with a raw ws error instead.
+        const pending = client.invoke("check", {});
+        client.close();
+        await expect(pending).rejects.toThrow(/client closed/);
+      } finally {
+        client?.close();
+        for (const c of server.connections) c.close();
+        await server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "closes the socket when the dial times out (no leaked connection)",
     async () => {
       // A TCP server that accepts connections but never completes the

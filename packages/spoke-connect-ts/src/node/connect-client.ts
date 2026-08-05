@@ -18,7 +18,6 @@
  */
 
 import type {
-  ConnectInvokeRequest,
   ConnectInvokeResponse,
   HostCapabilityManifest,
 } from "@42ch/spoke-schemas";
@@ -29,7 +28,6 @@ import { derivePeerIdFromEd25519Pubkey } from "../identity.js";
 import { isAllowlisted } from "../core/allowlist.js";
 import {
   checkResponseCorrelation,
-  correlationFromRequest,
   correlationFromResponse,
 } from "../core/correlate.js";
 import type { Correlation } from "../core/correlate.js";
@@ -370,56 +368,81 @@ export async function connectClient(
       sendTail = new Promise<void>((resolveTail) => {
         releaseSend = resolveTail;
       });
-      // Sign the wire request with the client's hello identity
-      // (`spoke-connect-invoke-request-jcs-v1`, envelope-auth contract §2/§3).
-      let request: ConnectInvokeRequest;
-      try {
-        request = await authenticateInvokeRequest(identity.seed, {
-          session_id: session.session_id,
-          sequence,
-          request_id: globalThis.crypto.randomUUID(),
-          op,
-          payload,
-        });
-      } catch (error) {
-        // Signing failure (e.g. non-JSON-serializable payload) is a local
-        // client bug — reject immediately, no pending entry, no dead timer.
-        releaseSend();
-        return Promise.reject(
-          error instanceof Error ? error : new Error(String(error)),
-        );
-      }
+      // The wire request to sign (`spoke-connect-invoke-request-jcs-v1`,
+      // envelope-auth contract §2/§3). `request_id` is allocated here,
+      // synchronously, so the pending waiter can be registered before the
+      // async sign below.
+      const unsigned: InvokeRequestSignInput = {
+        session_id: session.session_id,
+        sequence,
+        request_id: globalThis.crypto.randomUUID(),
+        op,
+        payload,
+      };
       return new Promise<ConnectInvokeResponse>((resolve, reject) => {
+        // The waiter is registered SYNCHRONOUSLY, before the async sign:
+        // from the caller's perspective the invoke is in flight immediately,
+        // so a socket close during signing fails it with the failAll
+        // message (contract §8.2 mid-flight) — not a send-after-close ws
+        // error. Signing failures (non-JSON-serializable payload) are local
+        // client bugs and reject immediately with the sign error.
         const timer = setTimeout(() => {
-          pending.delete(request.request_id);
+          pending.delete(unsigned.request_id);
           reject(
-            new Error(`invoke ${op} (${request.request_id}) timed out after ${timeoutMs}ms`),
+            new Error(`invoke ${op} (${unsigned.request_id}) timed out after ${timeoutMs}ms`),
           );
         }, timeoutMs);
-        pending.set(request.request_id, {
-          correlation: correlationFromRequest(request),
+        pending.set(unsigned.request_id, {
+          correlation: {
+            session_id: unsigned.session_id,
+            sequence: unsigned.sequence,
+            request_id: unsigned.request_id,
+          },
           resolve,
           reject,
           timer,
         });
-        // Send in allocation order (behind the previous invoke's send).
-        void prevSend
-          .then(() => sendJsonMessage(socket, request))
-          .then(
-            () => {
-              releaseSend();
-            },
-            (error) => {
-              // Send failure (the socket closed between the invoke setup and
-              // the send): reject this invoke now and remove its pending
-              // entry + timer immediately — no dead entry waits out the
-              // timeout, and a later failAll cannot touch a settled promise.
-              releaseSend();
-              clearTimeout(timer);
-              pending.delete(request.request_id);
-              reject(error instanceof Error ? error : new Error(String(error)));
-            },
-          );
+        void authenticateInvokeRequest(identity.seed, unsigned).then(
+          (request) => {
+            // Send in allocation order (behind the previous invoke's send).
+            void prevSend
+              .then(() => {
+                // The invoke may have settled while this send waited behind
+                // the tail (timeout fired → entry deleted; socket closed →
+                // failAll cleared the map). Do NOT transmit late: the caller
+                // already observed the failure, and a retry would otherwise
+                // produce a duplicate dispatch on the host.
+                if (!pending.has(unsigned.request_id)) {
+                  return;
+                }
+                return sendJsonMessage(socket, request);
+              })
+              .then(
+                () => {
+                  releaseSend();
+                },
+                (error) => {
+                  // Send failure (the socket closed between the invoke
+                  // setup and the send): reject this invoke now and remove
+                  // its pending entry + timer immediately — no dead entry
+                  // waits out the timeout, and a later failAll cannot touch
+                  // a settled promise.
+                  releaseSend();
+                  clearTimeout(timer);
+                  pending.delete(unsigned.request_id);
+                  reject(error instanceof Error ? error : new Error(String(error)));
+                },
+              );
+          },
+          (error) => {
+            // Signing failure (e.g. non-JSON-serializable payload) is a
+            // local client bug — reject immediately, no dead timer.
+            releaseSend();
+            clearTimeout(timer);
+            pending.delete(unsigned.request_id);
+            reject(error instanceof Error ? error : new Error(String(error)));
+          },
+        );
       });
     },
 

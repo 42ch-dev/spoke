@@ -48,7 +48,7 @@ router.unregister_peer(&north_id); // selection drops it; the adapter stays open
 | Operation | Behavior |
 |-----------|----------|
 | `registerPeer(adapter)` / `register_peer(&adapter)` | Accepts an established adapter, returns its `peer_id`, caches its manifest. Re-registering the same `peer_id` replaces the stored adapter (idempotent). The adapter must have an established session — dial first. |
-| `unregisterPeer(peerId)` / `unregister_peer(&peer_id)` | Removes the peer from selection. Unregistering an unknown `peer_id` is a no-op. The adapter's lifecycle stays with the consumer — the router leaves the adapter open. |
+| `unregisterPeer(peerId)` / `unregister_peer(&peer_id)` | Removes the peer from selection. Unregistering an unknown `peer_id` leaves the registry unchanged. The adapter's lifecycle stays with the consumer — the router leaves the adapter open. |
 | `listPeers()` / `list_peers()` | Registered `peer_id`s in registration order. |
 
 A registered peer whose session transitions out of `Established` (for example to `Closed`, `Disconnected`, or `Handshaking`) is excluded from selection on the next call. The registry keeps the peer until you unregister it; exclusion is reactive, based on the session state the adapter reports.
@@ -61,7 +61,7 @@ Selection reads each registered peer's cached `HostCapabilityManifest` and match
 |-------|--------|-------------|-------------------|
 | `capabilities` | the peer's `capabilities[]` | **hard gate** | the peer must declare the operation's required capability |
 | `namespaces` | the peer's `namespaces[]` | **hard gate** | the request's namespace (from the payload `Scope`) must match exactly |
-| `roles` | the peer's `roles[]` | **soft preference** | peers with the operation's preferred role are preferred; capable peers without the role stay eligible |
+| `roles` | the peer's `roles[]` | **soft preference** | peers with the operation's preferred role are preferred; capable peers lacking that role remain eligible |
 | `authority.scope_key` | the peer's `authority.scope_key` | **hard gate when both sides declare** | exact match between the peer's scope key and the request's scope key |
 
 Each operation family maps to a required capability:
@@ -74,15 +74,15 @@ Each operation family maps to a required capability:
 
 The request's namespace derives from the payload `Scope` when the operation carries one (for example `upsert-request.scope` or `check-request.scope`). Namespace matching is exact: a peer declaring `namespaces: ["*"]` declares the literal string `"*"`. When the request carries a scope key and the peer's manifest declares one, the two must match exactly; when only one side declares, that gate passes.
 
-After the hard filters, peers with the operation's preferred role (for example `checker` for `check`, `assembler` for `assemble`) sort ahead of equally capable peers. When several peers survive, the router selects the lowest `peer_id` in lexicographic UTF-8 byte order — a pure function of the candidate set, so the same peers and the same request always select the same peer.
+After the hard filters, peers with the operation's preferred role (for example `checker` for `check`, `assembler` for `assemble`, `l2-computable` for `project` / `compute`) sort ahead of equally capable peers. When several peers survive, the router selects the lowest `peer_id` in lexicographic UTF-8 byte order — a pure function of the candidate set, so the same peers and the same request always select the same peer.
 
 ## 3. Failure outcomes
 
 Every routing outcome is deterministic for a given peer set, and the router returns each outcome to the consumer as the call's result — all further activity starts with the consumer's next invocation.
 
-### No peer matches the request
+### Terminal reject: `no_capable_peer`
 
-When no registered peer passes the hard filters, the router rejects with the locked terminal reject:
+The router rejects with the locked terminal reject when the hard filters exclude every registered peer:
 
 | Field | Value |
 |-------|-------|
@@ -135,7 +135,7 @@ let per_peer = router.list_peer_host_capability_manifests().await?;
 | View | Shape | Use |
 |------|-------|-----|
 | `getHostCapabilityManifest` | One synthesized manifest: the router's own `host_id`, set-union of `capabilities` / `roles` / `namespaces` across connected peers, and `extensions.router.peers` listing contributing `peer_id`s in lexicographic UTF-8 byte order. The composed view surfaces capability, role, and namespace unions; consumers needing a peer's `authority.scope_key` read the per-peer view. | Introspection: "what can this node reach?" |
-| `listPeerHostCapabilityManifests` | One manifest per connected peer (each peer's own cached hello manifest), ordered by `peer_id` in lexicographic UTF-8 byte order. A router with zero registered peers returns `[]`. | Per-peer authority and manifest detail |
+| `listPeerHostCapabilityManifests` | One manifest per connected peer (each peer's own cached hello manifest), ordered by `peer_id` in lexicographic UTF-8 byte order. A router with an empty registry returns `[]`. | Per-peer authority and manifest detail |
 
 Routing reads each peer's own cached manifest; the composed view is an introspection surface and stays separate from selection.
 

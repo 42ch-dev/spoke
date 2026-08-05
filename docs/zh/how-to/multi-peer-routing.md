@@ -48,7 +48,7 @@ router.unregister_peer(&north_id); // 移出选择；adapter 保持开启
 | 操作 | 行为 |
 |------|------|
 | `registerPeer(adapter)` / `register_peer(&adapter)` | 接受已建立的 adapter，返回其 `peer_id`，缓存其 manifest。对同一 `peer_id` 重复注册会替换已存储的 adapter（幂等）。adapter 必须拥有已建立的会话 —— 先拨号。 |
-| `unregisterPeer(peerId)` / `unregister_peer(&peer_id)` | 将该对等节点移出选择。对未注册过的 `peer_id` 为 no-op。adapter 的生命周期由消费方持有 —— 路由器保持 adapter 开启。 |
+| `unregisterPeer(peerId)` / `unregister_peer(&peer_id)` | 将该对等节点移出选择。对未注册过的 `peer_id`，注册表保持不变。adapter 的生命周期由消费方持有 —— 路由器保持 adapter 开启。 |
 | `listPeers()` / `list_peers()` | 已注册的 `peer_id`，按注册顺序。 |
 
 已注册对等节点的会话若离开 `Established` 状态（例如进入 `Closed`、`Disconnected` 或 `Handshaking`），将在下一次调用时被移出候选集。注册表会保留该对等节点，直到你调用 `unregisterPeer`；排除是反应式的，基于 adapter 报告的会话状态。
@@ -74,15 +74,15 @@ router.unregister_peer(&north_id); // 移出选择；adapter 保持开启
 
 请求的命名空间在操作携带 `Scope` 时从载荷推导（例如 `upsert-request.scope` 或 `check-request.scope`）。命名空间匹配是精确的：声明 `namespaces: ["*"]` 的对等节点声明的是字面字符串 `"*"`。当请求携带作用域键且对等节点 manifest 声明了作用域键时，二者必须精确匹配；仅一方声明时该门禁通过。
 
-硬过滤之后，拥有操作首选角色（例如 `check` 的 `checker`、`assemble` 的 `assembler`）的对等节点排在同等有能力的对等节点之前。当多个对等节点存活时，路由器选择 `peer_id` 按 UTF-8 字节序字典序最小的那个 —— 这是候选集的纯函数，因此相同的对等节点集与相同请求总会选择同一对等节点。
+硬过滤之后，拥有操作首选角色（例如 `check` 的 `checker`、`assemble` 的 `assembler`、`project` / `compute` 的 `l2-computable`）的对等节点排在同等有能力的对等节点之前。当多个对等节点存活时，路由器选择 `peer_id` 按 UTF-8 字节序字典序最小的那个 —— 这是候选集的纯函数，因此相同的对等节点集与相同请求总会选择同一对等节点。
 
 ## 3. 失败结果
 
 对给定对等节点集，每个路由结果都是确定性的，路由器将每个结果作为调用的返回值返回给消费方 —— 一切后续活动都始于消费方的下一次调用。
 
-### 没有对等节点匹配请求
+### 终结拒绝：`no_capable_peer`
 
-当没有已注册对等节点通过硬过滤时，路由器以锁定的终结拒绝（terminal reject）拒绝：
+当硬过滤排除所有已注册对等节点时，路由器以锁定的终结拒绝（terminal reject）拒绝：
 
 | 字段 | 值 |
 |------|-----|
@@ -135,7 +135,7 @@ let per_peer = router.list_peer_host_capability_manifests().await?;
 | 视图 | 形状 | 用途 |
 |------|------|------|
 | `getHostCapabilityManifest` | 一个合成 manifest：路由器自己的 `host_id`、已连接对等节点 `capabilities` / `roles` / `namespaces` 的集合并集，以及按 UTF-8 字节序字典序列出贡献 `peer_id` 的 `extensions.router.peers`。合成视图只呈现能力、角色与命名空间并集；需要某个对等节点 `authority.scope_key` 的消费方读取逐对等节点视图。 | 检视：「这个节点能触达什么？」 |
-| `listPeerHostCapabilityManifests` | 每个已连接对等节点一个 manifest（各对等节点自己的已缓存握手 manifest），按 `peer_id` 的 UTF-8 字节序字典序排列。零个已注册对等节点的路由器返回 `[]`。 | 逐对等节点的 authority 与 manifest 细节 |
+| `listPeerHostCapabilityManifests` | 每个已连接对等节点一个 manifest（各对等节点自己的已缓存握手 manifest），按 `peer_id` 的 UTF-8 字节序字典序排列。注册表为空的路由器返回 `[]`。 | 逐对等节点的 authority 与 manifest 细节 |
 
 路由读取每个对等节点自己的已缓存 manifest；合成视图是一个检视面，与选择过程保持分离。
 

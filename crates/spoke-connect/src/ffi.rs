@@ -2542,6 +2542,28 @@ mod multi_peer_router_ffi_tests {
         (client, host)
     }
 
+
+    fn manifest_with(
+        host_id: &str,
+        capabilities: &[&str],
+        roles: &[&str],
+        namespaces: &[&str],
+    ) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": roles,
+            "capabilities": capabilities,
+            "namespaces": namespaces,
+            "extensions": {},
+        }))
+        .expect("valid HostCapabilityManifest")
+    }
+
+    fn parse_manifest_json(json: &str) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_str(json).expect("manifest JSON")
+    }
+
     fn orchestrate_upsert_via_ffi(router: &MultiPeerRouterFFI, request: &spoke_schemas::UpsertRequest) {
         for entry in &request.knowledge_entries {
             match router.get_knowledge_entry(entry.entry_id.clone()) {
@@ -2671,6 +2693,195 @@ mod multi_peer_router_ffi_tests {
         beta_host.close();
         gamma_host.close();
     }
+
+    #[test]
+    fn multi_peer_router_ffi_composes_host_capability_manifest_with_lex_ordered_peers() {
+        use serde_json::Value;
+        use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
+
+        let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
+            dial_peer(
+                [0xa1; 32],
+                manifest_with(
+                    "host-alpha",
+                    &["spoke-baseline"],
+                    &["data-store"],
+                    &["alpha"],
+                ),
+            )
+            .await
+        });
+        let (beta_adapter, beta_host) = ffi_runtime().block_on(async {
+            dial_peer(
+                [0xb2; 32],
+                manifest_with(
+                    "host-beta",
+                    &["spoke-baseline", "l2-computable"],
+                    &["data-store", "checker"],
+                    &["alpha", "beta"],
+                ),
+            )
+            .await
+        });
+
+        let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
+        let beta_id = beta_adapter.remote_peer_id().expect("beta peer id");
+        let mut expected_peer_order = vec![alpha_id.clone(), beta_id.clone()];
+        expected_peer_order.sort();
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(beta_adapter.clone()))
+            .expect("register beta");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(alpha_adapter.clone()))
+            .expect("register alpha");
+
+        let composed_json = router
+            .get_host_capability_manifest()
+            .expect("composed manifest via ffi");
+        let composed = parse_manifest_json(&composed_json);
+
+        assert_eq!(composed.host_id.as_str(), "multi-peer-router");
+        let mut capabilities = composed.capabilities.clone();
+        capabilities.sort();
+        assert_eq!(capabilities, vec!["l2-computable", "spoke-baseline"]);
+        let mut roles = composed.roles.clone();
+        roles.sort();
+        assert_eq!(roles, vec!["checker", "data-store"]);
+        let mut namespaces: Vec<&str> = composed.namespaces.iter().map(|ns| ns.as_str()).collect();
+        namespaces.sort();
+        assert_eq!(namespaces, vec!["alpha", "beta"]);
+        assert!(composed.authority.is_none());
+
+        let router_ext = composed
+            .extensions
+            .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("router key"))
+            .expect("router extensions");
+        let peers = router_ext
+            .get("peers")
+            .and_then(Value::as_array)
+            .expect("peers array");
+        let peer_ids: Vec<String> = peers
+            .iter()
+            .map(|value| value.as_str().expect("peer id string").to_string())
+            .collect();
+        assert_eq!(peer_ids, expected_peer_order);
+
+        alpha_adapter.close();
+        beta_adapter.close();
+        alpha_host.close();
+        beta_host.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_lists_peer_manifests_in_lex_peer_id_order() {
+        let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
+            dial_peer(
+                [0xa1; 32],
+                manifest_with("host-alpha", &["spoke-baseline"], &["data-store"], &["alpha"]),
+            )
+            .await
+        });
+        let (beta_adapter, beta_host) = ffi_runtime().block_on(async {
+            dial_peer(
+                [0xb2; 32],
+                manifest_with("host-beta", &["l2-computable"], &["checker"], &["beta"]),
+            )
+            .await
+        });
+
+        let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
+        let beta_id = beta_adapter.remote_peer_id().expect("beta peer id");
+        let (first_host_id, second_host_id) = if alpha_id < beta_id {
+            ("host-alpha", "host-beta")
+        } else {
+            ("host-beta", "host-alpha")
+        };
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(beta_adapter.clone()))
+            .expect("register beta");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(alpha_adapter.clone()))
+            .expect("register alpha");
+
+        let manifests_json = router
+            .list_peer_host_capability_manifests()
+            .expect("per-peer manifests via ffi");
+        let manifests: Vec<spoke_schemas::HostCapabilityManifest> =
+            serde_json::from_str(&manifests_json).expect("manifest array JSON");
+        let host_ids: Vec<&str> = manifests
+            .iter()
+            .map(|manifest| manifest.host_id.as_str())
+            .collect();
+        assert_eq!(host_ids, vec![first_host_id, second_host_id]);
+
+        alpha_adapter.close();
+        beta_adapter.close();
+        alpha_host.close();
+        beta_host.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_empty_router_returns_empty_manifest_views() {
+        let router = new_multi_peer_router_ffi();
+
+        let peers_json = router
+            .list_peer_host_capability_manifests()
+            .expect("empty per-peer list");
+        let peers: Vec<spoke_schemas::HostCapabilityManifest> =
+            serde_json::from_str(&peers_json).expect("empty manifest array");
+        assert!(peers.is_empty());
+
+        let composed = parse_manifest_json(
+            &router
+                .get_host_capability_manifest()
+                .expect("empty composed manifest"),
+        );
+        assert_eq!(composed.host_id.as_str(), "multi-peer-router");
+        assert!(composed.capabilities.is_empty());
+        assert!(composed.roles.is_empty());
+        assert!(composed.namespaces.is_empty());
+        assert!(composed.authority.is_none());
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_unregister_leaves_adapter_usable() {
+        let (adapter, host) = ffi_runtime().block_on(async {
+            dial_peer([0xc3; 32], manifest("host-unreg", &["spoke-baseline"])).await
+        });
+        let ffi_adapter = RemoteAdapterFFI::from_adapter(adapter.clone());
+        let peer_id = adapter.remote_peer_id().expect("peer id");
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(ffi_adapter.clone())
+            .expect("register peer");
+        assert_eq!(router.list_peers(), vec![peer_id.clone()]);
+
+        router.unregister_peer(peer_id.clone());
+        assert!(router.list_peers().is_empty());
+
+        assert_eq!(ffi_adapter.state(), "Established");
+        let manifest = parse_manifest_json(
+            &ffi_adapter
+                .get_host_capability_manifest()
+                .expect("adapter manifest after unregister"),
+        );
+        assert_eq!(manifest.host_id.as_str(), "host-unreg");
+
+        let entry = fresh_entry("kb_mpr_ffi_after_unregister", "After Unregister");
+        ffi_adapter
+            .put_knowledge_entry(serde_json::to_string(&entry).expect("entry json"), None)
+            .expect("invoke via adapter after router unregister");
+        assert_eq!(host.stats().invokes_dispatched, 1);
+
+        adapter.close();
+        host.close();
+    }
+
 
 }
 

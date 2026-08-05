@@ -27,6 +27,16 @@ protocol = spoke_connect.protocol_version()  # 1
 
 Transport / WebSocket stays in the host product.
 
+## Build features
+
+| Artifact | Cargo features | Notes |
+|----------|----------------|-------|
+| Committed `spoke_connect/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopback_transport_pair` — **no** `start_loopback_smoke_host` |
+| Local loopback smoke cdylib + bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter section |
+
+`ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
+Full loopback smoke procedure: [`Smoke/README.md`](Smoke/README.md).
+
 ## Layout
 
 | Path | Contents |

@@ -39,7 +39,7 @@ class LoopbackCallbackTransport:
         self._inner.close()
 ```
 
-真实部署中，用同样的三个方法覆盖你的承载载体 —— socket、WebSocket 或消息通道 —— 每次 `send` / `recv` 调用投递恰好一个 connect 信封。adapter 在你的传输之上处理分帧；字节流载体自行界定信封（长度前缀或等价方式）。
+真实部署中，用同样的三个方法覆盖你的承载载体 —— socket、WebSocket 或消息通道。Transport 每次 `send` / `recv` 调用投递恰好一个信封；字节流载体自行负责长度前缀（或等价方式）的定界；adapter 不对信封定界。
 
 ## 2. 拨号并构造 `RemoteAdapterFFI`
 

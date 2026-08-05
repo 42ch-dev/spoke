@@ -60,7 +60,7 @@
 | Layout | `crates/spoke-connect/bindings/go/` — committed generated Go + `native/<goos>_<goarch>/` + `Smoke/` + README |
 | Native set | `linux_amd64/libspoke_connect.so`, `windows_amd64/spoke_connect.dll`, `darwin_arm64/libspoke_connect.dylib` — committed, rebuilt when the FFI surface changes |
 | Native wiring | cgo (`CGO_ENABLED=1`): `#cgo LDFLAGS` selects `native/${GOOS}_${GOARCH}` under `${SRCDIR}` (per-platform shim files or `${GOOS}`/`${GOARCH}` substitution); rpath covers Linux/macOS lookup; Windows consumers place `spoke_connect.dll` beside the executable. Consumers need a C toolchain, never a Rust toolchain |
-| Generator | Community `uniffi-bindgen-go` behind the feasibility gate (§5) |
+| Generator | Community `uniffi-bindgen-go` — vendored fork retargeted to uniffi 0.32 (landed; §5) |
 
 **Why a root `go.mod`:** a Go module declared in a subdirectory is versioned by subdirectory-prefixed tags (`crates/spoke-connect/bindings/go/vX.Y.Z`), which forks the single-tag release model and doubles tag count. A root `go.mod` keeps one annotated-tag family (`vX.Y.Z`) as the only version surface; the whole-repo module zip is the accepted cost. If the long import path or repo-size zip becomes a measured consumer problem, the escape hatch is a dedicated `spoke-connect-go` repository — a recorded deferral, not part of this contract.
 
@@ -128,7 +128,7 @@ Full technique: [`.mstar/knowledge/architecture-patterns/connect-uniffi-bindgen-
 | Language | Generator | Gate posture |
 |----------|-----------|--------------|
 | C# | Community `uniffi-bindgen-cs` | **Landed via vendored fork** retargeted to uniffi 0.32; fork dropped when upstream tags 0.32+ |
-| Go | Community `uniffi-bindgen-go` | Gate required — upstream's latest tag targets uniffi 0.31 (checked 2026-08-03); the vendored-fork route is the expected path |
+| Go | Community `uniffi-bindgen-go` | **Landed via vendored fork** retargeted to uniffi 0.32; fork dropped when upstream tags 0.32+ |
 | Kotlin | First-party (crate-local CLI) | No skew possible; gate = generate + Gradle compile + JNA load + golden parity |
 | Python | First-party (crate-local CLI) | No skew possible; gate = generate + import + golden parity |
 | Swift | First-party (crate-local CLI) | Landed (macOS smoke + iOS Simulator golden parity through the committed xcframework) |

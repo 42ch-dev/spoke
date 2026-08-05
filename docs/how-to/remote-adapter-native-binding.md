@@ -39,7 +39,7 @@ class LoopbackCallbackTransport:
         self._inner.close()
 ```
 
-For a real deployment, implement the same three methods over your carrier — a socket, a WebSocket, or a message channel — delivering exactly one connect envelope per `send` / `recv` call. The adapter handles framing above your transport; byte-stream carriers delimit envelopes themselves (length-prefix or equivalent).
+For a real deployment, implement the same three methods over your carrier — a socket, a WebSocket, or a message channel. The Transport delivers exactly one envelope per `send` / `recv` call; byte-stream carriers own length-prefix (or equivalent) delimiting; the adapter does not delimit envelopes.
 
 ## 2. Dial and construct `RemoteAdapterFFI`
 

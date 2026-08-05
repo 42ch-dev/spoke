@@ -17,6 +17,7 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 | `protocol_version` | connect 协议版本（区别于数据 `schema_version`）；当前为版本 1 |
 | `peer_id` | 发送方网络身份 —— 协议 v1：Ed25519 的 libp2p identity-spec PeerId 字符串（protobuf `PublicKey` 的 base58btc 身份 multihash）。对协议逻辑不透明；`noise-peerid` allowlist 的信任根 |
 | `nonce` | 单次使用重放 nonce，绑定进签名对象 |
+| `peer_nonce` | 仅响应方使用的拨号绑定：发起方的 nonce，由响应方回显并绑定进其签名对象。发起方 hello 中缺省；发起方拒绝 `peer_nonce` 与其自身 nonce 不一致的响应方 hello |
 | `host` | 完整内嵌 `HostCapabilityManifest`（含 `host.extensions`）；属于签名对象的一部分 |
 | `signature` | 对 JCS 规范化签名对象的原始签名字节，base64url（无填充）编码 |
 | `extensions` | 产品字段袋；不在签名覆盖范围内 |
@@ -67,10 +68,11 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 ## 签名握手（`spoke-connect-hello-jcs-v1`）
 
 1. 连接双方交换已签名的 `ConnectHello`。
-2. 签名对象恰好是 `{protocol_version, peer_id, nonce, host}` —— 顶层 `extensions` 与 `signature` 排除在外。
+2. **发起方** hello 的签名对象为 `{protocol_version, peer_id, nonce, host}`（4 个字段，`peer_nonce` 缺省）；**响应方** hello 的签名对象为 `{protocol_version, peer_id, nonce, host, peer_nonce}`（5 个字段，`peer_nonce` = 发起方的 nonce，即拨号绑定）。顶层 `extensions` 与 `signature` 排除在外。
 3. 对象经 RFC 8785 JCS 规范化（[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)）。
 4. 字节用 Ed25519 密钥对签名；原始签名以无填充 base64url 编码（[RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)）。
-5. 接收方仅在以下全部满足时接受：协议版本为 1、声称的 `peer_id` 等于已认证的远端对等节点、密钥能推导出该 peer id、对等节点在已配置 allowlist 中（空 allowlist 拒绝全部 —— fail-closed）、签名校验通过、且 `(peer_id, nonce)` 对是新的（单次使用，进程生命周期）。
+5. 接收方仅在以下全部满足时接受：协议版本为 1、声称的 `peer_id` 等于已认证的远端对等节点、密钥能推导出该 peer id、对等节点在已配置 allowlist 中（空 allowlist 拒绝全部 —— fail-closed）、签名按角色感知的字段集校验通过、且 `(peer_id, nonce)` 对是新的（单次使用，进程生命周期）。
+6. 拨号绑定：发起方额外要求响应方签名的 `peer_nonce` 等于其自身 nonce —— 捕获的响应方 hello 无法重放进新的拨号（例如客户端重启导致内存 nonce 存储重置之后）。
 
 ## 排序与关联
 

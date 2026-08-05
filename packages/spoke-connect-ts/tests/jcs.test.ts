@@ -48,6 +48,37 @@ describe("canonicalHelloBytes (RFC 8785 JCS)", () => {
     ]);
   });
 
+  it("adds peer_nonce to the responder (5-field) signed object only", () => {
+    const initiator = canonicalHelloBytes(GOLDEN_PEER_ID, GOLDEN_NONCE, goldenManifest());
+    const responder = canonicalHelloBytes(
+      GOLDEN_PEER_ID,
+      GOLDEN_NONCE,
+      goldenManifest(),
+      "initiator-nonce-123456",
+    );
+    const initiatorObj = JSON.parse(new TextDecoder().decode(initiator)) as Record<
+      string,
+      unknown
+    >;
+    const responderObj = JSON.parse(new TextDecoder().decode(responder)) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(responderObj).sort()).toEqual([
+      "host",
+      "nonce",
+      "peer_id",
+      "peer_nonce",
+      "protocol_version",
+    ]);
+    expect(responderObj.peer_nonce).toBe("initiator-nonce-123456");
+    // The initiator object stays byte-identical to the pre-dial-binding
+    // golden bytes; the responder object differs (dial binding).
+    expect(initiatorObj).not.toHaveProperty("peer_nonce");
+    expect(toHex(initiator)).toBe(GOLDEN_JCS_HEX);
+    expect(toHex(responder)).not.toBe(GOLDEN_JCS_HEX);
+  });
+
   it("omits absent optional members — never emits null", () => {
     const canonical = new TextDecoder().decode(
       canonicalHelloBytes(GOLDEN_PEER_ID, GOLDEN_NONCE, goldenManifest()),

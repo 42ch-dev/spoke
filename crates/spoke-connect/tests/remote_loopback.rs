@@ -39,8 +39,9 @@ use spoke_connect::core::{
     CapabilityTokenProof, InboundSequence, NonceStore,
 };
 use spoke_connect::remote::{
-    connect_remote_adapter, loopback_transport_pair, RemoteAdapter, RemoteAdapterError,
-    RemoteAdapterOptions, RemoteIdentity, Transport, TransportError,
+    connect_remote_adapter, loopback_transport_pair, reset_accepted_server_hellos_for_test,
+    RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions, RemoteIdentity, Transport,
+    TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
@@ -493,7 +494,7 @@ impl HostInner {
         }
         let client_pubkey = ed25519_pubkey_from_peer_id(&client_peer_id)
             .ok_or_else(|| "client peer id does not carry an Ed25519 key".to_string())?;
-        verify_hello_ed25519(&client_pubkey, &client_peer_id, &hello)
+        verify_hello_ed25519(&client_pubkey, &client_peer_id, &hello, None)
             .map_err(|error| format!("client hello verification failed: {error}"))?;
         if !self
             .nonce_store
@@ -521,13 +522,17 @@ impl HostInner {
         });
 
         // Answer with our signed hello, then the responder-assigned session
-        // snapshot. The wire snapshot requires ≥1 negotiated capability; the
+        // snapshot. The responder hello binds the dial: it signs the 5-field
+        // object including `peer_nonce` = the initiator's nonce (dial
+        // binding), so a replayed responder hello cannot re-enter a fresh
+        // dial. The wire snapshot requires ≥1 negotiated capability; the
         // client derives its own negotiated set from the hellos, so the
         // fallback only covers the degenerate empty-intersection fixture.
         let hello = sign_hello_ed25519(
             &self.host_seed,
             &host_nonce(),
             &connect_manifest(&self.host_manifest),
+            Some(hello.nonce.as_str()),
         )
         .map_err(|error| format!("host hello sign failed: {error}"))?;
         let bytes = serde_json::to_vec(&hello).map_err(|error| error.to_string())?;
@@ -1270,7 +1275,88 @@ async fn rejects_a_replayed_server_hello_before_any_session_is_accepted() {
         Err(error) => error,
     };
     assert!(
-        matches!(error, RemoteAdapterError::Handshake(ref message) if message.contains("replay")),
+        matches!(error, RemoteAdapterError::Handshake(ref message) if message.contains("replay") || message.contains("dial binding")),
+        "unexpected dial error: {error:?}"
+    );
+}
+
+#[tokio::test]
+async fn replayed_server_hello_is_rejected_across_restart_by_dial_binding() {
+    // Greptile P1 scenario, now defeated: a captured responder hello is
+    // replayed on a FRESH dial after a "restart" — the process-wide
+    // accepted-hello store is reset (in-memory state lost) and the initiator
+    // nonce is new. The responder's signed `peer_nonce` (dial 1's initiator
+    // nonce) does not match the new initiator nonce, so the dial-binding
+    // assert rejects the replay even though the signature is genuinely the
+    // allowlisted peer's and the nonce store has forgotten the pair.
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+
+    // Dial 1 through a recording transport — capture the responder hello.
+    let pair = loopback_transport_pair();
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let host = start_loopback_host(LoopbackHostOptions {
+        transport: Arc::new(pair.server),
+        host_seed: seed_host(),
+        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+        adapter: Arc::new(host_adapter),
+        delay: Box::new(|_| 0),
+        response_override: None,
+    })
+    .await;
+    let client = connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(RecordingTransport {
+            inner: Arc::new(pair.client),
+            captured: Arc::clone(&captured),
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    .expect("first dial");
+    assert_eq!(client.state().as_str(), "Established");
+    client.close();
+    host.close();
+    let captured = captured.lock().expect("captured lock").clone();
+    assert!(captured.len() >= 2, "captured hello + session snapshot");
+    let replay_hello = captured[0].clone();
+    let replay_session = captured[1].clone();
+
+    // "Restart": the in-memory accepted-hello store resets.
+    reset_accepted_server_hellos_for_test();
+
+    // Dial 2: fresh initiator nonce, replay the captured responder hello
+    // through a scripted transport with NO real host. The receiver-side
+    // nonce gate cannot help (store reset) — only the dial-binding assert
+    // (signed `peer_nonce` != new initiator nonce) rejects the replay.
+    let error = match connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(ReplayTransport {
+            hello: replay_hello,
+            session: replay_session,
+            index: AtomicUsize::new(0),
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    {
+        Ok(_) => panic!("replayed server hello must be rejected after a restart"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(error, RemoteAdapterError::Handshake(ref message) if message.contains("dial binding")),
         "unexpected dial error: {error:?}"
     );
 }

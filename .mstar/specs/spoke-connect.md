@@ -91,12 +91,19 @@ Normative mapping for protocol_version **1**. Implementers in any language deriv
 
 **Name:** `spoke-connect-hello-jcs-v1` (unchanged).
 
-1. Build the signed object `{protocol_version, peer_id, nonce, host}` (exact keys; see signature section).
+Role-aware signed-field set (the role is carried by the hello itself — `peer_nonce` present ⇒ responder):
+
+| Role | Signed object (exact keys) |
+|------|----------------------------|
+| **Initiator** hello | `{protocol_version, peer_id, nonce, host}` (4 fields — `peer_nonce` absent; the initiator sends first and has no peer nonce) |
+| **Responder** hello | `{protocol_version, peer_id, nonce, host, peer_nonce}` (5 fields — `peer_nonce` = the initiator's nonce, **dial binding**) |
+
+1. Build the signed object per the table above (see §[Signature canonicalization](#signature-canonicalization-hello)).
 2. Canonicalize with **RFC 8785 JCS** → UTF-8 bytes.
 3. `Ed25519.sign(private_key, jcs_bytes)` → 64 raw bytes.
 4. Encode as **base64url without padding** → wire `signature`.
 
-Verify recomputes JCS over the same four fields and verifies with the public key that derives `peer_id`.
+Verify recomputes JCS over the same role-aware field set from the received hello and verifies with the public key that derives `peer_id`. An initiator that verifies a **responder** hello MUST additionally assert `peer_nonce == <its own nonce>` — a responder hello signed over a different or absent initiator nonce is rejected (**dial binding**; defeats replay of a captured responder hello across a client restart, see [§Nonce / replay](#nonce--replay-protection)).
 
 ### `peer_id` derivation (libp2p identity / peer-ids)
 
@@ -130,7 +137,7 @@ Wire `peer_id` is the **libp2p PeerId string** for the Ed25519 public key, per t
 | Authorization | Receivers authorize on `peer_id` + verified signature; `host_id` remains advisory |
 | Authenticated transport | When the transport supplies an authenticated peer identity (reference: Noise remote peer id), the claimed hello `peer_id` MUST equal that transport-authenticated id, and the verify public key MUST derive that same `peer_id` |
 | Path A without Noise | Stacks still MUST derive `peer_id` per steps 1–4 and MUST verify the hello signature against the key that derives that `peer_id`. How the public key is obtained (hello-adjacent identify, preconfiguration, etc.) is transport-adapter-owned |
-| Signed-field set | Unchanged — `protocol_version`, `peer_id`, `nonce`, `host` only |
+| Signed-field set | Role-aware — initiator hello: `protocol_version`, `peer_id`, `nonce`, `host` (4 fields); responder hello: the same plus `peer_nonce` = the initiator's nonce (5 fields, dial binding) |
 
 This section does not define JWT/DID key ids and does not require `peer_id == host_id`.
 
@@ -156,6 +163,7 @@ Six envelopes — all `type: object`, `additionalProperties: false`, required `e
 | `protocol_version` | yes | integer ≥ 1 | Connect protocol version (not data `schema_version`). Protocol version **1** is current. |
 | `peer_id` | yes | string, minLength 1 | Sender network identity (see §[Identity binding](#identity-binding)). |
 | `nonce` | yes | string, minLength 16 | Single-use replay nonce (see [§Nonce / replay](#nonce--replay-protection)). |
+| `peer_nonce` | no | string, minLength 16 | Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object. Absent in initiator hellos; initiators MUST reject a responder hello whose `peer_nonce` does not equal their own nonce (see [§Nonce / replay](#nonce--replay-protection)). |
 | `host` | yes | `$ref` HostCapabilityManifest | Full embedded manifest (includes `host.extensions`). |
 | `signature` | yes | string, minLength 1 | base64url (no padding) of raw signature bytes (see [§Signature canonicalization](#signature-canonicalization-hello)). |
 | `extensions` | yes | ExtensionMap | Product bag; **not** covered by signature. |
@@ -236,7 +244,9 @@ Branches MUST NOT include both `payload` and `error`.
 
 **Key type (protocol_version 1):** Ed25519 — see §[Identity binding](#identity-binding).
 
-1. Build the **signed object** (JSON object, exactly these keys — no others):
+1. Build the **signed object** (JSON object, exactly these keys — no others). The field set is **role-aware**: the initiator signs 4 fields, the responder signs 5 fields (dial binding):
+
+**Initiator hello** (signed object):
 
 ```json
 {
@@ -247,15 +257,29 @@ Branches MUST NOT include both `payload` and `error`.
 }
 ```
 
+**Responder hello** (signed object — `peer_nonce` = the initiator's nonce):
+
+```json
+{
+  "protocol_version": <integer>,
+  "peer_id": <string>,
+  "nonce": <string>,
+  "host": <HostCapabilityManifest object including host.extensions>,
+  "peer_nonce": <string>
+}
+```
+
 2. Canonicalize with **RFC 8785 JSON Canonicalization Scheme (JCS)** → UTF-8 bytes.
 3. Sign those bytes with the **Ed25519 peer identity private key** whose public key derives `peer_id` per §[Identity binding](#identity-binding).
 4. Encode the raw 64-byte signature as **base64url without padding** → `signature` field.
 
-**Included in signature:** `protocol_version`, `peer_id`, `nonce`, entire `host` (including `host.extensions`).
+**Included in signature:** `protocol_version`, `peer_id`, `nonce`, entire `host` (including `host.extensions`); for the responder role additionally `peer_nonce`.
 
 **Excluded from signature:** top-level hello `extensions`, and the `signature` field itself.
 
 Receivers MUST NOT use top-level hello `extensions` for authorization or trust decisions; only the signed fields and the embedded `host` manifest participate in `noise-peerid` accept/reject.
+
+**Verify (role-aware):** recompute JCS over the signed-field set indicated by the received hello — 4 fields when `peer_nonce` is absent (initiator hello), 5 fields when it is present (responder hello); verify the signature with the public key that derives `peer_id` (identity multihash of protobuf `PublicKey`, base58btc); reject on mismatch. An initiator verifying a responder hello MUST additionally assert `peer_nonce` equals its own nonce (dial binding).
 
 **Verify:** recompute JCS over the same four fields from the received hello; verify the signature with the public key that derives `peer_id` (identity multihash of protobuf `PublicKey`, base58btc); reject on mismatch.
 
@@ -271,6 +295,7 @@ Receivers MUST NOT use top-level hello `extensions` for authorization or trust d
 | Replay window | In-memory set for the life of the process is sufficient for the reference stack; products MAY persist nonces with TTL — not specified in this protocol version |
 | Bound into signature | Yes — nonce is inside the signed object |
 | Rejected hello | Nonce of a **rejected** hello MUST NOT be recorded (retry-safe) |
+| **Dial binding** | The responder MUST sign its hello with `peer_nonce` = the initiator's nonce (5-field signed object); the initiator MUST reject a responder hello whose signed `peer_nonce` differs from its own nonce. This defeats replay of a captured responder hello **across a client restart** — the scenario the in-memory `(peer_id, nonce)` store alone cannot cover, because the store resets with the process |
 
 ## Ordering semantics
 
@@ -316,7 +341,7 @@ Logical states and transitions for the **session core** (pure rules). Dialing, N
 | From → To | Trigger | Guards / effects |
 |-----------|---------|------------------|
 | `Disconnected` → `Handshaking` | Transport connect/accept | — |
-| `Handshaking` → `Established` | Local accept of remote hello **and** remote accept of local hello (both directions confirmed) | Allowlist + signature + nonce single-use; record `(peer_id, nonce)` only on accept; bind session peer ids to authenticated hello `peer_id`s; `negotiated_capabilities` = agreed subset including `spoke-connect` when both declare it; set outbound counter = 0 and inbound expected = 0 |
+| `Handshaking` → `Established` | Local accept of remote hello **and** remote accept of local hello (both directions confirmed) | Allowlist + signature + nonce single-use; dial binding — the responder's signed `peer_nonce` equals the initiator's own nonce; record `(peer_id, nonce)` only on accept; bind session peer ids to authenticated hello `peer_id`s; `negotiated_capabilities` = agreed subset including `spoke-connect` when both declare it; set outbound counter = 0 and inbound expected = 0 |
 | `Handshaking` → `Closed` (or disconnect) | Any hello gate failure | Nonce of **rejected** hello MUST NOT be recorded; no trust from unsigned hello `extensions` |
 | `Established` → `Established` | Outbound invoke | Atomically allocate `sequence = last + 1` starting at 0; attach a new `request_id`; send |
 | `Established` → `Established` | Inbound invoke | Accept iff `sequence == next_expected_inbound` (start 0); then `next_expected_inbound += 1`; else reject with wire error and **no** handler side effect |

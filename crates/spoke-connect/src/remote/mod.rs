@@ -13,8 +13,8 @@ mod remote_adapter;
 pub mod transport;
 
 pub use remote_adapter::{
-    connect_remote_adapter, RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions,
-    RemoteAdapterState, RemoteIdentity,
+    connect_remote_adapter, reset_accepted_server_hellos_for_test, RemoteAdapter,
+    RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteIdentity,
 };
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,

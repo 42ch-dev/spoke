@@ -49,7 +49,7 @@ pub(crate) fn gate_hello(
             peer_id: *authenticated_peer,
         });
     }
-    verify_hello(public_key, authenticated_peer, hello)?;
+    verify_hello(public_key, authenticated_peer, hello, None)?;
     if !nonces.check_and_record(&authenticated_peer.to_string(), hello.nonce.as_str()) {
         return Err(ConnectError::NonceReplay);
     }
@@ -85,6 +85,7 @@ mod tests {
             &keypair,
             &generate_nonce().expect("nonce"),
             &manifest("host-a"),
+            None,
         )
         .expect("sign hello");
         let mut nonces = NonceStore::new();
@@ -102,6 +103,7 @@ mod tests {
             &keypair,
             &generate_nonce().expect("nonce"),
             &manifest("host-a"),
+            None,
         )
         .expect("sign hello");
         let mut nonces = NonceStore::new();
@@ -122,6 +124,7 @@ mod tests {
             &keypair,
             &generate_nonce().expect("nonce"),
             &manifest("host-a"),
+            None,
         )
         .expect("sign hello");
         let mut nonces = NonceStore::new();
@@ -136,7 +139,7 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
         let hello =
-            sign_hello(&keypair, "replay-nonce-12345", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "replay-nonce-12345", &manifest("host-a"), None).expect("sign hello");
         let mut nonces = NonceStore::new();
 
         gate_hello(&peer_id, &keypair.public(), &[peer_id], &mut nonces, &hello)
@@ -153,8 +156,8 @@ mod tests {
         let peer_a = keypair_a.public().to_peer_id();
         let peer_b = keypair_b.public().to_peer_id();
         let nonce = "shared-nonce-12345";
-        let hello_a = sign_hello(&keypair_a, nonce, &manifest("host-a")).expect("sign a");
-        let hello_b = sign_hello(&keypair_b, nonce, &manifest("host-b")).expect("sign b");
+        let hello_a = sign_hello(&keypair_a, nonce, &manifest("host-a"), None).expect("sign a");
+        let hello_b = sign_hello(&keypair_b, nonce, &manifest("host-b"), None).expect("sign b");
         let mut nonces = NonceStore::new();
 
         gate_hello(
@@ -182,7 +185,7 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
         let hello =
-            sign_hello(&keypair, "retry-nonce-12345", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "retry-nonce-12345", &manifest("host-a"), None).expect("sign hello");
         let mut nonces = NonceStore::new();
 
         let err = gate_hello(&peer_id, &keypair.public(), &[], &mut nonces, &hello)
@@ -203,7 +206,7 @@ mod tests {
         let other = Keypair::generate_ed25519();
         let peer_id = signer.public().to_peer_id();
         let hello =
-            sign_hello(&signer, "bind-nonce-12345", &manifest("host-a")).expect("sign hello");
+            sign_hello(&signer, "bind-nonce-12345", &manifest("host-a"), None).expect("sign hello");
         let mut nonces = NonceStore::new();
 
         let err = gate_hello(&peer_id, &other.public(), &[peer_id], &mut nonces, &hello)

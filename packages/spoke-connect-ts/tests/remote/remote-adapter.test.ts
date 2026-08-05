@@ -48,6 +48,9 @@ import { issueCapabilityToken } from "../../src/core/capability-token.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
 import { schemaConformantManifest } from "../../src/golden.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
+// Test-only reset hook for the process-wide accepted-server-hello store
+// (simulates a restart in the cross-restart dial-binding replay test).
+import { __resetAcceptedServerHellosForTest } from "../../src/remote/remote-adapter.js";
 import { startLoopbackHost, type LoopbackHost } from "./loopback-host.js";
 
 /** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
@@ -484,7 +487,85 @@ describe("RemoteAdapter loopback interop", () => {
           remotePubkey: pubkeyHost,
           allowlist: [peerIdHost],
         }),
-      ).rejects.toThrow(/replay/);
+      ).rejects.toThrow(/replay|dial binding/);
+    },
+    15000,
+  );
+
+  it(
+    "rejects a replayed server hello across a simulated restart — responder peer_nonce no longer matches (Greptile P1 dial binding)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const seedHost = seed(0xa0);
+      const seedClient = seed(0x10);
+      const pubkeyHost = getPublicKeyEd25519(seedHost);
+      const pubkeyClient = getPublicKeyEd25519(seedClient);
+      const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
+      const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
+
+      // Dial 1 through a recording transport — capture the responder hello
+      // (signed over `peer_nonce` = dial 1's initiator nonce) + session
+      // snapshot at the wire (the view an active transport attacker has).
+      const pair1 = loopbackTransportPair();
+      const captured: EnvelopeBytes[] = [];
+      const recording: Transport = {
+        send: (envelope) => pair1.client.send(envelope),
+        recv: async () => {
+          const bytes = await pair1.client.recv();
+          captured.push(bytes);
+          return bytes;
+        },
+        close: () => pair1.client.close(),
+      };
+      const host = await startLoopbackHost({
+        transport: pair1.server,
+        seed: seedHost,
+        clientPubkey: pubkeyClient,
+        allowlist: [peerIdClient],
+        adapter: hostAdapter,
+      });
+      const client = await connectRemoteAdapter({
+        transport: recording,
+        localIdentity: { seed: seedClient },
+        localManifest: clientManifest(),
+        remotePubkey: pubkeyHost,
+        allowlist: [peerIdHost],
+      });
+      expect(client.state).toBe("Established");
+      client.close();
+      host.close();
+      expect(captured.length).toBeGreaterThanOrEqual(2);
+      const [replayHello] = captured;
+
+      // Simulate a restart: the process-wide accepted-server-hello store
+      // resets, so the receiver-side nonce single-use gate can no longer
+      // recognize the captured pair. The dial binding is the remaining
+      // defense: dial 2 generates a FRESH initiator nonce, and the captured
+      // responder hello was signed over dial 1's nonce — the assert rejects
+      // the replay before any `ConnectSession` snapshot is accepted.
+      __resetAcceptedServerHellosForTest();
+
+      let replayIndex = 0;
+      const replayTransport: Transport = {
+        send: async () => {},
+        recv: async () => {
+          if (replayIndex === 0) {
+            replayIndex += 1;
+            return replayHello;
+          }
+          throw new Error("scripted replay transport closed");
+        },
+        close: () => {},
+      };
+      await expect(
+        connectRemoteAdapter({
+          transport: replayTransport,
+          localIdentity: { seed: seedClient },
+          localManifest: clientManifest(),
+          remotePubkey: pubkeyHost,
+          allowlist: [peerIdHost],
+        }),
+      ).rejects.toThrow(/dial binding/);
     },
     15000,
   );

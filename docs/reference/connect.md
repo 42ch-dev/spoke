@@ -17,6 +17,7 @@ Required: `protocol_version`, `peer_id`, `nonce`, `host`, `signature`, `extensio
 | `protocol_version` | Connect protocol version (distinct from data `schema_version`); version 1 is current |
 | `peer_id` | Sender network identity — protocol v1: libp2p identity-spec PeerId string for Ed25519 (base58btc identity multihash of the protobuf `PublicKey`). Opaque to protocol logic; the trust root for the `noise-peerid` allowlist |
 | `nonce` | Single-use replay nonce, bound into the signed object |
+| `peer_nonce` | Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object. Absent in initiator hellos; initiators reject a responder hello whose `peer_nonce` differs from their own nonce |
 | `host` | Full embedded `HostCapabilityManifest` (includes `host.extensions`); part of the signed object |
 | `signature` | base64url (no padding) of the raw signature bytes over the JCS-canonicalized signed object |
 | `extensions` | Product bag; not covered by the signature |
@@ -67,10 +68,11 @@ Required: `session_id`, `initiator_peer_id`, `responder_peer_id`, `opened_at`, `
 ## Signed hello (`spoke-connect-hello-jcs-v1`)
 
 1. Both sides of a connection exchange a signed `ConnectHello`.
-2. The signed object is exactly `{protocol_version, peer_id, nonce, host}` — top-level `extensions` and `signature` are excluded.
+2. The signed object is `{protocol_version, peer_id, nonce, host}` for the **initiator** hello (4 fields — `peer_nonce` absent), and `{protocol_version, peer_id, nonce, host, peer_nonce}` for the **responder** hello (5 fields — `peer_nonce` = the initiator's nonce, dial binding). Top-level `extensions` and `signature` are excluded.
 3. The object is canonicalized with RFC 8785 JCS ([RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)).
 4. The bytes are signed with the Ed25519 keypair; the raw signature is encoded base64url without padding ([RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)).
-5. The receiver accepts only when: protocol version is 1, the claimed `peer_id` equals the authenticated remote peer, the key derives that peer id, the peer is on the configured allowlist (empty allowlist rejects all — fail-closed), the signature verifies, and the `(peer_id, nonce)` pair is new (single-use, process lifetime).
+5. The receiver accepts only when: protocol version is 1, the claimed `peer_id` equals the authenticated remote peer, the key derives that peer id, the peer is on the configured allowlist (empty allowlist rejects all — fail-closed), the signature verifies over the role-aware field set, and the `(peer_id, nonce)` pair is new (single-use, process lifetime).
+6. Dial binding: the initiator additionally requires the responder's signed `peer_nonce` to equal its own nonce — a captured responder hello cannot be replayed into a fresh dial (e.g. after a client restart resets the in-memory nonce store).
 
 ## Ordering and correlation
 

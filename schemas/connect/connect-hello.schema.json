@@ -28,6 +28,11 @@
       "minLength": 16,
       "description": "Single-use replay nonce. Bound into the signed object."
     },
+    "peer_nonce": {
+      "type": "string",
+      "minLength": 16,
+      "description": "Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object (spoke-connect-hello-jcs-v1). Absent in initiator hellos (the initiator sends first and has no peer nonce); initiators MUST reject a responder hello whose peer_nonce does not equal their own nonce."
+    },
     "host": {
       "$ref": "https://spoke42.invalid/schemas/data/host-capability-manifest.schema.json",
       "description": "Full embedded manifest (includes host.extensions). Part of the signed object."

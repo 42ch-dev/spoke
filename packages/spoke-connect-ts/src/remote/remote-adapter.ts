@@ -80,8 +80,25 @@ const DEFAULT_INVOKE_TIMEOUT_MS = 5000;
  * transport attacker cannot re-enter `Established` with a stale signature.
  * The store is module-scoped (across adapter instances) for exactly this
  * reason: an adapter dials once, and the replay arrives on a later dial.
+ *
+ * Cross-restart replay (the store resets) is defeated separately by the
+ * **dial binding**: the responder signs its hello over `peer_nonce` = the
+ * initiator's nonce, and the dial asserts it — see the verify call below.
  */
-const acceptedServerHellos = new NonceStore();
+let acceptedServerHellos = new NonceStore();
+
+/**
+ * Test-only: reset the process-wide accepted-server-hello store (simulates a
+ * process restart, so the cross-restart replay test can target the dial
+ * binding — the responder-hello `peer_nonce` assert — rather than the
+ * in-memory nonce single-use gate). Mirrors the Rust adapter's
+ * `reset_accepted_server_hellos_for_test`.
+ *
+ * @internal test-only — not part of the RemoteAdapter public API.
+ */
+export function __resetAcceptedServerHellosForTest(): void {
+  acceptedServerHellos = new NonceStore();
+}
 
 const textEncoder = new TextEncoder();
 
@@ -659,15 +676,27 @@ export class RemoteAdapter implements BaselinePorts {
 
     try {
       // 1. Send our signed hello (nonce generated internally — single-use).
+      //    The initiator hello signs the 4-field object (no `peer_nonce`);
+      //    the nonce is kept for the responder-hello dial-binding assert.
+      const initiatorNonce = generateNonce();
       await withTimeout(
         adapter.#sendEnvelope(
-          await signHelloEd25519(localIdentity.seed, generateNonce(), localManifest),
+          await signHelloEd25519(
+            localIdentity.seed,
+            initiatorNonce,
+            localManifest,
+          ),
         ),
         invokeTimeoutMs,
         "hello send",
       );
 
       // 2. Await + verify the server's signed hello (signature + identity).
+      //    Dial binding: the responder signs the 5-field object incl.
+      //    `peer_nonce` = our nonce; a replayed responder hello (signed over
+      //    a different or absent initiator nonce — e.g. captured on an
+      //    earlier dial and replayed after a process restart resets the
+      //    nonce store) fails this assert before any session state exists.
       const helloDoc = await withTimeout(
         adapter.#recvEnvelope(),
         invokeTimeoutMs,
@@ -676,7 +705,12 @@ export class RemoteAdapter implements BaselinePorts {
       if (!isConnectHello(helloDoc)) {
         throw new Error("expected ConnectHello from server");
       }
-      await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
+      await verifyHelloEd25519(
+        remotePubkey,
+        remotePeerId,
+        helloDoc,
+        initiatorNonce,
+      );
       // Receiver-side nonce single-use (spec §Nonce / replay protection):
       // record the accepted server hello and reject a replayed one. An
       // active transport attacker cannot reuse a previously-signed hello

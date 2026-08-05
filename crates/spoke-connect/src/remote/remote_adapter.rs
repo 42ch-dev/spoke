@@ -82,6 +82,17 @@ fn record_server_hello(peer_id: &str, nonce: &str) -> bool {
         .check_and_record(peer_id, nonce)
 }
 
+/// Test-only: reset the process-wide accepted-server-hello store (simulates
+/// a process restart, so a replay test can target the dial binding — the
+/// responder-hello `peer_nonce` assert — rather than the in-memory nonce
+/// single-use gate). Mirrors the TS adapter's
+/// `__resetAcceptedServerHellosForTest`.
+pub fn reset_accepted_server_hellos_for_test() {
+    *ACCEPTED_SERVER_HELLOS
+        .lock()
+        .expect("accepted-server-hellos lock") = None;
+}
+
 /// Session-lifecycle labels (frozen contract §4) — parity with TS
 /// `RemoteAdapterState`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -793,6 +804,7 @@ pub async fn connect_remote_adapter(
             &local_identity.seed,
             &nonce,
             &connect_manifest(&local_manifest),
+            None,
         )
         .map_err(|error| {
             RemoteAdapterError::Handshake(format!("local hello sign failed: {error}"))
@@ -815,9 +827,11 @@ pub async fn connect_remote_adapter(
         let hello: ConnectHello = serde_json::from_slice(&bytes).map_err(|_| {
             RemoteAdapterError::Handshake("expected ConnectHello from server".into())
         })?;
-        verify_hello_ed25519(&remote_pubkey, &remote_peer_id, &hello).map_err(|error| {
-            RemoteAdapterError::Handshake(format!("remote hello verification failed: {error}"))
-        })?;
+        verify_hello_ed25519(&remote_pubkey, &remote_peer_id, &hello, Some(&nonce)).map_err(
+            |error| {
+                RemoteAdapterError::Handshake(format!("remote hello verification failed: {error}"))
+            },
+        )?;
         // Receiver-side nonce single-use (spec §Nonce / replay protection;
         // parity with the TS dial): record the accepted server hello and
         // reject a replayed one. An active transport attacker cannot reuse a

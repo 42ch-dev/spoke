@@ -5,7 +5,12 @@
  * Ported from `crates/spoke-connect/src/core/hello_crypto.rs`; normative
  * rules `.mstar/specs/spoke-connect.md` §Signature canonicalization /
  * §Identity binding:
- * - Signed object = exactly `{protocol_version, peer_id, nonce, host}`.
+ * - Signed object = exactly `{protocol_version, peer_id, nonce, host}` for
+ *   the **initiator** hello (4 fields), and exactly
+ *   `{protocol_version, peer_id, nonce, host, peer_nonce}` for the
+ *   **responder** hello (5 fields, `peer_nonce` = the initiator's nonce —
+ *   dial binding). Role is carried by the hello itself: `peer_nonce` is
+ *   present in responder hellos, absent in initiator hellos.
  * - Canonicalize with RFC 8785 JCS → UTF-8 bytes (`src/jcs.ts`).
  * - Sign with the Ed25519 private key whose public key derives `peer_id`;
  *   the raw 64-byte signature is encoded base64url without padding.
@@ -35,9 +40,10 @@ function canonicalBytes(
   peerId: string,
   nonce: string,
   host: HostCapabilityManifest,
+  peerNonce?: string,
 ): Uint8Array {
   try {
-    return canonicalHelloBytes(peerId, nonce, host);
+    return canonicalHelloBytes(peerId, nonce, host, peerNonce);
   } catch (error) {
     throw new CoreError(
       "jcs",
@@ -53,11 +59,17 @@ function canonicalBytes(
  * `peer_id` is derived from the public key of `secret`; the hello
  * `protocol_version` is the core protocol version. The `nonce` must meet the
  * wire floor (minLength 16) or `invalid_nonce` is thrown.
+ *
+ * Role: `peerNonce` is `undefined` for the **initiator** hello (4-field
+ * signed object — the byte-identical pre-dial-binding path; the wire
+ * envelope omits `peer_nonce` entirely) and the initiator's nonce for the
+ * **responder** hello (5-field signed object, dial binding).
  */
 export async function signHelloEd25519(
   secret: Uint8Array,
   nonce: string,
   manifest: HostCapabilityManifest,
+  peerNonce?: string,
 ): Promise<ConnectHello> {
   if (secret.length !== 32) {
     throw new CoreError("crypto", "secret must be 32 bytes");
@@ -65,15 +77,19 @@ export async function signHelloEd25519(
   if (nonce.length < 16) {
     throw new CoreError("invalid_nonce", `nonce must be at least 16 characters (got ${nonce.length})`);
   }
+  if (peerNonce !== undefined && peerNonce.length < 16) {
+    throw new CoreError("invalid_nonce", `peer_nonce must be at least 16 characters (got ${peerNonce.length})`);
+  }
   const publicKey = getPublicKeyEd25519(secret);
   const peerId = derivePeerIdFromEd25519Pubkey(publicKey);
-  const bytes = canonicalBytes(peerId, nonce, manifest);
+  const bytes = canonicalBytes(peerId, nonce, manifest, peerNonce);
   const signature = base64UrlEncode(await signEd25519(secret, bytes));
 
   return {
     protocol_version: PROTOCOL_VERSION,
     peer_id: peerId,
     nonce,
+    ...(peerNonce !== undefined ? { peer_nonce: peerNonce } : {}),
     host: manifest,
     signature,
     extensions: {},
@@ -92,6 +108,14 @@ export async function signHelloEd25519(
  * 4. The claimed `hello.peer_id` equals `expectedPeerId`.
  * 5. The signature verifies over the JCS-canonicalized signed object.
  *
+ * Role-aware (dial binding): a hello carrying `peer_nonce` (responder) is
+ * verified over the 5-field signed object, and when `expectedPeerNonce` is
+ * supplied the initiator asserts the responder's `peer_nonce` equals its own
+ * nonce — a replayed responder hello (signed over a different or absent
+ * initiator nonce) fails here, which is the cross-restart replay defense. A
+ * hello without `peer_nonce` (initiator) is verified over the 4-field signed
+ * object.
+ *
  * Allowlist and nonce gates are separate core checks (`allowlist` and
  * `nonce` modules).
  */
@@ -99,6 +123,7 @@ export async function verifyHelloEd25519(
   publicKey: Uint8Array,
   expectedPeerId: string,
   hello: ConnectHello,
+  expectedPeerNonce?: string,
 ): Promise<void> {
   if (hello.protocol_version !== PROTOCOL_VERSION) {
     throw new CoreError(
@@ -108,6 +133,9 @@ export async function verifyHelloEd25519(
   }
   if (hello.nonce.length < 16) {
     throw new CoreError("invalid_nonce", `hello nonce must be at least 16 characters (got ${hello.nonce.length})`);
+  }
+  if (hello.peer_nonce !== undefined && hello.peer_nonce.length < 16) {
+    throw new CoreError("invalid_nonce", `hello peer_nonce must be at least 16 characters (got ${hello.peer_nonce.length})`);
   }
   if (publicKey.length !== 32) {
     throw new CoreError("crypto", "public key must be 32 bytes");
@@ -128,7 +156,30 @@ export async function verifyHelloEd25519(
 
   // The claimed peer id was just checked to equal `expectedPeerId`, so
   // canonicalizing over `expectedPeerId` reproduces the signer's bytes.
-  const bytes = canonicalBytes(expectedPeerId, hello.nonce, hello.host);
+  // Role-aware signed object: 5 fields (incl. `peer_nonce`) for a responder
+  // hello, 4 fields for an initiator hello. When the initiator supplies
+  // `expectedPeerNonce`, the responder's `peer_nonce` must equal it — this
+  // is the dial binding that defeats cross-restart replay.
+  let bytes: Uint8Array;
+  if (hello.peer_nonce !== undefined) {
+    if (
+      expectedPeerNonce !== undefined &&
+      hello.peer_nonce !== expectedPeerNonce
+    ) {
+      throw new CoreError(
+        "handshake_failed",
+        `responder hello peer_nonce does not match the initiator nonce (dial binding)`,
+      );
+    }
+    bytes = canonicalBytes(
+      expectedPeerId,
+      hello.nonce,
+      hello.host,
+      hello.peer_nonce,
+    );
+  } else {
+    bytes = canonicalBytes(expectedPeerId, hello.nonce, hello.host);
+  }
 
   let signature: Uint8Array;
   try {

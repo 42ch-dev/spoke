@@ -330,9 +330,17 @@ export async function startLoopbackHost(
       ),
     });
 
-    // Answer with our signed hello, then the A-assigned session snapshot.
+    // Answer with our signed hello (responder role — dial binding): the
+    // hello signs the 5-field object incl. `peer_nonce` = the initiator's
+    // nonce, so a captured responder hello cannot be replayed into a fresh
+    // dial. Then the A-assigned session snapshot.
     sendEnvelope(
-      await signHelloEd25519(seed, generateNonce(), hostManifest),
+      await signHelloEd25519(
+        seed,
+        generateNonce(),
+        hostManifest,
+        helloDoc.nonce,
+      ),
     );
     const snapshot = {
       session_id: SESSION_ID,

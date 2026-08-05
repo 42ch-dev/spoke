@@ -264,18 +264,24 @@ export async function connectClient(
   let remoteManifest: HostCapabilityManifest;
   let session: Session;
   try {
-    // Send our signed hello.
+    // Send our signed hello. The initiator hello signs the 4-field object
+    // (no `peer_nonce`); the nonce is kept for the responder-hello
+    // dial-binding assert.
+    const initiatorNonce = generateNonce();
     sendJsonMessage(
       socket,
-      await signHelloEd25519(identity.seed, generateNonce(), manifest),
+      await signHelloEd25519(identity.seed, initiatorNonce, manifest),
     );
 
     // Await the server's signed hello — the next WS message (AD-P0-3).
+    // Dial binding: the responder signs the 5-field object incl.
+    // `peer_nonce` = our nonce; a replayed responder hello (signed over a
+    // different or absent initiator nonce) fails this assert.
     const helloDoc = await withTimeout(nextMessage(), timeoutMs, "server hello");
     if (!isConnectHello(helloDoc)) {
       throw new Error("expected ConnectHello from server");
     }
-    await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc);
+    await verifyHelloEd25519(remotePubkey, remotePeerId, helloDoc, initiatorNonce);
     remoteManifest = helloDoc.host;
 
     // Await the session snapshot carrying the A-assigned session id + binding.

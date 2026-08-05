@@ -7,7 +7,11 @@
 //! transport errors.
 //!
 //! Normative rules (`.mstar/specs/spoke-connect.md`):
-//! - Signed object = exactly `{protocol_version, peer_id, nonce, host}`.
+//! - Signed object = exactly `{protocol_version, peer_id, nonce, host}` for
+//!   the **initiator** hello (4 fields), and exactly
+//!   `{protocol_version, peer_id, nonce, host, peer_nonce}` for the
+//!   **responder** hello (5 fields — `peer_nonce` = the initiator's nonce,
+//!   dial binding).
 //! - Canonicalize with RFC 8785 JCS (via `serde_jcs`), sign with the libp2p
 //!   identity keypair (Ed25519), encode raw signature bytes base64url (no padding).
 //! - Verification uses the public key bound to the **noise-authenticated**
@@ -55,13 +59,19 @@ fn ed25519_seed(identity: &Keypair) -> Result<[u8; 32], ConnectError> {
 /// `peer_id` on the wire is derived from the Ed25519 public key (libp2p
 /// PeerId base58btc multihash form), matching
 /// `identity.public().to_peer_id().to_string()`.
+///
+/// Role: `peer_nonce = None` for the **initiator** hello (4-field signed
+/// object — byte-identical to the pre-dial-binding wire), `Some(<initiator's
+/// nonce>)` for the **responder** hello (5-field signed object, dial
+/// binding).
 pub(crate) fn sign_hello(
     identity: &Keypair,
     nonce: &str,
     manifest: &HostCapabilityManifest,
+    peer_nonce: Option<&str>,
 ) -> Result<ConnectHello, ConnectError> {
     let seed = ed25519_seed(identity)?;
-    core::sign_hello_ed25519(&seed, nonce, manifest).map_err(map_core_error)
+    core::sign_hello_ed25519(&seed, nonce, manifest, peer_nonce).map_err(map_core_error)
 }
 
 /// Verify a received hello.
@@ -73,11 +83,18 @@ pub(crate) fn sign_hello(
 /// 3. The claimed `peer_id` equals `expected_peer_id` (`HandshakeFailed`).
 /// 4. The signature verifies against `public_key` (`InvalidHelloSignature`).
 ///
+/// Role-aware (dial binding): a responder hello (carrying `peer_nonce`) is
+/// verified over the 5-field signed object, and when `expected_peer_nonce`
+/// is supplied the caller (the dialing initiator) asserts the responder's
+/// `peer_nonce` equals its own nonce — a replayed responder hello fails
+/// here.
+///
 /// Allowlist and nonce gates are applied by [`crate::gate`] around this check.
 pub(crate) fn verify_hello(
     public_key: &PublicKey,
     expected_peer_id: &PeerId,
     hello: &ConnectHello,
+    expected_peer_nonce: Option<&str>,
 ) -> Result<(), ConnectError> {
     // The core rule operates on raw Ed25519 keys; connect pins Ed25519
     // identity, so any other remote key type fails the handshake closed.
@@ -88,8 +105,13 @@ pub(crate) fn verify_hello(
             .map_err(|_| ConnectError::HandshakeFailed {
                 reason: "remote public key is not Ed25519".into(),
             })?;
-    core::verify_hello_ed25519(&pubkey.to_bytes(), &expected_peer_id.to_string(), hello)
-        .map_err(map_core_error)
+    core::verify_hello_ed25519(
+        &pubkey.to_bytes(),
+        &expected_peer_id.to_string(),
+        hello,
+        expected_peer_nonce,
+    )
+    .map_err(map_core_error)
 }
 
 #[cfg(test)]
@@ -126,7 +148,7 @@ mod tests {
         // The wire floor is 16 characters; a caller-supplied nonce below it
         // must surface as an error from the public signing API.
         let keypair = Keypair::generate_ed25519();
-        let err = sign_hello(&keypair, "short", &manifest("host-a")).expect_err("short nonce");
+        let err = sign_hello(&keypair, "short", &manifest("host-a"), None).expect_err("short nonce");
         assert!(matches!(err, ConnectError::Config(_)));
     }
 
@@ -135,11 +157,11 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
         let hello =
-            sign_hello(&keypair, "round-trip-nonce-123", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "round-trip-nonce-123", &manifest("host-a"), None).expect("sign hello");
 
         assert_eq!(hello.protocol_version.get(), PROTOCOL_VERSION);
         assert_eq!(hello.peer_id.as_str(), peer_id.to_string());
-        verify_hello(&keypair.public(), &peer_id, &hello).expect("verify hello");
+        verify_hello(&keypair.public(), &peer_id, &hello, None).expect("verify hello");
     }
 
     #[test]
@@ -147,10 +169,10 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
         let mut hello =
-            sign_hello(&keypair, "tamper-nonce-12345", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "tamper-nonce-12345", &manifest("host-a"), None).expect("sign hello");
         hello.host.roles.push("checker".into());
 
-        let err = verify_hello(&keypair.public(), &peer_id, &hello).expect_err("tampered host");
+        let err = verify_hello(&keypair.public(), &peer_id, &hello, None).expect_err("tampered host");
         assert!(matches!(err, ConnectError::InvalidHelloSignature));
     }
 
@@ -162,9 +184,9 @@ mod tests {
         let signer = Keypair::generate_ed25519();
         let other = Keypair::generate_ed25519();
         let hello =
-            sign_hello(&signer, "wrong-key-nonce-12", &manifest("host-a")).expect("sign hello");
+            sign_hello(&signer, "wrong-key-nonce-12", &manifest("host-a"), None).expect("sign hello");
 
-        let err = verify_hello(&other.public(), &signer.public().to_peer_id(), &hello)
+        let err = verify_hello(&other.public(), &signer.public().to_peer_id(), &hello, None)
             .expect_err("unbound verify key");
         assert!(
             matches!(err, ConnectError::HandshakeFailed { .. }),
@@ -177,11 +199,11 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let other = Keypair::generate_ed25519();
         let hello =
-            sign_hello(&keypair, "mismatch-nonce-123", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "mismatch-nonce-123", &manifest("host-a"), None).expect("sign hello");
 
         // Verify with the signer's key but expect the *other* peer id: the
         // claimed peer id (from the hello) then disagrees with the expected one.
-        let err = verify_hello(&keypair.public(), &other.public().to_peer_id(), &hello)
+        let err = verify_hello(&keypair.public(), &other.public().to_peer_id(), &hello, None)
             .expect_err("peer id mismatch");
         assert!(matches!(err, ConnectError::HandshakeFailed { .. }));
     }
@@ -191,11 +213,11 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
         let mut hello =
-            sign_hello(&keypair, "version-nonce-1234", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "version-nonce-1234", &manifest("host-a"), None).expect("sign hello");
         hello.protocol_version = std::num::NonZeroU64::new(2).expect("non-zero");
 
         let err =
-            verify_hello(&keypair.public(), &peer_id, &hello).expect_err("unsupported version");
+            verify_hello(&keypair.public(), &peer_id, &hello, None).expect_err("unsupported version");
         assert!(matches!(err, ConnectError::HandshakeFailed { .. }));
     }
 
@@ -204,13 +226,13 @@ mod tests {
         let keypair = Keypair::generate_ed25519();
         let peer_id = keypair.public().to_peer_id();
         let mut hello =
-            sign_hello(&keypair, "bad-sig-nonce-123", &manifest("host-a")).expect("sign hello");
+            sign_hello(&keypair, "bad-sig-nonce-123", &manifest("host-a"), None).expect("sign hello");
         hello.signature = "%%%not-base64url%%%"
             .parse()
             .expect("string parses as opaque");
 
         let err =
-            verify_hello(&keypair.public(), &peer_id, &hello).expect_err("malformed signature");
+            verify_hello(&keypair.public(), &peer_id, &hello, None).expect_err("malformed signature");
         assert!(matches!(err, ConnectError::InvalidHelloSignature));
     }
 
@@ -221,8 +243,8 @@ mod tests {
         let a = Keypair::generate_ed25519();
         let b = Keypair::generate_ed25519();
         let manifest_a = manifest("host-x");
-        let hello_a = sign_hello(&a, "jcs-nonce-1234567", &manifest_a).expect("sign a");
-        let hello_b = sign_hello(&b, "jcs-nonce-1234567", &manifest_a).expect("sign b");
+        let hello_a = sign_hello(&a, "jcs-nonce-1234567", &manifest_a, None).expect("sign a");
+        let hello_b = sign_hello(&b, "jcs-nonce-1234567", &manifest_a, None).expect("sign b");
 
         // HostCapabilityManifest has no PartialEq derive; compare wire shape.
         assert_eq!(
@@ -232,7 +254,48 @@ mod tests {
         assert_eq!(hello_a.nonce, hello_b.nonce);
         assert_ne!(hello_a.peer_id, hello_b.peer_id);
 
-        verify_hello(&a.public(), &a.public().to_peer_id(), &hello_a).expect("a verifies");
-        verify_hello(&b.public(), &b.public().to_peer_id(), &hello_b).expect("b verifies");
+        verify_hello(&a.public(), &a.public().to_peer_id(), &hello_a, None).expect("a verifies");
+        verify_hello(&b.public(), &b.public().to_peer_id(), &hello_b, None).expect("b verifies");
+    }
+
+    #[test]
+    fn responder_hello_dial_binding_round_trip() {
+        // Responder role: sign with the initiator's nonce (5-field signed
+        // object); the initiator asserts its own nonce on verify. A
+        // mismatched assert (cross-restart replay) must fail.
+        let responder = Keypair::generate_ed25519();
+        let initiator_nonce = "initiator-nonce-1234567";
+        let responder_nonce = "responder-nonce-12345";
+        let hello = sign_hello(
+            &responder,
+            responder_nonce,
+            &manifest("host-r"),
+            Some(initiator_nonce),
+        )
+        .expect("sign responder hello");
+        assert_eq!(
+            hello.peer_nonce.as_ref().map(|pn| pn.as_str()),
+            Some(initiator_nonce),
+            "responder hello carries the initiator nonce"
+        );
+        verify_hello(
+            &responder.public(),
+            &responder.public().to_peer_id(),
+            &hello,
+            Some(initiator_nonce),
+        )
+        .expect("verify with matching initiator nonce");
+
+        let err = verify_hello(
+            &responder.public(),
+            &responder.public().to_peer_id(),
+            &hello,
+            Some("fresh-init-nonce-123456"),
+        )
+        .expect_err("mismatched initiator nonce");
+        assert!(
+            matches!(&err, ConnectError::HandshakeFailed { reason } if reason.contains("dial binding")),
+            "unexpected error: {err:?}"
+        );
     }
 }

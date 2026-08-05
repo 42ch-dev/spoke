@@ -73,7 +73,14 @@ async function startHandshakeServer(options: {
               }
               sendJsonMessage(
                 socket,
-                await signHelloEd25519(seedA, NONCE_A, schemaConformantManifest()),
+                // Responder role — dial binding: sign the 5-field object
+                // incl. `peer_nonce` = the client's (initiator) nonce.
+                await signHelloEd25519(
+                  seedA,
+                  NONCE_A,
+                  schemaConformantManifest(),
+                  doc.nonce,
+                ),
               );
               const snapshot: ConnectSession = {
                 session_id: SESSION_ID,
@@ -166,10 +173,17 @@ describe("two-node local WebSocket interop", () => {
           ),
         });
 
-        // A answers with its own signed hello, then assigns the session.
+        // A answers with its own signed hello (responder role — dial
+        // binding: `peer_nonce` = the client's nonce), then assigns the
+        // session.
         sendJsonMessage(
           socket,
-          await signHelloEd25519(seedA, NONCE_A, schemaConformantManifest()),
+          await signHelloEd25519(
+            seedA,
+            NONCE_A,
+            schemaConformantManifest(),
+            doc.nonce,
+          ),
         );
         const snapshot: ConnectSession = {
           session_id: SESSION_ID,

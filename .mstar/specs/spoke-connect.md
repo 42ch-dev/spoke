@@ -178,7 +178,7 @@ Six envelopes — all `type: object`, `additionalProperties: false`, required `e
 | `opened_at` | yes | Timestamp (RFC 3339) | Session open time (UTC). |
 | `negotiated_capabilities` | yes | string[], minItems 1, uniqueItems | Intersection (or agreed subset) of both hosts' `capabilities[]`; MUST include `spoke-connect` when both declare it. |
 | `initial_sequence` | yes | integer, minimum 0, **const 0** for protocol versions 1 and 2 | First invoke request uses `sequence = initial_sequence` (i.e. **0**). Runtime validators MUST enforce the `const 0` rule at the wire boundary; generated Rust types do not encode it. |
-| `signature` | v2 only | string, minLength 1 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 Session is a **wire-visible snapshot** (fixtures + optional session-announce messages). A runtime may keep richer local state; the public wire shape stays this table.
@@ -194,8 +194,8 @@ Session is a **wire-visible snapshot** (fixtures + optional session-announce mes
 | `request_id` | yes | string, minLength 1 | Caller-generated correlation id (UUID recommended). |
 | `op` | yes | string, minLength 1 | Open vocabulary — see [§`op` core vocabulary](#op-core-vocabulary). |
 | `payload` | yes | `$ref` OpaqueJson | Opaque JSON — MUST be a full existing ops **request** envelope for the named `op` when targeting SPOKE ops. Dispatchers MUST validate the payload against the named `op`'s ops request schema. |
-| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary session identity is hello (`noise-peerid`). For `capability-token`, same proof object as auth response (see [§Method — capability-token](#method--capability-token)). |
-| `signature` | v2 only | string, minLength 1 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-request-jcs-v1`). |
+| `auth` | no | `$ref` OpaqueJson | Optional mid-session proof blob; primary session identity is hello (`noise-peerid`). For `capability-token`, same proof object as auth response (see [§Method — capability-token](#method--capability-token)). When present on protocol_version 2 wire, `auth` is included in the JCS signed object for `spoke-connect-invoke-request-jcs-v1` (see [§Envelope authentication](#envelope-authentication-protocol_version-2)). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-request-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 ### ConnectInvokeResponse — remote op reply
@@ -210,7 +210,7 @@ Mirrors ops response style: **oneOf** success | error (no parallel `status` enum
 | `sequence` | yes | integer ≥ 0 | Echo of request `sequence`. |
 | `request_id` | yes | string | Echo of request `request_id`. |
 | `payload` | yes | OpaqueJson | Ops **response** success envelope (or product-defined success body for non-core `op`). |
-| `signature` | v2 only | string, minLength 1 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 **Error branch** — required: `session_id`, `sequence`, `request_id`, `error`, `extensions` (+ `signature` in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2))
@@ -219,7 +219,7 @@ Mirrors ops response style: **oneOf** success | error (no parallel `status` enum
 |-------|-----|------|-------|
 | `session_id` / `sequence` / `request_id` | yes | (echo) | Same as success. |
 | `error` | yes | `$ref` ErrorEnvelope | Shared failure shape — **no** parallel connect error object. |
-| `signature` | v2 only | string, minLength 1 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
+| `signature` | v2 only | string, minLength 86, maxLength 86 | Required in protocol_version 2 — see [§Envelope authentication](#envelope-authentication-protocol_version-2). base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-response-jcs-v1`). |
 | `extensions` | yes | ExtensionMap | |
 
 Branches MUST NOT include both `payload` and `error`.

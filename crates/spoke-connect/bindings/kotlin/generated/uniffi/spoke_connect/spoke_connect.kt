@@ -725,6 +725,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_func_loopback_transport_pair(
     ): Int
+    external fun uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi(
+    ): Int
     external fun uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_inboundsequence_advance(
@@ -742,6 +744,32 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_spoke_connect_checksum_method_loopbacktransportpair_client(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_loopbacktransportpair_server(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_close(
     ): Int
@@ -846,6 +874,36 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_spoke_connect_fn_method_loopbacktransportpair_server(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_spoke_connect_fn_clone_multipeerrouterffi(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_spoke_connect_fn_free_multipeerrouterffi(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry(`ptr`: Long,`entryId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation(`ptr`: Long,`relationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules(`ptr`: Long,`ruleRefs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings(`ptr`: Long,`findingsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry(`ptr`: Long,`entryJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation(`ptr`: Long,`relationJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer(`ptr`: Long,`adapter`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer(`ptr`: Long,`peerId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_spoke_connect_fn_clone_remoteadapterffi(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_spoke_connect_fn_free_remoteadapterffi(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -899,6 +957,8 @@ internal object UniffiLib {
     external fun uniffi_spoke_connect_fn_func_verify_hello_ed25519(`publicKey`: RustBuffer.ByValue,`expectedPeerId`: RustBuffer.ByValue,`helloJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_spoke_connect_fn_func_loopback_transport_pair(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi(uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_spoke_connect_fn_func_connect_remote_adapter_ffi(`transport`: Long,`localSeed`: RustBuffer.ByValue,`localManifestJson`: RustBuffer.ByValue,`remotePubkey`: RustBuffer.ByValue,`allowlist`: RustBuffer.ByValue,`invokeTimeoutMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -1048,6 +1108,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi() != 46664) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() != 44915) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1073,6 +1136,45 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest() != 59432) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry() != 22722) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() != 18470) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() != 38484) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests() != 61680) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers() != 20421) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules() != 33290) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events() != 63418) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings() != 49739) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry() != 21998) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation() != 128) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer() != 58386) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer() != 56292) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {
@@ -2369,6 +2471,463 @@ public object FfiConverterTypeLoopbackTransportPair: FfiConverter<LoopbackTransp
     override fun allocationSize(value: LoopbackTransportPair) = 8UL
 
     override fun write(value: LoopbackTransportPair, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+public interface MultiPeerRouterFfiInterface {
+    
+    fun `getHostCapabilityManifest`(): kotlin.String
+    
+    fun `getKnowledgeEntry`(`entryId`: kotlin.String): kotlin.String
+    
+    fun `getRelation`(`relationId`: kotlin.String): kotlin.String
+    
+    fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String
+    
+    fun `listPeerHostCapabilityManifests`(): kotlin.String
+    
+    fun `listPeers`(): List<kotlin.String>
+    
+    fun `listRules`(`ruleRefs`: List<kotlin.String>): kotlin.String
+    
+    fun `listTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String
+    
+    fun `putFindings`(`findingsJson`: kotlin.String): kotlin.String
+    
+    fun `putKnowledgeEntry`(`entryJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
+    
+    fun `putRelation`(`relationJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
+    
+    fun `registerPeer`(`adapter`: RemoteAdapterFfi): kotlin.String
+    
+    fun `unregisterPeer`(`peerId`: kotlin.String)
+    
+    companion object
+}
+
+open class MultiPeerRouterFfi: Disposable, AutoCloseable, MultiPeerRouterFfiInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_spoke_connect_fn_free_multipeerrouterffi(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_spoke_connect_fn_clone_multipeerrouterffi(handle, status)
+        }
+    }
+
+    
+    @Throws(FfiException::class)override fun `getHostCapabilityManifest`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `getKnowledgeEntry`(`entryId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry(
+        it,
+        
+        FfiConverterString.lower(`entryId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `getRelation`(`relationId`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation(
+        it,
+        
+        FfiConverterString.lower(`relationId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries(
+        it,
+        
+        FfiConverterString.lower(`scopeJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `listPeerHostCapabilityManifests`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `listPeers`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `listRules`(`ruleRefs`: List<kotlin.String>): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules(
+        it,
+        
+        FfiConverterSequenceString.lower(`ruleRefs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `listTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events(
+        it,
+        
+        FfiConverterString.lower(`scopeJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `putFindings`(`findingsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings(
+        it,
+        
+        FfiConverterString.lower(`findingsJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `putKnowledgeEntry`(`entryJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry(
+        it,
+        
+        FfiConverterString.lower(`entryJson`),
+        FfiConverterOptionalULong.lower(`expectedBaseRevision`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `putRelation`(`relationJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation(
+        it,
+        
+        FfiConverterString.lower(`relationJson`),
+        FfiConverterOptionalULong.lower(`expectedBaseRevision`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(FfiException::class)override fun `registerPeer`(`adapter`: RemoteAdapterFfi): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer(
+        it,
+        
+        FfiConverterTypeRemoteAdapterFFI.lower(`adapter`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `unregisterPeer`(`peerId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer(
+        it,
+        
+        FfiConverterString.lower(`peerId`),_status)
+}
+    }
+    
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMultiPeerRouterFFI: FfiConverter<MultiPeerRouterFfi, Long> {
+    override fun lower(value: MultiPeerRouterFfi): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): MultiPeerRouterFfi {
+        return MultiPeerRouterFfi(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): MultiPeerRouterFfi {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: MultiPeerRouterFfi) = 8UL
+
+    override fun write(value: MultiPeerRouterFfi, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -4308,6 +4867,16 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
             return FfiConverterTypeLoopbackTransportPair.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_spoke_connect_fn_func_loopback_transport_pair(
+    
+        _status)
+}
+    )
+    }
+    
+ fun `newMultiPeerRouterFfi`(): MultiPeerRouterFfi {
+            return FfiConverterTypeMultiPeerRouterFFI.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi(
     
         _status)
 }

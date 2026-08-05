@@ -567,6 +567,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi() != 46664:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_protocol_version() != 50454:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_required_capability() != 8417:
@@ -588,6 +590,32 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client() != 9696:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest() != 59432:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry() != 22722:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() != 18470:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() != 38484:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests() != 61680:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers() != 20421:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules() != 33290:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events() != 63418:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings() != 49739:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry() != 21998:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation() != 128:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer() != 58386:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer() != 56292:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record() != 41909:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -674,6 +702,9 @@ _UniffiLib.uniffi_spoke_connect_checksum_func_is_allowlisted.restype = ctypes.c_
 _UniffiLib.uniffi_spoke_connect_checksum_func_loopback_transport_pair.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_func_loopback_transport_pair.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_checksum_func_protocol_version.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_func_protocol_version.restype = ctypes.c_uint16
@@ -707,6 +738,45 @@ _UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client.res
 _UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_host_capability_manifest.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peer_host_capability_manifests.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_peers.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_rules.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_timeline_events.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_findings.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_knowledge_entry.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_put_relation.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_register_peer.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_unregister_peer.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record.restype = ctypes.c_uint16
@@ -805,6 +875,10 @@ _UniffiLib.uniffi_spoke_connect_fn_func_loopback_transport_pair.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_func_loopback_transport_pair.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi.restype = ctypes.c_uint64
 _UniffiLib.uniffi_spoke_connect_fn_func_protocol_version.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
@@ -864,6 +938,83 @@ _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_server.argtypes 
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_server.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer.argtypes = (
+    ctypes.c_uint64,
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer.restype = None
 _UniffiLib.uniffi_spoke_connect_fn_method_noncestore_check_and_record.argtypes = (
     ctypes.c_uint64,
     _UniffiRustBuffer,
@@ -999,6 +1150,16 @@ _UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransportpair.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransportpair.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_clone_multipeerrouterffi.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_clone_multipeerrouterffi.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_free_multipeerrouterffi.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_free_multipeerrouterffi.restype = None
 _UniffiLib.uniffi_spoke_connect_fn_clone_noncestore.argtypes = (
     ctypes.c_uint64,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -2033,235 +2194,6 @@ class _UniffiFfiConverterTypeLoopbackTransportPair:
     def write(cls, value: LoopbackTransportPair, buf: _UniffiRustBuffer):
         buf.write_u64(cls.lower(value))
 
-class _UniffiFfiConverterBoolean:
-    @classmethod
-    def check_lower(cls, value):
-        return not not value
-
-    @classmethod
-    def lower(cls, value):
-        return 1 if value else 0
-
-    @staticmethod
-    def lift(value):
-        return value != 0
-
-    @classmethod
-    def read(cls, buf):
-        return cls.lift(buf.read_u8())
-
-    @classmethod
-    def write(cls, value, buf):
-        buf.write_u8(value)
-
-
-class NonceStoreProtocol(typing.Protocol):
-    """
-    Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
-    the core store.
-"""
-    
-    def check_and_record(self, peer_id: str,nonce: str) -> bool:
-        """
-        Records `(peer_id, nonce)` unless it was already accepted; returns
-        `false` on replay. Call only after the hello passed every earlier
-        gate (allowlist, signature) so a rejected hello is not burned.
-"""
-        raise NotImplementedError
-
-class NonceStore(NonceStoreProtocol):
-    """
-    Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
-    the core store.
-"""
-    
-    _handle: ctypes.c_uint64
-    def __init__(self, ):
-        """
-        Creates an empty store.
-"""
-        _uniffi_lowered_args = (
-        )
-        _uniffi_lift_return = _UniffiFfiConverterTypeNonceStore.lift
-        _uniffi_error_converter = None
-        _uniffi_ffi_result = _uniffi_rust_call_with_error(
-            _uniffi_error_converter,
-            _UniffiLib.uniffi_spoke_connect_fn_constructor_noncestore_new,
-            *_uniffi_lowered_args,
-        )
-        self._handle = _uniffi_ffi_result
-
-    def __del__(self):
-        # In case of partial initialization of instances.
-        handle = getattr(self, "_handle", None)
-        if handle is not None:
-            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_noncestore, handle)
-
-    def _uniffi_clone_handle(self):
-        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_noncestore, self._handle)
-
-    # Used by alternative constructors or any methods which return this type.
-    @classmethod
-    def _uniffi_make_instance(cls, handle):
-        # Lightly yucky way to bypass the usual __init__ logic
-        # and just create a new instance with the required handle.
-        inst = cls.__new__(cls)
-        inst._handle = handle
-        return inst
-    def check_and_record(self, peer_id: str,nonce: str) -> bool:
-        """
-        Records `(peer_id, nonce)` unless it was already accepted; returns
-        `false` on replay. Call only after the hello passed every earlier
-        gate (allowlist, signature) so a rejected hello is not burned.
-"""
-        
-        _UniffiFfiConverterString.check_lower(peer_id)
-
-        _UniffiFfiConverterString.check_lower(nonce)
-        _uniffi_lowered_args = (
-            self._uniffi_clone_handle(),
-            _UniffiFfiConverterString.lower(peer_id),
-            _UniffiFfiConverterString.lower(nonce),
-        )
-        _uniffi_lift_return = _UniffiFfiConverterBoolean.lift
-        _uniffi_error_converter = None
-        _uniffi_ffi_result = _uniffi_rust_call_with_error(
-            _uniffi_error_converter,
-            _UniffiLib.uniffi_spoke_connect_fn_method_noncestore_check_and_record,
-            *_uniffi_lowered_args,
-        )
-        return _uniffi_lift_return(_uniffi_ffi_result)
-
-
-
-
-
-class _UniffiFfiConverterTypeNonceStore:
-    @staticmethod
-    def lift(value: int) -> NonceStore:
-        return NonceStore._uniffi_make_instance(value)
-
-    @staticmethod
-    def check_lower(value: NonceStore):
-        if not isinstance(value, NonceStore):
-            raise TypeError("Expected NonceStore instance, {} found".format(type(value).__name__))
-
-    @staticmethod
-    def lower(value: NonceStore) -> ctypes.c_uint64:
-        return value._uniffi_clone_handle()
-
-    @classmethod
-    def read(cls, buf: _UniffiRustBuffer) -> NonceStore:
-        ptr = buf.read_u64()
-        if ptr == 0:
-            raise InternalError("Raw handle value was null")
-        return cls.lift(ptr)
-
-    @classmethod
-    def write(cls, value: NonceStore, buf: _UniffiRustBuffer):
-        buf.write_u64(cls.lower(value))
-
-
-class OutboundSequenceProtocol(typing.Protocol):
-    """
-    Outbound sequence counter — thread-safe FFI wrapper over the core
-    counter, starting at 0.
-"""
-    
-    def allocate(self, ) -> int:
-        """
-        Assigns the next outbound sequence; on exhaustion (past the JSON-safe
-        wire maximum) `SequenceExhausted` is returned and the counter stays
-        exhausted — sequences never wrap. The caller must close the session.
-"""
-        raise NotImplementedError
-
-class OutboundSequence(OutboundSequenceProtocol):
-    """
-    Outbound sequence counter — thread-safe FFI wrapper over the core
-    counter, starting at 0.
-"""
-    
-    _handle: ctypes.c_uint64
-    def __init__(self, ):
-        """
-        Creates a counter starting at 0 (the first allocate returns 0).
-"""
-        _uniffi_lowered_args = (
-        )
-        _uniffi_lift_return = _UniffiFfiConverterTypeOutboundSequence.lift
-        _uniffi_error_converter = None
-        _uniffi_ffi_result = _uniffi_rust_call_with_error(
-            _uniffi_error_converter,
-            _UniffiLib.uniffi_spoke_connect_fn_constructor_outboundsequence_new,
-            *_uniffi_lowered_args,
-        )
-        self._handle = _uniffi_ffi_result
-
-    def __del__(self):
-        # In case of partial initialization of instances.
-        handle = getattr(self, "_handle", None)
-        if handle is not None:
-            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_outboundsequence, handle)
-
-    def _uniffi_clone_handle(self):
-        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_outboundsequence, self._handle)
-
-    # Used by alternative constructors or any methods which return this type.
-    @classmethod
-    def _uniffi_make_instance(cls, handle):
-        # Lightly yucky way to bypass the usual __init__ logic
-        # and just create a new instance with the required handle.
-        inst = cls.__new__(cls)
-        inst._handle = handle
-        return inst
-    def allocate(self, ) -> int:
-        """
-        Assigns the next outbound sequence; on exhaustion (past the JSON-safe
-        wire maximum) `SequenceExhausted` is returned and the counter stays
-        exhausted — sequences never wrap. The caller must close the session.
-"""
-        _uniffi_lowered_args = (
-            self._uniffi_clone_handle(),
-        )
-        _uniffi_lift_return = _UniffiFfiConverterUInt64.lift
-        _uniffi_error_converter = _UniffiFfiConverterTypeCoreInvokeError
-        _uniffi_ffi_result = _uniffi_rust_call_with_error(
-            _uniffi_error_converter,
-            _UniffiLib.uniffi_spoke_connect_fn_method_outboundsequence_allocate,
-            *_uniffi_lowered_args,
-        )
-        return _uniffi_lift_return(_uniffi_ffi_result)
-
-
-
-
-
-class _UniffiFfiConverterTypeOutboundSequence:
-    @staticmethod
-    def lift(value: int) -> OutboundSequence:
-        return OutboundSequence._uniffi_make_instance(value)
-
-    @staticmethod
-    def check_lower(value: OutboundSequence):
-        if not isinstance(value, OutboundSequence):
-            raise TypeError("Expected OutboundSequence instance, {} found".format(type(value).__name__))
-
-    @staticmethod
-    def lower(value: OutboundSequence) -> ctypes.c_uint64:
-        return value._uniffi_clone_handle()
-
-    @classmethod
-    def read(cls, buf: _UniffiRustBuffer) -> OutboundSequence:
-        ptr = buf.read_u64()
-        if ptr == 0:
-            raise InternalError("Raw handle value was null")
-        return cls.lift(ptr)
-
-    @classmethod
-    def write(cls, value: OutboundSequence, buf: _UniffiRustBuffer):
-        buf.write_u64(cls.lower(value))
-
 class _UniffiFfiConverterSequenceString(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -2609,6 +2541,511 @@ class _UniffiFfiConverterTypeRemoteAdapterFFI:
         buf.write_u64(cls.lower(value))
 
 
+class MultiPeerRouterFfiProtocol(typing.Protocol):
+    
+    def get_host_capability_manifest(self, ) -> str:
+        raise NotImplementedError
+    def get_knowledge_entry(self, entry_id: str) -> str:
+        raise NotImplementedError
+    def get_relation(self, relation_id: str) -> str:
+        raise NotImplementedError
+    def list_knowledge_entries(self, scope_json: str) -> str:
+        raise NotImplementedError
+    def list_peer_host_capability_manifests(self, ) -> str:
+        raise NotImplementedError
+    def list_peers(self, ) -> typing.List[str]:
+        raise NotImplementedError
+    def list_rules(self, rule_refs: typing.List[str]) -> str:
+        raise NotImplementedError
+    def list_timeline_events(self, scope_json: str) -> str:
+        raise NotImplementedError
+    def put_findings(self, findings_json: str) -> str:
+        raise NotImplementedError
+    def put_knowledge_entry(self, entry_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        raise NotImplementedError
+    def put_relation(self, relation_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        raise NotImplementedError
+    def register_peer(self, adapter: RemoteAdapterFfi) -> str:
+        raise NotImplementedError
+    def unregister_peer(self, peer_id: str) -> None:
+        raise NotImplementedError
+
+class MultiPeerRouterFfi(MultiPeerRouterFfiProtocol):
+    
+    _handle: ctypes.c_uint64
+    
+    def __init__(self, *args, **kwargs):
+        raise ValueError("This class has no default constructor")
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_multipeerrouterffi, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_multipeerrouterffi, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def get_host_capability_manifest(self, ) -> str:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_host_capability_manifest,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def get_knowledge_entry(self, entry_id: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(entry_id)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(entry_id),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def get_relation(self, relation_id: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(relation_id)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(relation_id),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_knowledge_entries(self, scope_json: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(scope_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(scope_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_peer_host_capability_manifests(self, ) -> str:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peer_host_capability_manifests,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_peers(self, ) -> typing.List[str]:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterSequenceString.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_peers,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_rules(self, rule_refs: typing.List[str]) -> str:
+        
+        _UniffiFfiConverterSequenceString.check_lower(rule_refs)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterSequenceString.lower(rule_refs),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_rules,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_timeline_events(self, scope_json: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(scope_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(scope_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_list_timeline_events,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def put_findings(self, findings_json: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(findings_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(findings_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_findings,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def put_knowledge_entry(self, entry_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        
+        _UniffiFfiConverterString.check_lower(entry_json)
+
+        _UniffiFfiConverterOptionalUInt64.check_lower(expected_base_revision)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(entry_json),
+            _UniffiFfiConverterOptionalUInt64.lower(expected_base_revision),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_knowledge_entry,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def put_relation(self, relation_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        
+        _UniffiFfiConverterString.check_lower(relation_json)
+
+        _UniffiFfiConverterOptionalUInt64.check_lower(expected_base_revision)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(relation_json),
+            _UniffiFfiConverterOptionalUInt64.lower(expected_base_revision),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_put_relation,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def register_peer(self, adapter: RemoteAdapterFfi) -> str:
+        
+        _UniffiFfiConverterTypeRemoteAdapterFFI.check_lower(adapter)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterTypeRemoteAdapterFFI.lower(adapter),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_register_peer,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def unregister_peer(self, peer_id: str) -> None:
+        
+        _UniffiFfiConverterString.check_lower(peer_id)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(peer_id),
+        )
+        _uniffi_lift_return = lambda val: None
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_unregister_peer,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeMultiPeerRouterFFI:
+    @staticmethod
+    def lift(value: int) -> MultiPeerRouterFfi:
+        return MultiPeerRouterFfi._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: MultiPeerRouterFfi):
+        if not isinstance(value, MultiPeerRouterFfi):
+            raise TypeError("Expected MultiPeerRouterFfi instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: MultiPeerRouterFfi) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> MultiPeerRouterFfi:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: MultiPeerRouterFfi, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
+class _UniffiFfiConverterBoolean:
+    @classmethod
+    def check_lower(cls, value):
+        return not not value
+
+    @classmethod
+    def lower(cls, value):
+        return 1 if value else 0
+
+    @staticmethod
+    def lift(value):
+        return value != 0
+
+    @classmethod
+    def read(cls, buf):
+        return cls.lift(buf.read_u8())
+
+    @classmethod
+    def write(cls, value, buf):
+        buf.write_u8(value)
+
+
+class NonceStoreProtocol(typing.Protocol):
+    """
+    Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
+    the core store.
+"""
+    
+    def check_and_record(self, peer_id: str,nonce: str) -> bool:
+        """
+        Records `(peer_id, nonce)` unless it was already accepted; returns
+        `false` on replay. Call only after the hello passed every earlier
+        gate (allowlist, signature) so a rejected hello is not burned.
+"""
+        raise NotImplementedError
+
+class NonceStore(NonceStoreProtocol):
+    """
+    Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
+    the core store.
+"""
+    
+    _handle: ctypes.c_uint64
+    def __init__(self, ):
+        """
+        Creates an empty store.
+"""
+        _uniffi_lowered_args = (
+        )
+        _uniffi_lift_return = _UniffiFfiConverterTypeNonceStore.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_constructor_noncestore_new,
+            *_uniffi_lowered_args,
+        )
+        self._handle = _uniffi_ffi_result
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_noncestore, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_noncestore, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def check_and_record(self, peer_id: str,nonce: str) -> bool:
+        """
+        Records `(peer_id, nonce)` unless it was already accepted; returns
+        `false` on replay. Call only after the hello passed every earlier
+        gate (allowlist, signature) so a rejected hello is not burned.
+"""
+        
+        _UniffiFfiConverterString.check_lower(peer_id)
+
+        _UniffiFfiConverterString.check_lower(nonce)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(peer_id),
+            _UniffiFfiConverterString.lower(nonce),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterBoolean.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_noncestore_check_and_record,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeNonceStore:
+    @staticmethod
+    def lift(value: int) -> NonceStore:
+        return NonceStore._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: NonceStore):
+        if not isinstance(value, NonceStore):
+            raise TypeError("Expected NonceStore instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: NonceStore) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> NonceStore:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: NonceStore, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
+
+class OutboundSequenceProtocol(typing.Protocol):
+    """
+    Outbound sequence counter — thread-safe FFI wrapper over the core
+    counter, starting at 0.
+"""
+    
+    def allocate(self, ) -> int:
+        """
+        Assigns the next outbound sequence; on exhaustion (past the JSON-safe
+        wire maximum) `SequenceExhausted` is returned and the counter stays
+        exhausted — sequences never wrap. The caller must close the session.
+"""
+        raise NotImplementedError
+
+class OutboundSequence(OutboundSequenceProtocol):
+    """
+    Outbound sequence counter — thread-safe FFI wrapper over the core
+    counter, starting at 0.
+"""
+    
+    _handle: ctypes.c_uint64
+    def __init__(self, ):
+        """
+        Creates a counter starting at 0 (the first allocate returns 0).
+"""
+        _uniffi_lowered_args = (
+        )
+        _uniffi_lift_return = _UniffiFfiConverterTypeOutboundSequence.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_constructor_outboundsequence_new,
+            *_uniffi_lowered_args,
+        )
+        self._handle = _uniffi_ffi_result
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_outboundsequence, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_outboundsequence, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def allocate(self, ) -> int:
+        """
+        Assigns the next outbound sequence; on exhaustion (past the JSON-safe
+        wire maximum) `SequenceExhausted` is returned and the counter stays
+        exhausted — sequences never wrap. The caller must close the session.
+"""
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterUInt64.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeCoreInvokeError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_outboundsequence_allocate,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeOutboundSequence:
+    @staticmethod
+    def lift(value: int) -> OutboundSequence:
+        return OutboundSequence._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: OutboundSequence):
+        if not isinstance(value, OutboundSequence):
+            raise TypeError("Expected OutboundSequence instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: OutboundSequence) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> OutboundSequence:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: OutboundSequence, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
+
 
 
 class Transport(typing.Protocol):
@@ -2866,6 +3303,17 @@ def loopback_transport_pair() -> LoopbackTransportPair:
         *_uniffi_lowered_args,
     )
     return _uniffi_lift_return(_uniffi_ffi_result)
+def new_multi_peer_router_ffi() -> MultiPeerRouterFfi:
+    _uniffi_lowered_args = (
+    )
+    _uniffi_lift_return = _UniffiFfiConverterTypeMultiPeerRouterFFI.lift
+    _uniffi_error_converter = None
+    _uniffi_ffi_result = _uniffi_rust_call_with_error(
+        _uniffi_error_converter,
+        _UniffiLib.uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi,
+        *_uniffi_lowered_args,
+    )
+    return _uniffi_lift_return(_uniffi_ffi_result)
 def protocol_version() -> int:
     """
     The connect protocol version exchanged in `ConnectHello` (protocol
@@ -2968,6 +3416,7 @@ __all__ = [
     "dispatch_allowed",
     "is_allowlisted",
     "loopback_transport_pair",
+    "new_multi_peer_router_ffi",
     "protocol_version",
     "required_capability",
     "sign_hello_ed25519",
@@ -2978,11 +3427,13 @@ __all__ = [
     "LoopbackTransportProtocol",
     "LoopbackTransportPair",
     "LoopbackTransportPairProtocol",
+    "RemoteAdapterFfi",
+    "RemoteAdapterFfiProtocol",
+    "MultiPeerRouterFfi",
+    "MultiPeerRouterFfiProtocol",
     "NonceStore",
     "NonceStoreProtocol",
     "OutboundSequence",
     "OutboundSequenceProtocol",
-    "RemoteAdapterFfi",
-    "RemoteAdapterFfiProtocol",
     "Transport",
 ]

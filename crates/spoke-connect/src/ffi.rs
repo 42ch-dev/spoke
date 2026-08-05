@@ -286,6 +286,13 @@ mod remote_adapter_ffi {
     use super::foreign_transport::Transport as FfiTransport;
     use super::ffi_runtime;
 
+    /// FFI error surface — 1:1 with frozen-contract D7 (AR-5).
+    ///
+    /// - [`FfiError::Dial`] — constructor / dial failures before an adapter
+    ///   exists (`config` / `handshake` / `timeout`).
+    /// - [`FfiError::Rejected`] — invoke-path `SpokeResult::Reject` passthrough:
+    ///   application codes preserved; `INTERNAL_ERROR` rows carry `kind`;
+    ///   dispatch deny and unknown wire codes carry `wire_code`.
     #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
     pub enum FfiError {
         #[error("dial failed ({kind}): {message}")]
@@ -299,6 +306,7 @@ mod remote_adapter_ffi {
         },
     }
 
+    /// Map [`RemoteAdapterError`] (dial-only) to [`FfiError::Dial`] (D7 last row).
     fn map_dial_error(error: RemoteAdapterError) -> FfiError {
         match error {
             RemoteAdapterError::Config(message) => FfiError::Dial {
@@ -324,6 +332,8 @@ mod remote_adapter_ffi {
             .map(str::to_owned)
     }
 
+    /// Map invoke-path `SpokeReject` to [`FfiError::Rejected`] — faithful D7
+    /// passthrough (AR-5): no invented, merged, or dropped error classes.
     fn map_spoke_reject(reject: SpokeReject) -> FfiError {
         FfiError::Rejected {
             code: reject.code.as_str().to_string(),
@@ -498,6 +508,123 @@ mod remote_adapter_ffi {
             }))
             .map_err(map_dial_error)?;
         Ok(Arc::new(RemoteAdapterFFI { inner: adapter }))
+    }
+
+
+    #[cfg(test)]
+    mod ffi_error_mapping_unit_tests {
+        use serde_json::json;
+        use spoke_operations::{SpokeReject, SpokeRejectCode};
+
+        use super::{map_dial_error, map_spoke_reject, FfiError};
+        use crate::remote::RemoteAdapterError;
+
+        #[test]
+        fn maps_dial_errors_to_ffi_dial_kinds() {
+            for (error, kind) in [
+                (
+                    RemoteAdapterError::Config("bad config".into()),
+                    "config",
+                ),
+                (
+                    RemoteAdapterError::Handshake("bad hello".into()),
+                    "handshake",
+                ),
+                (
+                    RemoteAdapterError::Timeout("connect: hello timed out".into()),
+                    "timeout",
+                ),
+            ] {
+                let ffi = map_dial_error(error);
+                assert!(matches!(ffi, FfiError::Dial { kind: k, .. } if k == kind));
+            }
+        }
+
+        #[test]
+        fn maps_internal_error_kinds_verbatim() {
+            for kind in [
+                "transport",
+                "session_closed",
+                "timeout",
+                "correlation_mismatch",
+                "sequence_exhausted",
+                "envelope_auth_missing",
+                "envelope_auth_invalid",
+                "envelope_auth_session_unbound",
+            ] {
+                let reject = SpokeReject {
+                    code: SpokeRejectCode::InternalError,
+                    message: format!("{kind} failure"),
+                    details: Some(json!({ "kind": kind }).as_object().unwrap().clone()),
+                };
+                let ffi = map_spoke_reject(reject);
+                assert!(matches!(
+                    ffi,
+                    FfiError::Rejected {
+                        code,
+                        kind: Some(k),
+                        wire_code: None,
+                        ..
+                    } if code == "INTERNAL_ERROR" && k == kind
+                ));
+            }
+        }
+
+        #[test]
+        fn maps_application_reject_without_kind_or_wire_code() {
+            let reject = SpokeReject {
+                code: SpokeRejectCode::RevisionConflict,
+                message: "revision mismatch".into(),
+                details: None,
+            };
+            let ffi = map_spoke_reject(reject);
+            assert!(matches!(
+                ffi,
+                FfiError::Rejected {
+                    code,
+                    kind: None,
+                    wire_code: None,
+                    ..
+                } if code == "REVISION_CONFLICT"
+            ));
+        }
+
+        #[test]
+        fn maps_dispatch_deny_with_wire_code() {
+            let reject = SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message: "op denied".into(),
+                details: Some(json!({ "wire_code": "op_unsupported" }).as_object().unwrap().clone()),
+            };
+            let ffi = map_spoke_reject(reject);
+            assert!(matches!(
+                ffi,
+                FfiError::Rejected {
+                    code,
+                    kind: None,
+                    wire_code: Some(wire),
+                    ..
+                } if code == "CAPABILITY_PORT_MISSING" && wire == "op_unsupported"
+            ));
+        }
+
+        #[test]
+        fn maps_unknown_wire_code_to_invalid_input() {
+            let reject = SpokeReject {
+                code: SpokeRejectCode::InvalidInput,
+                message: "unknown host code".into(),
+                details: Some(json!({ "wire_code": "totally_unknown" }).as_object().unwrap().clone()),
+            };
+            let ffi = map_spoke_reject(reject);
+            assert!(matches!(
+                ffi,
+                FfiError::Rejected {
+                    code,
+                    wire_code: Some(wire),
+                    ..
+                } if code == "INVALID_INPUT" && wire == "totally_unknown"
+            ));
+        }
     }
 
     #[cfg(test)]
@@ -1459,6 +1586,664 @@ mod remote_adapter_ffi_tests {
             handle.join().expect("thread join");
         }
         host.close();
+    }
+
+    // ── D7 parity gate: async adapter ↔ FFI error surface (AR-5) ───────────
+
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+    use serde_json::Value;
+    use spoke_operations::{KnowledgeEntryPort, SpokeReject, SpokeRejectCode, SpokeResult};
+
+    use crate::remote::{
+        connect_remote_adapter, loopback_transport_pair, RemoteAdapterError, RemoteAdapterOptions,
+        RemoteIdentity,
+    };
+    use crate::test_support::loopback_oracle::LoopbackHost;
+
+    struct AsyncCallbackTransport {
+        inner: Arc<dyn RemoteAsyncTransport>,
+    }
+
+    impl Transport for AsyncCallbackTransport {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    struct TamperCallbackTransport {
+        inner: Arc<dyn RemoteAsyncTransport>,
+        outbound: Option<Arc<dyn Fn(Value) -> Option<Value> + Send + Sync>>,
+    }
+
+    #[async_trait]
+    impl RemoteAsyncTransport for TamperCallbackTransport {
+        async fn send(&self, envelope: &[u8]) -> Result<(), crate::remote::transport::TransportError> {
+            let Some(mutate) = self.outbound.as_ref() else {
+                return self.inner.send(envelope).await;
+            };
+            let doc: Value = serde_json::from_slice(envelope)
+                .map_err(|_| crate::remote::transport::TransportError::Closed)?;
+            match mutate(doc) {
+                Some(mutated) => {
+                    let bytes = serde_json::to_vec(&mutated)
+                        .map_err(|_| crate::remote::transport::TransportError::Closed)?;
+                    self.inner.send(&bytes).await
+                }
+                None => self.inner.send(envelope).await,
+            }
+        }
+
+        async fn recv(&self) -> Result<Vec<u8>, crate::remote::transport::TransportError> {
+            self.inner.recv().await
+        }
+
+        async fn close(&self) -> Result<(), crate::remote::transport::TransportError> {
+            self.inner.close().await
+        }
+    }
+
+    struct FailSendAfter {
+        inner: Arc<dyn RemoteAsyncTransport>,
+        count: AtomicUsize,
+        fail_after: usize,
+    }
+
+    #[async_trait]
+    impl RemoteAsyncTransport for FailSendAfter {
+        async fn send(&self, envelope: &[u8]) -> Result<(), crate::remote::transport::TransportError> {
+            let n = self.count.fetch_add(1, Ordering::SeqCst);
+            if n >= self.fail_after {
+                return Err(crate::remote::transport::TransportError::Io(
+                    "injected transport send failure".into(),
+                ));
+            }
+            self.inner.send(envelope).await
+        }
+
+        async fn recv(&self) -> Result<Vec<u8>, crate::remote::transport::TransportError> {
+            self.inner.recv().await
+        }
+
+        async fn close(&self) -> Result<(), crate::remote::transport::TransportError> {
+            self.inner.close().await
+        }
+    }
+
+    struct HangingRecvTransport;
+
+    impl Transport for HangingRecvTransport {
+        fn send(&self, _envelope: Vec<u8>) -> Result<(), TransportError> {
+            Ok(())
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            std::thread::park();
+            unreachable!("parked recv should not return")
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            Ok(())
+        }
+    }
+
+    struct HangingAsyncRecvTransport;
+
+    #[async_trait]
+    impl RemoteAsyncTransport for HangingAsyncRecvTransport {
+        async fn send(&self, _envelope: &[u8]) -> Result<(), crate::remote::transport::TransportError> {
+            Ok(())
+        }
+
+        async fn recv(&self) -> Result<Vec<u8>, crate::remote::transport::TransportError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), crate::remote::transport::TransportError> {
+            Ok(())
+        }
+    }
+
+    fn reject_kind(result: &SpokeResult<KnowledgeEntry>) -> Option<&str> {
+        match result {
+            SpokeResult::Reject(reject) => reject
+                .details
+                .as_ref()
+                .and_then(|details| details.get("kind"))
+                .and_then(Value::as_str),
+            SpokeResult::Ok(_) => None,
+        }
+    }
+
+    fn reject_wire_code(result: &SpokeResult<KnowledgeEntry>) -> Option<&str> {
+        match result {
+            SpokeResult::Reject(reject) => reject
+                .details
+                .as_ref()
+                .and_then(|details| details.get("wire_code"))
+                .and_then(Value::as_str),
+            SpokeResult::Ok(_) => None,
+        }
+    }
+
+    fn assert_ffi_matches_spoke_reject(ffi_err: FfiError, reject: &SpokeReject) {
+        match ffi_err {
+            FfiError::Rejected {
+                code,
+                kind,
+                wire_code,
+                ..
+            } => {
+                assert_eq!(code, reject.code.as_str());
+                let expected_kind = reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("kind"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let expected_wire = reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                assert_eq!(kind, expected_kind);
+                assert_eq!(wire_code, expected_wire);
+            }
+            other => panic!("expected Rejected, got {other:?}"),
+        }
+    }
+
+    fn parity_on_same_adapter<F>(options: DialOptions, invoke: F)
+    where
+        F: FnOnce(
+            Arc<crate::remote::RemoteAdapter>,
+            Arc<RemoteAdapterFFI>,
+        ) -> (SpokeResult<KnowledgeEntry>, FfiError),
+    {
+        let (client, host) = ffi_runtime().block_on(async {
+            dial(ToyWorldAdapter::with_committed_fixtures(), options).await
+        });
+        let ffi = RemoteAdapterFFI::from_adapter(Arc::clone(&client));
+        let (async_result, ffi_err) = invoke(client, ffi);
+        match &async_result {
+            SpokeResult::Reject(reject) => assert_ffi_matches_spoke_reject(ffi_err, reject),
+            SpokeResult::Ok(_) => panic!("async invoke must reject: {async_result:?}"),
+        }
+        host.close();
+    }
+
+    fn dial_ffi_with(options: DialOptions) -> (Arc<RemoteAdapterFFI>, LoopbackHost) {
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let pair = loopback_transport_pair();
+        let (client, host) = ffi_runtime().block_on(async {
+            let host = start_loopback_host(LoopbackHostOptions {
+                transport: Arc::new(pair.server),
+                host_seed: seed_host(),
+                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                allowlist: options
+                    .host_allowlist
+                    .clone()
+                    .unwrap_or_else(|| vec![peer_id_client.clone()]),
+                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                delay: options
+                    .host_delay
+                    .unwrap_or_else(|| Box::new(|_| 0)),
+                response_override: options.host_response_override,
+                session_peer_ids: None,
+            })
+            .await;
+            let client = match options.client_transport {
+                Some(wrap) => wrap(Arc::new(pair.client)),
+                None => Arc::new(pair.client) as Arc<dyn RemoteAsyncTransport>,
+            };
+            (client, host)
+        });
+        let callback = Box::new(AsyncCallbackTransport { inner: client });
+        let manifest_json = serde_json::to_string(
+            &options
+                .client_manifest
+                .unwrap_or_else(|| manifest("test-client", &["spoke-baseline"])),
+        )
+        .expect("manifest");
+        let ffi = connect_remote_adapter_ffi(
+            callback,
+            seed_client().to_vec(),
+            manifest_json,
+            pubkey_host().to_vec(),
+            options
+                .allowlist
+                .unwrap_or_else(|| vec![peer_id_host.clone()]),
+            options.invoke_timeout_ms,
+        )
+        .expect("ffi dial");
+        (ffi, host)
+    }
+
+    #[test]
+    fn ffi_error_parity_invoke_timeout() {
+        let delay_ms = Arc::new(AtomicUsize::new(100));
+        let delay_flag = Arc::clone(&delay_ms);
+        parity_on_same_adapter(
+            DialOptions {
+                invoke_timeout_ms: Some(20),
+                host_delay: Some(Box::new(move |_| delay_flag.load(Ordering::Relaxed) as u64)),
+                ..Default::default()
+            },
+            |client, ffi| {
+                let async_result = ffi_runtime()
+                    .block_on(client.get_knowledge_entry("kb_tw_mira"));
+                let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+                    Err(err) => err,
+                    Ok(_) => panic!("ffi invoke must reject"),
+                };
+                assert_eq!(reject_kind(&async_result), Some("timeout"));
+                (async_result, ffi_err)
+            },
+        );
+    }
+
+    #[test]
+    fn ffi_error_parity_session_closed_mid_flight() {
+        parity_on_same_adapter(
+            DialOptions {
+                host_delay: Some(Box::new(|_| 100)),
+                ..Default::default()
+            },
+            |client, ffi| {
+                let async_pending = client.get_knowledge_entry("kb_tw_mira");
+                ffi_runtime().block_on(async {
+                    tokio::task::yield_now().await;
+                });
+                client.close();
+                let async_result = ffi_runtime().block_on(async_pending);
+                let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+                    Err(err) => err,
+                    Ok(_) => panic!("ffi invoke must reject"),
+                };
+                (async_result, ffi_err)
+            },
+        );
+        // Covered by `parity_on_same_adapter` assert + session_closed D7 row in unit tests.
+    }
+
+    #[test]
+    fn ffi_error_parity_transport_io_on_invoke() {
+        let fail_send = || {
+            Box::new(|client_end: Arc<dyn RemoteAsyncTransport>| {
+                Arc::new(FailSendAfter {
+                    inner: client_end,
+                    count: AtomicUsize::new(0),
+                    fail_after: 1,
+                }) as Arc<dyn RemoteAsyncTransport>
+            }) as Box<dyn Fn(Arc<dyn RemoteAsyncTransport>) -> Arc<dyn RemoteAsyncTransport> + Send + Sync>
+        };
+        let (async_result, host) = ffi_runtime().block_on(async {
+            let (client, host) = dial(
+                ToyWorldAdapter::with_committed_fixtures(),
+                DialOptions {
+                    client_transport: Some(fail_send()),
+                    ..Default::default()
+                },
+            ).await;
+            let result = client.get_knowledge_entry("kb_tw_mira").await;
+            (result, host)
+        });
+        let (ffi, host2) = dial_ffi_with(DialOptions {
+            client_transport: Some(fail_send()),
+            ..Default::default()
+        });
+        let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+            Err(err) => err,
+            Ok(_) => panic!("ffi invoke must reject"),
+        };
+        match &async_result {
+            SpokeResult::Reject(reject) => assert_ffi_matches_spoke_reject(ffi_err, reject),
+            SpokeResult::Ok(_) => panic!("async invoke must reject"),
+        }
+        assert_eq!(reject_kind(&async_result), Some("transport"));
+        host.close();
+        host2.close();
+    }
+
+    #[test]
+    fn ffi_error_parity_correlation_mismatch() {
+        let mangled_async = Arc::new(AtomicBool::new(true));
+        let mangled_async_flag = Arc::clone(&mangled_async);
+        let mangled_ffi = Arc::new(AtomicBool::new(true));
+        let mangled_ffi_flag = Arc::clone(&mangled_ffi);
+        let override_box = |flag: Arc<AtomicBool>| {
+            Box::new(move |request: &spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest| {
+                if !flag.swap(false, Ordering::SeqCst) {
+                    return None;
+                }
+                Some(json!({
+                    "session_id": request.session_id,
+                    "sequence": request.sequence + 1,
+                    "request_id": request.request_id,
+                    "payload": {},
+                    "extensions": {},
+                }))
+            })
+        };
+        let (async_result, host) = ffi_runtime().block_on(async {
+            let (client, host) = dial(
+                ToyWorldAdapter::with_committed_fixtures(),
+                DialOptions {
+                    host_response_override: Some(override_box(mangled_async_flag)),
+                    ..Default::default()
+                },
+            )
+            .await;
+            let result = client.get_knowledge_entry("kb_tw_mira").await;
+            (result, host)
+        });
+        let (ffi, host2) = dial_ffi_with(DialOptions {
+            host_response_override: Some(override_box(mangled_ffi_flag)),
+            ..Default::default()
+        });
+        let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+            Err(err) => err,
+            Ok(value) => panic!("ffi invoke must reject, got {value}"),
+        };
+        match &async_result {
+            SpokeResult::Reject(reject) => assert_ffi_matches_spoke_reject(ffi_err, reject),
+            SpokeResult::Ok(_) => panic!("async invoke must reject"),
+        }
+        assert_eq!(reject_kind(&async_result), Some("correlation_mismatch"));
+        host.close();
+        host2.close();
+    }
+
+    #[test]
+    fn ffi_error_parity_dispatch_deny_op_unsupported() {
+        let no_baseline = manifest("test-client", &["l2-computable"]);
+        parity_on_same_adapter(
+            DialOptions {
+                client_manifest: Some(no_baseline),
+                ..Default::default()
+            },
+            |client, ffi| {
+                let async_result = ffi_runtime()
+                    .block_on(client.get_knowledge_entry("kb_tw_mira"));
+                let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+                    Err(err) => err,
+                    Ok(_) => panic!("ffi invoke must reject"),
+                };
+                assert_eq!(reject_wire_code(&async_result), Some("op_unsupported"));
+                (async_result, ffi_err)
+            },
+        );
+    }
+
+    #[test]
+    fn ffi_error_parity_envelope_auth_missing() {
+        let strip_signature = || {
+            let stripped = Arc::new(AtomicBool::new(false));
+            let stripped_flag = Arc::clone(&stripped);
+            (
+                stripped,
+                Box::new(move |client_end: Arc<dyn RemoteAsyncTransport>| {
+                    let stripped_flag = Arc::clone(&stripped_flag);
+                    Arc::new(TamperCallbackTransport {
+                        inner: client_end,
+                        outbound: Some(Arc::new(move |doc| {
+                            if doc.get("op").is_some() && !stripped_flag.swap(true, Ordering::SeqCst) {
+                                let mut doc = doc;
+                                if let Some(object) = doc.as_object_mut() {
+                                    object.remove("signature");
+                                }
+                                return Some(doc);
+                            }
+                            None
+                        })),
+                    }) as Arc<dyn RemoteAsyncTransport>
+                }) as Box<dyn Fn(Arc<dyn RemoteAsyncTransport>) -> Arc<dyn RemoteAsyncTransport> + Send + Sync>,
+            )
+        };
+        let (stripped_async, transport_async) = strip_signature();
+        let (stripped_ffi, transport_ffi) = strip_signature();
+        let _ = (stripped_async, stripped_ffi);
+        let (async_result, host) = ffi_runtime().block_on(async {
+            let (client, host) = dial(
+                ToyWorldAdapter::with_committed_fixtures(),
+                DialOptions {
+                    client_transport: Some(transport_async),
+                    ..Default::default()
+                },
+            ).await;
+            let result = client.get_knowledge_entry("kb_tw_mira").await;
+            (result, host)
+        });
+        let (ffi, host2) = dial_ffi_with(DialOptions {
+            client_transport: Some(transport_ffi),
+            ..Default::default()
+        });
+        let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+            Err(err) => err,
+            Ok(_) => panic!("ffi invoke must reject"),
+        };
+        match &async_result {
+            SpokeResult::Reject(reject) => assert_ffi_matches_spoke_reject(ffi_err, reject),
+            SpokeResult::Ok(_) => panic!("async invoke must reject"),
+        }
+        assert_eq!(reject_kind(&async_result), Some("envelope_auth_missing"));
+        host.close();
+        host2.close();
+    }
+
+    #[test]
+    fn ffi_error_parity_envelope_auth_invalid() {
+        let tamper_payload = || {
+            let tampered = Arc::new(AtomicBool::new(false));
+            let tampered_flag = Arc::clone(&tampered);
+            (
+                tampered,
+                Box::new(move |client_end: Arc<dyn RemoteAsyncTransport>| {
+                    let tampered_flag = Arc::clone(&tampered_flag);
+                    Arc::new(TamperCallbackTransport {
+                        inner: client_end,
+                        outbound: Some(Arc::new(move |doc| {
+                            if doc.get("op").is_some() && !tampered_flag.swap(true, Ordering::SeqCst) {
+                                let mut doc = doc;
+                                doc["payload"]["tampered"] = json!(true);
+                                return Some(doc);
+                            }
+                            None
+                        })),
+                    }) as Arc<dyn RemoteAsyncTransport>
+                }) as Box<dyn Fn(Arc<dyn RemoteAsyncTransport>) -> Arc<dyn RemoteAsyncTransport> + Send + Sync>,
+            )
+        };
+        let (tampered_async, transport_async) = tamper_payload();
+        let (tampered_ffi, transport_ffi) = tamper_payload();
+        let _ = (tampered_async, tampered_ffi);
+        let (async_result, host) = ffi_runtime().block_on(async {
+            let (client, host) = dial(
+                ToyWorldAdapter::with_committed_fixtures(),
+                DialOptions {
+                    client_transport: Some(transport_async),
+                    ..Default::default()
+                },
+            ).await;
+            let result = client.get_knowledge_entry("kb_tw_mira").await;
+            (result, host)
+        });
+        let (ffi, host2) = dial_ffi_with(DialOptions {
+            client_transport: Some(transport_ffi),
+            ..Default::default()
+        });
+        let ffi_err = match ffi.get_knowledge_entry("kb_tw_mira".to_string()) {
+            Err(err) => err,
+            Ok(_) => panic!("ffi invoke must reject"),
+        };
+        match &async_result {
+            SpokeResult::Reject(reject) => assert_ffi_matches_spoke_reject(ffi_err, reject),
+            SpokeResult::Ok(_) => panic!("async invoke must reject"),
+        }
+        assert_eq!(reject_kind(&async_result), Some("envelope_auth_invalid"));
+        host.close();
+        host2.close();
+    }
+
+    #[test]
+    fn ffi_error_parity_application_revision_conflict() {
+        // `kb_tw_mira` is already present in committed fixtures; create-without-revision must reject.
+        let duplicate = fresh_entry("kb_tw_mira", "Duplicate Mira");
+        let duplicate_json = serde_json::to_string(&duplicate).expect("entry json");
+        parity_on_same_adapter(DialOptions::default(), |client, ffi| {
+            let async_result = ffi_runtime()
+                .block_on(client.put_knowledge_entry(duplicate.clone(), None));
+            let ffi_err = match ffi.put_knowledge_entry(duplicate_json, None) {
+                Err(err) => err,
+                Ok(_) => panic!("ffi invoke must reject"),
+            };
+            assert!(matches!(
+                &async_result,
+                SpokeResult::Reject(reject) if reject.code == SpokeRejectCode::RevisionConflict
+            ));
+            (async_result, ffi_err)
+        });
+    }
+
+    #[test]
+    fn ffi_error_parity_application_knowledge_entry_not_found() {
+        parity_on_same_adapter(DialOptions::default(), |client, ffi| {
+            let async_result = ffi_runtime()
+                .block_on(client.get_knowledge_entry("kb_ffi_missing_entry"));
+            let ffi_err = match ffi.get_knowledge_entry("kb_ffi_missing_entry".to_string()) {
+                Err(err) => err,
+                Ok(value) => panic!("ffi invoke must reject, got {value}"),
+            };
+            assert!(matches!(
+                &async_result,
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::KnowledgeEntryNotFound
+            ));
+            (async_result, ffi_err)
+        });
+    }
+
+    #[test]
+    fn ffi_error_parity_dial_handshake_when_host_rejects_hello() {
+        let other_peer = derive_peer_id_from_ed25519_pubkey(&[0x20u8; 32]);
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+        let async_err = ffi_runtime().block_on(async {
+            let pair = loopback_transport_pair();
+            let host = start_loopback_host(LoopbackHostOptions {
+                transport: Arc::new(pair.server),
+                host_seed: seed_host(),
+                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                allowlist: vec![other_peer.clone()],
+                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                delay: Box::new(|_| 0),
+                response_override: None,
+                session_peer_ids: None,
+            })
+            .await;
+            let err = match connect_remote_adapter(RemoteAdapterOptions {
+                transport: Arc::new(pair.client),
+                local_identity: RemoteIdentity {
+                    seed: seed_client(),
+                },
+                local_manifest: manifest("test-client", &["spoke-baseline"]),
+                remote_pubkey: pubkey_host(),
+                allowlist: vec![peer_id_host.clone()],
+                invoke_timeout_ms: Some(2000),
+                capability_token: None,
+            })
+            .await
+            {
+                Err(error) => error,
+                Ok(_) => panic!("async dial must fail handshake"),
+            };
+            host.close();
+            err
+        });
+        let pair = loopback_transport_pair();
+        let host = ffi_runtime().block_on(async {
+            start_loopback_host(LoopbackHostOptions {
+                transport: Arc::new(pair.server),
+                host_seed: seed_host(),
+                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                allowlist: vec![other_peer],
+                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                delay: Box::new(|_| 0),
+                response_override: None,
+                session_peer_ids: None,
+            })
+            .await
+        });
+        let ffi_err = match connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.client,
+            }),
+            seed_client().to_vec(),
+            serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            Some(2000),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("ffi dial must fail handshake"),
+        };
+        assert!(matches!(async_err, RemoteAdapterError::Handshake(_)));
+        assert!(matches!(ffi_err, FfiError::Dial { kind, .. } if kind == "handshake"));
+        host.close();
+    }
+
+    #[test]
+    fn ffi_error_parity_dial_timeout_on_never_responding_server() {
+        let async_err = ffi_runtime().block_on(async {
+            match connect_remote_adapter(RemoteAdapterOptions {
+                transport: Arc::new(HangingAsyncRecvTransport),
+                local_identity: RemoteIdentity {
+                    seed: seed_client(),
+                },
+                local_manifest: manifest("test-client", &["spoke-baseline"]),
+                remote_pubkey: pubkey_host(),
+                allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+                invoke_timeout_ms: Some(50),
+                capability_token: None,
+            })
+            .await
+            {
+                Err(error) => error,
+                Ok(_) => panic!("async dial must timeout"),
+            }
+        });
+        let ffi_err = match connect_remote_adapter_ffi(
+            Box::new(HangingRecvTransport),
+            seed_client().to_vec(),
+            serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
+            pubkey_host().to_vec(),
+            vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+            Some(50),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("ffi dial must timeout"),
+        };
+        assert!(matches!(async_err, RemoteAdapterError::Timeout(_)));
+        assert!(matches!(ffi_err, FfiError::Dial { kind, .. } if kind == "timeout"));
     }
 
     #[test]

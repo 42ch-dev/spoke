@@ -43,7 +43,7 @@ Namespace: **`uniffi.spoke_connect`**. Transport / WebSocket stays in the host p
 | Path | Contents |
 |------|----------|
 | `generated/uniffi/spoke_connect/` | Committed generated Kotlin (post-generate patch applied) |
-| `bindgen/` | Post-generate patch recipe (`message` → `detail` on four `CoreException` variants) |
+| `bindgen/` | Post-generate patch recipe — see `bindgen/README.md` (`CoreException`/`FfiException` `message`→`detail`, domain `close()` collision on loopback types) |
 | `native/<jna-rid>/` | Committed host native for smoke; jar also packs CI-assembled `src/main/resources/` |
 | `src/main/resources/<jna-rid>/` | CI-assembled JNA classpath natives (gitignored; see `assemble-kotlin-natives.sh`) |
 | `Smoke/` | Golden-parity smoke (`gradle test`) |

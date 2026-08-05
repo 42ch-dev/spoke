@@ -495,7 +495,7 @@ jobs:
           workspaces: .
 
       - name: Build spoke-connect FFI (release)
-        run: cargo build -p spoke-connect --features ffi --release
+        run: cargo build -p spoke-connect --features ffi,remote-adapter --release
 
       - name: Stage RID native
         shell: bash

@@ -109,7 +109,7 @@ spoke-connect depends on spoke-operations for port and result types used by Remo
 
 ### D10 — Per-envelope authentication enforcement (protocol_version 2)
 
-RemoteAdapter runs connect at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope (normative field sets, canonicalization, and verify rules: [`spoke-connect.md`](spoke-connect.md) §[Envelope authentication (protocol_version 2)](spoke-connect.md#envelope-authentication-protocol_version-2)):
+RemoteAdapter enforces envelope-authentication (protocol_version 2 post-hello rules) on every post-hello envelope it emits or accepts, while the hello exchange remains at the core `PROTOCOL_VERSION` until a dedicated hello bump (normative field sets, canonicalization, and verify rules: [`spoke-connect.md`](spoke-connect.md) §[Envelope authentication (protocol_version 2)](spoke-connect.md#envelope-authentication-protocol_version-2)):
 
 - **Establish:** the dial verifies the responder hello (`peer_nonce` dial-binding assert) and then the responder's `ConnectSession` snapshot with `spoke-connect-session-jcs-v1` against the responder's hello Ed25519 public key — wire form, before typed deserialization — including the step-6 peer-id binding (`initiator_peer_id` / `responder_peer_id` equal the authenticated hello peer ids). A snapshot that fails verification fails the dial; no adapter instance is created.
 - **Invoke — outbound:** every `ConnectInvokeRequest` carries a `spoke-connect-invoke-request-jcs-v1` signature over `{session_id, sequence, request_id, op, payload}` (plus `auth` when attached), computed with the adapter's hello-identity seed. The pending waiter registers synchronously before signing, and sends serialize in allocation order.

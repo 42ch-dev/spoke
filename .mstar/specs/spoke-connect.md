@@ -597,7 +597,7 @@ No new FFI APIs. Envelope-auth `authenticate*` / `verify*` helpers are module-in
 
 ### Enforcement (shipped)
 
-The TS RemoteAdapter (`./remote` subpath) and connect-client, and the Rust RemoteAdapter (`remote-adapter` cargo feature), run at `protocol_version: 2` and enforce the verify rules above on every post-hello envelope they emit or accept:
+The TS RemoteAdapter (`./remote` subpath) and connect-client, and the Rust RemoteAdapter (`remote-adapter` cargo feature), enforce envelope-authentication (protocol_version 2 post-hello rules) on every post-hello envelope they emit or accept, while the hello exchange remains at the core `PROTOCOL_VERSION` until a dedicated hello bump:
 
 - **Emission:** every outbound `ConnectInvokeRequest` (RemoteAdapter, connect-client, node session path) and every inbound-answer `ConnectInvokeResponse` (node event loop) attaches the required `signature` via the core `authenticate_invoke_request` / `authenticate_invoke_response` helpers; host-side test doubles (`loopback-host.ts`, Rust loopback host) sign their `ConnectSession` snapshots and responses with the same helpers.
 - **Receipt:** the RemoteAdapter (TS + Rust) and the TS connect-client verify the `ConnectSession` snapshot at establish (`verify_session_auth`, peer-id binding) and every correlated `ConnectInvokeResponse` (`verify_invoke_response_auth`, after the correlation echo check); hosts (node event loop, loopback doubles) verify every inbound `ConnectInvokeRequest` before dispatch (`verify_invoke_request_auth`, auth-before-advance). Rejections carry the locked `details.kind` and leave session state untouched.

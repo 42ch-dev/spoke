@@ -345,6 +345,16 @@ pub struct RemoteAdapter {
     /// `spoke-connect-invoke-response-jcs-v1`; envelope-auth contract §7).
     remote_pubkey: [u8; 32],
 
+    /// Outbound send serialization lock (contract §5.3 / §10 — allocation
+    /// order MUST equal wire order; the peer's inbound gate rejects an
+    /// out-of-order request with `inbound_sequence_mismatch`). Acquired in
+    /// `invoke_op` before the outbound sequence allocation and held through
+    /// `transport.send().await`, so concurrent invokes reach the wire in
+    /// exactly the order they allocated. Mirror of the TS adapter's
+    /// `#sendTail` promise chain (whose tail entry is created synchronously
+    /// before the async Ed25519 sign).
+    send_lock: tokio::sync::Mutex<()>,
+
     state: Mutex<RemoteAdapterState>,
     session: Mutex<Option<EstablishedSession>>,
     remote_manifest: Mutex<Option<HostCapabilityManifest>>,
@@ -364,6 +374,7 @@ impl RemoteAdapter {
             invoke_timeout,
             capability_token,
             remote_pubkey,
+            send_lock: tokio::sync::Mutex::new(()),
             state: Mutex::new(RemoteAdapterState::Disconnected),
             session: Mutex::new(None),
             remote_manifest: Mutex::new(None),
@@ -548,6 +559,13 @@ impl RemoteAdapter {
                     )
                 })
                 .and_then(|()| {
+                    // Envelope-auth verify (contract §7). The three wire
+                    // rejections map to their locked `details.kind`; the
+                    // local `Crypto` case (`kind()` is `None` — wrong-length
+                    // / invalid key bytes) is still a verification failure
+                    // of the response's authenticator and surfaces as
+                    // `envelope_auth_invalid` — never mislabeled as a
+                    // correlation mismatch.
                     crate::core::verify_invoke_response_auth(&self.remote_pubkey, &doc, &session_id)
                         .map_err(|error| match error.kind() {
                             Some(kind) => RemoteError::new(
@@ -555,8 +573,8 @@ impl RemoteAdapter {
                                 error.to_string(),
                             ),
                             None => RemoteError::new(
-                                RemoteErrorKind::CorrelationMismatch,
-                                "response echo fields do not match the request",
+                                RemoteErrorKind::EnvelopeAuthInvalid,
+                                error.to_string(),
                             ),
                         })
                 })
@@ -677,11 +695,24 @@ impl RemoteAdapter {
     /// Send one op invoke and resolve with its correlated response envelope.
     /// Errors with [`RemoteError`] on timeout / transport failure / session
     /// close / correlation mismatch / sequence exhaustion.
+    ///
+    /// Outbound wire-order serialization (contract §5.3 / §10 — allocation
+    /// order MUST equal wire order; the peer's inbound gate rejects an
+    /// out-of-order request with `inbound_sequence_mismatch`): the send
+    /// lock is acquired BEFORE the outbound sequence allocation in
+    /// `build_request` and held through the wire send, so concurrent
+    /// invokes reach the transport in exactly the order they allocated —
+    /// allocate + sign + send happen under a single lock. Mirror of the TS
+    /// adapter's `#sendTail` promise chain (whose tail entry is created
+    /// synchronously before the async Ed25519 sign; Rust signs
+    /// synchronously). The lock is released before awaiting the response so
+    /// concurrent invokes still demux in parallel.
     async fn invoke_op(
         &self,
         op: &str,
         payload: Value,
     ) -> Result<ConnectInvokeResponse, RemoteError> {
+        let _send_guard = self.send_lock.lock().await;
         let request = self.build_request(op, payload)?;
         let request_id = request.request_id.to_string();
 
@@ -742,6 +773,9 @@ impl RemoteAdapter {
                 format!("invoke send failed: {error}"),
             ));
         }
+        // Wire order is settled — release the send lock so later-allocated
+        // invokes can transmit while this one awaits its correlated response.
+        drop(_send_guard);
 
         match rx.recv().await {
             Some(result) => result,
@@ -1034,7 +1068,7 @@ pub async fn connect_remote_adapter(
         }
         if session_doc.initial_sequence != 0 {
             return Err(RemoteAdapterError::Handshake(
-                "session snapshot initial_sequence must be 0 for protocol_version 1".into(),
+                "session snapshot initial_sequence must be 0".into(),
             ));
         }
 

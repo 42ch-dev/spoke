@@ -58,6 +58,7 @@ import {
   verifySessionAuth,
   type InvokeRequestSignInput,
 } from "../core/envelope-auth.js";
+import { CoreError } from "../core/error.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce, NonceStore } from "../core/nonce.js";
 import { negotiatedCapabilities, Session } from "../core/session.js";
@@ -533,6 +534,13 @@ export class RemoteAdapter implements BaselinePorts {
         } catch (error) {
           if (error instanceof EnvelopeAuthError) {
             entry.reject(new RemoteError(error.kind, error.message));
+          } else if (error instanceof CoreError && error.code === "crypto") {
+            // Crypto verify failure (wrong-length / invalid key bytes —
+            // local key misuse, no envelope-auth kind): still a
+            // verification failure of the response's authenticator →
+            // `envelope_auth_invalid`, never mislabeled as a correlation
+            // mismatch (Rust parity).
+            entry.reject(new RemoteError("envelope_auth_invalid", error.message));
           } else {
             entry.reject(
               new RemoteError(
@@ -871,9 +879,7 @@ export class RemoteAdapter implements BaselinePorts {
         throw new Error("session snapshot session_id must not be empty");
       }
       if (sessionDoc.initial_sequence !== 0) {
-        throw new Error(
-          "session snapshot initial_sequence must be 0 for protocol_version 1",
-        );
+        throw new Error("session snapshot initial_sequence must be 0");
       }
 
       adapter.#establish(

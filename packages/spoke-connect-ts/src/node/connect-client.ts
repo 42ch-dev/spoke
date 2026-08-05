@@ -3,7 +3,8 @@
  *
  * Dial a WebSocket, perform the signed hello exchange + session snapshot,
  * then invoke ops with correlation over the framing layer (AD-P0-3):
- * - send a signed `ConnectHello` (nonce ≥16, protocol_version 1);
+ * - send a signed `ConnectHello` (nonce ≥16; hello stays at the core
+ *   protocol version while post-hello envelopes carry v2 signatures);
  * - verify the server's signed hello against a preconfigured public key
  *   (obtaining the key is transport-adapter-owned, spec §Auth model) and
  *   require the server's peer_id on the allowlist (fail-closed);
@@ -320,7 +321,7 @@ export async function connectClient(
       throw new Error("session snapshot session_id must not be empty");
     }
     if (sessionDoc.initial_sequence !== 0) {
-      throw new Error("session snapshot initial_sequence must be 0 for protocol_version 1");
+      throw new Error("session snapshot initial_sequence must be 0");
     }
 
     session = new Session({

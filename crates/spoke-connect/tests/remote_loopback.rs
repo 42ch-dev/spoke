@@ -141,6 +141,16 @@ struct LoopbackHostStats {
     auth_seen: bool,
 }
 
+/// What the serialized inbound gate passes to the dispatch phase: the
+/// session material the handler needs, extracted under the gate so the
+/// dispatch phase can run concurrently.
+struct GateOutcome {
+    session_id: String,
+    sequence: i64,
+    request_id: String,
+    negotiated_capabilities: Vec<String>,
+}
+
 struct HostSession {
     session_id: String,
     /// The client's hello Ed25519 public key (the key that verified the
@@ -305,30 +315,38 @@ impl HostInner {
         .await;
     }
 
-    async fn handle_invoke(&self, wire: Value) {
+    /// Serialized inbound gate (mirror of the TS loopback host's
+    /// `gateTail`). The serve loop calls this INLINE, so gates run in
+    /// arrival (wire) order: peek → verify → advance complete per request
+    /// before the next envelope's gate — a concurrent invoke can never
+    /// peek against the pre-advance counter and be mis-rejected as
+    /// `inbound_sequence_mismatch` (the async verify / rejection responses
+    /// would otherwise interleave across spawned handlers). Gate rejections
+    /// are answered here; `None` for stray envelopes and rejections,
+    /// `Some(outcome)` when the invoke may dispatch.
+    async fn run_gate(&self, wire: &Value) -> Option<GateOutcome> {
         // Session gates run under the std Mutex guard — all guard usage is
-        // confined to this block so no MutexGuard crosses an await (the
-        // handler runs in a spawned Send future).
+        // confined to this block so no MutexGuard crosses an await.
         let Some(session_id) = wire.get("session_id").and_then(Value::as_str) else {
-            return; // stray envelope — ignored
+            return None; // stray envelope — ignored
         };
         let Some(sequence) = wire.get("sequence").and_then(Value::as_i64) else {
-            return; // stray envelope — ignored
+            return None; // stray envelope — ignored
         };
         let Some(request_id) = wire
             .get("request_id")
             .and_then(Value::as_str)
             .map(str::to_owned)
         else {
-            return; // stray envelope — ignored
+            return None; // stray envelope — ignored
         };
         let (session_id, client_pubkey, negotiated) = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
-                return; // stray request — ignored
+                return None; // stray request — ignored
             };
             if session_id != session.session_id {
-                return; // stray request — ignored
+                return None; // stray request — ignored
             }
             (
                 session.session_id.clone(),
@@ -348,7 +366,7 @@ impl HostInner {
         let peek_ok = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
-                return;
+                return None;
             };
             let inbound = session.inbound.lock().expect("inbound lock");
             inbound.peek(sequence).is_ok()
@@ -363,7 +381,7 @@ impl HostInner {
                 &format!("inbound sequence {sequence} is not the next expected"),
             )
             .await;
-            return;
+            return None;
         }
 
         // 2. Envelope-auth verify (contract §7 — auth-before-advance): the
@@ -373,24 +391,25 @@ impl HostInner {
         //    `auth_failed` carrying the locked `details.kind`, and the
         //    session state is left untouched — no advance, no dispatch, no
         //    handler side effect.
-        if let Err(error) = self.verify_invoke_request_auth(&wire, &session_id, &client_pubkey) {
+        if let Err(error) = self.verify_invoke_request_auth(wire, &session_id, &client_pubkey) {
             self.stats.lock().expect("stats lock").auth_rejections += 1;
             self.send_auth_failed_response(&session_id, sequence, &request_id, &error)
                 .await;
-            return;
+            return None;
         }
 
         // 3. Advance the inbound counter — `peek` validated the position
-        //    above, so `advance` only fails under a concurrent same-sequence
-        //    injection (peek → verify → advance is not atomic across
-        //    spawned tasks, and the fixture may hand two envelopes the same
-        //    sequence). A lost race is non-fatal: answer the same
-        //    `inbound_sequence_mismatch` rejection as the peek gate
-        //    (counter increments, no advance, no dispatch) — never panic.
+        //    above. The serialized gate makes the advance race-free; the
+        //    rejection below is retained as defense-in-depth for a
+        //    concurrent same-sequence injection (the fixture may hand two
+        //    envelopes the same sequence). A lost race is non-fatal: answer
+        //    the same `inbound_sequence_mismatch` rejection as the peek
+        //    gate (counter increments, no advance, no dispatch) — never
+        //    panic.
         let advance_rejected = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
-                return;
+                return None;
             };
             let advance_result = session
                 .inbound
@@ -415,14 +434,55 @@ impl HostInner {
                 &format!("inbound sequence {sequence} is not the next expected"),
             )
             .await;
-            return;
+            return None;
         }
+
+        Some(GateOutcome {
+            session_id,
+            sequence,
+            request_id,
+            negotiated_capabilities: negotiated,
+        })
+    }
+
+    /// Dispatch phase — runs concurrently per request (after the
+    /// serialized gate): typed deserialize (graceful — never panic on wire
+    /// input), dispatch gate, deterministic delay, response override,
+    /// local dispatch.
+    async fn handle_invoke(&self, wire: Value, outcome: GateOutcome) {
+        let GateOutcome {
+            session_id,
+            sequence,
+            request_id,
+            negotiated_capabilities: negotiated,
+        } = outcome;
 
         // The signature verified ⇒ the wire doc is a well-formed
         // `ConnectInvokeRequest` (the signer signed exactly the wire
-        // fields); typed deserialization cannot fail.
-        let request: ConnectInvokeRequest =
-            serde_json::from_value(wire).expect("verified request deserializes");
+        // fields); typed deserialization is expected to succeed but is NOT
+        // infallible on wire input: `extensions` are unsigned per contract
+        // §3, so a validly-signed envelope can carry an extension key
+        // outside `^[a-z][a-z0-9_-]*$` or a non-object extension value that
+        // fails the typed `ExtensionMap` deserialize (stripping them after
+        // verify changes the typed-deserialize path). A decode failure
+        // after a valid verify is a non-fatal protocol input error: answer
+        // an error envelope — the verified envelope's sequence position is
+        // already consumed — and never panic (mirrors the P3 advance-race
+        // handling).
+        let request: ConnectInvokeRequest = match serde_json::from_value(wire) {
+            Ok(request) => request,
+            Err(error) => {
+                self.send_error_response(
+                    &session_id,
+                    sequence,
+                    &request_id,
+                    "invalid_request",
+                    &format!("verified request does not deserialize: {error}"),
+                )
+                .await;
+                return;
+            }
+        };
 
         // 4. Dispatch gate — product map first, then the core table; unknown
         //    ops and missing capabilities answer `op_unsupported`.
@@ -782,9 +842,14 @@ impl HostInner {
             .await
             .map_err(|error| error.to_string())?;
 
-        // Serve invokes; each handler runs concurrently (out-of-order
-        // fixtures). Transport close ends the loop. The raw wire document is
-        // handed to the handler so envelope-auth verify runs on the wire
+        // Serve invokes. The inbound gate (peek → verify → advance) runs
+        // INLINE in this loop, so gates execute in arrival (wire) order —
+        // a concurrent invoke can never peek against the pre-advance
+        // counter and be mis-rejected as `inbound_sequence_mismatch`
+        // (mirror of the TS loopback host's `gateTail`). Only the dispatch
+        // phase is spawned, so handlers interleave (out-of-order
+        // fixtures). Transport close ends the loop. The raw wire document
+        // is handed to the gate so envelope-auth verify runs on the wire
         // form BEFORE typed deserialization (contract §7 / §1 — a missing
         // or invalid signature is rejected with its locked `details.kind`
         // instead of a generic serde error).
@@ -796,9 +861,12 @@ impl HostInner {
             let Ok(wire) = serde_json::from_slice::<Value>(&bytes) else {
                 continue; // stray envelope — ignored
             };
+            let Some(outcome) = self.run_gate(&wire).await else {
+                continue; // stray / gate-rejected — already answered
+            };
             let inner = Arc::clone(self);
             tokio::spawn(async move {
-                inner.handle_invoke(wire).await;
+                inner.handle_invoke(wire, outcome).await;
             });
         }
         Ok(())
@@ -2368,6 +2436,199 @@ async fn concurrent_same_sequence_duplicate_is_rejected_non_fatally() {
     let retry = client.get_knowledge_entry("kb_tw_mira").await;
     assert!(retry.is_ok());
     assert_eq!(host.stats().invokes_dispatched, 2);
+    assert_eq!(client.state().as_str(), "Established");
+
+    client.close();
+    host.close();
+}
+
+// ── Fix-wave 1: outbound send serialization + post-verify decode grace ────
+
+/// Wire-level transport wrapper that yields inside `send` before delegating
+/// — widens the interleave window at the adapter's `transport.send().await`
+/// yield point. Without outbound send serialization, a later-allocated
+/// request can reach the wire first and the host's strict inbound sequence
+/// gate answers `inbound_sequence_mismatch` (contract §5.3 / §10).
+struct YieldingSendTransport {
+    inner: Arc<dyn Transport>,
+}
+
+#[async_trait]
+impl Transport for YieldingSendTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        // Yield before pushing: forces a scheduling point inside the
+        // adapter's send so concurrent invokes genuinely race for the wire.
+        tokio::task::yield_now().await;
+        self.inner.send(envelope).await
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        self.inner.recv().await
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        self.inner.close().await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_invokes_reach_the_wire_in_allocation_order() {
+    const CONCURRENT_INVOKES: i64 = 32;
+
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+
+    // Replicates `dial()` with a server-end recording wrapper so the wire
+    // order of the client's outbound invoke requests is observable.
+    let pair = loopback_transport_pair();
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let host = start_loopback_host(LoopbackHostOptions {
+        transport: Arc::new(RecordingTransport {
+            inner: Arc::new(pair.server),
+            captured: Arc::clone(&captured),
+        }),
+        host_seed: seed_host(),
+        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        allowlist: vec![peer_id_client.clone()],
+        adapter: Arc::new(host_adapter),
+        delay: Box::new(|_| 0),
+        response_override: None,
+        session_peer_ids: None,
+    })
+    .await;
+    let client = connect_remote_adapter(RemoteAdapterOptions {
+        // Yield inside every send so concurrent invokes race for the wire
+        // position (without serialization the host would see a
+        // later-allocated sequence first and reject it).
+        transport: Arc::new(YieldingSendTransport {
+            inner: Arc::new(pair.client),
+        }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![peer_id_host.clone()],
+        invoke_timeout_ms: Some(5000),
+        capability_token: None,
+    })
+    .await
+    .expect("dial");
+
+    // Fire all invokes concurrently; each allocates its outbound sequence
+    // in call order. Serialized sends must put them on the wire 0..N-1.
+    let mut handles = Vec::new();
+    for _ in 0..CONCURRENT_INVOKES {
+        let client = Arc::clone(&client);
+        handles.push(tokio::spawn(async move {
+            client.get_knowledge_entry("kb_tw_mira").await
+        }));
+    }
+    for handle in handles {
+        let result = handle.await.expect("invoke task must not panic");
+        assert!(result.is_ok(), "concurrent invoke must succeed: {result:?}");
+    }
+
+    // The host accepted and dispatched every request in sequence — no
+    // out-of-order rejection, no auth rejection.
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, CONCURRENT_INVOKES as usize);
+    assert_eq!(stats.sequence_rejections, 0);
+    assert_eq!(stats.auth_rejections, 0);
+
+    // Wire witness: the request envelopes the host received carry exactly
+    // the monotonic allocation order 0..N-1.
+    let captured = captured.lock().expect("captured lock").clone();
+    let sequences: Vec<i64> = captured
+        .iter()
+        .filter_map(|bytes| {
+            let doc: Value = serde_json::from_slice(bytes).ok()?;
+            doc.get("op").is_some().then(|| doc.get("sequence")?.as_i64())
+        })
+        .flatten()
+        .collect();
+    assert_eq!(
+        sequences,
+        (0..CONCURRENT_INVOKES).collect::<Vec<i64>>(),
+        "wire request sequences must be monotonic (allocation order)"
+    );
+
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn host_answers_invalid_request_non_fatally_when_verified_extensions_are_malformed() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let mutated = Arc::new(AtomicBool::new(false));
+    let mutated_flag = Arc::clone(&mutated);
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            // One-shot wire-level injector: on the FIRST invoke request,
+            // replace the (unsigned) `extensions` bag with a value whose
+            // key violates the schema pattern `^[a-z][a-z0-9_-]*$`. The
+            // signature still verifies (extensions are not in the signed
+            // object, contract §3), so the request passes envelope-auth
+            // verify and then fails typed deserialization.
+            client_transport: Some(Box::new(move |client_end| {
+                let mutated_flag = Arc::clone(&mutated_flag);
+                Arc::new(TamperTransport {
+                    inner: client_end,
+                    outbound: Some(Arc::new(move |doc| {
+                        if doc.get("op").is_some() && !mutated_flag.swap(true, Ordering::SeqCst)
+                        {
+                            let mut doc = doc;
+                            if let Some(object) = doc.as_object_mut() {
+                                object.insert(
+                                    "extensions".into(),
+                                    json!({ "Bad_Key": { "n": 1 } }),
+                                );
+                            }
+                            Some(doc)
+                        } else {
+                            None
+                        }
+                    })),
+                    inbound: None,
+                })
+            })),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // The host must NOT panic on the post-verify decode failure — it
+    // answers a non-fatal `invalid_request` error envelope instead.
+    let result = client.get_knowledge_entry("kb_tw_mira").await;
+    match &result {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("invalid_request")
+            );
+        }
+        SpokeResult::Ok(_) => panic!("malformed unsigned extensions must be rejected"),
+    }
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, 0);
+    assert_eq!(stats.auth_rejections, 0);
+    assert_eq!(stats.sequence_rejections, 0);
+    // The verified envelope's sequence position was consumed (advance
+    // happened before typed deserialization).
+    assert_eq!(host.inbound_next_expected(), 1);
+    assert_eq!(client.state().as_str(), "Established");
+
+    // The session stays usable: the next invoke round-trips normally.
+    let retry = client.get_knowledge_entry("kb_tw_mira").await;
+    assert!(retry.is_ok());
+    assert_eq!(host.stats().invokes_dispatched, 1);
     assert_eq!(client.state().as_str(), "Established");
 
     client.close();

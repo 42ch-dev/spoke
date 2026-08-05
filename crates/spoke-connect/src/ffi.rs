@@ -123,13 +123,6 @@ pub fn derive_peer_id_from_ed25519_pubkey(pubkey: Vec<u8>) -> Result<String, Cor
 /// `nonce` must meet the wire floor (minLength 16). `host_json` is the
 /// canonical JSON of the `HostCapabilityManifest` embedded in
 /// `ConnectHello.host`.
-///
-/// This FFI surface is the **initiator** form: the hello signs the 4-field
-/// object (no `peer_nonce`) and stays byte-identical to the pre-dial-binding
-/// wire (locked by the golden-vector tests and the binding golden smokes).
-/// Responder-form signing (5-field object incl. `peer_nonce` = the
-/// initiator's nonce) is available through the core / hello facade; it is
-/// not yet exposed on the uniffi boundary.
 #[uniffi::export]
 pub fn sign_hello_ed25519(
     secret: Vec<u8>,
@@ -159,12 +152,6 @@ pub fn sign_hello_ed25519(
 /// JSON string of the received `ConnectHello` envelope. Fails on protocol
 /// version mismatch, public-key / peer-id binding mismatch, or an invalid
 /// signature.
-///
-/// Role-aware (dial binding): a responder hello (carrying `peer_nonce`) is
-/// verified over the 5-field signed object; the caller-supplied expected
-/// initiator nonce assert lives at the dial sites
-/// (`connect_remote_adapter` / the Path A dials), which pass the initiator's
-/// own nonce into the core verify.
 #[uniffi::export]
 pub fn verify_hello_ed25519(
     public_key: Vec<u8>,

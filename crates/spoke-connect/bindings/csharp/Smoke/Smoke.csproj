@@ -9,6 +9,10 @@
     <AssemblyName>spoke-connect-csharp-smoke</AssemblyName>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(SmokeHost)' == 'true'">
+    <DefineConstants>$(DefineConstants);SMOKE_HOST</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- Prefer the packable library (RID natives when assembled; local cargo
          cdylib fallback via 42ch.Spoke.Connect.csproj CopyLocal target). -->
@@ -19,6 +23,7 @@
     <!-- Golden hello vector fixture (registered byte-identical copy of the
          crate SSOT — see tooling/connect/golden-vector-sync.mjs). -->
     <None Include="fixtures\golden-hello.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="fixtures\loopback-smoke.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Native must sit beside the referenced DLL in *this* output dir. -->

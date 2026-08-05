@@ -14,6 +14,16 @@ go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z
 
 Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/connect-binding-channels.md) §3.2.
 
+## Build features
+
+| Artifact | Cargo features | Notes |
+|----------|----------------|-------|
+| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Local smoke cdylib + smoke Go bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
+
+`ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
+Full loopback smoke procedure: [`Smoke/loopback_remote_adapter_test.go`](Smoke/loopback_remote_adapter_test.go) (`-tags smokehost`).
+
 ## Layout
 
 | Path | Contents |
@@ -43,7 +53,7 @@ Commands from the **repository root** (local nightly convention for cargo: `carg
 
 ```bash
 # 1. Build the ffi cdylib (must run before generate — default build replaces the stub)
-cargo +nightly build -p spoke-connect --features ffi --release
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter --release
 
 # 2. Generate bindings (vendored fork — full recipe: bindgen/README.md)
 #    After building uniffi-bindgen-go from bindgen/ patch:
@@ -59,7 +69,7 @@ install_name_tool -id @rpath/libspoke_connect.dylib \
   crates/spoke-connect/bindings/go/native/darwin_arm64/libspoke_connect.dylib
 
 #    darwin_amd64 (cross from macOS, after: rustup target add x86_64-apple-darwin --toolchain nightly):
-cargo +nightly build -p spoke-connect --features ffi --release --target x86_64-apple-darwin
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter --release --target x86_64-apple-darwin
 cp target/x86_64-apple-darwin/release/libspoke_connect.dylib \
   crates/spoke-connect/bindings/go/native/darwin_amd64/
 install_name_tool -id @rpath/libspoke_connect.dylib \
@@ -78,6 +88,20 @@ Expected: all five golden tests PASS (`derive_peer_id`, hello signature, verify,
 
 `uniffi-bindgen-go` upstream still targets uniffi 0.31; generation uses the vendored fork under `bindgen/`. Drop the fork when upstream tags uniffi 0.32+ and stock `--library` passes against the current cdylib.
 
+
+## RemoteAdapter loopback smoke (optional)
+
+`Smoke/loopback_remote_adapter_test.go` is gated with `-tags smokehost` and
+requires bindings regenerated from a smoke cdylib (`ffi-smoke-host`):
+
+```bash
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter,ffi-smoke-host
+./uniffi-bindgen-go/target/debug/uniffi-bindgen-go   target/debug/libspoke_connect.dylib --library   --out-dir crates/spoke-connect/bindings/go/generated --no-format
+cp target/debug/libspoke_connect.dylib crates/spoke-connect/bindings/go/native/darwin_arm64/
+CGO_ENABLED=1 go test -tags smokehost -v ./crates/spoke-connect/bindings/go/Smoke/
+```
+
+Restore production `generated/` (from `ffi,remote-adapter` only) before landing.
 ## Reference
 
 - Fork recipe: [`bindgen/README.md`](bindgen/README.md)

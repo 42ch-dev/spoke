@@ -631,4 +631,97 @@ describe("connectClient transport robustness", () => {
     },
     15000,
   );
+  it(
+    "closes the socket when a timed-out queued invoke's send is skipped (no silent sequence poisoning)",
+    async () => {
+      // F-3: an invoke whose send is still queued behind an earlier
+      // invoke's slow sign/send times out before its send starts. The skip
+      // guard must not just drop the send: the allocated outbound sequence
+      // was never transmitted, so the host's inbound gate is stuck at it
+      // and every later invoke fails `inbound_sequence_mismatch` — a
+      // silently poisoned session. The client must tear the connection
+      // down: the server observes the socket close and neither invoke ever
+      // reaches the wire.
+      //
+      // Real timers are deliberate here (integration-test exception): the
+      // race under test IS the real-clock race between the client's invoke
+      // timeout timer and the WebCrypto sign of a large payload — fake
+      // timers cannot drive WebCrypto. The large payload's JCS
+      // canonicalization + Ed25519 sign reliably outlasts the 100ms invoke
+      // timeout (~310ms measured for 800k elements), and the localhost
+      // handshake completes in ~10ms, well inside the same timeout — so
+      // the ordering is deterministic under load. (The test is last in
+      // this file so its main-thread canonicalization does not overlap
+      // other suites' tight invoke-timeout windows.)
+      const seedA = seed(0xf0);
+      const pubkeyA = getPublicKeyEd25519(seedA);
+      const peerIdA = derivePeerIdFromEd25519Pubkey(pubkeyA);
+      const seedB = seed(0x70);
+
+      const receivedOps: string[] = [];
+      const server = await startHandshakeServer({
+        seed: seedA,
+        peerId: peerIdA,
+        onMessage: (_socket, doc) => {
+          if (isConnectInvokeRequest(doc)) {
+            receivedOps.push(doc.op);
+          }
+        },
+      });
+
+      let client: ConnectClient | null = null;
+      try {
+        client = await connectClient({
+          url: `ws://127.0.0.1:${server.port}`,
+          identity: { seed: seedB },
+          manifest: schemaConformantManifest(),
+          remotePubkey: pubkeyA,
+          allowlist: [peerIdA],
+          timeoutMs: 100,
+        });
+
+        // The skip branch closes the socket; the server observes the
+        // disconnect (bounded race, no bare sleep).
+        const serverSideClosed = new Promise<void>((resolve) => {
+          server.connections[0].once("close", () => resolve());
+        });
+
+        // First invoke: a payload large enough that signing it (JCS
+        // canonicalization + Ed25519 over the full signed object) reliably
+        // outlasts the invoke timeout — its send call completes late, so
+        // the second invoke times out while still queued behind it.
+        const slow = client.invoke("check", {
+          findings: Array.from({ length: 800_000 }, (_, i) => ({ a: i })),
+        });
+        const queued = client.invoke("check", {});
+
+        const [slowResult, queuedResult] = await Promise.allSettled([
+          slow,
+          queued,
+        ]);
+        expect(slowResult.status).toBe("rejected");
+        expect(queuedResult.status).toBe("rejected");
+
+        await Promise.race([
+          serverSideClosed,
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("server never observed the client socket close")),
+              5000,
+            ),
+          ),
+        ]);
+
+        // Neither invoke was ever transmitted (both sends were skipped) —
+        // the host's inbound gate was never advanced past a gap.
+        expect(receivedOps).toEqual([]);
+      } finally {
+        client?.close();
+        for (const c of server.connections) c.close();
+        await server.close();
+      }
+    },
+    15000,
+  );
+
 });

@@ -783,9 +783,12 @@ describe("RemoteAdapter loopback interop", () => {
     "maps an invoke timeout to INTERNAL_ERROR kind timeout without closing the session",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
-      let delayMs = 100;
+      // The invoke timeout also gates the dial handshake, so keep it well
+      // above the handshake's worst-case latency under parallel-suite load
+      // (a 20ms budget here flakes the dial with "server hello timed out").
+      let delayMs = 200;
       const { client, host } = await dial(hostAdapter, {
-        invokeTimeoutMs: 20,
+        invokeTimeoutMs: 100,
         hostDelay: () => delayMs,
       });
       try {
@@ -793,7 +796,7 @@ describe("RemoteAdapter loopback interop", () => {
         expect(result).toEqual({
           ok: false,
           code: SpokeRejectCode.INTERNAL_ERROR,
-          message: expect.stringContaining("timed out after 20ms"),
+          message: expect.stringContaining("timed out after 100ms"),
           details: { kind: "timeout" },
         });
         // Timeout fails only the waiter — the session stays usable.
@@ -810,7 +813,7 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
-    "never transmits a timed-out invoke that is still queued behind an earlier send (no host dispatch on retry)",
+    "closes the session when a timed-out queued invoke's send is skipped (never transmitted, no silent poisoning)",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
       // Wire-level injector: the FIRST outbound invoke request's send is
@@ -821,23 +824,26 @@ describe("RemoteAdapter loopback interop", () => {
       // that late send: the host must never see the timed-out request, so
       // a retry cannot duplicate a handler dispatch.
       //
+      // F-3 (this test's extension): skipping the send without tearing the
+      // session down would leave the allocated outbound sequence
+      // untransmitted — the host's inbound gate is stuck at it, so every
+      // later invoke fails `inbound_sequence_mismatch` (silent poisoning).
+      // The skip must instead close the session: the adapter state becomes
+      // `Closed` and the next invoke fails `session_closed`.
+      //
       // Real timers are deliberate here (integration-test exception): the
       // race under test IS a real-clock race between the adapter's invoke
       // timeout timer and a slow transport send, with both peers running
       // on real timers — fake timers cannot drive the loopback transport
       // or WebCrypto signing. The 200ms wire delay sits far outside the
-      // 20ms invoke timeout, so the ordering is deterministic under load.
+      // 100ms invoke timeout (which also gates the dial handshake, so it
+      // must stay well above the handshake's worst-case latency under
+      // parallel-suite load), so the ordering is deterministic under load.
       const sentSequences: number[] = [];
       const receivedSequences: number[] = [];
-      // Executor form: `Promise.withResolvers` is not in the package's
-      // ES2022 target lib.
-      let resolveFirstResponse: (() => void) | null = null;
-      const firstResponse = new Promise<void>((resolve) => {
-        resolveFirstResponse = resolve;
-      });
       let firstSendDelayed = false;
       const { client, host } = await dial(hostAdapter, {
-        invokeTimeoutMs: 20,
+        invokeTimeoutMs: 100,
         clientTransport: (clientEnd) => ({
           send: async (envelope) => {
             const doc = decodeWire(envelope);
@@ -855,7 +861,6 @@ describe("RemoteAdapter loopback interop", () => {
             const doc = decodeWire(bytes);
             if ("request_id" in doc && ("payload" in doc || "error" in doc)) {
               receivedSequences.push(doc.sequence as number);
-              resolveFirstResponse?.();
             }
             return bytes;
           },
@@ -870,33 +875,55 @@ describe("RemoteAdapter loopback interop", () => {
         expect(first).toEqual({
           ok: false,
           code: SpokeRejectCode.INTERNAL_ERROR,
-          message: expect.stringContaining("timed out after 20ms"),
+          message: expect.stringContaining("timed out after 100ms"),
           details: { kind: "timeout" },
         });
         expect(second).toEqual({
           ok: false,
           code: SpokeRejectCode.INTERNAL_ERROR,
-          message: expect.stringContaining("timed out after 20ms"),
+          message: expect.stringContaining("timed out after 100ms"),
           details: { kind: "timeout" },
         });
-        // Both invokes observed the timeout, but the first invoke's send
-        // was already in flight when its timer fired. Wait until the
-        // host's response to that request arrives back — the point at
-        // which every transmission the adapter was going to make has been
-        // made — then assert the second (timed-out-while-queued) invoke
-        // was never transmitted.
-        await Promise.race([
-          firstResponse,
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error("host never responded to the first invoke")),
-              5000,
-            ),
-          ),
-        ]);
+        // Both invokes observed the timeout. The skip (F-3) closes the
+        // session as soon as the queued send is dropped — wait for the
+        // adapter's state to become `Closed` (the transport is torn down,
+        // so no further transmission is possible), then assert the second
+        // (timed-out-while-queued) invoke was never transmitted.
+        //
+        // The host processes the first invoke on a detached chain that
+        // outlives the client's close (gate verify → dispatch → response
+        // attempt), so also wait for its `responseOrder` to be recorded —
+        // the host-side completion point. Without this second condition the
+        // dispatch-count assertion below would race the host's async gate.
+        const closeDeadline = Date.now() + 5000;
+        while (
+          client.state !== "Closed" ||
+          host.stats.responseOrder.length === 0
+        ) {
+          if (Date.now() >= closeDeadline) {
+            throw new Error(
+              "adapter never closed / host never finished processing after the skipped send",
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
         expect(sentSequences).toEqual([0]);
-        expect(receivedSequences).toEqual([0]);
+        // The first invoke's response never made it back: the session
+        // closed (transport torn down) before the host's delayed response
+        // arrived — no silent continuation on a poisoned wire.
+        expect(receivedSequences).toEqual([]);
+        expect(client.state).toBe("Closed");
         expect(host.stats.invokesDispatched).toBe(1);
+        // The session is closed, not poisoned: a follow-up invoke fails
+        // with `session_closed` instead of hanging or being mis-rejected
+        // by the host's stuck inbound gate.
+        const after = await client.getKnowledgeEntry("kb_tw_mira");
+        expect(after).toEqual({
+          ok: false,
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: expect.stringContaining("connect session is not established"),
+          details: { kind: "session_closed" },
+        });
       } finally {
         client.close();
         host.close();

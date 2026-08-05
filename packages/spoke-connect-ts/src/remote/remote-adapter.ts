@@ -639,8 +639,19 @@ export class RemoteAdapter implements BaselinePorts {
               // the tail (timeout fired → entry deleted; session closed →
               // `#failAllPending` cleared the map). Do NOT transmit late:
               // the caller already observed the failure, and a retry would
-              // otherwise produce a duplicate dispatch on the host.
+              // otherwise produce a duplicate dispatch on the host. A
+              // timeout drop is worse than a duplicate dispatch though: the
+              // allocated outbound sequence was never transmitted, so the
+              // peer's inbound gate is stuck at that sequence and every
+              // later invoke fails `inbound_sequence_mismatch` — the wire
+              // state is unreconcilable. Close the session (fails remaining
+              // pending with `session_closed`, mirroring the
+              // `sequence_exhausted` precedent at §6/§8.2) instead of
+              // leaving a silently poisoned session.
               if (!this.#pending.has(unsigned.request_id)) {
+                this.#closeSession(
+                  "deferred invoke skipped (settled while queued) — outbound sequence never transmitted",
+                );
                 return;
               }
               try {

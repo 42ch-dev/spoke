@@ -21,6 +21,9 @@ spoke-operations = { version = "0.8.2", path = "../spoke-operations", optional =
 libp2p.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Session snapshots carry RFC 3339 timestamps (`ConnectSession.opened_at`);
+# the envelope-auth sign input names the schema's chrono DateTime type.
+chrono.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }

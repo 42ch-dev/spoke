@@ -20,6 +20,7 @@ mod allowlist;
 mod capability_token;
 mod correlate;
 mod dispatch;
+mod envelope_auth;
 mod error;
 #[cfg(test)]
 pub(crate) mod golden;
@@ -39,6 +40,16 @@ pub use dispatch::{
     CAPABILITY_SPOKE_BASELINE,
 };
 pub use error::{CoreError, CoreInvokeError};
+// Crate-private envelope-auth surface (contract §9 — NOT part of the
+// remote-adapter public surface or FFI): authenticate/verify helpers +
+// their sign inputs, the locked error kinds, and the algorithm ids.
+pub(crate) use envelope_auth::{
+    authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
+    verify_invoke_request_auth, verify_invoke_response_auth, verify_session_auth,
+    EnvelopeAuthError, EnvelopeAuthErrorKind, EnvelopeExtensions, InvokeRequestSignInput,
+    InvokeResponseSignInput, SessionSignInput, ALGORITHM_INVOKE_REQUEST_JCS_V1,
+    ALGORITHM_INVOKE_RESPONSE_JCS_V1, ALGORITHM_SESSION_JCS_V1,
+};
 pub use hello_crypto::{sign_hello_ed25519, verify_hello_ed25519};
 pub use nonce::NonceStore;
 pub use peer_id::{derive_peer_id_from_ed25519_pubkey, ed25519_pubkey_from_peer_id};

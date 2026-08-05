@@ -15,6 +15,22 @@
 //! - Errors map to thin FFI-facing enums that mirror
 //!   [`crate::core::CoreError`] / [`crate::core::CoreInvokeError`]
 //!   variant-for-variant; the core enums are unchanged.
+//!
+//! ## Envelope-auth deferral (no new FFI APIs)
+//!
+//! The v2 envelope-authentication helpers ([`crate::core::envelope_auth`]:
+//! `authenticate_*` / `verify_*` for `ConnectSession`, `ConnectInvokeRequest`,
+//! `ConnectInvokeResponse`) are deliberately **not** exposed through this
+//! facade. The frozen envelope-auth contract §9 locks "no new FFI APIs":
+//! bindings keep calling the encapsulated RemoteAdapter / connect-client
+//! surfaces, which attach and verify authenticators internally — verify
+//! helpers are never host-callable (encapsulation hard rule), so widening the
+//! FFI surface would add binding-parity surface for no consumer benefit. The
+//! parity gate for the new auth surface is the TS↔Rust session core
+//! (`crates/spoke-connect/src/core/envelope_auth.rs` ↔
+//! `packages/spoke-connect-ts/src/core/envelope-auth.ts`): canonical bytes,
+//! algorithm ids, and verify outcomes. Binding golden-parity smokes covering
+//! hello stay green and are not extended to envelope auth.
 
 use std::sync::{Arc, Mutex};
 

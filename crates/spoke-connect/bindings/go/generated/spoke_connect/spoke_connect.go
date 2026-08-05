@@ -10,8 +10,10 @@ import (
 	"io"
 	"unsafe"
 	"encoding/binary"
+	"errors"
 	"math"
 	"runtime"
+	"sync"
 	"sync/atomic"
 )
 
@@ -364,6 +366,7 @@ func readFloat64(reader io.Reader) float64 {
 
 func init() {
         
+        FfiConverterCallbackInterfaceTransportINSTANCE.register();
         uniffiCheckChecksums()
 }
 
@@ -453,6 +456,24 @@ func uniffiCheckChecksums() {
 	}
 	{
 	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_func_loopback_transport_pair()
+	})
+	if checksum != 40597 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_func_loopback_transport_pair: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi()
+	})
+	if checksum != 44915 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 		return C.uniffi_spoke_connect_checksum_method_inboundsequence_advance()
 	})
 	if checksum != 17976 {
@@ -480,6 +501,186 @@ func uniffiCheckChecksums() {
 	}
 	{
 	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_loopbacktransport_close()
+	})
+	if checksum != 20355 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_loopbacktransport_close: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_loopbacktransport_recv()
+	})
+	if checksum != 39606 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_loopbacktransport_recv: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_loopbacktransport_send()
+	})
+	if checksum != 16974 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_loopbacktransport_send: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client()
+	})
+	if checksum != 9696 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_loopbacktransportpair_client: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server()
+	})
+	if checksum != 13605 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_loopbacktransportpair_server: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_close()
+	})
+	if checksum != 18719 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_close: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest()
+	})
+	if checksum != 41950 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry()
+	})
+	if checksum != 44466 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation()
+	})
+	if checksum != 47371 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries()
+	})
+	if checksum != 8982 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests()
+	})
+	if checksum != 7630 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules()
+	})
+	if checksum != 57745 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events()
+	})
+	if checksum != 30715 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings()
+	})
+	if checksum != 8509 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry()
+	})
+	if checksum != 46465 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation()
+	})
+	if checksum != 40493 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest()
+	})
+	if checksum != 12957 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id()
+	})
+	if checksum != 25676 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id()
+	})
+	if checksum != 15819 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_state()
+	})
+	if checksum != 28869 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_state: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 		return C.uniffi_spoke_connect_checksum_constructor_inboundsequence_new()
 	})
 	if checksum != 21926 {
@@ -503,6 +704,33 @@ func uniffiCheckChecksums() {
 	if checksum != 6716 {
 		// If this happens try cleaning and rebuilding your project
 		panic("spoke_connect: uniffi_spoke_connect_checksum_constructor_outboundsequence_new: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_transport_send()
+	})
+	if checksum != 34348 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_transport_send: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_transport_recv()
+	})
+	if checksum != 49799 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_transport_recv: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_transport_close()
+	})
+	if checksum != 43413 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_transport_close: UniFFI API checksum mismatch")
 	}
 	}
 }
@@ -860,6 +1088,232 @@ func (_ FfiDestroyerInboundSequence) Destroy(value *InboundSequence) {
 
 
 
+// One end of an in-memory loopback connection, exposed over FFI (AR-7)
+// so a binding can exercise the callback `Transport` surface without a
+// real network carrier. `send` delivers to the peer's `recv`; `close`
+// closes the whole connection (both directions). Each method
+// `block_on`s the shared runtime — the same synchronous block-on-async
+// surface a binding uses (AR-1 / AR-6).
+type LoopbackTransportInterface interface {
+	// Close the whole connection (both directions). Idempotent.
+	Close() error
+	// Receive the next inbound envelope. Errors when the connection
+	// closes.
+	Recv() ([]byte, error)
+	// Send one envelope; delivered to the peer end's `recv`.
+	Send(envelope []byte) error
+}
+// One end of an in-memory loopback connection, exposed over FFI (AR-7)
+// so a binding can exercise the callback `Transport` surface without a
+// real network carrier. `send` delivers to the peer's `recv`; `close`
+// closes the whole connection (both directions). Each method
+// `block_on`s the shared runtime — the same synchronous block-on-async
+// surface a binding uses (AR-1 / AR-6).
+type LoopbackTransport struct {
+	ffiObject FfiObject
+}
+
+
+
+
+// Close the whole connection (both directions). Idempotent.
+func (_self *LoopbackTransport) Close() error {
+	_pointer := _self.ffiObject.incrementPointer("*LoopbackTransport")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[*TransportError](FfiConverterTransportError{},func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_spoke_connect_fn_method_loopbacktransport_close(
+		_pointer,_uniffiStatus)
+		return false
+	})
+		return _uniffiErr.AsError()
+}
+
+// Receive the next inbound envelope. Errors when the connection
+// closes.
+func (_self *LoopbackTransport) Recv() ([]byte, error) {
+	_pointer := _self.ffiObject.incrementPointer("*LoopbackTransport")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*TransportError](FfiConverterTransportError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_loopbacktransport_recv(
+		_pointer,_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue []byte
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterBytesINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+// Send one envelope; delivered to the peer end's `recv`.
+func (_self *LoopbackTransport) Send(envelope []byte) error {
+	_pointer := _self.ffiObject.incrementPointer("*LoopbackTransport")
+	defer _self.ffiObject.decrementPointer()
+	_, _uniffiErr := rustCallWithError[*TransportError](FfiConverterTransportError{},func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_spoke_connect_fn_method_loopbacktransport_send(
+		_pointer,FfiConverterBytesINSTANCE.Lower(envelope),_uniffiStatus)
+		return false
+	})
+		return _uniffiErr.AsError()
+}
+func (object *LoopbackTransport) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterLoopbackTransport struct {}
+
+var FfiConverterLoopbackTransportINSTANCE = FfiConverterLoopbackTransport{}
+
+
+func (c FfiConverterLoopbackTransport) Lift(handle C.uint64_t) *LoopbackTransport {
+	result := &LoopbackTransport {
+		newFfiObject(
+			handle,
+			func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+				return C.uniffi_spoke_connect_fn_clone_loopbacktransport(handle, status)
+			},
+			func(handle C.uint64_t, status *C.RustCallStatus) {
+				C.uniffi_spoke_connect_fn_free_loopbacktransport(handle, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*LoopbackTransport).Destroy)
+	return result
+}
+
+func (c FfiConverterLoopbackTransport) Read(reader io.Reader) *LoopbackTransport {
+	return c.Lift(C.uint64_t(readUint64(reader)))
+}
+
+func (c FfiConverterLoopbackTransport) Lower(value *LoopbackTransport) C.uint64_t {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the handle will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked handle.
+	handle := value.ffiObject.incrementPointer("*LoopbackTransport")
+	defer value.ffiObject.decrementPointer()
+	return handle
+}
+
+func (c FfiConverterLoopbackTransport) Write(writer io.Writer, value *LoopbackTransport) {
+	writeUint64(writer, uint64(c.Lower(value)))
+}
+
+func LiftFromExternalLoopbackTransport(handle uint64) *LoopbackTransport {
+	return FfiConverterLoopbackTransportINSTANCE.Lift(C.uint64_t(handle))
+}
+
+func LowerToExternalLoopbackTransport(value *LoopbackTransport) uint64 {
+	return uint64(FfiConverterLoopbackTransportINSTANCE.Lower(value))
+}
+
+type FfiDestroyerLoopbackTransport struct {}
+
+func (_ FfiDestroyerLoopbackTransport) Destroy(value *LoopbackTransport) {
+		value.Destroy()
+}
+
+
+
+// Back-to-back loopback transport pair — `client` and `server` ends of
+// the same in-memory connection (mirror of
+// [`transport::loopback_transport_pair`]).
+type LoopbackTransportPairInterface interface {
+	// The client end of the connection.
+	Client() *LoopbackTransport
+	// The server end of the connection.
+	Server() *LoopbackTransport
+}
+// Back-to-back loopback transport pair — `client` and `server` ends of
+// the same in-memory connection (mirror of
+// [`transport::loopback_transport_pair`]).
+type LoopbackTransportPair struct {
+	ffiObject FfiObject
+}
+
+
+
+
+// The client end of the connection.
+func (_self *LoopbackTransportPair) Client() *LoopbackTransport {
+	_pointer := _self.ffiObject.incrementPointer("*LoopbackTransportPair")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterLoopbackTransportINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
+		return C.uniffi_spoke_connect_fn_method_loopbacktransportpair_client(
+		_pointer,_uniffiStatus)
+	}))
+}
+
+// The server end of the connection.
+func (_self *LoopbackTransportPair) Server() *LoopbackTransport {
+	_pointer := _self.ffiObject.incrementPointer("*LoopbackTransportPair")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterLoopbackTransportINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
+		return C.uniffi_spoke_connect_fn_method_loopbacktransportpair_server(
+		_pointer,_uniffiStatus)
+	}))
+}
+func (object *LoopbackTransportPair) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterLoopbackTransportPair struct {}
+
+var FfiConverterLoopbackTransportPairINSTANCE = FfiConverterLoopbackTransportPair{}
+
+
+func (c FfiConverterLoopbackTransportPair) Lift(handle C.uint64_t) *LoopbackTransportPair {
+	result := &LoopbackTransportPair {
+		newFfiObject(
+			handle,
+			func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+				return C.uniffi_spoke_connect_fn_clone_loopbacktransportpair(handle, status)
+			},
+			func(handle C.uint64_t, status *C.RustCallStatus) {
+				C.uniffi_spoke_connect_fn_free_loopbacktransportpair(handle, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*LoopbackTransportPair).Destroy)
+	return result
+}
+
+func (c FfiConverterLoopbackTransportPair) Read(reader io.Reader) *LoopbackTransportPair {
+	return c.Lift(C.uint64_t(readUint64(reader)))
+}
+
+func (c FfiConverterLoopbackTransportPair) Lower(value *LoopbackTransportPair) C.uint64_t {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the handle will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked handle.
+	handle := value.ffiObject.incrementPointer("*LoopbackTransportPair")
+	defer value.ffiObject.decrementPointer()
+	return handle
+}
+
+func (c FfiConverterLoopbackTransportPair) Write(writer io.Writer, value *LoopbackTransportPair) {
+	writeUint64(writer, uint64(c.Lower(value)))
+}
+
+func LiftFromExternalLoopbackTransportPair(handle uint64) *LoopbackTransportPair {
+	return FfiConverterLoopbackTransportPairINSTANCE.Lift(C.uint64_t(handle))
+}
+
+func LowerToExternalLoopbackTransportPair(value *LoopbackTransportPair) uint64 {
+	return uint64(FfiConverterLoopbackTransportPairINSTANCE.Lower(value))
+}
+
+type FfiDestroyerLoopbackTransportPair struct {}
+
+func (_ FfiDestroyerLoopbackTransportPair) Destroy(value *LoopbackTransportPair) {
+		value.Destroy()
+}
+
+
+
 // Single-use `(peer_id, nonce)` replay store — thread-safe FFI wrapper over
 // the core store.
 type NonceStoreInterface interface {
@@ -1047,6 +1501,312 @@ func LowerToExternalOutboundSequence(value *OutboundSequence) uint64 {
 type FfiDestroyerOutboundSequence struct {}
 
 func (_ FfiDestroyerOutboundSequence) Destroy(value *OutboundSequence) {
+		value.Destroy()
+}
+
+
+
+type RemoteAdapterFfiInterface interface {
+	Close() 
+	GetHostCapabilityManifest() (string, error)
+	GetKnowledgeEntry(entryId string) (string, error)
+	GetRelation(relationId string) (string, error)
+	ListKnowledgeEntries(scopeJson string) (string, error)
+	ListPeerHostCapabilityManifests() (string, error)
+	ListRules(ruleRefs []string) (string, error)
+	ListTimelineEvents(scopeJson string) (string, error)
+	PutFindings(findingsJson string) (string, error)
+	PutKnowledgeEntry(entryJson string, expectedBaseRevision *uint64) (string, error)
+	PutRelation(relationJson string, expectedBaseRevision *uint64) (string, error)
+	RemoteManifest() *string
+	RemotePeerId() *string
+	SessionId() *string
+	State() string
+}
+type RemoteAdapterFfi struct {
+	ffiObject FfiObject
+}
+
+
+
+
+func (_self *RemoteAdapterFfi) Close()  {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
+		C.uniffi_spoke_connect_fn_method_remoteadapterffi_close(
+		_pointer,_uniffiStatus)
+		return false
+	})
+}
+
+func (_self *RemoteAdapterFfi) GetHostCapabilityManifest() (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest(
+		_pointer,_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) GetKnowledgeEntry(entryId string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_get_knowledge_entry(
+		_pointer,FfiConverterStringINSTANCE.Lower(entryId),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) GetRelation(relationId string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_get_relation(
+		_pointer,FfiConverterStringINSTANCE.Lower(relationId),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) ListKnowledgeEntries(scopeJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries(
+		_pointer,FfiConverterStringINSTANCE.Lower(scopeJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) ListPeerHostCapabilityManifests() (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests(
+		_pointer,_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) ListRules(ruleRefs []string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_list_rules(
+		_pointer,FfiConverterSequenceStringINSTANCE.Lower(ruleRefs),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) ListTimelineEvents(scopeJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events(
+		_pointer,FfiConverterStringINSTANCE.Lower(scopeJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) PutFindings(findingsJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_put_findings(
+		_pointer,FfiConverterStringINSTANCE.Lower(findingsJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) PutKnowledgeEntry(entryJson string, expectedBaseRevision *uint64) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_put_knowledge_entry(
+		_pointer,FfiConverterStringINSTANCE.Lower(entryJson), FfiConverterOptionalUint64INSTANCE.Lower(expectedBaseRevision),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) PutRelation(relationJson string, expectedBaseRevision *uint64) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_put_relation(
+		_pointer,FfiConverterStringINSTANCE.Lower(relationJson), FfiConverterOptionalUint64INSTANCE.Lower(expectedBaseRevision),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+func (_self *RemoteAdapterFfi) RemoteManifest() *string {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterOptionalStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_manifest(
+		_pointer,_uniffiStatus),
+	}
+	}))
+}
+
+func (_self *RemoteAdapterFfi) RemotePeerId() *string {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterOptionalStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_peer_id(
+		_pointer,_uniffiStatus),
+	}
+	}))
+}
+
+func (_self *RemoteAdapterFfi) SessionId() *string {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterOptionalStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_session_id(
+		_pointer,_uniffiStatus),
+	}
+	}))
+}
+
+func (_self *RemoteAdapterFfi) State() string {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	return FfiConverterStringINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_state(
+		_pointer,_uniffiStatus),
+	}
+	}))
+}
+func (object *RemoteAdapterFfi) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterRemoteAdapterFfi struct {}
+
+var FfiConverterRemoteAdapterFfiINSTANCE = FfiConverterRemoteAdapterFfi{}
+
+
+func (c FfiConverterRemoteAdapterFfi) Lift(handle C.uint64_t) *RemoteAdapterFfi {
+	result := &RemoteAdapterFfi {
+		newFfiObject(
+			handle,
+			func(handle C.uint64_t, status *C.RustCallStatus) C.uint64_t {
+				return C.uniffi_spoke_connect_fn_clone_remoteadapterffi(handle, status)
+			},
+			func(handle C.uint64_t, status *C.RustCallStatus) {
+				C.uniffi_spoke_connect_fn_free_remoteadapterffi(handle, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*RemoteAdapterFfi).Destroy)
+	return result
+}
+
+func (c FfiConverterRemoteAdapterFfi) Read(reader io.Reader) *RemoteAdapterFfi {
+	return c.Lift(C.uint64_t(readUint64(reader)))
+}
+
+func (c FfiConverterRemoteAdapterFfi) Lower(value *RemoteAdapterFfi) C.uint64_t {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the handle will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked handle.
+	handle := value.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer value.ffiObject.decrementPointer()
+	return handle
+}
+
+func (c FfiConverterRemoteAdapterFfi) Write(writer io.Writer, value *RemoteAdapterFfi) {
+	writeUint64(writer, uint64(c.Lower(value)))
+}
+
+func LiftFromExternalRemoteAdapterFfi(handle uint64) *RemoteAdapterFfi {
+	return FfiConverterRemoteAdapterFfiINSTANCE.Lift(C.uint64_t(handle))
+}
+
+func LowerToExternalRemoteAdapterFfi(value *RemoteAdapterFfi) uint64 {
+	return uint64(FfiConverterRemoteAdapterFfiINSTANCE.Lower(value))
+}
+
+type FfiDestroyerRemoteAdapterFfi struct {}
+
+func (_ FfiDestroyerRemoteAdapterFfi) Destroy(value *RemoteAdapterFfi) {
 		value.Destroy()
 }
 
@@ -1571,6 +2331,624 @@ func (_ FfiDestroyerCoreInvokeError) Destroy(value *CoreInvokeError) {
 	}
 }
 
+// FFI error surface — 1:1 with frozen-contract D7 (AR-5).
+//
+// - [`FfiError::Dial`] — constructor / dial failures before an adapter
+// exists (`config` / `handshake` / `timeout`).
+// - [`FfiError::Rejected`] — invoke-path `SpokeResult::Reject` passthrough:
+// application codes preserved; `INTERNAL_ERROR` rows carry `kind`;
+// dispatch deny and unknown wire codes carry `wire_code`.
+type FfiError struct {
+	err error
+}
+
+// Convenience method to turn *FfiError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *FfiError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
+}
+
+func (err FfiError) Error() string {
+	return fmt.Sprintf("FfiError: %s", err.err.Error())
+}
+
+func (err FfiError) Unwrap() error {
+	return err.err
+}
+
+// Err* are used for checking error type with `errors.Is`
+var ErrFfiErrorDial = fmt.Errorf("FfiErrorDial")
+var ErrFfiErrorRejected = fmt.Errorf("FfiErrorRejected")
+
+// Variant structs
+type FfiErrorDial struct {
+	Kind string
+	Message string
+}
+func NewFfiErrorDial(
+	kind string,
+	message string,
+) *FfiError {
+	return &FfiError { err: &FfiErrorDial {
+			Kind: kind,
+			Message: message,} }
+}
+
+func (e FfiErrorDial) destroy() {
+		FfiDestroyerString{}.Destroy(e.Kind)
+		FfiDestroyerString{}.Destroy(e.Message)
+}
+
+
+func (err FfiErrorDial) Error() string {
+	return fmt.Sprint("Dial",
+		": ",
+		
+		"Kind=",
+		err.Kind,
+		", ",
+		"Message=",
+		err.Message,
+	)
+}
+
+func (self FfiErrorDial) Is(target error) bool {
+	return target == ErrFfiErrorDial
+}
+type FfiErrorRejected struct {
+	Code string
+	Message string
+	Kind *string
+	WireCode *string
+}
+func NewFfiErrorRejected(
+	code string,
+	message string,
+	kind *string,
+	wireCode *string,
+) *FfiError {
+	return &FfiError { err: &FfiErrorRejected {
+			Code: code,
+			Message: message,
+			Kind: kind,
+			WireCode: wireCode,} }
+}
+
+func (e FfiErrorRejected) destroy() {
+		FfiDestroyerString{}.Destroy(e.Code)
+		FfiDestroyerString{}.Destroy(e.Message)
+		FfiDestroyerOptionalString{}.Destroy(e.Kind)
+		FfiDestroyerOptionalString{}.Destroy(e.WireCode)
+}
+
+
+func (err FfiErrorRejected) Error() string {
+	return fmt.Sprint("Rejected",
+		": ",
+		
+		"Code=",
+		err.Code,
+		", ",
+		"Message=",
+		err.Message,
+		", ",
+		"Kind=",
+		err.Kind,
+		", ",
+		"WireCode=",
+		err.WireCode,
+	)
+}
+
+func (self FfiErrorRejected) Is(target error) bool {
+	return target == ErrFfiErrorRejected
+}
+
+type FfiConverterFfiError struct{}
+
+var FfiConverterFfiErrorINSTANCE = FfiConverterFfiError{}
+
+func (c FfiConverterFfiError) Lift(eb RustBufferI) *FfiError {
+	return LiftFromRustBuffer[*FfiError](c, eb)
+}
+
+func (c FfiConverterFfiError) Lower(value *FfiError) C.RustBuffer {
+	return LowerIntoRustBuffer[*FfiError](c, value)
+}
+
+func (c FfiConverterFfiError) LowerExternal(value *FfiError) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*FfiError](c, value))
+}
+
+func (c FfiConverterFfiError) Read(reader io.Reader) *FfiError {
+	errorID := readUint32(reader)
+
+	switch errorID {
+	case 1:
+		return &FfiError{ &FfiErrorDial{
+			Kind: FfiConverterStringINSTANCE.Read(reader),
+			Message: FfiConverterStringINSTANCE.Read(reader),
+		}}
+	case 2:
+		return &FfiError{ &FfiErrorRejected{
+			Code: FfiConverterStringINSTANCE.Read(reader),
+			Message: FfiConverterStringINSTANCE.Read(reader),
+			Kind: FfiConverterOptionalStringINSTANCE.Read(reader),
+			WireCode: FfiConverterOptionalStringINSTANCE.Read(reader),
+		}}
+	default:
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterFfiError.Read()", errorID))
+	}
+}
+
+func (c FfiConverterFfiError) Write(writer io.Writer, value *FfiError) {
+	switch variantValue := value.err.(type) {
+		case *FfiErrorDial:
+			writeInt32(writer, 1)
+			FfiConverterStringINSTANCE.Write(writer, variantValue.Kind)
+			FfiConverterStringINSTANCE.Write(writer, variantValue.Message)
+		case *FfiErrorRejected:
+			writeInt32(writer, 2)
+			FfiConverterStringINSTANCE.Write(writer, variantValue.Code)
+			FfiConverterStringINSTANCE.Write(writer, variantValue.Message)
+			FfiConverterOptionalStringINSTANCE.Write(writer, variantValue.Kind)
+			FfiConverterOptionalStringINSTANCE.Write(writer, variantValue.WireCode)
+		default:
+			_ = variantValue
+			panic(fmt.Sprintf("invalid error value `%v` in FfiConverterFfiError.Write", value))
+	}
+}
+
+type FfiDestroyerFfiError struct {}
+
+func (_ FfiDestroyerFfiError) Destroy(value *FfiError) {
+	switch variantValue := value.err.(type) {
+		case FfiErrorDial:
+			variantValue.destroy()
+		case FfiErrorRejected:
+			variantValue.destroy()
+		default:
+			_ = variantValue
+			panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerFfiError.Destroy", value))
+	}
+}
+
+// FFI-facing mirror of [`transport::TransportError`] — the
+// callback `Transport`'s own error vocabulary. 1:1 with the remote
+// error; the bridge maps both directions.
+type TransportError struct {
+	err error
+}
+
+// Convenience method to turn *TransportError into error
+// Avoiding treating nil pointer as non nil error interface
+func (err *TransportError) AsError() error {
+	if err == nil {
+		return nil
+	} else {
+		return err
+	}
+}
+
+func (err TransportError) Error() string {
+	return fmt.Sprintf("TransportError: %s", err.err.Error())
+}
+
+func (err TransportError) Unwrap() error {
+	return err.err
+}
+
+// Err* are used for checking error type with `errors.Is`
+var ErrTransportErrorClosed = fmt.Errorf("TransportErrorClosed")
+var ErrTransportErrorIo = fmt.Errorf("TransportErrorIo")
+
+// Variant structs
+// The transport is closed. A pending `recv` must fail fast on
+// connection loss so the adapter can fail its in-flight invokes.
+type TransportErrorClosed struct {
+}
+// The transport is closed. A pending `recv` must fail fast on
+// connection loss so the adapter can fail its in-flight invokes.
+func NewTransportErrorClosed(
+) *TransportError {
+	return &TransportError { err: &TransportErrorClosed {} }
+}
+
+func (e TransportErrorClosed) destroy() {
+}
+
+
+func (err TransportErrorClosed) Error() string {
+	return fmt.Sprint("Closed",
+		
+	)
+}
+
+func (self TransportErrorClosed) Is(target error) bool {
+	return target == ErrTransportErrorClosed
+}
+// Transport-level I/O failure.
+type TransportErrorIo struct {
+	Field0 string
+}
+// Transport-level I/O failure.
+func NewTransportErrorIo(
+	var0 string,
+) *TransportError {
+	return &TransportError { err: &TransportErrorIo {
+			Field0: var0,} }
+}
+
+func (e TransportErrorIo) destroy() {
+		FfiDestroyerString{}.Destroy(e.Field0)
+}
+
+
+func (err TransportErrorIo) Error() string {
+	return fmt.Sprint("Io",
+		": ",
+		
+		"Field0=",
+		err.Field0,
+	)
+}
+
+func (self TransportErrorIo) Is(target error) bool {
+	return target == ErrTransportErrorIo
+}
+
+type FfiConverterTransportError struct{}
+
+var FfiConverterTransportErrorINSTANCE = FfiConverterTransportError{}
+
+func (c FfiConverterTransportError) Lift(eb RustBufferI) *TransportError {
+	return LiftFromRustBuffer[*TransportError](c, eb)
+}
+
+func (c FfiConverterTransportError) Lower(value *TransportError) C.RustBuffer {
+	return LowerIntoRustBuffer[*TransportError](c, value)
+}
+
+func (c FfiConverterTransportError) LowerExternal(value *TransportError) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*TransportError](c, value))
+}
+
+func (c FfiConverterTransportError) Read(reader io.Reader) *TransportError {
+	errorID := readUint32(reader)
+
+	switch errorID {
+	case 1:
+		return &TransportError{ &TransportErrorClosed{
+		}}
+	case 2:
+		return &TransportError{ &TransportErrorIo{
+			Field0: FfiConverterStringINSTANCE.Read(reader),
+		}}
+	default:
+		panic(fmt.Sprintf("Unknown error code %d in FfiConverterTransportError.Read()", errorID))
+	}
+}
+
+func (c FfiConverterTransportError) Write(writer io.Writer, value *TransportError) {
+	switch variantValue := value.err.(type) {
+		case *TransportErrorClosed:
+			writeInt32(writer, 1)
+		case *TransportErrorIo:
+			writeInt32(writer, 2)
+			FfiConverterStringINSTANCE.Write(writer, variantValue.Field0)
+		default:
+			_ = variantValue
+			panic(fmt.Sprintf("invalid error value `%v` in FfiConverterTransportError.Write", value))
+	}
+}
+
+type FfiDestroyerTransportError struct {}
+
+func (_ FfiDestroyerTransportError) Destroy(value *TransportError) {
+	switch variantValue := value.err.(type) {
+		case TransportErrorClosed:
+			variantValue.destroy()
+		case TransportErrorIo:
+			variantValue.destroy()
+		default:
+			_ = variantValue
+			panic(fmt.Sprintf("invalid error value `%v` in FfiDestroyerTransportError.Destroy", value))
+	}
+}
+
+
+// Message-oriented transport implemented by the foreign binding.
+//
+// Mirrors the async [`transport::Transport`] seam 1:1 over the
+// FFI boundary (frozen contract §2.1): `send` accepts exactly one
+// envelope's bytes, `recv` returns the next inbound envelope and fails
+// fast on close, `close` is idempotent resource release.
+type Transport interface {
+	
+	// Send one envelope. Resolves when the transport has accepted the
+	// bytes.
+	Send(envelope []byte) error
+	
+	// Receive the next inbound envelope. Errors when the transport
+	// closes.
+	Recv() ([]byte, error)
+	
+	// Release resources. Idempotent.
+	Close() error
+	
+}
+
+
+type FfiConverterCallbackInterfaceTransport struct {
+	handleMap *concurrentHandleMap[Transport]
+}
+
+var FfiConverterCallbackInterfaceTransportINSTANCE = FfiConverterCallbackInterfaceTransport {
+	handleMap: newConcurrentHandleMap[Transport](),
+}
+
+func (c FfiConverterCallbackInterfaceTransport) Lift(handle uint64) Transport {
+	val, ok := c.handleMap.tryGet(handle)
+	if !ok {
+		panic(fmt.Errorf("no callback in handle map: %d", handle))
+	}
+	return val
+}
+
+func (c FfiConverterCallbackInterfaceTransport) Read(reader io.Reader) Transport {
+	return c.Lift(readUint64(reader))
+}
+
+func (c FfiConverterCallbackInterfaceTransport) Lower(value Transport) C.uint64_t {
+	return C.uint64_t(c.handleMap.insert(value))
+}
+
+func (c FfiConverterCallbackInterfaceTransport) Write(writer io.Writer, value Transport) {
+	writeUint64(writer, uint64(c.Lower(value)))
+}
+
+func LiftFromExternalCallbackInterfaceTransport(handle uint64) Transport {
+	return FfiConverterCallbackInterfaceTransportINSTANCE.Lift(handle)
+}
+
+func LowerToExternalCallbackInterfaceTransport(value Transport) uint64 {
+	return uint64(FfiConverterCallbackInterfaceTransportINSTANCE.Lower(value))
+}
+
+type FfiDestroyerCallbackInterfaceTransport struct {}
+
+func (FfiDestroyerCallbackInterfaceTransport) Destroy(value Transport) {}
+
+type uniffiCallbackResult C.int8_t
+
+const (
+	uniffiIdxCallbackFree               uniffiCallbackResult = 0
+	uniffiCallbackResultSuccess         uniffiCallbackResult = 0
+	uniffiCallbackResultError           uniffiCallbackResult = 1
+	uniffiCallbackUnexpectedResultError uniffiCallbackResult = 2
+	uniffiCallbackCancelled             uniffiCallbackResult = 3
+)
+
+
+type concurrentHandleMap[T any] struct {
+	handles       map[uint64]T
+	currentHandle uint64
+	lock          sync.RWMutex
+}
+
+func newConcurrentHandleMap[T any]() *concurrentHandleMap[T] {
+	return &concurrentHandleMap[T]{
+		handles:  map[uint64]T{},
+		currentHandle: 1,
+	}
+}
+
+func (cm *concurrentHandleMap[T]) insert(obj T) uint64 {
+	cm.lock.Lock()
+	defer cm.lock.Unlock()
+
+	handle := cm.currentHandle
+	cm.currentHandle = cm.currentHandle + 2
+	cm.handles[handle] = obj
+	return handle
+}
+
+func (cm *concurrentHandleMap[T]) remove(handle uint64) {
+	cm.lock.Lock()
+	defer cm.lock.Unlock()
+
+	delete(cm.handles, handle)
+}
+
+func (cm *concurrentHandleMap[T]) tryGet(handle uint64) (T, bool) {
+	cm.lock.RLock()
+	defer cm.lock.RUnlock()
+
+	val, ok := cm.handles[handle]
+	return val, ok
+}
+
+//export spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod0
+func spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod0(uniffiHandle C.uint64_t,envelope C.RustBuffer,uniffiOutReturn *C.void,callStatus *C.RustCallStatus,) {
+	handle := uint64(uniffiHandle)
+	uniffiObj, ok := FfiConverterCallbackInterfaceTransportINSTANCE.handleMap.tryGet(handle)
+	if !ok {
+		panic(fmt.Errorf("no callback in handle map: %d", handle))
+	}
+	
+	
+
+	 err :=
+    uniffiObj.Send(
+        FfiConverterBytesINSTANCE.Lift(GoRustBuffer {
+		inner: envelope,
+	}),
+    )
+	
+    
+	if err != nil {
+		var actualError *TransportError
+		if errors.As(err, &actualError) {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackResultError),
+				errorBuf: FfiConverterTransportErrorINSTANCE.Lower(actualError),
+			}
+		} else {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackUnexpectedResultError),
+			}
+		}
+		return
+	}
+
+
+	
+}
+
+
+
+//export spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod1
+func spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod1(uniffiHandle C.uint64_t,uniffiOutReturn *C.RustBuffer,callStatus *C.RustCallStatus,) {
+	handle := uint64(uniffiHandle)
+	uniffiObj, ok := FfiConverterCallbackInterfaceTransportINSTANCE.handleMap.tryGet(handle)
+	if !ok {
+		panic(fmt.Errorf("no callback in handle map: %d", handle))
+	}
+	
+	
+
+	 res, err :=
+    uniffiObj.Recv(
+    )
+	
+    
+	if err != nil {
+		var actualError *TransportError
+		if errors.As(err, &actualError) {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackResultError),
+				errorBuf: FfiConverterTransportErrorINSTANCE.Lower(actualError),
+			}
+		} else {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackUnexpectedResultError),
+			}
+		}
+		return
+	}
+
+
+	*uniffiOutReturn = FfiConverterBytesINSTANCE.Lower(res)
+}
+
+
+
+//export spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod2
+func spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod2(uniffiHandle C.uint64_t,uniffiOutReturn *C.void,callStatus *C.RustCallStatus,) {
+	handle := uint64(uniffiHandle)
+	uniffiObj, ok := FfiConverterCallbackInterfaceTransportINSTANCE.handleMap.tryGet(handle)
+	if !ok {
+		panic(fmt.Errorf("no callback in handle map: %d", handle))
+	}
+	
+	
+
+	 err :=
+    uniffiObj.Close(
+    )
+	
+    
+	if err != nil {
+		var actualError *TransportError
+		if errors.As(err, &actualError) {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackResultError),
+				errorBuf: FfiConverterTransportErrorINSTANCE.Lower(actualError),
+			}
+		} else {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackUnexpectedResultError),
+			}
+		}
+		return
+	}
+
+
+	
+}
+
+var UniffiVTableCallbackInterfaceTransportINSTANCE = C.UniffiVTableCallbackInterfaceTransport {
+	uniffiFree: (C.UniffiCallbackInterfaceFree)(C.spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportFree),
+	uniffiClone: (C.UniffiCallbackInterfaceClone)(C.spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportClone),
+	send: (C.UniffiCallbackInterfaceTransportMethod0)(C.spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod0),
+	recv: (C.UniffiCallbackInterfaceTransportMethod1)(C.spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod1),
+	close: (C.UniffiCallbackInterfaceTransportMethod2)(C.spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportMethod2),
+}
+
+//export spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportFree
+func spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportFree(handle C.uint64_t) {
+	FfiConverterCallbackInterfaceTransportINSTANCE.handleMap.remove(uint64(handle))
+}
+
+//export spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportClone
+func spoke_connect_ffi_foreign_transport_cgo_dispatchCallbackInterfaceTransportClone(handle C.uint64_t) C.uint64_t {
+	val, ok := FfiConverterCallbackInterfaceTransportINSTANCE.handleMap.tryGet(uint64(handle))
+	if !ok {
+		panic(fmt.Errorf("no callback in handle map: %d", handle))
+	}
+	return C.uint64_t(FfiConverterCallbackInterfaceTransportINSTANCE.handleMap.insert(val))
+}
+
+func (c FfiConverterCallbackInterfaceTransport) register() {
+	C.uniffi_spoke_connect_fn_init_callback_vtable_transport(&UniffiVTableCallbackInterfaceTransportINSTANCE)
+}
+
+
+
+type FfiConverterOptionalUint64 struct{}
+
+var FfiConverterOptionalUint64INSTANCE = FfiConverterOptionalUint64{}
+
+func (c FfiConverterOptionalUint64) Lift(rb RustBufferI) *uint64 {
+	return LiftFromRustBuffer[*uint64](c, rb)
+}
+
+func (_ FfiConverterOptionalUint64) Read(reader io.Reader) *uint64 {
+	if readInt8(reader) == 0 {
+		return nil
+	}
+	temp := FfiConverterUint64INSTANCE.Read(reader)
+	return &temp
+}
+
+func (c FfiConverterOptionalUint64) Lower(value *uint64) C.RustBuffer {
+	return LowerIntoRustBuffer[*uint64](c, value)
+}
+
+func (c FfiConverterOptionalUint64) LowerExternal(value *uint64) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*uint64](c, value))
+}
+
+func (_ FfiConverterOptionalUint64) Write(writer io.Writer, value *uint64) {
+	if value == nil {
+		writeInt8(writer, 0)
+	} else {
+		writeInt8(writer, 1)
+		FfiConverterUint64INSTANCE.Write(writer, *value)
+	}
+}
+
+type FfiDestroyerOptionalUint64 struct {}
+
+func (_ FfiDestroyerOptionalUint64) Destroy(value *uint64) {
+	if value != nil {
+		FfiDestroyerUint64{}.Destroy(*value)
+	}
+}
 
 
 type FfiConverterOptionalString struct{}
@@ -1758,5 +3136,24 @@ func VerifyHelloEd25519(publicKey []byte, expectedPeerId string, helloJson strin
 		return false
 	})
 		return _uniffiErr.AsError()
+}
+
+// Create a back-to-back loopback transport pair (client + server ends).
+func NewLoopbackTransportPair() *LoopbackTransportPair {
+	return FfiConverterLoopbackTransportPairINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
+		return C.uniffi_spoke_connect_fn_func_loopback_transport_pair(_uniffiStatus)
+	}))
+}
+
+func ConnectRemoteAdapterFfi(transport Transport, localSeed []byte, localManifestJson string, remotePubkey []byte, allowlist []string, invokeTimeoutMs *uint64) (*RemoteAdapterFfi, error) {
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) C.uint64_t {
+		return C.uniffi_spoke_connect_fn_func_connect_remote_adapter_ffi(FfiConverterCallbackInterfaceTransportINSTANCE.Lower(transport), FfiConverterBytesINSTANCE.Lower(localSeed), FfiConverterStringINSTANCE.Lower(localManifestJson), FfiConverterBytesINSTANCE.Lower(remotePubkey), FfiConverterSequenceStringINSTANCE.Lower(allowlist), FfiConverterOptionalUint64INSTANCE.Lower(invokeTimeoutMs),_uniffiStatus)
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue *RemoteAdapterFfi
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterRemoteAdapterFfiINSTANCE.Lift(_uniffiRV), nil
+		}
 }
 

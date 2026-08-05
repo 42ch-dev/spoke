@@ -67,6 +67,31 @@ index ce6b262..08a9e88 100644
  #[derive(Debug)]
  pub struct MapCodeType<'a> {
      key: Type,
+diff --git a/bindgen/src/gen_go/filters.rs b/bindgen/src/gen_go/filters.rs
+index ed82dda..409b9a7 100644
+--- a/bindgen/src/gen_go/filters.rs
++++ b/bindgen/src/gen_go/filters.rs
+@@ -203,6 +203,20 @@ pub fn fn_name(nm: &str) -> Result<String, askama::Error> {
+     Ok(oracle().fn_name(nm))
+ }
+ 
++/// Top-level function name, prefixed with `New` when it would collide with an object type.
++pub fn free_fn_name(func: &Function, ci: &ComponentInterface) -> Result<String, askama::Error> {
++    let base = oracle().fn_name(func.name());
++    if let Some(return_type) = func.return_type() {
++        if let Type::Object { name, .. } = return_type {
++            if oracle().class_name(name) == base {
++                return Ok(format!("New{}", base));
++            }
++        }
++    }
++    Ok(base)
++}
++
++
+ /// Get the idiomatic Go rendering of a function name.
+ pub fn enum_variant_name(nm: &str) -> Result<String, askama::Error> {
+     Ok(oracle().enum_variant_name(nm))
 diff --git a/bindgen/src/gen_go/mod.rs b/bindgen/src/gen_go/mod.rs
 index 359c837..9a0d88b 100644
 --- a/bindgen/src/gen_go/mod.rs
@@ -295,67 +320,19 @@ index 1f4f654..a544429 100644
 -
 -    Ok(())
  }
-diff --git a/bindgen/templates/SetTemplate.go b/bindgen/templates/SetTemplate.go
-new file mode 100644
-index 0000000..7e04f10
---- /dev/null
-+++ b/bindgen/templates/SetTemplate.go
-@@ -0,0 +1,55 @@
-+{#/* This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */#}
-+
-+{{- self.add_import("math") }}
-+
-+{%- let inner_type_name = inner_type|type_name(ci) %}
-+
-+type {{ ffi_converter_name }} struct{}
-+
-+var {{ ffi_converter_instance }} = {{ ffi_converter_name }}{}
-+
-+func (c {{ ffi_converter_name }}) Lift(rb RustBufferI) {{ type_name }} {
-+	return LiftFromRustBuffer[{{ type_name }}](c, rb)
-+}
-+
-+func (c {{ ffi_converter_name }}) Read(reader io.Reader) {{ type_name }} {
-+	length := readInt32(reader)
-+	if length == 0 {
-+		return nil
-+	}
-+	result := make({{ type_name }}, length)
-+	for i := int32(0); i < length; i++ {
-+		item := {{ inner_type|read_fn(ci) }}(reader)
-+		result[item] = struct{}{}
-+	}
-+	return result
-+}
-+
-+func (c {{ ffi_converter_name }}) Lower(value {{ type_name }}) C.RustBuffer {
-+	return LowerIntoRustBuffer[{{ type_name }}](c, value)
-+}
-+
-+func (c {{ ffi_converter_name }}) LowerExternal(value {{ type_name }}) ExternalCRustBuffer {
-+	return RustBufferFromC(LowerIntoRustBuffer[{{ type_name }}](c, value))
-+}
-+
-+func (c {{ ffi_converter_name }}) Write(writer io.Writer, value {{ type_name }}) {
-+	if len(value) > math.MaxInt32 {
-+		panic("{{ type_name }} is too large to fit into Int32")
-+	}
-+
-+	writeInt32(writer, int32(len(value)))
-+	for item := range value {
-+		{{ inner_type|write_fn(ci) }}(writer, item)
-+	}
-+}
-+
-+type {{ ffi_destroyer_name }} struct {}
-+
-+func ({{ ffi_destroyer_name }}) Destroy(set {{ type_name }}) {
-+	for item := range set {
-+		{{ inner_type|destroy_fn(ci) }}(item)
-+	}
-+}
+diff --git a/bindgen/templates/TopLevelFunctionTemplate.go b/bindgen/templates/TopLevelFunctionTemplate.go
+index 411627e..c67fec3 100644
+--- a/bindgen/templates/TopLevelFunctionTemplate.go
++++ b/bindgen/templates/TopLevelFunctionTemplate.go
+@@ -3,7 +3,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */#}
+ 
+ {%- call go::docstring(func, 0) %}
+-func {{ func.name()|fn_name}}({%- call go::arg_list_decl(func) -%}) {% call go::return_type_decl(func) %} {
++func {{ func|free_fn_name(ci) }}({%- call go::arg_list_decl(func) -%}) {% call go::return_type_decl(func) %} {
+ {%- if func.is_async() %}
+ 	{% call go::async_ffi_call_binding(func, "") %}
+ {%- else %}
 diff --git a/bindgen/templates/Types.go b/bindgen/templates/Types.go
 index 2f9b6b8..777b0c6 100644
 --- a/bindgen/templates/Types.go

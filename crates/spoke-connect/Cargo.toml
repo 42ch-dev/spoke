@@ -84,4 +84,8 @@ x25519-dalek = "2"
 # ToyWorldAdapter, and the dial fixture derives peer ids from raw seeds.
 spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust" }
 ed25519-dalek = "2"
+# Loopback host emits schema-v2 signed post-hello envelopes (session
+# snapshot + invoke responses) with the same RFC 8785 JCS canonicalization
+# the core `authenticate_*` helpers use (envelope-auth contract §3/§5).
+serde_jcs = "0.2"
 

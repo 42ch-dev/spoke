@@ -30,7 +30,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use ed25519_dalek::SigningKey;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use ed25519_dalek::{Signer, SigningKey};
 use serde::Serialize;
 use serde_json::{json, Value};
 use spoke_connect::core::{
@@ -170,56 +172,59 @@ impl HostInner {
         let _ = self.transport.send(&bytes).await;
     }
 
-    async fn send_error_response(&self, request: &ConnectInvokeRequest, code: &str, message: &str) {
+    /// Send a signed invoke-response envelope (schema-v2 requires the
+    /// `signature` on every response branch). `branch` is the exact
+    /// response branch object (`payload` success XOR `error`) — the same
+    /// object becomes the signed object, mirroring the contract's
+    /// branch-exact signed field set (`{session_id, sequence, request_id}`
+    /// + branch).
+    async fn send_signed_response(&self, request: &ConnectInvokeRequest, branch: Value) {
         self.stats
             .lock()
             .expect("stats lock")
             .response_order
             .push(request.sequence);
-        self.send_envelope(&json!({
-            "session_id": request.session_id,
-            "sequence": request.sequence,
-            "request_id": request.request_id,
-            "error": { "code": code, "message": message, "extensions": {} },
-            "extensions": {},
-        }))
+        let branch = branch.as_object().expect("branch is an object").clone();
+        let mut signed = serde_json::Map::new();
+        signed.insert("session_id".into(), json!(request.session_id));
+        signed.insert("sequence".into(), json!(request.sequence));
+        signed.insert("request_id".into(), json!(request.request_id));
+        signed.extend(branch.clone());
+        let signature = sign_envelope(&self.host_seed, &serde_json::Value::Object(signed));
+        let mut wire = serde_json::Map::new();
+        wire.insert("session_id".into(), json!(request.session_id));
+        wire.insert("sequence".into(), json!(request.sequence));
+        wire.insert("request_id".into(), json!(request.request_id));
+        wire.extend(branch);
+        wire.insert("extensions".into(), json!({}));
+        wire.insert("signature".into(), json!(signature));
+        self.send_envelope(&serde_json::Value::Object(wire)).await;
+    }
+
+    async fn send_error_response(&self, request: &ConnectInvokeRequest, code: &str, message: &str) {
+        self.send_signed_response(
+            request,
+            json!({ "error": { "code": code, "message": message, "extensions": {} } }),
+        )
         .await;
     }
 
     async fn send_ok_response(&self, request: &ConnectInvokeRequest, payload: Value) {
-        self.stats
-            .lock()
-            .expect("stats lock")
-            .response_order
-            .push(request.sequence);
-        self.send_envelope(&json!({
-            "session_id": request.session_id,
-            "sequence": request.sequence,
-            "request_id": request.request_id,
-            "payload": payload,
-            "extensions": {},
-        }))
-        .await;
+        self.send_signed_response(request, json!({ "payload": payload })).await;
     }
 
     async fn send_reject_response(&self, request: &ConnectInvokeRequest, reject: &SpokeReject) {
-        self.stats
-            .lock()
-            .expect("stats lock")
-            .response_order
-            .push(request.sequence);
-        self.send_envelope(&json!({
-            "session_id": request.session_id,
-            "sequence": request.sequence,
-            "request_id": request.request_id,
-            "error": {
-                "code": reject.code.as_str(),
-                "message": reject.message,
-                "details": reject.details.clone().unwrap_or_default(),
-                "extensions": {},
-            },
-            "extensions": {},
-        }))
+        self.send_signed_response(
+            request,
+            json!({
+                "error": {
+                    "code": reject.code.as_str(),
+                    "message": reject.message,
+                    "details": reject.details.clone().unwrap_or_default(),
+                    "extensions": {},
+                },
+            }),
+        )
         .await;
     }
 
@@ -296,6 +301,8 @@ impl HostInner {
         // Test-only response override: replace the envelope the host would
         // send (malformed-response fixtures). The request already passed the
         // gates, so the client has a pending waiter to exercise against.
+        // The override is still a schema-v2 response envelope — it carries
+        // the host's signature over its own (possibly mangled) wire fields.
         if let Some(override_fn) = self.response_override.as_ref() {
             if let Some(envelope) = override_fn(&request) {
                 self.stats
@@ -303,6 +310,19 @@ impl HostInner {
                     .expect("stats lock")
                     .response_order
                     .push(request.sequence);
+                let mut envelope = envelope;
+                let mut signed = envelope
+                    .as_object()
+                    .expect("override envelope is an object")
+                    .clone();
+                signed.remove("extensions");
+                signed.remove("signature");
+                let signature =
+                    sign_envelope(&self.host_seed, &serde_json::Value::Object(signed));
+                envelope
+                    .as_object_mut()
+                    .expect("override envelope is an object")
+                    .insert("signature".into(), json!(signature));
                 self.send_envelope(&envelope).await;
                 return;
             }
@@ -540,20 +560,33 @@ impl HostInner {
             .send(&bytes)
             .await
             .map_err(|error| error.to_string())?;
-        let snapshot: ConnectSession = serde_json::from_value(json!({
-            "session_id": SESSION_ID,
-            "initiator_peer_id": client_peer_id,
-            "responder_peer_id": self.host_peer_id,
-            "opened_at": "2026-01-01T00:00:00Z",
-            "negotiated_capabilities": if negotiated.is_empty() {
+        let snapshot: ConnectSession = {
+            // The wire snapshot requires ≥1 negotiated capability; the
+            // client derives its own negotiated set from the hellos, so the
+            // fallback only covers the degenerate empty-intersection fixture.
+            let wire_caps = if negotiated.is_empty() {
                 vec!["spoke-baseline".to_string()]
             } else {
                 negotiated
-            },
-            "initial_sequence": 0,
-            "extensions": {},
-        }))
-        .map_err(|error| error.to_string())?;
+            };
+            let signed = json!({
+                "session_id": SESSION_ID,
+                "initiator_peer_id": client_peer_id,
+                "responder_peer_id": self.host_peer_id,
+                "opened_at": "2026-01-01T00:00:00Z",
+                "negotiated_capabilities": wire_caps,
+                "initial_sequence": 0,
+            });
+            // Schema-v2: the session snapshot carries the host's
+            // `spoke-connect-session-jcs-v1` signature (the client's typed
+            // deserialization requires it).
+            let signature = sign_envelope(&self.host_seed, &signed);
+            let mut wire = signed.as_object().expect("session object").clone();
+            wire.insert("extensions".into(), json!({}));
+            wire.insert("signature".into(), json!(signature));
+            serde_json::from_value(serde_json::Value::Object(wire))
+                .map_err(|error| error.to_string())?
+        };
         let bytes = serde_json::to_vec(&snapshot).map_err(|error| error.to_string())?;
         self.transport
             .send(&bytes)
@@ -667,6 +700,18 @@ struct DialOptions {
 
 fn seed_host() -> [u8; 32] {
     [0xa0u8; 32]
+}
+
+/// Sign the exact signed-object of a post-hello envelope with the host's
+/// hello-identity seed: RFC 8785 JCS canonicalize → Ed25519 sign → canonical
+/// base64url (exactly 86 chars). Mirrors the core `authenticate_*`
+/// construction (envelope-auth contract §3/§5) so the loopback host emits
+/// the schema-v2 wire form (`signature` required on every post-hello
+/// envelope) the client's typed deserialization demands.
+fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
+    let jcs_bytes = serde_jcs::to_vec(signed_object).expect("signed object JCS-canonicalizes");
+    let signature = SigningKey::from_bytes(secret).sign(&jcs_bytes);
+    URL_SAFE_NO_PAD.encode(signature.to_bytes())
 }
 
 fn seed_client() -> [u8; 32] {

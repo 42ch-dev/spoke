@@ -262,6 +262,12 @@ struct EstablishedSession {
     session_id: String,
     /// The verified remote peer id (the peer the session is bound to).
     responder_peer_id: String,
+    /// This adapter's raw Ed25519 hello-identity seed — every outbound
+    /// `ConnectInvokeRequest` is signed with it
+    /// (`spoke-connect-invoke-request-jcs-v1`; v2 requires the `signature`
+    /// on every post-hello envelope — envelope-auth contract §5). Same
+    /// role as `SessionHandle.local_secret` in the node/session path.
+    local_secret: [u8; 32],
     sequence: Mutex<OutboundSequence>,
 }
 
@@ -470,7 +476,10 @@ impl RemoteAdapter {
     // ── Invoke path ───────────────────────────────────────────────────────
 
     /// Build the outbound `ConnectInvokeRequest`: atomic outbound sequence
-    /// allocation, fresh `request_id`, optional capability-token `auth`.
+    /// allocation, fresh `request_id`, optional capability-token `auth`,
+    /// and the `spoke-connect-invoke-request-jcs-v1` signature over the
+    /// request's signed fields (envelope-auth contract §5 — v2 requires
+    /// the `signature` on every post-hello envelope).
     /// Session unusable → `Err(RemoteError)`; sequence exhaustion closes the
     /// session (contract §6 "Sequence overflow").
     fn build_request(&self, op: &str, payload: Value) -> Result<ConnectInvokeRequest, RemoteError> {
@@ -509,31 +518,57 @@ impl RemoteAdapter {
             .capability_token
             .as_ref()
             .map(|token| serde_json::to_value(token).expect("capability token proof serializes"));
-        Ok(ConnectInvokeRequest {
-            auth,
-            extensions: HashMap::new(),
-            op: op.parse().map_err(
+        // Validate the op and the derived wire strings up front (empty or
+        // malformed values are caller errors — `authenticate_invoke_request`
+        // re-parses them infallibly after this gate), mirroring
+        // `session.rs::invoke_with_auth`.
+        let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestOp =
+            op.parse().map_err(
                 |error: spoke_schemas::connect::connect_invoke_request::error::ConversionError| {
                     RemoteError::new(
                         RemoteErrorKind::Transport,
                         format!("invalid op {op:?}: {error}"),
                     )
                 },
-            )?,
-            payload,
-            request_id: request_id.parse().map_err(|error| {
-                RemoteError::new(
-                    RemoteErrorKind::Transport,
-                    format!("invalid request_id: {error}"),
-                )
-            })?,
-            sequence: sequence as i64,
-            session_id: session.session_id.parse().map_err(|error| {
+            )?;
+        let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestRequestId =
+            request_id
+                .parse()
+                .map_err(|error| {
+                    RemoteError::new(
+                        RemoteErrorKind::Transport,
+                        format!("invalid request_id: {error}"),
+                    )
+                })?;
+        let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestSessionId =
+            session.session_id.parse().map_err(|error| {
                 RemoteError::new(
                     RemoteErrorKind::Transport,
                     format!("invalid session_id: {error}"),
                 )
-            })?,
+            })?;
+        // Authenticate the outbound request with this adapter's hello
+        // identity seed (the seed the server verified at the hello
+        // exchange; envelope-auth signs every post-hello envelope with the
+        // same key). Signing is infallible for the validated 32-byte seed
+        // stored on the established session.
+        crate::core::authenticate_invoke_request(
+            &session.local_secret,
+            &crate::core::InvokeRequestSignInput {
+                session_id: session.session_id.clone(),
+                sequence: sequence as i64,
+                request_id: request_id.clone(),
+                op: op.to_owned(),
+                payload: payload.clone(),
+                auth: auth.clone(),
+            },
+            HashMap::new(),
+        )
+        .map_err(|error| {
+            RemoteError::new(
+                RemoteErrorKind::Transport,
+                format!("envelope auth signing failed: {error}"),
+            )
         })
     }
 
@@ -889,6 +924,7 @@ pub async fn connect_remote_adapter(
             EstablishedSession {
                 session_id: session_doc.session_id.to_string(),
                 responder_peer_id: remote_peer_id,
+                local_secret: local_identity.seed,
                 sequence: Mutex::new(OutboundSequence::new()),
             },
             remote_manifest,
@@ -967,6 +1003,7 @@ mod tests {
             EstablishedSession {
                 session_id: "test-session-exhausted".into(),
                 responder_peer_id: "test-remote-peer".into(),
+                local_secret: [0x2a; 32],
                 sequence: Mutex::new(sequence),
             },
             manifest,

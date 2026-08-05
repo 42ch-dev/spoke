@@ -82,4 +82,33 @@ describe("InboundSequence (port of sequence.rs)", () => {
     const inbound = new InboundSequence();
     expect(() => inbound.advance(MAX_SEQUENCE + 1)).toThrowError(CoreInvokeError);
   });
+
+  it("peek validates the wire position WITHOUT advancing (auth-before-advance)", () => {
+    const inbound = new InboundSequence();
+    // Wire-position check passes at 0...
+    inbound.peek(0);
+    // ...but the expectation is unchanged — the counter only advances after
+    // envelope-auth verify passes (contract §7 amendment).
+    expect(inbound.nextExpected()).toBe(0);
+
+    // Mismatch rejects exactly like advance, and still does not advance.
+    expect(() => inbound.peek(1)).toThrowError(
+      expect.objectContaining({
+        code: "inbound_sequence_mismatch",
+        details: { expected: 0, actual: 1 },
+      }),
+    );
+    expect(() => inbound.peek(-1)).toThrowError(
+      expect.objectContaining({
+        code: "inbound_sequence_mismatch",
+        details: { expected: 0, actual: -1 },
+      }),
+    );
+    expect(inbound.nextExpected()).toBe(0);
+
+    // After auth passes, advance commits the position, then peek tracks it.
+    expect(inbound.advance(0)).toBe(1);
+    inbound.peek(1);
+    expect(inbound.nextExpected()).toBe(1);
+  });
 });

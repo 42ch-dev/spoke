@@ -262,6 +262,250 @@ pub use foreign_transport::{
     loopback_transport_pair, ForeignCallbackTransport, LoopbackTransport, LoopbackTransportPair,
     Transport, TransportError,
 };
+
+// ── Sync `RemoteAdapterFFI` over the async adapter (AR-4 / AR-5 / AR-6) ───
+#[cfg(feature = "remote-adapter")]
+mod remote_adapter_ffi {
+    use std::sync::Arc;
+
+    use serde::de::DeserializeOwned;
+    use serde::Serialize;
+    use serde_json::Value;
+    use spoke_operations::{
+        FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+        ScopeQueryPort, SpokeReject, SpokeResult,
+    };
+    use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
+
+    use crate::remote::{
+        connect_remote_adapter, RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions,
+        RemoteIdentity,
+    };
+
+    use super::foreign_transport::ForeignCallbackTransport;
+    use super::foreign_transport::Transport as FfiTransport;
+    use super::ffi_runtime;
+
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, uniffi::Error)]
+    pub enum FfiError {
+        #[error("dial failed ({kind}): {message}")]
+        Dial { kind: String, message: String },
+        #[error("rejected ({code}): {message}")]
+        Rejected {
+            code: String,
+            message: String,
+            kind: Option<String>,
+            wire_code: Option<String>,
+        },
+    }
+
+    fn map_dial_error(error: RemoteAdapterError) -> FfiError {
+        match error {
+            RemoteAdapterError::Config(message) => FfiError::Dial {
+                kind: "config".into(),
+                message,
+            },
+            RemoteAdapterError::Handshake(message) => FfiError::Dial {
+                kind: "handshake".into(),
+                message,
+            },
+            RemoteAdapterError::Timeout(message) => FfiError::Dial {
+                kind: "timeout".into(),
+                message,
+            },
+        }
+    }
+
+    fn detail_string(details: &Option<serde_json::Map<String, Value>>, key: &str) -> Option<String> {
+        details
+            .as_ref()
+            .and_then(|details| details.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    }
+
+    fn map_spoke_reject(reject: SpokeReject) -> FfiError {
+        FfiError::Rejected {
+            code: reject.code.as_str().to_string(),
+            message: reject.message,
+            kind: detail_string(&reject.details, "kind"),
+            wire_code: detail_string(&reject.details, "wire_code"),
+        }
+    }
+
+    fn map_spoke_result<T: Serialize>(result: SpokeResult<T>) -> Result<String, FfiError> {
+        match result {
+            SpokeResult::Ok(value) => serde_json::to_string(&value).map_err(|error| {
+                FfiError::Rejected {
+                    code: "INTERNAL_ERROR".into(),
+                    message: format!("response serialize failed: {error}"),
+                    kind: Some("transport".into()),
+                    wire_code: None,
+                }
+            }),
+            SpokeResult::Reject(reject) => Err(map_spoke_reject(reject)),
+        }
+    }
+
+    fn parse_json_field<T: DeserializeOwned>(json: &str, what: &str) -> Result<T, FfiError> {
+        serde_json::from_str(json).map_err(|error| FfiError::Rejected {
+            code: "INVALID_INPUT".into(),
+            message: format!("invalid {what} JSON: {error}"),
+            kind: None,
+            wire_code: None,
+        })
+    }
+
+    fn ed25519_seed(bytes: Vec<u8>) -> Result<[u8; 32], FfiError> {
+        bytes.try_into().map_err(|_| FfiError::Dial {
+            kind: "config".into(),
+            message: "local seed must be exactly 32 bytes".into(),
+        })
+    }
+
+    fn ed25519_pubkey(bytes: Vec<u8>) -> Result<[u8; 32], FfiError> {
+        bytes.try_into().map_err(|_| FfiError::Dial {
+            kind: "config".into(),
+            message: "remote public key must be exactly 32 bytes".into(),
+        })
+    }
+
+    #[derive(uniffi::Object)]
+    pub struct RemoteAdapterFFI {
+        inner: Arc<RemoteAdapter>,
+    }
+
+    #[uniffi::export]
+    impl RemoteAdapterFFI {
+        pub fn state(&self) -> String {
+            self.inner.state().as_str().to_string()
+        }
+
+        pub fn session_id(&self) -> Option<String> {
+            self.inner.session_id()
+        }
+
+        pub fn remote_peer_id(&self) -> Option<String> {
+            self.inner.remote_peer_id()
+        }
+
+        pub fn remote_manifest(&self) -> Option<String> {
+            self.inner.remote_manifest().and_then(|manifest| {
+                serde_json::to_string(&manifest).ok()
+            })
+        }
+
+        pub fn get_host_capability_manifest(&self) -> Result<String, FfiError> {
+            map_spoke_result(
+                ffi_runtime().block_on(self.inner.get_host_capability_manifest()),
+            )
+        }
+
+        pub fn get_knowledge_entry(&self, entry_id: String) -> Result<String, FfiError> {
+            map_spoke_result(
+                ffi_runtime().block_on(self.inner.get_knowledge_entry(&entry_id)),
+            )
+        }
+
+        pub fn put_knowledge_entry(
+            &self,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            let entry: KnowledgeEntry = parse_json_field(&entry_json, "knowledge entry")?;
+            map_spoke_result(ffi_runtime().block_on(
+                self.inner
+                    .put_knowledge_entry(entry, expected_base_revision),
+            ))
+        }
+
+        pub fn get_relation(&self, relation_id: String) -> Result<String, FfiError> {
+            map_spoke_result(ffi_runtime().block_on(self.inner.get_relation(&relation_id)))
+        }
+
+        pub fn put_relation(
+            &self,
+            relation_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            let relation: Relation = parse_json_field(&relation_json, "relation")?;
+            map_spoke_result(ffi_runtime().block_on(
+                self.inner.put_relation(relation, expected_base_revision),
+            ))
+        }
+
+        pub fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
+            let scope: Scope = parse_json_field(&scope_json, "scope")?;
+            map_spoke_result(
+                ffi_runtime().block_on(self.inner.list_knowledge_entries(&scope)),
+            )
+        }
+
+        pub fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
+            let scope: Scope = parse_json_field(&scope_json, "scope")?;
+            map_spoke_result(
+                ffi_runtime().block_on(self.inner.list_timeline_events(&scope)),
+            )
+        }
+
+        pub fn put_findings(&self, findings_json: String) -> Result<String, FfiError> {
+            let findings: Vec<Finding> = parse_json_field(&findings_json, "findings")?;
+            map_spoke_result(ffi_runtime().block_on(self.inner.put_findings(findings)))
+        }
+
+        pub fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError> {
+            map_spoke_result(ffi_runtime().block_on(self.inner.list_rules(&rule_refs)))
+        }
+
+        pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
+            map_spoke_result(
+                ffi_runtime().block_on(self.inner.list_peer_host_capability_manifests()),
+            )
+        }
+
+        pub fn close(&self) {
+            self.inner.close();
+        }
+    }
+
+    #[uniffi::export]
+    pub fn connect_remote_adapter_ffi(
+        transport: Box<dyn FfiTransport>,
+        local_seed: Vec<u8>,
+        local_manifest_json: String,
+        remote_pubkey: Vec<u8>,
+        allowlist: Vec<String>,
+        invoke_timeout_ms: Option<u64>,
+    ) -> Result<Arc<RemoteAdapterFFI>, FfiError> {
+        let local_manifest: HostCapabilityManifest =
+            parse_json_field(&local_manifest_json, "local host manifest")?;
+        let adapter = ffi_runtime()
+            .block_on(connect_remote_adapter(RemoteAdapterOptions {
+                transport: Arc::new(ForeignCallbackTransport::new(Arc::from(transport))),
+                local_identity: RemoteIdentity {
+                    seed: ed25519_seed(local_seed)?,
+                },
+                local_manifest,
+                remote_pubkey: ed25519_pubkey(remote_pubkey)?,
+                allowlist,
+                invoke_timeout_ms,
+                capability_token: None,
+            }))
+            .map_err(map_dial_error)?;
+        Ok(Arc::new(RemoteAdapterFFI { inner: adapter }))
+    }
+
+    #[cfg(test)]
+    impl RemoteAdapterFFI {
+        pub(crate) fn from_adapter(adapter: Arc<RemoteAdapter>) -> Arc<Self> {
+            Arc::new(Self { inner: adapter })
+        }
+    }
+}
+
+#[cfg(feature = "remote-adapter")]
+pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
 use spoke_schemas::connect::ConnectHello;
 
@@ -940,5 +1184,251 @@ mod tests {
         );
         assert_eq!(required_capability("custom-op".to_owned()), None);
         assert_eq!(protocol_version(), 1);
+    }
+}
+
+
+#[cfg(all(test, feature = "remote-adapter"))]
+#[path = "ffi_loopback_oracle.rs"]
+mod ffi_loopback_oracle;
+
+#[cfg(all(test, feature = "remote-adapter"))]
+mod remote_adapter_ffi_tests {
+    use std::sync::Arc;
+    use std::thread;
+
+    use serde_json::json;
+    use spoke_fixture_toy_world::ToyWorldAdapter;
+    use spoke_schemas::KnowledgeEntry;
+
+    use crate::core::derive_peer_id_from_ed25519_pubkey;
+    use crate::core::golden::{golden, golden_pubkey, golden_seed};
+    use crate::remote::transport::Transport as RemoteAsyncTransport;
+
+    use super::ffi_loopback_oracle::{
+        dial, fresh_entry, manifest, pubkey_host, seed_client, seed_host, DialOptions,
+    };
+    use super::foreign_transport::{ForeignCallbackTransport, Transport, TransportError};
+    use super::remote_adapter_ffi::{
+        connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI,
+    };
+    use super::ffi_runtime;
+
+    struct LoopbackCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+    }
+
+    impl Transport for LoopbackCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    fn client_manifest_json() -> String {
+        serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest")
+    }
+
+    fn dial_ffi(client: crate::remote::transport::LoopbackTransport) -> Arc<RemoteAdapterFFI> {
+        let callback = Box::new(LoopbackCallback { inner: client });
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+        connect_remote_adapter_ffi(
+            callback,
+            seed_client().to_vec(),
+            client_manifest_json(),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        )
+        .expect("ffi dial")
+    }
+
+    #[test]
+    fn connect_remote_adapter_ffi_rejects_allowlist_miss() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let callback = Box::new(LoopbackCallback { inner: pair.client });
+        let err = match connect_remote_adapter_ffi(
+            callback,
+            seed_client().to_vec(),
+            client_manifest_json(),
+            pubkey_host().to_vec(),
+            vec![],
+            None,
+        ) {
+            Err(err) => err,
+            Ok(_) => panic!("empty allowlist fails closed"),
+        };
+        assert!(matches!(err, FfiError::Dial { kind, .. } if kind == "config"));
+    }
+
+    #[test]
+    fn remote_adapter_ffi_put_get_round_trip_and_session_info() {
+        let (async_client, host) = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            dial(host_adapter, DialOptions::default()).await
+        });
+        let ffi = RemoteAdapterFFI::from_adapter(async_client);
+
+        assert_eq!(ffi.state(), "Established");
+        assert_eq!(ffi.session_id().as_deref(), Some(host.session_id()));
+        assert_eq!(
+            ffi.remote_peer_id().as_deref(),
+            Some(derive_peer_id_from_ed25519_pubkey(&pubkey_host()).as_str())
+        );
+        let remote_manifest = ffi.remote_manifest().expect("remote manifest json");
+        let manifest: serde_json::Value = serde_json::from_str(&remote_manifest).expect("json");
+        assert_eq!(manifest.get("host_id").and_then(|v| v.as_str()), Some("test-host"));
+
+        let entry = fresh_entry("kb_ffi_cartographer", "FFI Cartographer");
+        let entry_json = serde_json::to_string(&entry).expect("entry json");
+        let put_json = ffi
+            .put_knowledge_entry(entry_json, None)
+            .expect("put succeeds");
+        let put_entry: KnowledgeEntry = serde_json::from_str(&put_json).expect("put entry");
+        assert_eq!(put_entry.entry_id.as_str(), "kb_ffi_cartographer");
+
+        let get_json = ffi
+            .get_knowledge_entry("kb_ffi_cartographer".to_string())
+            .expect("get succeeds");
+        let got: KnowledgeEntry = serde_json::from_str(&get_json).expect("get entry");
+        assert_eq!(got.entry_id.as_str(), "kb_ffi_cartographer");
+
+        host.close();
+    }
+
+    #[test]
+    fn connect_remote_adapter_ffi_dials_over_foreign_callback_transport() {
+        let (client, host) = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            let pair = crate::remote::transport::loopback_transport_pair();
+            let host = super::ffi_loopback_oracle::start_loopback_host(
+                super::ffi_loopback_oracle::LoopbackHostOptions {
+                    transport: Arc::new(pair.server),
+                    host_seed: seed_host(),
+                    host_manifest: manifest("test-host", &["spoke-baseline"]),
+                    allowlist: vec![derive_peer_id_from_ed25519_pubkey(
+                        &super::ffi_loopback_oracle::pubkey_client(),
+                    )],
+                    adapter: Arc::new(host_adapter),
+                    delay: Box::new(|_| 0),
+                    response_override: None,
+                    session_peer_ids: None,
+                },
+            )
+            .await;
+
+            (pair.client, host)
+        });
+        let ffi = dial_ffi(client);
+
+        assert_eq!(ffi.state(), "Established");
+        assert_eq!(
+            ffi.remote_peer_id().as_deref(),
+            Some(derive_peer_id_from_ed25519_pubkey(&pubkey_host()).as_str())
+        );
+
+        let entry = fresh_entry("kb_ffi_callback", "Callback Cartographer");
+        let entry_json = serde_json::to_string(&entry).expect("entry json");
+        ffi.put_knowledge_entry(entry_json, None)
+            .expect("put over ffi dial");
+        ffi.get_knowledge_entry("kb_ffi_callback".to_string())
+            .expect("get over ffi dial");
+        ffi.close();
+        drop(host);
+    }
+
+    #[test]
+    fn remote_adapter_ffi_close_rejects_port_calls_with_session_closed() {
+        let (async_client, host) = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            dial(host_adapter, DialOptions::default()).await
+        });
+        let ffi = RemoteAdapterFFI::from_adapter(async_client);
+        ffi.close();
+        assert_eq!(ffi.state(), "Closed");
+        let err = ffi
+            .get_knowledge_entry("kb_tw_mira".to_string())
+            .expect_err("post-close port call rejects");
+        assert!(matches!(
+            err,
+            FfiError::Rejected { code, kind: Some(kind), .. }
+                if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+        host.close();
+    }
+
+    #[test]
+    fn remote_adapter_ffi_concurrent_invokes_from_os_threads() {
+        let (async_client, host) = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            dial(host_adapter, DialOptions::default()).await
+        });
+        let ffi = Arc::new(RemoteAdapterFFI::from_adapter(async_client));
+
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let ffi = Arc::clone(&ffi);
+                thread::spawn(move || {
+                    ffi.get_knowledge_entry("kb_tw_mira".to_string())
+                        .expect("concurrent get")
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("thread join");
+        }
+        host.close();
+    }
+
+    #[test]
+    fn golden_hello_peer_id_matches_ffi_session_after_callback_dial() {
+        let (client, host) = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            let pair = crate::remote::transport::loopback_transport_pair();
+            let host = super::ffi_loopback_oracle::start_loopback_host(
+                super::ffi_loopback_oracle::LoopbackHostOptions {
+                    transport: Arc::new(pair.server),
+                    host_seed: golden_seed(),
+                    host_manifest: manifest("golden-host", &["spoke-baseline"]),
+                    allowlist: vec![derive_peer_id_from_ed25519_pubkey(&golden_pubkey())],
+                    adapter: Arc::new(host_adapter),
+                    delay: Box::new(|_| 0),
+                    response_override: None,
+                    session_peer_ids: None,
+                },
+            )
+            .await;
+
+            (pair.client, host)
+        });
+        let ffi = connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: client }),
+            golden_seed().to_vec(),
+            serde_json::to_string(&manifest("golden-client", &["spoke-baseline"]))
+                .expect("manifest"),
+            golden_pubkey().to_vec(),
+            vec![golden().peer_id.clone()],
+            None,
+        )
+        .expect("golden ffi dial");
+        assert_eq!(ffi.remote_peer_id().as_deref(), Some(golden().peer_id.as_str()));
+        ffi.close();
+        drop(host);
     }
 }

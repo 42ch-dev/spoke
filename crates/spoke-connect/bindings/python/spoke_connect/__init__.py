@@ -474,7 +474,38 @@ class _UniffiConverterRustBuffer:
     def lower(cls, value):
         with _UniffiRustBuffer.alloc_with_builder() as builder:
             cls.write(value, builder)
-            return builder.finalize()
+            return builder.finalize()# Magic number for the Rust proxy to call using the same mechanism as every other method,
+# to free the callback once it's dropped by Rust.
+_UNIFFI_IDX_CALLBACK_FREE = 0
+# Return codes for callback calls
+_UNIFFI_CALLBACK_SUCCESS = 0
+_UNIFFI_CALLBACK_ERROR = 1
+_UNIFFI_CALLBACK_UNEXPECTED_ERROR = 2
+
+class _UniffiCallbackInterfaceFfiConverter:
+    _handle_map = _UniffiHandleMap()
+
+    @classmethod
+    def lift(cls, handle):
+        return cls._handle_map.get(handle)
+
+    @classmethod
+    def read(cls, buf):
+        handle = buf.read_u64()
+        cls.lift(handle)
+
+    @classmethod
+    def check_lower(cls, cb):
+        pass
+
+    @classmethod
+    def lower(cls, cb):
+        handle = cls._handle_map.insert(cb)
+        return handle
+
+    @classmethod
+    def write(cls, cb, buf):
+        buf.write_u64(cls.lower(cb))
 
 # Contains loading, initialization code, and the FFI Function declarations.
 # Define some ctypes FFI types that we use in the library
@@ -526,11 +557,15 @@ def _uniffi_check_contract_api_version(lib):
 def _uniffi_check_api_checksums(lib):
     if lib.uniffi_spoke_connect_checksum_func_check_response_correlation() != 57062:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi() != 44915:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_derive_peer_id_from_ed25519_pubkey() != 37906:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_dispatch_allowed() != 25989:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_is_allowlisted() != 52933:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_func_protocol_version() != 50454:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -544,6 +579,16 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_constructor_inboundsequence_new() != 21926:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_loopbacktransport_close() != 20355:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_loopbacktransport_recv() != 39606:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_loopbacktransport_send() != 16974:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client() != 9696:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server() != 13605:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record() != 41909:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_constructor_noncestore_new() != 5575:
@@ -551,6 +596,36 @@ def _uniffi_check_api_checksums(lib):
     if lib.uniffi_spoke_connect_checksum_method_outboundsequence_allocate() != 57422:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry() != 44466:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation() != 47371:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests() != 7630:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules() != 57745:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events() != 30715:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings() != 8509:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry() != 46465:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation() != 40493:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest() != 12957:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id() != 25676:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id() != 15819:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_state() != 28869:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
 
 # A ctypes library to expose the extern-C FFI definitions.
@@ -584,6 +659,9 @@ _UniffiLib.ffi_spoke_connect_uniffi_contract_version.restype = ctypes.c_uint32
 _UniffiLib.uniffi_spoke_connect_checksum_func_check_response_correlation.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_func_check_response_correlation.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_func_connect_remote_adapter_ffi.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_checksum_func_derive_peer_id_from_ed25519_pubkey.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_func_derive_peer_id_from_ed25519_pubkey.restype = ctypes.c_uint16
@@ -593,6 +671,9 @@ _UniffiLib.uniffi_spoke_connect_checksum_func_dispatch_allowed.restype = ctypes.
 _UniffiLib.uniffi_spoke_connect_checksum_func_is_allowlisted.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_func_is_allowlisted.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_func_loopback_transport_pair.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_func_loopback_transport_pair.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_checksum_func_protocol_version.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_func_protocol_version.restype = ctypes.c_uint16
@@ -611,6 +692,21 @@ _UniffiLib.uniffi_spoke_connect_checksum_method_inboundsequence_advance.restype 
 _UniffiLib.uniffi_spoke_connect_checksum_constructor_inboundsequence_new.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_constructor_inboundsequence_new.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransport_close.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransport_close.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransport_recv.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransport_recv.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransport_send.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransport_send.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_client.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_loopbacktransportpair_server.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_method_noncestore_check_and_record.restype = ctypes.c_uint16
@@ -623,6 +719,51 @@ _UniffiLib.uniffi_spoke_connect_checksum_method_outboundsequence_allocate.restyp
 _UniffiLib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_knowledge_entry.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_session_id.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_state.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_state.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_fn_func_check_response_correlation.argtypes = (
     _UniffiRustBuffer,
     ctypes.c_uint64,
@@ -633,6 +774,16 @@ _UniffiLib.uniffi_spoke_connect_fn_func_check_response_correlation.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_func_check_response_correlation.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_func_connect_remote_adapter_ffi.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_func_connect_remote_adapter_ffi.restype = ctypes.c_uint64
 _UniffiLib.uniffi_spoke_connect_fn_func_derive_peer_id_from_ed25519_pubkey.argtypes = (
     _UniffiRustBuffer,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -650,6 +801,10 @@ _UniffiLib.uniffi_spoke_connect_fn_func_is_allowlisted.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_func_is_allowlisted.restype = ctypes.c_int8
+_UniffiLib.uniffi_spoke_connect_fn_func_loopback_transport_pair.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_func_loopback_transport_pair.restype = ctypes.c_uint64
 _UniffiLib.uniffi_spoke_connect_fn_func_protocol_version.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
@@ -683,6 +838,32 @@ _UniffiLib.uniffi_spoke_connect_fn_constructor_inboundsequence_new.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_constructor_inboundsequence_new.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_close.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_close.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_recv.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_recv.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_send.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_send.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_client.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_client.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_server.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_server.restype = ctypes.c_uint64
 _UniffiLib.uniffi_spoke_connect_fn_method_noncestore_check_and_record.argtypes = (
     ctypes.c_uint64,
     _UniffiRustBuffer,
@@ -703,6 +884,91 @@ _UniffiLib.uniffi_spoke_connect_fn_constructor_outboundsequence_new.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_constructor_outboundsequence_new.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_close.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_close.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_knowledge_entry.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_knowledge_entry.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_relation.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_relation.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_rules.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_rules.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_findings.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_findings.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_knowledge_entry.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_knowledge_entry.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_relation.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_relation.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_manifest.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_manifest.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_peer_id.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_peer_id.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_session_id.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_session_id.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_state.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_state.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_spoke_connect_fn_clone_inboundsequence.argtypes = (
     ctypes.c_uint64,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -713,6 +979,26 @@ _UniffiLib.uniffi_spoke_connect_fn_free_inboundsequence.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_free_inboundsequence.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_clone_loopbacktransport.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_clone_loopbacktransport.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransport.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransport.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_clone_loopbacktransportpair.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_clone_loopbacktransportpair.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransportpair.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransportpair.restype = None
 _UniffiLib.uniffi_spoke_connect_fn_clone_noncestore.argtypes = (
     ctypes.c_uint64,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -733,6 +1019,41 @@ _UniffiLib.uniffi_spoke_connect_fn_free_outboundsequence.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_free_outboundsequence.restype = None
+_UniffiLib.uniffi_spoke_connect_fn_clone_remoteadapterffi.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_clone_remoteadapterffi.restype = ctypes.c_uint64
+_UniffiLib.uniffi_spoke_connect_fn_free_remoteadapterffi.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_free_remoteadapterffi.restype = None
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD0 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD1 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD2 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,ctypes.c_void_p,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UNIFFI_CALLBACK_INTERFACE_CLONE_SPOKE_CONNECT_TRANSPORT = ctypes.CFUNCTYPE(ctypes.c_uint64,ctypes.c_uint64,
+)
+_UNIFFI_CALLBACK_INTERFACE_FREE_SPOKE_CONNECT_TRANSPORT = ctypes.CFUNCTYPE(None,ctypes.c_uint64,
+)
+class _UniffiVTableCallbackInterfaceSpokeConnectTransport(ctypes.Structure):
+    _fields_ = [
+        ("uniffi_free", _UNIFFI_CALLBACK_INTERFACE_FREE_SPOKE_CONNECT_TRANSPORT),
+        ("uniffi_clone", _UNIFFI_CALLBACK_INTERFACE_CLONE_SPOKE_CONNECT_TRANSPORT),
+        ("send", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD0),
+        ("recv", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD1),
+        ("close", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD2),
+    ]
+_UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_transport.argtypes = (
+    ctypes.POINTER(_UniffiVTableCallbackInterfaceSpokeConnectTransport),
+)
+_UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_transport.restype = None
 
 _uniffi_check_contract_api_version(_UniffiLib)
 # _uniffi_check_api_checksums(_UniffiLib)
@@ -1110,6 +1431,233 @@ class _UniffiFfiConverterTypeCoreInvokeError(_UniffiConverterRustBuffer):
         if isinstance(value, CoreInvokeError.CorrelationMismatch):
             buf.write_i32(3)
 
+class _UniffiFfiConverterOptionalString(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiFfiConverterString.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiFfiConverterString.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiFfiConverterString.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+
+
+# FfiError
+# We want to define each variant as a nested class that's also a subclass,
+# which is tricky in Python.  To accomplish this we're going to create each
+# class separately, then manually add the child classes to the base class's
+# __dict__.  All of this happens in dummy class to avoid polluting the module
+# namespace.
+class FfiError(Exception):
+    """
+    FFI error surface — 1:1 with frozen-contract D7 (AR-5).
+
+    - [`FfiError::Dial`] — constructor / dial failures before an adapter
+    exists (`config` / `handshake` / `timeout`).
+    - [`FfiError::Rejected`] — invoke-path `SpokeResult::Reject` passthrough:
+    application codes preserved; `INTERNAL_ERROR` rows carry `kind`;
+    dispatch deny and unknown wire codes carry `wire_code`.
+"""
+    pass
+
+_UniffiTempFfiError = FfiError
+
+class FfiError:  # type: ignore
+    """
+    FFI error surface — 1:1 with frozen-contract D7 (AR-5).
+
+    - [`FfiError::Dial`] — constructor / dial failures before an adapter
+    exists (`config` / `handshake` / `timeout`).
+    - [`FfiError::Rejected`] — invoke-path `SpokeResult::Reject` passthrough:
+    application codes preserved; `INTERNAL_ERROR` rows carry `kind`;
+    dispatch deny and unknown wire codes carry `wire_code`.
+"""
+    
+    class Dial(_UniffiTempFfiError):
+        
+        def __init__(self, kind, message):
+            super().__init__(", ".join([
+                "kind={!r}".format(kind),
+                "message={!r}".format(message),
+            ]))
+            self.kind = kind
+            self.message = message
+
+        def __repr__(self):
+            return "FfiError.Dial({})".format(str(self))
+    _UniffiTempFfiError.Dial = Dial # type: ignore
+    class Rejected(_UniffiTempFfiError):
+        
+        def __init__(self, code, message, kind, wire_code):
+            super().__init__(", ".join([
+                "code={!r}".format(code),
+                "message={!r}".format(message),
+                "kind={!r}".format(kind),
+                "wire_code={!r}".format(wire_code),
+            ]))
+            self.code = code
+            self.message = message
+            self.kind = kind
+            self.wire_code = wire_code
+
+        def __repr__(self):
+            return "FfiError.Rejected({})".format(str(self))
+    _UniffiTempFfiError.Rejected = Rejected # type: ignore
+
+FfiError = _UniffiTempFfiError # type: ignore
+del _UniffiTempFfiError
+
+
+class _UniffiFfiConverterTypeFfiError(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return FfiError.Dial(
+                _UniffiFfiConverterString.read(buf),
+                _UniffiFfiConverterString.read(buf),
+            )
+        if variant == 2:
+            return FfiError.Rejected(
+                _UniffiFfiConverterString.read(buf),
+                _UniffiFfiConverterString.read(buf),
+                _UniffiFfiConverterOptionalString.read(buf),
+                _UniffiFfiConverterOptionalString.read(buf),
+            )
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if isinstance(value, FfiError.Dial):
+            _UniffiFfiConverterString.check_lower(value.kind)
+            _UniffiFfiConverterString.check_lower(value.message)
+            return
+        if isinstance(value, FfiError.Rejected):
+            _UniffiFfiConverterString.check_lower(value.code)
+            _UniffiFfiConverterString.check_lower(value.message)
+            _UniffiFfiConverterOptionalString.check_lower(value.kind)
+            _UniffiFfiConverterOptionalString.check_lower(value.wire_code)
+            return
+
+    @staticmethod
+    def write(value, buf):
+        if isinstance(value, FfiError.Dial):
+            buf.write_i32(1)
+            _UniffiFfiConverterString.write(value.kind, buf)
+            _UniffiFfiConverterString.write(value.message, buf)
+        if isinstance(value, FfiError.Rejected):
+            buf.write_i32(2)
+            _UniffiFfiConverterString.write(value.code, buf)
+            _UniffiFfiConverterString.write(value.message, buf)
+            _UniffiFfiConverterOptionalString.write(value.kind, buf)
+            _UniffiFfiConverterOptionalString.write(value.wire_code, buf)
+
+
+
+# TransportError
+# We want to define each variant as a nested class that's also a subclass,
+# which is tricky in Python.  To accomplish this we're going to create each
+# class separately, then manually add the child classes to the base class's
+# __dict__.  All of this happens in dummy class to avoid polluting the module
+# namespace.
+class TransportError(Exception):
+    """
+    FFI-facing mirror of [`transport::TransportError`] — the
+    callback `Transport`'s own error vocabulary. 1:1 with the remote
+    error; the bridge maps both directions.
+"""
+    pass
+
+_UniffiTempTransportError = TransportError
+
+class TransportError:  # type: ignore
+    """
+    FFI-facing mirror of [`transport::TransportError`] — the
+    callback `Transport`'s own error vocabulary. 1:1 with the remote
+    error; the bridge maps both directions.
+"""
+    
+    class Closed(_UniffiTempTransportError):
+        """
+        The transport is closed. A pending `recv` must fail fast on
+        connection loss so the adapter can fail its in-flight invokes.
+"""
+        
+        def __init__(self):
+            pass
+
+        def __repr__(self):
+            return "TransportError.Closed({})".format(str(self))
+    _UniffiTempTransportError.Closed = Closed # type: ignore
+    class Io(_UniffiTempTransportError):
+        """
+        Transport-level I/O failure.
+"""
+        
+        def __init__(self, *values):
+            if len(values) != 1:
+                raise TypeError(f"Expected 1 arguments, found {len(values)}")
+            if not isinstance(values[0], str):
+                raise TypeError(f"unexpected type for tuple element 0 - expected 'str', got '{type(values[0])}'")
+            super().__init__(", ".join(map(repr, values)))
+            self._values = values
+
+        def __getitem__(self, index):
+            return self._values[index]
+
+        def __repr__(self):
+            return "TransportError.Io({})".format(str(self))
+    _UniffiTempTransportError.Io = Io # type: ignore
+
+TransportError = _UniffiTempTransportError # type: ignore
+del _UniffiTempTransportError
+
+
+class _UniffiFfiConverterTypeTransportError(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return TransportError.Closed(
+            )
+        if variant == 2:
+            return TransportError.Io(
+                _UniffiFfiConverterString.read(buf),
+            )
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if isinstance(value, TransportError.Closed):
+            return
+        if isinstance(value, TransportError.Io):
+            _UniffiFfiConverterString.check_lower(value._values[0])
+            return
+
+    @staticmethod
+    def write(value, buf):
+        if isinstance(value, TransportError.Closed):
+            buf.write_i32(1)
+        if isinstance(value, TransportError.Io):
+            buf.write_i32(2)
+            _UniffiFfiConverterString.write(value._values[0], buf)
+
 
 class InboundSequenceProtocol(typing.Protocol):
     """
@@ -1216,6 +1764,273 @@ class _UniffiFfiConverterTypeInboundSequence:
 
     @classmethod
     def write(cls, value: InboundSequence, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
+class _UniffiFfiConverterBytes(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        size = buf.read_i32()
+        if size < 0:
+            raise InternalError("Unexpected negative byte string length")
+        return buf.read(size)
+
+    @staticmethod
+    def check_lower(value):
+        try:
+            memoryview(value)
+        except TypeError:
+            raise TypeError("a bytes-like object is required, not {!r}".format(type(value).__name__))
+
+    @staticmethod
+    def write(value, buf):
+        buf.write_i32(len(value))
+        buf.write(value)
+
+
+class LoopbackTransportProtocol(typing.Protocol):
+    """
+    One end of an in-memory loopback connection, exposed over FFI (AR-7)
+    so a binding can exercise the callback `Transport` surface without a
+    real network carrier. `send` delivers to the peer's `recv`; `close`
+    closes the whole connection (both directions). Each method
+    `block_on`s the shared runtime — the same synchronous block-on-async
+    surface a binding uses (AR-1 / AR-6).
+"""
+    
+    def close(self, ) -> None:
+        """
+        Close the whole connection (both directions). Idempotent.
+"""
+        raise NotImplementedError
+    def recv(self, ) -> bytes:
+        """
+        Receive the next inbound envelope. Errors when the connection
+        closes.
+"""
+        raise NotImplementedError
+    def send(self, envelope: bytes) -> None:
+        """
+        Send one envelope; delivered to the peer end's `recv`.
+"""
+        raise NotImplementedError
+
+class LoopbackTransport(LoopbackTransportProtocol):
+    """
+    One end of an in-memory loopback connection, exposed over FFI (AR-7)
+    so a binding can exercise the callback `Transport` surface without a
+    real network carrier. `send` delivers to the peer's `recv`; `close`
+    closes the whole connection (both directions). Each method
+    `block_on`s the shared runtime — the same synchronous block-on-async
+    surface a binding uses (AR-1 / AR-6).
+"""
+    
+    _handle: ctypes.c_uint64
+    
+    def __init__(self, *args, **kwargs):
+        raise ValueError("This class has no default constructor")
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransport, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_loopbacktransport, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def close(self, ) -> None:
+        """
+        Close the whole connection (both directions). Idempotent.
+"""
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = lambda val: None
+        _uniffi_error_converter = _UniffiFfiConverterTypeTransportError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_close,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def recv(self, ) -> bytes:
+        """
+        Receive the next inbound envelope. Errors when the connection
+        closes.
+"""
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterBytes.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeTransportError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_recv,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def send(self, envelope: bytes) -> None:
+        """
+        Send one envelope; delivered to the peer end's `recv`.
+"""
+        
+        _UniffiFfiConverterBytes.check_lower(envelope)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterBytes.lower(envelope),
+        )
+        _uniffi_lift_return = lambda val: None
+        _uniffi_error_converter = _UniffiFfiConverterTypeTransportError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransport_send,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeLoopbackTransport:
+    @staticmethod
+    def lift(value: int) -> LoopbackTransport:
+        return LoopbackTransport._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: LoopbackTransport):
+        if not isinstance(value, LoopbackTransport):
+            raise TypeError("Expected LoopbackTransport instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: LoopbackTransport) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> LoopbackTransport:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: LoopbackTransport, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
+
+class LoopbackTransportPairProtocol(typing.Protocol):
+    """
+    Back-to-back loopback transport pair — `client` and `server` ends of
+    the same in-memory connection (mirror of
+    [`transport::loopback_transport_pair`]).
+"""
+    
+    def client(self, ) -> LoopbackTransport:
+        """
+        The client end of the connection.
+"""
+        raise NotImplementedError
+    def server(self, ) -> LoopbackTransport:
+        """
+        The server end of the connection.
+"""
+        raise NotImplementedError
+
+class LoopbackTransportPair(LoopbackTransportPairProtocol):
+    """
+    Back-to-back loopback transport pair — `client` and `server` ends of
+    the same in-memory connection (mirror of
+    [`transport::loopback_transport_pair`]).
+"""
+    
+    _handle: ctypes.c_uint64
+    
+    def __init__(self, *args, **kwargs):
+        raise ValueError("This class has no default constructor")
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_loopbacktransportpair, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_loopbacktransportpair, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def client(self, ) -> LoopbackTransport:
+        """
+        The client end of the connection.
+"""
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterTypeLoopbackTransport.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_client,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def server(self, ) -> LoopbackTransport:
+        """
+        The server end of the connection.
+"""
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterTypeLoopbackTransport.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_loopbacktransportpair_server,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeLoopbackTransportPair:
+    @staticmethod
+    def lift(value: int) -> LoopbackTransportPair:
+        return LoopbackTransportPair._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: LoopbackTransportPair):
+        if not isinstance(value, LoopbackTransportPair):
+            raise TypeError("Expected LoopbackTransportPair instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: LoopbackTransportPair) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> LoopbackTransportPair:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: LoopbackTransportPair, buf: _UniffiRustBuffer):
         buf.write_u64(cls.lower(value))
 
 class _UniffiFfiConverterBoolean:
@@ -1447,26 +2262,6 @@ class _UniffiFfiConverterTypeOutboundSequence:
     def write(cls, value: OutboundSequence, buf: _UniffiRustBuffer):
         buf.write_u64(cls.lower(value))
 
-class _UniffiFfiConverterBytes(_UniffiConverterRustBuffer):
-    @staticmethod
-    def read(buf):
-        size = buf.read_i32()
-        if size < 0:
-            raise InternalError("Unexpected negative byte string length")
-        return buf.read(size)
-
-    @staticmethod
-    def check_lower(value):
-        try:
-            memoryview(value)
-        except TypeError:
-            raise TypeError("a bytes-like object is required, not {!r}".format(type(value).__name__))
-
-    @staticmethod
-    def write(value, buf):
-        buf.write_i32(len(value))
-        buf.write(value)
-
 class _UniffiFfiConverterSequenceString(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -1490,11 +2285,11 @@ class _UniffiFfiConverterSequenceString(_UniffiConverterRustBuffer):
             _UniffiFfiConverterString.read(buf) for i in range(count)
         ]
 
-class _UniffiFfiConverterOptionalString(_UniffiConverterRustBuffer):
+class _UniffiFfiConverterOptionalUInt64(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
         if value is not None:
-            _UniffiFfiConverterString.check_lower(value)
+            _UniffiFfiConverterUInt64.check_lower(value)
 
     @classmethod
     def write(cls, value, buf):
@@ -1503,7 +2298,7 @@ class _UniffiFfiConverterOptionalString(_UniffiConverterRustBuffer):
             return
 
         buf.write_u8(1)
-        _UniffiFfiConverterString.write(value, buf)
+        _UniffiFfiConverterUInt64.write(value, buf)
 
     @classmethod
     def read(cls, buf):
@@ -1511,9 +2306,426 @@ class _UniffiFfiConverterOptionalString(_UniffiConverterRustBuffer):
         if flag == 0:
             return None
         elif flag == 1:
-            return _UniffiFfiConverterString.read(buf)
+            return _UniffiFfiConverterUInt64.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
+
+
+class RemoteAdapterFfiProtocol(typing.Protocol):
+    
+    def close(self, ) -> None:
+        raise NotImplementedError
+    def get_host_capability_manifest(self, ) -> str:
+        raise NotImplementedError
+    def get_knowledge_entry(self, entry_id: str) -> str:
+        raise NotImplementedError
+    def get_relation(self, relation_id: str) -> str:
+        raise NotImplementedError
+    def list_knowledge_entries(self, scope_json: str) -> str:
+        raise NotImplementedError
+    def list_peer_host_capability_manifests(self, ) -> str:
+        raise NotImplementedError
+    def list_rules(self, rule_refs: typing.List[str]) -> str:
+        raise NotImplementedError
+    def list_timeline_events(self, scope_json: str) -> str:
+        raise NotImplementedError
+    def put_findings(self, findings_json: str) -> str:
+        raise NotImplementedError
+    def put_knowledge_entry(self, entry_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        raise NotImplementedError
+    def put_relation(self, relation_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        raise NotImplementedError
+    def remote_manifest(self, ) -> typing.Optional[str]:
+        raise NotImplementedError
+    def remote_peer_id(self, ) -> typing.Optional[str]:
+        raise NotImplementedError
+    def session_id(self, ) -> typing.Optional[str]:
+        raise NotImplementedError
+    def state(self, ) -> str:
+        raise NotImplementedError
+
+class RemoteAdapterFfi(RemoteAdapterFfiProtocol):
+    
+    _handle: ctypes.c_uint64
+    
+    def __init__(self, *args, **kwargs):
+        raise ValueError("This class has no default constructor")
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_free_remoteadapterffi, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_spoke_connect_fn_clone_remoteadapterffi, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def close(self, ) -> None:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = lambda val: None
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_close,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def get_host_capability_manifest(self, ) -> str:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def get_knowledge_entry(self, entry_id: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(entry_id)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(entry_id),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_knowledge_entry,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def get_relation(self, relation_id: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(relation_id)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(relation_id),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_relation,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_knowledge_entries(self, scope_json: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(scope_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(scope_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_peer_host_capability_manifests(self, ) -> str:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_rules(self, rule_refs: typing.List[str]) -> str:
+        
+        _UniffiFfiConverterSequenceString.check_lower(rule_refs)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterSequenceString.lower(rule_refs),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_rules,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def list_timeline_events(self, scope_json: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(scope_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(scope_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def put_findings(self, findings_json: str) -> str:
+        
+        _UniffiFfiConverterString.check_lower(findings_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(findings_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_findings,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def put_knowledge_entry(self, entry_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        
+        _UniffiFfiConverterString.check_lower(entry_json)
+
+        _UniffiFfiConverterOptionalUInt64.check_lower(expected_base_revision)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(entry_json),
+            _UniffiFfiConverterOptionalUInt64.lower(expected_base_revision),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_knowledge_entry,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def put_relation(self, relation_json: str,expected_base_revision: typing.Optional[int]) -> str:
+        
+        _UniffiFfiConverterString.check_lower(relation_json)
+
+        _UniffiFfiConverterOptionalUInt64.check_lower(expected_base_revision)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(relation_json),
+            _UniffiFfiConverterOptionalUInt64.lower(expected_base_revision),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_put_relation,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def remote_manifest(self, ) -> typing.Optional[str]:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterOptionalString.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_manifest,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def remote_peer_id(self, ) -> typing.Optional[str]:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterOptionalString.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_remote_peer_id,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def session_id(self, ) -> typing.Optional[str]:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterOptionalString.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_session_id,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def state(self, ) -> str:
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = None
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_state,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeRemoteAdapterFFI:
+    @staticmethod
+    def lift(value: int) -> RemoteAdapterFfi:
+        return RemoteAdapterFfi._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: RemoteAdapterFfi):
+        if not isinstance(value, RemoteAdapterFfi):
+            raise TypeError("Expected RemoteAdapterFfi instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: RemoteAdapterFfi) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> RemoteAdapterFfi:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: RemoteAdapterFfi, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
+
+
+
+class Transport(typing.Protocol):
+    """
+    Message-oriented transport implemented by the foreign binding.
+
+    Mirrors the async [`transport::Transport`] seam 1:1 over the
+    FFI boundary (frozen contract §2.1): `send` accepts exactly one
+    envelope's bytes, `recv` returns the next inbound envelope and fails
+    fast on close, `close` is idempotent resource release.
+"""
+    
+    def send(self, envelope: bytes) -> None:
+        """
+        Send one envelope. Resolves when the transport has accepted the
+        bytes.
+"""
+        raise NotImplementedError
+    def recv(self, ) -> bytes:
+        """
+        Receive the next inbound envelope. Errors when the transport
+        closes.
+"""
+        raise NotImplementedError
+    def close(self, ) -> None:
+        """
+        Release resources. Idempotent.
+"""
+        raise NotImplementedError
+# Put all the bits inside a class to keep the top-level namespace clean
+class _UniffiTraitImplTransportImpl:
+    # For each method, generate a callback function to pass to Rust
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD0
+    def send(
+            uniffi_handle,
+            envelope,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypeTransport._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = (_UniffiFfiConverterBytes.lift(envelope), )
+            uniffi_method = uniffi_obj.send
+            return uniffi_method(*uniffi_args)
+        write_return_value = lambda v: None
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                TransportError,
+                _UniffiFfiConverterTypeTransportError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD1
+    def recv(
+            uniffi_handle,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypeTransport._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = ()
+            uniffi_method = uniffi_obj.recv
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterBytes.lower(v)
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                TransportError,
+                _UniffiFfiConverterTypeTransportError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_TRANSPORT_METHOD2
+    def close(
+            uniffi_handle,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypeTransport._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = ()
+            uniffi_method = uniffi_obj.close
+            return uniffi_method(*uniffi_args)
+        write_return_value = lambda v: None
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                TransportError,
+                _UniffiFfiConverterTypeTransportError.lower,
+        )
+
+    @_UNIFFI_CALLBACK_INTERFACE_FREE_SPOKE_CONNECT_TRANSPORT
+    def _uniffi_free(uniffi_handle):
+        _UniffiFfiConverterTypeTransport._handle_map.remove(uniffi_handle)
+
+    @_UNIFFI_CALLBACK_INTERFACE_CLONE_SPOKE_CONNECT_TRANSPORT
+    def _uniffi_clone(uniffi_handle):
+        return _UniffiFfiConverterTypeTransport._handle_map.clone(uniffi_handle)
+
+    # Generate the FFI VTable.  This has a field for each callback interface method.
+    _uniffi_vtable = _UniffiVTableCallbackInterfaceSpokeConnectTransport(
+        _uniffi_free,
+        _uniffi_clone,
+        send,
+        recv,
+        close,
+    )
+    # Send Rust a pointer to the VTable.  Note: this means we need to keep the struct alive forever,
+    # or else bad things will happen when Rust tries to access it.
+    _UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_transport(ctypes.byref(_uniffi_vtable))
+
+# The _UniffiConverter which transforms the Callbacks in to Handles to pass to Rust.
+_UniffiFfiConverterTypeTransport = _UniffiCallbackInterfaceFfiConverter()
 def check_response_correlation(expected_session_id: str,expected_sequence: int,expected_request_id: str,actual_session_id: str,actual_sequence: int,actual_request_id: str) -> None:
     """
     Checks that a response echoes the request's `session_id` / `sequence` /
@@ -1544,6 +2756,35 @@ def check_response_correlation(expected_session_id: str,expected_sequence: int,e
     _uniffi_ffi_result = _uniffi_rust_call_with_error(
         _uniffi_error_converter,
         _UniffiLib.uniffi_spoke_connect_fn_func_check_response_correlation,
+        *_uniffi_lowered_args,
+    )
+    return _uniffi_lift_return(_uniffi_ffi_result)
+def connect_remote_adapter_ffi(transport: Transport,local_seed: bytes,local_manifest_json: str,remote_pubkey: bytes,allowlist: typing.List[str],invoke_timeout_ms: typing.Optional[int]) -> RemoteAdapterFfi:
+    
+    _UniffiFfiConverterTypeTransport.check_lower(transport)
+
+    _UniffiFfiConverterBytes.check_lower(local_seed)
+
+    _UniffiFfiConverterString.check_lower(local_manifest_json)
+
+    _UniffiFfiConverterBytes.check_lower(remote_pubkey)
+
+    _UniffiFfiConverterSequenceString.check_lower(allowlist)
+
+    _UniffiFfiConverterOptionalUInt64.check_lower(invoke_timeout_ms)
+    _uniffi_lowered_args = (
+        _UniffiFfiConverterTypeTransport.lower(transport),
+        _UniffiFfiConverterBytes.lower(local_seed),
+        _UniffiFfiConverterString.lower(local_manifest_json),
+        _UniffiFfiConverterBytes.lower(remote_pubkey),
+        _UniffiFfiConverterSequenceString.lower(allowlist),
+        _UniffiFfiConverterOptionalUInt64.lower(invoke_timeout_ms),
+    )
+    _uniffi_lift_return = _UniffiFfiConverterTypeRemoteAdapterFFI.lift
+    _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+    _uniffi_ffi_result = _uniffi_rust_call_with_error(
+        _uniffi_error_converter,
+        _UniffiLib.uniffi_spoke_connect_fn_func_connect_remote_adapter_ffi,
         *_uniffi_lowered_args,
     )
     return _uniffi_lift_return(_uniffi_ffi_result)
@@ -1608,6 +2849,20 @@ def is_allowlisted(allowlist: typing.List[str],peer_id: str) -> bool:
     _uniffi_ffi_result = _uniffi_rust_call_with_error(
         _uniffi_error_converter,
         _UniffiLib.uniffi_spoke_connect_fn_func_is_allowlisted,
+        *_uniffi_lowered_args,
+    )
+    return _uniffi_lift_return(_uniffi_ffi_result)
+def loopback_transport_pair() -> LoopbackTransportPair:
+    """
+    Create a back-to-back loopback transport pair (client + server ends).
+"""
+    _uniffi_lowered_args = (
+    )
+    _uniffi_lift_return = _UniffiFfiConverterTypeLoopbackTransportPair.lift
+    _uniffi_error_converter = None
+    _uniffi_ffi_result = _uniffi_rust_call_with_error(
+        _uniffi_error_converter,
+        _UniffiLib.uniffi_spoke_connect_fn_func_loopback_transport_pair,
         *_uniffi_lowered_args,
     )
     return _uniffi_lift_return(_uniffi_ffi_result)
@@ -1705,18 +2960,29 @@ __all__ = [
     "InternalError",
     "CoreError",
     "CoreInvokeError",
+    "FfiError",
+    "TransportError",
     "check_response_correlation",
+    "connect_remote_adapter_ffi",
     "derive_peer_id_from_ed25519_pubkey",
     "dispatch_allowed",
     "is_allowlisted",
+    "loopback_transport_pair",
     "protocol_version",
     "required_capability",
     "sign_hello_ed25519",
     "verify_hello_ed25519",
     "InboundSequence",
     "InboundSequenceProtocol",
+    "LoopbackTransport",
+    "LoopbackTransportProtocol",
+    "LoopbackTransportPair",
+    "LoopbackTransportPairProtocol",
     "NonceStore",
     "NonceStoreProtocol",
     "OutboundSequence",
     "OutboundSequenceProtocol",
+    "RemoteAdapterFfi",
+    "RemoteAdapterFfiProtocol",
+    "Transport",
 ]

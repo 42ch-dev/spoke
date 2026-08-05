@@ -17,6 +17,16 @@ In-repo golden-parity smoke for the **`42ch.Spoke.Connect`** packable project (g
 
 See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`](../../../../../docs/how-to/connect-native-bindings.md).
 
+## Build features
+
+| Artifact | Cargo features | Notes |
+|----------|----------------|-------|
+| Committed `generated/spoke_connect.cs` + packed natives | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Local smoke cdylib + smoke C# bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section (`-p:SmokeHost=true`) |
+
+`ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
+Full loopback smoke procedure: see **RemoteAdapter loopback smoke** below.
+
 ## What's here
 
 | Path | Contents |
@@ -60,8 +70,8 @@ The generate step needs the **vendored fork bindgen** binary (build recipe:
 root** (local nightly convention for cargo):
 
 ```bash
-# 0. Build the cdylib (ffi feature)
-cargo +nightly build -p spoke-connect --features ffi
+# 0. Build the cdylib (ffi + remote-adapter)
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter
 
 # 1. Generate the binding (only when the FFI surface changes)
 #    `--config` sets access_modifier=public for PackageReference consumers.

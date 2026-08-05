@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build spoke-connect --features ffi --release for the host RID and stage
+# Build spoke-connect --features ffi,remote-adapter --release for the host RID and stage
 # under a directory suitable for assemble-csharp-runtimes.sh.
 #
 # Usage (from repo root):
@@ -21,7 +21,7 @@ if command -v rustup >/dev/null 2>&1 && rustup toolchain list | grep -q '^nightl
 fi
 
 echo "building spoke-connect ffi release with: ${CARGO[*]}"
-"${CARGO[@]}" build -p spoke-connect --features ffi --release
+"${CARGO[@]}" build -p spoke-connect --features ffi,remote-adapter --release
 
 uname_s="$(uname -s)"
 uname_m="$(uname -m)"

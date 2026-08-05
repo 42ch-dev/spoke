@@ -22,6 +22,7 @@ import type {
   ConnectInvokeRequest,
   ErrorEnvelope,
   Finding,
+  HostCapabilityManifest,
   KnowledgeEntry,
   Relation,
   Scope,
@@ -85,6 +86,13 @@ export interface LoopbackHostOptions {
   allowlist: readonly string[];
   /** Local async BaselinePorts served on the remote side (e.g. ToyWorldAdapter). */
   adapter: BaselinePorts;
+  /**
+   * Override the host's advertised capability manifest (the `host` field of
+   * its signed hello — what the client caches as `remoteManifest` and a
+   * multi-peer router selects on). Defaults to `schemaConformantManifest()`;
+   * the dual-peer loopback proof dials disjoint per-peer manifests.
+   */
+  hostManifest?: HostCapabilityManifest;
   /**
    * Product `op_capability_requirements` map (contract §5.1). Ops not
    * listed fall back to the core table; unknown ops are denied. Defaults to
@@ -181,7 +189,7 @@ export async function startLoopbackHost(
   const hostPeerId = derivePeerIdFromEd25519Pubkey(
     getPublicKeyEd25519(seed),
   );
-  const hostManifest = schemaConformantManifest();
+  const hostManifest = options.hostManifest ?? schemaConformantManifest();
   const nonceStore = new NonceStore();
   const requirements = {
     ...DEFAULT_PORT_CAPABILITY_REQUIREMENTS,

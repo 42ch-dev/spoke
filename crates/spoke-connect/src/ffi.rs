@@ -339,7 +339,7 @@ mod remote_adapter_ffi {
 
     /// Map invoke-path `SpokeReject` to [`FfiError::Rejected`] — faithful D7
     /// passthrough (AR-5): no invented, merged, or dropped error classes.
-    fn map_spoke_reject(reject: SpokeReject) -> FfiError {
+    pub(super) fn map_spoke_reject(reject: SpokeReject) -> FfiError {
         FfiError::Rejected {
             code: reject.code.as_str().to_string(),
             message: reject.message,
@@ -348,7 +348,7 @@ mod remote_adapter_ffi {
         }
     }
 
-    fn map_spoke_result<T: Serialize>(result: SpokeResult<T>) -> Result<String, FfiError> {
+    pub(super) fn map_spoke_result<T: Serialize>(result: SpokeResult<T>) -> Result<String, FfiError> {
         match result {
             SpokeResult::Ok(value) => serde_json::to_string(&value).map_err(|error| {
                 FfiError::Rejected {
@@ -362,7 +362,7 @@ mod remote_adapter_ffi {
         }
     }
 
-    fn parse_json_field<T: DeserializeOwned>(json: &str, what: &str) -> Result<T, FfiError> {
+    pub(super) fn parse_json_field<T: DeserializeOwned>(json: &str, what: &str) -> Result<T, FfiError> {
         serde_json::from_str(json).map_err(|error| FfiError::Rejected {
             code: "INVALID_INPUT".into(),
             message: format!("invalid {what} JSON: {error}"),
@@ -482,6 +482,12 @@ mod remote_adapter_ffi {
             ffi_runtime().block_on(async {
                 self.inner.close();
             });
+        }
+    }
+
+    impl RemoteAdapterFFI {
+        pub(crate) fn inner_adapter(&self) -> Arc<RemoteAdapter> {
+            Arc::clone(&self.inner)
         }
     }
 
@@ -640,6 +646,134 @@ mod remote_adapter_ffi {
     }
 }
 
+// ── Sync `MultiPeerRouterFFI` over the async router (AR-6 / D11) ─────────
+#[cfg(feature = "remote-adapter")]
+mod multi_peer_router_ffi {
+    use std::sync::Arc;
+
+    use serde::Serialize;
+    use spoke_operations::{
+        FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+        ScopeQueryPort,
+    };
+    use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
+
+    use crate::remote::{
+        connect_multi_peer_router, MultiPeerRouter, MultiPeerRouterError,
+        MultiPeerRouterOptions,
+    };
+
+    use super::ffi_runtime;
+    use super::remote_adapter_ffi::{
+        map_spoke_result, parse_json_field, FfiError, RemoteAdapterFFI,
+    };
+
+    fn map_register_error(error: MultiPeerRouterError) -> FfiError {
+        FfiError::Rejected {
+            code: "INVALID_INPUT".into(),
+            message: error.to_string(),
+            kind: None,
+            wire_code: None,
+        }
+    }
+
+    #[derive(uniffi::Object)]
+    pub struct MultiPeerRouterFFI {
+        router: MultiPeerRouter,
+    }
+
+    #[uniffi::export]
+    impl MultiPeerRouterFFI {
+        pub fn register_peer(&self, adapter: Arc<RemoteAdapterFFI>) -> Result<String, FfiError> {
+            self.router
+                .register_peer(adapter.inner_adapter())
+                .map_err(map_register_error)
+        }
+
+        pub fn unregister_peer(&self, peer_id: String) {
+            self.router.unregister_peer(&peer_id);
+        }
+
+        pub fn list_peers(&self) -> Vec<String> {
+            self.router.list_peers()
+        }
+
+        pub fn get_host_capability_manifest(&self) -> Result<String, FfiError> {
+            map_spoke_result(ffi_runtime().block_on(self.router.get_host_capability_manifest()))
+        }
+
+        pub fn get_knowledge_entry(&self, entry_id: String) -> Result<String, FfiError> {
+            map_spoke_result(
+                ffi_runtime().block_on(self.router.get_knowledge_entry(&entry_id)),
+            )
+        }
+
+        pub fn put_knowledge_entry(
+            &self,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            let entry: KnowledgeEntry = parse_json_field(&entry_json, "knowledge entry")?;
+            map_spoke_result(ffi_runtime().block_on(
+                self.router
+                    .put_knowledge_entry(entry, expected_base_revision),
+            ))
+        }
+
+        pub fn get_relation(&self, relation_id: String) -> Result<String, FfiError> {
+            map_spoke_result(ffi_runtime().block_on(self.router.get_relation(&relation_id)))
+        }
+
+        pub fn put_relation(
+            &self,
+            relation_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            let relation: Relation = parse_json_field(&relation_json, "relation")?;
+            map_spoke_result(ffi_runtime().block_on(
+                self.router.put_relation(relation, expected_base_revision),
+            ))
+        }
+
+        pub fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
+            let scope: Scope = parse_json_field(&scope_json, "scope")?;
+            map_spoke_result(
+                ffi_runtime().block_on(self.router.list_knowledge_entries(&scope)),
+            )
+        }
+
+        pub fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
+            let scope: Scope = parse_json_field(&scope_json, "scope")?;
+            map_spoke_result(
+                ffi_runtime().block_on(self.router.list_timeline_events(&scope)),
+            )
+        }
+
+        pub fn put_findings(&self, findings_json: String) -> Result<String, FfiError> {
+            let findings: Vec<Finding> = parse_json_field(&findings_json, "findings")?;
+            map_spoke_result(ffi_runtime().block_on(self.router.put_findings(findings)))
+        }
+
+        pub fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError> {
+            map_spoke_result(ffi_runtime().block_on(self.router.list_rules(&rule_refs)))
+        }
+
+        pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
+            map_spoke_result(
+                ffi_runtime().block_on(self.router.list_peer_host_capability_manifests()),
+            )
+        }
+    }
+
+    #[uniffi::export]
+    pub fn new_multi_peer_router_ffi() -> Arc<MultiPeerRouterFFI> {
+        Arc::new(MultiPeerRouterFFI {
+            router: connect_multi_peer_router(MultiPeerRouterOptions::default()),
+        })
+    }
+}
+
+
 // ── Loopback smoke host (binding smokes) ─────────────────────────────────
 #[cfg(feature = "ffi-smoke-host")]
 mod loopback_smoke_host {
@@ -700,6 +834,8 @@ mod loopback_smoke_host {
 
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+#[cfg(feature = "remote-adapter")]
+pub use multi_peer_router_ffi::{new_multi_peer_router_ffi, MultiPeerRouterFFI};
 #[cfg(feature = "ffi-smoke-host")]
 pub use loopback_smoke_host::{start_loopback_smoke_host, LoopbackSmokeHost};
 
@@ -2347,3 +2483,194 @@ mod remote_adapter_ffi_tests {
         drop(host);
     }
 }
+
+#[cfg(all(test, feature = "remote-adapter"))]
+mod multi_peer_router_ffi_tests {
+    use std::sync::Arc;
+
+    use ed25519_dalek::SigningKey;
+    use spoke_fixture_toy_world::ToyWorldAdapter;
+
+    use crate::core::derive_peer_id_from_ed25519_pubkey;
+    use crate::remote::{
+        connect_remote_adapter, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity,
+    };
+    use crate::test_support::loopback_oracle::{
+        fresh_entry, manifest, pubkey_client, seed_client, start_loopback_host,
+        upsert_request, LoopbackHost, LoopbackHostOptions,
+    };
+
+    use super::ffi_runtime;
+    use super::multi_peer_router_ffi::{new_multi_peer_router_ffi, MultiPeerRouterFFI};
+    use super::remote_adapter_ffi::{FfiError, RemoteAdapterFFI};
+
+    async fn dial_peer(
+        host_seed: [u8; 32],
+        host_manifest: spoke_schemas::HostCapabilityManifest,
+    ) -> (Arc<RemoteAdapter>, LoopbackHost) {
+        let host_pubkey = SigningKey::from_bytes(&host_seed)
+            .verifying_key()
+            .to_bytes();
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&host_pubkey);
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let host = start_loopback_host(LoopbackHostOptions {
+            transport: Arc::new(pair.server),
+            host_seed,
+            host_manifest,
+            allowlist: vec![peer_id_client.clone()],
+            adapter: Arc::new(ToyWorldAdapter::default()),
+            delay: Box::new(|_| 0),
+            response_override: None,
+            session_peer_ids: None,
+        })
+        .await;
+        let client = connect_remote_adapter(RemoteAdapterOptions {
+            transport: Arc::new(pair.client),
+            local_identity: RemoteIdentity {
+                seed: seed_client(),
+            },
+            local_manifest: manifest("test-client", &["spoke-baseline"]),
+            remote_pubkey: host_pubkey,
+            allowlist: vec![peer_id_host],
+            invoke_timeout_ms: None,
+            capability_token: None,
+        })
+        .await
+        .expect("dial");
+        (client, host)
+    }
+
+    fn orchestrate_upsert_via_ffi(router: &MultiPeerRouterFFI, request: &spoke_schemas::UpsertRequest) {
+        for entry in &request.knowledge_entries {
+            match router.get_knowledge_entry(entry.entry_id.clone()) {
+                Ok(_) => {}
+                Err(FfiError::Rejected { code, .. }) if code == "KNOWLEDGE_ENTRY_NOT_FOUND" => {}
+                Err(err) => panic!("upsert get via ffi router: {err:?}"),
+            }
+            let entry_json = serde_json::to_string(entry).expect("entry json");
+            router
+                .put_knowledge_entry(entry_json, None)
+                .expect("upsert put via ffi router");
+        }
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_routes_orchestrate_upsert_equivalent_to_capable_peer() {
+        let (baseline_adapter, baseline_host) = ffi_runtime().block_on(async {
+            dial_peer([0xa1; 32], manifest("host-baseline", &["spoke-baseline"])).await
+        });
+        let (computable_adapter, computable_host) = ffi_runtime().block_on(async {
+            dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await
+        });
+
+        let router = new_multi_peer_router_ffi();
+        let baseline_ffi = RemoteAdapterFFI::from_adapter(baseline_adapter.clone());
+        let computable_ffi = RemoteAdapterFFI::from_adapter(computable_adapter.clone());
+        router
+            .register_peer(baseline_ffi)
+            .expect("register baseline");
+        router
+            .register_peer(computable_ffi)
+            .expect("register computable");
+
+        let request = upsert_request(&[fresh_entry("kb_mpr_ffi_upsert", "FFI Router Upsert")]);
+        orchestrate_upsert_via_ffi(&router, &request);
+
+        assert_eq!(baseline_host.stats().invokes_dispatched, 2);
+        assert_eq!(computable_host.stats().invokes_dispatched, 0);
+        assert!(baseline_host
+            .inner
+            .adapter
+            .with_store(|store| store.entries.contains_key("kb_mpr_ffi_upsert")));
+
+        baseline_adapter.close();
+        computable_adapter.close();
+        baseline_host.close();
+        computable_host.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_rejects_no_capable_peer_for_baseline_ops() {
+        let (computable_adapter, computable_host) = ffi_runtime().block_on(async {
+            dial_peer([0xb2; 32], manifest("host-computable", &["l2-computable"])).await
+        });
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(computable_adapter.clone()))
+            .expect("register computable");
+
+        let entry = fresh_entry("kb_mpr_ffi_nomatch", "No Match");
+        let err = router
+            .put_knowledge_entry(serde_json::to_string(&entry).expect("entry json"), None)
+            .expect_err("no capable peer must reject");
+
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: Some(wire),
+                ..
+            } if code == "CAPABILITY_PORT_MISSING" && kind == "no_capable_peer" && wire == "no_capable_peer"
+        ));
+        assert_eq!(computable_host.stats().invokes_dispatched, 0);
+
+        computable_adapter.close();
+        computable_host.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_breaks_ties_on_lowest_peer_id() {
+        let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
+            dial_peer([0xc3; 32], manifest("host-alpha", &["spoke-baseline"])).await
+        });
+        let (beta_adapter, beta_host) = ffi_runtime().block_on(async {
+            dial_peer(
+                [0xd4; 32],
+                manifest("host-beta", &["spoke-baseline", "l2-computable"]),
+            )
+            .await
+        });
+        let (gamma_adapter, gamma_host) = ffi_runtime().block_on(async {
+            dial_peer([0xe5; 32], manifest("host-gamma", &["l2-computable"])).await
+        });
+
+        let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
+        let beta_id = beta_adapter.remote_peer_id().expect("beta peer id");
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(alpha_adapter.clone()))
+            .expect("register alpha");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(beta_adapter.clone()))
+            .expect("register beta");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(gamma_adapter.clone()))
+            .expect("register gamma");
+
+        let request = upsert_request(&[fresh_entry("kb_mpr_ffi_tiebreak", "Tie-Break")]);
+        orchestrate_upsert_via_ffi(&router, &request);
+
+        let (expected_host, other_host) = if alpha_id < beta_id {
+            (&alpha_host, &beta_host)
+        } else {
+            (&beta_host, &alpha_host)
+        };
+        assert_eq!(expected_host.stats().invokes_dispatched, 2);
+        assert_eq!(other_host.stats().invokes_dispatched, 0);
+        assert_eq!(gamma_host.stats().invokes_dispatched, 0);
+
+        alpha_adapter.close();
+        beta_adapter.close();
+        gamma_adapter.close();
+        alpha_host.close();
+        beta_host.close();
+        gamma_host.close();
+    }
+
+}
+

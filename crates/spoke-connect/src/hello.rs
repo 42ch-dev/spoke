@@ -41,8 +41,10 @@ pub(crate) fn generate_nonce() -> Result<String, ConnectError> {
 /// The raw 32-byte Ed25519 seed of `identity` (the core's signing input).
 ///
 /// Connect pins Ed25519 identity (protocol v1), so a differently keyed
-/// identity is a configuration error.
-fn ed25519_seed(identity: &Keypair) -> Result<[u8; 32], ConnectError> {
+/// identity is a configuration error. Crate-wide: the envelope-auth
+/// emission sites (outbound invoke requests, inbound invoke responses)
+/// sign with the same raw seed as hello.
+pub(crate) fn ed25519_seed(identity: &Keypair) -> Result<[u8; 32], ConnectError> {
     let pair = identity
         .clone()
         .try_into_ed25519()

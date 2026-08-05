@@ -65,16 +65,12 @@ use crate::core::error::CoreError;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use spoke_schemas::connect::connect_invoke_request::{
-    ConnectInvokeRequest, ConnectInvokeRequestExtensionsKey,
-};
+use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::connect_invoke_response::{
     ConnectInvokeResponse, ConnectInvokeResponseVariant0ExtensionsKey,
     ConnectInvokeResponseVariant1ExtensionsKey, ErrorEnvelope,
 };
-use spoke_schemas::connect::connect_session::{
-    ConnectSession, ConnectSessionExtensionsKey,
-};
+use spoke_schemas::connect::connect_session::ConnectSession;
 use std::collections::HashMap;
 
 /// Algorithm id: `ConnectSession` snapshot (`spoke-connect-session-jcs-v1`).

@@ -22,7 +22,6 @@ use crate::error::InvokeError;
 use crate::runtime::{generate_request_id, InvokeSuccess, SessionHandle};
 use libp2p::PeerId;
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest;
-use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -128,25 +127,42 @@ impl PeerSession {
         let sequence = self.inner.allocate_sequence()?;
         let request_id =
             generate_request_id().map_err(|e| InvokeError::Transport(e.to_string()))?;
-        let request = ConnectInvokeRequest {
-            auth,
-            extensions: HashMap::new(),
-            op: op.parse().map_err(
+        // Validate the caller-supplied op and the derived wire strings up
+        // front (empty strings are caller errors, rejected exactly as the
+        // pre-v2 path did — `envelope_auth` re-parses them infallibly after
+        // this gate).
+        let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestOp =
+            op.parse().map_err(
                 |e: spoke_schemas::connect::connect_invoke_request::error::ConversionError| {
                     InvokeError::Transport(format!("invalid op {op:?}: {e}"))
                 },
-            )?,
-            payload,
-            request_id: request_id
+            )?;
+        let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestRequestId =
+            request_id
                 .parse()
-                .map_err(|e| InvokeError::Transport(format!("invalid request_id: {e}")))?,
-            sequence: sequence as i64,
-            session_id: self
-                .inner
-                .session_id
-                .parse()
-                .map_err(|e| InvokeError::Transport(format!("invalid session_id: {e}")))?,
-        };
+                .map_err(|e| InvokeError::Transport(format!("invalid request_id: {e}")))?;
+        let _: spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequestSessionId = self
+            .inner
+            .session_id
+            .parse()
+            .map_err(|e| InvokeError::Transport(format!("invalid session_id: {e}")))?;
+        // Authenticate the outbound request with this node's hello identity
+        // seed (`spoke-connect-invoke-request-jcs-v1` — v2 requires the
+        // signature on every post-hello envelope). Signing is infallible
+        // for the validated 32-byte seed stored on the session handle.
+        let request = crate::core::authenticate_invoke_request(
+            &self.inner.local_secret,
+            &crate::core::InvokeRequestSignInput {
+                session_id: self.inner.session_id.clone(),
+                sequence: sequence as i64,
+                request_id: request_id.clone(),
+                op: op.clone(),
+                payload: payload.clone(),
+                auth: auth.clone(),
+            },
+            HashMap::new(),
+        )
+        .map_err(|e| InvokeError::Transport(format!("envelope auth signing failed: {e}")))?;
         self.inner.send_invoke(request).await
     }
 }

@@ -69,17 +69,29 @@ pub fn check_response_correlation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{authenticate_invoke_request, authenticate_invoke_response};
+
+    /// Deterministic 32-byte test identity seed (parameterized helper — no
+    /// key material as a literal in a crypto call site, mirroring the
+    /// envelope-auth unit-test convention).
+    fn test_seed() -> [u8; 32] {
+        [0x2b; 32]
+    }
 
     fn request(sequence: i64, request_id: &str, session_id: &str) -> ConnectInvokeRequest {
-        ConnectInvokeRequest {
-            auth: None,
-            extensions: Default::default(),
-            op: "check".parse().expect("op parses"),
-            payload: serde_json::json!({ "findings": [] }),
-            request_id: request_id.parse().expect("request id parses"),
-            sequence,
-            session_id: session_id.parse().expect("session id parses"),
-        }
+        authenticate_invoke_request(
+            &test_seed(),
+            &crate::core::InvokeRequestSignInput {
+                session_id: session_id.to_string(),
+                sequence,
+                request_id: request_id.to_string(),
+                op: "check".to_string(),
+                payload: serde_json::json!({ "findings": [] }),
+                auth: None,
+            },
+            Default::default(),
+        )
+        .expect("test seed is 32 bytes — signing is infallible")
     }
 
     fn success_response(
@@ -87,28 +99,36 @@ mod tests {
         request_id: &str,
         session_id: &str,
     ) -> ConnectInvokeResponse {
-        ConnectInvokeResponse::Variant0 {
-            extensions: Default::default(),
-            payload: serde_json::json!({ "findings": [] }),
-            request_id: request_id.into(),
-            sequence,
-            session_id: session_id.into(),
-        }
+        authenticate_invoke_response(
+            &test_seed(),
+            &crate::core::InvokeResponseSignInput::Success {
+                session_id: session_id.to_string(),
+                sequence,
+                request_id: request_id.to_string(),
+                payload: serde_json::json!({ "findings": [] }),
+            },
+            Default::default(),
+        )
+        .expect("test seed is 32 bytes — signing is infallible")
     }
 
     fn error_response(sequence: i64, request_id: &str, session_id: &str) -> ConnectInvokeResponse {
-        ConnectInvokeResponse::Variant1 {
-            error: spoke_schemas::connect::connect_invoke_response::ErrorEnvelope {
-                code: "check_failed".into(),
-                details: Default::default(),
-                extensions: Default::default(),
-                message: "spike check failed".into(),
+        authenticate_invoke_response(
+            &test_seed(),
+            &crate::core::InvokeResponseSignInput::Error {
+                session_id: session_id.to_string(),
+                sequence,
+                request_id: request_id.to_string(),
+                error: spoke_schemas::connect::connect_invoke_response::ErrorEnvelope {
+                    code: "check_failed".into(),
+                    details: Default::default(),
+                    extensions: Default::default(),
+                    message: "spike check failed".into(),
+                },
             },
-            extensions: Default::default(),
-            request_id: request_id.into(),
-            sequence,
-            session_id: session_id.into(),
-        }
+            Default::default(),
+        )
+        .expect("test seed is 32 bytes — signing is infallible")
     }
 
     #[test]

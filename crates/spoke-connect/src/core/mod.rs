@@ -24,6 +24,8 @@ mod envelope_auth;
 mod error;
 #[cfg(test)]
 pub(crate) mod golden;
+#[cfg(test)]
+pub(crate) mod golden_envelope_auth;
 mod hello_crypto;
 mod nonce;
 mod peer_id;

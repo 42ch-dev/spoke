@@ -1263,20 +1263,22 @@ impl EventLoop {
                                                     || handler(&request.op, request.payload.clone()),
                                                 ));
                                                 match result {
-                                                    Ok(Ok(payload)) => ConnectInvokeResponse::Variant0 {
-                                                        session_id: request.session_id.to_string(),
-                                                        sequence: request.sequence,
-                                                        request_id: request.request_id.to_string(),
-                                                        payload,
-                                                        extensions: Default::default(),
-                                                    },
-                                                    Ok(Err(error)) => ConnectInvokeResponse::Variant1 {
-                                                        session_id: request.session_id.to_string(),
-                                                        sequence: request.sequence,
-                                                        request_id: request.request_id.to_string(),
-                                                        error,
-                                                        extensions: Default::default(),
-                                                    },
+                                                    Ok(Ok(payload)) => self.sign_invoke_response(
+                                                        crate::core::InvokeResponseSignInput::Success {
+                                                            session_id: request.session_id.to_string(),
+                                                            sequence: request.sequence,
+                                                            request_id: request.request_id.to_string(),
+                                                            payload,
+                                                        },
+                                                    ),
+                                                    Ok(Err(error)) => self.sign_invoke_response(
+                                                        crate::core::InvokeResponseSignInput::Error {
+                                                            session_id: request.session_id.to_string(),
+                                                            sequence: request.sequence,
+                                                            request_id: request.request_id.to_string(),
+                                                            error,
+                                                        },
+                                                    ),
                                                     Err(_) => self.error_response(
                                                         &request,
                                                         "internal_error",
@@ -1323,7 +1325,7 @@ impl EventLoop {
         code: &str,
         message: String,
     ) -> ConnectInvokeResponse {
-        ConnectInvokeResponse::Variant1 {
+        self.sign_invoke_response(crate::core::InvokeResponseSignInput::Error {
             session_id: request.session_id.to_string(),
             sequence: request.sequence,
             request_id: request.request_id.to_string(),
@@ -1333,8 +1335,27 @@ impl EventLoop {
                 details: Default::default(),
                 extensions: Default::default(),
             },
-            extensions: Default::default(),
-        }
+        })
+    }
+
+    /// Sign an inbound-invoke response with this node's Ed25519 identity
+    /// (`spoke-connect-invoke-response-jcs-v1` — v2 requires the
+    /// `signature` on every response branch).
+    ///
+    /// Signing is infallible for a valid 32-byte Ed25519 seed (the only
+    /// failure mode is a wrong-length secret), and a session — hence an
+    /// inbound invoke — can only exist after a successful Ed25519 hello
+    /// exchange, so `ed25519_seed` cannot fail here. A failure would mean
+    /// the node's configured identity changed shape mid-flight; failing
+    /// loudly beats emitting an unauthenticated v2 envelope.
+    fn sign_invoke_response(
+        &self,
+        input: crate::core::InvokeResponseSignInput,
+    ) -> ConnectInvokeResponse {
+        let seed = crate::hello::ed25519_seed(&self.identity)
+            .expect("connect identity is Ed25519 (validated at the hello exchange)");
+        crate::core::authenticate_invoke_response(&seed, &input, HashMap::new())
+            .expect("authenticate_invoke_response is infallible for a valid 32-byte seed")
     }
 
     /// Create the session once the peer's side of the handshake confirms.
@@ -1430,11 +1451,19 @@ impl EventLoop {
             );
             return;
         };
+        // The outbound invoke authenticator is this node's hello identity
+        // seed (the peer verified it at the hello exchange; envelope-auth
+        // signs every post-hello envelope with the same key). A session
+        // can only exist after a successful Ed25519 hello, so the identity
+        // is always Ed25519 here.
+        let local_secret = crate::hello::ed25519_seed(&self.identity)
+            .expect("connect identity is Ed25519 (validated at the hello exchange)");
         let handle = Arc::new(SessionHandle::new(
             session_id,
             *peer,
             remote_manifest,
             negotiated_capabilities,
+            local_secret,
             self.config.effective_handshake_timeout(),
             self.cmd_tx.clone(),
         ));

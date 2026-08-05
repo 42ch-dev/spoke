@@ -29,6 +29,13 @@ interface GoldenManifest {
   extensions: Record<string, never>;
 }
 
+interface GoldenResponder {
+  nonce: string;
+  peer_nonce: string;
+  jcs_hex: string;
+  signature_b64u: string;
+}
+
 interface GoldenHelloFixture {
   version: number;
   seed_hex: string;
@@ -39,6 +46,7 @@ interface GoldenHelloFixture {
   jcs_hex: string;
   signature_b64u: string;
   manifest_json: string;
+  responder: GoldenResponder;
 }
 
 const fixtureUrl = new URL("../tests/fixtures/golden-hello.json", import.meta.url);
@@ -75,6 +83,27 @@ export const GOLDEN_JCS_HEX: string = fixture.jcs_hex;
 
 /** base64url (no padding) of the raw 64-byte Ed25519 signature over GOLDEN_JCS_HEX. */
 export const GOLDEN_SIGNATURE: string = fixture.signature_b64u;
+
+// ── Responder golden (5-field signed object, dial binding) ─────────────────
+// Pinned alongside the initiator vector when the dial-binding mechanism
+// landed: the same golden key pair + manifest signed over `peer_nonce` = the
+// initiator golden nonce. Both languages sign AND verify this vector
+// byte-identically (interop assertion in hello.test.ts / hello_crypto.rs).
+
+/** The responder hello's own nonce (wire floor satisfied). */
+export const RESPONDER_NONCE: string = fixture.responder.nonce;
+
+/** The responder's signed `peer_nonce` — the initiator golden nonce. */
+export const RESPONDER_PEER_NONCE: string = fixture.responder.peer_nonce;
+
+/**
+ * RFC 8785 JCS UTF-8 bytes (hex) of the 5-field signed object
+ * `{protocol_version, peer_id, nonce, host, peer_nonce}` — 307 bytes.
+ */
+export const RESPONDER_JCS_HEX: string = fixture.responder.jcs_hex;
+
+/** base64url (no padding) of the raw 64-byte signature over RESPONDER_JCS_HEX. */
+export const RESPONDER_SIGNATURE: string = fixture.responder.signature_b64u;
 
 /**
  * Golden host manifest — `authority` is absent (omit, never `null`), the

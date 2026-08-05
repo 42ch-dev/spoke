@@ -37,7 +37,7 @@ console.log(peerId); // base58btc, e.g. 12D3KooW...
 
 ## 3. 签署并校验握手
 
-握手是一个已签名的 `ConnectHello`：`{protocol_version, peer_id, nonce, host}` 对象先经 RFC 8785 JCS 规范化（[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)），再用 Ed25519 签名，原始签名以无填充 base64url 编码（[RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)）。
+握手是一个已签名的 `ConnectHello`：`{protocol_version, peer_id, nonce, host}` 对象（发起方 hello）—— 或 `{protocol_version, peer_id, nonce, host, peer_nonce}`（响应方 hello，`peer_nonce` = 发起方的 nonce，即拨号绑定）—— 先经 RFC 8785 JCS 规范化（[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)），再用 Ed25519 签名，原始签名以无填充 base64url 编码（[RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)）。
 
 ```ts
 import { generateNonce, signHelloEd25519, verifyHelloEd25519 } from "@42ch/spoke-connect";
@@ -61,6 +61,16 @@ await verifyHelloEd25519(remotePubkey, remotePeerId, hello);
 ```
 
 nonce 按发送方单次使用：接收方在 `NonceStore` 中记录每个已接受的 `(peer_id, nonce)` 对，并拒绝重放。
+
+**响应方**（收到 hello 的一方）在签署自己的 hello 时带上发起方的 nonce —— 即拨号绑定。发起方在验证时传入自己的 nonce，因此捕获的响应方 hello 无法重放进新的拨号：
+
+```ts
+// 响应方：把发起方的 nonce 回显进签名对象（5 个字段）。
+const responderHello = await signHelloEd25519(seed, generateNonce(), manifest, receivedHello.nonce);
+
+// 发起方：断言响应方的 peer_nonce 等于我们自己的 nonce。
+await verifyHelloEd25519(remotePubkey, remotePeerId, responderHello, ourNonce);
+```
 
 ## 4. 配置 allowlist
 
@@ -137,7 +147,7 @@ cargo run -p spoke-connect --example two_node_usage
 ## 你现在掌握了
 
 - 从 Ed25519 公钥推导 `peer_id`，以及它为何是信任根。
-- 签名握手（`spoke-connect-hello-jcs-v1`）：对 `{protocol_version, peer_id, nonce, host}` 做 JCS，Ed25519 签名，base64url。
+- 签名握手（`spoke-connect-hello-jcs-v1`）：对 `{protocol_version, peer_id, nonce, host}`（发起方）/ 加 `peer_nonce`（响应方）做 JCS，Ed25519 签名，base64url，以及拒绝重放响应方 hello 的拨号绑定。
 - Fail-closed 的 allowlist 准入与单次使用 nonce 重放保护。
 - 按会话的 sequence 与 `request_id` 关联。
 

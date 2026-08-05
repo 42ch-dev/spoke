@@ -1671,7 +1671,7 @@ impl EventLoop {
         // CSPRNG or signing failures are not recoverable inside the event
         // loop; skip the send (the peer will simply not see a hello).
         let Ok(nonce) = generate_nonce() else { return };
-        let Ok(hello) = sign_hello(&self.identity, &nonce, &self.config.local_manifest) else {
+        let Ok(hello) = sign_hello(&self.identity, &nonce, &self.config.local_manifest, None) else {
             return;
         };
         let request_id = self.swarm.behaviour_mut().hello.send_request(peer, hello);

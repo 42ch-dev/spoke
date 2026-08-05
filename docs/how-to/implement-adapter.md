@@ -38,14 +38,16 @@ import type {
 
 ## 2. Implement the ports
 
+Port methods are async on the normative surface: TypeScript methods return `Promise<SpokeResult<T>>` and Rust traits declare `async fn …(&self, …) -> SpokeResult<T>` — the orchestrators `await` every call.
+
 ### KnowledgeEntryPort — entry persistence
 
 ```ts
-getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry>;
+getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>>;
 putKnowledgeEntry(
   entry: KnowledgeEntry,
   expectedBaseRevision: number | null,
-): SpokeResult<KnowledgeEntry>;
+): Promise<SpokeResult<KnowledgeEntry>>;
 ```
 
 `putKnowledgeEntry` is optimistic-concurrency controlled: `expectedBaseRevision: null` means the entry must be absent (create); a non-null value means the store's current revision must equal it (update). Reject with `STORED_REVISION_STALE` or `REVISION_CONFLICT` otherwise. For real concurrency safety, implement an atomic compare-and-put (CAS) in the adapter — the library stays I/O-free.
@@ -53,11 +55,11 @@ putKnowledgeEntry(
 ### RelationPort — relation persistence
 
 ```ts
-getRelation(relationId: string): SpokeResult<Relation>;
+getRelation(relationId: string): Promise<SpokeResult<Relation>>;
 putRelation(
   relation: Relation,
   expectedBaseRevision: number | null,
-): SpokeResult<Relation>;
+): Promise<SpokeResult<Relation>>;
 ```
 
 Revision assignment is adapter-owned: on create (`expectedBaseRevision: null`) seed `revision = 1`; on an accepted update persist `revision = stored + 1`. The returned Relation carries the assigned revision — callers do not set it.
@@ -65,8 +67,8 @@ Revision assignment is adapter-owned: on create (`expectedBaseRevision: null`) s
 ### ScopeQueryPort — scoped reads for check/assemble
 
 ```ts
-listKnowledgeEntries(scope: Scope): SpokeResult<KnowledgeEntry[]>;
-listTimelineEvents(scope: Scope): SpokeResult<TimelineEvent[]>;
+listKnowledgeEntries(scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>>;
+listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>>;
 ```
 
 The orchestrators load scoped data through these ports, then apply the scope-filtering helpers (`filterKnowledgeEntriesByScope`, `filterTimelineEventsByScope`) to narrow to the request's `entry_ids` / `entry_types` / `timeline_scale` refinements.
@@ -74,7 +76,7 @@ The orchestrators load scoped data through these ports, then apply the scope-fil
 ### FindingPort — checker output persistence
 
 ```ts
-putFindings(findings: Finding[]): SpokeResult<Finding[]>;
+putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>>;
 ```
 
 Findings are checker output, persisted through this port after `orchestrateCheck` runs your checker callback.
@@ -82,7 +84,7 @@ Findings are checker output, persisted through this port after `orchestrateCheck
 ### RuleQueryPort — rule resolution
 
 ```ts
-listRules(ruleRefs: string[]): SpokeResult<Rule[]>;
+listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>>;
 ```
 
 Resolves `check` rule references. Embedded `rules[]` in the request override by `rule_id`; unresolved refs reject the check.
@@ -90,8 +92,8 @@ Resolves `check` rule references. Embedded `rules[]` in the request override by 
 ### HostManifestPort — collaboration metadata
 
 ```ts
-getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest>;
-listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]>;
+getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>>;
+listPeerHostCapabilityManifests(): Promise<SpokeResult<HostCapabilityManifest[]>>;
 ```
 
 The self manifest and product-known peer manifests. This port is baseline-required — it is the in-process collaboration surface (host roles, capability flags, owned namespaces).
@@ -99,8 +101,8 @@ The self manifest and product-known peer manifests. This port is baseline-requir
 ### ComputablePort — optional `l2-computable`
 
 ```ts
-project(request: ProjectRequest): SpokeResult<ProjectResponse>;
-compute(request: ComputeRequest): SpokeResult<ComputeResponse>;
+project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>;
+compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>;
 ```
 
 Session-scoped computable I/O. `orchestrateProject` / `orchestrateCompute` validate the request, then delegate to these methods; absent methods surface `CAPABILITY_PORT_MISSING` at dynamic boundaries.
@@ -110,7 +112,7 @@ Session-scoped computable I/O. `orchestrateProject` / `orchestrateCompute` valid
 ```ts
 listForkTimelineEvents(
   scope: Scope & { fork_id: ForkId },
-): SpokeResult<TimelineEvent[]>;
+): Promise<SpokeResult<TimelineEvent[]>>;
 ```
 
 Fork-scoped timeline reads. One object may satisfy both `ScopeQueryPort` and this port.

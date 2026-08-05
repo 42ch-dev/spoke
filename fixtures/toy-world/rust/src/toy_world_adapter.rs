@@ -2,6 +2,8 @@
 
 use std::sync::Mutex;
 
+use async_trait::async_trait;
+
 use serde_json::json;
 use spoke_operations::{
     spoke_ok, spoke_reject, ComputablePort, ComputablePorts, FindingPort, ForkPorts,
@@ -58,12 +60,13 @@ impl Default for ToyWorldAdapter {
     }
 }
 
+#[async_trait]
 impl KnowledgeEntryPort for ToyWorldAdapter {
-    fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
         self.with_store(|store| store.get_knowledge_entry(entry_id))
     }
 
-    fn put_knowledge_entry(
+    async fn put_knowledge_entry(
         &self,
         entry: KnowledgeEntry,
         expected_base_revision: Option<u64>,
@@ -72,12 +75,13 @@ impl KnowledgeEntryPort for ToyWorldAdapter {
     }
 }
 
+#[async_trait]
 impl RelationPort for ToyWorldAdapter {
-    fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
         self.with_store(|store| store.get_relation(relation_id))
     }
 
-    fn put_relation(
+    async fn put_relation(
         &self,
         relation: Relation,
         expected_base_revision: Option<u64>,
@@ -86,24 +90,27 @@ impl RelationPort for ToyWorldAdapter {
     }
 }
 
+#[async_trait]
 impl ScopeQueryPort for ToyWorldAdapter {
-    fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+    async fn list_knowledge_entries(&self, _scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
         self.with_store(|store| store.list_knowledge_entries())
     }
 
-    fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+    async fn list_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         self.with_store(|store| store.list_timeline_events())
     }
 }
 
+#[async_trait]
 impl FindingPort for ToyWorldAdapter {
-    fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
         self.with_store_mut(|store| store.put_findings(findings))
     }
 }
 
+#[async_trait]
 impl RuleQueryPort for ToyWorldAdapter {
-    fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+    async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
         self.with_store(|store| store.list_rules(rule_refs))
     }
 }
@@ -132,12 +139,13 @@ fn normalize_peer_manifests(
     normalized
 }
 
+#[async_trait]
 impl HostManifestPort for ToyWorldAdapter {
-    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
         spoke_ok(toy_world_self_manifest())
     }
 
-    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+    async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
         let self_manifest = toy_world_self_manifest();
         spoke_ok(normalize_peer_manifests(
             self_manifest.host_id.as_str(),
@@ -146,9 +154,10 @@ impl HostManifestPort for ToyWorldAdapter {
     }
 }
 
+#[async_trait]
 impl ComputablePort for ToyWorldAdapter {
     /// Minimal wire-valid ProjectResponse from committed `op_tw_project_response.json`.
-    fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
+    async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
         let fixture: ProjectResponse = load_op_fixture("op_tw_project_response.json");
         let computable = match fixture {
             ProjectResponse::Variant0 { computable, .. } => computable,
@@ -175,7 +184,7 @@ impl ComputablePort for ToyWorldAdapter {
     }
 
     /// Minimal wire-valid ComputeResponse from committed settle response fixture.
-    fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
+    async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
         let fixture: ComputeResponse = load_op_fixture("op_tw_compute_settle_response.json");
         let fixture_state = match fixture {
             ComputeResponse::Variant0 { state, .. } => state,
@@ -214,9 +223,10 @@ impl ComputablePort for ToyWorldAdapter {
     }
 }
 
+#[async_trait]
 impl ForkTimelineQueryPort for ToyWorldAdapter {
     /// Fork timeline query — seeded events filtered by `scope.fork_id`.
-    fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+    async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         let fork_id = scope.fork_id.as_ref().map(|value| value.as_str());
         self.with_store(|store| {
             let events = store
@@ -248,64 +258,71 @@ pub fn as_baseline_only(adapter: ToyWorldAdapter) -> BaselineOnlyAdapter {
     BaselineOnlyAdapter { inner: adapter }
 }
 
+#[async_trait]
 impl KnowledgeEntryPort for BaselineOnlyAdapter {
-    fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
-        self.inner.get_knowledge_entry(entry_id)
+    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+        self.inner.get_knowledge_entry(entry_id).await
     }
 
-    fn put_knowledge_entry(
+    async fn put_knowledge_entry(
         &self,
         entry: KnowledgeEntry,
         expected_base_revision: Option<u64>,
     ) -> SpokeResult<KnowledgeEntry> {
         self.inner
             .put_knowledge_entry(entry, expected_base_revision)
+            .await
     }
 }
 
+#[async_trait]
 impl RelationPort for BaselineOnlyAdapter {
-    fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
-        self.inner.get_relation(relation_id)
+    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        self.inner.get_relation(relation_id).await
     }
 
-    fn put_relation(
+    async fn put_relation(
         &self,
         relation: Relation,
         expected_base_revision: Option<u64>,
     ) -> SpokeResult<Relation> {
-        self.inner.put_relation(relation, expected_base_revision)
+        self.inner.put_relation(relation, expected_base_revision).await
     }
 }
 
+#[async_trait]
 impl ScopeQueryPort for BaselineOnlyAdapter {
-    fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
-        self.inner.list_knowledge_entries(scope)
+    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.inner.list_knowledge_entries(scope).await
     }
 
-    fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
-        self.inner.list_timeline_events(scope)
+    async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        self.inner.list_timeline_events(scope).await
     }
 }
 
+#[async_trait]
 impl FindingPort for BaselineOnlyAdapter {
-    fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
-        self.inner.put_findings(findings)
+    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+        self.inner.put_findings(findings).await
     }
 }
 
+#[async_trait]
 impl RuleQueryPort for BaselineOnlyAdapter {
-    fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
-        self.inner.list_rules(rule_refs)
+    async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+        self.inner.list_rules(rule_refs).await
     }
 }
 
+#[async_trait]
 impl HostManifestPort for BaselineOnlyAdapter {
-    fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
-        self.inner.get_host_capability_manifest()
+    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        self.inner.get_host_capability_manifest().await
     }
 
-    fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
-        self.inner.list_peer_host_capability_manifests()
+    async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        self.inner.list_peer_host_capability_manifests().await
     }
 }
 

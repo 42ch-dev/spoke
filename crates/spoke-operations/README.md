@@ -41,11 +41,13 @@ use spoke_operations::{
 };
 use spoke_operations::spoke_schemas::{CheckRequest, UpsertRequest};
 
-fn run_baseline(ports: &impl BaselinePorts, upsert: UpsertRequest, check: CheckRequest) {
-    let _ = orchestrate_upsert(ports, upsert);
-    let _ = orchestrate_check(ports, check, |_input: CheckRunInput| SpokeResult::Ok(Vec::new()));
+async fn run_baseline(ports: &impl BaselinePorts, upsert: UpsertRequest, check: CheckRequest) {
+    let _ = orchestrate_upsert(ports, upsert).await;
+    let _ = orchestrate_check(ports, check, |_input: CheckRunInput| SpokeResult::Ok(Vec::new())).await;
 }
 ```
+
+The orchestrators are `async fn`s — call them from an async context and drive the returned future with your runtime (test code may use `pollster::block_on`).
 
 Optional capabilities use `ComputablePorts` / `ForkPorts` with `orchestrate_project` / `orchestrate_compute` and `orchestrate_fork_check` / `orchestrate_fork_assemble`.
 

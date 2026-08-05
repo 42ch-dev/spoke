@@ -71,7 +71,7 @@ function provisionalMira(overrides: Partial<KnowledgeEntry> = {}): KnowledgeEntr
 }
 
 describe("ToyWorldAdapter baseline orchestration", () => {
-  it("orchestrateUpsert creates a KnowledgeEntry through OCC put", () => {
+  it("orchestrateUpsert creates a KnowledgeEntry through OCC put", async () => {
     const adapter = new ToyWorldAdapter();
     const candidate: KnowledgeEntry = {
       schema_version: 1,
@@ -84,7 +84,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     };
     const request: UpsertRequest = { knowledge_entries: [candidate] };
 
-    const result = orchestrateUpsert(adapter, request);
+    const result = await orchestrateUpsert(adapter, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -96,7 +96,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     );
   });
 
-  it("orchestratePromote persists a confirmed KnowledgeEntry", () => {
+  it("orchestratePromote persists a confirmed KnowledgeEntry", async () => {
     const candidate = provisionalMira({
       entry_id: "kb_tw_promote",
       canonical_name: "Promote Candidate",
@@ -104,7 +104,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     const adapter = new ToyWorldAdapter();
     const request: PromoteRequest = { candidate };
 
-    const result = orchestratePromote(adapter, request);
+    const result = await orchestratePromote(adapter, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -117,7 +117,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     );
   });
 
-  it("orchestrateRelate persists a Relation", () => {
+  it("orchestrateRelate persists a Relation", async () => {
     const adapter = new ToyWorldAdapter();
     const relation = loadFixture<Relation>("rel_tw_mira_harbor.json");
     // Create path: revision must be absent/0; the adapter seeds revision 1.
@@ -129,7 +129,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
       },
     };
 
-    const result = orchestrateRelate(adapter, request);
+    const result = await orchestrateRelate(adapter, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -142,7 +142,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     );
   });
 
-  it("orchestrateCheck runs a trivial checker and puts findings", () => {
+  it("orchestrateCheck runs a trivial checker and puts findings", async () => {
     const mira = loadFixture<KnowledgeEntry>("kb_tw_mira.json");
     const harbor = loadFixture<KnowledgeEntry>("kb_tw_harbor.json");
     const rule = loadFixture<Rule>("rule_tw_consistency.json");
@@ -156,7 +156,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     };
     const finding = loadFixture<Finding>("fnd_tw_open.json");
 
-    const result = orchestrateCheck(
+    const result = await orchestrateCheck(
       adapter,
       request,
       (input: CheckRunInput) => {
@@ -188,7 +188,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     ).toBe(true);
   });
 
-  it("orchestrateAssemble builds a packet from scoped KnowledgeEntries", () => {
+  it("orchestrateAssemble builds a packet from scoped KnowledgeEntries", async () => {
     const adapter = ToyWorldAdapter.withCommittedFixtures();
     const request: AssembleRequest = {
       scope: {
@@ -197,7 +197,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
       },
     };
 
-    const result = orchestrateAssemble(adapter, request);
+    const result = await orchestrateAssemble(adapter, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -211,7 +211,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     ]);
   });
 
-  it("putKnowledgeEntry rejects OCC mismatch (STORED_REVISION_STALE)", () => {
+  it("putKnowledgeEntry rejects OCC mismatch (STORED_REVISION_STALE)", async () => {
     const stored = provisionalMira({
       entry_id: "kb_tw_occ",
       revision: 2,
@@ -223,7 +223,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
       revision: 3,
     };
 
-    const result = adapter.putKnowledgeEntry(updated, 1);
+    const result = await adapter.putKnowledgeEntry(updated, 1);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -231,13 +231,13 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     }
   });
 
-  it("putRelation rejects create when relation already exists (RELATION_ALREADY_EXISTS)", () => {
+  it("putRelation rejects create when relation already exists (RELATION_ALREADY_EXISTS)", async () => {
     const existing = loadFixture<Relation>("rel_tw_mira_harbor.json");
     const adapter = new ToyWorldAdapter({ relations: [existing] });
 
     // Create path: expectedBaseRevision null, but the id already exists in the
     // store — the adapter's CAS rejects with RELATION_ALREADY_EXISTS.
-    const result = adapter.putRelation(existing, null);
+    const result = await adapter.putRelation(existing, null);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -245,7 +245,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
     }
   });
 
-  it("returns CAPABILITY_PORT_MISSING for baseline-only adapter at dynamic boundary", () => {
+  it("returns CAPABILITY_PORT_MISSING for baseline-only adapter at dynamic boundary", async () => {
     const full = new ToyWorldAdapter();
     const baseline = asBaselineOnly(full);
     const ports = baseline as unknown as ComputablePorts;
@@ -253,7 +253,7 @@ describe("ToyWorldAdapter baseline orchestration", () => {
       "op_tw_project_request.json",
     );
 
-    const result = orchestrateProject(ports, request);
+    const result = await orchestrateProject(ports, request);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -309,11 +309,11 @@ describe("normalizePeerManifests (ToyWorldAdapter integrator path)", () => {
 });
 
 describe("ToyWorldAdapter HostManifestPort", () => {
-  it("returns the primary host manifest from getHostCapabilityManifest", () => {
+  it("returns the primary host manifest from getHostCapabilityManifest", async () => {
     const adapter = ToyWorldAdapter.withCommittedFixtures();
     const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
 
-    const result = adapter.getHostCapabilityManifest();
+    const result = await adapter.getHostCapabilityManifest();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -325,12 +325,12 @@ describe("ToyWorldAdapter HostManifestPort", () => {
     expect(result.value.roles).toContain("data-store");
   });
 
-  it("lists peer manifests excluding self with ascending host_id sort", () => {
+  it("lists peer manifests excluding self with ascending host_id sort", async () => {
     const adapter = ToyWorldAdapter.withCommittedFixtures();
     const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
     const peer = loadFixture<HostCapabilityManifest>("host_tw_peer.json");
 
-    const result = adapter.listPeerHostCapabilityManifests();
+    const result = await adapter.listPeerHostCapabilityManifests();
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -350,18 +350,18 @@ describe("ToyWorldAdapter HostManifestPort", () => {
     expect(overlap).toEqual([]);
   });
 
-  it("returns defensive copies that callers cannot mutate", () => {
+  it("returns defensive copies that callers cannot mutate", async () => {
     const adapter = ToyWorldAdapter.withCommittedFixtures();
     const primary = loadFixture<HostCapabilityManifest>("host_tw_primary.json");
 
-    const selfResult = adapter.getHostCapabilityManifest();
+    const selfResult = await adapter.getHostCapabilityManifest();
     expect(selfResult.ok).toBe(true);
     if (!selfResult.ok) {
       return;
     }
     selfResult.value.host_id = "mutated-self";
 
-    const selfAgain = adapter.getHostCapabilityManifest();
+    const selfAgain = await adapter.getHostCapabilityManifest();
     expect(selfAgain.ok).toBe(true);
     if (!selfAgain.ok) {
       return;
@@ -369,7 +369,7 @@ describe("ToyWorldAdapter HostManifestPort", () => {
     expect(selfAgain.value).toEqual(primary);
     expect(selfAgain.value.host_id).toBe("host_tw_primary");
 
-    const peersResult = adapter.listPeerHostCapabilityManifests();
+    const peersResult = await adapter.listPeerHostCapabilityManifests();
     expect(peersResult.ok).toBe(true);
     if (!peersResult.ok) {
       return;
@@ -377,7 +377,7 @@ describe("ToyWorldAdapter HostManifestPort", () => {
     expect(peersResult.value.length).toBeGreaterThan(0);
     peersResult.value[0]!.host_id = "mutated-peer";
 
-    const peersAgain = adapter.listPeerHostCapabilityManifests();
+    const peersAgain = await adapter.listPeerHostCapabilityManifests();
     expect(peersAgain.ok).toBe(true);
     if (!peersAgain.ok) {
       return;
@@ -387,14 +387,14 @@ describe("ToyWorldAdapter HostManifestPort", () => {
 });
 
 describe("ToyWorldAdapter FullAdapter optional ports", () => {
-  it("satisfies FullAdapter and orchestrateProject returns fixture-shaped success", () => {
+  it("satisfies FullAdapter and orchestrateProject returns fixture-shaped success", async () => {
     const adapter: FullAdapter = ToyWorldAdapter.withCommittedFixtures();
     const request = loadFixture<ProjectRequest>("op_tw_project_request.json");
     const fixtureResponse = loadFixture<ProjectResponse>(
       "op_tw_project_response.json",
     );
 
-    const result = orchestrateProject(adapter, request);
+    const result = await orchestrateProject(adapter, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -407,7 +407,7 @@ describe("ToyWorldAdapter FullAdapter optional ports", () => {
     });
   });
 
-  it("orchestrateCompute settle returns wire-valid success from settle response fixture", () => {
+  it("orchestrateCompute settle returns wire-valid success from settle response fixture", async () => {
     const adapter = ToyWorldAdapter.withCommittedFixtures();
     const request = loadFixture<ComputeRequest>(
       "op_tw_compute_settle_request.json",
@@ -416,7 +416,7 @@ describe("ToyWorldAdapter FullAdapter optional ports", () => {
       "op_tw_compute_settle_response.json",
     );
 
-    const result = orchestrateCompute(adapter, request);
+    const result = await orchestrateCompute(adapter, request);
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -428,11 +428,11 @@ describe("ToyWorldAdapter FullAdapter optional ports", () => {
     expect(result.value.state).toEqual(fixtureResponse.state);
   });
 
-  it("listForkTimelineEvents returns seeded events for fork_tw_storm_branch", () => {
+  it("listForkTimelineEvents returns seeded events for fork_tw_storm_branch", async () => {
     const adapter = ToyWorldAdapter.withCommittedFixtures();
     const storm = loadFixture<TimelineEvent>("evt_tw_harbor_storm_delay.json");
 
-    const result = adapter.listForkTimelineEvents({
+    const result = await adapter.listForkTimelineEvents({
       scope_id: "toy-scope-001",
       fork_id: "fork_tw_storm_branch",
     });

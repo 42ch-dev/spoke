@@ -14,10 +14,15 @@ exclude = ["bindings/**", "examples/**"]
 
 [dependencies]
 spoke-schemas = { version = "0.8.2", path = "../spoke-schemas" }
+# RemoteAdapter (the `remote-adapter` feature) implements the operations
+# BaselinePorts + SpokeResult types; optional so default connect builds stay
+# lean (TS equivalent: the `./remote` subpath export).
+spoke-operations = { version = "0.8.2", path = "../spoke-operations", optional = true }
 libp2p.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+async-trait.workspace = true
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
 futures = "0.3"
 serde_jcs = "0.2"
@@ -31,6 +36,11 @@ uniffi = { version = "0.32.0", optional = true }
 
 [features]
 default = []
+# RemoteAdapter + message-oriented Transport (opt-in): the remote module
+# implements the async BaselinePorts by proxying port.* ops over a connect
+# session (contract §9 — feature-gated so default connect builds do not
+# depend on spoke-operations; TS equivalent is the `./remote` subpath).
+remote-adapter = ["dep:spoke-operations"]
 # Same-LAN discovery convenience (non-default): wires libp2p's mDNS
 # behaviour into the node. Discovery only — it never grants trust:
 # discovered peers still pass the allowlist + signed-hello gates, and
@@ -67,4 +77,8 @@ libp2p-identity = "0.2"
 # X25519 DH — the same `x25519`/`X25519_BASEPOINT_BYTES` primitives
 # libp2p-noise's own snow DH impl uses.
 x25519-dalek = "2"
+# RemoteAdapter loopback interop test: the host serves a reference
+# ToyWorldAdapter, and the dial fixture derives peer ids from raw seeds.
+spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust" }
+ed25519-dalek = "2"
 

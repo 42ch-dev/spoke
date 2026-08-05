@@ -138,7 +138,7 @@ pub fn sign_hello_ed25519(
             reason: format!("invalid host manifest JSON: {e}"),
         })?;
     let hello =
-        crate::core::sign_hello_ed25519(&secret, &nonce, &manifest).map_err(CoreError::from)?;
+        crate::core::sign_hello_ed25519(&secret, &nonce, &manifest, None).map_err(CoreError::from)?;
     // Every envelope field is serializable, so a failure here is a
     // serialization defect — mapped to the canonicalization-family variant.
     serde_json::to_string(&hello).map_err(|e| CoreError::Jcs {
@@ -163,7 +163,7 @@ pub fn verify_hello_ed25519(
         serde_json::from_str(&hello_json).map_err(|e| CoreError::HandshakeFailed {
             reason: format!("invalid hello JSON: {e}"),
         })?;
-    crate::core::verify_hello_ed25519(&public_key, &expected_peer_id, &hello)
+    crate::core::verify_hello_ed25519(&public_key, &expected_peer_id, &hello, None)
         .map_err(CoreError::from)
 }
 

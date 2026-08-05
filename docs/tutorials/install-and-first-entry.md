@@ -87,14 +87,14 @@ import type { Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Rule, S
 class InMemoryAdapter implements BaselinePorts {
   private entries = new Map<string, KnowledgeEntry>();
 
-  getKnowledgeEntry(entryId: string): SpokeResult<KnowledgeEntry> {
+  async getKnowledgeEntry(entryId: string): Promise<SpokeResult<KnowledgeEntry>> {
     const entry = this.entries.get(entryId);
     return entry === undefined
       ? spokeReject(SpokeRejectCode.KNOWLEDGE_ENTRY_NOT_FOUND, `no entry ${entryId}`)
       : spokeOk(entry);
   }
 
-  putKnowledgeEntry(entry: KnowledgeEntry, expectedBaseRevision: number | null): SpokeResult<KnowledgeEntry> {
+  async putKnowledgeEntry(entry: KnowledgeEntry, expectedBaseRevision: number | null): Promise<SpokeResult<KnowledgeEntry>> {
     const stored = this.entries.get(entry.entry_id);
     if ((stored?.revision ?? null) !== expectedBaseRevision) {
       return spokeReject(SpokeRejectCode.REVISION_CONFLICT, "revision mismatch");
@@ -105,16 +105,16 @@ class InMemoryAdapter implements BaselinePorts {
 
   // Relation / Scope / Finding / Rule / Host-manifest ports — return empty
   // defaults for this tutorial; production adapters wire real storage.
-  getRelation(): SpokeResult<Relation> { return spokeReject(SpokeRejectCode.RELATION_NOT_FOUND, "no relations"); }
-  putRelation(): SpokeResult<Relation> { return spokeReject(SpokeRejectCode.INVALID_INPUT, "no relations"); }
-  listKnowledgeEntries(_scope: Scope): SpokeResult<KnowledgeEntry[]> { return spokeOk([...this.entries.values()]); }
-  listTimelineEvents(_scope: Scope): SpokeResult<TimelineEvent[]> { return spokeOk([]); }
-  putFindings(findings: Finding[]): SpokeResult<Finding[]> { return spokeOk(findings); }
-  listRules(): SpokeResult<Rule[]> { return spokeOk([]); }
-  getHostCapabilityManifest(): SpokeResult<HostCapabilityManifest> {
+  async getRelation(): Promise<SpokeResult<Relation>> { return spokeReject(SpokeRejectCode.RELATION_NOT_FOUND, "no relations"); }
+  async putRelation(): Promise<SpokeResult<Relation>> { return spokeReject(SpokeRejectCode.INVALID_INPUT, "no relations"); }
+  async listKnowledgeEntries(_scope: Scope): Promise<SpokeResult<KnowledgeEntry[]>> { return spokeOk([...this.entries.values()]); }
+  async listTimelineEvents(_scope: Scope): Promise<SpokeResult<TimelineEvent[]>> { return spokeOk([]); }
+  async putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>> { return spokeOk(findings); }
+  async listRules(): Promise<SpokeResult<Rule[]>> { return spokeOk([]); }
+  async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {
     return spokeOk({ schema_version: 1, host_id: "host_tutorial", roles: ["data-store"], capabilities: ["spoke-baseline"], namespaces: ["tutorial"], extensions: {} });
   }
-  listPeerHostCapabilityManifests(): SpokeResult<HostCapabilityManifest[]> { return spokeOk([]); }
+  async listPeerHostCapabilityManifests(): Promise<SpokeResult<HostCapabilityManifest[]>> { return spokeOk([]); }
 }
 ```
 
@@ -131,13 +131,15 @@ import type { UpsertRequest } from "@42ch/spoke-schemas";
 const adapter = new InMemoryAdapter();
 const request: UpsertRequest = { knowledge_entries: [mira] };
 
-const result = orchestrateUpsert(adapter, request);
+async function runUpsert() {
+  const result = await orchestrateUpsert(adapter, request);
 
-if (result.ok) {
-  const persisted = result.value.knowledge_entries[0];
-  console.log(persisted.entry_id, persisted.status); // kb_mira provisional
-} else {
-  console.error(result.code, result.message);
+  if (result.ok) {
+    const persisted = result.value.knowledge_entries[0];
+    console.log(persisted.entry_id, persisted.status); // kb_mira provisional
+  } else {
+    console.error(result.code, result.message);
+  }
 }
 ```
 
@@ -149,8 +151,8 @@ Rust:
 use spoke_operations::{orchestrate_upsert, BaselinePorts};
 use spoke_operations::spoke_schemas::{UpsertRequest, UpsertResponse};
 
-fn upsert(adapter: &impl BaselinePorts, request: UpsertRequest) {
-    match orchestrate_upsert(adapter, request) {
+async fn upsert(adapter: &impl BaselinePorts, request: UpsertRequest) {
+    match orchestrate_upsert(adapter, request).await {
         Ok(response) => println!("persisted: {:?}", response.knowledge_entries),
         Err(reject) => println!("rejected: {} — {}", reject.code, reject.message),
     }

@@ -47,6 +47,9 @@ importers:
 
   packages/spoke-connect-ts:
     dependencies:
+      '@42ch/spoke-operations':
+        specifier: workspace:*
+        version: link:../spoke-operations
       '@42ch/spoke-schemas':
         specifier: workspace:*
         version: link:../spoke-schemas
@@ -69,6 +72,9 @@ importers:
         specifier: ^8.18.1
         version: 8.21.1
     devDependencies:
+      '@42ch/spoke-fixture-toy-world':
+        specifier: workspace:*
+        version: link:../../fixtures/toy-world
       '@types/node':
         specifier: ^22.15.0
         version: 22.20.1

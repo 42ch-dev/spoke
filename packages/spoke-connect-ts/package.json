@@ -46,6 +46,16 @@
         "types": "./dist/noise/index.d.cts",
         "default": "./dist/noise/index.cjs"
       }
+    },
+    "./remote": {
+      "import": {
+        "types": "./dist/remote/index.d.ts",
+        "default": "./dist/remote/index.js"
+      },
+      "require": {
+        "types": "./dist/remote/index.d.cts",
+        "default": "./dist/remote/index.cjs"
+      }
     }
   },
   "files": [
@@ -61,6 +71,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@42ch/spoke-operations": "workspace:*",
     "@42ch/spoke-schemas": "workspace:*",
     "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^2.2.0",
@@ -70,6 +81,7 @@
     "ws": "^8.18.1"
   },
   "devDependencies": {
+    "@42ch/spoke-fixture-toy-world": "workspace:*",
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.1",

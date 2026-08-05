@@ -20,6 +20,10 @@ export interface ConnectHello {
    * Single-use replay nonce. Bound into the signed object.
    */
   nonce: string;
+  /**
+   * Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object (spoke-connect-hello-jcs-v1). Absent in initiator hellos (the initiator sends first and has no peer nonce); initiators MUST reject a responder hello whose peer_nonce does not equal their own nonce.
+   */
+  peer_nonce?: string;
   host: HostCapabilityManifest;
   /**
    * base64url (no padding) of raw signature bytes over the JCS-canonicalized signed object (spoke-connect-hello-jcs-v1).

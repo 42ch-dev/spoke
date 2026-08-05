@@ -37,7 +37,7 @@ console.log(peerId); // base58btc, e.g. 12D3KooW...
 
 ## 3. Sign and verify a hello
 
-The handshake is a signed `ConnectHello`: the object `{protocol_version, peer_id, nonce, host}` is canonicalized with RFC 8785 JCS ([RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)), signed with Ed25519, and the raw signature is encoded base64url without padding ([RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)).
+The handshake is a signed `ConnectHello`: the object `{protocol_version, peer_id, nonce, host}` (initiator hello) — or `{protocol_version, peer_id, nonce, host, peer_nonce}` with `peer_nonce` = the initiator's nonce (responder hello, dial binding) — is canonicalized with RFC 8785 JCS ([RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)), signed with Ed25519, and the raw signature is encoded base64url without padding ([RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)).
 
 ```ts
 import { generateNonce, signHelloEd25519, verifyHelloEd25519 } from "@42ch/spoke-connect";
@@ -62,6 +62,16 @@ await verifyHelloEd25519(remotePubkey, remotePeerId, hello);
 ```
 
 Nonces are single-use per sender: the receiver records each accepted `(peer_id, nonce)` pair in a `NonceStore` and rejects replays.
+
+The **responder** (the side that received a hello) signs its own hello with the initiator's nonce — the dial binding. The initiator passes its own nonce into verification, so a captured responder hello cannot be replayed into a fresh dial:
+
+```ts
+// Responder: echo the initiator's nonce into the signed object (5 fields).
+const responderHello = await signHelloEd25519(seed, generateNonce(), manifest, receivedHello.nonce);
+
+// Initiator: assert the responder's peer_nonce equals our own nonce.
+await verifyHelloEd25519(remotePubkey, remotePeerId, responderHello, ourNonce);
+```
 
 ## 4. Configure the allowlist
 
@@ -138,7 +148,7 @@ The compiled example source ([`examples/two_node_usage.rs`](https://github.com/4
 ## What you now know
 
 - `peer_id` derivation from an Ed25519 public key, and why it is the trust root.
-- The signed hello (`spoke-connect-hello-jcs-v1`): JCS over `{protocol_version, peer_id, nonce, host}`, Ed25519 signature, base64url.
+- The signed hello (`spoke-connect-hello-jcs-v1`): JCS over `{protocol_version, peer_id, nonce, host}` (initiator) / plus `peer_nonce` (responder), Ed25519 signature, base64url, and the dial binding that rejects replayed responder hellos.
 - Fail-closed allowlist admission and single-use nonce replay protection.
 - Per-session sequence and `request_id` correlation.
 

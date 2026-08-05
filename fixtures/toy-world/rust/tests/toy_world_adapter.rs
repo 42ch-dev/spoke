@@ -59,7 +59,7 @@ fn orchestrate_upsert_creates_knowledge_entry_through_occ_put() {
     }))
     .expect("UpsertRequest");
 
-    let result = orchestrate_upsert(&adapter, request);
+    let result = pollster::block_on(orchestrate_upsert(&adapter, request));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::UpsertResponse::Variant0 {
         knowledge_entries, ..
@@ -86,7 +86,7 @@ fn orchestrate_promote_persists_confirmed_knowledge_entry() {
     let request: PromoteRequest =
         serde_json::from_value(json!({ "candidate": candidate })).expect("PromoteRequest");
 
-    let result = orchestrate_promote(&adapter, request);
+    let result = pollster::block_on(orchestrate_promote(&adapter, request));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::PromoteResponse::Variant0 {
         knowledge_entry, ..
@@ -121,7 +121,7 @@ fn orchestrate_relate_persists_relation() {
     let request: RelateRequest =
         serde_json::from_value(json!({ "relation": relation })).expect("RelateRequest");
 
-    let result = orchestrate_relate(&adapter, request);
+    let result = pollster::block_on(orchestrate_relate(&adapter, request));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::RelateResponse::Variant0 { relation: got, .. }) = result {
         assert_eq!(got.relation_id, "rel_tw_adapter_demo");
@@ -161,7 +161,7 @@ fn orchestrate_check_runs_trivial_checker_and_puts_findings() {
     let check_finding: Finding =
         serde_json::from_value(finding_value).expect("check finding");
 
-    let result = orchestrate_check(&adapter, request, |input: CheckRunInput| {
+    let result = pollster::block_on(orchestrate_check(&adapter, request, |input: CheckRunInput| {
         let mut ids: Vec<_> = input.entries.iter().map(|e| e.entry_id.clone()).collect();
         ids.sort();
         assert_eq!(ids, vec!["kb_tw_harbor".to_string(), "kb_tw_mira".to_string()]);
@@ -170,7 +170,7 @@ fn orchestrate_check_runs_trivial_checker_and_puts_findings() {
         assert!(input.entries.iter().any(|e| e.entry_id == mira.entry_id));
         assert!(input.entries.iter().any(|e| e.entry_id == harbor.entry_id));
         spoke_ok(vec![check_finding.clone()])
-    });
+    }));
 
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::CheckResponse::Variant0 { findings, .. }) = result {
@@ -199,7 +199,7 @@ fn orchestrate_assemble_builds_packet_from_scoped_knowledge_entries() {
     }))
     .expect("AssembleRequest");
 
-    let result = orchestrate_assemble(&adapter, request);
+    let result = pollster::block_on(orchestrate_assemble(&adapter, request));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::AssembleResponse::Variant0 { packet, .. }) = result {
         assert_eq!(packet.packet_id, "assemble:toy-scope-001");
@@ -226,7 +226,7 @@ fn put_knowledge_entry_rejects_occ_mismatch() {
     updated.canonical_name = "Stale write".parse().expect("canonical_name");
     updated.revision = Some(3);
 
-    let result = adapter.put_knowledge_entry(updated, Some(1));
+    let result = pollster::block_on(adapter.put_knowledge_entry(updated, Some(1)));
     assert!(result.is_reject());
     if let SpokeResult::Reject(reject) = result {
         assert_eq!(reject.code, SpokeRejectCode::StoredRevisionStale);
@@ -243,7 +243,7 @@ fn put_relation_rejects_create_when_relation_already_exists() {
 
     // Create path: expected_base_revision None, but the id already exists in the
     // store — the adapter's CAS rejects with RelationAlreadyExists.
-    let result = adapter.put_relation(existing, None);
+    let result = pollster::block_on(adapter.put_relation(existing, None));
     assert!(result.is_reject());
     if let SpokeResult::Reject(reject) = result {
         assert_eq!(reject.code, SpokeRejectCode::RelationAlreadyExists);
@@ -256,7 +256,7 @@ fn returns_capability_port_missing_for_baseline_only_adapter() {
     let baseline = as_baseline_only(full);
     let request: ProjectRequest = load_fixture("op_tw_project_request.json");
 
-    let result = orchestrate_project(&baseline, request);
+    let result = pollster::block_on(orchestrate_project(&baseline, request));
     assert!(result.is_reject());
     if let SpokeResult::Reject(reject) = result {
         assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
@@ -268,7 +268,7 @@ fn get_host_capability_manifest_returns_primary_fixture() {
     let adapter = ToyWorldAdapter::with_committed_fixtures();
     let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
 
-    let result = adapter.get_host_capability_manifest();
+    let result = pollster::block_on(adapter.get_host_capability_manifest());
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(manifest) = result {
         assert_eq!(manifest.host_id.as_str(), primary.host_id.as_str());
@@ -287,7 +287,7 @@ fn list_peer_host_capability_manifests_returns_peer_fixture_excluding_self() {
     let primary = load_fixture::<HostCapabilityManifest>("host_tw_primary.json");
     let peer = load_fixture::<HostCapabilityManifest>("host_tw_peer.json");
 
-    let result = adapter.list_peer_host_capability_manifests();
+    let result = pollster::block_on(adapter.list_peer_host_capability_manifests());
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(peers) = result {
         assert_eq!(peers.len(), 1);
@@ -316,7 +316,7 @@ fn full_adapter_orchestrate_project_returns_fixture_shaped_success() {
     let request: ProjectRequest = load_fixture("op_tw_project_request.json");
     let fixture_response: ProjectResponse = load_fixture("op_tw_project_response.json");
 
-    let result = orchestrate_project(&adapter, request.clone());
+    let result = pollster::block_on(orchestrate_project(&adapter, request.clone()));
     assert!(result.is_ok(), "{result:?}");
     if let (
         SpokeResult::Ok(ProjectResponse::Variant0 {
@@ -345,7 +345,7 @@ fn orchestrate_compute_settle_returns_wire_valid_success_from_fixture() {
     let request: ComputeRequest = load_fixture("op_tw_compute_settle_request.json");
     let fixture_response: ComputeResponse = load_fixture("op_tw_compute_settle_response.json");
 
-    let result = orchestrate_compute(&adapter, request.clone());
+    let result = pollster::block_on(orchestrate_compute(&adapter, request.clone()));
     assert!(result.is_ok(), "{result:?}");
     if let (
         SpokeResult::Ok(ComputeResponse::Variant0 {
@@ -380,7 +380,7 @@ fn compute_with_empty_computable_preserves_empty_map() {
     }))
     .expect("ComputeRequest with empty computable");
 
-    let result = adapter.compute(request.clone());
+    let result = pollster::block_on(adapter.compute(request.clone()));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(ComputeResponse::Variant0 { computable, .. }) = result {
         assert!(computable.is_empty());
@@ -400,7 +400,7 @@ fn list_fork_timeline_events_returns_seeded_events_for_storm_branch() {
     }))
     .expect("Scope");
 
-    let result = adapter.list_fork_timeline_events(&scope);
+    let result = pollster::block_on(adapter.list_fork_timeline_events(&scope));
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(events) = result {
         assert_eq!(events.len(), 1);
@@ -430,14 +430,14 @@ fn full_adapter_orchestrate_fork_check_uses_fork_timeline_stub() {
     let mut finding = load_fixture::<Finding>("fnd_tw_open.json");
     finding.finding_id = "fnd_tw_fork_check".into();
 
-    let result = orchestrate_fork_check(&adapter, request, |input: CheckRunInput| {
+    let result = pollster::block_on(orchestrate_fork_check(&adapter, request, |input: CheckRunInput| {
         assert_eq!(input.events.len(), 1);
         assert_eq!(
             input.events[0].timeline_event_id,
             "evt_tw_harbor_storm_delay"
         );
         spoke_ok(vec![finding.clone()])
-    });
+    }));
 
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(spoke_schemas::CheckResponse::Variant0 { findings, .. }) = result {

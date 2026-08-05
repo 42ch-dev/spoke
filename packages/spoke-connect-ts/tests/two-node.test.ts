@@ -7,6 +7,13 @@ import type { ConnectSession } from "@42ch/spoke-schemas";
 
 import { getPublicKeyEd25519 } from "../src/crypto.js";
 import { isAllowlisted } from "../src/core/allowlist.js";
+import {
+  authenticateInvokeResponse,
+  authenticateSession,
+  EnvelopeAuthError,
+  verifyInvokeRequestAuth,
+  type InvokeResponseSignInput,
+} from "../src/core/envelope-auth.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../src/core/hello.js";
 import { NonceStore } from "../src/core/nonce.js";
 import { negotiatedCapabilities, Session } from "../src/core/session.js";
@@ -82,15 +89,21 @@ async function startHandshakeServer(options: {
                   doc.nonce,
                 ),
               );
-              const snapshot: ConnectSession = {
-                session_id: SESSION_ID,
-                initiator_peer_id: doc.peer_id,
-                responder_peer_id: peerIdA,
-                opened_at: new Date().toISOString(),
-                negotiated_capabilities: ["spoke-baseline"],
-                initial_sequence: 0,
-                extensions: {},
-              };
+              // A's session snapshot, signed with A's hello identity
+              // (`spoke-connect-session-jcs-v1`) — the client's dial
+              // verifies it against A's hello public key.
+              const snapshot: ConnectSession = await authenticateSession(
+                seedA,
+                {
+                  session_id: SESSION_ID,
+                  initiator_peer_id: doc.peer_id,
+                  responder_peer_id: peerIdA,
+                  opened_at: new Date().toISOString(),
+                  negotiated_capabilities: ["spoke-baseline"],
+                  initial_sequence: 0,
+                },
+                {},
+              );
               sendJsonMessage(socket, snapshot);
             })()
           : (async () => onMessage(socket, doc))();
@@ -185,15 +198,21 @@ describe("two-node local WebSocket interop", () => {
             doc.nonce,
           ),
         );
-        const snapshot: ConnectSession = {
-          session_id: SESSION_ID,
-          initiator_peer_id: peerIdB,
-          responder_peer_id: peerIdA,
-          opened_at: new Date().toISOString(),
-          negotiated_capabilities: ["spoke-baseline"],
-          initial_sequence: 0,
-          extensions: {},
-        };
+        // A's session snapshot, signed with A's hello identity
+        // (`spoke-connect-session-jcs-v1`) — the client's dial verifies it
+        // against A's hello public key.
+        const snapshot: ConnectSession = await authenticateSession(
+          seedA,
+          {
+            session_id: SESSION_ID,
+            initiator_peer_id: peerIdB,
+            responder_peer_id: peerIdA,
+            opened_at: new Date().toISOString(),
+            negotiated_capabilities: ["spoke-baseline"],
+            initial_sequence: 0,
+          },
+          {},
+        );
         sendJsonMessage(socket, snapshot);
       }
 
@@ -206,56 +225,92 @@ describe("two-node local WebSocket interop", () => {
           throw new Error("invoke session_id does not match the session");
         }
 
-        // 1. Inbound sequence gate — replay/out-of-order throws; no handler
-        //    side effect on failure.
+        // 1. Inbound sequence gate — non-mutating peek (auth-before-advance,
+        //    envelope-auth contract §7): the counter advances only after the
+        //    envelope-auth verify passes below. No handler side effect on
+        //    failure.
+        session.peekInboundSequence(doc.sequence);
+
+        // 2. Envelope-auth verify — fail-closed BEFORE dispatch and before
+        //    the counter advances: the request must carry B's authentic
+        //    signature (`spoke-connect-invoke-request-jcs-v1`).
+        try {
+          await verifyInvokeRequestAuth(pubkeyB, doc, session.session_id);
+        } catch (error) {
+          if (error instanceof EnvelopeAuthError) {
+            throw new Error(
+              `invoke envelope auth failed (${error.kind}): ${error.message}`,
+            );
+          }
+          throw error;
+        }
+
+        // 3. Advance the inbound counter only after envelope-auth verify
+        //    passed.
         session.acceptInboundSequence(doc.sequence);
 
-        // 2. Dispatch gate — unknown op or missing capability → op_unsupported
+        // 4. Dispatch gate — unknown op or missing capability → op_unsupported
         //    error branch (AD-P0-3: map to wire code on the server path).
         if (!session.dispatchAllowed(doc.op)) {
-          sendJsonMessage(socket, {
-            session_id: doc.session_id,
-            sequence: doc.sequence,
-            request_id: doc.request_id,
-            error: {
-              code: "op_unsupported",
-              message: `op ${doc.op} is not authorized by this session`,
-              extensions: {},
-            },
-            extensions: {},
-          });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              session_id: doc.session_id,
+              sequence: doc.sequence,
+              request_id: doc.request_id,
+              error: {
+                code: "op_unsupported",
+                message: `op ${doc.op} is not authorized by this session`,
+                extensions: {},
+              },
+            }),
+          );
           return;
         }
 
-        // 3. Handler stub — only `check` is implemented in this fixture;
+        // 5. Handler stub — only `check` is implemented in this fixture;
         //    `payload.fail === true` selects the error branch.
         if (doc.op !== "check") {
-          sendJsonMessage(socket, {
-            session_id: doc.session_id,
-            sequence: doc.sequence,
-            request_id: doc.request_id,
-            error: {
-              code: "op_unsupported",
-              message: `unimplemented op ${doc.op}`,
-              extensions: {},
-            },
-            extensions: {},
-          });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              session_id: doc.session_id,
+              sequence: doc.sequence,
+              request_id: doc.request_id,
+              error: {
+                code: "op_unsupported",
+                message: `unimplemented op ${doc.op}`,
+                extensions: {},
+              },
+            }),
+          );
           return;
         }
         const echo = {
           session_id: doc.session_id,
           sequence: doc.sequence,
           request_id: doc.request_id,
-          extensions: {},
         };
         if (doc.payload?.fail === true) {
-          sendJsonMessage(socket, {
-            ...echo,
-            error: { code: "check_failed", message: "spike check failed", extensions: {} },
-          });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              ...echo,
+              error: {
+                code: "check_failed",
+                message: "spike check failed",
+                extensions: {},
+              },
+            }),
+          );
         } else {
-          sendJsonMessage(socket, { ...echo, payload: { findings: [] } });
+          sendJsonMessage(
+            socket,
+            await authenticateInvokeResponse(seedA, {
+              ...echo,
+              payload: { findings: [] },
+            }),
+          );
         }
       }
 

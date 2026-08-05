@@ -50,6 +50,14 @@ import {
   correlationFromResponse,
   type Correlation,
 } from "../core/correlate.js";
+import {
+  authenticateInvokeRequest,
+  authenticateSession,
+  EnvelopeAuthError,
+  verifyInvokeResponseAuth,
+  verifySessionAuth,
+  type InvokeRequestSignInput,
+} from "../core/envelope-auth.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce, NonceStore } from "../core/nonce.js";
 import { negotiatedCapabilities, Session } from "../core/session.js";
@@ -140,7 +148,12 @@ type RemoteErrorKind =
   | "session_closed"
   | "timeout"
   | "correlation_mismatch"
-  | "sequence_exhausted";
+  | "sequence_exhausted"
+  // Envelope-auth rejections (envelope-auth contract §8): the locked
+  // `details.kind` vocabulary, surfaced via `INTERNAL_ERROR` SpokeRejects.
+  | "envelope_auth_missing"
+  | "envelope_auth_invalid"
+  | "envelope_auth_session_unbound";
 
 class RemoteError extends Error {
   readonly kind: RemoteErrorKind;
@@ -168,6 +181,16 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
     return spokeReject(SpokeRejectCode.CAPABILITY_PORT_MISSING, error.message, {
       ...(error.details ?? {}),
       wire_code: error.code,
+    });
+  }
+  // Envelope-auth rejection (contract §8): the host answered `auth_failed`
+  // for a request that failed envelope verification. `auth_failed` is not a
+  // SpokeRejectCode, so `fromErrorEnvelope` would map it to INVALID_INPUT;
+  // the locked mapping is `INTERNAL_ERROR` with the envelope-auth
+  // `details.kind` surfaced verbatim.
+  if (error.code === "auth_failed") {
+    return spokeReject(SpokeRejectCode.INTERNAL_ERROR, error.message, {
+      ...(error.details ?? {}),
     });
   }
   return fromErrorEnvelope(error);
@@ -234,6 +257,10 @@ interface PendingInvoke {
 export class RemoteAdapter implements BaselinePorts {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
+  /** This adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
+  readonly #secret: Uint8Array;
+  /** The remote peer's 32-byte hello Ed25519 public key (verifies inbound envelopes). */
+  readonly #remotePubkey: Uint8Array;
   #capabilityToken?: CapabilityTokenProof;
 
   // Verification-gating state. All of it is ECMAScript `#`-private (NOT TS
@@ -246,13 +273,25 @@ export class RemoteAdapter implements BaselinePorts {
   #remoteManifestInternal: HostCapabilityManifest | null = null;
   #receiveLoopRunning = false;
   #pending = new Map<string, PendingInvoke>();
+  /**
+   * Outbound send serialization tail. Sequences are allocated synchronously
+   * in call order, but the Ed25519 sign is async (WebCrypto) — without a
+   * chain, signs complete out of order and requests hit the wire
+   * out of sequence, which the peer's strict inbound gate rejects. Every
+   * invoke chains its send behind the previous invoke's send.
+   */
+  #sendTail: Promise<void> = Promise.resolve();
 
   constructor(
     transport: Transport,
+    secret: Uint8Array,
+    remotePubkey: Uint8Array,
     invokeTimeoutMs: number = DEFAULT_INVOKE_TIMEOUT_MS,
     capabilityToken?: CapabilityTokenProof,
   ) {
     this.#transport = transport;
+    this.#secret = secret;
+    this.#remotePubkey = remotePubkey;
     this.#invokeTimeoutMs = invokeTimeoutMs;
     this.#capabilityToken = capabilityToken;
   }
@@ -457,6 +496,10 @@ export class RemoteAdapter implements BaselinePorts {
 
   async #receiveLoop(): Promise<void> {
     while (this.#stateInternal === "Established") {
+      const session = this.#session;
+      if (session === null) {
+        return;
+      }
       let doc: unknown;
       try {
         doc = decodeJsonMessage(await this.#transport.recv());
@@ -479,15 +522,25 @@ export class RemoteAdapter implements BaselinePorts {
         clearTimeout(entry.timer);
         this.#pending.delete(doc.request_id);
         try {
+          // Correlation echo check first (non-mutating wire-position
+          // validation), then envelope-auth verify (contract §7: the
+          // response must carry the peer's authentic signature over the
+          // exact wire branch). A forged/tampered response fails closed —
+          // only this waiter, never a session-state mutation.
           checkResponseCorrelation(entry.correlation, correlationFromResponse(doc));
+          await verifyInvokeResponseAuth(this.#remotePubkey, doc, session.session_id);
           entry.resolve(doc);
-        } catch {
-          entry.reject(
-            new RemoteError(
-              "correlation_mismatch",
-              "response echo fields do not match the request",
-            ),
-          );
+        } catch (error) {
+          if (error instanceof EnvelopeAuthError) {
+            entry.reject(new RemoteError(error.kind, error.message));
+          } else {
+            entry.reject(
+              new RemoteError(
+                "correlation_mismatch",
+                "response echo fields do not match the request",
+              ),
+            );
+          }
         }
         continue;
       }
@@ -505,84 +558,128 @@ export class RemoteAdapter implements BaselinePorts {
    * Rejects with `RemoteError` on timeout / transport failure / session
    * close / correlation mismatch / sequence exhaustion.
    */
-  #invokeOp(
+  async #invokeOp(
     op: string,
     payload: Record<string, unknown>,
   ): Promise<ConnectInvokeResponse> {
     if (this.#stateInternal !== "Established" || this.#session === null) {
-      return Promise.reject(
-        new RemoteError(
-          "session_closed",
-          `connect session is not established (state ${this.#stateInternal})`,
-        ),
+      throw new RemoteError(
+        "session_closed",
+        `connect session is not established (state ${this.#stateInternal})`,
       );
     }
     const session = this.#session;
-    let request: ConnectInvokeRequest;
+    let sequence: number;
     try {
-      request = {
-        session_id: session.session_id,
-        sequence: session.allocateOutboundSequence(),
-        request_id: globalThis.crypto.randomUUID(),
-        op,
-        payload,
-        ...(this.#capabilityToken !== undefined
-          ? { auth: this.#capabilityToken as unknown as Record<string, unknown> }
-          : {}),
-        extensions: {},
-      };
+      sequence = session.allocateOutboundSequence();
     } catch (error) {
       // Outbound sequence exhaustion: the session is unusable (no wrap);
       // close it and fail this invoke with `sequence_exhausted` (§6/§8.2).
       this.#closeSession("outbound sequence exhausted");
-      return Promise.reject(
-        new RemoteError(
-          "sequence_exhausted",
-          "outbound sequence space exhausted — reopen session",
-        ),
+      throw new RemoteError(
+        "sequence_exhausted",
+        "outbound sequence space exhausted — reopen session",
       );
     }
+    // The wire request to sign (`spoke-connect-invoke-request-jcs-v1`,
+    // envelope-auth contract §2/§3): the signed object covers
+    // `{session_id, sequence, request_id, op, payload}` plus `auth` when a
+    // capability token is attached.
+    const unsigned: InvokeRequestSignInput = {
+      session_id: session.session_id,
+      sequence,
+      request_id: globalThis.crypto.randomUUID(),
+      op,
+      payload,
+      ...(this.#capabilityToken !== undefined
+        ? { auth: this.#capabilityToken as unknown as Record<string, unknown> }
+        : {}),
+    };
+    // The waiter is registered SYNCHRONOUSLY, before the async sign: from
+    // the caller's perspective the invoke is in flight immediately, so a
+    // transport close during signing fails it with `session_closed`
+    // (contract §8.2 mid-flight) — not a send-after-close `transport`
+    // error. Signing failures (non-JSON-serializable payload, bad key) are
+    // local adapter bugs and reject with the same `transport` kind as the
+    // encode-failure path (the key is adapter-supplied, never wire material).
     return new Promise<ConnectInvokeResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.#pending.delete(request.request_id);
+        this.#pending.delete(unsigned.request_id);
         reject(
           new RemoteError(
             "timeout",
-            `invoke ${op} (${request.request_id}) timed out after ${this.#invokeTimeoutMs}ms`,
+            `invoke ${op} (${unsigned.request_id}) timed out after ${this.#invokeTimeoutMs}ms`,
           ),
         );
       }, this.#invokeTimeoutMs);
-      this.#pending.set(request.request_id, {
-        correlation: correlationFromRequest(request),
+      this.#pending.set(unsigned.request_id, {
+        correlation: {
+          session_id: unsigned.session_id,
+          sequence: unsigned.sequence,
+          request_id: unsigned.request_id,
+        },
         resolve,
         reject,
         timer,
       });
-      try {
-        this.#transport.send(encodeEnvelope(request)).catch((sendError) => {
-          // Async send failure (transport closed between setup and send):
-          // settle this invoke now — no dead entry waits out the timeout.
+      // Outbound wire-order serialization: the tail entry is created HERE,
+      // synchronously, so the wire order matches the allocation order even
+      // though the Ed25519 sign completes asynchronously (an out-of-order
+      // send would be rejected by the peer's strict inbound sequence gate).
+      const prevSend = this.#sendTail;
+      let releaseSend: () => void = () => {};
+      this.#sendTail = new Promise<void>((resolveTail) => {
+        releaseSend = resolveTail;
+      });
+      void authenticateInvokeRequest(this.#secret, unsigned).then(
+        (signed) => {
+          void prevSend
+            .then(() => {
+              try {
+                return this.#transport.send(encodeEnvelope(signed));
+              } catch (error) {
+                // Synchronous encode failure (e.g. non-JSON-serializable
+                // payload): same cleanup, same mapping.
+                throw new RemoteError(
+                  "transport",
+                  `invoke encode failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+            })
+            .then(
+              () => {
+                releaseSend();
+              },
+              (sendError) => {
+                // Async send failure (transport closed between setup and
+                // send): settle this invoke now — no dead entry waits out
+                // the timeout.
+                releaseSend();
+                clearTimeout(timer);
+                this.#pending.delete(unsigned.request_id);
+                reject(
+                  sendError instanceof RemoteError
+                    ? sendError
+                    : new RemoteError(
+                        "transport",
+                        `invoke send failed: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+                      ),
+                );
+              },
+            );
+        },
+        (error) => {
+          releaseSend();
           clearTimeout(timer);
-          this.#pending.delete(request.request_id);
+          this.#pending.delete(unsigned.request_id);
           reject(
             new RemoteError(
               "transport",
-              `invoke send failed: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+              `invoke sign failed: ${error instanceof Error ? error.message : String(error)}`,
             ),
           );
-        });
-      } catch (error) {
-        // Synchronous encode/send failure (e.g. non-JSON-serializable
-        // payload): same cleanup, same mapping.
-        clearTimeout(timer);
-        this.#pending.delete(request.request_id);
-        reject(
-          new RemoteError(
-            "transport",
-            `invoke encode failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        );
-      }
+        },
+      );
     });
   }
 
@@ -674,6 +771,8 @@ export class RemoteAdapter implements BaselinePorts {
 
     const adapter = new RemoteAdapter(
       transport,
+      localIdentity.seed,
+      remotePubkey,
       invokeTimeoutMs,
       options.capabilityToken,
     );
@@ -729,7 +828,12 @@ export class RemoteAdapter implements BaselinePorts {
       }
       const remoteManifest: HostCapabilityManifest = helloDoc.host;
 
-      // 3. Await + validate the A-assigned session snapshot.
+      // 3. Await + validate the A-assigned session snapshot. Envelope-auth
+      //    verify runs on the wire form BEFORE the typed checks
+      //    (`spoke-connect-session-jcs-v1` against the responder's hello
+      //    key; the step-6 peer-id binding assert replaces the old manual
+      //    comparison). A missing/invalid signature or peer-id mismatch
+      //    fails the dial closed — no session state exists yet.
       const sessionDoc = await withTimeout(
         adapter.#recvEnvelope(),
         invokeTimeoutMs,
@@ -738,14 +842,12 @@ export class RemoteAdapter implements BaselinePorts {
       if (!isConnectSession(sessionDoc)) {
         throw new Error("expected ConnectSession snapshot after server hello");
       }
-      if (
-        sessionDoc.initiator_peer_id !== localPeerId ||
-        sessionDoc.responder_peer_id !== remotePeerId
-      ) {
-        throw new Error(
-          "session snapshot peer ids do not match the authenticated hellos",
-        );
-      }
+      await verifySessionAuth(
+        remotePubkey,
+        sessionDoc,
+        localPeerId,
+        remotePeerId,
+      );
       if (sessionDoc.session_id.length === 0) {
         throw new Error("session snapshot session_id must not be empty");
       }

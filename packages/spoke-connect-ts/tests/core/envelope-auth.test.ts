@@ -235,6 +235,41 @@ describe("ConnectInvokeRequest envelope auth (spoke-connect-invoke-request-jcs-v
     await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
   });
 
+  it("signs a request with scalar auth and verifies (OpaqueJson bound verbatim)", async () => {
+    const auth = "opaque-token";
+    const request = await authenticateInvokeRequest(EMITTER_SEED, requestInput({ auth }));
+    expect(request.auth).toBe(auth);
+    await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
+  });
+
+  it("signs a request with null auth and verifies (OpaqueJson bound verbatim)", async () => {
+    const request = await authenticateInvokeRequest(
+      EMITTER_SEED,
+      requestInput({ auth: null }),
+    );
+    expect(request.auth).toBeNull();
+    await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
+  });
+
+  it("signs a request with array auth and verifies (OpaqueJson bound verbatim)", async () => {
+    const auth = ["capability-token", { sig: "opaque" }];
+    const request = await authenticateInvokeRequest(EMITTER_SEED, requestInput({ auth }));
+    expect(request.auth).toEqual(auth);
+    await verifyInvokeRequestAuth(EMITTER_PUBKEY, request, SESSION_ID);
+  });
+
+  it("rejects a tampered scalar auth (envelope_auth_invalid)", async () => {
+    const request = await authenticateInvokeRequest(
+      EMITTER_SEED,
+      requestInput({ auth: "opaque-token" }),
+    );
+    const tampered = { ...request, auth: "forged-token" };
+    await rejectsWithKind(
+      verifyInvokeRequestAuth(EMITTER_PUBKEY, tampered, SESSION_ID),
+      "envelope_auth_invalid",
+    );
+  });
+
   it("rejects a tampered payload (envelope_auth_invalid)", async () => {
     const request = await authenticateInvokeRequest(EMITTER_SEED, requestInput());
     const tampered = {
@@ -309,6 +344,14 @@ describe("ConnectInvokeRequest envelope auth (spoke-connect-invoke-request-jcs-v
       verifyInvokeRequestAuth(EMITTER_PUBKEY, drifted, SESSION_ID),
       "envelope_auth_invalid",
     );
+  });
+
+  it("rejects a non-32-byte verify public key with CoreError crypto (local misuse, not a wire kind)", async () => {
+    const request = await authenticateInvokeRequest(EMITTER_SEED, requestInput());
+    const shortKey = new Uint8Array(16).fill(7);
+    await expect(
+      verifyInvokeRequestAuth(shortKey, request, SESSION_ID),
+    ).rejects.toMatchObject({ name: "CoreError", code: "crypto" });
   });
 });
 

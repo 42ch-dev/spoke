@@ -32,9 +32,11 @@
  * in `details.kind`: `envelope_auth_missing` / `envelope_auth_invalid` /
  * `envelope_auth_session_unbound`.
  *
- * Sign-side misuse (a secret that is not 32 bytes) throws `CoreError("crypto")`,
- * mirroring `signHelloEd25519` — it is a local programming error, not a wire
- * rejection, so it carries no envelope-auth kind.
+ * Key misuse on either side (a secret or public key that is not 32 bytes)
+ * throws `CoreError("crypto")`, mirroring `signHelloEd25519` /
+ * `verifyHelloEd25519` — the key is supplied by the adapter, never the wire,
+ * so a wrong-length key is a local programming error, not a wire rejection,
+ * and carries no envelope-auth kind.
  *
  * Module-internal (contract §9): imported by RemoteAdapter / connect-client
  * and the core tests; NOT re-exported from the package root.
@@ -304,6 +306,8 @@ function requireSignature(signatureField: unknown): Uint8Array {
 /**
  * Verify steps 4–5 (locked order): JCS-canonicalize the signed object and
  * Ed25519-verify the decoded signature against the peer's hello public key.
+ * A non-32-byte public key is adapter-supplied misuse → `CoreError("crypto")`
+ * (mirrors `verifyHelloEd25519`), not a wire rejection.
  */
 async function verifyCanonicalSignature(
   publicKey: Uint8Array,
@@ -311,10 +315,7 @@ async function verifyCanonicalSignature(
   signature: Uint8Array,
 ): Promise<void> {
   if (publicKey.length !== 32) {
-    throw new EnvelopeAuthError(
-      "envelope_auth_invalid",
-      "public key must be 32 bytes",
-    );
+    throw new CoreError("crypto", "public key must be 32 bytes");
   }
   const bytes = jcsBytes(signedObject);
   if (!(await verifyEd25519(publicKey, bytes, signature))) {
@@ -412,15 +413,6 @@ export async function verifyInvokeRequestAuth(
   const wire = request as unknown as Record<string, unknown>;
   const signature = requireSignature(wire.signature);
   assertWireKeys(wire, INVOKE_REQUEST_WIRE_KEYS, INVOKE_REQUEST_SIGNED_KEYS);
-  if (
-    request.auth !== undefined &&
-    (typeof request.auth !== "object" || request.auth === null || Array.isArray(request.auth))
-  ) {
-    throw new EnvelopeAuthError(
-      "envelope_auth_invalid",
-      "auth must be an object when present",
-    );
-  }
   await verifyCanonicalSignature(publicKey, invokeRequestSignedObject(request), signature);
   if (request.session_id !== expectedSessionId) {
     throw new EnvelopeAuthError(

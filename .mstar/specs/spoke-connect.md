@@ -551,13 +551,22 @@ Each signed object is a strict subset of the wire envelope (exact keys, no other
 
 The two response branches are signed over their respective field sets (oneOf); they MUST NOT be merged into one signed object with optional `payload`/`error`.
 
+### Canonicalization (normative)
+
+1. Build the signed object per the field sets above — exact keys, no others (`extensions` and `signature` excluded).
+2. Canonicalize with **RFC 8785 JCS** → UTF-8 bytes. Implementations MUST NOT invent field-order rules; JCS is the sole canonicalizer.
+3. `Ed25519.sign(peer_identity_private_key, jcs_bytes)` → 64 raw bytes.
+4. Encode as **base64url without padding** → wire `signature`, **required** on every v2 post-hello envelope.
+
+**Canonical encoding (parity-binding):** the `signature` field MUST be the unique RFC 4648 canonical base64url (no padding) encoding of the 64 raw signature bytes. Receivers MUST reject any `signature` that does not round-trip through `decode → encode` equality (non-canonical encodings of the final character's slack bits are rejected) — the same rule as the `capability-token` `sig` field ([§Method — capability-token](#method--capability-token)) and the hello `signature`. TS and Rust enforce this identically at verify time.
+
 ### Session binding
 
-Signatures bind to the session via the signed `session_id` and the session-core binding rules (already required: `initiator_peer_id` / `responder_peer_id` MUST equal the authenticated hello `peer_id`s). The verify public key is the peer's hello Ed25519 public key. No new key exchange, no new MAC, no new KDF. A `session_id` not bound to an established session ⇒ reject `auth_failed`.
+Signatures bind to the session via the signed `session_id` and the session-core binding rules (already required: `initiator_peer_id` / `responder_peer_id` MUST equal the authenticated hello `peer_id`s). The verify public key is the peer's hello Ed25519 public key. No new key exchange, no new MAC, no new KDF. A `session_id` not bound to an established session ⇒ reject `auth_failed`. Cross-session replay fails closed: an envelope captured from session S1 and replayed into session S2 is rejected because the S2 receiver verifies against the S2 peer's hello public key (which signed S2, not S1) and the `session_id` does not match the bound session.
 
 ### Version strategy — `protocol_version` 1 → 2 (fail-closed, no compat shim)
 
-`protocol_version` is bumped from 1 to 2. The `signature` field is **required** on v2 `ConnectSession`, `ConnectInvokeRequest`, and `ConnectInvokeResponse` (both oneOf branches). A capability flag is not sufficient: mixed-version peers MUST fail closed.
+`protocol_version` is bumped from 1 to 2. The `signature` field is **required** on v2 `ConnectSession`, `ConnectInvokeRequest`, and `ConnectInvokeResponse` (both oneOf branches). A capability flag is not sufficient: mixed-version peers MUST fail closed. This is a pre-1.0 breaking wire change — a SemVer bump on the protocol, with no compat shim, no silent downgrade path, and no dual-write period.
 
 | Direction | Behavior |
 |-----------|----------|
@@ -566,7 +575,7 @@ Signatures bind to the session via the signed `session_id` and the session-core 
 | Both v2 | Both peers advertise `protocol_version: 2`; session establishes under v2 rules; all post-hello envelopes carry required `signature`. |
 | Both v1 | Legacy v1 interop only — v1-only peers are not modified. |
 
-The dial-binding `peer_nonce` rule (already fail-closed for mixed-version responder hellos per [§Nonce / replay](#nonce--replay-protection)) is preserved unchanged. The hello signed-field set (4-field initiator / 5-field responder) is unchanged — hello golden vectors and binding golden smokes stay byte-identical.
+The dial-binding `peer_nonce` rule (already fail-closed for mixed-version responder hellos per [§Nonce / replay](#nonce--replay-protection)) is preserved unchanged. The hello signed-field set (4-field initiator / 5-field responder) is unchanged — hello golden vectors and binding golden smokes stay byte-identical. `connect-hello`, `connect-auth-challenge`, and `connect-auth-response` schemas are unchanged; all connect schemas retain `additionalProperties: false`.
 
 ### Verify rules (fail-closed, no transport-trust fallback)
 
@@ -649,6 +658,10 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - [ ] `spoke-connect` optional flag registered in `spoke-protocol-layers.md`; baseline unchanged
 - [ ] Discovery default is explicit peering; mDNS described as non-default convenience only
 - [ ] No transport-specific fields (multiaddr, DHT keys, HTTP/gRPC mapping) in connect schemas
+- [ ] Envelope authentication (protocol_version 2): `signature` required on `ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse` (both oneOf branches); `connect-hello` / `connect-auth-*` unchanged (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2))
+- [ ] Envelope-auth verify is fail-closed: missing / invalid / non-canonical `signature`, field-set drift, and session-binding mismatch reject `auth_failed`; no transport-trust fallback on protocol_version 2
+- [ ] Version strategy: `protocol_version` 1 → 2 with fail-closed mixed-version policy — no compat shim, no silent downgrade, no dual-write period
+- [ ] Greptile P1 (unauthenticated session snapshot) closed as addressed-by-design — roadmap envelope-auth Up-next row resolved by the [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) section
 
 ## Non-goals (connect)
 

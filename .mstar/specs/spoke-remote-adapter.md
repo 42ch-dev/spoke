@@ -127,7 +127,7 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 
 ## Staged follow-ons
 
-1. Multi-peer registry/composer over per-peer RemoteAdapter state  
+1. **Multi-peer registry/composer over per-peer RemoteAdapter state** — *design-intent (not yet shipped)*. A multi-peer router (`connectMultiPeerRouter` / `connect_multi_peer_router`) sits above N per-peer `RemoteAdapter` instances, selects a peer per `BaselinePorts` call using `HostCapabilityManifest` fields (`capabilities` / `namespaces` / `roles` / `authority.scope_key`), and exposes the same async `BaselinePorts` surface so `orchestrate*(router, req)` works without per-op `peer_id`. Selection inputs, deterministic tie-break (lexicographic `peer_id`), no-match reject (`no_capable_peer`), `HostManifest` aggregation model (composed view for `getHostCapabilityManifest` + per-peer array for `listPeerHostCapabilityManifests`), and minimal failure/failover depth (no automatic alternate-retry) are architect-locked. Status here is **design-intent** — shipped-fact promotion lands in this ADR when the router ships. Envelope authentication is enforced on each per-peer session before the router selects.
 2. Optional computable/fork port ops (`port.computable.*`, `port.fork.*`) when product needs remote optional capabilities  
 3. FFI exposure after the TS/Rust contract stabilizes  
 4. Consumer-side WebSocket Transport packages  

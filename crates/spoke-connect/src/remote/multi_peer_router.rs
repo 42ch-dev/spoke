@@ -1556,6 +1556,24 @@ mod tests {
     // ── HostManifest aggregation (§6) ──────────────────────────────────────
 
     #[tokio::test]
+    async fn treats_an_empty_host_id_as_unset_defaulting_to_multi_peer_router() {
+        // §8 constructor options parity with TS `options.hostId || default`:
+        // an empty configured host id is treated as unset.
+        let router = connect_multi_peer_router(MultiPeerRouterOptions {
+            host_id: Some(String::new()),
+        });
+
+        let result = router.get_host_capability_manifest().await;
+
+        match result {
+            SpokeResult::Ok(composed) => {
+                assert_eq!(composed.host_id.as_str(), "multi-peer-router");
+            }
+            SpokeResult::Reject(reject) => panic!("composed view must succeed: {reject:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn composes_the_union_of_connected_peers_with_the_routers_own_host_id() {
         let router = connect_multi_peer_router(MultiPeerRouterOptions {
             host_id: Some("router-own".to_string()),

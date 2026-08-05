@@ -547,6 +547,18 @@ describe("HostManifest aggregation (§6)", () => {
     }
   });
 
+  it("treats an empty hostId as unset, defaulting to multi-peer-router (Rust parity)", async () => {
+    const router = connectMultiPeerRouter({ hostId: "" });
+
+    const result = await router.getHostCapabilityManifest();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // §8 constructor options: empty string defaults like null/undefined.
+      expect(result.value.host_id).toBe("multi-peer-router");
+    }
+  });
+
   it("lists per-peer manifests sorted by peer_id (lexicographic UTF-8 byte order)", async () => {
     const router = connectMultiPeerRouter();
     router.registerPeer(

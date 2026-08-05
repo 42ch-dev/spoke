@@ -294,7 +294,8 @@ export interface MultiPeerRouterOptions {
   /**
    * The router's own host identity — the composed view's `host_id` (contract
    * §6: the local node's identity, NOT a peer's). Optional: defaults to
-   * `"multi-peer-router"` (the constructor takes no required options, §8).
+   * `"multi-peer-router"`; an empty string is treated as unset (the schema's
+   * `host_id` requires a non-empty string), mirroring Rust.
    */
   hostId?: string;
 }
@@ -323,7 +324,10 @@ export class MultiPeerRouter implements BaselinePorts {
   #peers = new Map<string, RegisteredPeer>();
 
   constructor(options: MultiPeerRouterOptions = {}) {
-    this.#hostId = options.hostId ?? DEFAULT_ROUTER_HOST_ID;
+    // Empty-string hostId is treated as unset (the schema's `host_id`
+    // requires a non-empty string) — same defaulting as Rust's
+    // `host_id.filter(|id| !id.is_empty())` (§8 constructor options).
+    this.#hostId = options.hostId || DEFAULT_ROUTER_HOST_ID;
   }
 
   // ── Registry (contract §7.4) ───────────────────────────────────────────

@@ -182,6 +182,48 @@ describe("MultiPeerRouter registry (§7.4)", () => {
   });
 });
 
+describe("MultiPeerRouter concurrent interleaving (W-001)", () => {
+  it("survives interleaved register/unregister with in-flight port calls — all calls complete, registry stays consistent", async () => {
+    // W-001: registry mutations interleaved with in-flight port calls. In
+    // the single-threaded TS event loop the interleaving happens at await
+    // boundaries: wave-1 delegates are pending while registration churn
+    // runs, then wave-2 calls select against the mutated registry. Proves
+    // no corruption (registry ends exactly consistent) and that every call
+    // completes — a rejected promise would fail the `Promise.all`.
+    const router = connectMultiPeerRouter();
+    const registered = new Set<string>();
+    const seed = new FakePeer("peer-seed", manifest({ host_id: "h-seed" }));
+    router.registerPeer(seed);
+    registered.add("peer-seed");
+
+    const inflight: Promise<SpokeResult<KnowledgeEntry[]>>[] = [];
+    // Wave 1: fire port calls (selection runs synchronously, delegates await).
+    for (let i = 0; i < 16; i++) {
+      inflight.push(router.listKnowledgeEntries({ scope_id: "s1" }));
+    }
+    // Registry churn while wave 1 awaits delegates.
+    const extra = new FakePeer("peer-late", manifest({ host_id: "h-late" }));
+    router.registerPeer(extra);
+    registered.add("peer-late");
+    router.unregisterPeer("peer-seed");
+    registered.delete("peer-seed");
+    // Wave 2: more port calls against the mutated registry.
+    for (let i = 0; i < 16; i++) {
+      inflight.push(router.listKnowledgeEntries({ scope_id: "s1" }));
+    }
+
+    const results = await Promise.all(inflight);
+    expect(results).toHaveLength(32);
+    // Wave-1 calls selected peer-seed before the unregister; wave-2 calls
+    // selected peer-late after the churn — every delegate succeeds.
+    for (const result of results) {
+      expect(result.ok).toBe(true);
+    }
+    // Registry stayed consistent: exactly the registered ids remain.
+    expect([...router.listPeers()].sort()).toEqual([...registered].sort());
+  });
+});
+
 describe("MultiPeerRouter selection (§3)", () => {
   it("selects the single peer with the required capability", async () => {
     const router = connectMultiPeerRouter();
@@ -292,6 +334,65 @@ describe("MultiPeerRouter selection (§3)", () => {
   });
 });
 
+describe("MultiPeerRouter dynamic peer-down (§7.4)", () => {
+  it("reroutes to the surviving peer when the selected peer leaves Established between calls — no proactive eviction", async () => {
+    // W-002: two Established peers; the first call routes to the tie-break
+    // winner (peer-a); the winner's session drops to Closed WITHOUT
+    // unregister; the next call excludes it from the candidate set and
+    // routes to peer-b — reactive exclusion, no proactive eviction (the
+    // registry still lists peer-a).
+    const router = connectMultiPeerRouter();
+    const peerA = new FakePeer("peer-a", manifest({ host_id: "h-a" }));
+    const peerB = new FakePeer("peer-b", manifest({ host_id: "h-b" }));
+    router.registerPeer(peerB);
+    router.registerPeer(peerA);
+
+    const first = await router.listKnowledgeEntries({ scope_id: "s1" });
+    expect(first.ok).toBe(true);
+    expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
+    expect(peerB.calls).toEqual([]);
+
+    // The selected peer's session closes mid-session (no unregister).
+    peerA.state = "Closed";
+    expect(router.listPeers()).toEqual(["peer-b", "peer-a"]); // still registered
+
+    const second = await router.listKnowledgeEntries({ scope_id: "s1" });
+    expect(second.ok).toBe(true);
+    expect(peerB.calls).toEqual(["listKnowledgeEntries"]);
+    expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
+  });
+
+  it("rejects with no_capable_peer when every Established peer leaves Established between calls", async () => {
+    // W-002 terminal: when ALL Established peers drop out between calls, the
+    // next selection rejects with the locked §5 reject — no delegate runs,
+    // no wrong-peer fallback.
+    const router = connectMultiPeerRouter();
+    const peerA = new FakePeer("peer-a", manifest({ host_id: "h-a" }));
+    const peerB = new FakePeer("peer-b", manifest({ host_id: "h-b" }));
+    router.registerPeer(peerB);
+    router.registerPeer(peerA);
+
+    // First call succeeds on the tie-break winner.
+    const first = await router.listKnowledgeEntries({ scope_id: "s1" });
+    expect(first.ok).toBe(true);
+    expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
+    expect(peerB.calls).toEqual([]);
+
+    peerA.state = "Closed";
+    peerB.state = "Closed";
+
+    const second = await router.listKnowledgeEntries({ scope_id: "s1" });
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(second.details?.kind).toBe("no_capable_peer");
+    }
+    // No delegate ran on the second call.
+    expect(peerA.calls).toEqual(["listKnowledgeEntries"]);
+    expect(peerB.calls).toEqual([]);
+  });
+});
+
 describe("selectPeerForOp namespace filter (§2/§3)", () => {
   const peerAlpha: SelectablePeer = {
     peerId: "peer-alpha",
@@ -339,6 +440,22 @@ describe("selectPeerForOp namespace filter (§2/§3)", () => {
     expect(selection.ok).toBe(false);
     if (!selection.ok) {
       expect(selection.details?.kind).toBe("no_capable_peer");
+    }
+  });
+});
+
+describe("selectPeerForOp unknown-op rejection (QC2 S-1)", () => {
+  it("rejects ops outside the locked capability table instead of skipping the gate (§3 step 1)", () => {
+    const selection = selectPeerForOp(
+      [{ peerId: "peer-a", manifest: manifest({ host_id: "h-a" }) }],
+      "product.op.unknown",
+      {},
+    );
+    expect(selection.ok).toBe(false);
+    if (!selection.ok) {
+      expect(selection.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(selection.details?.kind).toBe("no_capable_peer");
+      expect(selection.details?.op).toBe("product.op.unknown");
     }
   });
 });

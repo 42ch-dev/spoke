@@ -55,9 +55,11 @@ const DEFAULT_ROUTER_HOST_ID: &str = "multi-peer-router";
 /// Required capability per op family (contract §2 — locked). Orchestrated
 /// baseline families and the `port.*` baseline ops require `spoke-baseline`;
 /// the computable families require `l2-computable`. Product-defined ops are
-/// product-documented and have no row here. The router's fixed six-family
-/// surface only ever queries the `port.*` rows (mirrors the RemoteAdapter
-/// `PORT_OPS` catalogue).
+/// product-documented and have no row here; selection REJECTS ops outside
+/// this table (`no_capable_peer`) — an op with no gate must not fall through
+/// ungated (QC2 S-1). The router's fixed six-family surface only ever
+/// queries the `port.*` rows (mirrors the RemoteAdapter `PORT_OPS`
+/// catalogue).
 fn required_capability(op: &str) -> Option<&'static str> {
     match op {
         // Orchestrated op families.
@@ -173,7 +175,9 @@ pub struct SelectablePeer {
 /// The locked §3 selection algorithm over an explicit candidate set:
 ///
 /// 1. Capability filter (hard): the peer's `capabilities` MUST include the
-///    required capability for the op (§2 mapping table).
+///    required capability for the op (§2 mapping table). Ops outside the
+///    mapping table are rejected outright — no gate to run, never an
+///    ungated fall-through (QC2 S-1).
 /// 2. Namespace filter (hard): when the request payload carries a namespace,
 ///    the peer's `namespaces` MUST include it (exact match; skipped when the
 ///    request carries none; no wildcard).
@@ -187,8 +191,9 @@ pub struct SelectablePeer {
 ///    order (§4) — no clock, no random, no health score. Rust `String`
 ///    ordering IS UTF-8 byte order, so a plain sort is the faithful sort.
 ///
-/// Returns a `no_capable_peer` reject (§5) when no candidate survives the
-/// hard gates — terminal, stable, no wrong-peer fallback.
+/// Returns a `no_capable_peer` reject (§5) when the op has no capability
+/// mapping or no candidate survives the hard gates — terminal, stable, no
+/// wrong-peer fallback.
 pub fn select_peer_for_op(
     candidates: &[SelectablePeer],
     op: &str,
@@ -201,27 +206,30 @@ pub fn select_peer_for_op(
         ));
     }
 
-    let required_capability = required_capability(op);
-    let mut survivors: Vec<&SelectablePeer> = match required_capability {
-        None => candidates.iter().collect(),
-        Some(required) => candidates
-            .iter()
-            .filter(|candidate| {
-                candidate
-                    .manifest
-                    .capabilities
-                    .iter()
-                    .any(|c| c == required)
-            })
-            .collect(),
+    // Unknown ops are rejected outright: the §3 capability gate is step 1 of
+    // every selection, and an op outside the locked mapping table has no gate
+    // to run — falling through would select an arbitrary Established peer
+    // (QC2 S-1). Same terminal §5 reject shape as a no-match.
+    let Some(required_capability) = required_capability(op) else {
+        return SpokeResult::Reject(no_capable_peer(
+            op,
+            format!("no capability mapping for unknown op \"{op}\""),
+        ));
     };
+    let mut survivors: Vec<&SelectablePeer> = candidates
+        .iter()
+        .filter(|candidate| {
+            candidate
+                .manifest
+                .capabilities
+                .iter()
+                .any(|c| c == required_capability)
+        })
+        .collect();
     if survivors.is_empty() {
         return SpokeResult::Reject(no_capable_peer(
             op,
-            format!(
-                "no peer advertises capability \"{}\"",
-                required_capability.expect("capability gate ran only when a requirement exists")
-            ),
+            format!("no peer advertises capability \"{required_capability}\""),
         ));
     }
 
@@ -757,6 +765,7 @@ pub fn connect_multi_peer_router(options: MultiPeerRouterOptions) -> MultiPeerRo
 mod tests {
     use super::*;
     use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
+    use tokio::task::JoinSet;
 
     // ── Delegate-call dummy values (routing tests never inspect payloads) ──
 
@@ -868,7 +877,10 @@ mod tests {
     struct FakePeer {
         peer_id: String,
         manifest: Option<HostCapabilityManifest>,
-        state: RemoteAdapterState,
+        /// Peer session state — `Mutex` so tests can flip `Established` →
+        /// `Closed` mid-test (dynamic peer-down, W-002) while the adapter
+        /// surface keeps `&self` reads.
+        state: Mutex<RemoteAdapterState>,
         /// Delegated port method names, in call order.
         calls: Mutex<Vec<String>>,
         /// When set, every delegate method returns this reject (peer-down sim).
@@ -884,7 +896,7 @@ mod tests {
             Arc::new(Self {
                 peer_id: peer_id.to_string(),
                 manifest: Some(manifest),
-                state,
+                state: Mutex::new(state),
                 calls: Mutex::new(Vec::new()),
                 down_reject: Mutex::new(None),
             })
@@ -894,10 +906,14 @@ mod tests {
             Arc::new(Self {
                 peer_id: peer_id.to_string(),
                 manifest: None,
-                state: RemoteAdapterState::Established,
+                state: Mutex::new(RemoteAdapterState::Established),
                 calls: Mutex::new(Vec::new()),
                 down_reject: Mutex::new(None),
             })
+        }
+
+        fn set_state(&self, state: RemoteAdapterState) {
+            *self.state.lock().expect("state lock") = state;
         }
 
         fn set_down_reject(&self, reject: SpokeReject) {
@@ -924,7 +940,7 @@ mod tests {
     #[async_trait]
     impl RoutedRemoteAdapter for FakePeer {
         fn state(&self) -> RemoteAdapterState {
-            self.state
+            *self.state.lock().expect("state lock")
         }
 
         fn remote_peer_id(&self) -> Option<String> {
@@ -1207,6 +1223,284 @@ mod tests {
         );
         assert!(closed.calls().is_empty());
         assert!(handshaking.calls().is_empty());
+    }
+
+    // ── Pure selection — unknown-op capability gate (QC2 S-1) ─────────────
+
+    #[tokio::test]
+    async fn rejects_unknown_ops_with_the_locked_reject_instead_of_skipping_the_capability_gate()
+    {
+        // S-1: an op outside the locked §2 mapping table must NOT fall
+        // through to an ungated selection — even a capable peer is rejected
+        // with the terminal §5 no_capable_peer shape.
+        let peer = SelectablePeer {
+            peer_id: "peer-a".to_string(),
+            manifest: manifest("h-a", &["spoke-baseline"]),
+        };
+
+        let selection = select_peer_for_op(&[peer], "product.op.unknown", &json!({}));
+
+        match selection {
+            SpokeResult::Ok(_) => panic!("unknown op must not select a peer"),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("kind"))
+                        .and_then(|kind| kind.as_str()),
+                    Some("no_capable_peer")
+                );
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("op"))
+                        .and_then(|op| op.as_str()),
+                    Some("product.op.unknown")
+                );
+            }
+        }
+    }
+
+    // ── Dynamic peer-down (§7.4) — reactive exclusion on the next call ────
+
+    #[tokio::test]
+    async fn reroutes_to_the_surviving_peer_when_the_selected_peer_leaves_established_between_calls()
+    {
+        // W-002: two Established peers; the first call routes to the
+        // tie-break winner (peer-a); the winner's session drops to Closed
+        // WITHOUT unregister; the next call excludes it from the candidate
+        // set and routes to peer-b — reactive exclusion, no proactive
+        // eviction (the registry still lists peer-a).
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let peer_a = FakePeer::new(
+            "peer-a",
+            manifest("h-a", &["spoke-baseline"]),
+            RemoteAdapterState::Established,
+        );
+        let peer_b = FakePeer::new(
+            "peer-b",
+            manifest("h-b", &["spoke-baseline"]),
+            RemoteAdapterState::Established,
+        );
+        router.register_peer(peer_b.clone()).expect("register b");
+        router.register_peer(peer_a.clone()).expect("register a");
+
+        let first = router.list_knowledge_entries(&dummy_scope()).await;
+        assert!(first.is_ok());
+        assert_eq!(peer_a.calls(), vec!["listKnowledgeEntries".to_string()]);
+        assert!(peer_b.calls().is_empty());
+
+        // The selected peer's session closes mid-session (no unregister).
+        peer_a.set_state(RemoteAdapterState::Closed);
+        assert_eq!(
+            router.list_peers(),
+            vec!["peer-b".to_string(), "peer-a".to_string()],
+            "Closed peer stays registered — the router never proactively evicts (§7.4)"
+        );
+
+        let second = router.list_knowledge_entries(&dummy_scope()).await;
+        assert!(second.is_ok());
+        assert_eq!(
+            peer_b.calls(),
+            vec!["listKnowledgeEntries".to_string()],
+            "the next call routes to the surviving peer"
+        );
+        assert_eq!(
+            peer_a.calls(),
+            vec!["listKnowledgeEntries".to_string()],
+            "the Closed peer receives no further delegates"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_no_capable_peer_when_every_peer_leaves_established_between_calls() {
+        // W-002 terminal: when ALL Established peers drop out between calls,
+        // the next selection rejects with the locked §5 reject — no delegate
+        // runs, no wrong-peer fallback.
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let peer_a = FakePeer::new(
+            "peer-a",
+            manifest("h-a", &["spoke-baseline"]),
+            RemoteAdapterState::Established,
+        );
+        let peer_b = FakePeer::new(
+            "peer-b",
+            manifest("h-b", &["spoke-baseline"]),
+            RemoteAdapterState::Established,
+        );
+        router.register_peer(peer_b.clone()).expect("register b");
+        router.register_peer(peer_a.clone()).expect("register a");
+
+        // First call succeeds on the tie-break winner.
+        assert!(router.list_knowledge_entries(&dummy_scope()).await.is_ok());
+        assert_eq!(peer_a.calls(), vec!["listKnowledgeEntries".to_string()]);
+        assert!(peer_b.calls().is_empty());
+
+        peer_a.set_state(RemoteAdapterState::Closed);
+        peer_b.set_state(RemoteAdapterState::Closed);
+
+        let second = router.list_knowledge_entries(&dummy_scope()).await;
+        match second {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("kind"))
+                        .and_then(|kind| kind.as_str()),
+                    Some("no_capable_peer")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("no Established peer must reject"),
+        }
+        // No delegate ran on the second call.
+        assert_eq!(peer_a.calls(), vec!["listKnowledgeEntries".to_string()]);
+        assert!(peer_b.calls().is_empty());
+    }
+
+    // ── Concurrent registry stress (W-001) ────────────────────────────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn concurrent_register_select_and_unregister_complete_without_deadlock_or_corruption()
+    {
+        // W-001: N tasks register peers (each id twice — the idempotent
+        // replace path) while M tasks run selections and K tasks unregister
+        // pre-seeded peers, all on a multi-threaded runtime. The registry
+        // mutexes (`peers` → `registration_order`) and the two-lock selection
+        // path are exercised under contention. Bounded deadline: a deadlock
+        // would hang past it and fail the test.
+        let router = Arc::new(connect_multi_peer_router(MultiPeerRouterOptions::default()));
+
+        // Pre-seed four peers so early selections always have a candidate.
+        let seeds: Vec<Arc<FakePeer>> = (0..4)
+            .map(|i| {
+                FakePeer::new(
+                    &format!("seed-{i:02}"),
+                    manifest(&format!("h-seed-{i:02}"), &["spoke-baseline"]),
+                    RemoteAdapterState::Established,
+                )
+            })
+            .collect();
+        for seed in &seeds {
+            router
+                .register_peer(seed.clone())
+                .expect("pre-seed registers");
+        }
+
+        const PEER_COUNT: usize = 12;
+        let peers: Vec<Arc<FakePeer>> = (0..PEER_COUNT)
+            .map(|i| {
+                FakePeer::new(
+                    &format!("peer-{i:02}"),
+                    manifest(&format!("h-{i:02}"), &["spoke-baseline"]),
+                    RemoteAdapterState::Established,
+                )
+            })
+            .collect();
+
+        let mut registers = JoinSet::new();
+        for (i, peer) in peers.iter().enumerate() {
+            let router = router.clone();
+            let peer = peer.clone();
+            registers.spawn(async move {
+                // Register twice: the second exercises the idempotent replace
+                // path while other tasks hold the registry lock.
+                let first = router.register_peer(peer.clone());
+                let second = router.register_peer(peer);
+                (i, first, second)
+            });
+        }
+
+        let mut selects = JoinSet::new();
+        for i in 0..PEER_COUNT {
+            let router = router.clone();
+            selects.spawn(async move {
+                let result = router.list_knowledge_entries(&dummy_scope()).await;
+                (i, result)
+            });
+        }
+
+        let mut unregisters = JoinSet::new();
+        for seed in seeds.iter() {
+            let router = router.clone();
+            let peer_id = seed.peer_id.clone();
+            unregisters.spawn(async move {
+                router.unregister_peer(&peer_id);
+            });
+        }
+
+        // All three task sets run concurrently; await everything under one
+        // bounded deadline — a deadlock or a hung task fails the timeout.
+        let (registers_outcome, selects_outcome, unregisters_outcome) = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            async {
+                let mut registers_done: Vec<(
+                    usize,
+                    Result<String, MultiPeerRouterError>,
+                    Result<String, MultiPeerRouterError>,
+                )> = Vec::new();
+                while let Some(joined) = registers.join_next().await {
+                    registers_done.push(joined.expect("register task must not panic"));
+                }
+                let mut selects_done: Vec<(usize, SpokeResult<Vec<KnowledgeEntry>>)> = Vec::new();
+                while let Some(joined) = selects.join_next().await {
+                    selects_done.push(joined.expect("select task must not panic"));
+                }
+                let mut unregisters_done = 0usize;
+                while let Some(joined) = unregisters.join_next().await {
+                    joined.expect("unregister task must not panic");
+                    unregisters_done += 1;
+                }
+                (registers_done, selects_done, unregisters_done)
+            },
+        )
+        .await
+        .expect("concurrent register/select/unregister must complete within the deadline (no deadlock)");
+
+        // Every register completed with its own peer id (idempotent).
+        for (i, first, second) in &registers_outcome {
+            let expected = format!("peer-{i:02}");
+            assert_eq!(first.as_ref().expect("first register"), &expected);
+            assert_eq!(second.as_ref().expect("second register"), &expected);
+        }
+
+        // No corruption: exactly the concurrently registered ids remain (the
+        // pre-seeded peers were unregistered), no duplicates, no seeds.
+        let mut listed = router.list_peers();
+        listed.sort();
+        let mut expected: Vec<String> = (0..PEER_COUNT)
+            .map(|i| format!("peer-{i:02}"))
+            .collect();
+        expected.sort();
+        assert_eq!(
+            listed, expected,
+            "registry holds exactly the registered ids, no duplicates, no seeds"
+        );
+        assert_eq!(unregisters_outcome, 4);
+
+        // Every selection completed; each outcome is a successful delegate or
+        // the locked no_capable_peer reject (a selection racing a seed
+        // unregister may hit the defensive "no longer registered" path).
+        for (_, result) in &selects_outcome {
+            match result {
+                SpokeResult::Ok(_) => {}
+                SpokeResult::Reject(reject) => {
+                    assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                    assert_eq!(
+                        reject
+                            .details
+                            .as_ref()
+                            .and_then(|details| details.get("kind"))
+                            .and_then(|kind| kind.as_str()),
+                        Some("no_capable_peer")
+                    );
+                }
+            }
+        }
     }
 
     // ── Pure selection — namespace filter (§2/§3) ──────────────────────────

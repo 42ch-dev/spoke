@@ -50,9 +50,11 @@ const DEFAULT_ROUTER_HOST_ID = "multi-peer-router";
  * Required capability per op family (contract §2 — locked). Orchestrated
  * baseline families and the `port.*` baseline ops require `spoke-baseline`;
  * the computable families require `l2-computable`. Product-defined ops are
- * product-documented and have no row here. The router's fixed six-family
- * surface only ever queries the `port.*` rows (mirrors the RemoteAdapter
- * `PORT_OPS` catalogue).
+ * product-documented and have no row here; selection REJECTS ops outside
+ * this table (`no_capable_peer`) — an op with no gate must not fall through
+ * ungated (QC2 S-1). The router's fixed six-family surface only ever
+ * queries the `port.*` rows (mirrors the RemoteAdapter `PORT_OPS`
+ * catalogue).
  */
 const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
   // Orchestrated op families.
@@ -194,7 +196,9 @@ export interface SelectablePeer {
  * The locked §3 selection algorithm over an explicit candidate set:
  *
  * 1. Capability filter (hard): the peer's `capabilities` MUST include the
- *    required capability for the op (§2 mapping table).
+ *    required capability for the op (§2 mapping table). Ops outside the
+ *    mapping table are rejected outright — no gate to run, never an
+ *    ungated fall-through (QC2 S-1).
  * 2. Namespace filter (hard): when the request payload carries a namespace,
  *    the peer's `namespaces` MUST include it (exact match; skipped when the
  *    request carries none; no wildcard).
@@ -207,8 +211,9 @@ export interface SelectablePeer {
  * 5. Deterministic tie-break: lowest `peer_id` in lexicographic UTF-8 byte
  *    order (§4) — no clock, no random, no health score.
  *
- * Returns a `no_capable_peer` reject (§5) when no candidate survives the
- * hard gates — terminal, stable, no wrong-peer fallback.
+ * Returns a `no_capable_peer` reject (§5) when the op has no capability
+ * mapping or no candidate survives the hard gates — terminal, stable, no
+ * wrong-peer fallback.
  */
 export function selectPeerForOp(
   candidates: readonly SelectablePeer[],
@@ -220,12 +225,16 @@ export function selectPeerForOp(
   }
 
   const requiredCapability = REQUIRED_CAPABILITY[op];
-  let survivors =
-    requiredCapability === undefined
-      ? [...candidates]
-      : candidates.filter((candidate) =>
-          candidate.manifest.capabilities.includes(requiredCapability),
-        );
+  if (requiredCapability === undefined) {
+    // Unknown ops are rejected outright: the §3 capability gate is step 1 of
+    // every selection, and an op outside the locked mapping table has no gate
+    // to run — falling through would select an arbitrary Established peer
+    // (QC2 S-1). Same terminal §5 reject shape as a no-match.
+    return noCapablePeer(op, `no capability mapping for unknown op "${op}"`);
+  }
+  let survivors = candidates.filter((candidate) =>
+    candidate.manifest.capabilities.includes(requiredCapability),
+  );
   if (survivors.length === 0) {
     return noCapablePeer(
       op,

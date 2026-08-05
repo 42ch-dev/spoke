@@ -11,6 +11,7 @@
     "opened_at",
     "negotiated_capabilities",
     "initial_sequence",
+    "signature",
     "extensions"
   ],
   "properties": {
@@ -47,6 +48,11 @@
       "minimum": 0,
       "const": 0,
       "description": "First invoke request uses sequence = initial_sequence (0 for protocol version 1)."
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-session-jcs-v1)."
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

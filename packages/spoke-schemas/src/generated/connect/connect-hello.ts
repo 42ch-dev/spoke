@@ -9,7 +9,7 @@
  */
 export interface ConnectHello {
   /**
-   * Connect protocol version (not data schema_version). Protocol version 1 is current.
+   * Connect protocol version (not data schema_version). Protocol version 2 is current; protocol version 1 is legacy.
    */
   protocol_version: number;
   /**

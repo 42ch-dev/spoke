@@ -16,7 +16,7 @@
     "protocol_version": {
       "type": "integer",
       "minimum": 1,
-      "description": "Connect protocol version (not data schema_version). Protocol version 1 is current."
+      "description": "Connect protocol version (not data schema_version). Protocol version 2 is current; protocol version 1 is legacy."
     },
     "peer_id": {
       "type": "string",

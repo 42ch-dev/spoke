@@ -27,6 +27,10 @@ export type ConnectInvokeResponse =
       payload: {
         [k: string]: unknown | undefined;
       };
+      /**
+       * base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-response-jcs-v1).
+       */
+      signature: string;
       extensions: ExtensionMap;
     }
   | {
@@ -43,6 +47,10 @@ export type ConnectInvokeResponse =
        */
       request_id: string;
       error: ErrorEnvelope;
+      /**
+       * base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-response-jcs-v1).
+       */
+      signature: string;
       extensions: ExtensionMap2;
     };
 

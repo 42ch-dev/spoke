@@ -36,6 +36,10 @@ export interface ConnectInvokeRequest {
   auth?: {
     [k: string]: unknown | undefined;
   };
+  /**
+   * base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-request-jcs-v1).
+   */
+  signature: string;
   extensions: ExtensionMap;
 }
 /**

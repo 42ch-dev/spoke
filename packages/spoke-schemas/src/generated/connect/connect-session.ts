@@ -34,6 +34,10 @@ export interface ConnectSession {
    * First invoke request uses sequence = initial_sequence (0 for protocol version 1).
    */
   initial_sequence: 0;
+  /**
+   * base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-session-jcs-v1).
+   */
+  signature: string;
   extensions: ExtensionMap;
 }
 /**

@@ -386,16 +386,18 @@ the wrapper), peer ids as strings, and the host manifest / hello envelope as
 JSON strings deserialized with `serde_json` inside Rust — `Multiaddr`,
 swarm, libp2p, and generated schema types stay Rust-side.
 
-### Additive remote-adapter surface (sync `RemoteAdapterFFI`)
+### Additive remote-adapter surface (sync `RemoteAdapterFFI` / `MultiPeerRouterFFI`)
 
 With the `remote-adapter` feature enabled alongside `ffi`, the cdylib exports
 a synchronous remote-adapter facade over the same encapsulated
 `RemoteAdapter` lifecycle as the Rust and TypeScript clients: dial through a
 foreign-implemented message transport, then call BaselinePorts-shaped methods
-that return JSON strings or `FfiError`. The binding implements a synchronous
-callback `Transport`; Rust bridges it to the async adapter seam via a
-process-wide tokio runtime (`block_on` / `spawn_blocking` — foreign `recv`
-blocks on the binding thread pool, not on async workers).
+that return JSON strings or `FfiError`; the same surface exposes the
+multi-peer router (`MultiPeerRouterFFI`) over registered adapter handles. The
+binding implements a synchronous callback `Transport`; Rust bridges it to the
+async adapter seam via a process-wide tokio runtime (`block_on` /
+`spawn_blocking` — foreign `recv` blocks on the binding thread pool, not on
+async workers).
 
 Build the metadata-bearing cdylib with both features:
 
@@ -410,6 +412,14 @@ cargo build -p spoke-connect --features ffi,remote-adapter
 | Rust (FFI) | Swift | Methods |
 |------------|-------|---------|
 | `RemoteAdapterFFI` | `RemoteAdapterFfi` | `state() -> String`; `session_id()` / `remote_peer_id()` / `remote_manifest()` (optional strings); BaselinePorts proxies — `get_host_capability_manifest()`, `get_knowledge_entry(entry_id)`, `put_knowledge_entry(entry_json, expected_base_revision)`, `get_relation(relation_id)`, `put_relation(relation_json, expected_base_revision)`, `list_knowledge_entries(scope_json)`, `list_timeline_events(scope_json)`, `put_findings(findings_json)`, `list_rules(rule_refs)`, `list_peer_host_capability_manifests()` (each `Result<String, FfiError>` JSON payload); `close()` |
+
+| Rust (FFI) | Swift | Behavior |
+|------------|-------|----------|
+| `new_multi_peer_router_ffi() -> MultiPeerRouterFFI` | `newMultiPeerRouterFfi() -> MultiPeerRouterFfi` | Empty router over the same runtime; register established adapter handles |
+
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `MultiPeerRouterFFI` | `MultiPeerRouterFfi` | `register_peer(adapter) -> Result<String, FfiError>` (accepts an established `RemoteAdapterFFI`, returns the remote `peer_id`); `unregister_peer(peer_id)`; `list_peers() -> Vec<String>`; the BaselinePorts proxies and both `HostManifestPort` views (each `Result<String, FfiError>` JSON payload) |
 
 Callback transport (foreign binding implements; Rust calls synchronously):
 

@@ -133,8 +133,8 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 
 | `kind` | When |
 |--------|------|
-| `config` | Local seed or remote public key not exactly 32 bytes, invalid local manifest JSON, invalid payload JSON |
-| `handshake` | Allowlist rejection, hello signature failure, nonce single-use violation, dial-binding assert, or `ConnectSession` snapshot verification failure |
+| `config` | Local seed or remote public key not exactly 32 bytes, invalid local manifest JSON, or the remote `peer_id` not on the allowlist (fail-closed) |
+| `handshake` | Hello signature failure, nonce single-use violation, dial-binding assert, `ConnectSession` snapshot verification failure, or a verified hello advertising a mixed or unknown `protocol_version` |
 | `timeout` | The dial deadline elapsed (bounded-wait handshake) |
 
 ### `FfiError.Rejected` — invoke-path `SpokeResult` rejects
@@ -144,6 +144,7 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 | Row | Shape |
 |-----|-------|
 | Application rejects | `code` preserved verbatim (for example `KNOWLEDGE_ENTRY_NOT_FOUND`) |
+| Payload JSON parse failure | `INVALID_INPUT`, no `kind` / `wire_code` |
 | `INTERNAL_ERROR` rows | `kind` ∈ {`transport`, `session_closed`, `timeout`, `panic`, `correlation_mismatch`, `sequence_exhausted`, `envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} |
 | Dispatch deny | `CAPABILITY_PORT_MISSING` with `wire_code` = `op_unsupported` / `capability_missing` |
 | Unknown wire codes | `INVALID_INPUT` with `wire_code` |

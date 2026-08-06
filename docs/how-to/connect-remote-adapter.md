@@ -6,7 +6,7 @@ title: RemoteAdapter over a Transport
 
 A **RemoteAdapter** turns a remote SPOKE connect peer into a drop-in async `BaselinePorts` surface: you supply a message-oriented `Transport`, the adapter dials and completes the signed-hello handshake through it, and you then call the same port methods — `getKnowledgeEntry`, `putRelation`, `listTimelineEvents`, and the rest — as if the peer were local. `orchestrateUpsert(adapter, req)` and the other `orchestrate*` calls run unchanged on the caller.
 
-The adapter ships in two packages: the **TypeScript** `@42ch/spoke-connect/remote` subpath and the **Rust** `remote-adapter` cargo feature of `spoke-connect`. Both enforce protocol version 2 envelope authentication internally (see [Envelope authentication](#_6-envelope-authentication) and the [Connect architecture](/explanation/connect)).
+The adapter ships in two packages: the **TypeScript** `@42ch/spoke-connect/remote` subpath and the **Rust** `remote-adapter` cargo feature of `spoke-connect`. Both enforce protocol version 2 envelope authentication internally (see [Envelope authentication](/explanation/connect#envelope-authentication) in the Connect architecture).
 
 ## 1. The `Transport` seam
 
@@ -138,9 +138,14 @@ const response = await orchestrateUpsert(adapter, upsertRequest);
 ```
 
 ```rust
-use spoke_operations::orchestrate_upsert;
+use spoke_operations::{orchestrate_upsert, SpokeResult};
 
-let response = orchestrate_upsert(adapter.as_ref(), upsert_request).await?;
+// SpokeResult is a plain Ok/Reject enum — there is no `?` support, so match
+// it explicitly (the same pattern the crate's own tests use).
+let response = match orchestrate_upsert(adapter.as_ref(), upsert_request).await {
+    SpokeResult::Ok(response) => response,
+    SpokeResult::Reject(reject) => return Err(reject), // your error path
+};
 ```
 
 You can also call the port methods directly:
@@ -188,6 +193,9 @@ The in-repo loopback pair gives you the whole flow with no network: the server e
 ```ts
 import { derivePeerIdFromEd25519Pubkey, getPublicKeyEd25519 } from "@42ch/spoke-connect";
 import { connectRemoteAdapter, loopbackTransportPair } from "@42ch/spoke-connect/remote";
+// startLoopbackHost is an in-repo test fixture, NOT a package export —
+// consumers write their own host (or copy this one from the linked file).
+import { startLoopbackHost } from "<repo>/packages/spoke-connect-ts/tests/remote/loopback-host.ts";
 
 const clientSeed = /* your 32-byte Ed25519 seed */;
 const hostSeed = /* the remote peer's 32-byte Ed25519 seed */;

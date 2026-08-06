@@ -6,7 +6,7 @@ title: 通过 Transport 使用 RemoteAdapter
 
 **RemoteAdapter（远程适配器）**把远端 SPOKE connect 对等节点变成一个可即插即用的异步 `BaselinePorts` 面：你提供一个消息导向的 `Transport`（传输接口），adapter 经它拨号并完成签名握手交换，然后你调用同样的 port 方法 —— `getKnowledgeEntry`、`putRelation`、`listTimelineEvents` 等 —— 就像对等节点在本地一样。`orchestrateUpsert(adapter, req)` 与其它 `orchestrate*` 调用在调用方侧原样运行。
 
-adapter 随两个软件包发布：**TypeScript** 的 `@42ch/spoke-connect/remote` 子路径，以及 `spoke-connect` 的 **Rust** `remote-adapter` cargo feature。两者都在内部强制 protocol version 2 信封认证（见[信封认证](#_6-信封认证)与[Connect 架构](/zh/explanation/connect)）。
+adapter 随两个软件包发布：**TypeScript** 的 `@42ch/spoke-connect/remote` 子路径，以及 `spoke-connect` 的 **Rust** `remote-adapter` cargo feature。两者都在内部强制 protocol version 2 信封认证（见 [Connect 架构](/zh/explanation/connect)中的[信封认证](/zh/explanation/connect#信封认证)）。
 
 ## 1. `Transport` 接缝
 
@@ -138,9 +138,13 @@ const response = await orchestrateUpsert(adapter, upsertRequest);
 ```
 
 ```rust
-use spoke_operations::orchestrate_upsert;
+use spoke_operations::{orchestrate_upsert, SpokeResult};
 
-let response = orchestrate_upsert(adapter.as_ref(), upsert_request).await?;
+// SpokeResult 是普通 Ok/Reject 枚举（无 `?` 支持）—— 显式 match，与 crate 自身测试一致。
+let response = match orchestrate_upsert(adapter.as_ref(), upsert_request).await {
+    SpokeResult::Ok(response) => response,
+    SpokeResult::Reject(reject) => return Err(reject), // 你的错误路径
+};
 ```
 
 你也可以直接调用 port 方法：
@@ -188,6 +192,9 @@ adapter 在每条 post-hello 信封上内部强制 **protocol version 2** 逐信
 ```ts
 import { derivePeerIdFromEd25519Pubkey, getPublicKeyEd25519 } from "@42ch/spoke-connect";
 import { connectRemoteAdapter, loopbackTransportPair } from "@42ch/spoke-connect/remote";
+// startLoopbackHost is an in-repo test fixture, NOT a package export —
+// consumers write their own host (or copy this one from the linked file).
+import { startLoopbackHost } from "<repo>/packages/spoke-connect-ts/tests/remote/loopback-host.ts";
 
 const clientSeed = /* your 32-byte Ed25519 seed */;
 const hostSeed = /* the remote peer's 32-byte Ed25519 seed */;

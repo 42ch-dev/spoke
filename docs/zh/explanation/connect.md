@@ -6,7 +6,7 @@ title: Connect 架构
 
 **Connect** 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-connect` 能力标志）：签名清单交换、会话上下文、远程 op 调用与可扩展鉴权。它是增量的 —— 基线合规与基线 schema 保持不变，未声明 `spoke-connect` 的主机不受影响。
 
-整个家族是一条完整的集成方旅程：安装 → 语言原生客户端会话 → 基于消费方 `Transport` 的 RemoteAdapter → 多对等节点路由 → 原生绑定 → 回环冒烟测试。本页解释该旅程背后的概念；[教程](/zh/tutorials/first-connect-session)带着你走一遍，[how-to 指南](/zh/how-to/connect-remote-adapter)是配方，[线上参考](/zh/reference/connect)是字典。
+整个家族是一条完整的集成方旅程：安装 → 语言原生客户端会话 → 基于消费方 `Transport` 的 RemoteAdapter → 跨多个对等节点路由 → 原生绑定 → 回环冒烟测试。本页解释该旅程背后的概念；[教程](/zh/tutorials/first-connect-session)带着你走一遍，[how-to 指南](/zh/how-to/connect-remote-adapter)是配方，[线上参考](/zh/reference/connect)是字典。
 
 ## 三种嵌入面
 

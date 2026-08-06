@@ -115,14 +115,22 @@ const perPeer = await router.listPeerHostCapabilityManifests();
 ```
 
 ```rust
-let composed = router.get_host_capability_manifest().await?;
+use spoke_operations::SpokeResult;
+
+let composed = match router.get_host_capability_manifest().await {
+    SpokeResult::Ok(manifest) => manifest,
+    SpokeResult::Reject(reject) => return Err(reject), // 你的错误路径
+};
 // composed.host_id                  → 路由器自己的 host_id
 // composed.capabilities             → 集合并集，去重
 // composed.roles                    → 集合并集，去重
 // composed.namespaces               → 集合并集，去重
 // composed.extensions["router"]["peers"] → 贡献的对等节点 peer_id，UTF-8 字节序
 
-let per_peer = router.list_peer_host_capability_manifests().await?;
+let per_peer = match router.list_peer_host_capability_manifests().await {
+    SpokeResult::Ok(manifests) => manifests,
+    SpokeResult::Reject(reject) => return Err(reject), // 你的错误路径
+};
 // per_peer[i].host_id → 每项一个对等节点 manifest，按 peer_id 排序
 ```
 

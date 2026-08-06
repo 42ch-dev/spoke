@@ -139,5 +139,5 @@ TypeScript **语言原生客户端**（[从 TypeScript 客户端连接](/zh/how-
 ## 下一步
 
 - [开启你的首个 connect 会话](/zh/tutorials/first-connect-session) —— 每个绑定都实现的握手流程。
-- [从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— 拨号 `Transport`、调用 port 方法并在 FFI 上跨对等节点路由。
+- [从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— 拨号 `Transport`、调用 port 方法并在 FFI 上跨多个对等节点路由。
 - [connect 线上参考](/zh/reference/connect) —— 信封字段表与身份绑定。

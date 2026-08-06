@@ -115,14 +115,22 @@ const perPeer = await router.listPeerHostCapabilityManifests();
 ```
 
 ```rust
-let composed = router.get_host_capability_manifest().await?;
+use spoke_operations::SpokeResult;
+
+let composed = match router.get_host_capability_manifest().await {
+    SpokeResult::Ok(manifest) => manifest,
+    SpokeResult::Reject(reject) => return Err(reject), // your error path
+};
 // composed.host_id                  → the router's own host_id
 // composed.capabilities             → set-union, deduplicated
 // composed.roles                    → set-union, deduplicated
 // composed.namespaces               → set-union, deduplicated
 // composed.extensions["router"]["peers"] → contributing peer_ids, UTF-8 byte order
 
-let per_peer = router.list_peer_host_capability_manifests().await?;
+let per_peer = match router.list_peer_host_capability_manifests().await {
+    SpokeResult::Ok(manifests) => manifests,
+    SpokeResult::Reject(reject) => return Err(reject), // your error path
+};
 // per_peer[i].host_id → one peer's manifest per entry, sorted by peer_id
 ```
 

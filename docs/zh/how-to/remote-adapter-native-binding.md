@@ -6,7 +6,7 @@ title: 从原生绑定使用 RemoteAdapter
 
 **原生绑定（native bindings）**把远程 Adapter 契约暴露为同步 FFI 面：你的宿主代码实现一个消息导向 `Transport`（传输接口）；adapter 经它拨号并收发信封，然后你调用与 Rust 参考实现、TypeScript 语言原生客户端相同的 `BaselinePorts` 方法。共享库拥有一个进程级 tokio 运行时；每个导出调用都是该运行时之上的同步 block-on-async（同步阻塞执行异步调用），会话核心始终封装在 Rust 侧 —— 握手签名/校验、allowlist、nonce 单次使用、sequence、关联校验与信封认证全部在绑定内部运行，而你的宿主代码提供 `Transport` 并调用 port 方法。
 
-导出的对象是 `RemoteAdapterFFI`（单对等节点）与 `MultiPeerRouterFFI`（多对等节点路由）。本页以 Python 绑定走完完整流程；C#、Go、Kotlin 与 Swift 存在相同的面，只是使用各语言惯用名称（见[符号对照表](#各绑定符号对照表)）。通用 RemoteAdapter 契约 —— 与 TypeScript、Rust 库共享的消息导向 `Transport` 接缝、拨号选项与错误映射 —— 见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)；本页覆盖 FFI 面。
+导出的对象是 `RemoteAdapterFFI`（单对等节点）与 `MultiPeerRouterFFI`（跨多个对等节点路由）。本页以 Python 绑定走完完整流程；C#、Go、Kotlin 与 Swift 存在相同的面，只是使用各语言惯用名称（见[符号对照表](#各绑定符号对照表)）。通用 RemoteAdapter 契约 —— 与 TypeScript、Rust 库共享的消息导向 `Transport` 接缝、拨号选项与错误映射 —— 见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)；本页覆盖 FFI 面。
 
 ## 1. 实现回调 `Transport`
 
@@ -133,8 +133,8 @@ result_json = router.get_knowledge_entry(entry_id)  # 路由到有能力的对�
 
 | `kind` | 何时 |
 |--------|------|
-| `config` | 本地种子或远端公钥不是恰好 32 字节、本地 manifest JSON 无效、载荷 JSON 无效 |
-| `handshake` | allowlist 拒绝、握手签名失败、nonce 单次使用违规、拨号绑定断言，或 `ConnectSession` 快照校验失败 |
+| `config` | 本地种子或远端公钥不是恰好 32 字节、本地 manifest JSON 无效，或远端 `peer_id` 不在 allowlist 上（fail-closed） |
+| `handshake` | 握手签名失败、nonce 单次使用违规、拨号绑定断言、`ConnectSession` 快照校验失败，或已校验 hello 声明混合或未知的 `protocol_version` |
 | `timeout` | 拨号截止时间已过（有界等待握手） |
 
 ### `FfiError.Rejected` —— invoke 路径的 `SpokeResult` 拒绝
@@ -144,6 +144,7 @@ result_json = router.get_knowledge_entry(entry_id)  # 路由到有能力的对�
 | 行 | 形状 |
 |----|------|
 | 应用拒绝 | `code` 原样保留（例如 `KNOWLEDGE_ENTRY_NOT_FOUND`） |
+| 载荷 JSON 解析失败 | `INVALID_INPUT`，无 `kind` / `wire_code` |
 | `INTERNAL_ERROR` 行 | `kind` ∈ {`transport`、`session_closed`、`timeout`、`panic`、`correlation_mismatch`、`sequence_exhausted`、`envelope_auth_missing`、`envelope_auth_invalid`、`envelope_auth_session_unbound`} |
 | 分派拒绝 | `CAPABILITY_PORT_MISSING`，`wire_code` = `op_unsupported` / `capability_missing` |
 | 未知线上码 | `INVALID_INPUT`，带 `wire_code` |

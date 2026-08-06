@@ -140,7 +140,7 @@ const response = await orchestrateUpsert(adapter, upsertRequest);
 ```rust
 use spoke_operations::orchestrate_upsert;
 
-let response = orchestrate_upsert(&adapter, upsert_request).await?;
+let response = orchestrate_upsert(adapter.as_ref(), upsert_request).await?;
 ```
 
 You can also call the port methods directly:

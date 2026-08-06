@@ -124,7 +124,7 @@ The hello signed-field set (4-field initiator / 5-field responder) is unchanged;
 
 ### Error mapping
 
-Envelope-auth failures use the shared `ErrorEnvelope` vocabulary: `auth_failed` covers missing, invalid, non-canonical, or field-set-drifted signatures and session-binding mismatches. On the RemoteAdapter surface these surface as `SpokeResult` rejects — `INTERNAL_ERROR` with `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} — while a mixed-version hello is a dial failure with `details.kind = protocol_version_mismatch` (no adapter instance).
+Envelope-auth failures use the shared `ErrorEnvelope` vocabulary: `auth_failed` covers missing, invalid, non-canonical, or field-set-drifted signatures and session-binding mismatches. On the RemoteAdapter surface these surface as `SpokeResult` rejects — `INTERNAL_ERROR` with `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} — while a mixed- or unknown-version hello fails the dial as a handshake error (`RemoteAdapterError::Handshake`; no adapter instance). `protocol_version_mismatch` is spec vocabulary reserved for a dedicated version-negotiation reject and is not currently emitted.
 
 ### Enforcement
 
@@ -223,7 +223,8 @@ The session-core rules — allowlist, `peer_id` derive and reverse, hello crypto
 | `capability_missing` | `ErrorEnvelope.code` | The op's required capability is absent from the effective grant |
 | `no_capable_peer` | Router reject `details.wire_code` / `details.kind` | Terminal router reject when no registered peer passes the hard selection gates (`CAPABILITY_PORT_MISSING`); register a satisfying peer and re-invoke |
 | `envelope_auth_missing` / `envelope_auth_invalid` / `envelope_auth_session_unbound` | RemoteAdapter reject `details.kind` | Envelope-auth rejection kinds on `INTERNAL_ERROR` rejects (waiter only; session state untouched) |
-| `protocol_version_mismatch` | Dial failure `details.kind` | A verified hello advertising a mixed or unknown protocol version; the dial fails and no adapter instance exists |
+| `handshake` | Dial failure `details.kind` (`FfiError.Dial`) | A verified hello advertising a mixed or unknown protocol version fails the dial as a handshake error; the dial surface is exactly {`config`, `handshake`, `timeout`} and no adapter instance exists |
+| `protocol_version_mismatch` | Reserved — not emitted | Spec vocabulary reserved for a dedicated version-negotiation reject; mixed/unknown-version hellos fail as a `handshake` dial error |
 | `transport` / `session_closed` / `timeout` / `panic` / `correlation_mismatch` / `sequence_exhausted` | RemoteAdapter reject `details.kind` | `INTERNAL_ERROR` reject kinds for transport I/O, session loss, invoke timeout, panic containment, correlation mismatch, and sequence exhaustion |
 
 ## Related

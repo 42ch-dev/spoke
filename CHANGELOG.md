@@ -6,6 +6,278 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.9.0] - 2026-08-06
+
+
+### Added
+
+- **connect:** Reject non-canonical base64url signatures
+
+- **connect:** Add issuance-time validation to capability_token
+
+- **connect:** Ship iOS slices in committed Swift xcframework + simulator smoke
+
+- **connect:** Add Noise crypto primitives (X25519/HKDF/ChaCha20-Poly1305)
+
+- **connect:** Add Noise XX handshake state machine
+
+- **connect:** Add libp2p Noise framing + NoiseHandshakePayload
+
+- **connect:** Expose opt-in ./noise subpath; add bundle-isolation gate
+
+- **connect:** Add RemoteAdapter + Transport interface (TS)
+
+- **connect:** Add RemoteAdapter + Transport (Rust parity)
+
+- **connect:** **BREAKING:** Bind responder hello to initiator nonce (dial binding)
+
+- **connect:** Protocol_version 2 envelope authentication + multi-peer routing design
+
+- **connect:** Protocol v2 envelope-auth signature fields in wire schemas
+
+- **connect:** TS envelope-auth authenticate/verify + sequence peek
+
+- **connect:** Rust envelope-auth authenticate/verify + sequence peek
+
+- **connect:** Envelope-auth golden vectors + sync gate
+
+- **connect:** TS RemoteAdapter envelope-auth enforcement + loopback
+
+- **connect:** Rust RemoteAdapter inbound envelope-auth verify + loopback host enforcement
+
+- **connect:** TS multi-peer capability router + selection + BaselinePorts
+
+- **connect:** Rust multi-peer capability router + selection + BaselinePorts parity
+
+- **connect:** TS hostId empty-string default parity + surface handoff
+
+- **connect:** Add cdylib-owned tokio runtime for FFI surface
+
+- **connect:** Add foreign-callback Transport interface for FFI
+
+- **connect:** Add sync RemoteAdapterFFI object over cdylib runtime
+
+- **connect:** Complete FfiError mapping to full D7 surface
+
+- **connect:** Regenerate Swift binding + add RemoteAdapterFFI loopback smoke
+
+- **connect:** Regenerate Kotlin binding + add RemoteAdapterFFI loopback smoke
+
+- **connect:** Regenerate Python binding + add RemoteAdapterFFI loopback smoke
+
+- **connect:** Regenerate C# binding + RemoteAdapterFFI loopback smoke
+
+- **connect:** Regenerate Go binding + RemoteAdapterFFI loopback smoke
+
+- **connect:** Add sync MultiPeerRouterFFI over cdylib runtime
+
+- **connect:** MultiPeerRouterFFI aggregation + lifecycle surface
+
+- **connect:** Regenerate bindings for MultiPeerRouterFFI + multi-peer routing smoke
+
+
+### Changed
+
+- **connect:** Make non-canonical-sig mutation robust across sigs
+
+- **connect:** Add rust-libp2p Noise XX golden-transcript interop
+
+- **operations:** Migrate TS adapter ports + orchestrate to async
+
+- **operations:** Migrate Rust adapter ports + orchestrate to async
+
+- **operations:** Fmt async-trait test stubs
+
+- **connect:** Add 5-field responder golden vector + TS↔Rust interop
+
+- Drop dial-binding ffi.rs doc comments to restore uniffi metadata
+
+- **connect:** Cast OpaqueJson auth inputs in envelope-auth tests
+
+- **connect:** TS dual-peer loopback routing proof
+
+- **connect:** QC wave-1 fixes for multi-peer router
+
+- **connect:** Complete §6/§7 surface verification for multi-peer router
+
+
+### Documentation
+
+- **connect:** Replace Path A/B jargon with embedding vocabulary
+
+- **connect:** Map Path A/B to consumer embedding vocabulary in SSOT
+
+- **specs:** Refresh publish-state facts and refine TS↔Rust parity surface
+
+- **connect:** Correct base64 0.22 strict-decode comment in verify_capability_token
+
+- **connect:** Add canonical base64url signature rule to capability-token spec
+
+- **tutorials:** Add install-and-first-entry and first-connect-session (EN+CN)
+
+- **how-to:** Add implement-adapter and orchestrate-ops (EN+CN)
+
+- **how-to:** Add connect-ts-client and connect-native-bindings (EN+CN)
+
+- **how-to:** Add walk-toy-world reference adapter walkthrough (EN+CN)
+
+- **reference:** Consolidate protocol, data-model, ops, connect field tables (EN+CN)
+
+- **explanation:** Consolidate concepts and domain-profiles key statements (EN+CN)
+
+- **nav:** Restructure sidebar and nav into Diátaxis quadrants (EN+CN)
+
+- **index:** Rewrite hero + feature cards for Diátaxis framing; drop normative-refs section; fix README cross-links
+
+- Remove old guide/, profiles/, connect/ trees after consolidation
+
+- Drop spec links from kept quick-start/versioning pages; use external canonicals
+
+- **reference:** Rename embedding-model table header on connect pages
+
+- **connect:** Redirect stale native-bindings links to new how-to page
+
+- **roadmap:** Drop tag/release/publish framing; keep functional points only
+
+- **connect:** Record transport-adapter parity boundary; refresh roadmap up-next
+
+- **connect:** Document iOS coverage of the Swift xcframework matrix
+
+- **connect:** Record opt-in ./noise subpath in route spec + integrator how-to
+
+- **connect:** Promote frozen Noise XX wire contract to tracked spec
+
+- **connect:** Record connect identity proof CI gate
+
+- **connect:** Note git-lfs tracking of the Swift xcframework static libs
+
+- **connect:** Seed RemoteAdapter ADR + async-operations roadmap slice
+
+- **operations:** Rewrite port-contract spec to async current-facts
+
+- **operations:** Rewrite spec signature tables to async envelope
+
+- Update consumer docs to async orchestrate/ports call shapes
+
+- **connect:** Finalize RemoteAdapter ADR to current-facts
+
+- **connect:** Finalize envelope-auth v2 normative section + checklist
+
+- **connect:** Note envelope-auth FFI deferral in ffi.rs facade doc
+
+- **connect:** Specs state envelope-auth enforcement as shipped fact (Task 4)
+
+- **connect:** Multi-peer router integrator how-to EN + zh twin
+
+- **connect:** Spec + roadmap state multi-peer surface as shipped fact
+
+- **connect:** Roadmap shipped rows + affirmative multi-peer how-to (QC fix wave 1)
+
+- **connect:** Record RemoteAdapterFFI binding facade surface
+
+- **connect:** Sync specs, roadmap, integrator docs for native RemoteAdapter FFI
+
+
+### Fixed
+
+- **connect:** Cap peer_id decode length to prevent O(n²) DoS
+
+- **connect:** Align swift build target-assert with nightly + ignore .swiftpm
+
+- **connect:** Single-shot handshake finish; gate built dist shape
+
+- **ci:** Fail-open connect-identity gate on path-filter error
+
+- **deps:** Reconcile esbuild specifier in lockfile (>=0.28.1) to unbreak frozen-lockfile CI
+
+- **deps:** Bump fast-uri/brace-expansion/postcss to clear Dependabot advisories
+
+- **connect:** Make RemoteAdapter lifecycle methods private (encapsulation)
+
+- **connect:** Validate RemoteAdapter success payload + error-path tests
+
+- **connect:** Drop dead negotiated_capabilities field from Rust adapter
+
+- **connect:** Harden RemoteAdapter state encapsulation + close-rejection handling
+
+- **connect:** Close handler accepts thenable Transport.close() rejections
+
+- **connect:** Reject responder hello without peer_nonce (fail-closed dial binding)
+
+- **connect:** Catch synchronous Transport.close() throws in closeSession
+
+- **connect:** Replace hard-coded test nonces with runtime-generated values
+
+- **connect:** Envelope-auth v2 hardening — auth-before-advance, 86-char signatures, field-table sync
+
+- **connect:** Invoke-request auth binding note + signature Type 86-char
+
+- **connect:** Accept OpaqueJson auth on invoke-request verify + CoreError for bad verify key
+
+- **connect:** Reject odd-length hex in golden sync gate
+
+- **connect:** Sign remote-adapter outbound invoke requests
+
+- **connect:** Verify invoke envelope auth before advancing inbound
+
+- **connect:** Guard deferred sends against timeout + register connect-client pending before sign
+
+- **connect:** Close session on skipped timed-out send (prevent sequence poisoning)
+
+- **connect:** Graceful same-sequence duplicate handling + response-branch discriminator parity (P3)
+
+- **connect:** QC wave 1 — outbound send serialization, crypto-verify kind, host gate + decode grace
+
+- **connect:** Remove iteration-id reference from multi-peer-router doc comment
+
+- **toy-world:** Add v2 signature to connect fixture envelopes
+
+- **connect:** RemoteAdapterFFI close enters runtime; manifest error mapping; dedup loopback oracle
+
+- **connect:** Correct pub(crate) and test-comment accuracy in FFI/oracle (QC S-003/S-004)
+
+- **connect:** Gate smoke-host behind ffi-smoke-host; rebuild xcframework with remote-adapter
+
+- **connect:** Build-connect-ffi includes remote-adapter; Kotlin README bindgen row
+
+- **connect:** Ci.yml tests ffi,remote-adapter; binding READMEs feature-pair docs
+
+- **connect:** Go darwin_amd64 + release dylib; fork patch SetTemplate.go; C# CI + binding docs ffi,remote-adapter
+
+- **connect:** Roadmap pipe; framing docs; Go generator spec sync
+
+- **connect:** How-to anchors; roadmap stale fact; Transport wording; D12 acceptance
+
+- **connect:** Gate test_support oracle on remote-adapter (CI no-feature build)
+
+
+### Internal
+
+- **connect:** Gate connect identity proof in CI
+
+- **iteration:** Close connect binding matrix + TS Noise + identity gate — compound round, roadmap update
+
+- **lfs:** Track Swift xcframework static libs via git-lfs (forward-only)
+
+- **lfs:** Convert committed Swift xcframework static libs to LFS pointers
+
+- **connect:** Test remote-adapter feature in CI
+
+- **iteration:** Close async-operations + RemoteAdapter bridge — compound round, roadmap update
+
+- Build spoke-operations before spoke-connect dist smoke (remote-adapter dep)
+
+- **iteration:** Compound — sync block-on-async FFI bridge knowledge doc
+
+- Replace greptile submodule with npx skills add (check-pr, cli-review, greploop)
+
+- **connect:** Add binding-regen drift check for Swift/Python generated sources
+
+
+### build
+
+- **connect:** Generalize Swift xcframework build to iOS target matrix
+
 ## [0.8.2] - 2026-08-03
 
 

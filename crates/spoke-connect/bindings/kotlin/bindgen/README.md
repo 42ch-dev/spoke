@@ -10,10 +10,10 @@ From the **repository root** (local nightly convention: `cargo +nightly …`):
 
 ```bash
 # 1. Build the ffi cdylib
-cargo +nightly build -p spoke-connect --features ffi
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter
 
 # 2. Generate (first-party, stock)
-cargo +nightly run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+cargo +nightly run -p spoke-connect --features ffi,bindgen-cli --bin uniffi-bindgen -- \
   generate --library target/debug/libspoke_connect.dylib \
   --language kotlin \
   --out-dir crates/spoke-connect/bindings/kotlin/generated \
@@ -34,12 +34,17 @@ cd crates/spoke-connect/bindings/kotlin && gradle test
 
 ## What the patch changes
 
-On `CoreException.InvalidNonce`, `Crypto`, `Jcs`, and `TokenInvalid` only:
+On `CoreException.InvalidNonce`, `Crypto`, `Jcs`, and `TokenInvalid` and on
+`FfiException.Dial` / `Rejected` payload fields:
 
 | Before (stock generate) | After (committed) |
 |-------------------------|-------------------|
 | `` val `message`: String `` | `` val `detail`: String `` |
 | `` override val message get() = "message=${ `message` }" `` | `` … "detail=${ `detail` }" `` |
 | `` value.`message` `` in FfiConverter write/allocationSize | `` value.`detail` `` |
+
+On `LoopbackTransport`, `LoopbackSmokeHost`, and `RemoteAdapterFfi`: removes the
+Disposable `close()` that collides with the domain `close()` export and keeps a
+single synchronized domain `close()`.
 
 FFI wire encoding is unchanged — only the Kotlin property name differs from the Rust field label.

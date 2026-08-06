@@ -5,12 +5,20 @@ package spokeconnect
 import sc "github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go/generated/spoke_connect"
 
 type (
-	InboundSequence                        = sc.InboundSequence
-	InboundSequenceInterface               = sc.InboundSequenceInterface
-	NonceStore                             = sc.NonceStore
-	NonceStoreInterface                    = sc.NonceStoreInterface
-	OutboundSequence                       = sc.OutboundSequence
-	OutboundSequenceInterface              = sc.OutboundSequenceInterface
+	InboundSequence          = sc.InboundSequence
+	InboundSequenceInterface = sc.InboundSequenceInterface
+	LoopbackTransport        = sc.LoopbackTransport
+	LoopbackTransportInterface = sc.LoopbackTransportInterface
+	LoopbackTransportPair    = sc.LoopbackTransportPair
+	LoopbackTransportPairInterface = sc.LoopbackTransportPairInterface
+	NonceStore               = sc.NonceStore
+	NonceStoreInterface      = sc.NonceStoreInterface
+	OutboundSequence         = sc.OutboundSequence
+	OutboundSequenceInterface = sc.OutboundSequenceInterface
+	RemoteAdapterFfi         = sc.RemoteAdapterFfi
+	RemoteAdapterFfiInterface = sc.RemoteAdapterFfiInterface
+	Transport                = sc.Transport
+
 	CoreError                              = sc.CoreError
 	CoreErrorInvalidHelloSignature         = sc.CoreErrorInvalidHelloSignature
 	CoreErrorNonceReplay                   = sc.CoreErrorNonceReplay
@@ -23,6 +31,12 @@ type (
 	CoreInvokeErrorSequenceExhausted       = sc.CoreInvokeErrorSequenceExhausted
 	CoreInvokeErrorInboundSequenceMismatch = sc.CoreInvokeErrorInboundSequenceMismatch
 	CoreInvokeErrorCorrelationMismatch     = sc.CoreInvokeErrorCorrelationMismatch
+	FfiError                               = sc.FfiError
+	FfiErrorDial                           = sc.FfiErrorDial
+	FfiErrorRejected                       = sc.FfiErrorRejected
+	TransportError                         = sc.TransportError
+	TransportErrorClosed                   = sc.TransportErrorClosed
+	TransportErrorIo                       = sc.TransportErrorIo
 )
 
 var (
@@ -40,13 +54,19 @@ var (
 	ErrCoreInvokeErrorSequenceExhausted       = sc.ErrCoreInvokeErrorSequenceExhausted
 	ErrCoreInvokeErrorInboundSequenceMismatch = sc.ErrCoreInvokeErrorInboundSequenceMismatch
 	ErrCoreInvokeErrorCorrelationMismatch     = sc.ErrCoreInvokeErrorCorrelationMismatch
+	ErrFfiErrorDial                           = sc.ErrFfiErrorDial
+	ErrFfiErrorRejected                       = sc.ErrFfiErrorRejected
+	ErrTransportErrorClosed                   = sc.ErrTransportErrorClosed
+	ErrTransportErrorIo                       = sc.ErrTransportErrorIo
 
-	CheckResponseCorrelation        = sc.CheckResponseCorrelation
-	DerivePeerIdFromEd25519Pubkey   = sc.DerivePeerIdFromEd25519Pubkey
-	DispatchAllowed                 = sc.DispatchAllowed
-	IsAllowlisted                   = sc.IsAllowlisted
-	ProtocolVersion                 = sc.ProtocolVersion
-	RequiredCapability              = sc.RequiredCapability
-	SignHelloEd25519                = sc.SignHelloEd25519
-	VerifyHelloEd25519              = sc.VerifyHelloEd25519
+	CheckResponseCorrelation      = sc.CheckResponseCorrelation
+	ConnectRemoteAdapterFfi       = sc.ConnectRemoteAdapterFfi
+	DerivePeerIdFromEd25519Pubkey = sc.DerivePeerIdFromEd25519Pubkey
+	DispatchAllowed               = sc.DispatchAllowed
+	IsAllowlisted                 = sc.IsAllowlisted
+	NewLoopbackTransportPair     = sc.NewLoopbackTransportPair
+	ProtocolVersion               = sc.ProtocolVersion
+	RequiredCapability            = sc.RequiredCapability
+	SignHelloEd25519              = sc.SignHelloEd25519
+	VerifyHelloEd25519            = sc.VerifyHelloEd25519
 )

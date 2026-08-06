@@ -139,4 +139,5 @@ The TypeScript **language-native client** ([Connect from the TypeScript client](
 ## Next steps
 
 - [Open your first connect session](/tutorials/first-connect-session) — the handshake flow every binding implements.
+- [Use RemoteAdapter from a native binding](/how-to/remote-adapter-native-binding) — dial a `Transport`, call port methods, and route across peers over FFI.
 - [Connect wire reference](/reference/connect) — envelope field tables and identity binding.

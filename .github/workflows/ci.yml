@@ -219,6 +219,18 @@ jobs:
       - name: Test spoke-connect FFI facade (ffi feature)
         run: cargo test -p spoke-connect --features ffi
 
+      - name: Build and test spoke-connect (ffi + remote-adapter production surface)
+        run: |
+          # Release build-connect-ffi and build-swift-xcframework.sh ship
+          # ffi,remote-adapter together; assert the combined feature set on PRs.
+          cargo build -p spoke-connect --features ffi,remote-adapter
+          cargo test -p spoke-connect --features ffi,remote-adapter
+
+      # First-party uniffi languages only (Swift, Python). C# and Go use vendored
+      # uniffi-bindgen forks under bindings/{csharp,go}/bindgen/ and are excluded.
+      - name: Verify binding regeneration (no drift)
+        run: ./tooling/connect/verify-binding-regen.sh
+
   csharp-connect:
     name: csharp-connect
     runs-on: ubuntu-latest

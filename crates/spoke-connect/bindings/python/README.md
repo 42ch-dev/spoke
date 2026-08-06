@@ -27,6 +27,16 @@ protocol = spoke_connect.protocol_version()  # 1
 
 Transport / WebSocket stays in the host product.
 
+## Build features
+
+| Artifact | Cargo features | Notes |
+|----------|----------------|-------|
+| Committed `spoke_connect/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopback_transport_pair` — **no** `start_loopback_smoke_host` |
+| Local loopback smoke cdylib + bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter section |
+
+`ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
+Full loopback smoke procedure: [`Smoke/README.md`](Smoke/README.md).
+
 ## Layout
 
 | Path | Contents |
@@ -35,18 +45,21 @@ Transport / WebSocket stays in the host product.
 | `setup.py` | Platform wheel tag hook (`py3-none-<platform>`; no sdist) |
 | `spoke_connect/` | Import package — committed generated `__init__.py` + host native for smoke |
 | `native/` | Staging contract for non-host RIDs (see `native/README.md`) |
-| `Smoke/` | Golden-parity smoke (`python3 -m unittest discover -s Smoke -v`) |
+| `Smoke/` | Golden-parity + RemoteAdapter loopback smoke — see `Smoke/README.md` |
 
 ## Maintainer: regenerate → stage native → wheel → smoke
 
 Commands from the **repository root** (local nightly convention for cargo: `cargo +nightly …`).
 
+Production regenerate uses `ffi,remote-adapter` only (no `ffi-smoke-host`). Full loopback smoke
+recipe: [`Smoke/README.md`](Smoke/README.md).
+
 ```bash
-# 1. Build the ffi cdylib (must run before generate — default build replaces the stub)
-cargo +nightly build -p spoke-connect --features ffi --release
+# 1. Build the production ffi cdylib (must run before generate — default build replaces the stub)
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter --release
 
 # 2. Generate bindings (first-party uniffi 0.32)
-cargo +nightly run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+cargo +nightly run -p spoke-connect --features ffi,bindgen-cli,remote-adapter --bin uniffi-bindgen -- \
   generate --library target/release/libspoke_connect.dylib \
   --language python --out-dir crates/spoke-connect/bindings/python/spoke_connect
 mv crates/spoke-connect/bindings/python/spoke_connect/spoke_connect.py \

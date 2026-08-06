@@ -71,7 +71,7 @@ cargo +nightly build --locked -p uniffi-bindgen-cs
 
 # 4. Generate against the 0.32 cdylib — from the REPO ROOT
 cd ..   # back to the repo root
-cargo +nightly build -p spoke-connect --features ffi
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter
 ./uniffi-bindgen-cs/target/debug/uniffi-bindgen-cs \
   target/debug/libspoke_connect.dylib --library \
   --config crates/spoke-connect/bindings/csharp/uniffi.toml \

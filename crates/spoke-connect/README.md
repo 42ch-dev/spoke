@@ -386,11 +386,73 @@ the wrapper), peer ids as strings, and the host manifest / hello envelope as
 JSON strings deserialized with `serde_json` inside Rust — `Multiaddr`,
 swarm, libp2p, and generated schema types stay Rust-side.
 
+### Additive remote-adapter surface (sync `RemoteAdapterFFI` / `MultiPeerRouterFFI`)
+
+With the `remote-adapter` feature enabled alongside `ffi`, the cdylib exports
+a synchronous remote-adapter facade over the same encapsulated
+`RemoteAdapter` lifecycle as the Rust and TypeScript clients: dial through a
+foreign-implemented message transport, then call BaselinePorts-shaped methods
+that return JSON strings or `FfiError`; the same surface exposes the
+multi-peer router (`MultiPeerRouterFFI`) over registered adapter handles. The
+binding implements a synchronous callback `Transport`; Rust bridges it to the
+async adapter seam via a process-wide tokio runtime (`block_on` /
+`spawn_blocking` — foreign `recv` blocks on the binding thread pool, not on
+async workers).
+
+Build the metadata-bearing cdylib with both features:
+
+```shell
+cargo build -p spoke-connect --features ffi,remote-adapter
+```
+
+| Rust (FFI) | Swift | Behavior |
+|------------|-------|----------|
+| `connect_remote_adapter_ffi(transport, local_seed, local_manifest_json, remote_pubkey, allowlist, invoke_timeout_ms) -> Result<RemoteAdapterFFI, FfiError>` | `connectRemoteAdapterFfi(transport:localSeed:localManifestJson:remotePubkey:allowlist:invokeTimeoutMs:) throws -> RemoteAdapterFfi` | Dial + signed-hello handshake over the callback `Transport`; returns a live adapter handle |
+
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `RemoteAdapterFFI` | `RemoteAdapterFfi` | `state() -> String`; `session_id()` / `remote_peer_id()` / `remote_manifest()` (optional strings); BaselinePorts proxies — `get_host_capability_manifest()`, `get_knowledge_entry(entry_id)`, `put_knowledge_entry(entry_json, expected_base_revision)`, `get_relation(relation_id)`, `put_relation(relation_json, expected_base_revision)`, `list_knowledge_entries(scope_json)`, `list_timeline_events(scope_json)`, `put_findings(findings_json)`, `list_rules(rule_refs)`, `list_peer_host_capability_manifests()` (each `Result<String, FfiError>` JSON payload); `close()` |
+
+| Rust (FFI) | Swift | Behavior |
+|------------|-------|----------|
+| `new_multi_peer_router_ffi() -> MultiPeerRouterFFI` | `newMultiPeerRouterFfi() -> MultiPeerRouterFfi` | Empty router over the same runtime; register established adapter handles |
+
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `MultiPeerRouterFFI` | `MultiPeerRouterFfi` | `register_peer(adapter) -> Result<String, FfiError>` (accepts an established `RemoteAdapterFFI`, returns the remote `peer_id`); `unregister_peer(peer_id)`; `list_peers() -> Vec<String>`; the BaselinePorts proxies and both `HostManifestPort` views (each `Result<String, FfiError>` JSON payload) |
+
+Callback transport (foreign binding implements; Rust calls synchronously):
+
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `Transport` (callback interface) | `Transport` | `send(envelope) -> Result<(), TransportError>`; `recv() -> Result<Vec<u8>, TransportError>` (blocks until one envelope or close); `close() -> Result<(), TransportError>` (idempotent) |
+
+Loopback test helpers (in-memory pair for binding smokes — no network):
+
+| Rust (FFI) | Swift | Behavior |
+|------------|-------|----------|
+| `loopback_transport_pair() -> LoopbackTransportPair` | `loopbackTransportPair() -> LoopbackTransportPair` | Back-to-back in-memory connection |
+| `LoopbackTransportPair` | `LoopbackTransportPair` | `client()` / `server()` → `LoopbackTransport` ends |
+| `LoopbackTransport` | `LoopbackTransport` | Same `send` / `recv` / `close` surface as the callback `Transport` |
+
+Additional error enums (additive — core enums above stay unchanged):
+
+- `TransportError` → Swift `TransportError`: `Closed`, `Io(message: String)`.
+- `FfiError` → Swift `FfiError`: `Dial(kind: String, message: String)` for
+  constructor / dial failures (`config` / `handshake` / `timeout` kinds);
+  `Rejected(code: String, message: String, kind: String?, wire_code: String?)`
+  for invoke-path `SpokeResult::Reject` passthrough (application codes
+  preserved; `INTERNAL_ERROR` rows carry `kind`; dispatch deny and unknown wire
+  codes carry `wire_code`).
+
 ### Native-binding scope (first language)
 
-**Core-only** is the landed shape: the sync surface above is bound, and the
-host language implements its own transport adapter (hello exchange, session
-establishment, invoke round-trip) against the wire contract. The **core +
+The landed binding surface is **core + remote adapter**: the sync session-core
+table above plus the additive `RemoteAdapterFFI` / callback `Transport` /
+`FfiError` surface when `remote-adapter` is enabled. Host languages can
+either implement their own transport against the wire contract using the
+core-only helpers, or supply a callback `Transport` and dial through
+`connect_remote_adapter_ffi` for the full encapsulated adapter. The **core +
 async node** option — additionally bridging a thin `SpokeConnectNode`
 lifecycle over the uniffi async/foreign-runtime mechanism — is deferred:
 node start/listen/shutdown and `connect(addr)` stay Rust-side today.

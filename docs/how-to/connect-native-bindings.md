@@ -14,7 +14,7 @@ title: Connect from native bindings
 | Go | Go modules (git + tags) | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
 
-NuGet and Maven both use the GitHub Packages registry family. Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side.
+NuGet and Maven both use the GitHub Packages registry family. Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side. Every native library is built from the production feature pair `ffi,remote-adapter` — regenerated bindings reference `remote-adapter` symbols (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) at load time, so the release build always carries both features.
 
 ## C# — GitHub Packages NuGet
 
@@ -134,7 +134,7 @@ Binding README: [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/
 
 All five bindings expose the same synchronous core surface: `peer_id` derivation, hello sign/verify, allowlist, nonce store, sequence allocation, response correlation, dispatch gate, and protocol version. Keys cross the FFI boundary as raw bytes (validated to exactly 32 bytes), peer ids as strings, and manifests / hello envelopes as JSON strings — transport adapters stay in the host language against the wire contract.
 
-The TypeScript **language-native client** ([Connect from the TypeScript client](/how-to/connect-ts-client)) implements the same session-core rules directly in TypeScript — it is the sibling path, not a binding row. The **Rust reference** (`spoke-connect` on crates.io) is the session-core reference and the binding source; see the [connect wire reference](/reference/connect) for the shared contract.
+The TypeScript **language-native client** ([Connect from the TypeScript client](/how-to/connect-ts-client)) implements the same session-core rules directly in TypeScript — it is the sibling path, not a binding row. The **Rust reference** (`spoke-connect` on crates.io) is the session-core reference and the binding source; see the [connect wire reference](/reference/connect) for the shared contract. The RemoteAdapter contract ships over the same FFI surface as synchronous objects (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) — see [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding).
 
 ## Next steps
 

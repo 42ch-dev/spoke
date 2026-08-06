@@ -14,10 +14,12 @@ Connect is the opt-in interaction envelope family (`spoke-connect` capability fl
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-`@42ch/spoke-connect` exports two entry points:
+`@42ch/spoke-connect` exports four entry points:
 
 - **`.`** — the isomorphic core: identity derivation, Ed25519 crypto, RFC 8785 JCS canonicalization, and the pure session-core rules (allowlist, nonce, sequence, correlation, dispatch gate).
 - **`./node`** — the Node `connectClient`, which dials a WebSocket and performs the full handshake.
+- **`./noise`** — the opt-in Noise XX mesh transport subpath for direct libp2p-noise interoperability.
+- **`./remote`** — the opt-in RemoteAdapter module: `connectRemoteAdapter` over a consumer `Transport`, the multi-peer router, and the in-repo loopback pair (see [RemoteAdapter over a Transport](/how-to/connect-remote-adapter)).
 
 ## 2. Derive your peer identity
 

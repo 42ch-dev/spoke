@@ -448,8 +448,8 @@ Additional error enums (additive — core enums above stay unchanged):
 ### Native-binding scope (first language)
 
 The landed binding surface is **core + remote adapter**: the sync session-core
-table above plus the additive `RemoteAdapterFFI` / callback `Transport` /
-`FfiError` surface when `remote-adapter` is enabled. Host languages can
+table above plus the additive `RemoteAdapterFFI` / `MultiPeerRouterFFI` /
+callback `Transport` / `FfiError` surface when `remote-adapter` is enabled. Host languages can
 either implement their own transport against the wire contract using the
 core-only helpers, or supply a callback `Transport` and dial through
 `connect_remote_adapter_ffi` for the full encapsulated adapter. The **core +

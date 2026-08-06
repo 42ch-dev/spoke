@@ -74,6 +74,14 @@ CN docs work.
 | quick start | 快速开始 | README_CN | |
 | release / versioning | 发布 / 版本管理 | README_CN | |
 | locale switch | 语言切换（VitePress `localeLink`） | — | UI chrome: "中文 / English" |
+| language-native client | 语言原生客户端 | connect 家族 how-to/explanation 页 | Freeze to prevent drift from 原生客户端 / 语言客户端 |
+| Transport | 传输接口（保留英文 `Transport`） | connect how-to 页（zh 既有用法） | Consumer-implemented seam; first use "`Transport`（传输接口）", then bare English |
+| RemoteAdapter | 保留英文 RemoteAdapter；首用可写"RemoteAdapter（远程适配器）" | connect how-to 页（zh 既有用法） | Wire-surface term, same pattern as Domain Profile |
+| multi-peer router | 多对等节点路由器 | connect how-to/explanation 页 | 页面标题 / 导航 / index 卡片 "Route across multiple peers" → **跨多个对等节点路由**（freeze **DONE**：zh sidebar、页面标题与 index 卡片已全部对齐） |
+| envelope authentication | 信封认证（逐信封签名） | connect reference / explanation 页 | New with protocol_version 2; 协议版本 2 下 post-hello 信封必填签名 |
+| loopback | 回环（测试用途） | connect how-to 页 | Test-only qualifier; 回环对 loopback pair |
+| FfiError / TransportError | 保留英文 | connect FFI 页 | Error-surface identifiers, never translated |
+| protocol_version | 保留英文 `protocol_version`；正文可写协议版本 2 | connect reference 页 | Distinguish from data `schema_version` 版本号 |
 
 ### Nav / sidebar / locale labels (VitePress `zh`)
 
@@ -103,6 +111,7 @@ CN docs work.
 | Package quick-start | 软件包快速开始 |
 | Version & release | 版本与发布 |
 | Page titles on CN twins | Match the EN page one-to-one; keep English wire terms with CN glosses |
+| Route across multiple peers (zh sidebar) | 跨多个对等节点路由（与页面标题一致；2026-08 冻结） |
 
 ### SSOT and twin rules
 

@@ -295,5 +295,5 @@ jobs:
         with:
           node-version: 20
 
-      - name: Verify golden hello vector copies match SSOT
+      - name: Verify golden vector SSOTs and registered copies match
         run: node tooling/connect/golden-vector-sync.mjs

@@ -15,6 +15,7 @@ pnpm add @42ch/spoke-connect@X.Y.Z
 - **`.`** —— 同构核心：身份、密码学、JCS 与会话核心。浏览器与 Node 均可用。
 - **`./node`** —— Node 版 `connectClient`（依赖 `ws`），负责拨号 WebSocket 并完成握手。
 - **`./noise`** —— 可选的 Noise XX mesh 传输子路径，用于直接的 libp2p-noise 互操作（见 [Noise 传输子路径](#noise-传输子路径)）。其依赖仅在导入该子路径时加载，默认的 `.` 与 `./node` 包体保持精简。
+- **`./remote`** —— 可选的 RemoteAdapter 模块：`connectRemoteAdapter`（经消费方 `Transport` 拨号远端对等节点）、`connectMultiPeerRouter`，以及带仓库内回环对的消息导向 `Transport` 接口（见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)与[跨多个对等节点路由](/zh/how-to/multi-peer-routing)）。
 
 ## 身份
 
@@ -157,6 +158,10 @@ import { NoiseXX, NoiseTransport, createNoiseStaticKeypair } from "@42ch/spoke-c
 
 子路径自带其依赖（`@noble/ciphers`、`@noble/curves`）；从 `.` 或 `./node` 导入核心保持默认包体精简。SPOKE connect 握手与会话核心规则运行在 Noise 传输层之上。
 
+## RemoteAdapter 与路由
+
+`./remote` 子路径把远端 connect 对等节点变成一个可即插即用的异步 `BaselinePorts` 面：`connectRemoteAdapter` 经消费方实现的 `Transport` 拨号（软件包附带接口与仅测试用的回环对），`connectMultiPeerRouter` 在同一个 port 面之后组合 N 个已注册 adapter，并按能力选择。见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)与[跨多个对等节点路由](/zh/how-to/multi-peer-routing)。
+
 ## 对端互操作
 
 TypeScript 客户端与 Rust 参考实现（crates.io 上的 `spoke-connect`）及每个原生绑定讲同一套会话核心规则 —— 共享契约见[connect 线上参考](/zh/reference/connect)。Rust 侧对端请 `cargo add spoke-connect`，并参考[crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md)中的两节点示例。
@@ -164,5 +169,7 @@ TypeScript 客户端与 Rust 参考实现（crates.io 上的 `spoke-connect`）�
 ## 下一步
 
 - [开启你的首个 connect 会话](/zh/tutorials/first-connect-session) —— 每个辅助函数背后的概念，逐步讲解。
+- [通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter) —— 经消费方 `Transport` 拨号远端对等节点并调用其 `BaselinePorts` 面。
+- [跨多个对等节点路由](/zh/how-to/multi-peer-routing) —— 一个路由器管理 N 个已注册 adapter，按能力选择。
 - [从原生绑定连接](/zh/how-to/connect-native-bindings) —— 从 C#、Kotlin、Swift、Go 或 Python 使用同一会话核心。
 - [connect 线上参考](/zh/reference/connect) —— 信封字段表与身份绑定。

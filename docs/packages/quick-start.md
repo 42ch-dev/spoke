@@ -39,6 +39,7 @@ pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
 - **`@42ch/spoke-connect`** — TypeScript language-native client.
+- **`@42ch/spoke-connect/remote`** — the RemoteAdapter subpath: dial a remote peer over a consumer `Transport` and route across multiple peers (see [RemoteAdapter over a Transport](/how-to/connect-remote-adapter)).
 
 ```bash
 cargo add spoke-connect@X.Y.Z

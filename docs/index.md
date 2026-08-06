@@ -9,14 +9,14 @@ hero:
     - { theme: alt, text: Open a Connect session, link: /tutorials/first-connect-session }
 features:
   - { title: Tutorials, details: "Two end-to-end paths: install and upsert your first KnowledgeEntry, then open your first connect session.", link: /tutorials/install-and-first-entry }
-  - { title: How-to guides, details: "The two integrator jobs: implement the adapter ports your capabilities require, and wire up Connect from TypeScript or native bindings.", link: /how-to/implement-adapter }
+  - { title: How-to guides, details: "The integrator journey: implement the adapter ports your capabilities require, then connect hosts with the TypeScript client, a RemoteAdapter over a consumer Transport, multi-peer routing, or the native bindings.", link: /how-to/implement-adapter }
   - { title: Reference, details: "Verify wire facts on-site: protocol, data-model, ops, and connect field tables sourced from the schemas.", link: /reference/protocol }
   - { title: Explanation, details: "The concepts behind the wire: nine layers, capability flags, dual-concern pairs, and the four Domain Profiles.", link: /explanation/concepts }
 ---
 
 ## Start here
 
-If you run a product that stores narrative knowledge, [implement an adapter](/how-to/implement-adapter) — pick the port families for the capabilities you claim, and call the matching orchestrators. If you run a separate SPOKE host and want to talk to another host, [open a connect session](/tutorials/first-connect-session) or jump straight to the [TypeScript client](/how-to/connect-ts-client) / [native bindings](/how-to/connect-native-bindings). Complete beginners follow the two tutorials in order: [Install and create your first KnowledgeEntry](/tutorials/install-and-first-entry), then [Open your first connect session](/tutorials/first-connect-session).
+If you run a product that stores narrative knowledge, [implement an adapter](/how-to/implement-adapter) — pick the port families for the capabilities you claim, and call the matching orchestrators. If you run a separate SPOKE host and want to talk to another host, [open a connect session](/tutorials/first-connect-session) or jump straight to the [TypeScript client](/how-to/connect-ts-client) / [native bindings](/how-to/connect-native-bindings). Integrating your own message-oriented `Transport`? Dial remote hosts through a [RemoteAdapter over a Transport](/how-to/connect-remote-adapter), [route across multiple peers](/how-to/multi-peer-routing), or drive the same adapter surface through a [native binding](/how-to/remote-adapter-native-binding). Complete beginners follow the two tutorials in order: [Install and create your first KnowledgeEntry](/tutorials/install-and-first-entry), then [Open your first connect session](/tutorials/first-connect-session).
 
 ## Why SPOKE
 

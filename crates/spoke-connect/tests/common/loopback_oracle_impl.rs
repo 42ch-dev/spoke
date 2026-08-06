@@ -21,6 +21,7 @@ use spoke_connect::remote::{
     reset_accepted_server_hellos_for_test, MultiPeerRouterOptions, RemoteAdapter,
     RemoteAdapterError, RemoteAdapterOptions, RemoteIdentity, Transport, TransportError,
 };
+#[cfg(test)]
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     orchestrate_check, orchestrate_upsert, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput,
@@ -144,7 +145,7 @@ pub struct HostInner {
     host_manifest: HostCapabilityManifest,
     host_peer_id: String,
     allowlist: Vec<String>,
-    pub adapter: Arc<ToyWorldAdapter>,
+    pub adapter: Arc<dyn BaselinePorts + Send + Sync>,
     requirements: HashMap<String, String>,
     delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
     /// Test-only: when a request maps to `Some(envelope)`, that envelope is
@@ -899,7 +900,7 @@ pub struct LoopbackHostOptions {
     pub host_seed: [u8; 32],
     pub host_manifest: HostCapabilityManifest,
     pub allowlist: Vec<String>,
-    pub adapter: Arc<ToyWorldAdapter>,
+    pub adapter: Arc<dyn BaselinePorts + Send + Sync>,
     pub delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
     pub response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
     pub session_peer_ids: Option<(String, String)>,
@@ -1135,6 +1136,7 @@ pub fn pubkey_client() -> [u8; 32] {
 }
 
 /// Dial a client against a fresh loopback host serving `host_adapter`.
+#[cfg(test)]
 pub async fn dial(
     host_adapter: ToyWorldAdapter,
     options: DialOptions,

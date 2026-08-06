@@ -32,6 +32,7 @@
 //! algorithm ids, and verify outcomes. Binding golden-parity smokes covering
 //! hello stay green and are not extended to envelope auth.
 
+use std::any::Any;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "ffi")]
 use std::sync::OnceLock;
@@ -50,6 +51,18 @@ pub(crate) fn ffi_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+
+/// Extract a human-readable message from a `catch_unwind` payload.
+fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        message.to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
 // ── Foreign-callback `Transport` over the async seam (AR-2 / AR-3) ───────
 //
 // The `RemoteAdapter`'s `Transport` seam is async (`send`/`recv`/`close`,
@@ -63,12 +76,27 @@ pub(crate) fn ffi_runtime() -> &'static tokio::runtime::Runtime {
 #[cfg(feature = "remote-adapter")]
 mod foreign_transport {
     use async_trait::async_trait;
+    use std::future::Future;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
 
     use crate::remote::transport;
     use crate::remote::transport::Transport as RemoteAsyncTransport;
 
-    use super::ffi_runtime;
+    use super::{ffi_runtime, panic_payload_message};
+
+    fn ffi_block_on_transport<F, T>(future: F) -> Result<T, TransportError>
+    where
+        F: Future<Output = Result<T, transport::TransportError>>,
+    {
+        match catch_unwind(AssertUnwindSafe(|| ffi_runtime().block_on(future))) {
+            Ok(result) => result.map_err(Into::into),
+            Err(payload) => Err(TransportError::Io(format!(
+                "internal panic: {}",
+                panic_payload_message(payload)
+            ))),
+        }
+    }
 
     /// FFI-facing mirror of [`transport::TransportError`] — the
     /// callback `Transport`'s own error vocabulary. 1:1 with the remote
@@ -194,27 +222,18 @@ mod foreign_transport {
     impl LoopbackTransport {
         /// Send one envelope; delivered to the peer end's `recv`.
         pub fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
-            ffi_runtime()
-                .handle()
-                .block_on(self.inner.send(&envelope))
-                .map_err(Into::into)
+            ffi_block_on_transport(self.inner.send(&envelope))
         }
 
         /// Receive the next inbound envelope. Errors when the connection
         /// closes.
         pub fn recv(&self) -> Result<Vec<u8>, TransportError> {
-            ffi_runtime()
-                .handle()
-                .block_on(self.inner.recv())
-                .map_err(Into::into)
+            ffi_block_on_transport(self.inner.recv())
         }
 
         /// Close the whole connection (both directions). Idempotent.
         pub fn close(&self) -> Result<(), TransportError> {
-            ffi_runtime()
-                .handle()
-                .block_on(self.inner.close())
-                .map_err(Into::into)
+            ffi_block_on_transport(self.inner.close())
         }
     }
 
@@ -271,6 +290,11 @@ pub use foreign_transport::{
 // ── Sync `RemoteAdapterFFI` over the async adapter (AR-4 / AR-5 / AR-6) ───
 #[cfg(feature = "remote-adapter")]
 mod remote_adapter_ffi {
+    use std::any::Any;
+    #[cfg(test)]
+    use std::cell::Cell;
+    use std::future::Future;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
 
     use serde::de::DeserializeOwned;
@@ -289,7 +313,75 @@ mod remote_adapter_ffi {
 
     use super::foreign_transport::ForeignCallbackTransport;
     use super::foreign_transport::Transport as FfiTransport;
-    use super::ffi_runtime;
+    use super::{ffi_runtime, panic_payload_message};
+
+    #[cfg(test)]
+    thread_local! {
+        static INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON: Cell<bool> = Cell::new(false);
+    }
+
+    fn map_block_on_panic(payload: Box<dyn Any + Send>) -> FfiError {
+        FfiError::Rejected {
+            code: "INTERNAL_ERROR".into(),
+            message: panic_payload_message(payload),
+            kind: Some("panic".into()),
+            wire_code: None,
+        }
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn ffi_block_on<F, T>(future: F) -> Result<T, FfiError>
+    where
+        F: Future<Output = T>,
+    {
+        match catch_unwind(AssertUnwindSafe(|| ffi_runtime().block_on(future))) {
+            Ok(value) => Ok(value),
+            Err(payload) => Err(map_block_on_panic(payload)),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn ffi_block_on<F, T>(future: F) -> Result<T, FfiError>
+    where
+        F: Future<Output = T>,
+    {
+        let future = async {
+            if INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.with(|flag| {
+                let should_panic = flag.get();
+                if should_panic {
+                    flag.set(false);
+                }
+                should_panic
+            }) {
+                panic!("injected ffi block_on panic");
+            }
+            future.await
+        };
+        match catch_unwind(AssertUnwindSafe(|| ffi_runtime().block_on(future))) {
+            Ok(value) => Ok(value),
+            Err(payload) => Err(map_block_on_panic(payload)),
+        }
+    }
+
+    pub(super) fn ffi_block_on_void<F>(future: F)
+    where
+        F: Future<Output = ()>,
+    {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            ffi_runtime().block_on(future);
+        })) {
+            eprintln!(
+                "ffi: swallowed panic during close: {}",
+                panic_payload_message(payload)
+            );
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn inject_panic_on_next_block_on_for_test() {
+        INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.with(|flag| flag.set(true));
+    }
+
 
     /// FFI error surface — 1:1 with frozen-contract D7 (AR-5).
     ///
@@ -411,15 +503,11 @@ mod remote_adapter_ffi {
         }
 
         pub fn get_host_capability_manifest(&self) -> Result<String, FfiError> {
-            map_spoke_result(
-                ffi_runtime().block_on(self.inner.get_host_capability_manifest()),
-            )
+            map_spoke_result(ffi_block_on(self.inner.get_host_capability_manifest())?)
         }
 
         pub fn get_knowledge_entry(&self, entry_id: String) -> Result<String, FfiError> {
-            map_spoke_result(
-                ffi_runtime().block_on(self.inner.get_knowledge_entry(&entry_id)),
-            )
+            map_spoke_result(ffi_block_on(self.inner.get_knowledge_entry(&entry_id))?)
         }
 
         pub fn put_knowledge_entry(
@@ -428,14 +516,14 @@ mod remote_adapter_ffi {
             expected_base_revision: Option<u64>,
         ) -> Result<String, FfiError> {
             let entry: KnowledgeEntry = parse_json_field(&entry_json, "knowledge entry")?;
-            map_spoke_result(ffi_runtime().block_on(
+            map_spoke_result(ffi_block_on(
                 self.inner
                     .put_knowledge_entry(entry, expected_base_revision),
-            ))
+            )?)
         }
 
         pub fn get_relation(&self, relation_id: String) -> Result<String, FfiError> {
-            map_spoke_result(ffi_runtime().block_on(self.inner.get_relation(&relation_id)))
+            map_spoke_result(ffi_block_on(self.inner.get_relation(&relation_id))?)
         }
 
         pub fn put_relation(
@@ -444,42 +532,36 @@ mod remote_adapter_ffi {
             expected_base_revision: Option<u64>,
         ) -> Result<String, FfiError> {
             let relation: Relation = parse_json_field(&relation_json, "relation")?;
-            map_spoke_result(ffi_runtime().block_on(
+            map_spoke_result(ffi_block_on(
                 self.inner.put_relation(relation, expected_base_revision),
-            ))
+            )?)
         }
 
         pub fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
             let scope: Scope = parse_json_field(&scope_json, "scope")?;
-            map_spoke_result(
-                ffi_runtime().block_on(self.inner.list_knowledge_entries(&scope)),
-            )
+            map_spoke_result(ffi_block_on(self.inner.list_knowledge_entries(&scope))?)
         }
 
         pub fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
             let scope: Scope = parse_json_field(&scope_json, "scope")?;
-            map_spoke_result(
-                ffi_runtime().block_on(self.inner.list_timeline_events(&scope)),
-            )
+            map_spoke_result(ffi_block_on(self.inner.list_timeline_events(&scope))?)
         }
 
         pub fn put_findings(&self, findings_json: String) -> Result<String, FfiError> {
             let findings: Vec<Finding> = parse_json_field(&findings_json, "findings")?;
-            map_spoke_result(ffi_runtime().block_on(self.inner.put_findings(findings)))
+            map_spoke_result(ffi_block_on(self.inner.put_findings(findings))?)
         }
 
         pub fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError> {
-            map_spoke_result(ffi_runtime().block_on(self.inner.list_rules(&rule_refs)))
+            map_spoke_result(ffi_block_on(self.inner.list_rules(&rule_refs))?)
         }
 
         pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
-            map_spoke_result(
-                ffi_runtime().block_on(self.inner.list_peer_host_capability_manifests()),
-            )
+            map_spoke_result(ffi_block_on(self.inner.list_peer_host_capability_manifests())?)
         }
 
         pub fn close(&self) {
-            ffi_runtime().block_on(async {
+            ffi_block_on_void(async {
                 self.inner.close();
             });
         }
@@ -505,8 +587,7 @@ mod remote_adapter_ffi {
                 kind: "config".into(),
                 message: format!("invalid local host manifest JSON: {error}"),
             })?;
-        let adapter = ffi_runtime()
-            .block_on(connect_remote_adapter(RemoteAdapterOptions {
+        let adapter = ffi_block_on(connect_remote_adapter(RemoteAdapterOptions {
                 transport: Arc::new(ForeignCallbackTransport::new(Arc::from(transport))),
                 local_identity: RemoteIdentity {
                     seed: ed25519_seed(local_seed)?,
@@ -516,7 +597,7 @@ mod remote_adapter_ffi {
                 allowlist,
                 invoke_timeout_ms,
                 capability_token: None,
-            }))
+            }))?
             .map_err(map_dial_error)?;
         Ok(Arc::new(RemoteAdapterFFI { inner: adapter }))
     }
@@ -562,6 +643,7 @@ mod remote_adapter_ffi {
                 "envelope_auth_missing",
                 "envelope_auth_invalid",
                 "envelope_auth_session_unbound",
+                "panic",
             ] {
                 let reject = SpokeReject {
                     code: SpokeRejectCode::InternalError,
@@ -651,21 +733,19 @@ mod remote_adapter_ffi {
 mod multi_peer_router_ffi {
     use std::sync::Arc;
 
-    use serde::Serialize;
     use spoke_operations::{
         FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
         ScopeQueryPort,
     };
-    use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
+    use spoke_schemas::{Finding, KnowledgeEntry, Relation, Scope};
 
     use crate::remote::{
         connect_multi_peer_router, MultiPeerRouter, MultiPeerRouterError,
         MultiPeerRouterOptions,
     };
 
-    use super::ffi_runtime;
     use super::remote_adapter_ffi::{
-        map_spoke_result, parse_json_field, FfiError, RemoteAdapterFFI,
+        ffi_block_on, map_spoke_result, parse_json_field, FfiError, RemoteAdapterFFI,
     };
 
     fn map_register_error(error: MultiPeerRouterError) -> FfiError {
@@ -699,13 +779,11 @@ mod multi_peer_router_ffi {
         }
 
         pub fn get_host_capability_manifest(&self) -> Result<String, FfiError> {
-            map_spoke_result(ffi_runtime().block_on(self.router.get_host_capability_manifest()))
+            map_spoke_result(ffi_block_on(self.router.get_host_capability_manifest())?)
         }
 
         pub fn get_knowledge_entry(&self, entry_id: String) -> Result<String, FfiError> {
-            map_spoke_result(
-                ffi_runtime().block_on(self.router.get_knowledge_entry(&entry_id)),
-            )
+            map_spoke_result(ffi_block_on(self.router.get_knowledge_entry(&entry_id))?)
         }
 
         pub fn put_knowledge_entry(
@@ -714,14 +792,14 @@ mod multi_peer_router_ffi {
             expected_base_revision: Option<u64>,
         ) -> Result<String, FfiError> {
             let entry: KnowledgeEntry = parse_json_field(&entry_json, "knowledge entry")?;
-            map_spoke_result(ffi_runtime().block_on(
+            map_spoke_result(ffi_block_on(
                 self.router
                     .put_knowledge_entry(entry, expected_base_revision),
-            ))
+            )?)
         }
 
         pub fn get_relation(&self, relation_id: String) -> Result<String, FfiError> {
-            map_spoke_result(ffi_runtime().block_on(self.router.get_relation(&relation_id)))
+            map_spoke_result(ffi_block_on(self.router.get_relation(&relation_id))?)
         }
 
         pub fn put_relation(
@@ -730,38 +808,32 @@ mod multi_peer_router_ffi {
             expected_base_revision: Option<u64>,
         ) -> Result<String, FfiError> {
             let relation: Relation = parse_json_field(&relation_json, "relation")?;
-            map_spoke_result(ffi_runtime().block_on(
+            map_spoke_result(ffi_block_on(
                 self.router.put_relation(relation, expected_base_revision),
-            ))
+            )?)
         }
 
         pub fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
             let scope: Scope = parse_json_field(&scope_json, "scope")?;
-            map_spoke_result(
-                ffi_runtime().block_on(self.router.list_knowledge_entries(&scope)),
-            )
+            map_spoke_result(ffi_block_on(self.router.list_knowledge_entries(&scope))?)
         }
 
         pub fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
             let scope: Scope = parse_json_field(&scope_json, "scope")?;
-            map_spoke_result(
-                ffi_runtime().block_on(self.router.list_timeline_events(&scope)),
-            )
+            map_spoke_result(ffi_block_on(self.router.list_timeline_events(&scope))?)
         }
 
         pub fn put_findings(&self, findings_json: String) -> Result<String, FfiError> {
             let findings: Vec<Finding> = parse_json_field(&findings_json, "findings")?;
-            map_spoke_result(ffi_runtime().block_on(self.router.put_findings(findings)))
+            map_spoke_result(ffi_block_on(self.router.put_findings(findings))?)
         }
 
         pub fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError> {
-            map_spoke_result(ffi_runtime().block_on(self.router.list_rules(&rule_refs)))
+            map_spoke_result(ffi_block_on(self.router.list_rules(&rule_refs))?)
         }
 
         pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
-            map_spoke_result(
-                ffi_runtime().block_on(self.router.list_peer_host_capability_manifests()),
-            )
+            map_spoke_result(ffi_block_on(self.router.list_peer_host_capability_manifests())?)
         }
     }
 
@@ -779,19 +851,19 @@ mod multi_peer_router_ffi {
 mod loopback_smoke_host {
     use std::sync::Arc;
 
-    use spoke_fixture_toy_world::ToyWorldAdapter;
+    use spoke_operations::BaselinePorts;
 
     use crate::core::derive_peer_id_from_ed25519_pubkey;
     use crate::test_support::loopback_oracle::{
         manifest, pubkey_client, seed_host, start_loopback_host, LoopbackHost,
         LoopbackHostOptions,
     };
+    use crate::test_support::smoke_baseline_adapter::SmokeBaselineAdapter;
 
     use super::foreign_transport::LoopbackTransport;
-    use super::ffi_runtime;
 
-    /// Reference loopback host for binding smokes (ToyWorld fixtures, fixed
-    /// test seeds). Serves the server end of a [`loopback_transport_pair`].
+    /// Reference loopback host for binding smokes (in-crate empty-store adapter,
+    /// fixed test seeds). Serves the server end of a [`loopback_transport_pair`].
     #[derive(uniffi::Object)]
     pub struct LoopbackSmokeHost {
         host: LoopbackHost,
@@ -806,7 +878,9 @@ mod loopback_smoke_host {
 
         /// Close the connection (fails the client's pending recv / invokes).
         pub fn close(&self) {
-            self.host.close();
+            super::remote_adapter_ffi::ffi_block_on_void(async {
+                self.host.close();
+            });
         }
     }
 
@@ -814,10 +888,10 @@ mod loopback_smoke_host {
         server: Arc<LoopbackTransport>,
         host_seed: [u8; 32],
         host_manifest: spoke_schemas::HostCapabilityManifest,
-        adapter: Arc<ToyWorldAdapter>,
-    ) -> Arc<LoopbackSmokeHost> {
+        adapter: Arc<dyn BaselinePorts + Send + Sync>,
+    ) -> Result<Arc<LoopbackSmokeHost>, super::remote_adapter_ffi::FfiError> {
         let transport = Arc::new(server.clone_async_inner());
-        let host = ffi_runtime().block_on(start_loopback_host(LoopbackHostOptions {
+        let host = super::remote_adapter_ffi::ffi_block_on(start_loopback_host(LoopbackHostOptions {
             transport,
             host_seed,
             host_manifest,
@@ -826,29 +900,32 @@ mod loopback_smoke_host {
             delay: Box::new(|_| 0),
             response_override: None,
             session_peer_ids: None,
-        }));
-        Arc::new(LoopbackSmokeHost { host })
+        }))?;
+        Ok(Arc::new(LoopbackSmokeHost { host }))
     }
 
     /// Start the reference loopback smoke host on the server end of a
-    /// loopback pair. Uses the same seeds, manifests, and ToyWorld adapter
-    /// as the Rust FFI parity tests.
+    /// loopback pair. Uses the same seeds and manifests as the Rust FFI parity
+    /// tests with an in-crate empty-store baseline adapter.
     #[uniffi::export]
     pub fn start_loopback_smoke_host(
         server: Arc<LoopbackTransport>,
     ) -> Arc<LoopbackSmokeHost> {
+        // UniFFI export has no error slot; re-panic with the mapped FfiError message.
         start_loopback_smoke_host_inner(
             server,
             seed_host(),
             manifest("test-host", &["spoke-baseline"]),
-            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            Arc::new(SmokeBaselineAdapter::default()),
         )
+        .unwrap_or_else(|error| panic!("loopback smoke host start: {error}"))
     }
 
     /// Parametric loopback smoke host for multi-peer routing smokes: fixed
     /// client allowlist (`seed_client`), caller-supplied host seed + manifest.
-    /// Uses `ToyWorldAdapter::default()` (same as Rust `multi_peer_router_ffi`
-    /// loopback proofs). `ffi-smoke-host` only — not in production cdylib.
+    /// Uses the in-crate empty-store smoke adapter (same as Rust
+    /// `multi_peer_router_ffi` loopback proofs). `ffi-smoke-host` only — not in
+    /// production cdylib.
     #[uniffi::export]
     pub fn start_loopback_smoke_host_variant(
         server: Arc<LoopbackTransport>,
@@ -868,12 +945,12 @@ mod loopback_smoke_host {
                     message: format!("invalid host manifest JSON: {error}"),
                 }
             })?;
-        Ok(start_loopback_smoke_host_inner(
+        start_loopback_smoke_host_inner(
             server,
             host_seed,
             host_manifest,
-            Arc::new(ToyWorldAdapter::default()),
-        ))
+            Arc::new(SmokeBaselineAdapter::default()),
+        )
     }
 }
 
@@ -1568,7 +1645,8 @@ mod tests {
 
 #[cfg(all(test, feature = "remote-adapter"))]
 mod remote_adapter_ffi_tests {
-    use std::sync::Arc;
+    use std::sync::mpsc;
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     use serde_json::json;
@@ -1618,6 +1696,42 @@ mod remote_adapter_ffi_tests {
 
     fn client_manifest_json() -> String {
         serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest")
+    }
+
+    /// Callback transport that signals once after the first post-dial `send` succeeds
+    /// (invoke request on the wire, waiting for host response).
+    struct InvokeInFlightCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+        in_flight_tx: Arc<Mutex<Option<mpsc::Sender<()>>>>,
+    }
+
+    impl Transport for InvokeInFlightCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            let result = ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into);
+            if result.is_ok() {
+                if let Some(tx) = self.in_flight_tx.lock().expect("in-flight tx lock").take() {
+                    let _ = tx.send(());
+                }
+            }
+            result
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
     }
 
     fn dial_ffi(client: crate::remote::transport::LoopbackTransport) -> Arc<RemoteAdapterFFI> {
@@ -1934,7 +2048,45 @@ mod remote_adapter_ffi_tests {
         }
     }
 
-    struct HangingRecvTransport;
+    struct HangingRecvTransport {
+        state: Arc<HangingRecvState>,
+    }
+
+    struct HangingRecvState {
+        closed: std::sync::atomic::AtomicBool,
+        parked: Mutex<Vec<std::thread::Thread>>,
+    }
+
+    impl HangingRecvTransport {
+        fn new() -> Self {
+            Self {
+                state: Arc::new(HangingRecvState {
+                    closed: std::sync::atomic::AtomicBool::new(false),
+                    parked: Mutex::new(Vec::new()),
+                }),
+            }
+        }
+
+        fn parked_thread_count(&self) -> usize {
+            self.state.parked.lock().expect("parked lock").len()
+        }
+    }
+
+    struct HangingRecvTransportHolder(Arc<HangingRecvTransport>);
+
+    impl Transport for HangingRecvTransportHolder {
+        fn send(&self, _envelope: Vec<u8>) -> Result<(), TransportError> {
+            self.0.send(_envelope)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            self.0.recv()
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            self.0.close()
+        }
+    }
 
     impl Transport for HangingRecvTransport {
         fn send(&self, _envelope: Vec<u8>) -> Result<(), TransportError> {
@@ -1942,11 +2094,34 @@ mod remote_adapter_ffi_tests {
         }
 
         fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            if self.state.closed.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(TransportError::Closed);
+            }
+            let current = std::thread::current();
+            self.state
+                .parked
+                .lock()
+                .expect("parked lock")
+                .push(current);
+            if self.state.closed.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(TransportError::Closed);
+            }
             std::thread::park();
-            unreachable!("parked recv should not return")
+            if self.state.closed.load(std::sync::atomic::Ordering::Acquire) {
+                Err(TransportError::Closed)
+            } else {
+                unreachable!("parked recv should not return without close")
+            }
         }
 
         fn close(&self) -> Result<(), TransportError> {
+            self.state
+                .closed
+                .store(true, std::sync::atomic::Ordering::Release);
+            let parked = std::mem::take(&mut *self.state.parked.lock().expect("parked lock"));
+            for thread in parked {
+                thread.unpark();
+            }
             Ok(())
         }
     }
@@ -2050,7 +2225,7 @@ mod remote_adapter_ffi_tests {
                     .host_allowlist
                     .clone()
                     .unwrap_or_else(|| vec![peer_id_client.clone()]),
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: options
                     .host_delay
                     .unwrap_or_else(|| Box::new(|_| 0)),
@@ -2400,7 +2575,7 @@ mod remote_adapter_ffi_tests {
                 host_seed: seed_host(),
                 host_manifest: manifest("test-host", &["spoke-baseline"]),
                 allowlist: vec![other_peer.clone()],
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
                 response_override: None,
                 session_peer_ids: None,
@@ -2432,7 +2607,7 @@ mod remote_adapter_ffi_tests {
                 host_seed: seed_host(),
                 host_manifest: manifest("test-host", &["spoke-baseline"]),
                 allowlist: vec![other_peer],
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
                 response_override: None,
                 session_peer_ids: None,
@@ -2477,8 +2652,9 @@ mod remote_adapter_ffi_tests {
                 Ok(_) => panic!("async dial must timeout"),
             }
         });
+        let hanging = Arc::new(HangingRecvTransport::new());
         let ffi_err = match connect_remote_adapter_ffi(
-            Box::new(HangingRecvTransport),
+            Box::new(HangingRecvTransportHolder(Arc::clone(&hanging))),
             seed_client().to_vec(),
             serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest"),
             pubkey_host().to_vec(),
@@ -2490,6 +2666,144 @@ mod remote_adapter_ffi_tests {
         };
         assert!(matches!(async_err, RemoteAdapterError::Timeout(_)));
         assert!(matches!(ffi_err, FfiError::Dial { kind, .. } if kind == "timeout"));
+        hanging.close().expect("close unparks blocked recv");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(
+            hanging.parked_thread_count(),
+            0,
+            "HangingRecvTransport must not leak parked threads after close"
+        );
+    }
+
+    #[test]
+    fn remote_adapter_ffi_invoke_future_panic_surfaces_as_ffi_rejected() {
+        let (async_client, host) = ffi_runtime().block_on(async {
+            let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+            dial(host_adapter, DialOptions::default()).await
+        });
+        let ffi = RemoteAdapterFFI::from_adapter(async_client);
+        super::remote_adapter_ffi::inject_panic_on_next_block_on_for_test();
+        let err = ffi
+            .get_knowledge_entry("kb_tw_mira".to_string())
+            .expect_err("panicking future must not unwind across ffi");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: None,
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "panic"
+        ));
+        host.close();
+    }
+
+    #[test]
+    fn ffi_callback_transport_mid_flight_close_rejects_pending_invoke_session_closed() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::mpsc;
+
+        use crate::remote::{
+            connect_remote_adapter, RemoteAdapterOptions, RemoteIdentity,
+        };
+
+        let delay_active = Arc::new(AtomicBool::new(true));
+        let delay_active_host = Arc::clone(&delay_active);
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let in_flight_tx_slot = Arc::new(Mutex::new(None));
+        let bridge = Arc::new(ForeignCallbackTransport::new(Arc::new(InvokeInFlightCallback {
+            inner: pair.client,
+            in_flight_tx: Arc::clone(&in_flight_tx_slot),
+        })));
+        let bridge_for_close = Arc::clone(&bridge);
+        let host = ffi_runtime().block_on(async {
+            start_loopback_host(LoopbackHostOptions {
+                transport: Arc::new(pair.server),
+                host_seed: seed_host(),
+                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+                adapter: Arc::new(ToyWorldAdapter::default()),
+                delay: Box::new(move |_| {
+                    if delay_active_host.load(Ordering::Relaxed) {
+                        200
+                    } else {
+                        0
+                    }
+                }),
+                response_override: None,
+                session_peer_ids: None,
+            })
+            .await
+        });
+        let adapter = ffi_runtime()
+            .block_on(connect_remote_adapter(RemoteAdapterOptions {
+                transport: bridge,
+                local_identity: RemoteIdentity {
+                    seed: seed_client(),
+                },
+                local_manifest: serde_json::from_str(&client_manifest_json())
+                    .expect("client manifest"),
+                remote_pubkey: pubkey_host(),
+                allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+                invoke_timeout_ms: None,
+                capability_token: None,
+            }))
+            .expect("dial over ForeignCallbackTransport bridge");
+        let ffi = Arc::new(RemoteAdapterFFI::from_adapter(adapter));
+        let (invoke_in_flight_tx, invoke_in_flight_rx) = mpsc::channel();
+        *in_flight_tx_slot.lock().expect("in-flight tx slot lock") = Some(invoke_in_flight_tx);
+        let invoke_slot = Arc::new(Mutex::new(None));
+        let invoke_slot_thread = Arc::clone(&invoke_slot);
+        let ffi_thread = Arc::clone(&ffi);
+        let invoke_handle = thread::spawn(move || {
+            let result = ffi_thread.get_knowledge_entry("kb_tw_mira".to_string());
+            *invoke_slot_thread.lock().expect("invoke slot lock") = Some(result);
+        });
+        invoke_in_flight_rx
+            .recv()
+            .expect("invoke send must complete before close");
+        ffi_runtime()
+            .block_on(bridge_for_close.close())
+            .expect("close via ForeignCallbackTransport spawn_blocking path");
+        invoke_handle.join().expect("invoke thread joined");
+        let err = invoke_slot
+            .lock()
+            .expect("invoke slot lock")
+            .take()
+            .expect("invoke result")
+            .expect_err("pending invoke must reject when transport closes");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+        delay_active.store(false, Ordering::Relaxed);
+        host.close();
+    }
+
+    #[test]
+    fn hanging_recv_transport_releases_blocked_thread_on_close() {
+        use std::time::Duration;
+
+        let transport = Arc::new(HangingRecvTransport::new());
+        let transport_recv = Arc::clone(&transport);
+        let recv_handle = thread::spawn(move || transport_recv.recv());
+        thread::sleep(Duration::from_millis(20));
+        assert!(
+            !recv_handle.is_finished(),
+            "recv should block until transport close"
+        );
+        transport.close().expect("transport close unparks recv");
+        let recv_result = recv_handle.join().expect("recv thread joined");
+        assert!(matches!(recv_result, Err(TransportError::Closed)));
+        assert_eq!(
+            transport.parked_thread_count(),
+            0,
+            "no parked threads should remain after close"
+        );
     }
 
     #[test]
@@ -2647,10 +2961,12 @@ mod multi_peer_router_ffi_tests {
 
         assert_eq!(baseline_host.stats().invokes_dispatched, 2);
         assert_eq!(computable_host.stats().invokes_dispatched, 0);
-        assert!(baseline_host
-            .inner
-            .adapter
-            .with_store(|store| store.entries.contains_key("kb_mpr_ffi_upsert")));
+        assert!(ffi_runtime().block_on(
+            baseline_host
+                .inner
+                .adapter
+                .get_knowledge_entry("kb_mpr_ffi_upsert")
+        ).is_ok());
 
         baseline_adapter.close();
         computable_adapter.close();

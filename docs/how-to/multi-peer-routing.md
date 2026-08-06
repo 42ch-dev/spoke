@@ -8,7 +8,7 @@ A **multi-peer router** (`connectMultiPeerRouter` in TypeScript, `connect_multi_
 
 ## 1. Dial and register peers
 
-The router starts with zero peers. You dial each peer's `RemoteAdapter` yourself (signed-hello handshake, allowlist, session establishment), then register the established adapter. The router stores the adapter and caches the peer's `HostCapabilityManifest` — the `host` field from the authenticated hello — at registration time.
+The router starts with zero peers. You dial each peer's `RemoteAdapter` yourself (signed-hello handshake, allowlist, session establishment — the full dial contract is in [RemoteAdapter over a Transport](/how-to/connect-remote-adapter)), then register the established adapter. The router stores the adapter and caches the peer's `HostCapabilityManifest` — the `host` field from the authenticated hello — at registration time.
 
 ```ts
 import { connectMultiPeerRouter } from "@42ch/spoke-connect/remote";
@@ -64,13 +64,7 @@ Selection reads each registered peer's cached `HostCapabilityManifest` and match
 | `roles` | the peer's `roles[]` | **soft preference** | peers with the operation's preferred role are preferred; capable peers lacking that role remain eligible |
 | `authority.scope_key` | the peer's `authority.scope_key` | **hard gate when both sides declare** | exact match between the peer's scope key and the request's scope key |
 
-Each operation family maps to a required capability:
-
-| Operation family | Required capability |
-|------------------|---------------------|
-| `upsert`, `promote`, `relate`, `check`, `assemble` (and `port.*` baseline ops) | `spoke-baseline` |
-| `project`, `compute` (and `port.computable.*`) | `l2-computable` |
-| product-defined operations | the capability your product documents |
+Each operation family maps to a required capability — see the [Capability vocabulary](/reference/connect#capability-vocabulary) in the wire reference for the full table.
 
 The request's namespace derives from the payload `Scope` when the operation carries one (for example `upsert-request.scope` or `check-request.scope`). Namespace matching is exact: a peer declaring `namespaces: ["*"]` declares the literal string `"*"`. When the request carries a scope key and the peer's manifest declares one, the two must match exactly; when only one side declares, that gate passes.
 
@@ -100,7 +94,7 @@ Retry is consumer-owned. The consumer re-invokes with a fresh `request_id`; the 
 
 ## 4. Envelope authenticity is protocol-level
 
-Every connect envelope — hello, invoke, and response — is signed with the session peer's Ed25519 key over the RFC 8785 JCS-canonicalized object and verified inside the session core before dispatch. This verification runs on any ordered, reliable transport the adapter provides (TCP, WebSocket, yamux, or Noise), because authenticity lives in the envelope itself, above the transport. The router selects a peer after envelope authentication completes on each per-peer session; selection is a routing decision that operates within the session core's authenticated envelope flow.
+Every connect envelope — hello, invoke, and response — is signed with the session peer's Ed25519 key over the RFC 8785 JCS-canonicalized object and verified inside the session core before dispatch, so authenticity lives in the envelope itself, above any transport. The router selects a peer after envelope authentication completes on each per-peer session; selection is a routing decision that operates within the session core's authenticated envelope flow. The full picture — why the envelopes are signed, what protocol version 2 covers, and how mixed-version peers behave — is in [Connect architecture](/explanation/connect#envelope-authentication).
 
 ## 5. Inspect what the router can reach
 
@@ -121,14 +115,22 @@ const perPeer = await router.listPeerHostCapabilityManifests();
 ```
 
 ```rust
-let composed = router.get_host_capability_manifest().await?;
+use spoke_operations::SpokeResult;
+
+let composed = match router.get_host_capability_manifest().await {
+    SpokeResult::Ok(manifest) => manifest,
+    SpokeResult::Reject(reject) => return Err(reject), // your error path
+};
 // composed.host_id                  → the router's own host_id
 // composed.capabilities             → set-union, deduplicated
 // composed.roles                    → set-union, deduplicated
 // composed.namespaces               → set-union, deduplicated
 // composed.extensions["router"]["peers"] → contributing peer_ids, UTF-8 byte order
 
-let per_peer = router.list_peer_host_capability_manifests().await?;
+let per_peer = match router.list_peer_host_capability_manifests().await {
+    SpokeResult::Ok(manifests) => manifests,
+    SpokeResult::Reject(reject) => return Err(reject), // your error path
+};
 // per_peer[i].host_id → one peer's manifest per entry, sorted by peer_id
 ```
 
@@ -141,6 +143,7 @@ Routing reads each peer's own cached manifest; the composed view is an introspec
 
 ## Next steps
 
+- [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) — the dial contract for each registered peer's adapter.
 - [Implement an adapter](/how-to/implement-adapter) — the per-peer port surface the router delegates to.
 - [Orchestrate operations](/how-to/orchestrate-ops) — the `orchestrate*` calls that route through the router.
 - [Connect from the TypeScript client](/how-to/connect-ts-client) — dialing each peer's session.

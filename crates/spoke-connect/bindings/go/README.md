@@ -18,11 +18,31 @@ Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/sp
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
 | Local smoke cdylib + smoke Go bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
 Full loopback smoke procedure: [`Smoke/loopback_remote_adapter_test.go`](Smoke/loopback_remote_adapter_test.go) (`-tags smokehost`).
+
+## RemoteAdapter FFI surface
+
+With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, and the in-memory loopback helpers.
+
+### Transport contract
+
+The callback `Transport` is a message-oriented interface: one envelope per call, blocking receive, idempotent close.
+
+| Method | Behavior |
+|--------|----------|
+| `Send(envelope)` | Accepts exactly one connect envelope's bytes per call |
+| `Recv()` | Blocks until the next inbound envelope arrives or the connection closes; returns exactly one envelope per call |
+| `Close()` | Releases transport resources; idempotent — closing either end of a connection fails the peer's pending `Recv` like a real connection drop |
+
+The surface bounds messages at one envelope per call; byte-stream carriers apply length-prefix (or equivalent) delimiting before handing envelopes to the adapter.
+
+### MultiPeerRouterFFI
+
+`NewMultiPeerRouterFfi()` returns the router as a synchronous object over the same runtime: a peer registry (`RegisterPeer(adapter)` accepts an established `RemoteAdapterFfi` and returns its `peer_id`; `UnregisterPeer(peerId)`; `ListPeers()`), the `BaselinePorts` six families routed per call to exactly one capable peer, and the two `HostManifestPort` aggregation views — the composed `GetHostCapabilityManifest()` and the per-peer `ListPeerHostCapabilityManifests()`. Selection matches each registered peer's cached `HostCapabilityManifest`: required capability, exact namespace, soft role preference, and a deterministic lowest-`peer_id` tie-break.
 
 ## Layout
 

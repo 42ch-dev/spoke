@@ -148,7 +148,9 @@ private func adapterHasEntry(adapter: RemoteAdapterFfi, entryId: String) -> Bool
     } catch let error as FfiError {
         switch error {
         case .Rejected(let code, _, _, _):
-            return code == "KNOWLEDGE_ENTRY_NOT_FOUND" ? false : false
+            // F-001: explicit false for any Rejected — do not invert to `code != "KNOWLEDGE_ENTRY_NOT_FOUND"`.
+            _ = code
+            return false
         default:
             return false
         }

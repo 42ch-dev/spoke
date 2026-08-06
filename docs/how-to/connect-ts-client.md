@@ -15,6 +15,7 @@ Entry points:
 - **`.`** — the isomorphic core: identity, crypto, JCS, and session core. Works in browsers and Node.
 - **`./node`** — the Node `connectClient` (depends on `ws`), which dials a WebSocket and completes the handshake.
 - **`./noise`** — the opt-in Noise XX mesh transport subpath for direct libp2p-noise interoperability (see [Noise transport subpath](#noise-transport-subpath)). Its dependencies load only when the subpath is imported, so the default `.` and `./node` bundles stay thin.
+- **`./remote`** — the opt-in RemoteAdapter module: `connectRemoteAdapter` (dial a remote peer over a consumer `Transport`), `connectMultiPeerRouter`, and the message-oriented `Transport` interface with the in-repo loopback pair (see [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) and [Route across multiple peers](/how-to/multi-peer-routing)).
 
 ## Identity
 
@@ -157,6 +158,10 @@ import { NoiseXX, NoiseTransport, createNoiseStaticKeypair } from "@42ch/spoke-c
 
 The subpath loads its own dependencies (`@noble/ciphers`, `@noble/curves`); importing the core from `.` or `./node` keeps the default bundle thin. The SPOKE connect hello and session-core rules run above the Noise transport.
 
+## RemoteAdapter and routing
+
+The `./remote` subpath turns a remote connect peer into a drop-in async `BaselinePorts` surface: `connectRemoteAdapter` dials through a consumer-implemented `Transport` (the package ships the interface and a test-only loopback pair), and `connectMultiPeerRouter` composes N registered adapters behind the same port surface with capability-based selection. See [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) and [Route across multiple peers](/how-to/multi-peer-routing).
+
 ## Peer-side interoperability
 
 The TypeScript client speaks the same session-core rules as the Rust reference (`spoke-connect` on crates.io) and every native binding — see [Connect wire reference](/reference/connect) for the shared contract. For a Rust-side peer, use `cargo add spoke-connect` and follow the two-node example in the [crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md).
@@ -164,5 +169,7 @@ The TypeScript client speaks the same session-core rules as the Rust reference (
 ## Next steps
 
 - [Open your first connect session](/tutorials/first-connect-session) — the concepts behind each helper, step by step.
+- [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) — dial a remote peer over a consumer `Transport` and call its `BaselinePorts` surface.
+- [Route across multiple peers](/how-to/multi-peer-routing) — one router over N registered adapters, with capability-based selection.
 - [Connect from native bindings](/how-to/connect-native-bindings) — the same session core from C#, Kotlin, Swift, Go, or Python.
 - [Connect wire reference](/reference/connect) — envelope field tables and identity binding.

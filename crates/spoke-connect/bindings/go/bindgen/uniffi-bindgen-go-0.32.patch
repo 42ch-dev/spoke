@@ -45,10 +45,10 @@ index ce6b262..08a9e88 100644
 +}
 +
 +impl<'a> CodeType for SetCodeType<'a> {
-+    fn type_label(&self, ci: &ComponentInterface) -> String {
++    fn type_label(&self, _ci: &ComponentInterface) -> String {
 +        format!(
 +            "map[{}]struct{{}}",
-+            super::GoCodeOracle.find(self.inner(), ci).type_label(ci),
++            super::GoCodeOracle.find(self.inner(), self.ci).type_label(self.ci),
 +        )
 +    }
 +
@@ -59,8 +59,8 @@ index ce6b262..08a9e88 100644
 +        )
 +    }
 +
-+    fn literal(&self, literal: &Literal, ci: &ComponentInterface) -> String {
-+        render_literal(literal, self.inner(), ci)
++    fn literal(&self, literal: &Literal, _ci: &ComponentInterface) -> String {
++        render_literal(literal, self.inner(), self.ci)
 +    }
 +}
 +
@@ -75,8 +75,8 @@ index ed82dda..409b9a7 100644
      Ok(oracle().fn_name(nm))
  }
  
-+/// Top-level function name, prefixed with `New` when it would collide with an object type.
-+pub fn free_fn_name(func: &Function, ci: &ComponentInterface) -> Result<String, askama::Error> {
++/// Idiomatic Go export name for a top-level function; prefixes `New` when the return type is an object whose class name equals that name.
++pub fn free_fn_name(func: &Function, _ci: &ComponentInterface) -> Result<String, askama::Error> {
 +    let base = oracle().fn_name(func.name());
 +    if let Some(return_type) = func.return_type() {
 +        if let Type::Object { name, .. } = return_type {

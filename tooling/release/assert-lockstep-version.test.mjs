@@ -93,4 +93,32 @@ describe("assert-lockstep-version.mjs", () => {
       new RegExp(CARGO_CONNECT_CRATE_PATH.replace("/", "\\/")),
     );
   });
+
+  it("rejects when the spoke-connect spoke-operations dependency drifts from lockstep", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const drifted = `${current}-drift.test`;
+    assert.notEqual(drifted, current);
+
+    const cratePath = join(repoRoot, CARGO_CONNECT_CRATE_PATH);
+    const crate = readFileSync(cratePath, "utf8");
+    const driftedCrate = crate.replace(
+      /^spoke-operations\s*=\s*\{[^}]*version\s*=\s*"[^"]+"/m,
+      `spoke-operations = { version = "${drifted}", path = "../spoke-operations", optional = true }`,
+    );
+    assert.notEqual(driftedCrate, crate, "fixture must contain the dependency");
+    writeFileSync(cratePath, driftedCrate, "utf8");
+
+    const result = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Lockstep version mismatch/);
+    assert.match(result.stderr, /spoke-operations dependency/);
+  });
 });

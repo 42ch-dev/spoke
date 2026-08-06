@@ -198,6 +198,49 @@ export function replaceSpokeSchemasPathDependencyVersion(
   return updated;
 }
 
+
+/**
+ * @param {string} version
+ * @returns {string}
+ */
+export function formatSpokeOperationsPathDependency(version) {
+  return `spoke-operations = { version = "${version}", path = "../spoke-operations", optional = true }`;
+}
+
+/**
+ * @param {string} contents
+ * @returns {string | null}
+ */
+export function parseSpokeOperationsPathDependencyVersion(contents) {
+  const match = contents.match(
+    /^spoke-operations\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
+  );
+  return match?.[1] ?? null;
+}
+
+/**
+ * @param {string} contents
+ * @param {string} version
+ * @param {string} manifestPath Used in the error message.
+ * @returns {string}
+ */
+export function replaceSpokeOperationsPathDependencyVersion(
+  contents,
+  version,
+  manifestPath,
+) {
+  const updated = contents.replace(
+    /^spoke-operations\s*=\s*\{[^}]*\}/m,
+    formatSpokeOperationsPathDependency(version),
+  );
+  if (updated === contents) {
+    throw new Error(
+      `${manifestPath}: could not update spoke-operations path dependency`,
+    );
+  }
+  return updated;
+}
+
 /**
  * Read the version for a top-level `[[package]]` entry in Cargo.lock.
  *

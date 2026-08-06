@@ -29,6 +29,8 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 - **`narrative-modules`** —— 面向跨产品功能方言的可选 `modules`（`ModuleMap`）字段袋。
 - **`spoke-connect`** —— 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志。
 
+connect 家族的会话生命周期、信封认证与能力路由在 [Connect 架构](/zh/explanation/connect) 中说明。
+
 ## 双重关注（dual-concern）对
 
 协议刻意分开两对概念：

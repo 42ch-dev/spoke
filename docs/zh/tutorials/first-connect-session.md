@@ -14,10 +14,12 @@ connect 是面向跨进程 SPOKE 主机的可选交互信封族（`spoke-connect
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-`@42ch/spoke-connect` 提供两个入口：
+`@42ch/spoke-connect` 提供四个入口：
 
 - **`.`** —— 同构核心：身份推导、Ed25519 密码学、RFC 8785 JCS 规范化，以及纯会话核心规则（allowlist、nonce、sequence、correlation、dispatch gate）。
 - **`./node`** —— Node 版 `connectClient`，负责拨号 WebSocket 并完成完整握手。
+- **`./noise`** —— 可选的 Noise XX mesh 传输子路径，用于直接的 libp2p-noise 互操作。
+- **`./remote`** —— 可选的 RemoteAdapter 模块：经消费方 `Transport` 的 `connectRemoteAdapter`、多对等节点路由器，以及仓库内回环对（见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)）。
 
 ## 2. 推导你的对等节点身份
 

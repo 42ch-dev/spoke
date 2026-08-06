@@ -8,7 +8,7 @@ title: 跨多个对等节点路由
 
 ## 1. 拨号并注册对等节点
 
-路由器启动时带有零个对等节点。你自行拨号每个对等节点的 `RemoteAdapter`（握手签名、allowlist、会话建立），然后注册已建立的 adapter。路由器在注册时存储该 adapter 并缓存对等节点的 `HostCapabilityManifest` —— 即来自已认证握手（hello）的 `host` 字段。
+路由器启动时带有零个对等节点。你自行拨号每个对等节点的 `RemoteAdapter`（握手签名、allowlist、会话建立 —— 完整拨号契约见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)），然后注册已建立的 adapter。路由器在注册时存储该 adapter 并缓存对等节点的 `HostCapabilityManifest` —— 即来自已认证握手（hello）的 `host` 字段。
 
 ```ts
 import { connectMultiPeerRouter } from "@42ch/spoke-connect/remote";
@@ -64,13 +64,7 @@ router.unregister_peer(&north_id); // 移出选择；adapter 保持开启
 | `roles` | 对等节点的 `roles[]` | **软偏好** | 拥有操作首选角色（preferred role）的对等节点优先；缺少该角色但有能力的对等节点仍可被选中 |
 | `authority.scope_key` | 对等节点的 `authority.scope_key` | **双方都声明时为硬门禁** | 对等节点作用域键与请求作用域键精确匹配 |
 
-每个操作族映射到一个必需能力：
-
-| 操作族 | 必需能力 |
-|--------|----------|
-| `upsert`、`promote`、`relate`、`check`、`assemble`（以及 `port.*` 基线操作） | `spoke-baseline` |
-| `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
-| 产品自定义操作 | 你的产品文档化的能力 |
+每个操作族映射到一个必需能力 —— 完整表格见线上参考中的[能力词汇（Capability vocabulary）](/zh/reference/connect#能力词汇-capability-vocabulary)。
 
 请求的命名空间在操作携带 `Scope` 时从载荷推导（例如 `upsert-request.scope` 或 `check-request.scope`）。命名空间匹配是精确的：声明 `namespaces: ["*"]` 的对等节点声明的是字面字符串 `"*"`。当请求携带作用域键且对等节点 manifest 声明了作用域键时，二者必须精确匹配；仅一方声明时该门禁通过。
 
@@ -100,7 +94,7 @@ router.unregister_peer(&north_id); // 移出选择；adapter 保持开启
 
 ## 4. 信封真实性是协议级的
 
-每一个 connect 信封 —— 握手（hello）、调用（invoke）与响应 —— 都由会话对等节点的 Ed25519 密钥对 RFC 8785 JCS 规范化对象签名，并在分派前于会话核心内部完成验证。这一验证在 adapter 提供的任何有序、可靠的传输之上运行（TCP、WebSocket、yamux 或 Noise），因为真实性位于信封本身，处于传输层之上。路由器在每个对等节点会话的信封认证完成后才选择对等节点；选择是在会话核心的已认证信封流程内进行的路由决策。
+每一个 connect 信封 —— 握手（hello）、调用（invoke）与响应 —— 都由会话对等节点的 Ed25519 密钥对 RFC 8785 JCS 规范化对象签名，并在分派前于会话核心内部完成验证。这一验证在 adapter 提供的任何有序、可靠的传输之上运行（TCP、WebSocket、yamux 或 Noise），因为真实性位于信封本身，处于传输层之上。路由器在每个对等节点会话的信封认证完成后才选择对等节点；选择是在会话核心的已认证信封流程内进行的路由决策。完整图景 —— 信封为何签名、协议版本 2 覆盖什么、混合版本对等节点如何表现 —— 见 [Connect 架构](/zh/explanation/connect#信封认证)。
 
 ## 5. 检视路由器可以触达的范围
 
@@ -141,6 +135,7 @@ let per_peer = router.list_peer_host_capability_manifests().await?;
 
 ## 下一步
 
+- [通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter) —— 每个已注册对等节点 adapter 的拨号契约。
 - [实现 Adapter](/zh/how-to/implement-adapter) —— 路由器委托到的逐对等节点 port 面。
 - [编排操作](/zh/how-to/orchestrate-ops) —— 流经路由器的 `orchestrate*` 调用。
 - [TypeScript 客户端](/zh/how-to/connect-ts-client) —— 拨号每个对等节点会话。

@@ -57,5 +57,5 @@ A zero-dep script (`tooling/connect/golden-vector-sync.mjs`) holds a **manifest 
 ## Examples
 
 - `spoke-connect` hello vector: `crates/spoke-connect/tests/fixtures/golden-hello.json` + 4 registered copies (TS, C#, Kotlin, Swift) + Go/Python reading SSOT directly
-- Capability-token golden (precedent for a tests/fixtures JSON, but lives TS-local because TS is the sole consumer): `packages/spoke-connect-ts/tests/fixtures/capability-token-golden.json`
+- Capability-token golden vectors use a **bidirectional** model: the TS-minted vector (`capability-token-ts-golden.json`) has its SSOT under `crates/spoke-connect/tests/fixtures/` with a gate-managed registered TypeScript copy; the Rust-minted vector (`capability-token-golden.json`) stays TS-local and unregistered, with its own drift test (`capability-token-golden.test.ts`)
 - Sync gate: `tooling/connect/golden-vector-sync.mjs` (verify mode; CI-wired as a `golden-vector-sync` job in `ci.yml`)

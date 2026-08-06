@@ -10,11 +10,11 @@ From the **repository root** (local nightly convention: `cargo +nightly …`):
 
 ```bash
 # 1. Build the ffi cdylib
-cargo +nightly build -p spoke-connect --features ffi,remote-adapter
+cargo +nightly build -p spoke-connect --features ffi,remote-adapter --release
 
 # 2. Generate (first-party, stock)
 cargo +nightly run -p spoke-connect --features ffi,bindgen-cli --bin uniffi-bindgen -- \
-  generate --library target/debug/libspoke_connect.dylib \
+  generate --library target/release/libspoke_connect.dylib \
   --language kotlin \
   --out-dir crates/spoke-connect/bindings/kotlin/generated \
   --no-format
@@ -24,7 +24,7 @@ cargo +nightly run -p spoke-connect --features ffi,bindgen-cli --bin uniffi-bind
 
 # 4. Stage host native for smoke (macOS arm64 example)
 mkdir -p crates/spoke-connect/bindings/kotlin/native/darwin-aarch64
-cp target/debug/libspoke_connect.dylib crates/spoke-connect/bindings/kotlin/native/darwin-aarch64/
+cp target/release/libspoke_connect.dylib crates/spoke-connect/bindings/kotlin/native/darwin-aarch64/
 install_name_tool -id @rpath/libspoke_connect.dylib \
   crates/spoke-connect/bindings/kotlin/native/darwin-aarch64/libspoke_connect.dylib
 

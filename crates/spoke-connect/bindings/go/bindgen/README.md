@@ -29,7 +29,7 @@ The fork restores the locked `--library` CLI form against the 0.32 cdylib.
 | `bindgen/src/gen_go/mod.rs` | `+Type::Box` (transparent) / `+Type::Set` match arms |
 | `bindgen/templates/SetTemplate.go` | new — set RustBuffer converter |
 | `bindgen/templates/Types.go` | `+Set` include arm; `+Box` exhaustiveness arm |
-| `bindgen/src/gen_go/filters.rs` | `free_fn_name` — prefix `New` when a top-level function name collides with an object type (e.g. `loopback_transport_pair` → `NewLoopbackTransportPair`) |
+| `bindgen/src/gen_go/filters.rs` | `free_fn_name` — prefixes `New` when the return type is an object whose class name equals that name (e.g. `loopback_transport_pair` → `NewLoopbackTransportPair`) |
 | `bindgen/templates/TopLevelFunctionTemplate.go` | use `free_fn_name` for top-level exports |
 
 The delta is the uniffi 0.32 interface additions (`Type::Box`, `Type::Set`) plus

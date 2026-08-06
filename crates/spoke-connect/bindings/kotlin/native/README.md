@@ -6,7 +6,7 @@ in smoke (see `build.gradle.kts`) or from classpath resources in the published j
 
 | RID | Artifact | Status |
 |-----|----------|--------|
-| `darwin-aarch64` | `libspoke_connect.dylib` | **Committed** — maintainer-built from `cargo +nightly build -p spoke-connect --features ffi,remote-adapter` |
+| `darwin-aarch64` | `libspoke_connect.dylib` | **Committed** — maintainer-built from `cargo +nightly build -p spoke-connect --features ffi,remote-adapter --release` |
 | `darwin-x86-64` | `libspoke_connect.dylib` | Deferred |
 | `linux-x86-64` | `libspoke_connect.so` | Deferred — stage from `release.yml` `build-connect-ffi` |
 | `win32-x86-64` | `spoke_connect.dll` | Deferred |

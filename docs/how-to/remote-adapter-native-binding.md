@@ -4,13 +4,13 @@ title: Use RemoteAdapter from a native binding
 
 # Use RemoteAdapter from a native binding
 
-**Native bindings** expose the remote Adapter contract as a synchronous FFI surface: your binding implements a message-oriented `Transport`; the adapter dials and exchanges envelopes through it, and you then call the same `BaselinePorts` methods the Rust reference and the TypeScript language-native client call. The shared library owns a process-wide tokio runtime; every exported call is a synchronous block-on-async call over that runtime, and the session core stays encapsulated on the Rust side — hello sign/verify, allowlist, nonce single-use, sequence, correlation, and envelope authentication all run inside the binding, never in your host code.
+**Native bindings** expose the remote Adapter contract as a synchronous FFI surface: your host code implements a message-oriented `Transport`; the adapter dials and exchanges envelopes through it, and you then call the same `BaselinePorts` methods the Rust reference and the TypeScript language-native client call. The shared library owns a process-wide tokio runtime; every exported call is a synchronous block-on-async call over that runtime, and the session core stays encapsulated on the Rust side — hello sign/verify, allowlist, nonce single-use, sequence, correlation, and envelope authentication all run inside the binding, while your host code supplies the `Transport` and invokes the port methods.
 
 The exported objects are `RemoteAdapterFFI` (single peer) and `MultiPeerRouterFFI` (multi-peer routing). This page walks the full flow with the Python binding; the same surface exists in C#, Go, Kotlin, and Swift with language-idiomatic names (see the [symbol map](#symbol-map-across-the-bindings)).
 
 ## 1. Implement the callback `Transport`
 
-The binding implements the message-oriented `Transport` interface:
+Your host code implements the message-oriented `Transport` interface:
 
 | Method | Behavior |
 |--------|----------|
@@ -39,7 +39,7 @@ class LoopbackCallbackTransport:
         self._inner.close()
 ```
 
-For a real deployment, implement the same three methods over your carrier — a socket, a WebSocket, or a message channel. The Transport delivers exactly one envelope per `send` / `recv` call; byte-stream carriers own length-prefix (or equivalent) delimiting; the adapter does not delimit envelopes.
+For a real deployment, implement the same three methods over your carrier — a socket, a WebSocket, or a message channel. The Transport delivers exactly one envelope per `send` / `recv` call; byte-stream carriers apply length-prefix (or equivalent) delimiting before handing envelopes to the adapter.
 
 ## 2. Dial and construct `RemoteAdapterFFI`
 
@@ -103,7 +103,7 @@ adapter.remote_peer_id()   # the authenticated remote peer_id
 adapter.remote_manifest()  # the remote peer's HostCapabilityManifest as JSON
 ```
 
-`session_id` / `remote_peer_id` / `remote_manifest` are populated once the session establishes; the session info comes from the authenticated hello and the session core — no extra round trip.
+`session_id` / `remote_peer_id` / `remote_manifest` are populated once the session establishes; the session info comes from the authenticated hello and the session core, captured at establish time.
 
 ## 5. Route across multiple peers with `MultiPeerRouterFFI`
 

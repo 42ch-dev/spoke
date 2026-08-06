@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 description = "Reference ToyWorldAdapter fixture — in-memory OCC Baseline + Full stubs"
 [dependencies]
-spoke-operations = { version = "0.9.0", path = "../../../crates/spoke-operations" }
-spoke-schemas = { version = "0.9.0", path = "../../../crates/spoke-schemas" }
+spoke-operations = { path = "../../../crates/spoke-operations" }
+spoke-schemas = { path = "../../../crates/spoke-schemas" }
 serde.workspace = true
 serde_json.workspace = true
 async-trait.workspace = true

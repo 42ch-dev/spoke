@@ -304,9 +304,9 @@ pub use foreign_transport::{
 #[cfg(feature = "remote-adapter")]
 mod remote_adapter_ffi {
     use std::any::Any;
+    use std::cell::Cell;
     use std::future::Future;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
     use serde::de::DeserializeOwned;
@@ -328,7 +328,9 @@ mod remote_adapter_ffi {
     use super::ffi_runtime;
 
     #[cfg(test)]
-    static INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON: AtomicBool = AtomicBool::new(false);
+    thread_local! {
+        static INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON: Cell<bool> = Cell::new(false);
+    }
 
     fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
         if let Some(message) = payload.downcast_ref::<&str>() {
@@ -355,7 +357,13 @@ mod remote_adapter_ffi {
     {
         let future = async {
             #[cfg(test)]
-            if INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.swap(false, Ordering::SeqCst) {
+            if INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.with(|flag| {
+                let should_panic = flag.get();
+                if should_panic {
+                    flag.set(false);
+                }
+                should_panic
+            }) {
                 panic!("injected ffi block_on panic");
             }
             future.await
@@ -382,7 +390,7 @@ mod remote_adapter_ffi {
 
     #[cfg(test)]
     pub(super) fn inject_panic_on_next_block_on_for_test() {
-        INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.store(true, Ordering::SeqCst);
+        INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.with(|flag| flag.set(true));
     }
 
 
@@ -894,7 +902,7 @@ mod loopback_smoke_host {
         host_seed: [u8; 32],
         host_manifest: spoke_schemas::HostCapabilityManifest,
         adapter: Arc<ToyWorldAdapter>,
-    ) -> Arc<LoopbackSmokeHost> {
+    ) -> Result<Arc<LoopbackSmokeHost>, super::remote_adapter_ffi::FfiError> {
         let transport = Arc::new(server.clone_async_inner());
         let host = super::remote_adapter_ffi::ffi_block_on(start_loopback_host(LoopbackHostOptions {
             transport,
@@ -905,9 +913,8 @@ mod loopback_smoke_host {
             delay: Box::new(|_| 0),
             response_override: None,
             session_peer_ids: None,
-        }))
-        .expect("loopback smoke host start");
-        Arc::new(LoopbackSmokeHost { host })
+        }))?;
+        Ok(Arc::new(LoopbackSmokeHost { host }))
     }
 
     /// Start the reference loopback smoke host on the server end of a
@@ -917,12 +924,14 @@ mod loopback_smoke_host {
     pub fn start_loopback_smoke_host(
         server: Arc<LoopbackTransport>,
     ) -> Arc<LoopbackSmokeHost> {
+        // UniFFI export has no error slot; re-panic with the mapped FfiError message.
         start_loopback_smoke_host_inner(
             server,
             seed_host(),
             manifest("test-host", &["spoke-baseline"]),
             Arc::new(ToyWorldAdapter::with_committed_fixtures()),
         )
+        .unwrap_or_else(|error| panic!("loopback smoke host start: {error}"))
     }
 
     /// Parametric loopback smoke host for multi-peer routing smokes: fixed
@@ -948,12 +957,12 @@ mod loopback_smoke_host {
                     message: format!("invalid host manifest JSON: {error}"),
                 }
             })?;
-        Ok(start_loopback_smoke_host_inner(
+        start_loopback_smoke_host_inner(
             server,
             host_seed,
             host_manifest,
             Arc::new(ToyWorldAdapter::default()),
-        ))
+        )
     }
 }
 
@@ -2643,8 +2652,6 @@ mod remote_adapter_ffi_tests {
 
     #[test]
     fn remote_adapter_ffi_invoke_future_panic_surfaces_as_ffi_rejected() {
-        use std::sync::atomic::Ordering;
-
         let (async_client, host) = ffi_runtime().block_on(async {
             let host_adapter = ToyWorldAdapter::with_committed_fixtures();
             dial(host_adapter, DialOptions::default()).await

@@ -226,7 +226,7 @@ export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
 };
 ```
 
-- `remotePubkey` — the host's 32-byte Ed25519 public key. The remote `peer_id` is derived from it, and it must be on the allowlist (fail-closed). The demo ships fixed identity seeds, and the client keeps its own copy of the host's public key and `peer_id` (`examples/connect-demo/client/src/identities.ts`):
+- `remotePubkey` — the host's 32-byte Ed25519 public key. The remote `peer_id` is derived from it, and it must be on the allowlist (fail-closed). The demo ships fixed identity seeds — DEMO ONLY; production apps must generate their own Ed25519 keys. The client keeps its own copy of the host's public key and `peer_id` (`examples/connect-demo/client/src/identities.ts`):
 
 ```ts
 /** Public key derived from {@link DEMO_SERVER_SEED} — the remote key the client trusts. */
@@ -421,7 +421,7 @@ Two classes of failure matter, and they surface differently.
   });
 ```
 
-**Port-call failures settle to `SpokeResult` rejects.** On an established session, every port call either resolves `ok` or rejects with `{ ok: false, code, message, details }` — your code branches on `result.ok` or unwraps with a helper like `requireOk`. Rejects carry the wire code (`REVISION_CONFLICT` for a create on an existing id, `STORED_REVISION_STALE` for a stale base revision, `INVALID_INPUT` for a reserved `derived/` id, …) and, for infrastructure failures, a `details.kind` that tells you which layer failed: `transport` (I/O), `session_closed` (connection lost — stop the host and watch in-flight calls reject), or `timeout` (that call only; the session stays usable). The complete failure table lives in [RemoteAdapter over a Transport](/how-to/connect-remote-adapter).
+**Port-call failures settle to `SpokeResult` rejects.** On an established session, every port call either resolves `ok` or rejects with `{ ok: false, code, message, details }` — your code branches on `result.ok` or unwraps with a helper like `requireOk`. Rejects carry the wire code (`REVISION_CONFLICT` for a create on an existing id, `STORED_REVISION_STALE` for a stale base revision, `INVALID_INPUT` for a reserved `derived/` id, …) and, for infrastructure failures, a `details.kind` that tells you which layer failed — including `transport` (I/O), `session_closed` (connection lost — stop the host and watch in-flight calls reject), and `timeout` (that call only; the session stays usable). The complete failure table lives in [RemoteAdapter over a Transport](/how-to/connect-remote-adapter).
 
 That is the whole error surface: dial rejects before the adapter exists, port calls reject after it — two classes, and each surfaces through one channel.
 

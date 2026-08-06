@@ -96,21 +96,6 @@ mod foreign_transport {
         }
     }
 
-    fn ffi_block_on_transport_void<F>(future: F)
-    where
-        F: Future<Output = ()>,
-    {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            ffi_runtime().handle().block_on(future);
-        })) {
-            eprintln!(
-                "ffi: swallowed panic during transport close: {}",
-                panic_payload_message(payload)
-            );
-        }
-    }
-
-
     /// FFI-facing mirror of [`transport::TransportError`] — the
     /// callback `Transport`'s own error vocabulary. 1:1 with the remote
     /// error; the bridge maps both directions.
@@ -304,6 +289,7 @@ pub use foreign_transport::{
 #[cfg(feature = "remote-adapter")]
 mod remote_adapter_ffi {
     use std::any::Any;
+    #[cfg(test)]
     use std::cell::Cell;
     use std::future::Future;
     use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -744,19 +730,17 @@ mod remote_adapter_ffi {
 mod multi_peer_router_ffi {
     use std::sync::Arc;
 
-    use serde::Serialize;
     use spoke_operations::{
         FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
         ScopeQueryPort,
     };
-    use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
+    use spoke_schemas::{Finding, KnowledgeEntry, Relation, Scope};
 
     use crate::remote::{
         connect_multi_peer_router, MultiPeerRouter, MultiPeerRouterError,
         MultiPeerRouterOptions,
     };
 
-    use super::ffi_runtime;
     use super::remote_adapter_ffi::{
         ffi_block_on, map_spoke_result, parse_json_field, FfiError, RemoteAdapterFFI,
     };
@@ -873,7 +857,6 @@ mod loopback_smoke_host {
     };
 
     use super::foreign_transport::LoopbackTransport;
-    use super::ffi_runtime;
 
     /// Reference loopback host for binding smokes (ToyWorld fixtures, fixed
     /// test seeds). Serves the server end of a [`loopback_transport_pair`].

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  audiencePeerIdFromRoleSeed,
+  subjectPeerIdFromRoleSeed,
+} from "../golden-role-peer-ids.js";
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { getPublicKeyEd25519 } from "../../src/crypto.js";
-import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import { GOLDEN_PEER_ID, GOLDEN_SEED } from "../../src/golden.js";
 import {
   issueCapabilityToken,
@@ -44,23 +47,11 @@ interface TsMintedGoldenVector extends CapabilityTokenProof {
   provenance: typeof PROVENANCE;
 }
 
-function subjectPeerId(): string {
-  return derivePeerIdFromEd25519Pubkey(
-    getPublicKeyEd25519(new Uint8Array(32).fill(7)),
-  );
-}
-
-function audiencePeerId(): string {
-  return derivePeerIdFromEd25519Pubkey(
-    getPublicKeyEd25519(new Uint8Array(32).fill(8)),
-  );
-}
-
 function goldenClaims(): CapabilityClaims {
   return {
     iss: GOLDEN_PEER_ID,
-    sub: subjectPeerId(),
-    aud: audiencePeerId(),
+    sub: subjectPeerIdFromRoleSeed(),
+    aud: audiencePeerIdFromRoleSeed(),
     capabilities: ["spoke-baseline", "l2-computable"],
     exp: NOW + 3600,
     iat: NOW,
@@ -95,6 +86,10 @@ describe("TS-minted capability-token golden vector", () => {
     const minted = await mintTsGoldenVector();
     const committed = loadCommittedVector();
     expect(minted).toEqual(committed);
+    const mintedText = `${JSON.stringify(minted, null, 2)}
+`;
+    const committedText = readFileSync(fileURLToPath(fixtureUrl), "utf8");
+    expect(mintedText).toBe(committedText);
   });
 
   it("self-verifies after stripping provenance", async () => {
@@ -103,8 +98,8 @@ describe("TS-minted capability-token golden vector", () => {
     const granted = await verifyCapabilityToken(
       proof,
       [GOLDEN_PEER_ID],
-      audiencePeerId(),
-      subjectPeerId(),
+      audiencePeerIdFromRoleSeed(),
+      subjectPeerIdFromRoleSeed(),
       NOW,
     );
     expect(granted).toEqual(["spoke-baseline", "l2-computable"]);

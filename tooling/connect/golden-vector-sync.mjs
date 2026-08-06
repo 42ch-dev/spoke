@@ -58,7 +58,7 @@ const HEX528 = /^[0-9a-f]{528}$/;
 const HEX614 = /^[0-9a-f]{614}$/;
 const HEX_EVEN = /^(?:[0-9a-f]{2})+$/;
 const B64U86 = /^[A-Za-z0-9_-]{86}$/;
-const BASE58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
+const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{1,128}$/;
 const AUTH_KINDS = new Set([
   "envelope_auth_missing",
   "envelope_auth_invalid",
@@ -297,9 +297,14 @@ function checkEnvelopeAuthSsot(ssot, problems) {
   }
 }
 
-/** True when `n` is a non-negative integer suitable for u64 claim fields. */
+/** True when `n` is a JSON integer Rust accepts in a `u64` position (`0..2^64 − 1`). */
 function isU64(n) {
-  return typeof n === "number" && Number.isInteger(n) && n >= 0;
+  return (
+    typeof n === "number" &&
+    Number.isSafeInteger(n) &&
+    n >= 0 &&
+    n < 2 ** 64
+  );
 }
 
 /** Structural checks on the TS-minted capability-token SSOT; appends problems. */

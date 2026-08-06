@@ -10,6 +10,10 @@ import {
 } from "../../src/crypto.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
 import {
+  audiencePeerIdFromRoleSeed,
+  subjectPeerIdFromRoleSeed,
+} from "../golden-role-peer-ids.js";
+import {
   GOLDEN_PEER_ID,
   GOLDEN_SEED,
 } from "../../src/golden.js";
@@ -61,12 +65,8 @@ describe("Rust-minted capability-token golden vector", () => {
     expect(
       derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(GOLDEN_SEED)),
     ).toBe(GOLDEN_PEER_ID);
-    const subject = derivePeerIdFromEd25519Pubkey(
-      getPublicKeyEd25519(new Uint8Array(32).fill(7)),
-    );
-    const audience = derivePeerIdFromEd25519Pubkey(
-      getPublicKeyEd25519(new Uint8Array(32).fill(8)),
-    );
+    const subject = subjectPeerIdFromRoleSeed();
+    const audience = audiencePeerIdFromRoleSeed();
     expect(goldenProof.claims.sub).toBe(subject);
     expect(goldenProof.claims.aud).toBe(audience);
 

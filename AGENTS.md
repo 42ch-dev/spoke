@@ -51,12 +51,13 @@ Do not put plan progress or residual detail in this file.
 - Connect (`schemas/connect/` + `spoke-connect` flag) is **wire + normative spec only**: no daemon, no runtime. The published TS client is `@42ch/spoke-connect` (`packages/spoke-connect-ts`); the Rust reference crate `spoke-connect` is also published. Both ship via `release.yml` lockstep on stable tags (npm + crates.io Trusted Publishing). Path B (native bindings) packages use **four publish channels** on the same `vX.Y.Z` tag gate: **GitHub Packages** for C# NuGet (`42ch.Spoke.Connect`, landed) and Kotlin Maven (`maven.pkg.github.com/42ch-dev/spoke`); **Swift Package Manager** and **Go modules** resolve from the git repo and tags; **Python** publishes to **PyPI** via Trusted Publishing OIDC. Packaging contract: [`.mstar/specs/connect-binding-channels.md`](.mstar/specs/connect-binding-channels.md); staging SSOT: [`.mstar/specs/connect-publish-strategy.md`](.mstar/specs/connect-publish-strategy.md). Do not route Swift, Go, or Python bindings through GitHub Packages. Product transport/WebSocket hosts stay in consumer repositories.
 - Connect embedding labels **Path A** / **Path B** are **internal SSOT** terms — normative definition and shipped-surface map: [`.mstar/specs/spoke-connect.md`](.mstar/specs/spoke-connect.md) §Embedding model. Consumer-facing docs (`docs/`, root `README.md` / `README_CN.md`, package/crate consumer READMEs) MUST use **language-native client**, **native bindings**, and **Rust reference** — never Path A/B or 路径 A/B. Mapping: **Path A** = language-native client (exemplar TypeScript `@42ch/spoke-connect`); **Path B** = native bindings via FFI (C# / Kotlin / Swift / Go / Python); **Rust `spoke-connect`** = session-core reference + Path B uniffi binding source (libp2p transport included) — **not** Path A.
 - The TypeScript connect client (`packages/spoke-connect-ts`) and the Rust reference (`crates/spoke-connect`) maintain **session-core capability parity**: the pure session logic shared by both — allowlist, `peer_id` (derive and reverse for token verify, including the 128-char decode input cap), hello crypto, nonce, request correlation, sequence, capability-token auth (canonical base64url signatures; issuance-time fail-fast on empty `capabilities`, `exp` inside the clock-skew window, and `iat` beyond it, with shared `CLOCK_SKEW_SECONDS`; verify-time trust and binding rules), and the dispatch gate / product-op capability map (including token-grant membership via `tokenAuthorizesOp`) — implements the same rules, verified against shared golden vectors and round-trip parity tests. Thin client conveniences (TS `Session` / `negotiatedCapabilities` / `generateNonce` and correlation helpers) sit outside the parity surface; Rust keeps equivalent session state in the transport layer (see [`.mstar/specs/spoke-connect-ts-route.md`](.mstar/specs/spoke-connect-ts-route.md) §Session-core parity). Transports stay intentionally asymmetric (WebSocket on the TS side; the libp2p stack on the Rust side) and are outside the parity contract.
+- **RemoteAdapter** is the shipped drop-in remote `BaselinePorts` surface: TypeScript `@42ch/spoke-connect/remote` (`connectRemoteAdapter` / `connectMultiPeerRouter`) and Rust `spoke-connect` feature `remote-adapter` (`connect_remote_adapter` / `connect_multi_peer_router`). Consumers supply a message-oriented `Transport` (`send` / `recv` / `close`, one envelope per call); the packages ship only an in-repo loopback pair for tests. Native bindings expose the same contract synchronously as `RemoteAdapterFFI` / `MultiPeerRouterFFI` over a foreign-callback `Transport` (cdylib-owned tokio runtime + `catch_unwind` panic containment). Spec: [`.mstar/specs/spoke-remote-adapter.md`](.mstar/specs/spoke-remote-adapter.md).
 - `fixtures/toy-world/` owns protocol sample JSON and its AJV/Vitest harness (`tests/`; workspace package `@42ch/spoke-fixture-toy-world`). `@42ch/spoke-operations` is a pure helper library. Fixtures MAY import operations; operations MUST NOT import fixtures or host fixture validation I/O.
 - `@42ch/spoke-operations` is pure: no I/O, storage, LLM, HTTP, MCP, ranking, retrieval, or silent auto-promote.
-- Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations` (npm), and `spoke-schemas`, `spoke-operations` (crates.io) publish on stable tagged releases via CI Trusted Publishing only (npm OIDC + crates.io OIDC); fixture and codegen packages remain workspace-private.
+- Consumer packages `@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect` (npm), and `spoke-schemas`, `spoke-operations`, `spoke-connect` (crates.io) publish on stable tagged releases via CI Trusted Publishing only (npm OIDC + crates.io OIDC); fixture and codegen packages remain workspace-private.
 - Finding is checker output, not KnowledgeEntry `body`.
-- Registry auth for CI publish is Trusted Publishing on both ecosystems: npm packages `@42ch/spoke-schemas` / `@42ch/spoke-operations`, and crates.io crates `spoke-schemas` / `spoke-operations` (org `42ch-dev`, repo `spoke`, workflow `release.yml`; crates job uses `rust-lang/crates-io-auth-action` → short-lived `CARGO_REGISTRY_TOKEN` env). Do not use long-lived `NPM_TOKEN` / `CARGO_REGISTRY_TOKEN` repository secrets for release publish. Do not document “token no longer required / revoke old secret” in human READMEs — that negation belongs here only.
-- Stable tags (`vX.Y.Z`) and prerelease SemVer tags without `-rc.` (e.g. `v0.1.0-alpha.3`) publish to npm and crates.io; tags containing `-rc.` create GitHub pre-releases only. If `publish-crates` fails after npm succeeded, re-run the failed job — `tooling/release/publish-crate.sh` skips versions already on crates.io and retries transient 5xx uploads (or push the annotated tag with a non-`GITHUB_TOKEN` credential so `push.tags` starts **Release** again).
+- Registry auth for CI publish is Trusted Publishing on both ecosystems: npm packages `@42ch/spoke-schemas` / `@42ch/spoke-operations` / `@42ch/spoke-connect`, and crates.io crates `spoke-schemas` / `spoke-operations` / `spoke-connect` (org `42ch-dev`, repo `spoke`, workflow `release.yml`; crates job uses `rust-lang/crates-io-auth-action` → short-lived `CARGO_REGISTRY_TOKEN` env). Do not use long-lived `NPM_TOKEN` / `CARGO_REGISTRY_TOKEN` repository secrets for release publish. Do not document “token no longer required / revoke old secret” in human READMEs — that negation belongs here only.
+- Stable tags (`vX.Y.Z`) and prerelease SemVer tags without `-rc.` (e.g. `v0.1.0-alpha.3`) publish to npm and crates.io; tags containing `-rc.` create GitHub pre-releases only. If a publish job fails after a sibling registry succeeded, re-run the failed job — `tooling/release/publish-npm.sh` and `tooling/release/publish-crate.sh` skip versions already on the registry and retry transient 5xx uploads (or push the annotated tag with a non-`GITHUB_TOKEN` credential so `push.tags` starts **Release** again). Lockstep bumps MUST rewrite **every** inter-crate path-dependency pin (including optional deps) via `tooling/release/lockstep-surfaces.mjs` — a skipped optional pin breaks Cargo resolution in Release.
 - Maintainer cut path: **New release** (`workflow_dispatch` → GitHub-signed bump on `release/<version>` + open PR with label `release`) → merge (or close to abort) → **Release** (`release.yml` on `pull_request` closed) creates annotated `vX.Y.Z` and publishes. Org must allow “Allow GitHub Actions to create and approve pull requests” so `GITHUB_TOKEN` can `createPullRequest`.
 - **New release** MUST refuse when the requested SemVer is not strictly greater than `package.json` on `main`, or when `vX.Y.Z` already exists. `release:bump` also refuses non-increasing bumps.
 - **New release** commits MUST be GitHub-verified (`tooling/release/push-github-signed-commit.mjs` → GraphQL `createCommitOnBranch`). Do not land unsigned `git commit` + `git push` from Actions — `main` ruleset `required_signatures` blocks merge.
@@ -67,10 +68,10 @@ Do not put plan progress or residual detail in this file.
 
 - **SSOT:** `schemas/`
 - **Codegen:** `json-schema-to-typescript` + `typify`
-- **TS package:** `@42ch/spoke-schemas` → `packages/spoke-schemas/`
-- **Rust crates:** `spoke-schemas` → `crates/spoke-schemas/`; `spoke-operations` → `crates/spoke-operations/`
+- **TS packages:** `@42ch/spoke-schemas` → `packages/spoke-schemas/`; `@42ch/spoke-operations` → `packages/spoke-operations/`; `@42ch/spoke-connect` → `packages/spoke-connect-ts/`
+- **Rust crates:** `spoke-schemas` → `crates/spoke-schemas/`; `spoke-operations` → `crates/spoke-operations/`; `spoke-connect` → `crates/spoke-connect/`
 - **Extensions:** `extensions.<namespace>` only; core fields closed
-- **Adapters:** reference examples in `fixtures/toy-world/`; product bindings in consumer repos
+- **Adapters:** reference examples in `fixtures/toy-world/`; product bindings in consumer repos; remote peers via RemoteAdapter over a consumer `Transport`
 
 ## Local Rust toolchain (dev environment)
 
@@ -83,4 +84,49 @@ Do not put plan progress or residual detail in this file.
 1. Current user instruction  
 2. This file  
 3. `.mstar/AGENTS.md`  
-4. `mstar-*` skills  
+4. `mstar-*` skills
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **spoke** (6882 symbols, 16407 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/spoke/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/spoke/clusters` | All functional areas |
+| `gitnexus://repo/spoke/processes` | All execution flows |
+| `gitnexus://repo/spoke/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

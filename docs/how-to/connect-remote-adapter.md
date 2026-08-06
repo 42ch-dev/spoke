@@ -6,7 +6,7 @@ title: RemoteAdapter over a Transport
 
 A **RemoteAdapter** turns a remote SPOKE connect peer into a drop-in async `BaselinePorts` surface: you supply a message-oriented `Transport`, the adapter dials and completes the signed-hello handshake through it, and you then call the same port methods — `getKnowledgeEntry`, `putRelation`, `listTimelineEvents`, and the rest — as if the peer were local. `orchestrateUpsert(adapter, req)` and the other `orchestrate*` calls run unchanged on the caller.
 
-The adapter ships in two packages: the **TypeScript** `@42ch/spoke-connect/remote` subpath and the **Rust** `remote-adapter` cargo feature of `spoke-connect`. Both enforce protocol version 2 envelope authentication internally (see [Envelope authentication](#6-envelope-authentication) and the [Connect architecture](/explanation/connect)).
+The adapter ships in two packages: the **TypeScript** `@42ch/spoke-connect/remote` subpath and the **Rust** `remote-adapter` cargo feature of `spoke-connect`. Both enforce protocol version 2 envelope authentication internally (see [Envelope authentication](#_6-envelope-authentication) and the [Connect architecture](/explanation/connect)).
 
 ## 1. The `Transport` seam
 
@@ -179,7 +179,7 @@ The adapter enforces **protocol version 2** per-envelope authentication internal
 - every outbound invoke request carries a `spoke-connect-invoke-request-jcs-v1` signature;
 - every inbound response runs the correlation echo check first, then `spoke-connect-invoke-response-jcs-v1` verification.
 
-Envelope authenticity is a protocol-level property above the transport — it does not depend on TLS or Noise. See [Envelope authentication](/explanation/connect#envelope-authentication) in the Connect architecture, and the [wire reference](/reference/connect#envelope-authentication-protocol_version-2) for the signed field sets.
+Envelope authenticity is a protocol-level property above the transport — it does not depend on TLS or Noise. See [Envelope authentication](/explanation/connect#envelope-authentication) in the Connect architecture, and the [wire reference](/reference/connect#envelope-authentication-protocol-version-2) for the signed field sets.
 
 ## 7. Loopback smoke
 

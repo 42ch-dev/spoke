@@ -14,7 +14,7 @@ Required: `protocol_version`, `peer_id`, `nonce`, `host`, `signature`, `extensio
 
 | Field | Notes |
 |-------|-------|
-| `protocol_version` | The `protocol_version` value consumers set in a `ConnectHello` is **1** (the hello exchange has not been bumped; the hello signed-field set and `spoke-connect-hello-jcs-v1` algorithm are unchanged). Protocol version **2 is current** as the normative connect-protocol version: it adds required per-envelope signatures on the **post-hello** wire, enforced internally by the RemoteAdapter and never set by consumers as a field value (see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2)). Bindings' `protocolVersion()` reports the hello version (1). |
+| `protocol_version` | The `protocol_version` value consumers set in a `ConnectHello` is **1** (the hello exchange has not been bumped; the hello signed-field set and `spoke-connect-hello-jcs-v1` algorithm are unchanged). Protocol version **2 is current** as the normative connect-protocol version: it adds required per-envelope signatures on the **post-hello** wire, enforced internally by the RemoteAdapter and never set by consumers as a field value (see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol-version-2)). Bindings' `protocolVersion()` reports the hello version (1). |
 | `peer_id` | Sender network identity — protocol v1: libp2p identity-spec PeerId string for Ed25519 (base58btc identity multihash of the protobuf `PublicKey`). Opaque to protocol logic; the trust root for the `noise-peerid` allowlist |
 | `nonce` | Single-use replay nonce, bound into the signed object |
 | `peer_nonce` | Responder-only dial binding: the initiator's nonce, echoed by the responder and bound into its signed object. Absent in initiator hellos; initiators reject a responder hello whose `peer_nonce` differs from their own nonce |
@@ -33,7 +33,7 @@ Required: `session_id`, `initiator_peer_id`, `responder_peer_id`, `opened_at`, `
 | `opened_at` | Session open time (UTC) |
 | `negotiated_capabilities` | Intersection (or agreed subset) of both hosts' `capabilities[]`; includes `spoke-connect` when both declare it |
 | `initial_sequence` | First invoke request uses this sequence — const 0 for protocol versions 1 and 2 |
-| `signature` | v2 only, required, minLength 86 maxLength 86 — base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`); see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) |
+| `signature` | v2 only, required, minLength 86 maxLength 86 — base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-session-jcs-v1`); see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol-version-2) |
 | `extensions` | Product namespace bag |
 
 ### ConnectInvokeRequest / ConnectInvokeResponse — remote op calls
@@ -48,7 +48,7 @@ Required: `session_id`, `initiator_peer_id`, `responder_peer_id`, `opened_at`, `
 | `op` | Open vocabulary. Core list (documented, not enforced): `upsert`, `promote`, `relate`, `check`, `assemble`, `project`, `compute`; reserved `port.*` prefix for RemoteAdapter port methods (see [Port-method ops (RemoteAdapter)](#port-method-ops-remoteadapter)) |
 | `payload` | Opaque JSON — a full existing ops request envelope for the named op when targeting SPOKE ops |
 | `auth` | Optional mid-session proof blob; primary auth is the hello. Shape is method-specific when used. When present on protocol_version 2 wire, `auth` is included in the JCS signed object |
-| `signature` | v2 only, required, minLength 86 maxLength 86 — base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-request-jcs-v1`); see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) |
+| `signature` | v2 only, required, minLength 86 maxLength 86 — base64url (no padding) of the 64-byte Ed25519 signature over the JCS-canonicalized signed object (`spoke-connect-invoke-request-jcs-v1`); see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol-version-2) |
 | `extensions` | Product namespace bag |
 
 `ConnectInvokeResponse` is the success `{ payload }` **or** `{ error }` — the same one-failure dialect as the ops wire; failures reuse the shared `ErrorEnvelope`. Both branches add a required `signature` in protocol_version 2:
@@ -155,7 +155,7 @@ The session core tracks one logical state per local node per session:
 | `Established` → `Established` | Inbound response | Accept iff it echoes `session_id`, `sequence`, and `request_id` of a pending request; else correlation failure |
 | `Established` → `Closed` | Next outbound sequence would exceed 2^53−1, transport loss, or local shutdown | No wrap-around |
 
-On a v2 wire, sequence/correlation checks run first but do not advance session state until envelope-auth verification passes (see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2)).
+On a v2 wire, sequence/correlation checks run first but do not advance session state until envelope-auth verification passes (see [Envelope authentication (protocol_version 2)](#envelope-authentication-protocol-version-2)).
 
 ## Auth methods
 

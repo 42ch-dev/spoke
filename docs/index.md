@@ -9,7 +9,7 @@ hero:
     - { theme: alt, text: Open a Connect session, link: /tutorials/first-connect-session }
 features:
   - { title: Tutorials, details: "Two end-to-end paths: install and upsert your first KnowledgeEntry, then open your first connect session.", link: /tutorials/install-and-first-entry }
-  - { title: How-to guides, details: "The two integrator jobs: implement the adapter ports your capabilities require, and wire up Connect from TypeScript or native bindings.", link: /how-to/implement-adapter }
+  - { title: How-to guides, details: "The integrator journey: implement the adapter ports your capabilities require, then connect hosts with the TypeScript client, a RemoteAdapter over a consumer Transport, multi-peer routing, or the native bindings.", link: /how-to/implement-adapter }
   - { title: Reference, details: "Verify wire facts on-site: protocol, data-model, ops, and connect field tables sourced from the schemas.", link: /reference/protocol }
   - { title: Explanation, details: "The concepts behind the wire: nine layers, capability flags, dual-concern pairs, and the four Domain Profiles.", link: /explanation/concepts }
 ---

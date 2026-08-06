@@ -9,7 +9,7 @@ hero:
     - { theme: alt, text: 开启 connect 会话, link: /zh/tutorials/first-connect-session }
 features:
   - { title: 教程, details: "两条端到端路径：安装并 upsert 你的第一条 KnowledgeEntry，然后开启你的首个 connect 会话。", link: /zh/tutorials/install-and-first-entry }
-  - { title: 操作指南, details: "两类集成方任务：实现你的能力所需的 adapter ports，以及从 TypeScript 或原生绑定接入 connect。", link: /zh/how-to/implement-adapter }
+  - { title: 操作指南, details: "集成方旅程：实现你的能力所需的 adapter ports，再用 TypeScript 客户端、基于消费方 `Transport` 的 RemoteAdapter、多对等节点路由或原生绑定接入跨主机 connect。", link: /zh/how-to/implement-adapter }
   - { title: 参考, details: "在站内核对线上事实：协议、数据模型、ops 与 connect 字段表，溯源到 schema。", link: /zh/reference/protocol }
   - { title: 讲解, details: "线上背后的概念：九层模型、能力标志、双重关注对与四个 Domain Profile。", link: /zh/explanation/concepts }
 ---

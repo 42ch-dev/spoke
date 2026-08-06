@@ -16,7 +16,7 @@ The connect stack exposes its session rules through a deliberately **sync, core-
 
 Native bindings (Swift, Kotlin, Python, C#/Go) cannot call async Rust directly. The bridge pattern that shipped exposes the async adapter as a **synchronous object** — `RemoteAdapterFFI` — whose methods each `block_on` the async adapter over a cdylib-owned tokio runtime, with the binding supplying `Transport` as a foreign-callback interface and a feature-gated loopback smoke host for golden-parity binding tests.
 
-This doc records the six load-bearing decisions of that bridge, as durable guidance for any future async-over-FFI surface in this repo or elsewhere. The long-term facts are here and in `.mstar/specs/spoke-remote-adapter.md`.
+This doc records the seven load-bearing decisions of that bridge, as durable guidance for any future async-over-FFI surface in this repo or elsewhere. The long-term facts are here and in `.mstar/specs/spoke-remote-adapter.md`.
 
 ## Guidance
 
@@ -145,6 +145,18 @@ pub enum FfiError {
 - `Rejected { code, message, kind?, wire_code? }` — invoke-path `SpokeResult::Reject` passthrough that carries the full frozen-contract D7 vocabulary: application reject codes preserved verbatim; `INTERNAL_ERROR` rows carry `kind` (`transport`, `session_closed`, `timeout`, `correlation_mismatch`, `sequence_exhausted`, `envelope_auth_missing` / `envelope_auth_invalid` / `envelope_auth_session_unbound`); dispatch deny (`op_unsupported` / `capability_missing`) and unknown wire codes carry `wire_code`.
 
 The mapping is a **faithful passthrough**: it does not invent, merge, or drop any error class from the async vocabulary. Unit tests pin each mapping (dial kinds, all eight internal kinds verbatim, application rejects without kind/wire_code, dispatch deny, unknown wire codes) so a future vocabulary change cannot silently alter the FFI surface.
+
+### 7. Panic containment — `catch_unwind` at every exported `block_on` site, mapped to the existing error slot
+
+A panicking future must never unwind across the FFI boundary (UB territory for foreign callers). Every exported FFI-object `block_on` site routes through a shared `ffi_block_on` / `ffi_block_on_void` / `ffi_block_on_transport` helper that wraps the call in `catch_unwind(AssertUnwindSafe(...))`:
+
+- **Result-returning sites** map a caught panic to the **existing** `FfiError::Rejected { code: "INTERNAL_ERROR", kind: Some("panic"), wire_code: None }` — the D7 `kind` slot already carries internal-error subtypes, so containment adds **no new error variant** (the frozen surface is unchanged; D7's table simply gains a `panic` row).
+- **`()`-returning sites** (`close`) have no error slot: catch + log + swallow by design — a close-time panic cannot be surfaced, and hiding it cannot mask invoke-path errors.
+- **Start-with-Result variants** (the smoke host's `start_loopback_smoke_host_variant`) propagate the mapped error via `?`; the no-error-slot sibling keeps an explicitly documented re-panic that preserves the original message — the single sanctioned exception, recorded in code and in D7.
+- **Test injection stays test-only**: the panic-injection flag is `thread_local!` + `#[cfg(test)]`, thread-keyed so concurrent tests cannot consume each other's injection, and compiles to zero in release cdylibs — production has no wrapper state machine beyond `catch_unwind` itself (the `#[cfg(test)]` split keeps it that way).
+- uniffi 0.32's own scaffolding independently wraps sync exports in a `rust_call` `catch_unwind`, so containment is double-layered: the explicit helper gives the mapped `FfiError`; the scaffolding is the backstop for anything missed.
+
+`AssertUnwindSafe` is sound here because each future is created fresh per call and dropped (never resumed) after a caught panic; the shared runtime is unaffected.
 
 ## Why This Matters
 

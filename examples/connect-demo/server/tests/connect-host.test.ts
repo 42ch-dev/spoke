@@ -26,12 +26,17 @@ import type {
   KnowledgeEntry,
   Relation,
 } from "@42ch/spoke-schemas";
-import { SpokeRejectCode } from "@42ch/spoke-operations";
+import {
+  SpokeRejectCode,
+  type BaselinePorts,
+  type SpokeResult,
+} from "@42ch/spoke-operations";
 import {
   base64UrlEncode,
   decodeJsonMessage,
   encodeJsonMessage,
   generateNonce,
+  NonceStore,
   signEd25519,
   signHelloEd25519,
   verifyHelloEd25519,
@@ -45,6 +50,7 @@ import {
 } from "@42ch/spoke-connect/remote";
 
 import { DEMO_SERVER_MANIFEST, MockAdapter } from "../src/adapter/mock-adapter.js";
+import { DERIVED_WORLD_DIGEST_ENTRY_ID } from "../src/engine/mock-engine.js";
 import {
   DEMO_SEED_ENTRIES,
   DEMO_SEED_RELATIONS,
@@ -96,17 +102,59 @@ function decodeEnvelope(bytes: EnvelopeBytes): unknown {
 }
 
 /** Start a ConnectHost serving a fresh MockAdapter on the server end. */
-function startHost(): { host: ConnectHost; client: Transport } {
+function startHost(
+  options: { adapter?: BaselinePorts; nonceStore?: NonceStore } = {},
+): { host: ConnectHost; client: Transport } {
   const { client, server } = loopbackTransportPair();
   const host = new ConnectHost({
     seed: DEMO_SERVER_SEED,
     manifest: DEMO_SERVER_MANIFEST,
     allowlist: [DEMO_CLIENT_PEER_ID],
     peerKeys: PEER_KEYS,
-    adapter: new MockAdapter(),
+    adapter: options.adapter ?? new MockAdapter(),
+    nonceStore: options.nonceStore,
   });
   host.attach(server);
   return { host, client };
+}
+
+/**
+ * Raw initiator handshake (the library client is exercised in the other
+ * tests; here the test drives the wire so it can read host responses and
+ * craft invalid invokes). Verifies the server hello's dial binding, then
+ * consumes the session snapshot and returns it.
+ */
+async function rawHandshake(
+  client: Transport,
+  seed: Uint8Array = DEMO_CLIENT_SEED,
+): Promise<{
+  session_id: string;
+  initial_sequence: number;
+  initiator_peer_id: string;
+  responder_peer_id: string;
+  signature: string;
+}> {
+  const initiatorNonce = generateNonce();
+  await client.send(
+    encodeEnvelope(
+      await signHelloEd25519(seed, initiatorNonce, CLIENT_MANIFEST),
+    ),
+  );
+  const serverHello = decodeEnvelope(await client.recv()) as ConnectHello;
+  await verifyHelloEd25519(
+    DEMO_SERVER_PUBKEY,
+    DEMO_SERVER_PEER_ID,
+    serverHello,
+    initiatorNonce,
+  );
+  const sessionDoc = decodeEnvelope(await client.recv()) as {
+    session_id: string;
+    initial_sequence: number;
+    initiator_peer_id: string;
+    responder_peer_id: string;
+    signature: string;
+  };
+  return sessionDoc;
 }
 
 /** Dial with the REAL library client (`connectRemoteAdapter`, v2 strict). */
@@ -329,26 +377,7 @@ describe("ConnectHost per-invoke gate (peek → verify → advance)", () => {
 
     // Raw initiator handshake (the library client is exercised in the other
     // tests; here the test drives the wire so it can read host responses).
-    const initiatorNonce = generateNonce();
-    await client.send(
-      encodeEnvelope(
-        await signHelloEd25519(DEMO_CLIENT_SEED, initiatorNonce, CLIENT_MANIFEST),
-      ),
-    );
-    const serverHello = decodeEnvelope(await client.recv()) as ConnectHello;
-    await verifyHelloEd25519(
-      DEMO_SERVER_PUBKEY,
-      DEMO_SERVER_PEER_ID,
-      serverHello,
-      initiatorNonce,
-    );
-    const sessionDoc = decodeEnvelope(await client.recv()) as {
-      session_id: string;
-      initial_sequence: number;
-      initiator_peer_id: string;
-      responder_peer_id: string;
-      signature: string;
-    };
+    const sessionDoc = await rawHandshake(client);
     expect(sessionDoc.session_id).toBe(host.sessionId);
     expect(sessionDoc.initial_sequence).toBe(0);
     expect(sessionDoc.initiator_peer_id).toBe(DEMO_CLIENT_PEER_ID);
@@ -420,5 +449,182 @@ describe("ConnectHost per-invoke gate (peek → verify → advance)", () => {
     expect(host.stats.sequenceRejections).toBe(0);
 
     host.close();
+  });
+});
+
+describe("ConnectHost deny paths (raw wire)", () => {
+  it("rejects an invoke with a mismatched sequence (inbound_sequence_mismatch)", async () => {
+    const { host, client } = startHost();
+    const { session_id: sessionId } = await rawHandshake(client);
+
+    // A wire-valid, properly signed invoke at a non-expected sequence: the
+    // sequence gate rejects it and increments `sequenceRejections`.
+    const wrongSequence = await signInvokeRequestTest({
+      session_id: sessionId,
+      sequence: 5,
+      request_id: "wrong-sequence",
+      op: "port.knowledge.get",
+      payload: { entry_id: DEMO_SEED_ENTRIES[0].entry_id },
+    });
+    await client.send(encodeEnvelope(wrongSequence));
+    const rejection = decodeEnvelope(await client.recv()) as {
+      session_id: string;
+      sequence: number;
+      request_id: string;
+      error: { code: string };
+      signature: string;
+    };
+    expect(rejection.session_id).toBe(sessionId);
+    expect(rejection.sequence).toBe(5);
+    expect(rejection.request_id).toBe("wrong-sequence");
+    expect(rejection.error.code).toBe("inbound_sequence_mismatch");
+    expect(rejection.signature).toHaveLength(86);
+    expect(host.stats.sequenceRejections).toBe(1);
+    expect(host.stats.invokesDispatched).toBe(0);
+
+    // The rejected invoke did not consume a sequence position: a valid
+    // invoke at sequence 0 still dispatches.
+    const valid = await signInvokeRequestTest({
+      session_id: sessionId,
+      sequence: 0,
+      request_id: "valid-after-mismatch",
+      op: "port.knowledge.get",
+      payload: { entry_id: DEMO_SEED_ENTRIES[0].entry_id },
+    });
+    await client.send(encodeEnvelope(valid));
+    const okResponse = decodeEnvelope(await client.recv()) as {
+      payload: KnowledgeEntry;
+    };
+    expect(okResponse.payload).toEqual(DEMO_SEED_ENTRIES[0]);
+    expect(host.stats.sequenceRejections).toBe(1);
+    expect(host.stats.invokesDispatched).toBe(1);
+
+    host.close();
+  });
+
+  it("denies an unknown op with op_unsupported", async () => {
+    const { host, client } = startHost();
+    const { session_id: sessionId } = await rawHandshake(client);
+
+    const unknownOp = await signInvokeRequestTest({
+      session_id: sessionId,
+      sequence: 0,
+      request_id: "unknown-op",
+      op: "port.nope",
+      payload: {},
+    });
+    await client.send(encodeEnvelope(unknownOp));
+    const response = decodeEnvelope(await client.recv()) as {
+      error: { code: string; message: string };
+      signature: string;
+    };
+    expect(response.error.code).toBe("op_unsupported");
+    expect(response.error.message).toContain("port.nope");
+    expect(response.signature).toHaveLength(86);
+    expect(host.stats.dispatchDenials).toBe(1);
+    expect(host.stats.invokesDispatched).toBe(0);
+
+    host.close();
+  });
+
+  it("rejects a replayed hello nonce on a second handshake", async () => {
+    // One store shared by both connections — exactly how the demo server
+    // wires serveConnectDemo (spec §Nonce: single-use per peer).
+    const sharedStore = new NonceStore();
+    const first = startHost({ nonceStore: sharedStore });
+    const replayNonce = "replay-nonce-0000000000001";
+    const hello = encodeEnvelope(
+      await signHelloEd25519(DEMO_CLIENT_SEED, replayNonce, CLIENT_MANIFEST),
+    );
+    await first.client.send(hello);
+    const serverHello = decodeEnvelope(await first.client.recv()) as ConnectHello;
+    await verifyHelloEd25519(
+      DEMO_SERVER_PUBKEY,
+      DEMO_SERVER_PEER_ID,
+      serverHello,
+      replayNonce,
+    );
+    await first.client.recv(); // session snapshot
+    expect(first.host.stats.hellosVerified).toBe(1);
+
+    // Second dial over a fresh connection replays the captured hello (same
+    // peer + nonce): the shared store rejects it before any session state
+    // exists, and the host closes the transport like any handshake failure.
+    const second = startHost({ nonceStore: sharedStore });
+    await second.client.send(hello);
+    await expect(second.client.recv()).rejects.toThrow(/closed/);
+    expect(second.host.stats.hellosVerified).toBe(0);
+
+    first.host.close();
+    second.host.close();
+  });
+});
+
+describe("ConnectHost concurrent invokes (serialized gate)", () => {
+  /**
+   * Adapter whose `getKnowledgeEntry` parks every call on a gate the test
+   * opens once all three dispatch phases are in flight — deterministic
+   * proof that the peek → verify → advance gate stays serialized while the
+   * dispatch phase runs concurrently (a broken gate would mis-reject the
+   * later invokes as `inbound_sequence_mismatch` before the counter
+   * advances).
+   */
+  class GatedAdapter extends MockAdapter {
+    #parked = 0;
+    #release!: () => void;
+    readonly #gate = new Promise<void>((resolve) => {
+      this.#release = resolve;
+    });
+    #allParked!: () => void;
+    /** Resolves once three adapter calls are parked on the gate. */
+    readonly allParked = new Promise<void>((resolve) => {
+      this.#allParked = resolve;
+    });
+
+    override async getKnowledgeEntry(
+      entryId: string,
+    ): Promise<SpokeResult<KnowledgeEntry>> {
+      this.#parked += 1;
+      if (this.#parked === 3) {
+        this.#allParked();
+      }
+      await this.#gate;
+      return super.getKnowledgeEntry(entryId);
+    }
+
+    open(): void {
+      this.#release();
+    }
+  }
+
+  it("demuxes concurrent invokes without sequence rejections", async () => {
+    const adapter = new GatedAdapter();
+    const { host, client } = startHost({ adapter });
+    const remote = await dialRealClient(client);
+    try {
+      const burst = Promise.all([
+        remote.getKnowledgeEntry(DEMO_SEED_ENTRIES[0].entry_id), // sequence 0
+        remote.getKnowledgeEntry(DEMO_SEED_ENTRIES[1].entry_id), // sequence 1
+        remote.getKnowledgeEntry(DERIVED_WORLD_DIGEST_ENTRY_ID), // sequence 2
+      ]);
+
+      // All three invokes reached the adapter concurrently — the dispatch
+      // phases overlap. If the gate had interleaved, a later invoke would
+      // have peeked at the pre-advance counter and been rejected.
+      await adapter.allParked;
+      adapter.open();
+      const [first, second, third] = await burst;
+
+      expect(first.ok && first.value.entry_id).toBe(DEMO_SEED_ENTRIES[0].entry_id);
+      expect(second.ok && second.value.entry_id).toBe(DEMO_SEED_ENTRIES[1].entry_id);
+      expect(third.ok && third.value.entry_id).toBe(DERIVED_WORLD_DIGEST_ENTRY_ID);
+      expect(host.stats.invokesDispatched).toBe(3);
+      expect(host.stats.sequenceRejections).toBe(0);
+      expect(host.stats.authRejections).toBe(0);
+      expect(host.stats.dispatchDenials).toBe(0);
+    } finally {
+      remote.close();
+      host.close();
+    }
   });
 });

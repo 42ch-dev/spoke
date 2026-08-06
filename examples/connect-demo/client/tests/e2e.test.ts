@@ -94,7 +94,9 @@ describe("connect demo over a real WebSocket", () => {
 
     // The stranger's OWN allowlist trusts the server, so the dial is
     // attempted; the SERVER-side allowlist rejects the hello and closes the
-    // socket, failing the dial fast — no session is established.
+    // socket, failing the dial fast — no session is established. The
+    // rejection is the handshake's connection loss (the server hung up
+    // mid-dial), not a bare any-error assertion.
     await expect(
       connectRemoteAdapter({
         transport,
@@ -103,7 +105,7 @@ describe("connect demo over a real WebSocket", () => {
         remotePubkey: DEMO_SERVER_PUBKEY,
         allowlist: [DEMO_SERVER_PEER_ID],
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/ws connection closed/);
 
     transport.close();
   });

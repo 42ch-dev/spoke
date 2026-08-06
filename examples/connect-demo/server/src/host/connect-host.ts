@@ -89,6 +89,12 @@ export interface ConnectHostOptions {
    * Defaults to every `port.*` op → `spoke-baseline`.
    */
   opCapabilityRequirements?: Record<string, string>;
+  /**
+   * Shared hello-nonce store (spec §Nonce — single-use per peer). Pass one
+   * store per server so a captured hello cannot re-establish on a second
+   * connection; defaults to a fresh per-instance store.
+   */
+  nonceStore?: NonceStore;
 }
 
 export interface ConnectHostStats {
@@ -136,7 +142,7 @@ export class ConnectHost {
   readonly #peerKeys: Readonly<Record<string, Uint8Array>>;
   readonly #adapter: BaselinePorts;
   readonly #requirements: Record<string, string>;
-  readonly #nonceStore = new NonceStore();
+  readonly #nonceStore: NonceStore;
 
   #session: Session | null = null;
   /** The verified client's hello public key (set at handshake). */
@@ -163,6 +169,7 @@ export class ConnectHost {
       ...PORT_OP_CAPABILITY_REQUIREMENTS,
       ...(options.opCapabilityRequirements ?? {}),
     };
+    this.#nonceStore = options.nonceStore ?? new NonceStore();
   }
 
   /** The established session id ("" before the handshake completes). */
@@ -281,11 +288,25 @@ export class ConnectHost {
     while (!this.#closed) {
       let doc: unknown;
       try {
-        doc = decodeJsonMessage(await transport.recv());
+        const bytes = await transport.recv();
+        try {
+          doc = decodeJsonMessage(bytes);
+        } catch (error) {
+          // Unparseable inbound: closes the connection per current
+          // semantics, but logged distinctly from a transport close so an
+          // operator can tell a dead peer from a protocol violation.
+          console.error(
+            `[connect-demo] unparseable inbound message; closing connection: ${(error as Error).message}`,
+          );
+          return;
+        }
       } catch {
-        return; // transport closed — stop serving
+        return; // transport closed — normal teardown, silent
       }
       if (!isConnectInvokeRequest(doc)) {
+        console.error(
+          "[connect-demo] ignoring non-invoke envelope (not a connect invoke request)",
+        );
         continue; // stray envelope — ignored
       }
       this.#queueInvoke(transport, doc);
@@ -417,8 +438,12 @@ export class ConnectHost {
         release();
         throw error;
       }
-    })().catch(() => {
-      // Host-side handler failure must not crash the serve loop.
+    })().catch((error) => {
+      // Host-side handler failure must not crash the serve loop, but it
+      // must not vanish either — one concise line for the demo operator.
+      console.error(
+        `[connect-demo] invoke handler failed (${doc.op}): ${(error as Error).message}`,
+      );
     });
   }
 

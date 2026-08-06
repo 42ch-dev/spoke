@@ -9,10 +9,11 @@ The client never touches session-core verification helpers — exactly what a th
 
 ## Run it (two terminals)
 
-Prerequisites: `pnpm install` once. The CLIs run from built output, so build the demo packages first (this also builds nothing else — the workspace deps' dist is only needed at CLI runtime, see below):
+Prerequisites: `pnpm install` once. The CLIs run from built output, so build the workspace packages the built CLIs import at runtime plus the demo packages themselves. This is the complete build set — `@42ch/spoke-schemas` is type-only for the demo and its deps, so no other dist is needed at CLI runtime (tests never need any of this):
 
 ```bash
-pnpm -F @42ch/spoke-connect build   # runtime dep of the built demo (tests never need it)
+pnpm -F @42ch/spoke-connect build        # runtime dep of both built demo CLIs (tests never need it)
+pnpm -F @42ch/spoke-operations build     # runtime dep of the built server CLI (tests never need it)
 pnpm -F @42ch/spoke-demo-server build
 pnpm -F @42ch/spoke-demo-client build
 ```

@@ -9,10 +9,11 @@
  * responder per connection.
  */
 
-import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 
 import { WebSocket, WebSocketServer } from "ws";
+
+import { NonceStore } from "@42ch/spoke-connect";
 
 import type { EnvelopeBytes, Transport } from "@42ch/spoke-connect/remote";
 
@@ -129,19 +130,57 @@ function toEnvelopeBytes(data: unknown): EnvelopeBytes {
 }
 
 /**
+ * Settle when the WebSocketServer starts listening, or reject when binding
+ * fails (e.g. EADDRINUSE). Both one-shot listeners are removed on settle: a
+ * successful listen must not leave an `error` listener behind (it would
+ * swallow later server errors), and a failed bind must not leave a dangling
+ * `listening` listener.
+ */
+function waitForListening(wss: WebSocketServer): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = (): void => {
+      wss.off("listening", onListening);
+      wss.off("error", onError);
+    };
+    const onListening = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    wss.once("listening", onListening);
+    wss.once("error", onError);
+  });
+}
+
+/**
  * Boot the connect demo host on a real WebSocketServer. `port: 0` binds an
  * ephemeral port (used by the e2e); each incoming connection gets a fresh
  * `ConnectHost` serving a fresh `MockAdapter` (one host per connection).
+ * Rejects when the port cannot be bound (e.g. already in use) instead of
+ * hanging on `listening` with an unhandled `error`.
  */
 export async function serveConnectDemo(
   options: { port?: number } = {},
 ): Promise<ServeConnectDemoHandle> {
   const port = options.port ?? DEFAULT_PORT;
   const wss = new WebSocketServer({ host: "127.0.0.1", port });
-  await once(wss, "listening");
+  try {
+    await waitForListening(wss);
+  } catch (error) {
+    wss.close();
+    throw new Error(
+      `failed to bind connect demo host on port ${port}: ${(error as Error).message}`,
+    );
+  }
   const address = wss.address() as AddressInfo;
   const url = `ws://127.0.0.1:${address.port}`;
   const connections = new Set<WsServerTransport>();
+  // Hello nonce single-use per peer across connections (spec §Nonce): one
+  // store for the whole server, so a captured hello cannot re-establish.
+  const nonceStore = new NonceStore();
 
   wss.on("connection", (socket) => {
     const transport = new WsServerTransport(socket);
@@ -157,6 +196,7 @@ export async function serveConnectDemo(
         [DEMO_CLIENT_PEER_ID]: DEMO_CLIENT_PUBKEY,
       },
       adapter: new MockAdapter(),
+      nonceStore,
     });
     host.attach(transport);
   });

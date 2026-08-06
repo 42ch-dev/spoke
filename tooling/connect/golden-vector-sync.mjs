@@ -6,12 +6,19 @@
  * `crates/spoke-connect/tests/fixtures/` (the Rust crate is the historical
  * libp2p capture authority):
  *
- *   golden-hello.json           (SSOT, hello + dial-binding responder)
- *   golden-envelope-auth.json   (SSOT, envelope-auth session /
- *                                invoke-request / invoke-response families)
+ *   golden-hello.json                  (SSOT, hello + dial-binding responder)
+ *   golden-envelope-auth.json          (SSOT, envelope-auth session /
+ *                                       invoke-request / invoke-response families)
+ *   capability-token-ts-golden.json    (SSOT, TS-minted capability-token proof;
+ *                                       top-level `provenance` is metadata only —
+ *                                       consumers strip it before strict parse)
  *
  * Each SSOT is validated structurally below, and every registered copy must
  * be byte-identical to its whole SSOT file.
+ *
+ * The Rust-minted `capability-token-golden.json` (TS package fixture only,
+ * drift-guarded by `capability-token-golden.test.ts`) is intentionally NOT
+ * registered here — single consumer, untouched by this gate.
  *
  * - golden-hello.json also carries a **responder vector** (`responder`
  *   block): the same key pair / manifest signed over the 5-field object
@@ -290,6 +297,65 @@ function checkEnvelopeAuthSsot(ssot, problems) {
   }
 }
 
+/** True when `n` is a non-negative integer suitable for u64 claim fields. */
+function isU64(n) {
+  return typeof n === "number" && Number.isInteger(n) && n >= 0;
+}
+
+/** Structural checks on the TS-minted capability-token SSOT; appends problems. */
+function checkCapabilityTokenTsSsot(ssot, problems) {
+  if (ssot.v !== 1) {
+    problems.push(`v: expected 1, got ${JSON.stringify(ssot.v)}`);
+  }
+  const claims = ssot.claims;
+  if (typeof claims !== "object" || claims === null || Array.isArray(claims)) {
+    problems.push("claims: expected an object");
+    return;
+  }
+  for (const field of ["iss", "sub", "aud"]) {
+    if (typeof claims[field] !== "string" || !BASE58.test(claims[field])) {
+      problems.push(`claims.${field}: expected a base58btc peer_id string`);
+    }
+  }
+  if (!Array.isArray(claims.capabilities) || claims.capabilities.length < 1) {
+    problems.push("claims.capabilities: expected a non-empty array");
+  } else {
+    for (const [i, cap] of claims.capabilities.entries()) {
+      if (typeof cap !== "string" || cap.length < 1) {
+        problems.push(`claims.capabilities[${i}]: expected a non-empty string`);
+      }
+    }
+  }
+  if (!isU64(claims.exp)) {
+    problems.push("claims.exp: expected a u64 integer");
+  }
+  if (claims.iat !== undefined && !isU64(claims.iat)) {
+    problems.push("claims.iat: expected a u64 integer when present");
+  }
+  if (typeof claims.jti !== "string" || claims.jti.length < 1) {
+    problems.push("claims.jti: expected a non-empty string");
+  }
+  if (typeof ssot.sig !== "string" || !B64U86.test(ssot.sig)) {
+    problems.push("sig: expected 86 base64url no-padding chars (64 bytes)");
+  }
+  const provenance = ssot.provenance;
+  if (typeof provenance !== "object" || provenance === null || Array.isArray(provenance)) {
+    problems.push("provenance: expected a metadata object");
+    return;
+  }
+  if (provenance.minted_by !== "typescript") {
+    problems.push(
+      `provenance.minted_by: expected "typescript", got ${JSON.stringify(provenance.minted_by)}`,
+    );
+  }
+  if (typeof provenance.minted_with !== "string" || provenance.minted_with.length < 1) {
+    problems.push("provenance.minted_with: expected a non-empty string");
+  }
+  if (typeof provenance.seed !== "string" || provenance.seed.length < 1) {
+    problems.push("provenance.seed: expected a non-empty string");
+  }
+}
+
 /** One registered golden vector: SSOT path, copies, checker, optional refresh. */
 const VECTORS = [
   {
@@ -319,6 +385,20 @@ const VECTORS = [
       "packages/spoke-connect-ts/tests/fixtures/golden-envelope-auth.json",
     ].map((p) => join(REPO_ROOT, p)),
     check: checkEnvelopeAuthSsot,
+    // No derived fields — every value is pinned; --write only refreshes copies.
+    refreshSsot: null,
+  },
+  {
+    name: "capability-token-ts",
+    ssotPath: join(
+      REPO_ROOT,
+      "crates/spoke-connect/tests/fixtures/capability-token-ts-golden.json",
+    ),
+    // TS consumer (Rust reads the SSOT directly via include_str!).
+    copies: [
+      "packages/spoke-connect-ts/tests/fixtures/capability-token-ts-golden.json",
+    ].map((p) => join(REPO_ROOT, p)),
+    check: checkCapabilityTokenTsSsot,
     // No derived fields — every value is pinned; --write only refreshes copies.
     refreshSsot: null,
   },

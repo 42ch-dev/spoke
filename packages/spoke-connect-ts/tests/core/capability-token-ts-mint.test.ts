@@ -18,8 +18,9 @@ import type {
 /**
  * TS-minted capability-token golden vector: deterministic proof from the
  * identity golden seed (`tooling/connect-identity-proof/`, bytes 1..=32),
- * checked in as `crates/spoke-connect/tests/fixtures/capability-token-ts-golden.json`
- * (SSOT for Tasks 2–3).
+ * checked in as `tests/fixtures/capability-token-ts-golden.json` (byte-identical
+ * registered copy of the SSOT under `crates/spoke-connect/tests/fixtures/`; sync
+ * gate: `tooling/connect/golden-vector-sync.mjs`).
  *
  * The vitest drift guard asserts the minted proof matches the committed
  * JSON (including provenance metadata). Consumers strip `provenance` before
@@ -35,7 +36,7 @@ const PROVENANCE = {
 } as const;
 
 const fixtureUrl = new URL(
-  "../../../../crates/spoke-connect/tests/fixtures/capability-token-ts-golden.json",
+  "../../tests/fixtures/capability-token-ts-golden.json",
   import.meta.url,
 );
 

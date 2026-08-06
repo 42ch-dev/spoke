@@ -25,6 +25,7 @@ import {
   replaceCsprojVersion,
   replaceGradleVersion,
   replacePyprojectVersion,
+  replaceSpokeOperationsPathDependencyVersion,
   replaceSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
@@ -525,6 +526,18 @@ for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
       crateContents,
       targetVersion,
       cratePath,
+    ),
+  );
+}
+
+{
+  const connectContents = readRepoFile(CARGO_CONNECT_CRATE_PATH);
+  writeRepoFile(
+    CARGO_CONNECT_CRATE_PATH,
+    replaceSpokeOperationsPathDependencyVersion(
+      connectContents,
+      targetVersion,
+      CARGO_CONNECT_CRATE_PATH,
     ),
   );
 }

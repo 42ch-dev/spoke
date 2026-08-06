@@ -40,6 +40,7 @@ import {
   parseCsprojVersion,
   parseGradleVersion,
   parsePyprojectVersion,
+  parseSpokeOperationsPathDependencyVersion,
   parseSpokeSchemasPathDependencyVersion,
 } from "./lockstep-surfaces.mjs";
 
@@ -294,6 +295,26 @@ for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
       `${cratePath} (spoke-schemas dependency)`,
       canonicalVersion,
       schemasDepVersion,
+    );
+  }
+}
+
+{
+  const connectContents = readRepoFile(CARGO_CONNECT_CRATE_PATH);
+  const operationsDepVersion =
+    parseSpokeOperationsPathDependencyVersion(connectContents);
+  if (operationsDepVersion === null) {
+    recordFailure(
+      `${CARGO_CONNECT_CRATE_PATH} (spoke-operations dependency)`,
+      `version = "${canonicalVersion}" with path`,
+      "(missing version in path dependency)",
+      "spoke-connect must declare spoke-operations with version + path (lockstep; published crates require it for cargo publish)",
+    );
+  } else {
+    assertEqual(
+      `${CARGO_CONNECT_CRATE_PATH} (spoke-operations dependency)`,
+      canonicalVersion,
+      operationsDepVersion,
     );
   }
 }

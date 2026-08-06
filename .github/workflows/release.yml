@@ -444,6 +444,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 
+      - name: Publish spoke-fixture-toy-world crate
+        run: ./tooling/release/publish-crate.sh spoke-fixture-toy-world
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+
       - name: Publish spoke-connect crate
         run: ./tooling/release/publish-crate.sh spoke-connect
         env:

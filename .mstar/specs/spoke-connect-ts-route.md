@@ -56,7 +56,7 @@ Scoring is High / Med / Low fitness for SPOKE Path A browser+Node clients that m
 ## Rationale (recommendation)
 
 1. **P0 contract is language-neutral.** Connect envelopes ride an ordered reliable stream; libp2p is one reference binding, not the wire definition ([spoke-connect.md](spoke-connect.md) §Embedding model, §Transport framing).
-2. **Identity is reproducible in JS.** The throwaway proof matches Rust golden vectors for `peer_id`, JCS bytes, Ed25519 signature, and base64url encoding — so pure-TS is not blocked on crypto or PeerId math.
+2. **Identity is reproducible in JS.** The identity proof matches Rust golden vectors for `peer_id`, JCS bytes, Ed25519 signature, and base64url encoding — so pure-TS is not blocked on crypto or PeerId math.
 3. **Lowest coupling and dependency weight** for a thin `@42ch/*` helper that products embed; matches the repo pattern of thin `@42ch/*` packages without introducing a swarm runtime into the protocol tree.
 4. **Fallback is explicit.** Products that need Noise mesh interop with `crates/spoke-connect` choose js-libp2p without changing wire schemas. WASM stays a contingency, not the first cut.
 
@@ -119,7 +119,7 @@ RESULT: ALL CHECKS PASSED
 
 **Shipped slice:** `packages/spoke-connect-ts` — a product-facing TS client published on npm as `@42ch/spoke-connect` (a client library, not a daemon). Items 1–6 below are implemented; item 7 lists the later scope.
 
-**Session-core parity:** the TS session core (`packages/spoke-connect-ts/src/core/`, plus `src/identity.ts` for `peer_id`) maintains capability parity with the Rust reference (`crates/spoke-connect/src/core/`) across allowlist, `peer_id` (derive and reverse), hello crypto, nonce, correlation, sequence, capability-token auth, and the dispatch gate / product-op capability map (including `tokenAuthorizesOp`), proven by shared golden vectors and round-trip parity tests. **Transport adapters are outside the parity surface** — including the default TS WebSocket path, the Rust reference libp2p stack (Noise/yamux/tcp/identify), and any opt-in pure-TS Noise mesh path under a package subpath. Parity covers session-core **rules** only; Noise handshake state, length-prefix framing, and static-key identity payloads are transport-adapter-owned and MUST NOT expand the parity table or live under `src/core/`.
+**Session-core parity:** the TS session core (`packages/spoke-connect-ts/src/core/`, plus `src/identity.ts` for `peer_id`) maintains capability parity with the Rust reference (`crates/spoke-connect/src/core/`) across allowlist, `peer_id` (derive and reverse), hello crypto, nonce, correlation, sequence, capability-token auth, and the dispatch gate / product-op capability map (including `tokenAuthorizesOp`), proven by shared golden vectors and round-trip parity tests. **Capability-token golden evidence** currently pins the **Rust-minted → TypeScript-verify** direction (`capability-token-golden.json`); a checked-in TypeScript-minted counterpart for Rust verify is outside the committed vector set. **Transport adapters are outside the parity surface** — including the default TS WebSocket path, the Rust reference libp2p stack (Noise/yamux/tcp/identify), and any opt-in pure-TS Noise mesh path under a package subpath. Parity covers session-core **rules** only; Noise handshake state, length-prefix framing, and static-key identity payloads are transport-adapter-owned and MUST NOT expand the parity table or live under `src/core/`.
 
 **Parity surface (shared rules — both implementations):**
 

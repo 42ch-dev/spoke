@@ -227,7 +227,7 @@ v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product p
 | `details` | no | object (open) |
 | `extensions` | yes | object |
 
-### Attachment pattern (R3)
+### Attachment pattern (response oneOf)
 
 All ops response schemas MUST use the same discriminated union:
 

@@ -525,9 +525,9 @@ Implementations MAY distinguish failure reasons in `message` and optional `detai
 
 ## Envelope authentication (protocol_version 2)
 
-> **Status:** Normative — protocol_version 2 envelope-authentication hardening slice. Schemas for protocol_version 2 gain the authenticator fields; enforcement lives in the connect session-core and the RemoteAdapter / connect-client layers.
+> **Status:** Normative — protocol_version 2 authenticates post-hello trust-affecting envelopes. Schemas for protocol_version 2 carry the authenticator fields; enforcement lives in the connect session-core and the RemoteAdapter / connect-client layers.
 
-Protocol_version **2** authenticates every post-hello trust-affecting envelope (`ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse`) at the protocol layer using per-envelope JCS + Ed25519 signed-field sets — the same construction as `spoke-connect-hello-jcs-v1`, extended to three new algorithm ids. This closes the Greptile P1 "Session snapshot remains unauthenticated" finding and the roadmap envelope-auth Up-next row: receivers no longer rely on TLS/Noise for envelope authenticity.
+Protocol_version **2** authenticates every post-hello trust-affecting envelope (`ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse`) at the protocol layer using per-envelope JCS + Ed25519 signed-field sets — the same construction as `spoke-connect-hello-jcs-v1`, extended to three new algorithm ids. Receivers verify envelope authenticity at the protocol layer, independent of transport-level TLS or Noise.
 
 ### Auth model — A locked (per-envelope JCS + Ed25519)
 
@@ -595,7 +595,7 @@ Order relative to existing session-core checks: sequence/correlation checks run 
 
 No new FFI APIs. Envelope-auth `authenticate*` / `verify*` helpers are module-internal (TS) / crate-private (Rust). Bindings continue to call the encapsulated RemoteAdapter / connect-client surfaces, which attach and verify authenticators internally. TS↔Rust core parity (canonical bytes + algorithm ids + verify outcomes) is the gate; binding golden-parity smokes that cover hello stay green.
 
-### Enforcement (shipped)
+### Enforcement
 
 The TS RemoteAdapter (`./remote` subpath) and connect-client, and the Rust RemoteAdapter (`remote-adapter` cargo feature), enforce envelope-authentication (protocol_version 2 post-hello rules) on every post-hello envelope they emit or accept, while the hello exchange remains at the core `PROTOCOL_VERSION` until a dedicated hello bump:
 
@@ -609,7 +609,7 @@ Enforcement placement and error mapping: [spoke-remote-adapter.md](spoke-remote-
 - Authenticating `ConnectAuthChallenge` / `ConnectAuthResponse` (deferred — method-specific proofs are already signature-bound).
 - Session-derived MAC / KEX (Option B — rejected).
 - Compat shim or dual-write period for v1 → v2 (rejected — fail-closed mixed-version).
-- Per-op idempotency keys (relevant to multi-peer failover; out of scope for the hardening slice).
+- Per-op idempotency keys (relevant to multi-peer failover).
 
 ## Discovery boundary
 
@@ -674,7 +674,6 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - [ ] Envelope authentication (protocol_version 2): `signature` required on `ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse` (both oneOf branches); `connect-hello` / `connect-auth-*` unchanged (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2))
 - [ ] Envelope-auth verify is fail-closed: missing / invalid / non-canonical `signature`, field-set drift, and session-binding mismatch reject `auth_failed`; no transport-trust fallback on protocol_version 2
 - [ ] Version strategy: `protocol_version` 1 → 2 with fail-closed mixed-version policy — no compat shim, no silent downgrade, no dual-write period
-- [ ] Greptile P1 (unauthenticated session snapshot) closed as addressed-by-design — roadmap envelope-auth Up-next row resolved by the [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) section
 
 ## Non-goals (connect)
 

@@ -4,10 +4,12 @@
 // Crawls `docs/.vitepress/dist` (run `pnpm docs:build` first) and verifies
 // that every internal `<a href>` resolves to a real page in the build
 // output. Only same-site links are checked: root-relative hrefs under the
-// site base `/spoke/` and relative hrefs resolved against the referring
-// page. External URLs (`https://…`, `mailto:`, `//…`) and in-page
-// `#fragments` are ignored. The gate exits non-zero listing
-// `{referrer, href, resolved}` for every miss.
+// site base and relative hrefs resolved against the referring page. External
+// URLs (`https://…`, `mailto:`, `//…`) are skipped for page resolution.
+//
+// After the page-link crawl, a fragment audit scans `docs/**/*.md` for every
+// in-page and cross-page `#fragment` markdown link and verifies the target
+// id exists in the emitted `docs/.vitepress/dist/**/*.html`.
 //
 // simplify: HTML is parsed with a regex over the `<a href>` attribute
 // instead of a full HTML parser. VitePress emits deterministic markup, so
@@ -20,6 +22,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const DIST_DIR = join(REPO_ROOT, "docs", ".vitepress", "dist");
+const DOCS_DIR = join(REPO_ROOT, "docs");
 
 // Derive the site base from the VitePress config so the gate works with
 // any base (e.g. `/spoke/` for bare project sites, `/` for custom domains).
@@ -39,6 +42,8 @@ function readBase() {
 const BASE = readBase();
 
 const ANCHOR_HREF = /<a\b[^>]*\bhref\s*=\s*["']([^"']*)["']/g;
+const HTML_ID = /\bid="([^"]+)"/g;
+const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)]+)\)/g;
 
 function isFile(distRel) {
   const st = statSync(join(DIST_DIR, distRel), { throwIfNoEntry: false });
@@ -72,7 +77,7 @@ function resolveHref(href, referrerRel) {
       rel = "";
     } else if (pathOnly.startsWith(BASE)) {
       rel = posix.normalize(pathOnly.slice(BASE.length));
-    } else if (BASE === "/" ) {
+    } else if (BASE === "/") {
       // base is root; any root-relative link is internal
       rel = posix.normalize(pathOnly.slice(1));
     } else {
@@ -85,6 +90,85 @@ function resolveHref(href, referrerRel) {
     return { rel, note: "escapes the build output" };
   }
   return { rel };
+}
+
+function distPagePath(distRel) {
+  if (pageExists(distRel)) {
+    if (distRel === "" || distRel === "index.html") return "index.html";
+    if (isFile(distRel)) return distRel;
+    if (isFile(`${distRel}.html`)) return `${distRel}.html`;
+    if (isFile(`${distRel}/index.html`)) return `${distRel}/index.html`;
+    if (distRel.endsWith("/") && isFile(`${distRel}index.html`)) return `${distRel}index.html`;
+  }
+  return null;
+}
+
+function markdownToDist(mdRel) {
+  const withoutExt = mdRel.replace(/\.md$/, "");
+  if (withoutExt === "index") return "index.html";
+  return `${withoutExt}.html`;
+}
+
+function resolveMarkdownFragmentLink(href, sourceMdRel) {
+  const hashIdx = href.indexOf("#");
+  if (hashIdx === -1) return { skip: true };
+  const fragment = decodeURIComponent(href.slice(hashIdx + 1));
+  if (!fragment) return { skip: true };
+
+  const pathPart = href.slice(0, hashIdx).split("?")[0];
+  if (/^[a-z][a-z0-9+.-]*:/i.test(pathPart)) return { skip: true };
+  if (pathPart.startsWith("//")) return { skip: true };
+
+  let targetMdRel;
+  if (pathPart === "") {
+    targetMdRel = sourceMdRel;
+  } else if (pathPart.startsWith("/")) {
+    const baseTrimmed = BASE.replace(/\/$/, "");
+    let sitePath = pathPart;
+    if (BASE !== "/" && !sitePath.startsWith(BASE) && sitePath !== baseTrimmed) {
+      return { skip: true, note: `not under the site base ${BASE}` };
+    }
+    if (BASE !== "/" && sitePath.startsWith(BASE)) {
+      sitePath = sitePath.slice(BASE.length - 1);
+    }
+    sitePath = sitePath.replace(/^\//, "").replace(/\/$/, "");
+    targetMdRel = sitePath === "" ? "index.md" : `${sitePath}.md`;
+  } else {
+    const sourceDir = posix.dirname(sourceMdRel);
+    targetMdRel = posix.normalize(posix.join(sourceDir, pathPart));
+    if (targetMdRel.endsWith("/")) targetMdRel += "index.md";
+    else if (!targetMdRel.endsWith(".md")) targetMdRel += ".md";
+    if (targetMdRel.startsWith("../")) {
+      return { skip: true, note: "escapes docs/" };
+    }
+  }
+
+  const distRel = markdownToDist(targetMdRel);
+  return { fragment, distRel, targetMdRel };
+}
+
+function collectMarkdownFiles() {
+  const out = [];
+  (function walk(dir, skipDirs) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (skipDirs.includes(entry.name)) continue;
+        walk(full, skipDirs);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        out.push(relative(DOCS_DIR, full).split(sep).join("/"));
+      }
+    }
+  })(DOCS_DIR, [".vitepress"]);
+  out.sort();
+  return out;
+}
+
+function collectHtmlIds(htmlPath) {
+  const html = readFileSync(htmlPath, "utf8");
+  const ids = new Set();
+  for (const match of html.matchAll(HTML_ID)) ids.add(match[1]);
+  return ids;
 }
 
 if (!statSync(DIST_DIR, { throwIfNoEntry: false })?.isDirectory()) {
@@ -127,14 +211,80 @@ console.log(
   `deadlink: ${htmlFiles.length} pages, ${linksChecked} anchor links checked, ${deadLinks.length} dead`,
 );
 
+let exitCode = 0;
+
 if (deadLinks.length === 0) {
   console.log("deadlink: OK — all internal links resolve");
-  process.exit(0);
+} else {
+  console.error("deadlink: FAIL — internal links that resolve to nothing:");
+  for (const { referrer, href, resolved, note } of deadLinks.sort((a, b) =>
+    a.referrer.localeCompare(b.referrer),
+  )) {
+    console.error(`  referrer: ${referrer}`);
+    console.error(`    href: ${href}  (resolved: ${resolved}${note ? `; ${note}` : ""})`);
+  }
+  exitCode = 1;
 }
 
-console.error("deadlink: FAIL — internal links that resolve to nothing:");
-for (const { referrer, href, resolved, note } of deadLinks.sort((a, b) => a.referrer.localeCompare(b.referrer))) {
-  console.error(`  referrer: ${referrer}`);
-  console.error(`    href: ${href}  (resolved: ${resolved}${note ? `; ${note}` : ""})`);
+// Fragment audit: every `#fragment` in docs/**/*.md must exist on the target page.
+const idCache = new Map();
+function idsForDistPage(distRel) {
+  const page = distPagePath(distRel);
+  if (!page) return null;
+  if (!idCache.has(page)) {
+    idCache.set(page, collectHtmlIds(join(DIST_DIR, page)));
+  }
+  return idCache.get(page);
 }
-process.exit(1);
+
+const brokenFragments = [];
+let fragmentsChecked = 0;
+for (const mdRel of collectMarkdownFiles()) {
+  const content = readFileSync(join(DOCS_DIR, mdRel), "utf8");
+  for (const match of content.matchAll(MARKDOWN_LINK)) {
+    const href = match[2];
+    const resolved = resolveMarkdownFragmentLink(href, mdRel);
+    if (resolved.skip) continue;
+    fragmentsChecked += 1;
+    const page = distPagePath(resolved.distRel);
+    if (!page) {
+      brokenFragments.push({
+        source: mdRel,
+        href,
+        target: resolved.targetMdRel,
+        fragment: resolved.fragment,
+        note: "target page missing from build output",
+      });
+      continue;
+    }
+    const ids = idsForDistPage(resolved.distRel);
+    if (!ids?.has(resolved.fragment)) {
+      brokenFragments.push({
+        source: mdRel,
+        href,
+        target: resolved.targetMdRel,
+        page,
+        fragment: resolved.fragment,
+      });
+    }
+  }
+}
+
+console.log(
+  `fragment: ${fragmentsChecked} markdown fragment links checked, ${brokenFragments.length} broken`,
+);
+
+if (brokenFragments.length === 0) {
+  console.log("fragment: OK — all markdown fragment links resolve");
+} else {
+  console.error("fragment: FAIL — markdown fragment links with no matching id:");
+  for (const item of brokenFragments.sort((a, b) => a.source.localeCompare(b.source))) {
+    console.error(`  source: ${item.source}`);
+    console.error(`    href: ${item.href}`);
+    if (item.page) console.error(`    page: ${item.page}  fragment: #${item.fragment}`);
+    else console.error(`    target: ${item.target}${item.note ? ` (${item.note})` : ""}`);
+  }
+  exitCode = 1;
+}
+
+process.exit(exitCode);

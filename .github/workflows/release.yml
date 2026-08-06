@@ -390,22 +390,13 @@ jobs:
 
       # Pack with pnpm (rewrites workspace:*), publish with npm CLI (OIDC Trusted Publisher).
       - name: Publish @42ch/spoke-schemas
-        working-directory: packages/spoke-schemas
-        run: |
-          pnpm pack
-          npm publish 42ch-spoke-schemas-*.tgz --access public
+        run: ./tooling/release/publish-npm.sh packages/spoke-schemas @42ch/spoke-schemas
 
       - name: Publish @42ch/spoke-operations
-        working-directory: packages/spoke-operations
-        run: |
-          pnpm pack
-          npm publish 42ch-spoke-operations-*.tgz --access public
+        run: ./tooling/release/publish-npm.sh packages/spoke-operations @42ch/spoke-operations
 
       - name: Publish @42ch/spoke-connect
-        working-directory: packages/spoke-connect-ts
-        run: |
-          pnpm pack
-          npm publish 42ch-spoke-connect-*.tgz --access public
+        run: ./tooling/release/publish-npm.sh packages/spoke-connect-ts @42ch/spoke-connect
 
   publish-crates:
     name: publish-crates

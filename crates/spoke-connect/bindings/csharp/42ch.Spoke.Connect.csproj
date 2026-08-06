@@ -18,7 +18,7 @@
 
     <PackageId>42ch.Spoke.Connect</PackageId>
     <!-- Lockstep SemVer — asserted/bumped with tooling/release lockstep surfaces. -->
-    <Version>0.8.2</Version>
+    <Version>0.9.0</Version>
     <Authors>42ch</Authors>
     <Company>42ch</Company>
     <Description>SPOKE Connect session-core C# bindings (uniffi + native spoke_connect FFI). Transport stays product-owned.</Description>

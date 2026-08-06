@@ -4,7 +4,7 @@ title: 编排操作（Orchestrate operations）
 
 # 编排操作（Orchestrate operations）
 
-操作库为每个 op 族暴露**一个编排器**。每个编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。
+操作库为每个 op 族暴露**一个编排器**。每个编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。同样的调用也可以原样运行在[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)或[多对等节点路由器](/zh/how-to/multi-peer-routing)之上 —— 两者都可直接作为 `BaselinePorts` 实现接入。
 
 ## 编排器一览
 

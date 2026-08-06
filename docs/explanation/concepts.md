@@ -29,6 +29,8 @@ A product claims compliance at a declared capability level. **`spoke-baseline`**
 - **`narrative-modules`** — the optional `modules` (`ModuleMap`) bag for cross-product functional dialects.
 - **`spoke-connect`** — the opt-in interaction envelope family; hosts that speak it list the flag in `HostCapabilityManifest.capabilities`.
 
+The connect family's session lifecycle, envelope authentication, and capability routing are explained in [Connect architecture](/explanation/connect).
+
 ## Dual-concern pairs
 
 The protocol keeps two pairs deliberately separate:

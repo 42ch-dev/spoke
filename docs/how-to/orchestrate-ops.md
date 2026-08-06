@@ -4,7 +4,7 @@ title: Orchestrate operations
 
 # Orchestrate operations
 
-The operations library exposes one **orchestrator per op family**. Each orchestrator takes your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, runs the protocol gates, loads and persists data through your ports, and returns a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust).
+The operations library exposes one **orchestrator per op family**. Each orchestrator takes your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, runs the protocol gates, loads and persists data through your ports, and returns a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust). The same calls run unchanged against a [RemoteAdapter over a consumer Transport](/how-to/connect-remote-adapter) or a [multi-peer router](/how-to/multi-peer-routing) — either drops in as the `BaselinePorts` implementation.
 
 ## The orchestrators
 

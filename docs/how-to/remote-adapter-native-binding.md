@@ -6,7 +6,7 @@ title: Use RemoteAdapter from a native binding
 
 **Native bindings** expose the remote Adapter contract as a synchronous FFI surface: your host code implements a message-oriented `Transport`; the adapter dials and exchanges envelopes through it, and you then call the same `BaselinePorts` methods the Rust reference and the TypeScript language-native client call. The shared library owns a process-wide tokio runtime; every exported call is a synchronous block-on-async call over that runtime, and the session core stays encapsulated on the Rust side — hello sign/verify, allowlist, nonce single-use, sequence, correlation, and envelope authentication all run inside the binding, while your host code supplies the `Transport` and invokes the port methods.
 
-The exported objects are `RemoteAdapterFFI` (single peer) and `MultiPeerRouterFFI` (multi-peer routing). This page walks the full flow with the Python binding; the same surface exists in C#, Go, Kotlin, and Swift with language-idiomatic names (see the [symbol map](#symbol-map-across-the-bindings)).
+The exported objects are `RemoteAdapterFFI` (single peer) and `MultiPeerRouterFFI` (multi-peer routing). This page walks the full flow with the Python binding; the same surface exists in C#, Go, Kotlin, and Swift with language-idiomatic names (see the [symbol map](#symbol-map-across-the-bindings)). The generic RemoteAdapter contract — the message-oriented `Transport` seam, dial options, and error mapping shared with the TypeScript and Rust libraries — is in [RemoteAdapter over a Transport](/how-to/connect-remote-adapter); this page covers the FFI surface.
 
 ## 1. Implement the callback `Transport`
 
@@ -122,6 +122,42 @@ result_json = router.get_knowledge_entry(entry_id)  # routed to a capable peer
 ```
 
 Selection reads each registered peer's cached `HostCapabilityManifest` — hard gates on the operation's required capability and exact namespace, a soft role preference, and a deterministic lowest-`peer_id` tie-break. When no registered peer passes the hard gates, the call rejects with `CAPABILITY_PORT_MISSING` and `wire_code = "no_capable_peer"`; register a satisfying peer and re-invoke with a fresh `request_id`. The router also exposes the composed and per-peer `HostManifestPort` views (`get_host_capability_manifest` and `list_peer_host_capability_manifests`). The full selection contract is in [Route across multiple peers](/how-to/multi-peer-routing).
+
+## 6. Errors
+
+Every FFI call settles through the `FfiError` surface — dial failures before an adapter exists, invoke-path `SpokeResult` rejects, and the callback transport's own failures:
+
+### `FfiError.Dial` — constructor / dial failures
+
+`{ kind, message }`, returned when the dial fails before an adapter exists:
+
+| `kind` | When |
+|--------|------|
+| `config` | Local seed or remote public key not exactly 32 bytes, invalid local manifest JSON, or the remote `peer_id` not on the allowlist (fail-closed) |
+| `handshake` | Hello signature failure, nonce single-use violation, dial-binding assert, `ConnectSession` snapshot verification failure, or a verified hello advertising a mixed or unknown `protocol_version` |
+| `timeout` | The dial deadline elapsed (bounded-wait handshake) |
+
+### `FfiError.Rejected` — invoke-path `SpokeResult` rejects
+
+`{ code, message, kind, wire_code }`, returned by port methods on the established surface:
+
+| Row | Shape |
+|-----|-------|
+| Application rejects | `code` preserved verbatim (for example `KNOWLEDGE_ENTRY_NOT_FOUND`) |
+| Payload JSON parse failure | `INVALID_INPUT`, no `kind` / `wire_code` |
+| `INTERNAL_ERROR` rows | `kind` ∈ {`transport`, `session_closed`, `timeout`, `panic`, `correlation_mismatch`, `sequence_exhausted`, `envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} |
+| Dispatch deny | `CAPABILITY_PORT_MISSING` with `wire_code` = `op_unsupported` / `capability_missing` |
+| Unknown wire codes | `INVALID_INPUT` with `wire_code` |
+| Router terminal reject | `CAPABILITY_PORT_MISSING` with `wire_code` = `kind` = `no_capable_peer` |
+
+`kind = "panic"` is the panic-containment row: a panic caught around an exported block-on-async call fails only that waiter and never unwinds across the FFI boundary — the message carries the raw panic payload. A foreign-callback panic inside the `spawn_blocking` pool surfaces as a transport `Io` failure instead.
+
+### `TransportError` — callback transport failures
+
+| Variant | When |
+|---------|------|
+| `Closed` | The connection closed; a pending `recv` fails fast |
+| `Io` | Transport-level I/O failure, including a foreign-callback panic failing the blocking join |
 
 ## Symbol map across the bindings
 

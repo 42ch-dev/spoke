@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spoke-connect"
-version = "0.8.2"
+version = "0.9.0"
 description = "SPOKE Connect session-core Python bindings (uniffi + native spoke_connect FFI)"
 readme = "README.md"
 license = "Apache-2.0"

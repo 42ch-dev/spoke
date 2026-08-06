@@ -41,6 +41,7 @@ pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
 - **`@42ch/spoke-connect`** —— TypeScript 语言原生客户端。
+- **`@42ch/spoke-connect/remote`** —— RemoteAdapter 子路径：经消费方 `Transport` 拨号远端对等节点并跨多个对等节点路由（见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)）。
 
 ```bash
 cargo add spoke-connect@X.Y.Z

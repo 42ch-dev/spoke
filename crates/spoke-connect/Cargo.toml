@@ -13,13 +13,12 @@ description = "SPOKE Connect reference spike — libp2p transport, noise-peerid 
 exclude = ["bindings/**", "examples/**"]
 
 [dependencies]
-spoke-schemas = { version = "0.8.2", path = "../spoke-schemas" }
+spoke-schemas = { version = "0.9.0", path = "../spoke-schemas" }
 # RemoteAdapter (the `remote-adapter` feature) implements the operations
 # BaselinePorts + SpokeResult types; optional so default connect builds stay
 # lean (TS equivalent: the `./remote` subpath export).
-spoke-operations = { version = "0.8.2", path = "../spoke-operations", optional = true }
+spoke-operations = { version = "0.9.0", path = "../spoke-operations", optional = true }
 # Loopback smoke host (RemoteAdapter FFI binding smokes; `ffi-smoke-host` only).
-spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust", optional = true }
 libp2p.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -47,7 +46,7 @@ default = []
 # depend on spoke-operations; TS equivalent is the `./remote` subpath).
 remote-adapter = ["dep:spoke-operations"]
 # Loopback smoke host FFI (binding smokes only — NOT implied by remote-adapter or ffi).
-ffi-smoke-host = ["remote-adapter", "dep:spoke-fixture-toy-world"]
+ffi-smoke-host = ["remote-adapter"]
 # Same-LAN discovery convenience (non-default): wires libp2p's mDNS
 # behaviour into the node. Discovery only — it never grants trust:
 # discovered peers still pass the allowlist + signed-hello gates, and
@@ -86,7 +85,6 @@ libp2p-identity = "0.2"
 x25519-dalek = "2"
 # RemoteAdapter loopback interop test: the host serves a reference
 # ToyWorldAdapter, and the dial fixture derives peer ids from raw seeds.
-spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust", features = [] }
 ed25519-dalek = "2"
 # Loopback host emits schema-v2 signed post-hello envelopes (session
 # snapshot + invoke responses) with the same RFC 8785 JCS canonicalization

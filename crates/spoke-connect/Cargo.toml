@@ -19,7 +19,7 @@ spoke-schemas = { version = "0.9.0", path = "../spoke-schemas" }
 # lean (TS equivalent: the `./remote` subpath export).
 spoke-operations = { version = "0.9.0", path = "../spoke-operations", optional = true }
 # Loopback smoke host (RemoteAdapter FFI binding smokes; `ffi-smoke-host` only).
-spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust", optional = true }
+spoke-fixture-toy-world = { version = "0.9.0", path = "../../fixtures/toy-world/rust", optional = true }
 libp2p.workspace = true
 serde.workspace = true
 serde_json.workspace = true

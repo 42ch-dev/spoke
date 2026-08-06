@@ -851,18 +851,19 @@ mod multi_peer_router_ffi {
 mod loopback_smoke_host {
     use std::sync::Arc;
 
-    use spoke_fixture_toy_world::ToyWorldAdapter;
+    use spoke_operations::BaselinePorts;
 
     use crate::core::derive_peer_id_from_ed25519_pubkey;
     use crate::test_support::loopback_oracle::{
         manifest, pubkey_client, seed_host, start_loopback_host, LoopbackHost,
         LoopbackHostOptions,
     };
+    use crate::test_support::smoke_baseline_adapter::SmokeBaselineAdapter;
 
     use super::foreign_transport::LoopbackTransport;
 
-    /// Reference loopback host for binding smokes (ToyWorld fixtures, fixed
-    /// test seeds). Serves the server end of a [`loopback_transport_pair`].
+    /// Reference loopback host for binding smokes (in-crate empty-store adapter,
+    /// fixed test seeds). Serves the server end of a [`loopback_transport_pair`].
     #[derive(uniffi::Object)]
     pub struct LoopbackSmokeHost {
         host: LoopbackHost,
@@ -887,7 +888,7 @@ mod loopback_smoke_host {
         server: Arc<LoopbackTransport>,
         host_seed: [u8; 32],
         host_manifest: spoke_schemas::HostCapabilityManifest,
-        adapter: Arc<ToyWorldAdapter>,
+        adapter: Arc<dyn BaselinePorts + Send + Sync>,
     ) -> Result<Arc<LoopbackSmokeHost>, super::remote_adapter_ffi::FfiError> {
         let transport = Arc::new(server.clone_async_inner());
         let host = super::remote_adapter_ffi::ffi_block_on(start_loopback_host(LoopbackHostOptions {
@@ -904,8 +905,8 @@ mod loopback_smoke_host {
     }
 
     /// Start the reference loopback smoke host on the server end of a
-    /// loopback pair. Uses the same seeds, manifests, and ToyWorld adapter
-    /// as the Rust FFI parity tests.
+    /// loopback pair. Uses the same seeds and manifests as the Rust FFI parity
+    /// tests with an in-crate empty-store baseline adapter.
     #[uniffi::export]
     pub fn start_loopback_smoke_host(
         server: Arc<LoopbackTransport>,
@@ -915,15 +916,16 @@ mod loopback_smoke_host {
             server,
             seed_host(),
             manifest("test-host", &["spoke-baseline"]),
-            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            Arc::new(SmokeBaselineAdapter::default()),
         )
         .unwrap_or_else(|error| panic!("loopback smoke host start: {error}"))
     }
 
     /// Parametric loopback smoke host for multi-peer routing smokes: fixed
     /// client allowlist (`seed_client`), caller-supplied host seed + manifest.
-    /// Uses `ToyWorldAdapter::default()` (same as Rust `multi_peer_router_ffi`
-    /// loopback proofs). `ffi-smoke-host` only — not in production cdylib.
+    /// Uses the in-crate empty-store smoke adapter (same as Rust
+    /// `multi_peer_router_ffi` loopback proofs). `ffi-smoke-host` only — not in
+    /// production cdylib.
     #[uniffi::export]
     pub fn start_loopback_smoke_host_variant(
         server: Arc<LoopbackTransport>,
@@ -947,7 +949,7 @@ mod loopback_smoke_host {
             server,
             host_seed,
             host_manifest,
-            Arc::new(ToyWorldAdapter::default()),
+            Arc::new(SmokeBaselineAdapter::default()),
         )
     }
 }
@@ -2223,7 +2225,7 @@ mod remote_adapter_ffi_tests {
                     .host_allowlist
                     .clone()
                     .unwrap_or_else(|| vec![peer_id_client.clone()]),
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: options
                     .host_delay
                     .unwrap_or_else(|| Box::new(|_| 0)),
@@ -2573,7 +2575,7 @@ mod remote_adapter_ffi_tests {
                 host_seed: seed_host(),
                 host_manifest: manifest("test-host", &["spoke-baseline"]),
                 allowlist: vec![other_peer.clone()],
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
                 response_override: None,
                 session_peer_ids: None,
@@ -2605,7 +2607,7 @@ mod remote_adapter_ffi_tests {
                 host_seed: seed_host(),
                 host_manifest: manifest("test-host", &["spoke-baseline"]),
                 allowlist: vec![other_peer],
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(|_| 0),
                 response_override: None,
                 session_peer_ids: None,
@@ -2720,7 +2722,7 @@ mod remote_adapter_ffi_tests {
                 host_seed: seed_host(),
                 host_manifest: manifest("test-host", &["spoke-baseline"]),
                 allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
-                adapter: Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+                adapter: Arc::new(ToyWorldAdapter::default()),
                 delay: Box::new(move |_| {
                     if delay_active_host.load(Ordering::Relaxed) {
                         200
@@ -2959,10 +2961,12 @@ mod multi_peer_router_ffi_tests {
 
         assert_eq!(baseline_host.stats().invokes_dispatched, 2);
         assert_eq!(computable_host.stats().invokes_dispatched, 0);
-        assert!(baseline_host
-            .inner
-            .adapter
-            .with_store(|store| store.entries.contains_key("kb_mpr_ffi_upsert")));
+        assert!(ffi_runtime().block_on(
+            baseline_host
+                .inner
+                .adapter
+                .get_knowledge_entry("kb_mpr_ffi_upsert")
+        ).is_ok());
 
         baseline_adapter.close();
         computable_adapter.close();

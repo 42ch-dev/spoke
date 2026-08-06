@@ -255,7 +255,9 @@ async fn encapsulates_verification_and_is_drop_in_baseline_ports() {
     assert!(host
         .inner
         .adapter
-        .with_store(|store| store.entries.contains_key("kb_remote_cartographer")));
+        .get_knowledge_entry("kb_remote_cartographer")
+        .await
+        .is_ok());
 
     // Drop-in parity — reject path: a conflicting second upsert rejects
     // identically on both sides (error branch → SpokeResult reject).
@@ -1572,7 +1574,9 @@ async fn multi_peer_router_routes_upsert_and_check_to_the_capable_peer() {
     assert!(baseline_host
         .inner
         .adapter
-        .with_store(|store| store.entries.contains_key("kb_mpr_upsert")));
+        .get_knowledge_entry("kb_mpr_upsert")
+        .await
+        .is_ok());
 
     // orchestrateCheck → listKnowledgeEntries + listTimelineEvents +
     // putFindings (listRules is skipped: the fixture request carries no

@@ -1,6 +1,6 @@
 # 42ch.Spoke.Connect
 
-SPOKE Connect **session-core** bindings for .NET (generated uniffi C# + native `spoke_connect` / `libspoke_connect`).
+SPOKE Connect **session-core** bindings for .NET (generated uniffi C# + native `spoke_connect` / `libspoke_connect`), with the additive remote-adapter FFI surface.
 
 ## Install
 
@@ -33,4 +33,20 @@ Native libraries resolve via NuGet RID assets (`runtimes/<rid>/native/`). Transp
 
 ## Scope
 
-Session core only: `peer_id`, hello sign/verify, allowlist, nonce, sequence, correlation, dispatch. Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
+Session core: `peer_id`, hello sign/verify, allowlist, nonce, sequence, correlation, dispatch. The package also carries the additive remote-adapter FFI surface — `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, and the in-memory loopback helpers. The native library is built from the production feature pair `ffi,remote-adapter`: regenerated bindings reference `remote-adapter` symbols at load time, so the release build always carries both features. Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
+
+## Transport contract
+
+The callback `Transport` is a message-oriented interface: one envelope per call, blocking receive, idempotent close.
+
+| Method | Behavior |
+|--------|----------|
+| `Send(envelope)` | Accepts exactly one connect envelope's bytes per call |
+| `Recv()` | Blocks until the next inbound envelope arrives or the connection closes; returns exactly one envelope per call |
+| `Close()` | Releases transport resources; idempotent — closing either end of a connection fails the peer's pending `Recv` like a real connection drop |
+
+The surface bounds messages at one envelope per call; byte-stream carriers apply length-prefix (or equivalent) delimiting before handing envelopes to the adapter.
+
+## MultiPeerRouterFFI
+
+`NewMultiPeerRouterFfi()` returns the router as a synchronous object over the cdylib-owned tokio runtime: a peer registry (`RegisterPeer` accepts an established `RemoteAdapterFfi` and returns its `peer_id`; `UnregisterPeer`; `ListPeers`), the `BaselinePorts` six families routed per call to exactly one capable peer, and the two `HostManifestPort` aggregation views — the composed `GetHostCapabilityManifest` and the per-peer `ListPeerHostCapabilityManifests`. Selection matches each registered peer's cached `HostCapabilityManifest`: required capability, exact namespace, soft role preference, and a deterministic lowest-`peer_id` tie-break.

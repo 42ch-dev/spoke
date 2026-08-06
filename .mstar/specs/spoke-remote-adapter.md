@@ -166,8 +166,7 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 ## Staged follow-ons
 
 1. Optional computable/fork port ops (`port.computable.*`, `port.fork.*`) when product needs remote optional capabilities  
-2. ~~FFI exposure after the TS/Rust contract stabilizes~~ — delivered (D12)  
-3. Consumer-side WebSocket Transport packages  
+2. Consumer-side WebSocket Transport packages  
 
 ## Acceptance
 

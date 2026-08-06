@@ -42,11 +42,31 @@ Namespace: **`uniffi.spoke_connect`**. Transport / WebSocket stays in the host p
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `generated/` + `native/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Committed `generated/` + `native/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
 | Local loopback smoke cdylib + bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
 Full loopback smoke procedure: [`Smoke/README.md`](Smoke/README.md).
+
+## RemoteAdapter FFI surface
+
+With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, and the in-memory loopback helpers.
+
+### Transport contract
+
+The callback `Transport` is a message-oriented interface: one envelope per call, blocking receive, idempotent close.
+
+| Method | Behavior |
+|--------|----------|
+| `send(envelope)` | Accepts exactly one connect envelope's bytes per call |
+| `recv()` | Blocks until the next inbound envelope arrives or the connection closes; returns exactly one envelope per call |
+| `close()` | Releases transport resources; idempotent — closing either end of a connection fails the peer's pending `recv` like a real connection drop |
+
+The surface bounds messages at one envelope per call; byte-stream carriers apply length-prefix (or equivalent) delimiting before handing envelopes to the adapter.
+
+### MultiPeerRouterFFI
+
+`newMultiPeerRouterFfi()` returns the router as a synchronous object over the same runtime: a peer registry (`registerPeer(adapter)` accepts an established `RemoteAdapterFfi` and returns its `peer_id`; `unregisterPeer(peerId)`; `listPeers()`), the `BaselinePorts` six families routed per call to exactly one capable peer, and the two `HostManifestPort` aggregation views — the composed `getHostCapabilityManifest()` and the per-peer `listPeerHostCapabilityManifests()`. Selection matches each registered peer's cached `HostCapabilityManifest`: required capability, exact namespace, soft role preference, and a deterministic lowest-`peer_id` tie-break.
 
 ## Layout
 

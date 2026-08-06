@@ -14,7 +14,7 @@ title: 从原生绑定连接
 | Go | Go modules（git + tags） | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
 
-NuGet 与 Maven 共用 GitHub Packages 注册表族。每个绑定暴露相同的同步核心面；golden-parity smoke 从各宿主侧断言字节级一致的行为。
+NuGet 与 Maven 共用 GitHub Packages 注册表族。每个绑定暴露相同的同步核心面；golden-parity smoke 从各宿主侧断言字节级一致的行为。每个绑定原生库都由生产构建特性对 `ffi,remote-adapter` 构建 —— 重新生成的绑定在加载时需要 `remote-adapter` 符号（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`），因此发布构建始终同时携带这两个特性。
 
 ## C# —— GitHub Packages NuGet
 

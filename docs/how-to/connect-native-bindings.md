@@ -14,7 +14,7 @@ title: Connect from native bindings
 | Go | Go modules (git + tags) | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
 
-NuGet and Maven both use the GitHub Packages registry family. Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side.
+NuGet and Maven both use the GitHub Packages registry family. Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side. Every native library is built from the production feature pair `ffi,remote-adapter` — regenerated bindings reference `remote-adapter` symbols (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) at load time, so the release build always carries both features.
 
 ## C# — GitHub Packages NuGet
 

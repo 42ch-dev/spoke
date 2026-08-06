@@ -4,13 +4,13 @@ title: 从原生绑定使用 RemoteAdapter
 
 # 从原生绑定使用 RemoteAdapter（Use RemoteAdapter from a native binding）
 
-**原生绑定（native bindings）**把远程 Adapter 契约暴露为同步 FFI 面：你的绑定实现一个消息导向 `Transport`（传输接口）；adapter 经它拨号并收发信封，然后你调用与 Rust 参考实现、TypeScript 语言原生客户端相同的 `BaselinePorts` 方法。共享库拥有一个进程级 tokio 运行时；每个导出调用都是该运行时之上的同步 block-on-async（同步阻塞执行异步调用），会话核心始终封装在 Rust 侧 —— 握手签名/校验、allowlist、nonce 单次使用、sequence、关联校验与信封认证全部在绑定内部运行，永不进入你的宿主代码。
+**原生绑定（native bindings）**把远程 Adapter 契约暴露为同步 FFI 面：你的宿主代码实现一个消息导向 `Transport`（传输接口）；adapter 经它拨号并收发信封，然后你调用与 Rust 参考实现、TypeScript 语言原生客户端相同的 `BaselinePorts` 方法。共享库拥有一个进程级 tokio 运行时；每个导出调用都是该运行时之上的同步 block-on-async（同步阻塞执行异步调用），会话核心始终封装在 Rust 侧 —— 握手签名/校验、allowlist、nonce 单次使用、sequence、关联校验与信封认证全部在绑定内部运行，而你的宿主代码提供 `Transport` 并调用 port 方法。
 
 导出的对象是 `RemoteAdapterFFI`（单对等节点）与 `MultiPeerRouterFFI`（多对等节点路由）。本页以 Python 绑定走完完整流程；C#、Go、Kotlin 与 Swift 存在相同的面，只是使用各语言惯用名称（见[符号对照表](#各绑定符号对照表)）。
 
 ## 1. 实现回调 `Transport`
 
-绑定实现消息导向的 `Transport` 接口：
+你的宿主代码实现消息导向的 `Transport` 接口：
 
 | 方法 | 行为 |
 |------|------|
@@ -39,7 +39,7 @@ class LoopbackCallbackTransport:
         self._inner.close()
 ```
 
-真实部署中，用同样的三个方法覆盖你的承载载体 —— socket、WebSocket 或消息通道。Transport 每次 `send` / `recv` 调用投递恰好一个信封；字节流载体自行负责长度前缀（或等价方式）的定界；adapter 不对信封定界。
+真实部署中，用同样的三个方法覆盖你的承载载体 —— socket、WebSocket 或消息通道。Transport 每次 `send` / `recv` 调用投递恰好一个信封；字节流载体在把信封交给 adapter 之前应用长度前缀（或等价方式）定界。
 
 ## 2. 拨号并构造 `RemoteAdapterFFI`
 
@@ -103,7 +103,7 @@ adapter.remote_peer_id()   # 已认证的远端 peer_id
 adapter.remote_manifest()  # 远端对等节点的 HostCapabilityManifest，JSON
 ```
 
-`session_id` / `remote_peer_id` / `remote_manifest` 在会话建立后填充；会话信息来自已认证握手与会话核心 —— 无需额外往返。
+`session_id` / `remote_peer_id` / `remote_manifest` 在会话建立后填充；会话信息来自已认证握手与会话核心，在建立时捕获。
 
 ## 5. 用 `MultiPeerRouterFFI` 跨多个对等节点路由
 

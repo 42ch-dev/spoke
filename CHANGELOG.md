@@ -6,6 +6,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.9.1] - 2026-08-06
+
+
+### Changed
+
+- **connect:** Add TS-minted capability-token golden vector + drift guard
+
+- **connect:** Verify TS-minted capability-token golden vector in Rust
+
+- **connect:** Consolidate panic helper + cfg(test) injection split
+
+
+### Documentation
+
+- **connect:** Sync tracked specs, roadmap, and knowledge with current connect facts
+
+- **connect:** State bidirectional capability-token golden-vector parity
+
+- **connect:** Roadmap capability-token row to Done + knowledge SSOT model sync
+
+- **connect:** Close binding Transport contract + feature-pair docs; polish residual doc items
+
+- **connect:** Rework connect family for the RemoteAdapter era (EN)
+
+- **connect:** Fix Rust adapter snippet + align version-mismatch row with shipped surface
+
+- **connect:** CN twins for the connect family rework + glossary sync
+
+- **connect:** Journey-ordered sidebar + anchor fixes + integrator-docs roadmap row
+
+- **connect:** Fix QC findings — SpokeResult consumption, Dial triggers, smoke import, zh freeze, anchors
+
+- Refresh connect publish facts and index GitNexus
+
+
+### Fixed
+
+- **connect:** Tighten golden-vector gate bounds + byte-identical drift guard
+
+- **connect:** Contain FFI block_on panics with catch_unwind
+
+- **connect:** Propagate smoke-host start panics as FfiError; thread-key panic injection
+
+- **connect:** Binding artifact fixes for residual sweep task 2
+
+- **ci:** Lockstep spoke-operations path dep for v0.9.0 release
+
+- **connect:** Restore test fixture dev-dep; de-fixture ffi-smoke-host adapter for publish-safe smoke builds
+
+
+### Internal
+
+- **connect:** Cover capability-token family in golden-vector sync gate
+
+- **connect:** Drop dead ffi helper and unused imports
+
+- **docs:** Enforce fragment resolution + structural twin parity in docs gates
+
+- Ignore local GitNexus skill install
+
+
+### merge
+
+- **main:** Sync v0.9.0 release state for task-5 CI repair
+
+- **main:** Sync v0.9.0 release CI repairs
+
 ## [0.9.0] - 2026-08-06
 
 

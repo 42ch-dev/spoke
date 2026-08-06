@@ -92,6 +92,7 @@ Concurrent port calls on one established session are allowed. Outbound `sequence
 | Transport I/O | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "transport"` |
 | Session closed / connection loss | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "session_closed"`; adapter → `Closed`, all pending failed |
 | Invoke timeout | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "timeout"` (waiter only) |
+| Panic containment at FFI boundary | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "panic"` (waiter only; never unwinds across FFI) |
 | Correlation mismatch | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "correlation_mismatch"` |
 | Sequence exhaustion | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind = "sequence_exhausted"`; session closed |
 | Envelope-auth rejection (missing / invalid / session-unbound response or request) | `SpokeResult` reject `INTERNAL_ERROR`, `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} (waiter only; session state untouched, session stays usable) |

@@ -32,6 +32,7 @@
 //! algorithm ids, and verify outcomes. Binding golden-parity smokes covering
 //! hello stay green and are not extended to envelope auth.
 
+use std::any::Any;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "ffi")]
 use std::sync::OnceLock;
@@ -50,6 +51,18 @@ pub(crate) fn ffi_runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
+
+/// Extract a human-readable message from a `catch_unwind` payload.
+fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        message.to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
 // ── Foreign-callback `Transport` over the async seam (AR-2 / AR-3) ───────
 //
 // The `RemoteAdapter`'s `Transport` seam is async (`send`/`recv`/`close`,
@@ -63,7 +76,6 @@ pub(crate) fn ffi_runtime() -> &'static tokio::runtime::Runtime {
 #[cfg(feature = "remote-adapter")]
 mod foreign_transport {
     use async_trait::async_trait;
-    use std::any::Any;
     use std::future::Future;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::Arc;
@@ -71,23 +83,13 @@ mod foreign_transport {
     use crate::remote::transport;
     use crate::remote::transport::Transport as RemoteAsyncTransport;
 
-    use super::ffi_runtime;
-
-    fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
-        if let Some(message) = payload.downcast_ref::<&str>() {
-            message.to_string()
-        } else if let Some(message) = payload.downcast_ref::<String>() {
-            message.clone()
-        } else {
-            "unknown panic payload".to_string()
-        }
-    }
+    use super::{ffi_runtime, panic_payload_message};
 
     fn ffi_block_on_transport<F, T>(future: F) -> Result<T, TransportError>
     where
         F: Future<Output = Result<T, transport::TransportError>>,
     {
-        match catch_unwind(AssertUnwindSafe(|| ffi_runtime().handle().block_on(future))) {
+        match catch_unwind(AssertUnwindSafe(|| ffi_runtime().block_on(future))) {
             Ok(result) => result.map_err(Into::into),
             Err(payload) => Err(TransportError::Io(format!(
                 "internal panic: {}",
@@ -311,21 +313,11 @@ mod remote_adapter_ffi {
 
     use super::foreign_transport::ForeignCallbackTransport;
     use super::foreign_transport::Transport as FfiTransport;
-    use super::ffi_runtime;
+    use super::{ffi_runtime, panic_payload_message};
 
     #[cfg(test)]
     thread_local! {
         static INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON: Cell<bool> = Cell::new(false);
-    }
-
-    fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
-        if let Some(message) = payload.downcast_ref::<&str>() {
-            message.to_string()
-        } else if let Some(message) = payload.downcast_ref::<String>() {
-            message.clone()
-        } else {
-            "unknown panic payload".to_string()
-        }
     }
 
     fn map_block_on_panic(payload: Box<dyn Any + Send>) -> FfiError {
@@ -337,12 +329,23 @@ mod remote_adapter_ffi {
         }
     }
 
+    #[cfg(not(test))]
+    pub(super) fn ffi_block_on<F, T>(future: F) -> Result<T, FfiError>
+    where
+        F: Future<Output = T>,
+    {
+        match catch_unwind(AssertUnwindSafe(|| ffi_runtime().block_on(future))) {
+            Ok(value) => Ok(value),
+            Err(payload) => Err(map_block_on_panic(payload)),
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn ffi_block_on<F, T>(future: F) -> Result<T, FfiError>
     where
         F: Future<Output = T>,
     {
         let future = async {
-            #[cfg(test)]
             if INJECT_PANIC_ON_NEXT_FFI_BLOCK_ON.with(|flag| {
                 let should_panic = flag.get();
                 if should_panic {
@@ -1640,6 +1643,7 @@ mod tests {
 
 #[cfg(all(test, feature = "remote-adapter"))]
 mod remote_adapter_ffi_tests {
+    use std::sync::mpsc;
     use std::sync::{Arc, Mutex};
     use std::thread;
 
@@ -1690,6 +1694,42 @@ mod remote_adapter_ffi_tests {
 
     fn client_manifest_json() -> String {
         serde_json::to_string(&manifest("test-client", &["spoke-baseline"])).expect("manifest")
+    }
+
+    /// Callback transport that signals once after the first post-dial `send` succeeds
+    /// (invoke request on the wire, waiting for host response).
+    struct InvokeInFlightCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+        in_flight_tx: Arc<Mutex<Option<mpsc::Sender<()>>>>,
+    }
+
+    impl Transport for InvokeInFlightCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            let result = ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into);
+            if result.is_ok() {
+                if let Some(tx) = self.in_flight_tx.lock().expect("in-flight tx lock").take() {
+                    let _ = tx.send(());
+                }
+            }
+            result
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
     }
 
     fn dial_ffi(client: crate::remote::transport::LoopbackTransport) -> Arc<RemoteAdapterFFI> {
@@ -2659,13 +2699,21 @@ mod remote_adapter_ffi_tests {
     #[test]
     fn ffi_callback_transport_mid_flight_close_rejects_pending_invoke_session_closed() {
         use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Mutex;
-        use std::time::Duration;
+        use std::sync::mpsc;
+
+        use crate::remote::{
+            connect_remote_adapter, RemoteAdapterOptions, RemoteIdentity,
+        };
 
         let delay_active = Arc::new(AtomicBool::new(true));
         let delay_active_host = Arc::clone(&delay_active);
         let pair = crate::remote::transport::loopback_transport_pair();
-        let client_for_close = pair.client.clone();
+        let in_flight_tx_slot = Arc::new(Mutex::new(None));
+        let bridge = Arc::new(ForeignCallbackTransport::new(Arc::new(InvokeInFlightCallback {
+            inner: pair.client,
+            in_flight_tx: Arc::clone(&in_flight_tx_slot),
+        })));
+        let bridge_for_close = Arc::clone(&bridge);
         let host = ffi_runtime().block_on(async {
             start_loopback_host(LoopbackHostOptions {
                 transport: Arc::new(pair.server),
@@ -2685,15 +2733,23 @@ mod remote_adapter_ffi_tests {
             })
             .await
         });
-        let ffi = connect_remote_adapter_ffi(
-            Box::new(LoopbackCallback { inner: pair.client }),
-            seed_client().to_vec(),
-            client_manifest_json(),
-            pubkey_host().to_vec(),
-            vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
-            None,
-        )
-        .expect("ffi dial over callback transport");
+        let adapter = ffi_runtime()
+            .block_on(connect_remote_adapter(RemoteAdapterOptions {
+                transport: bridge,
+                local_identity: RemoteIdentity {
+                    seed: seed_client(),
+                },
+                local_manifest: serde_json::from_str(&client_manifest_json())
+                    .expect("client manifest"),
+                remote_pubkey: pubkey_host(),
+                allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+                invoke_timeout_ms: None,
+                capability_token: None,
+            }))
+            .expect("dial over ForeignCallbackTransport bridge");
+        let ffi = Arc::new(RemoteAdapterFFI::from_adapter(adapter));
+        let (invoke_in_flight_tx, invoke_in_flight_rx) = mpsc::channel();
+        *in_flight_tx_slot.lock().expect("in-flight tx slot lock") = Some(invoke_in_flight_tx);
         let invoke_slot = Arc::new(Mutex::new(None));
         let invoke_slot_thread = Arc::clone(&invoke_slot);
         let ffi_thread = Arc::clone(&ffi);
@@ -2701,10 +2757,12 @@ mod remote_adapter_ffi_tests {
             let result = ffi_thread.get_knowledge_entry("kb_tw_mira".to_string());
             *invoke_slot_thread.lock().expect("invoke slot lock") = Some(result);
         });
-        thread::sleep(Duration::from_millis(30));
+        invoke_in_flight_rx
+            .recv()
+            .expect("invoke send must complete before close");
         ffi_runtime()
-            .block_on(client_for_close.close())
-            .expect("client transport close");
+            .block_on(bridge_for_close.close())
+            .expect("close via ForeignCallbackTransport spawn_blocking path");
         invoke_handle.join().expect("invoke thread joined");
         let err = invoke_slot
             .lock()

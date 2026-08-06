@@ -44,6 +44,7 @@ const enSidebar = [
     items: [
       { text: 'Install & first entry', link: '/tutorials/install-and-first-entry' },
       { text: 'First connect session', link: '/tutorials/first-connect-session' },
+      { text: 'Integrate a RemoteAdapter', link: '/tutorials/integrate-remote-adapter' },
     ],
   },
   {
@@ -122,6 +123,7 @@ const zhSidebar = [
     items: [
       { text: '安装与第一条 KnowledgeEntry', link: '/zh/tutorials/install-and-first-entry' },
       { text: '首个 connect 会话', link: '/zh/tutorials/first-connect-session' },
+      { text: '集成 RemoteAdapter 连接推理主机', link: '/zh/tutorials/integrate-remote-adapter' },
     ],
   },
   {

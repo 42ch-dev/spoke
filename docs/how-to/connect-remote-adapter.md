@@ -233,6 +233,7 @@ The same flow is the journey's terminal step: [RemoteAdapter from native binding
 
 ## Next steps
 
+- [Integrate a RemoteAdapter against a live host](/tutorials/integrate-remote-adapter) — the step-by-step learning path through the same contract against the demo mock inference host.
 - [Route across multiple peers](/how-to/multi-peer-routing) — a multi-peer router composes N registered adapters behind the same `BaselinePorts` surface.
 - [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding) — the same adapter lifecycle as a synchronous FFI surface from C#, Go, Kotlin, Python, or Swift.
 - [Connect from the TypeScript client](/how-to/connect-ts-client) — the language-native client surface, including the `./remote` entry point.

@@ -9,9 +9,10 @@ The client never touches session-core verification helpers — exactly what a th
 
 ## Run it (two terminals)
 
-Prerequisites: `pnpm install` once. The CLIs run from built output, so build the workspace packages the built CLIs import at runtime plus the demo packages themselves. This is the complete build set — `@42ch/spoke-schemas` is type-only for the demo and its deps, so no other dist is needed at CLI runtime (tests never need any of this):
+Prerequisites: `pnpm install` once. The CLIs run from built output, so build the workspace packages the built CLIs import at runtime plus the demo packages themselves. This is the complete build set — `@42ch/spoke-schemas` builds first as the compile-time prerequisite (fresh checkouts must build it explicitly: it has no `prepare` script and its `dist/` is gitignored, so the demo builds resolve its generated wire types through the package `types` field only after this step), `@42ch/spoke-connect` / `@42ch/spoke-operations` are runtime deps of the built demo CLIs, and the demo packages build last (tests never need any of this):
 
 ```bash
+pnpm -F @42ch/spoke-schemas build        # compile-time prerequisite: generated wire types
 pnpm -F @42ch/spoke-connect build        # runtime dep of both built demo CLIs (tests never need it)
 pnpm -F @42ch/spoke-operations build     # runtime dep of the built server CLI (tests never need it)
 pnpm -F @42ch/spoke-demo-server build
@@ -70,4 +71,4 @@ The demo server is a **devDependency** of the client (used only by the e2e to bo
 
 ## Docs
 
-The RemoteAdapter how-to walks through the same contract the demo exercises — the `Transport` seam, the dial, and the `BaselinePorts` calls: [docs/how-to/connect-remote-adapter.md](../../docs/how-to/connect-remote-adapter.md). A step-by-step integration tutorial that uses this demo as its runnable spine is planned on the [roadmap](../../.mstar/roadmap.md) ("RemoteAdapter integration tutorial (EN+CN)").
+The RemoteAdapter how-to walks through the same contract the demo exercises — the `Transport` seam, the dial, and the `BaselinePorts` calls: [docs/how-to/connect-remote-adapter.md](../../docs/how-to/connect-remote-adapter.md). A step-by-step integration tutorial uses this demo as its runnable spine, in English and 简体中文: [docs/tutorials/integrate-remote-adapter.md](../../docs/tutorials/integrate-remote-adapter.md) and its [CN twin](../../docs/zh/tutorials/integrate-remote-adapter.md).

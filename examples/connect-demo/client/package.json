@@ -1,0 +1,30 @@
+{
+  "name": "@42ch/spoke-demo-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SPOKE connect demo — third-party RemoteAdapter client over a WebSocket transport",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@42ch/spoke-connect": "workspace:*",
+    "@42ch/spoke-schemas": "workspace:*",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@42ch/spoke-demo-server": "workspace:*",
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.3.0",
+    "vitest": "^3.0.0"
+  }
+}

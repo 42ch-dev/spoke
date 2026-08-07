@@ -155,6 +155,7 @@ cargo run -p spoke-connect --example two_node_usage
 
 ## 下一步
 
+- [集成 RemoteAdapter 连接推理主机](/zh/tutorials/integrate-remote-adapter) —— 实现 `Transport`、用 `connectRemoteAdapter` 拨号，并针对 demo 模拟推理主机调用 `BaselinePorts` 面。
 - [从 TypeScript 客户端连接](/zh/how-to/connect-ts-client) —— 完整客户端面、浏览器 vs Node，以及核心辅助函数。
 - [从原生绑定连接](/zh/how-to/connect-native-bindings) —— 从 C#、Kotlin、Swift、Go 或 Python 使用同一会话核心。
 - [connect 线上参考](/zh/reference/connect) —— 信封字段表与身份绑定规则。

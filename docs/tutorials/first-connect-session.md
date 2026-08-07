@@ -156,6 +156,7 @@ The compiled example source ([`examples/two_node_usage.rs`](https://github.com/4
 
 ## Next steps
 
+- [Integrate a RemoteAdapter against a live host](/tutorials/integrate-remote-adapter) — implement a `Transport`, dial with `connectRemoteAdapter`, and call the `BaselinePorts` surface against the demo mock inference host.
 - [Connect from the TypeScript client](/how-to/connect-ts-client) — the full client surface, browser vs Node, and core helpers.
 - [Connect from native bindings](/how-to/connect-native-bindings) — the same session core from C#, Kotlin, Swift, Go, or Python.
 - [Connect wire reference](/reference/connect) — envelope field tables and identity binding rules.

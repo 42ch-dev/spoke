@@ -73,7 +73,7 @@ The bridge **imports and reuses** the existing session core (allowlist, hello cr
 
 - TS: a **subpath export** (`./remote`) with the root bundle excluding the bridge symbols; assert the split with a dist-shape smoke test.
 - Rust: an **optional cargo feature** (`remote-adapter = ["dep:spoke-operations"]`) with `default = []`; verify with `cargo tree -p … -e normal` (0 occurrences default, 1 with feature).
-- **CI must compile and run the feature.** A feature that is never exercised in CI silently rots (this was a real finding: the Rust remote module merged with zero CI signal until a feature-step was added mirroring the existing mdns pattern).
+- **CI must compile and run the feature.** A feature that is never exercised in CI silently rots (this was a real finding: the Rust remote module merged with zero CI signal until a dedicated feature-step was added).
 
 ### 5. Concurrent invokes: atomic sequence + per-request correlation, one receive loop
 

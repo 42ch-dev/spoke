@@ -197,7 +197,7 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 
 ## 发现与显式对等连接
 
-**显式对等连接（explicit peering）是生产路径**：主机配置监听地址，并经带外方式互相拨号（配置的地址或直接拨号）。connect 线上不携带任何发现字段 —— mDNS 只是 Rust 参考栈可选 `mdns` feature 提供的同 LAN 开发便利，发现的候选与显式拨号的对等节点一样，经同一 allowlist 与签名握手门禁准入。
+**显式对等连接（explicit peering）是生产路径**：主机配置监听地址，并经带外方式互相拨号（配置的地址或直接拨号）。connect 线上不携带任何发现字段 —— 发现属传输侧职责，会话准入仍完全由 allowlist 与签名握手门禁把关。
 
 ## 传输
 

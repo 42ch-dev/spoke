@@ -47,14 +47,11 @@ async fn main() {
         local_manifest: manifest("host-a", "checker"),
         handshake_timeout: None,
         invoke_handler: Some(handler),
+        invoke_handler_v2: None,
         op_capability_requirements: HashMap::new(),
         trusted_issuers: Vec::new(),
         require_capability_token: false,
         capability_token_provider: None,
-        // Autodial can race the explicit connect on multicast-capable LANs;
-        // the demo uses explicit peering, so discovery stays passive.
-        #[cfg(feature = "mdns")]
-        mdns_autodial: false,
     };
     let node_a = SpokeConnectNode::start(config_a).await.expect("start a");
 
@@ -66,14 +63,11 @@ async fn main() {
         local_manifest: manifest("host-b", "input-source"),
         handshake_timeout: None,
         invoke_handler: None,
+        invoke_handler_v2: None,
         op_capability_requirements: HashMap::new(),
         trusted_issuers: Vec::new(),
         require_capability_token: false,
         capability_token_provider: None,
-        // Autodial can race the explicit connect on multicast-capable LANs;
-        // the demo uses explicit peering, so discovery stays passive.
-        #[cfg(feature = "mdns")]
-        mdns_autodial: false,
     };
     let node_b = SpokeConnectNode::start(config_b).await.expect("start b");
 

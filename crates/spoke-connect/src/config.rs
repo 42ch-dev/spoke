@@ -33,6 +33,25 @@ pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub type InvokeHandler =
     dyn Fn(&str, serde_json::Value) -> Result<serde_json::Value, ErrorEnvelope> + Send + Sync;
 
+/// Session-peer-aware remote op dispatcher hook (additive; spike-scoped
+/// like [`InvokeHandler`]).
+///
+/// Called by the accept path for every inbound invoke: `(peer, op, payload)`
+/// → opaque ops response success body or a wire [`ErrorEnvelope`]. The first
+/// argument is the **noise-authenticated session peer id** — the peer that
+/// passed the allowlist, signed-hello, and envelope-auth gates — never a
+/// payload-carried `peer_id` claim (payload claims are untrusted).
+///
+/// Execution contract: like [`InvokeHandler`], the hook runs **synchronously
+/// on the node's network event loop**. It must return promptly and must not
+/// block on I/O — every handshake, invoke response, and timeout sweep on the
+/// node stalls behind it. Panics are contained (the invoke is answered with
+/// an `internal_error` wire envelope and the node keeps running) but remain
+/// a caller bug.
+pub type InvokeHandlerV2 = dyn Fn(&PeerId, &str, serde_json::Value) -> Result<serde_json::Value, ErrorEnvelope>
+    + Send
+    + Sync;
+
 /// Capability-token proof supplier for challenge responses.
 ///
 /// Called with the **audience** peer id (the challenger's `peer_id`, which
@@ -78,6 +97,14 @@ pub struct ConnectConfig {
     /// every inbound invoke with an `op_unsupported` error envelope.
     pub invoke_handler: Option<Arc<InvokeHandler>>,
 
+    /// Session-peer-aware remote op dispatcher for inbound invokes
+    /// (additive). When set, it takes precedence over
+    /// [`Self::invoke_handler`] and receives the noise-authenticated session
+    /// peer id as its first argument (see [`InvokeHandlerV2`]); `None` falls
+    /// back to [`Self::invoke_handler`]. `None` for both answers every
+    /// inbound invoke with an `op_unsupported` error envelope.
+    pub invoke_handler_v2: Option<Arc<InvokeHandlerV2>>,
+
     /// Product-defined op → required capability map, consulted by the
     /// inbound dispatch gate for ops outside the core-op table (the pure
     /// core answers `None` for them — see `core::required_capability`).
@@ -103,14 +130,6 @@ pub struct ConnectConfig {
     /// it dials stay unauthorized for invokes when the peer's policy
     /// requires a token.
     pub capability_token_provider: Option<Arc<CapabilityTokenProvider>>,
-
-    /// Whether mDNS-discovered peers are dialed automatically (builds with
-    /// the `mdns` feature only). Default `true` — same-LAN dev convenience.
-    /// Discovery never grants trust: only allowlisted discoveries are
-    /// dialed, and the dial passes the same `ConnectionEstablished`
-    /// allowlist gate as an explicit `connect(addr)`.
-    #[cfg(feature = "mdns")]
-    pub mdns_autodial: bool,
 }
 
 impl fmt::Debug for ConnectConfig {
@@ -124,6 +143,7 @@ impl fmt::Debug for ConnectConfig {
             .field("local_manifest", &self.local_manifest)
             .field("handshake_timeout", &self.handshake_timeout)
             .field("invoke_handler", &"<handler>")
+            .field("invoke_handler_v2", &"<handler-v2>")
             .field(
                 "op_capability_requirements",
                 &self.op_capability_requirements,
@@ -131,8 +151,6 @@ impl fmt::Debug for ConnectConfig {
             .field("trusted_issuers", &self.trusted_issuers)
             .field("require_capability_token", &self.require_capability_token)
             .field("capability_token_provider", &"<provider>");
-        #[cfg(feature = "mdns")]
-        builder.field("mdns_autodial", &self.mdns_autodial);
         builder.finish()
     }
 }
@@ -146,12 +164,11 @@ impl Clone for ConnectConfig {
             local_manifest: self.local_manifest.clone(),
             handshake_timeout: self.handshake_timeout,
             invoke_handler: self.invoke_handler.clone(),
+            invoke_handler_v2: self.invoke_handler_v2.clone(),
             op_capability_requirements: self.op_capability_requirements.clone(),
             trusted_issuers: self.trusted_issuers.clone(),
             require_capability_token: self.require_capability_token,
             capability_token_provider: self.capability_token_provider.clone(),
-            #[cfg(feature = "mdns")]
-            mdns_autodial: self.mdns_autodial,
         }
     }
 }
@@ -213,12 +230,11 @@ mod tests {
             local_manifest: manifest(),
             handshake_timeout: None,
             invoke_handler: None,
+            invoke_handler_v2: None,
             op_capability_requirements: HashMap::new(),
             trusted_issuers: Vec::new(),
             require_capability_token: false,
             capability_token_provider: None,
-            #[cfg(feature = "mdns")]
-            mdns_autodial: true,
         }
     }
 

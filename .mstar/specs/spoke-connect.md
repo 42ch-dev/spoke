@@ -615,7 +615,6 @@ Enforcement placement and error mapping: [spoke-remote-adapter.md](spoke-remote-
 
 - Connect **wire** has no mDNS/DHT/multiaddr fields.
 - Normative discovery path: **explicit peering** (configured addresses / out-of-band dial).
-- mDNS is a **runtime convenience** (non-default feature of the reference stack) for same-LAN development only — it is not implied as production discovery.
 
 ## Transport framing
 
@@ -669,7 +668,7 @@ The Rust reference maps these envelopes onto rust-libp2p: **noise** for authenti
 - [ ] Ops-family registration contract (capability + `op` vocabulary + opaque payload)
 - [ ] Embedding model: three layers + Path A / Path B
 - [ ] `spoke-connect` optional flag registered in `spoke-protocol-layers.md`; baseline unchanged
-- [ ] Discovery default is explicit peering; mDNS described as non-default convenience only
+- [ ] Discovery boundary: explicit peering is the normative discovery path
 - [ ] No transport-specific fields (multiaddr, DHT keys, HTTP/gRPC mapping) in connect schemas
 - [ ] Envelope authentication (protocol_version 2): `signature` required on `ConnectSession`, `ConnectInvokeRequest`, `ConnectInvokeResponse` (both oneOf branches); `connect-hello` / `connect-auth-*` unchanged (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2))
 - [ ] Envelope-auth verify is fail-closed: missing / invalid / non-canonical `signature`, field-set drift, and session-binding mismatch reject `auth_failed`; no transport-trust fallback on protocol_version 2

@@ -50,8 +50,17 @@ export class WsTransport implements Transport {
       });
     });
     this.#socket.on("message", (data) => this.#push(toEnvelopeBytes(data)));
-    // Both events fail pending recvs — a drop always surfaces as close/error.
-    const fail = (): void => this.#failPending(new Error("ws connection closed"));
+    // Both events latch closed and fail pending recvs — a drop always
+    // surfaces as close/error. Latching matters even with no waiter pending:
+    // a later recv() (the RemoteAdapter verifies responses between recv()
+    // calls) must reject too, matching LoopbackTransport close semantics.
+    const fail = (): void => {
+      if (this.#closed) {
+        return;
+      }
+      this.#closed = true;
+      this.#failPending(new Error("ws connection closed"));
+    };
     this.#socket.on("close", fail);
     this.#socket.on("error", fail);
   }

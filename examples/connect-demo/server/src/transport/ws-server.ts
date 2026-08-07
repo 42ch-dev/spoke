@@ -59,13 +59,24 @@ class WsServerTransport implements Transport {
   constructor(socket: WebSocket) {
     this.#socket = socket;
     socket.on("message", (data) => this.#push(toEnvelopeBytes(data)));
-    // Both events reject pending recvs — close/error always follow a drop.
-    socket.on("close", () =>
-      this.#failPending(new Error("ws connection closed")),
-    );
-    socket.on("error", () =>
-      this.#failPending(new Error("ws connection error")),
-    );
+    // Both events latch closed and reject pending recvs — close/error always
+    // follow a drop. Latching matters even with no waiter pending: a later
+    // recv() (the host verifies responses between recv() calls) must reject
+    // too, matching LoopbackTransport close semantics.
+    socket.on("close", () => {
+      if (this.#closed) {
+        return;
+      }
+      this.#closed = true;
+      this.#failPending(new Error("ws connection closed"));
+    });
+    socket.on("error", () => {
+      if (this.#closed) {
+        return;
+      }
+      this.#closed = true;
+      this.#failPending(new Error("ws connection error"));
+    });
   }
 
   send(envelope: EnvelopeBytes): Promise<void> {

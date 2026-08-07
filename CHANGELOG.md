@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.9.2] - 2026-08-07
+
+
+### Added
+
+- **examples:** Scaffold connect demo server with mock engine and adapter
+
+- **examples:** Add connect responder host with spec-derived envelope auth
+
+- **examples:** Add websocket transport, demo clis, and e2e gate
+
+- **examples:** Merge connect integration demo (mock inference host + RemoteAdapter client)
+
+- **connect:** Pass session-authenticated peer to invoke handler (additive InvokeHandlerV2)
+
+
+### Changed
+
+- **connect:** **BREAKING:** Remove mdns feature (explicit peering only)
+
+
+### Documentation
+
+- **roadmap:** Add connect integration demo and remote adapter tutorial slices
+
+- **tutorials:** Add remote adapter integration tutorial
+
+- **tutorials:** Add cn twin and sidebar entries for remote adapter tutorial
+
+- **examples:** Fix connect-demo readme build set and link shipped tutorial
+
+- **tutorials:** Fix cn wording, first-use glosses, and error-kind ellipsis
+
+- **roadmap:** Mark connect demo + remote adapter tutorial delivered; add responder compound knowledge
+
+
+### Fixed
+
+- **examples:** Settle ws bind failure, add deny-path tests, and serve-loop logs
+
+- **examples:** Close demo host connection on unparseable inbound frame
+
+- **examples:** Latch closed on remote ws close so recv rejects promptly
+
+- **connect:** Add missing invoke_handler_v2 field to README usage sample
+
 ## [0.9.1] - 2026-08-06
 
 

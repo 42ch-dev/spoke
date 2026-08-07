@@ -243,6 +243,7 @@ let node_a = SpokeConnectNode::start(ConnectConfig {
         assert_eq!(op, "check");
         Ok(serde_json::json!({ "findings": [], "extensions": {} }))
     })),
+    invoke_handler_v2: None,               // additive session-peer-aware hook; optional
     op_capability_requirements: HashMap::new(),
     trusted_issuers: vec![],               // capability-token auth disabled by default
     require_capability_token: false,
@@ -258,6 +259,7 @@ let node_b = SpokeConnectNode::start(ConnectConfig {
     local_manifest: manifest("host-b", "input-source"),
     handshake_timeout: None,
     invoke_handler: None,
+    invoke_handler_v2: None,
     op_capability_requirements: HashMap::new(),
     trusted_issuers: vec![],
     require_capability_token: false,

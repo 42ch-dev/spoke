@@ -120,6 +120,7 @@ fn config(
         local_manifest,
         handshake_timeout: Some(timeout),
         invoke_handler: None,
+        invoke_handler_v2: None,
         op_capability_requirements: HashMap::new(),
         trusted_issuers: Vec::new(),
         require_capability_token: false,

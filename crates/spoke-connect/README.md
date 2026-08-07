@@ -196,14 +196,17 @@ Session ids are **per-side** in protocol v1: each node records its own opaque
 id for the pairing (there is no session-announce message), and the response
 echo correlates by peer.
 
-The accept path answers inbound invokes through the `invoke_handler`
-configuration hook (`(op, payload) -> Result<payload, ErrorEnvelope>`). The
-hook runs **synchronously on the node's network event loop**: it must return
-promptly and must not block on I/O. Panics are contained — the invoke is
-answered with an `internal_error` wire envelope and the node keeps running.
-The hook is spike-scoped — the op dispatcher is adapter-owned in products;
-inbound invokes are answered by the registered handler; unhandled ops
-receive an `op_unsupported` error envelope.
+The accept path answers inbound invokes through the configured dispatch
+hook: `invoke_handler_v2` when set (`(peer, op, payload) -> Result<payload,
+ErrorEnvelope>` — the first argument is the **noise-authenticated session
+peer id**, never a payload-carried `peer_id` claim), else the legacy
+`invoke_handler` (`(op, payload)`). The hook runs **synchronously on the
+node's network event loop**: it must return promptly and must not block on
+I/O. Panics are contained — the invoke is answered with an `internal_error`
+wire envelope and the node keeps running. The hook is spike-scoped — the op
+dispatcher is adapter-owned in products; inbound invokes are answered by the
+registered handler; unhandled ops receive an `op_unsupported` error
+envelope.
 
 The wire imposes no payload size limit; the spike inherits libp2p's
 request-response JSON codec default of a **1 MiB maximum request size** as a

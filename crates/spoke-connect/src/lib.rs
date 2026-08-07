@@ -42,8 +42,10 @@
 //! Remote application failures arrive as `InvokeError::Wire(ErrorEnvelope)`;
 //! transport / session failures use the other `InvokeError` variants.
 //!
-//! The accept path answers inbound invokes through the configured
-//! [`ConnectConfig::invoke_handler`] hook. The hook runs **synchronously on
+//! The accept path answers inbound invokes through the configured dispatch
+//! hook: [`ConnectConfig::invoke_handler_v2`] when set (it additionally
+//! receives the noise-authenticated session peer id), else the legacy
+//! [`ConnectConfig::invoke_handler`]. The hook runs **synchronously on
 //! the node's network event loop**: it must return promptly and must not
 //! block on I/O. Panics are contained — the invoke is answered with an
 //! `internal_error` wire envelope and the node keeps running.
@@ -66,7 +68,8 @@
 //! The locked facade is [`ConnectConfig`], [`ConnectError`], [`InvokeError`],
 //! [`SpokeConnectNode`], [`PeerSession`], and [`InvokeSuccess`], plus
 //! [`parse_multiaddr`] (test/example convenience) and the spike dispatch
-//! hook [`ConnectConfig::invoke_handler`]. Transport internals — hello and
+//! hooks [`ConnectConfig::invoke_handler`] /
+//! [`ConnectConfig::invoke_handler_v2`]. Transport internals — hello and
 //! gate modules, protocol constants, the transport `HelloAck`, and session
 //! plumbing — are crate-private.
 //!
@@ -121,7 +124,8 @@ mod runtime;
 mod session;
 
 pub use config::{
-    CapabilityTokenProvider, ConnectConfig, InvokeHandler, DEFAULT_HANDSHAKE_TIMEOUT,
+    CapabilityTokenProvider, ConnectConfig, InvokeHandler, InvokeHandlerV2,
+    DEFAULT_HANDSHAKE_TIMEOUT,
 };
 pub use error::{ConnectError, InvokeError};
 pub use node::{parse_multiaddr, SpokeConnectNode};

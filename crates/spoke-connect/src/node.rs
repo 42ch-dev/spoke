@@ -60,11 +60,13 @@
 //! core-op table first; product-defined ops resolve theirs through the
 //! configurable `op_capability_requirements` map. Gate-passing invokes are
 //! dispatched
-//! to the configured `invoke_handler` (spike-scoped dispatcher hook;
-//! adapter-owned in products). When a peer's last connection closes, live
+//! to the configured invoke handler — the session-peer-aware
+//! `invoke_handler_v2` when set, else the legacy `invoke_handler`
+//! (spike-scoped dispatcher hooks; adapter-owned in products). When a
+//! peer's last connection closes, live
 //! session handles are marked closed and their pending invokes fail fast.
 
-use crate::config::ConnectConfig;
+use crate::config::{ConnectConfig, InvokeHandler, InvokeHandlerV2};
 use crate::core::{
     token_authorizes_op, verify_capability_token, CapabilityTokenProof, CoreError, CoreInvokeError,
     InboundSequence,
@@ -183,6 +185,14 @@ impl ConnectBehaviour {
             mdns,
         })
     }
+}
+
+/// Which invoke dispatcher handles an inbound invoke: the additive
+/// session-peer-aware [`InvokeHandlerV2`] wins when configured, with the
+/// legacy [`InvokeHandler`] as the fallback (both `None` ⇒ `op_unsupported`).
+enum DispatchHandler<'a> {
+    V2(&'a Arc<InvokeHandlerV2>),
+    V1(&'a Arc<InvokeHandler>),
 }
 
 /// Compose the libp2p transport and behaviour stack for a connect node.
@@ -1240,14 +1250,29 @@ impl EventLoop {
                         self.error_response(request, "auth_failed", message)
                     }
                     Ok(token_grant) => {
-                        match &self.config.invoke_handler {
-                            None => self.error_response(
+                        // Handler precedence (additive `InvokeHandlerV2`):
+                        // the session-peer-aware handler wins when
+                        // configured, the legacy `invoke_handler` is the
+                        // fallback, and both `None` answers the invoke with
+                        // an `op_unsupported` wire envelope (unchanged).
+                        // Only the final handler call differs between the
+                        // two — the capability-token gate above and the op
+                        // dispatch gate below are shared.
+                        let Some(handler) = (match (
+                            &self.config.invoke_handler_v2,
+                            &self.config.invoke_handler,
+                        ) {
+                            (Some(handler_v2), _) => Some(DispatchHandler::V2(handler_v2)),
+                            (None, Some(handler)) => Some(DispatchHandler::V1(handler)),
+                            (None, None) => None,
+                        }) else {
+                            return self.error_response(
                                 request,
                                 "op_unsupported",
                                 "no invoke handler configured on this node".into(),
-                            ),
-                            Some(handler) => {
-                                // Op dispatch gate (normative MUST,
+                            );
+                        };
+                        // Op dispatch gate (normative MUST,
                                 // `.mstar/specs/spoke-connect.md` §Op
                                 // dispatch gate): a host that performs
                                 // op dispatch must not run an op whose
@@ -1307,13 +1332,25 @@ impl EventLoop {
                                     // The handler runs synchronously on the
                                     // event loop: it must return promptly
                                     // and must not block on I/O (see
-                                    // ConnectConfig::invoke_handler).
+                                    // ConnectConfig::invoke_handler /
+                                    // ConnectConfig::invoke_handler_v2).
                                     // Panics are contained so a
                                     // misbehaving adapter cannot kill the
                                     // node; the invoke is answered with an
-                                    // `internal_error` wire envelope.
+                                    // `internal_error` wire envelope. The
+                                    // v2 handler additionally receives the
+                                    // noise-authenticated session peer id
+                                    // (the legacy handler keeps its
+                                    // payload-only signature).
                                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                        || handler(&request.op, request.payload.clone()),
+                                        || match handler {
+                                            DispatchHandler::V2(handler_v2) => {
+                                                handler_v2(peer, &request.op, request.payload.clone())
+                                            }
+                                            DispatchHandler::V1(handler) => {
+                                                handler(&request.op, request.payload.clone())
+                                            }
+                                        },
                                     ));
                                     match result {
                                         Ok(Ok(payload)) => self.sign_invoke_response(
@@ -1339,8 +1376,6 @@ impl EventLoop {
                                         ),
                                     }
                                 }
-                            }
-                        }
                     }
                 }
             }
@@ -2086,6 +2121,7 @@ mod tests {
             local_manifest: manifest("test-host"),
             handshake_timeout: Some(Duration::from_secs(5)),
             invoke_handler: None,
+            invoke_handler_v2: None,
             op_capability_requirements: HashMap::new(),
             trusted_issuers: Vec::new(),
             require_capability_token: false,
@@ -2299,6 +2335,164 @@ mod tests {
         );
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
         assert_eq!(loop_.inbound_sequences[&peer].next_expected(), 2);
+    }
+
+    /// Build an event loop with an established session for `peer` (and its
+    /// inbound-sequence state), ready for `answer_inbound_invoke`.
+    fn session_event_loop(
+        cfg: ConnectConfig,
+        peer: PeerId,
+        peer_public_key: PublicKey,
+    ) -> EventLoop {
+        let (listen_tx, _listen_rx) = mpsc::channel(16);
+        let (cmd_tx, cmd_rx) = mpsc::channel(32);
+        let swarm = build_swarm(&cfg.identity, &cfg).expect("swarm builds without network I/O");
+        EventLoop {
+            swarm,
+            identity: cfg.identity.clone(),
+            config: cfg,
+            remote_keys: HashMap::from([(peer, peer_public_key)]),
+            pending_hellos: HashMap::new(),
+            nonces: NonceStore::new(),
+            listen_tx,
+            cmd_rx,
+            cmd_tx: cmd_tx.clone(),
+            pending_connect: None,
+            handshakes: HashMap::new(),
+            sessions: HashMap::from([(
+                peer,
+                Arc::new(SessionHandle::new(
+                    "local-session-id".into(),
+                    peer,
+                    manifest("remote-host"),
+                    vec!["spoke-baseline".into()],
+                    [0x2a; 32],
+                    Duration::from_secs(5),
+                    cmd_tx,
+                )),
+            )]),
+            inbound_sequences: HashMap::from([(peer, InboundSequence::new())]),
+            peer_listen_addrs: HashMap::new(),
+            session_connections: HashMap::new(),
+            pending_invokes: HashMap::new(),
+            pending_challenges: HashMap::new(),
+        }
+    }
+
+    /// Sign an inbound invoke request with the session peer's hello seed.
+    fn signed_request(
+        seed: &[u8; 32],
+        sequence: i64,
+        request_id: &str,
+        payload: serde_json::Value,
+    ) -> ConnectInvokeRequest {
+        crate::core::authenticate_invoke_request(
+            seed,
+            &crate::core::InvokeRequestSignInput {
+                session_id: "peer-side-session-id".into(),
+                sequence,
+                request_id: request_id.into(),
+                op: "upsert".into(),
+                payload,
+                auth: None,
+            },
+            HashMap::new(),
+        )
+        .expect("request signs")
+    }
+
+    #[tokio::test]
+    async fn invoke_handler_v2_receives_session_peer_not_payload_claim() {
+        // L1 (additive InvokeHandlerV2): the v2 handler receives the
+        // noise-authenticated session peer id — the peer that passed the
+        // allowlist, signed hello, and envelope-auth gates — NOT a
+        // payload-carried `peer_id` claim (payload claims are untrusted).
+        // Precedence: when both handlers are configured, the v2 handler
+        // wins and the legacy handler is not called.
+        let peer_keypair = Keypair::generate_ed25519();
+        let peer = peer_keypair.public().to_peer_id();
+        let peer_seed =
+            crate::hello::ed25519_seed(&peer_keypair).expect("connect identity is Ed25519");
+        let payload_claimed_peer = Keypair::generate_ed25519().public().to_peer_id();
+
+        let received = Arc::new(Mutex::new(None));
+        let received_for_handler = Arc::clone(&received);
+        let legacy_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let legacy_calls_for_handler = Arc::clone(&legacy_calls);
+        let mut cfg = config(Keypair::generate_ed25519(), vec![peer]);
+        cfg.invoke_handler = Some(Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            legacy_calls_for_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "ok": true }))
+        }));
+        cfg.invoke_handler_v2 = Some(Arc::new(
+            move |handler_peer: &PeerId, _op: &str, _payload: serde_json::Value| {
+                *received_for_handler.lock().expect("lock") = Some(*handler_peer);
+                Ok(serde_json::json!({ "ok": true }))
+            },
+        ));
+
+        let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public());
+        // The payload claims a DIFFERENT peer id; the handler must see the
+        // session peer instead (the payload claim is untrusted).
+        let request = signed_request(
+            &peer_seed,
+            0,
+            "req-0001",
+            serde_json::json!({ "peer_id": payload_claimed_peer.to_string() }),
+        );
+        let response = loop_.answer_inbound_invoke(&peer, &request);
+        assert!(
+            matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+            "a legitimate invoke dispatches through the v2 handler"
+        );
+        assert_eq!(
+            *received.lock().expect("lock"),
+            Some(loop_.sessions[&peer].remote_peer_id),
+            "the v2 handler receives the session-authenticated peer id"
+        );
+        assert_ne!(
+            received.lock().expect("lock").as_ref(),
+            Some(&payload_claimed_peer),
+            "the payload-carried peer_id claim is never trusted"
+        );
+        assert_eq!(
+            legacy_calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "the v2 handler takes precedence over the legacy handler"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_invoke_handler_still_works_when_v2_unset() {
+        // L1 additive proof: a config with only the legacy `invoke_handler`
+        // (invoke_handler_v2 defaults to `None`) dispatches exactly as
+        // before — the precedence falls through to the legacy handler.
+        let peer_keypair = Keypair::generate_ed25519();
+        let peer = peer_keypair.public().to_peer_id();
+        let peer_seed =
+            crate::hello::ed25519_seed(&peer_keypair).expect("connect identity is Ed25519");
+
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_for_handler = Arc::clone(&calls);
+        let mut cfg = config(Keypair::generate_ed25519(), vec![peer]);
+        cfg.invoke_handler = Some(Arc::new(move |_op: &str, _payload: serde_json::Value| {
+            calls_for_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "ok": true }))
+        }));
+
+        let mut loop_ = session_event_loop(cfg, peer, peer_keypair.public());
+        let request = signed_request(
+            &peer_seed,
+            0,
+            "req-0001",
+            serde_json::json!({ "collection": "notes" }),
+        );
+        let response = loop_.answer_inbound_invoke(&peer, &request);
+        assert!(
+            matches!(response, ConnectInvokeResponse::Variant0 { .. }),
+            "a legacy-only config dispatches through the legacy handler"
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

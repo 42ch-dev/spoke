@@ -560,6 +560,23 @@ describe("ConnectHost deny paths (raw wire)", () => {
   });
 });
 
+describe("ConnectHost unparseable inbound frame (raw wire)", () => {
+  it("closes the connection instead of leaving the peer hanging", async () => {
+    const { host, client } = startHost();
+    await rawHandshake(client);
+
+    // A frame that fails JSON decode is a protocol violation: the serve
+    // loop must actually close the transport (the log says "closing the
+    // connection"), not merely return from the loop — otherwise the
+    // client keeps an established session whose invokes hang forever.
+    await client.send(textEncoder.encode("not json {{{"));
+    await expect(client.recv()).rejects.toThrow(/closed/);
+
+    expect(host.stats.invokesDispatched).toBe(0);
+    host.close();
+  });
+});
+
 describe("ConnectHost concurrent invokes (serialized gate)", () => {
   /**
    * Adapter whose `getKnowledgeEntry` parks every call on a gate the test

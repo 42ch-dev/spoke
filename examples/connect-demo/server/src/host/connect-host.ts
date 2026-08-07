@@ -298,6 +298,10 @@ export class ConnectHost {
           console.error(
             `[connect-demo] unparseable inbound message; closing connection: ${(error as Error).message}`,
           );
+          // Actually close the connection — a bare return would leave the
+          // socket open while the host stops recv'ing, and the client's
+          // established session would hang on its next invoke.
+          this.close();
           return;
         }
       } catch {

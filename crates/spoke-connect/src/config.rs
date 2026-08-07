@@ -130,14 +130,6 @@ pub struct ConnectConfig {
     /// it dials stay unauthorized for invokes when the peer's policy
     /// requires a token.
     pub capability_token_provider: Option<Arc<CapabilityTokenProvider>>,
-
-    /// Whether mDNS-discovered peers are dialed automatically (builds with
-    /// the `mdns` feature only). Default `true` — same-LAN dev convenience.
-    /// Discovery never grants trust: only allowlisted discoveries are
-    /// dialed, and the dial passes the same `ConnectionEstablished`
-    /// allowlist gate as an explicit `connect(addr)`.
-    #[cfg(feature = "mdns")]
-    pub mdns_autodial: bool,
 }
 
 impl fmt::Debug for ConnectConfig {
@@ -159,8 +151,6 @@ impl fmt::Debug for ConnectConfig {
             .field("trusted_issuers", &self.trusted_issuers)
             .field("require_capability_token", &self.require_capability_token)
             .field("capability_token_provider", &"<provider>");
-        #[cfg(feature = "mdns")]
-        builder.field("mdns_autodial", &self.mdns_autodial);
         builder.finish()
     }
 }
@@ -179,8 +169,6 @@ impl Clone for ConnectConfig {
             trusted_issuers: self.trusted_issuers.clone(),
             require_capability_token: self.require_capability_token,
             capability_token_provider: self.capability_token_provider.clone(),
-            #[cfg(feature = "mdns")]
-            mdns_autodial: self.mdns_autodial,
         }
     }
 }
@@ -247,8 +235,6 @@ mod tests {
             trusted_issuers: Vec::new(),
             require_capability_token: false,
             capability_token_provider: None,
-            #[cfg(feature = "mdns")]
-            mdns_autodial: true,
         }
     }
 

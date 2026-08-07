@@ -6,10 +6,7 @@
 //! authenticated transport + **yamux** multiplexing + **request-response**
 //! for the signed hello exchange and op invocation + **identify** for peer
 //! metadata. Discovery is **explicit peering**: nodes are configured with
-//! static listen addresses and dial each other directly. The non-default
-//! `mdns` cargo feature adds same-LAN peer discovery (libp2p mDNS behaviour)
-//! as a local-development convenience — discovered peers still pass the
-//! allowlist + signed-hello gates.
+//! static listen addresses and dial each other directly.
 //!
 //! The crate is published on crates.io as `spoke-connect`; embedders depend on
 //! it via `cargo add spoke-connect`.

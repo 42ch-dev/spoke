@@ -195,15 +195,6 @@ jobs:
       - name: Test spoke-connect crate
         run: cargo test -p spoke-connect
 
-      - name: Test spoke-connect crate (mdns feature)
-        run: |
-          # mdns must stay non-default. The default-build tripwire
-          # (no_mdns_tests::default_build_has_no_mdns_surface) compiles away
-          # if mdns ever becomes a default feature, so assert the Cargo.toml
-          # default here; the test run covers the feature-on side.
-          grep -q '^default = \[\]$' crates/spoke-connect/Cargo.toml
-          cargo test -p spoke-connect --features mdns
-
       - name: Test spoke-connect crate (remote-adapter feature)
         run: |
           # remote-adapter must stay non-default (it pulls in spoke-operations

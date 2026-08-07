@@ -197,7 +197,7 @@ Optional families reserve `port.computable.*` (`project` / `compute`, `l2-comput
 
 ## Discovery and peering
 
-**Explicit peering is the production path**: hosts are configured with listen addresses and dial each other out-of-band (configured addresses or direct dial). The connect wire carries no discovery fields — mDNS is a same-LAN development convenience offered by the Rust reference stack's optional `mdns` feature, and discovered candidates are admitted through the same allowlist and signed-hello gates as explicitly dialed peers.
+**Explicit peering is the production path**: hosts are configured with listen addresses and dial each other out-of-band (configured addresses or direct dial). The connect wire carries no discovery fields — discovery is transport-side and session admission stays fully gated by the allowlist and signed-hello gates.
 
 ## Transport
 

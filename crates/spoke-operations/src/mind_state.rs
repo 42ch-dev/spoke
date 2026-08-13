@@ -216,6 +216,7 @@ pub fn validate_mind_state(value: &Value) -> SpokeResult<()> {
 mod tests {
     use super::*;
     use crate::result::SpokeResult;
+    use std::path::Path;
 
     fn valid_mind_state() -> Value {
         json!({
@@ -366,6 +367,44 @@ mod tests {
             .insert("occurred_at".into(), json!("not-a-timestamp"));
 
         assert!(validate_mind_state(&state).is_reject());
+    }
+
+    #[test]
+    fn validate_mind_state_timestamp_parity_with_typescript() {
+        // Shared cross-language parity contract (TS validateMindState ↔ this
+        // validator): the same fixture is asserted by both suites, so the
+        // timestamp accept set can never drift between languages again.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/timestamp-parity-cases.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let cases: Value = serde_json::from_str(&raw)
+            .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+
+        for value in cases["accept"].as_array().expect("accept list") {
+            let mut state = valid_mind_state();
+            state
+                .as_object_mut()
+                .unwrap()
+                .insert("occurred_at".into(), value.clone());
+            assert!(
+                validate_mind_state(&state).is_ok(),
+                "expected {} to be accepted",
+                value
+            );
+        }
+        for value in cases["reject"].as_array().expect("reject list") {
+            let mut state = valid_mind_state();
+            state
+                .as_object_mut()
+                .unwrap()
+                .insert("occurred_at".into(), value.clone());
+            assert!(
+                validate_mind_state(&state).is_reject(),
+                "expected {} to be rejected",
+                value
+            );
+        }
     }
 
     #[test]

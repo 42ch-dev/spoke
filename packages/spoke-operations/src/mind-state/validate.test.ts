@@ -1,7 +1,24 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { MindState } from "@42ch/spoke-schemas";
 import { describe, expect, it } from "vitest";
 
 import { validateMindState } from "./validate.js";
+
+// Shared cross-language timestamp parity contract (TS validateMindState ↔ Rust
+// validate_mind_state is_parseable_date_time): both suites assert the exact
+// same accept/reject verdicts against this single fixture.
+const timestampParityCases = JSON.parse(
+  readFileSync(
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../fixtures/timestamp-parity-cases.json",
+    ),
+    "utf8",
+  ),
+) as { accept: string[]; reject: string[] };
 
 const validState: MindState = {
   schema_version: 1,
@@ -98,6 +115,24 @@ describe("validateMindState", () => {
     expect(
       validateMindState({ ...validState, occurred_at: "not-a-timestamp" }),
     ).toBe(false);
+  });
+
+  it("accepts every timestamp in the shared TS/Rust parity fixture", () => {
+    for (const timestamp of timestampParityCases.accept) {
+      expect(
+        validateMindState({ ...validState, occurred_at: timestamp }),
+        `expected ${JSON.stringify(timestamp)} to be accepted`,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects every timestamp in the shared TS/Rust parity fixture", () => {
+    for (const timestamp of timestampParityCases.reject) {
+      expect(
+        validateMindState({ ...validState, occurred_at: timestamp }),
+        `expected ${JSON.stringify(timestamp)} to be rejected`,
+      ).toBe(false);
+    }
   });
 
   it("rejects a non-integer schema_version", () => {

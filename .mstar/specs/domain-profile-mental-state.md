@@ -5,7 +5,7 @@
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)  
 > **Capability:** `l5-mind` + `narrative-modules`  
 > **Bag placement authority:** [`spoke-extension-modules.md`](spoke-extension-modules.md)  
-> **Wire SSOT:** `schemas/` — optional `modules` (`ModuleMap`) shipped on KnowledgeEntry (and AssemblePacket); `MindState` on L5 TimelineEvent under `l5-mind`
+> **Wire SSOT:** `schemas/` — optional `modules` (`ModuleMap`) shipped on KnowledgeEntry (and AssemblePacket); `MindState` as a standalone wire object (`schemas/data/mind-state.schema.json`) on the L5 when-axis under `l5-mind`; `modules.observation` on `TimelineEvent.modules`
 
 ## Purpose
 
@@ -55,7 +55,7 @@ This profile states the **current dialect shape** for each namespace. Freezing a
 
 ## `modules.mental` — nine-field mental-state vocabulary
 
-**Status:** Handbook-defined inner object under KnowledgeEntry `modules`. Capability-flagged (`narrative-modules`); opt-in. The nine-field vocabulary is the MWM individual mental-state taxonomy: a fixed, enumerable field set that makes mental state *queryable* ("which actors intend X", "who is bound by norm N") and *comparable* across products.
+**Status:** Handbook-defined inner object under KnowledgeEntry `modules`. Capability-flagged (`narrative-modules`); opt-in. The nine-field vocabulary is the MWM (arXiv 2607.27201) individual mental-state taxonomy: a fixed, enumerable field set that makes mental state *queryable* ("which actors intend X", "who is bound by norm N") and *comparable* across products.
 
 ### Field table
 
@@ -127,6 +127,8 @@ Two non-entity layers from the source taxonomy are **not** per-holder fields:
 
 **Status:** Handbook-defined inner array under KnowledgeEntry `modules`. Capability-flagged (`narrative-modules`); opt-in. One proposition record serves **both** narrated world facts and actor beliefs — the `holder` field decides the layer (`world` = narrated fact; an `entry_id` = an actor's mental content). Higher-order beliefs are flat propositions with an `order` label, not nested objects.
 
+**Hosting (normative):** `modules.belief` is an array on a KnowledgeEntry `modules` bag. Rows with `holder: "world"` live on a **designated world-state KnowledgeEntry** — a product's chosen entry for narrated world facts. Rows with `holder: <actor_entry_id>` live on **that actor's** KnowledgeEntry. The `holder` field is the semantic discriminator: the same array shape carries world facts and actor beliefs; placement on the correct KE is what makes them queryable per actor. A product MAY co-locate both row types on a single world-state KE or distribute actor rows to their own entries — `holder` always disambiguates.
+
 ### Field table (per array element)
 
 | Field | Required | Type | Semantics |
@@ -183,6 +185,26 @@ False belief needs **no special mechanism**. It is a `world` fact (`truth: True`
 
 A `truth: False` actor belief against a `truth: True` world fact is a **deliberate false-belief structure** until a checker finds no supporting update — then it is a consistency bug (see §False-belief consistency check pattern).
 
+### Array wrapper (illustrative)
+
+The records above are **elements of the `modules.belief` array** on the holder KnowledgeEntry. Integrators must not emit bare objects — they live inside `modules`:
+
+```text
+// KnowledgeEntry.modules — belief array (world fact + actor belief)
+{
+  "modules": {
+    "belief": [
+      { "holder": "world", "proposition": "The marble is in the basket",
+        "order": 0, "truth": "True", "access": "Public", "representation": "Explicit",
+        "content_type": "Location", "source": "Narration", "context": "Temporal" },
+      { "holder": "kb_bo", "proposition": "The marble is in the box",
+        "order": 1, "truth": "False", "access": "Private", "representation": "Implicit",
+        "content_type": "Location", "source": "Perception", "context": "Temporal" }
+    ]
+  }
+}
+```
+
 ### Higher-order beliefs are flat
 
 Order-2 / order-3 beliefs are ordinary propositions whose content references another actor's mental state, labeled by `order`. Do not build nested belief objects.
@@ -210,6 +232,8 @@ Order-2 / order-3 beliefs are ordinary propositions whose content references ano
 |-------|----------|------|-----------|
 | `observers` | **yes** | `entry_id[]` | Actors who could perceive the event (participants who were present **and** non-participant bystanders in perceptual range). An actor absent from this list did not observe the event. |
 | `access` | no | object | Perceptual constraints (MWM κ) qualifying how each observer could perceive. Open object; documented keys below. |
+
+**Absence semantics (normative):** An **absent** `modules.observation` on an event means **no observation metadata recorded** — not "no observers". An **empty** `observers: []` means **explicitly no observers** — the event was not perceivable by any actor (or is explicitly private). Consumers and checkers MUST distinguish the two: absent metadata is silent; an empty observer list is an explicit claim.
 
 ### `access` keys (documented; open object)
 
@@ -275,6 +299,8 @@ Bo (`kb_bo`) is absent from `observers` — he left the room — so the transfer
 | `deltas` | `MindDelta[]` | Change-units pointing at paths within `modules.mental` / `modules.belief` |
 | `extensions` | `ExtensionMap` | Product-private temporal metadata |
 
+**`MentalFieldMap`** is an open object matching the `modules.mental` nine-field vocabulary (see §`modules.mental` field table). The closed JSON Schema typedef is deferred to the `l5-mind` wire-slice (`schemas/data/mind-state.schema.json`); this handbook defines only the field-level vocabulary it inherits.
+
 **`MindDelta`** mirrors `ComputableLogChange` (`{ path, previous?, next? }`):
 
 | Field | Type | Role |
@@ -296,8 +322,8 @@ Single authority per fact: no mental fact has two homes. `MindState` records the
 | Aspect | Detail |
 |--------|--------|
 | `kind` | `stale_belief_drift` |
-| Detects | An actor belief (`truth: False` vs the current world fact) with **no recorded update event** the actor observed. |
-| Reading | Either a **deliberate false-belief structure** (correct stale belief) or a **consistency bug** (belief was never updated by an event the actor did observe). The checker flags it; author/engine decides. |
+| Detects | An actor belief (`truth: False` vs the current world fact) whose staleness is **unexplained by observation records** — either (a) the actor is listed in the informing event's `modules.observation.observers` (should have observed the change, yet the belief is stale), or (b) no world-changing event exists for the proposition (the stale belief has no informational basis). A deliberate false belief — the actor is **absent** from the world-changing event's `observers` — is the correct stale-belief structure and routes to `dramatic_irony_asymmetry`, **not** this Finding. |
+| Reading | A consistency bug: the observation records contradict the stale belief. The deliberate false-belief case (actor absent from `observers`) is structurally correct — `dramatic_irony_asymmetry` reports it, not this checker. |
 | Inputs | `modules.belief` (actor row `truth: False` + matching `world` row `truth: True`); `modules.observation` on the world-changing event; the event timeline. |
 
 ### 2. Dramatic irony (Access / observation asymmetry)
@@ -331,7 +357,7 @@ Single authority per fact: no mental fact has two homes. `MindState` records the
 
 ## Worked example — false-belief box/basket story
 
-Adapted from a classic false-belief structure (OmniToM Fig 2 lineage); protocol-neutral. The same story is the dramatic-irony exemplar: the world and Ana hold the transfer; Bo does not.
+Adapted from a classic false-belief structure (OmniToM (arXiv 2605.26322) Fig 2 lineage); protocol-neutral. The same story is the dramatic-irony exemplar: the world and Ana hold the transfer; Bo does not.
 
 **Story:** *Ana and Bo are in a room with a marble. The marble starts in the box. Bo leaves the room. Ana moves the marble from the box to the basket. Bo returns.*
 
@@ -436,5 +462,5 @@ An integrator can implement mental-state storage + interchange from this handboo
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella protocol; §Extensions |
 | [`spoke-data-model.md`](spoke-data-model.md) | KnowledgeEntry, TimelineEvent, BodyAttribute, ModuleMap, `ComputableLogChange` |
-| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 layer model; optional flags (`l5-mind`, `l5-fork`, `narrative-modules`); L5 Temporal |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 layer model; optional flags (`l5-fork`, `narrative-modules`); L5 Temporal — `l5-mind` to be registered in spec-sync (companion wire-slice, plan 3) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (capability-flagged); TimelineEvent dual-concern |

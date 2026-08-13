@@ -2257,6 +2257,7 @@ var ErrCoreErrorInvalidNonce = fmt.Errorf("CoreErrorInvalidNonce")
 var ErrCoreErrorCrypto = fmt.Errorf("CoreErrorCrypto")
 var ErrCoreErrorJcs = fmt.Errorf("CoreErrorJcs")
 var ErrCoreErrorTokenInvalid = fmt.Errorf("CoreErrorTokenInvalid")
+var ErrCoreErrorProtocolVersionMismatch = fmt.Errorf("CoreErrorProtocolVersionMismatch")
 
 // Variant structs
 // The hello signature did not verify against the peer's public key (or
@@ -2305,11 +2306,11 @@ func (err CoreErrorNonceReplay) Error() string {
 func (self CoreErrorNonceReplay) Is(target error) bool {
 	return target == ErrCoreErrorNonceReplay
 }
-// Handshake-level failure (protocol version, peer id binding, …).
+// Handshake-level failure (peer id binding, dial binding, …).
 type CoreErrorHandshakeFailed struct {
 	Reason string
 }
-// Handshake-level failure (protocol version, peer id binding, …).
+// Handshake-level failure (peer id binding, dial binding, …).
 func NewCoreErrorHandshakeFailed(
 	reason string,
 ) *CoreError {
@@ -2456,6 +2457,45 @@ func (err CoreErrorTokenInvalid) Error() string {
 func (self CoreErrorTokenInvalid) Is(target error) bool {
 	return target == ErrCoreErrorTokenInvalid
 }
+// The hello's `protocol_version` does not match the core protocol
+// version — a mixed-version peer or a downgrade attempt. Dedicated
+// classification for version negotiation failure, distinct from other
+// handshake faults (spec §Error mapping: `details.kind =
+// protocol_version_mismatch`). Appended after `TokenInvalid` so the
+// pre-existing variants keep their binding ordinals.
+type CoreErrorProtocolVersionMismatch struct {
+	Reason string
+}
+// The hello's `protocol_version` does not match the core protocol
+// version — a mixed-version peer or a downgrade attempt. Dedicated
+// classification for version negotiation failure, distinct from other
+// handshake faults (spec §Error mapping: `details.kind =
+// protocol_version_mismatch`). Appended after `TokenInvalid` so the
+// pre-existing variants keep their binding ordinals.
+func NewCoreErrorProtocolVersionMismatch(
+	reason string,
+) *CoreError {
+	return &CoreError { err: &CoreErrorProtocolVersionMismatch {
+			Reason: reason,} }
+}
+
+func (e CoreErrorProtocolVersionMismatch) destroy() {
+		FfiDestroyerString{}.Destroy(e.Reason)
+}
+
+
+func (err CoreErrorProtocolVersionMismatch) Error() string {
+	return fmt.Sprint("ProtocolVersionMismatch",
+		": ",
+		
+		"Reason=",
+		err.Reason,
+	)
+}
+
+func (self CoreErrorProtocolVersionMismatch) Is(target error) bool {
+	return target == ErrCoreErrorProtocolVersionMismatch
+}
 
 type FfiConverterCoreError struct{}
 
@@ -2503,6 +2543,10 @@ func (c FfiConverterCoreError) Read(reader io.Reader) *CoreError {
 		return &CoreError{ &CoreErrorTokenInvalid{
 			Message: FfiConverterStringINSTANCE.Read(reader),
 		}}
+	case 8:
+		return &CoreError{ &CoreErrorProtocolVersionMismatch{
+			Reason: FfiConverterStringINSTANCE.Read(reader),
+		}}
 	default:
 		panic(fmt.Sprintf("Unknown error code %d in FfiConverterCoreError.Read()", errorID))
 	}
@@ -2529,6 +2573,9 @@ func (c FfiConverterCoreError) Write(writer io.Writer, value *CoreError) {
 		case *CoreErrorTokenInvalid:
 			writeInt32(writer, 7)
 			FfiConverterStringINSTANCE.Write(writer, variantValue.Message)
+		case *CoreErrorProtocolVersionMismatch:
+			writeInt32(writer, 8)
+			FfiConverterStringINSTANCE.Write(writer, variantValue.Reason)
 		default:
 			_ = variantValue
 			panic(fmt.Sprintf("invalid error value `%v` in FfiConverterCoreError.Write", value))
@@ -2552,6 +2599,8 @@ func (_ FfiDestroyerCoreError) Destroy(value *CoreError) {
 		case CoreErrorJcs:
 			variantValue.destroy()
 		case CoreErrorTokenInvalid:
+			variantValue.destroy()
+		case CoreErrorProtocolVersionMismatch:
 			variantValue.destroy()
 		default:
 			_ = variantValue

@@ -987,7 +987,7 @@ pub enum CoreError {
     /// The `(peer_id, nonce)` pair was already accepted.
     #[error("hello nonce replayed")]
     NonceReplay,
-    /// Handshake-level failure (protocol version, peer id binding, …).
+    /// Handshake-level failure (peer id binding, dial binding, …).
     #[error("handshake failed: {reason}")]
     HandshakeFailed { reason: String },
     /// The hello nonce does not satisfy the wire constraints (minLength 16).
@@ -1005,6 +1005,14 @@ pub enum CoreError {
     /// claim-rule violation).
     #[error("capability token invalid: {message}")]
     TokenInvalid { message: String },
+    /// The hello's `protocol_version` does not match the core protocol
+    /// version — a mixed-version peer or a downgrade attempt. Dedicated
+    /// classification for version negotiation failure, distinct from other
+    /// handshake faults (spec §Error mapping: `details.kind =
+    /// protocol_version_mismatch`). Appended after `TokenInvalid` so the
+    /// pre-existing variants keep their binding ordinals.
+    #[error("protocol version mismatch: {reason}")]
+    ProtocolVersionMismatch { reason: String },
 }
 
 impl From<CoreErrorImpl> for CoreError {
@@ -1013,6 +1021,7 @@ impl From<CoreErrorImpl> for CoreError {
             CoreErrorImpl::InvalidHelloSignature => Self::InvalidHelloSignature,
             CoreErrorImpl::NonceReplay => Self::NonceReplay,
             CoreErrorImpl::HandshakeFailed { reason } => Self::HandshakeFailed { reason },
+            CoreErrorImpl::ProtocolVersionMismatch { reason } => Self::ProtocolVersionMismatch { reason },
             CoreErrorImpl::InvalidNonce(message) => Self::InvalidNonce { message },
             CoreErrorImpl::Crypto(message) => Self::Crypto { message },
             CoreErrorImpl::Jcs(message) => Self::Jcs { message },
@@ -1499,8 +1508,40 @@ mod tests {
     }
 
     #[test]
-    fn bad_nonce_and_bad_manifest_json_map_to_errors() {
-        let err = sign_hello_ed25519(
+    fn mixed_version_hello_maps_to_protocol_version_mismatch_via_ffi_mirror() {
+        // The standalone `verify_hello_ed25519` FFI export surfaces the
+        // dedicated mirror variant (`CoreError::ProtocolVersionMismatch`) for
+        // a mixed-version hello — the new `From<CoreErrorImpl>` arm (T3).
+        // The version gate runs before signature verification, so the
+        // mutated JSON is rejected with the dedicated kind even though the
+        // (v1-signed) signature no longer matches.
+        let hello_json = sign_hello_ed25519(
+            golden_seed().to_vec(),
+            golden().nonce.clone(),
+            golden().manifest_json.clone(),
+        )
+        .expect("signs");
+        let mut hello: serde_json::Value =
+            serde_json::from_str(&hello_json).expect("hello JSON parses");
+        hello["protocol_version"] = serde_json::json!(2);
+        let err = verify_hello_ed25519(
+            golden_pubkey().to_vec(),
+            golden().peer_id.clone(),
+            hello.to_string(),
+        )
+        .expect_err("mixed-version hello");
+        assert!(
+            matches!(
+                &err,
+                CoreError::ProtocolVersionMismatch { reason }
+                    if reason.contains("unsupported protocol_version 2 (expected 1)")
+            ),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn bad_nonce_and_bad_manifest_json_map_to_errors() {        let err = sign_hello_ed25519(
             golden_seed().to_vec(),
             ["short"].join("-"),
             golden().manifest_json.clone(),
@@ -1734,6 +1775,48 @@ mod remote_adapter_ffi_tests {
                 .handle()
                 .block_on(self.inner.recv())
                 .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    /// Callback transport that rewrites the responder hello's
+    /// `protocol_version` to 2 on its first `recv` — a mixed-version peer on
+    /// the wire. The version gate runs before signature verification
+    /// (`verify_hello_ed25519` step 1), so the mutated JSON still surfaces
+    /// the dedicated `protocol_version_mismatch` kind even though
+    /// re-serializing the object invalidates its v1 signature.
+    struct VersionMismatchHelloCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+        rewritten: Mutex<bool>,
+    }
+
+    impl Transport for VersionMismatchHelloCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            let bytes = ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(TransportError::from)?;
+            if !*self.rewritten.lock().expect("rewritten lock") {
+                *self.rewritten.lock().expect("rewritten lock") = true;
+                let mut hello: spoke_schemas::connect::ConnectHello =
+                    serde_json::from_slice(&bytes).expect("responder hello parses");
+                hello.protocol_version = std::num::NonZeroU64::new(2).expect("non-zero");
+                return Ok(serde_json::to_vec(&hello).expect("mutated hello serializes"));
+            }
+            Ok(bytes)
         }
 
         fn close(&self) -> Result<(), TransportError> {
@@ -2639,6 +2722,51 @@ mod remote_adapter_ffi_tests {
         };
         assert!(matches!(async_err, RemoteAdapterError::Handshake(_)));
         assert!(matches!(ffi_err, FfiError::Dial { kind, .. } if kind == "handshake"));
+        host.close();
+    }
+
+    #[test]
+    fn connect_remote_adapter_ffi_dial_surfaces_protocol_version_mismatch_kind() {
+        // A mixed-version responder hello (protocol_version != core) must
+        // surface the DEDICATED FFI dial kind — `FfiError::Dial { kind:
+        // "protocol_version_mismatch" }` — not the generic
+        // `Dial { kind: "handshake" }` (D7 last row, plan T3). The version
+        // gate runs before signature verification, so the dial rejects the
+        // wrong-version hello even though the mutated object no longer
+        // carries a valid v1 signature.
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let host = ffi_runtime().block_on(async {
+            start_loopback_host(LoopbackHostOptions {
+                transport: Arc::new(pair.server),
+                host_seed: seed_host(),
+                host_manifest: manifest("test-host", &["spoke-baseline"]),
+                allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_client())],
+                adapter: Arc::new(ToyWorldAdapter::default()),
+                delay: Box::new(|_| 0),
+                response_override: None,
+                session_peer_ids: None,
+            })
+            .await
+        });
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+        let ffi_err = match connect_remote_adapter_ffi(
+            Box::new(VersionMismatchHelloCallback {
+                inner: pair.client,
+                rewritten: Mutex::new(false),
+            }),
+            seed_client().to_vec(),
+            client_manifest_json(),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            Some(2000),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("mixed-version responder hello must fail the ffi dial"),
+        };
+        assert!(
+            matches!(&ffi_err, FfiError::Dial { kind, .. } if kind == "protocol_version_mismatch"),
+            "unexpected ffi dial error: {ffi_err:?}"
+        );
         host.close();
     }
 

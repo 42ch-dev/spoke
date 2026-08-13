@@ -16,7 +16,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
-| **1. Data** | Eight data objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, **Rule**, **TimelineEvent** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
+| **1. Data** | Nine data objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, **Rule**, **TimelineEvent**, **MindState** | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
 | **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas when shipped) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants and injected adapter orchestration that JSON Schema cannot express | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`); `crates/spoke-operations/` (`spoke-operations`) |
 
@@ -24,7 +24,7 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 **Connect family (opt-in `spoke-connect`):** cross-process interaction envelopes — hello (signed manifest exchange), session, invoke request/response, auth challenge/response — live in `schemas/connect/` under the optional `spoke-connect` capability flag. Connect reuses `HostCapabilityManifest` (hello embeds it by `$ref`) and `error-envelope` (invoke failures), wraps existing ops envelopes as opaque JSON, and keeps peer identity opaque (`peer_id`). Normative interaction semantics: [`spoke-connect.md`](spoke-connect.md).
 
-**Protocol layers (Rule + TimelineEvent + HostCapabilityManifest):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; `HostCapabilityManifest` for in-process host collaboration (baseline `HostManifestPort`); field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **30** hand-authored schema files (24 data/ops + 6 opt-in connect envelopes).
+**Protocol layers (Rule + TimelineEvent + HostCapabilityManifest):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; `HostCapabilityManifest` for in-process host collaboration (baseline `HostManifestPort`); field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **31** hand-authored schema files (25 data/ops + 6 opt-in connect envelopes).
 
 ## Nine-layer model (L0–L8)
 
@@ -122,7 +122,7 @@ spoke/
 | Edit policy | Never hand-edit `*/generated/**` |
 | Module mirror | Generated folder names mirror `schemas/{common,data,ops,connect}` |
 | Public API | Both packages re-export all leaf types from `index.ts` / `lib.rs` |
-| Schema inventory | **30** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
+| Schema inventory | **31** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
 | Opaque JSON fields | Wire shape: `#/definitions/OpaqueJson` (empty schema `{}`) with `$ref` from consuming properties (e.g. `ComputableLogChange.previous` / `.next`). Generators MUST emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust) — not object-index maps |
 | Duplicate generated types | typify and jstt may emit duplicate nominal types across `common/` and `data/` modules after `$ref` dereference. Integrators import canonical types from `generated/common` (TS barrel or `spoke_schemas::generated::common` / crate root re-exports). Duplicates are generator output, not separate wire shapes |
 | Release script tests | `pnpm run test:release` exercises `tooling/release/` assert/bump scripts (pure fixtures; no registry I/O). CI runs it in the `typescript` job |
@@ -146,7 +146,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Current wire bar: eight data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`), five baseline ops plus optional `project` / `compute`, six opt-in connect envelopes (`spoke-connect`), **30** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
+Current wire bar: nine data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`, `MindState`), five baseline ops plus optional `project` / `compute`, six opt-in connect envelopes (`spoke-connect`), **31** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
 
 **CI + inventory (required):**
 

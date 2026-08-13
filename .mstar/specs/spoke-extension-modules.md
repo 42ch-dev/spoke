@@ -59,7 +59,7 @@ Optional `modules` (`ModuleMap`) is on the wire under capability flag **`narrati
 | Surface | Expectation |
 |---------|-------------|
 | Handbooks | Publish `modules.*` **inner** field tables and examples (activation, placement, activation_trace, …) |
-| `schemas/` | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket; not required; open bag |
+| `schemas/` | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket + TimelineEvent; not required; open bag |
 | Integrators | Emit/parse `modules.<functional-ns>` when declaring `narrative-modules`; product-only query metadata stays in `extensions.<product>` |
 | Capability flags | `narrative-modules` — opt-in; no baseline requirement to emit or parse `modules` |
 

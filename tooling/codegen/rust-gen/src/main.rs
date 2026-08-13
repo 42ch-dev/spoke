@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use typify::{TypeSpace, TypeSpaceSettings};
 
-const EXPECTED_SCHEMA_COUNT: usize = 30;
+const EXPECTED_SCHEMA_COUNT: usize = 31;
 
 struct GeneratedModule {
     rust_mod: String,

@@ -180,6 +180,29 @@
         }
       },
       "additionalProperties": false
+    },
+    "MentalFieldMap": {
+      "type": "object",
+      "description": "Open map of mental-state field names to domain values. The settled mental-field vocabulary is handbook-defined (domain-profile-mental-state.md, modules.mental); product-owned values are allowed.",
+      "additionalProperties": true
+    },
+    "MindDelta": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Dot-path or JSON Pointer to the changed field within modules.mental or modules.belief."
+        },
+        "previous": {
+          "$ref": "#/definitions/OpaqueJson"
+        },
+        "next": {
+          "$ref": "#/definitions/OpaqueJson"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.belief."
     }
   }
 }

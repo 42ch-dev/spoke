@@ -191,3 +191,26 @@ export interface ComputableLogEntry {
    */
   message?: string;
 }
+/**
+ * Open map of mental-state field names to domain values. The settled mental-field vocabulary is handbook-defined (domain-profile-mental-state.md, modules.mental); product-owned values are allowed.
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "MentalFieldMap".
+ */
+export interface MentalFieldMap {
+  [k: string]: unknown | undefined;
+}
+/**
+ * Field-level change record for temporal-delta presentation of mental-state changes; presentation only, not authoritative state. Authoritative values live on the holder KnowledgeEntry under modules.mental / modules.belief.
+ *
+ * This interface was referenced by `SPOKECommonTypes`'s JSON-Schema
+ * via the `definition` "MindDelta".
+ */
+export interface MindDelta {
+  /**
+   * Dot-path or JSON Pointer to the changed field within modules.mental or modules.belief.
+   */
+  path: string;
+  previous?: OpaqueJson;
+  next?: OpaqueJson;
+}

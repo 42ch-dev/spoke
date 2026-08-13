@@ -10,6 +10,7 @@ import {
   transitionFindingStatus,
   validateComputableLogEntry,
   validateComputeRequest,
+  validateMindState,
   validateProjectRequest,
   validatePromoteRequest,
 } from "@42ch/spoke-operations";
@@ -17,6 +18,7 @@ import type {
   ComputeRequest,
   Finding,
   KnowledgeEntry,
+  MindState,
   ProjectRequest,
   PromoteRequest,
   Scope,
@@ -111,5 +113,13 @@ describe("fixtures/toy-world ops exercise", () => {
     expect(
       validateComputableLogEntry(timelineEvent.computable_logs![0]!).ok,
     ).toBe(true);
+  });
+
+  it("validates the l5-mind MindState fixtures via validateMindState", () => {
+    const pre = loadFixture<MindState>("mind_tw_bo_pre_transfer.json");
+    const post = loadFixture<MindState>("mind_tw_bo_post_transfer.json");
+
+    expect(validateMindState(pre)).toBe(true);
+    expect(validateMindState(post)).toBe(true);
   });
 });

@@ -414,6 +414,10 @@ mod remote_adapter_ffi {
                 kind: "handshake".into(),
                 message,
             },
+            RemoteAdapterError::ProtocolVersionMismatch(message) => FfiError::Dial {
+                kind: "protocol_version_mismatch".into(),
+                message,
+            },
             RemoteAdapterError::Timeout(message) => FfiError::Dial {
                 kind: "timeout".into(),
                 message,
@@ -621,6 +625,12 @@ mod remote_adapter_ffi {
                 (
                     RemoteAdapterError::Handshake("bad hello".into()),
                     "handshake",
+                ),
+                (
+                    RemoteAdapterError::ProtocolVersionMismatch(
+                        "unsupported protocol_version 2 (expected 1)".into(),
+                    ),
+                    "protocol_version_mismatch",
                 ),
                 (
                     RemoteAdapterError::Timeout("connect: hello timed out".into()),

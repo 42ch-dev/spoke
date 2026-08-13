@@ -815,6 +815,51 @@ async fn responder_hello_without_peer_nonce_fails_the_dial_closed() {
     );
 }
 
+#[tokio::test]
+async fn mixed_version_responder_hello_surfaces_protocol_version_mismatch() {
+    // A mixed-version responder hello (protocol_version != core) must
+    // surface the DEDICATED dial kind — `RemoteAdapterError::ProtocolVersionMismatch`
+    // — not be folded into `Handshake`. The version gate runs before
+    // signature verification (verify_hello_ed25519 step 1), so the dial
+    // rejects a wrong-version hello even though the (v1-signed) signature no
+    // longer matches the mutated object — you do not waste crypto on a
+    // wrong-version peer.
+    let mut hello = sign_hello_ed25519(
+        &seed_host(),
+        &host_nonce(),
+        &connect_manifest(&manifest("test-host", &["spoke-baseline"])),
+        Some("initiator-nonce-12345678"),
+    )
+    .expect("sign responder hello");
+    hello.protocol_version = std::num::NonZeroU64::new(2).expect("non-zero");
+    let bytes = serde_json::to_vec(&hello).expect("responder hello serializes");
+
+    let error = match connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(LegacyHelloTransport { hello: bytes }),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest("test-client", &["spoke-baseline"]),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![derive_peer_id_from_ed25519_pubkey(&pubkey_host())],
+        invoke_timeout_ms: Some(2000),
+        capability_token: None,
+    })
+    .await
+    {
+        Ok(_) => panic!("mixed-version hello must fail the dial"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(
+            &error,
+            RemoteAdapterError::ProtocolVersionMismatch(message)
+                if message.contains("unsupported protocol_version 2 (expected 1)")
+        ),
+        "unexpected dial error: {error:?}"
+    );
+}
+
 // ── Envelope-auth enforcement (contract §7/§8) ─────────────────────────────
 
 /// Extract the `details.kind` of an `INTERNAL_ERROR` reject (or `None`).

@@ -30,7 +30,7 @@ Read top-down: identity → ontology → body → provenance → graph → time 
 | **L2 Body** | summary / tags / trait `attributes` | Closed `body` with optional `summary`, `tags`, `attributes[]` (`BodyAttribute`) | Optional `body.state` + `body.computable` (`l2-computable`); `project` / `compute` ops | `knowledge-entry.schema.json` `body`; `common/…#/definitions/BodyAttribute`; optional `project-*` / `compute-*` ops |
 | **L3 Provenance** | SourceAnchor | Refs over full manuscript | — | `source-anchor.schema.json`; optional on KnowledgeEntry |
 | **L4 Graph** | Relation | Typed directed edges | Structural OCC via `revision` (parity with KnowledgeEntry); see data-model §Persisted-entity OCC parity | `relation.schema.json`; `relate` op |
-| **L5 Temporal** | Timeline dimension + TimelineEvent + optional Fork | **`TimelineEvent` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (`l5-fork`); optional `computable_logs` on Moment-scale events (`l2-computable`) | `timeline-event.schema.json`; `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry`; tier + Fork vocabulary in this spec + data-model |
+| **L5 Temporal** | Timeline dimension + TimelineEvent + optional Fork | **`TimelineEvent` wire object** (when-axis) + **Timeline projection tiers** (`brief` / `narrative` / `moment`) as structured Timeline vocabulary | **Fork** (`l5-fork`); **Mental state** (`l5-mind`); optional `computable_logs` on Moment-scale events (`l2-computable`) | `timeline-event.schema.json`; optional `mind-state.schema.json` (`l5-mind`); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry`, `MentalFieldMap`, `MindDelta`; tier + Fork vocabulary in this spec + data-model |
 | **L6 Constraint** | Rule / Prohibition | **`Rule` wire object** | Prohibition variants as open vocabulary | `rule.schema.json`; `check` op |
 | **L7 Finding** | Checker output lifecycle | `Finding` + status vocabulary | Richer product overlays in `extensions` | `finding.schema.json`; `check` op; `spoke-operations` transitions |
 | **L8 Context** | AssemblePacket | Shared packet shape | Trim/rank policy — product-local | `assemble-packet.schema.json`; `assemble` op (wire-only) |
@@ -65,6 +65,10 @@ Product Timeline UIs often expose three semantic-zoom layers (Brief / Narrative 
 4. Tier ≠ AssemblePacket. **L8 context assembly** consumes temporal scope; it does not redefine Timeline tiers (including the `moment` tier).
 5. Product Timeline Brief / Narrative / Moment **carriers** stay adapter/UI concerns. SPOKE wire vocabulary for those tiers is **`brief` / `narrative` / `moment`** via optional `timeline_scale` on `TimelineEvent` and Scope.
 
+### Mental axis vs when-axis (normative)
+
+`MindState` and `TimelineEvent` are **both L5 temporal objects, but different concerns**. A `TimelineEvent` records *what happened* on the when-axis — an event with participants, scale, and optional observation metadata. A `MindState` records *the state of a mind over time* — a strictly derivative snapshot / delta record of mental fields, placed on the when-axis. The two never merge: `MindState` is a standalone wire object (`schemas/data/mind-state.schema.json` under optional `l5-mind`), **not** a property of `TimelineEvent`, and `TimelineEvent` is not a mental-state record. Mental facts themselves settle on the holder KnowledgeEntry (`modules.mental` / `modules.belief`, under `narrative-modules`); `MindState` only records how they changed — mirroring the `ComputableLogEntry` authority/derivative split — and is never a second authority. Engines (belief revision, ToM inference) stay product-owned. Naming, placement, and ownership boundary: [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md); dialect shapes: [`domain-profile-mental-state.md`](domain-profile-mental-state.md).
+
 ## Capability levels
 
 Products MUST declare which level they implement when claiming SPOKE compliance.
@@ -91,7 +95,8 @@ Required for “SPOKE baseline” claims:
 |------|-------|---------|
 | `l2-computable` | L2 + L5 + ops | Optional `body.state` / `body.computable` on KnowledgeEntry; optional `computable_logs` on TimelineEvent; optional `project` / `compute` op families — Session lifecycle is normative prose + op I/O, not a durable Session wire object |
 | `l5-fork` | L5 | Optional world-history branch metadata on `TimelineEvent` via `fork_id` and `parent_fork_id` (`ForkId` in `common.schema.json`); optional `Scope.fork_id` filter — not `spoke-baseline` |
-| `narrative-modules` | KnowledgeEntry + L8 | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket carrying cross-product functional dialects (`activation` on KE; `placement` / `activation_trace` on AssemblePacket). Adapters round-trip unknown module namespaces verbatim; pure ops `mergeModuleMaps` / `preserveModuleMaps` round-trip only — no engine. Knowledge Pack catalog metadata is product-envelope (not a module key). Not `spoke-baseline` |
+| `l5-mind` | L5 Temporal | Optional **`MindState`** temporal mental-state records — snapshot / delta records over the when-axis (`schemas/data/mind-state.schema.json`), strictly derivative of the holder KnowledgeEntry; `modules.mental` / `modules.belief` on the holder KnowledgeEntry (`narrative-modules` bag; settled home); `modules.observation` on `TimelineEvent.modules` (observation metadata; companion wire-slice). Settled home = holder KE `modules.*`; `MindState` is derivative only, never a second authority; engines (belief revision, ToM inference) are product-owned. See [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) + [`domain-profile-mental-state.md`](domain-profile-mental-state.md). Not `spoke-baseline` |
+| `narrative-modules` | KnowledgeEntry + AssemblePacket (L8) + TimelineEvent | Optional `modules` (`ModuleMap`) on KnowledgeEntry + AssemblePacket + TimelineEvent carrying cross-product functional dialects (`activation` on KE; `placement` / `activation_trace` on AssemblePacket; `observation` on TimelineEvent — the observation dialect requires `narrative-modules` for the bag **and** `l5-mind` for the semantic capability; `modules.mental` / `modules.belief` on the holder KE are the settled home for mental state). Adapters round-trip unknown module namespaces verbatim; pure ops `mergeModuleMaps` / `preserveModuleMaps` round-trip only — no engine. Knowledge Pack catalog metadata is product-envelope (not a module key). Not `spoke-baseline` |
 | `spoke-connect` | Interaction (cross-process) | Optional connect envelope family (`schemas/connect/`): signed hello (manifest exchange), session, invoke request/response, auth challenge/response; per-session ordering, `noise-peerid` auth, explicit-peering discovery — see [`spoke-connect.md`](spoke-connect.md). Hosts SHOULD list `spoke-connect` in `HostCapabilityManifest.capabilities`. Not `spoke-baseline` |
 
 Baseline compliance MUST NOT require any of these flags.
@@ -106,7 +111,7 @@ Baseline compliance MUST NOT require any of these flags.
 | Profile documents vocabulary | Published tables (product KB / ontology types) live in **adapter specs**, product docs, or future Showcases — not closed `enum` in core |
 | Profile is not a fork | Products MUST NOT fork `knowledge-entry.schema.json` for profile-specific types; use open strings + `extensions.<namespace>` |
 | Adapter role | Product adapters in consumer repositories (or reference examples in `fixtures/toy-world/`) map product DTOs ↔ SPOKE; implement operations port families; call `@42ch/spoke-operations` / `spoke-operations` for shared gates and [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
-| Tracked profile handbooks | Narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (`modules.activation`, capability-flagged) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) |
+| Tracked profile handbooks | Narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (`modules.activation`, capability-flagged) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md); mental-state (`modules.mental` / `modules.belief` / `modules.observation`, capability-flagged) — [`domain-profile-mental-state.md`](domain-profile-mental-state.md) |
 
 ## Layer ↔ artifact map
 
@@ -117,7 +122,7 @@ Baseline compliance MUST NOT require any of these flags.
 | **L2 Body** | `knowledge-entry.schema.json` → closed `body` (`summary`, `tags`, `attributes`, optional `state` / `computable`); `common/…#/definitions/BodyAttribute`, `ComputableFieldMap` | `project-*`, `compute-*` (optional) | `validateComputableFieldMap`; `validateProjectRequest`; `validateComputeRequest` |
 | **L3 Provenance** | `data/source-anchor.schema.json`; optional on KnowledgeEntry / Finding / TimelineEvent / Rule | `promote-*`; `check-*` / `assemble-*` via `Scope.source_id` refinement | `knowledgeEntryMatchesScope`, `filterKnowledgeEntriesByScope` (`source_id` refinement) |
 | **L4 Graph** | `data/relation.schema.json` | `relate-*` | `validateRelateRequest` |
-| **L5 Temporal** | `data/timeline-event.schema.json` (`fork_id`, `parent_fork_id`, `computable_logs` optional); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry` | `check-*`, `assemble-*` via `Scope` (`timeline_scale`, `fork_id` refinements); `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry` |
+| **L5 Temporal** | `data/timeline-event.schema.json` (`fork_id`, `parent_fork_id`, `computable_logs` optional); `data/mind-state.schema.json` (optional `l5-mind`); `common/…#/definitions/TimelineScale`, `ForkId`, `ComputableLogEntry`, `MentalFieldMap`, `MindDelta` | `check-*`, `assemble-*` via `Scope` (`timeline_scale`, `fork_id` refinements); `project-*` / `compute-*` (optional) | `timelineEventMatchesScope`, `filterTimelineEventsByScope`; `validateComputableLogEntry`; `validateMindState` |
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
 | **Host collaboration** | `data/host-capability-manifest.schema.json` | — | `HostManifestPort` (`getHostCapabilityManifest`, `listPeerHostCapabilityManifests`) |
@@ -133,6 +138,8 @@ Baseline compliance MUST NOT require any of these flags.
 | `ComputableFieldMap` | `KnowledgeEntry.body.state`, `body.computable`; `project` / `compute` op payloads | Open JSON object for computable domain values (`l2-computable`) |
 | `BodyAttribute` | `KnowledgeEntry.body.attributes[]` | Scalar trait item (`trait_type` + `value`; optional `display_type`, `max_value`) |
 | `ComputableLogEntry` | `TimelineEvent.computable_logs[]` | Moment-scale computable change presentation (`l2-computable`) |
+| `MentalFieldMap` | `MindState.snapshot` | Open map of mental-state field names to domain values (`l5-mind`; settled field vocabulary handbook-defined) |
+| `MindDelta` | `MindState.deltas[]` | Field-level mental change record (`path` required; `previous` / `next` optional) mirroring `ComputableLogChange` (`l5-mind`) |
 | `ExtensionMap` | All data objects + all ops | Product namespace bag |
 | `ErrorEnvelope` | `schemas/common/error-envelope.schema.json` | All ops failure branch (`error` attachment) |
 
@@ -168,3 +175,5 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule, HostCapabilityManifest vocabulary |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping handbook |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` (capability-flagged) |
+| [`domain-profile-mental-state.md`](domain-profile-mental-state.md) | Mental-state Domain Profile — `modules.mental` / `modules.belief` / `modules.observation` dialects + MindState sketch |
+| [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) | `l5-mind` flag; `MindState` naming, placement, ownership boundary; rejected alternatives |

@@ -56,7 +56,7 @@ This is the exact shape of `ComputableLogChange` (`{ path, previous?, next? }`) 
 | Surface | Capability flag | Status |
 |---------|----------------|--------|
 | `modules.mental` / `modules.belief` on KnowledgeEntry | **`narrative-modules`** (existing) | The standard home for `ModuleMap` namespaces; adapters round-trip unknown keys verbatim |
-| `modules.observation` on `TimelineEvent.modules` | **`l5-mind`** (new; **`narrative-modules`** for KE-side dialects) | Observation metadata on events; companion wire-slice to `MindState` |
+| `modules.observation` on `TimelineEvent.modules` | **`narrative-modules`** (bag; shipped) + **`l5-mind`** (event-observation semantics) | Observation metadata on events; companion wire-slice to `MindState` |
 | `MindState` standalone wire object | **`l5-mind`** (new) | Optional L5 temporal record; opt-in, not `spoke-baseline` |
 
 ## Rejected alternatives
@@ -115,7 +115,7 @@ An `entry_type: "belief"` or `"mental_state"` label is an L1 ontology classifier
 |------|----------|
 | Actor / group mental state (nine fields) | holder KnowledgeEntry `modules.mental` (inner shape handbook-defined; under `narrative-modules`) |
 | Per-proposition belief labels (seven dimensions) | holder KnowledgeEntry `modules.belief` (inner shape handbook-defined; under `narrative-modules`) |
-| Event observation metadata (who perceived an event + access constraints) | `TimelineEvent.modules.observation` (inner shape handbook-defined; under `l5-mind`, `narrative-modules` for KE-side dialects) |
+| Event observation metadata (who perceived an event + access constraints) | `TimelineEvent.modules.observation` (inner shape handbook-defined; `narrative-modules` bag, `l5-mind` semantics) |
 | Temporal change record for mental fields on the when-axis | `MindState` standalone wire object (`schemas/data/mind-state.schema.json`, under `l5-mind`) |
 | Belief as a KB node (ontology label) | KnowledgeEntry `entry_type: "belief"` (L1 vocabulary; necessary but not a shape decision) |
 | Mental attitudes / role relations (likes, distrusts, teacher-of) | `Relation` with Domain Profile types (L4) |

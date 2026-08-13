@@ -138,7 +138,10 @@ title: 数据模型参考
 | `sort_key` | 字符串，可选 | 时间轴内的不透明排序提示 |
 | `fork_id` / `parent_fork_id` | ForkId，可选 | 世界历史分支元数据（`l5-fork`） |
 | `computable_logs` | ComputableLogEntry[]，可选 | computable 变化的 moment 尺度历史（`l2-computable`） |
+| `modules` | ModuleMap，可选 | 能力标志 `narrative-modules`；携带事件观察元数据（`l5-mind` 下的 `modules.observation`） |
 | `extensions` | ExtensionMap，必填 | |
+
+`MindState` 是同一 when 轴上心智状态的配套 L5 时间记录 —— 见 [MindState 参考](/zh/reference/mind-state)。
 
 ## 开放词汇
 
@@ -148,6 +151,7 @@ title: 数据模型参考
 
 - Rule 是声明式检查器**输入**；Finding 是检查器**输出** —— 各司其职。
 - `TimelineEvent` 是 L5 when 轴对象；`entry_type: "event"` 是本体的标签 —— 一个本地概念可以同时映射到两者（双重关注）。
+- `MindState` 是 L5 时间心智状态记录（`l5-mind`）；`entry_type: "character"` / 画像 `mind` 是本体的标签 —— 该记录严格派生自持有者的 `modules.mental` / `modules.belief`（既定归宿），绝不构成第二个权威。
 - `HostCapabilityManifest` 在其专属表面上携带主机元数据（roles、capabilities、namespaces），与 KnowledgeEntry `extensions` 分离。
 
 ## 相关页面
@@ -156,3 +160,4 @@ title: 数据模型参考
 - [操作线上参考（Ops wire）](/zh/reference/ops) —— `Scope` 与读取这些对象的 ops。
 - [核心概念](/zh/explanation/concepts) —— 每个对象所属的层。
 - [领域画像（Domain Profiles）](/zh/explanation/domain-profiles) —— 在这些形状之上发布的开放字符串词汇。
+- [MindState 参考](/zh/reference/mind-state) —— L5 时间心智状态记录（`l5-mind`）。

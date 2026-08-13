@@ -6,7 +6,7 @@ Compound outputs land here at iteration-close (`mstar-compound`). Durable protoc
 
 | Doc | Category | Source | Summary |
 |-----|----------|--------|---------|
-| [`architecture-patterns/spoke-codegen-pipeline.md`](architecture-patterns/spoke-codegen-pipeline.md) | architecture-patterns | compound 2026-07-23 (bootstrap); 2026-07-25 inventory; 2026-07-27 count | jstt+typify orchestrator, verify-codegen (`EXPECTED_SCHEMA_COUNT = 30`), rust-gen fail-fast, OpaqueJson, typify dup import guide |
+| [`architecture-patterns/spoke-codegen-pipeline.md`](architecture-patterns/spoke-codegen-pipeline.md) | architecture-patterns | compound 2026-07-23 (bootstrap); 2026-07-25 inventory; 2026-07-27 count | jstt+typify orchestrator, verify-codegen (`EXPECTED_SCHEMA_COUNT = 31`), rust-gen fail-fast, OpaqueJson, typify dup import guide |
 | [`architecture-patterns/host-capability-manifest-collaboration.md`](architecture-patterns/host-capability-manifest-collaboration.md) | architecture-patterns | compound 2026-07-27 (host capability); promoted from iteration guide | `HostCapabilityManifest` wire + five roles + ns exclusivity + baseline `HostManifestPort`; toy-world dual-manifest proof |
 | [`architecture-patterns/consumer-readme-twin.md`](architecture-patterns/consumer-readme-twin.md) | architecture-patterns | compound 2026-07-23 (dev-docs) | Twin EN/CN human READMEs; no delivery banners or anti-pattern rhetoric |
 | [`architecture-patterns/timeline-projection-tiers.md`](architecture-patterns/timeline-projection-tiers.md) | architecture-patterns | compound 2026-07-23 (rule-event) | L5 TimelineScale brief/narrative/moment vocabulary |

@@ -12,8 +12,8 @@ Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schemas`) a
 
 1. **SSOT** — only `schemas/**/*.schema.json` are hand-authored; generated trees are committed.
 2. **Orchestrator** — `tooling/codegen` walks schemas, localizes `$ref`s for typify, emits mirrored `generated/{common,data,ops}/` in both packages.
-3. **Verify** — `pnpm run verify-codegen` = regenerate → `node tooling/codegen/assert-schema-count.mjs` (`EXPECTED_SCHEMA_COUNT = 30`) → `git diff --exit-code` on generated dirs. Bump the constant when adding/removing `schemas/**/*.schema.json` (same commit as schema + generated output).
-4. **Rust fail-fast** — `rust-gen` returns non-zero on per-schema failure and asserts exactly **30** output files (keep in sync with the TS assert constant when the schema inventory changes).
+3. **Verify** — `pnpm run verify-codegen` = regenerate → `node tooling/codegen/assert-schema-count.mjs` (`EXPECTED_SCHEMA_COUNT = 31`) → `git diff --exit-code` on generated dirs. Bump the constant when adding/removing `schemas/**/*.schema.json` (same commit as schema + generated output).
+4. **Rust fail-fast** — `rust-gen` returns non-zero on per-schema failure and asserts exactly **31** output files (keep in sync with the TS assert constant when the schema inventory changes).
 5. **Closed ops responses** — mutually exclusive success/error shapes use draft-07 `oneOf` (see `assemble-response.schema.json`).
 6. **Opaque JSON** — `#/definitions/OpaqueJson` must be an **empty schema object `{}`** (optional `description` alone is insufficient for jstt — it still emits `{ [k: string]: unknown }` object-index maps). Consuming properties `$ref` that definition (e.g. `ComputableLogChange.previous` / `.next`). Generators then emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust).
 7. **Duplicate generated types (strategy A)** — document typify nominal duplication as known generator behavior; integrators use canonical `common/` imports (see below). No orchestrator dedupe.
@@ -21,7 +21,7 @@ Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schemas`) a
 
 ## Schema inventory
 
-The repository maintains **30** hand-authored `schemas/**/*.schema.json` files (includes `HostCapabilityManifest`). `assert-schema-count.mjs` and `rust-gen` both assert exactly **30** generated output files — bump both constants in the same commit when the inventory changes.
+The repository maintains **31** hand-authored `schemas/**/*.schema.json` files (includes `HostCapabilityManifest`). `assert-schema-count.mjs` and `rust-gen` both assert exactly **31** generated output files — bump both constants in the same commit when the inventory changes.
 
 ## Rust typify nominal duplication (strategy A)
 

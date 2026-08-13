@@ -15,7 +15,7 @@ SPOKE defines its vocabulary in **wire terms** — every concept below is a conc
 | **L2 Body** | Closed `body`: summary, tags, scalar `attributes` (optional `state` / `computable` under `l2-computable`) |
 | **L3 Provenance** | SourceAnchor pointers |
 | **L4 Graph** | Typed directed Relations (with optional `revision` OCC) |
-| **L5 Temporal** | TimelineEvent when-axis + projection tiers `brief` / `narrative` / `moment` (optional Fork under `l5-fork`) |
+| **L5 Temporal** | TimelineEvent when-axis + projection tiers `brief` / `narrative` / `moment` (optional Fork under `l5-fork`; optional `MindState` mental-state records under `l5-mind`) |
 | **L6 Constraint** | Rule declarative input to `check` |
 | **L7 Finding** | Checker output + status lifecycle |
 | **L8 Context** | AssemblePacket wire shape (assembly itself stays product-local) |
@@ -26,6 +26,7 @@ A product claims compliance at a declared capability level. **`spoke-baseline`**
 
 - **`l2-computable`** — `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and `project` / `compute` ops.
 - **`l5-fork`** — `fork_id` / `parent_fork_id` branch metadata on TimelineEvent and `Scope.fork_id` filtering.
+- **`l5-mind`** — optional `MindState` temporal mental-state records (snapshot / delta) over the when-axis and `modules.observation` on TimelineEvent — see the [MindState reference](/reference/mind-state).
 - **`narrative-modules`** — the optional `modules` (`ModuleMap`) bag for cross-product functional dialects.
 - **`spoke-connect`** — the opt-in interaction envelope family; hosts that speak it list the flag in `HostCapabilityManifest.capabilities`.
 
@@ -33,10 +34,11 @@ The connect family's session lifecycle, envelope authentication, and capability 
 
 ## Dual-concern pairs
 
-The protocol keeps two pairs deliberately separate:
+The protocol keeps three pairs deliberately separate:
 
 - An ontology `entry_type: "event"` label on a KnowledgeEntry versus the L5 `TimelineEvent` when-axis object — one local concept may map to one or both wire shapes.
 - An ontology `entry_type: "rule"` label versus the L6 `Rule` checker input — Rule is declarative input, Finding is checker output.
+- An ontology `entry_type: "character"` / profile `mind` label versus the L5 `MindState` temporal record — the label classifies a knowledge node; `MindState` is the strictly derivative snapshot / delta of the holder's mental fields (`modules.mental` / `modules.belief` are the settled home).
 
 The names stay separate so `check` / `assemble` selectors remain unambiguous.
 
@@ -48,7 +50,7 @@ Core objects keep closed envelopes (`additionalProperties: false`), while core v
 
 - **Scope** — the shared ops selector for `check` / `assemble`: required opaque `scope_id` plus optional refinements (`entry_ids`, `entry_types`, `timeline_scale`, `fork_id`, …).
 - **Extensions** — `extensions.<namespace>` product bag on every durable object; adapters round-trip unknown namespaces verbatim.
-- **Modules** — the optional `modules.*` bag (capability-flagged `narrative-modules`) for cross-product functional dialects on KnowledgeEntry and AssemblePacket.
+- **Modules** — the optional `modules.*` bag (capability-flagged `narrative-modules`) for cross-product functional dialects on KnowledgeEntry, AssemblePacket, and TimelineEvent.
 
 ## Pure-library posture
 
@@ -59,3 +61,4 @@ The operations library is a pure behavior layer over the generated wire types: l
 - [Protocol reference](/reference/protocol) — schema inventory, extensions contract, capability flags.
 - [Data model reference](/reference/data-model) — field tables per layer.
 - [Domain profiles](/explanation/domain-profiles) — the published open-string vocabularies.
+- [MindState reference](/reference/mind-state) — the L5 temporal mental-state record (`l5-mind`).

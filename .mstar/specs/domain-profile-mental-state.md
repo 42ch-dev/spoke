@@ -47,7 +47,7 @@ Category rule (normative triad ADR): shared functional dialects use `modules.*`.
 |-----------|----------|---------------|
 | `modules.mental` | KnowledgeEntry `modules` | **Yes** — `modules` (`ModuleMap`) is shipped, capability-flagged (`narrative-modules`) |
 | `modules.belief` | KnowledgeEntry `modules` | **Yes** — same envelope |
-| `modules.observation` | event `modules` (companion to `l5-mind`) | **Inner shape handbook-defined.** A `modules` bag on `TimelineEvent` is the companion wire-slice to the `l5-mind` temporal record; the closed `TimelineEvent` schema carries `participant_entry_ids` (core) and `extensions.<product>` today. Products that carry observation metadata ahead of the envelope emit the documented shape under `extensions.<product>` and migrate to `modules.observation` when the bag lands. |
+| `modules.observation` | event `modules` (capability-flagged `narrative-modules` + `l5-mind`) | **Inner shape handbook-defined.** `modules.observation` on `TimelineEvent.modules` is the shipped envelope — bag under `narrative-modules`, event-observation semantics under `l5-mind`. The `TimelineEvent` schema carries optional `modules` (ModuleMap) alongside core `participant_entry_ids` and `extensions.<product>`. |
 
 This profile states the **current dialect shape** for each namespace. Freezing any inner field table into a closed JSON Schema definition is a separate, demand-gated wire decision (the `l5-mind` wire-slice).
 
@@ -220,7 +220,7 @@ Order-2 / order-3 beliefs are ordinary propositions whose content references ano
 
 ## `modules.observation` — event observation metadata
 
-**Status:** Handbook-defined inner object under an event's `modules` bag (companion wire-slice to `l5-mind`). Opt-in. False belief is an **absence mechanic**: an event unobserved by an actor leaves their belief stale. Observation metadata records *who could perceive* an event and the perceptual constraints on that access — the input every "who knows what" derivation needs.
+**Status:** Handbook-defined inner object under an event's `modules` bag (shipped on `TimelineEvent.modules` under `narrative-modules` + `l5-mind`). Opt-in. False belief is an **absence mechanic**: an event unobserved by an actor leaves their belief stale. Observation metadata records *who could perceive* an event and the perceptual constraints on that access — the input every "who knows what" derivation needs.
 
 ### Relationship to the existing core field
 
@@ -462,5 +462,5 @@ An integrator can implement mental-state storage + interchange from this handboo
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella protocol; §Extensions |
 | [`spoke-data-model.md`](spoke-data-model.md) | KnowledgeEntry, TimelineEvent, BodyAttribute, ModuleMap, `ComputableLogChange` |
-| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 layer model; optional flags (`l5-fork`, `narrative-modules`); L5 Temporal — `l5-mind` to be registered in spec-sync (companion wire-slice) |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 layer model; optional flags (`l5-fork`, `narrative-modules`, `l5-mind`); L5 Temporal — `l5-mind` = `MindState` temporal records |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (capability-flagged); TimelineEvent dual-concern |

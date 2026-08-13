@@ -208,6 +208,7 @@ First-class **when-axis** object. Distinct from KnowledgeEntry `entry_type: "eve
 | `parent_fork_id` | `ForkId` | Optional parent/base branch reference when product records fork lineage on the event |
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
+| `modules` | `ModuleMap` | Optional cross-product functional-dialect bag; capability-flagged (`narrative-modules`; `l5-mind` for event observation) — carries `modules.observation` (who could perceive the event); see §Modules |
 
 **Fork (`l5-fork`, explicitly optional):** baseline `TimelineEvent` MUST NOT require branch metadata. Fork is **world-history branch identity** on the when-axis — optional protocol fields `fork_id` and `parent_fork_id` on `TimelineEvent` (shared type `ForkId` in `common.schema.json`). `spoke-baseline` excludes required Fork.
 
@@ -337,6 +338,88 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/TimelineScale`.
 | `moment` | Scene / beat / sub-scene precision |
 
 Products MAY emit values outside the core trio; adapters MUST round-trip unknown values. Tier names standardize **Timeline dimension semantics** — not any product’s canvas surface requirements.
+
+---
+
+## MindState (L5, optional `l5-mind`)
+
+First-class **temporal mental-state** record on the L5 when-axis — a standalone wire object under the optional `l5-mind` capability, **not** a property of `TimelineEvent`. Strictly **derivative**: it records how mental fields change over time, while the holder KnowledgeEntry's `modules.mental` / `modules.belief` (settled home) remain the single authority — `MindState` is never a second authority.
+
+Schema: `schemas/data/mind-state.schema.json`. Capability: `l5-mind` — optional, not `spoke-baseline` ([`spoke-protocol-layers.md`](spoke-protocol-layers.md)). Naming / placement / ownership boundary: [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md). Dialect field tables (nine mental fields, belief labels, observation): [`domain-profile-mental-state.md`](domain-profile-mental-state.md) (§MindState record sketch).
+
+### Required fields
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `schema_version` | integer | Wire version; align with `common.SchemaVersion` |
+| `mind_state_id` | string | Stable id (opaque to protocol) |
+| `holder_entry_id` | string | Reference to the mental actor's KnowledgeEntry (`entry_id`); this record is a temporal derivative of that entry's `modules.mental` / `modules.belief` |
+| `extensions` | object | Namespace map (§Extensions) |
+
+### Optional protocol fields
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `canonical_name` | string | Human-stable label (min length 1) |
+| `occurred_at` | string (RFC 3339) | When the mental state held — when-axis placement |
+| `sort_key` | string | Opaque ordering hint within a mental-state timeline (products define grammar) |
+| `snapshot` | `MentalFieldMap` | Derivative full-field snapshot of the holder's mental state at this point |
+| `deltas` | `MindDelta[]` | Derivative field-level change records since the prior mental state (temporal-delta presentation only) |
+| `source_anchor` | `SourceAnchor` | Manuscript / scene anchor |
+| `created_at` | string (RFC 3339) | Creation timestamp |
+| `updated_at` | string (RFC 3339) | Last mutation timestamp |
+
+### Shared definitions (`MentalFieldMap`, `MindDelta`)
+
+Both definitions live in `common.schema.json` (`#/definitions/MentalFieldMap`, `#/definitions/MindDelta`).
+
+| Definition | Semantics |
+|------------|-----------|
+| `MentalFieldMap` | Open map of mental-state field names to domain values; matches the `modules.mental` nine-field vocabulary (settled field vocabulary handbook-defined) |
+| `MindDelta` | Field-level change record `{ path, previous?, next? }` mirroring `ComputableLogChange`; `path` points within `modules.mental` / `modules.belief` |
+
+### Dual-concern (MindState vs ontology labels vs when-axis vs settled home)
+
+The same mental fact appears on **multiple** wire surfaces — products choose mapping; protocol keeps the concerns distinct:
+
+| Wire artifact | Concern |
+|---------------|---------|
+| KnowledgeEntry (`entry_type: "character"`, profile `mind`, `"belief"`, …) | Ontology label on a KB fact node — classifies *this node is a mind / actor*; carries no temporal structure |
+| `modules.belief` (holder KE `modules` bag) | **Settled home** for per-proposition beliefs — durable authority; `modules.mental` is the settled home for the nine fields |
+| `MindState` | L5 temporal record — strictly derivative snapshot / delta of the holder's mental state |
+| `TimelineEvent` | L5 when-axis record of *what happened*; `MindState` records *the state of a mind over time* — the two never merge |
+
+### Illustrative instance
+
+```json
+{
+  "schema_version": 1,
+  "mind_state_id": "ms_01HXYZ",
+  "holder_entry_id": "kb_mira",
+  "canonical_name": "Mira — relieved after the Treaty of Ashford",
+  "occurred_at": "1421-06-03T12:00:00Z",
+  "snapshot": {
+    "emotions": [{ "emotion": "relief", "intensity": 0.7 }],
+    "goals": [{ "goal": "secure the harbor charter", "status": "active" }]
+  },
+  "deltas": [
+    {
+      "path": "modules.mental.emotions",
+      "previous": [{ "emotion": "anxious", "intensity": 0.8 }],
+      "next": [{ "emotion": "relief", "intensity": 0.7 }]
+    }
+  ],
+  "source_anchor": {
+    "schema_version": 1,
+    "source_id": "manuscript:book-1:ch-3",
+    "span": { "start": 120, "end": 480 },
+    "extensions": {}
+  },
+  "extensions": {}
+}
+```
+
+`MindState` is derivative — the authoritative current values live in the holder KnowledgeEntry's `modules.mental` / `modules.belief`, never in this record.
 
 ---
 
@@ -546,6 +629,7 @@ Any SPOKE entity that (a) has a dedicated write `*Port` family and (b) is the su
 | `Rule` | Read/query port (`RuleQueryPort`) only; no create-or-update persistence op on the baseline write surface |
 | `HostCapabilityManifest` | Read port (`HostManifestPort`) only; persistence lifecycle stays product-side |
 | `TimelineEvent` | Product-owned world history; protocol owns wire shape only, not write-port OCC or a baseline persistence port |
+| `MindState` | Product-owned mental-state history; protocol owns wire shape only (`l5-mind`), not write-port OCC or a baseline persistence port |
 | `SourceAnchor` | Embedded inside `KnowledgeEntry`, not independently persisted |
 | `AssemblePacket` | Ephemeral op output; never persisted |
 
@@ -637,26 +721,41 @@ Shared JSON Schema fragment: `common.schema.json#/definitions/ExtensionMap`.
 
 ## Modules (normative)
 
-Optional cross-product **functional-dialect** bag on `KnowledgeEntry` and `AssemblePacket`. Distinct from product-owned `extensions`.
+Optional cross-product **functional-dialect** bag on `KnowledgeEntry`, `AssemblePacket`, and `TimelineEvent`. Distinct from product-owned `extensions`.
 
 ```json
 "modules": {
   "activation": { },
-  "placement": [ ]
+  "placement": [ ],
+  "mental": { },
+  "belief": [ ],
+  "observation": { }
 }
 ```
 
 | Rule | Requirement |
 |------|-------------|
-| Presence | Optional on KnowledgeEntry + AssemblePacket; **not** required; absent and empty valid |
+| Presence | Optional on KnowledgeEntry + AssemblePacket + TimelineEvent; **not** required; absent and empty valid |
 | Capability | Opt-in via `narrative-modules` ([`spoke-protocol-layers.md`](spoke-protocol-layers.md)) |
-| Namespace keys | Functional-dialect ids — `^[a-z][a-z0-9_-]*$` (e.g. `activation`, `pack`, `placement`, `activation_trace`) |
+| Namespace keys | Functional-dialect ids — `^[a-z][a-z0-9_-]*$` (e.g. `activation`, `pack`, `placement`, `activation_trace`, `mental`, `belief`, `observation`) |
 | Values | Structured JSON — object **or** array (`ModuleMap` `anyOf`); inner field tables handbook-defined |
 | Unknown namespaces | Adapters MUST preserve on round-trip |
 | Merge / preserve semantics | [`spoke-operations.md`](spoke-operations.md) (`mergeModuleMaps`, `preserveModuleMaps`) |
 | Category | Functional dialects ∈ `modules.*`; product bags ∈ `extensions.<product>` |
 
 Shared JSON Schema fragment: `common.schema.json#/definitions/ModuleMap`.
+
+### Dialect examples (`l5-mind` family)
+
+Inner field tables stay handbook-defined; homes and capability flags per [`spoke-protocol-layers.md`](spoke-protocol-layers.md):
+
+| Dialect | Home | Capability | Role |
+|---------|------|------------|------|
+| `modules.mental` | holder KnowledgeEntry `modules` | `narrative-modules` | Nine-field mental-state vocabulary — durable authority |
+| `modules.belief` | holder KnowledgeEntry `modules` | `narrative-modules` | Per-proposition belief records with seven closed labels — durable authority |
+| `modules.observation` | `TimelineEvent.modules` | `narrative-modules` (bag) + `l5-mind` (semantics) | Who could perceive an event + perceptual-access constraints |
+
+Field tables: [`domain-profile-mental-state.md`](domain-profile-mental-state.md). Ownership boundary (settled home vs derivative `MindState`): [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md).
 
 Bag placement for product `extensions` vs cross-product `modules.*`: [`spoke-extension-modules.md`](spoke-extension-modules.md).
 
@@ -688,7 +787,7 @@ Cross-product narrative set used by the protocol core list. Order: baseline narr
 | `ability` | Skill / power / capability KnowledgeEntry (canvas baseline) |
 | `rule` | World rule / constraint **ontology label** on a KnowledgeEntry; **≠** L6 `Rule` wire object (`rule_id`, `kind`, `statement`, `target_entry_types`) |
 
-**Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. Profile-specific types (`dialogue`, `beat`, `species`, `magic_system`, …) belong in **Domain Profile** / adapter specs — not in this core table or in schema `description` core lists.
+**Extension policy:** products MAY emit values outside this list. Adapters MUST round-trip unknown values without normalization. Profile-specific types (`dialogue`, `beat`, `mind`, `species`, `magic_system`, …) belong in **Domain Profile** / adapter specs — not in this core table or in schema `description` core lists.
 
 ### Research canvas coverage (ontology)
 
@@ -712,6 +811,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | `note`, `research` | **Keep** (core) | Authoring extras; not shown on canvas `TYPE_MAP` |
 | `dialogue` | **Profile-only** | Domain Profile / adapter spec |
 | `beat` | **Profile-only** | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) |
+| `mind` | **Profile-only** | Mental-state ontology label on a KnowledgeEntry; **≠** `MindState` L5 wire object |
 | `species`, `magic_system` | **Profile-only** | Typically under worldbuilding profile |
 
 **Dual-concern quick reference:**
@@ -724,6 +824,10 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | Session vs TimelineEvent vs Finding? | Session = lifecycle (`session_id` on ops); TimelineEvent = when-axis; `computable_logs` = presentation; Finding = checker output. |
 | Filter TimelineEvents by branch? | Optional `Scope.fork_id` — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match. |
 | Should `dialogue` / `beat` be in the core table? | **No.** Profile-only per baseline lock. |
+| `entry_type: "mind"` (or `"belief"`) vs `MindState`? | **No.** KB ontology label only. `MindState` is the L5 temporal record under `l5-mind` — the same separation as `event` vs `TimelineEvent`. |
+| `MindState` vs `TimelineEvent`? | Both L5 temporal objects, different concerns: `MindState` = state of a mind over time (derivative of holder KE `modules.*`); `TimelineEvent` = what happened (when-axis). |
+| Where does mental state authoritatively live? | Holder KnowledgeEntry `modules.mental` / `modules.belief` (settled home). `MindState` is derivative only — never a second authority. |
+| Should `mind` be in the core table? | **No.** Profile-only per baseline lock (same as `dialogue` / `beat`). |
 
 ### Core KnowledgeEntry `status` vocabulary (documented, not enforced)
 
@@ -760,8 +864,12 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; optional `extensions` (`ExtensionMap`) carries product-scoped query metadata (matchers ignore); World/Book ids in op `extensions`, `Scope.extensions`, or adapters — full field table in [`spoke-ops.md`](spoke-ops.md) §Scope
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
-- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md)
+- **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md); mental-state (`modules.mental` / `modules.belief` / `modules.observation`) — [`domain-profile-mental-state.md`](domain-profile-mental-state.md)
 - **TimelineEvent** — L5 temporal wire object (when-axis); distinct from KnowledgeEntry `entry_type: "event"` labels
+- **MindState** — L5 temporal derivative record under optional `l5-mind`; distinct from ontology labels (`entry_type: "character"`, profile `mind`) and from `TimelineEvent`; see §MindState
+- **l5-mind** — optional capability flag (L5 Temporal): `MindState` wire object + `modules.observation` on `TimelineEvent`; not `spoke-baseline` — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md) and [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md)
+- **MentalFieldMap / MindDelta** — shared defs (`common.schema.json#/definitions/…`) for `MindState.snapshot` / `MindState.deltas[]`; `MindDelta` mirrors `ComputableLogChange`
+- **modules.mental / modules.belief / modules.observation** — cross-product functional dialects; settled home on holder KE `modules` (`mental`, `belief`) and event metadata on `TimelineEvent.modules` (`observation`); inner shapes handbook-defined
 - **Session** — optional `l2-computable` lifecycle (not `entry_type`, not durable wire object); see §Computable body
 - **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`
 - **BodyAttribute** — scalar trait item in `body.attributes[]` (`trait_type` + `value`; optional `display_type`, `max_value`)
@@ -798,6 +906,8 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | [`spoke-extension-modules.md`](spoke-extension-modules.md) | Core / modules / extensions naming triad |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
+| [`domain-profile-mental-state.md`](domain-profile-mental-state.md) | Mental-state Domain Profile — `modules.mental` / `modules.belief` / `modules.observation` dialects + MindState sketch |
+| [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) | `l5-mind` flag; MindState naming, placement, ownership boundary; rejected alternatives |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |

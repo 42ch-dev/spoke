@@ -1304,7 +1304,7 @@ class CoreError:  # type: ignore
     _UniffiTempCoreError.NonceReplay = NonceReplay # type: ignore
     class HandshakeFailed(_UniffiTempCoreError):
         """
-        Handshake-level failure (protocol version, peer id binding, …).
+        Handshake-level failure (peer id binding, dial binding, …).
 """
         
         def __init__(self, reason):
@@ -1375,6 +1375,25 @@ class CoreError:  # type: ignore
         def __repr__(self):
             return "CoreError.TokenInvalid({})".format(str(self))
     _UniffiTempCoreError.TokenInvalid = TokenInvalid # type: ignore
+    class ProtocolVersionMismatch(_UniffiTempCoreError):
+        """
+        The hello's `protocol_version` does not match the core protocol
+        version — a mixed-version peer or a downgrade attempt. Dedicated
+        classification for version negotiation failure, distinct from other
+        handshake faults (spec §Error mapping: `details.kind =
+        protocol_version_mismatch`). Appended after `TokenInvalid` so the
+        pre-existing variants keep their binding ordinals.
+"""
+        
+        def __init__(self, reason):
+            super().__init__(", ".join([
+                "reason={!r}".format(reason),
+            ]))
+            self.reason = reason
+
+        def __repr__(self):
+            return "CoreError.ProtocolVersionMismatch({})".format(str(self))
+    _UniffiTempCoreError.ProtocolVersionMismatch = ProtocolVersionMismatch # type: ignore
 
 CoreError = _UniffiTempCoreError # type: ignore
 del _UniffiTempCoreError
@@ -1410,6 +1429,10 @@ class _UniffiFfiConverterTypeCoreError(_UniffiConverterRustBuffer):
             return CoreError.TokenInvalid(
                 _UniffiFfiConverterString.read(buf),
             )
+        if variant == 8:
+            return CoreError.ProtocolVersionMismatch(
+                _UniffiFfiConverterString.read(buf),
+            )
         raise InternalError("Raw enum value doesn't match any cases")
 
     @staticmethod
@@ -1433,6 +1456,9 @@ class _UniffiFfiConverterTypeCoreError(_UniffiConverterRustBuffer):
         if isinstance(value, CoreError.TokenInvalid):
             _UniffiFfiConverterString.check_lower(value.message)
             return
+        if isinstance(value, CoreError.ProtocolVersionMismatch):
+            _UniffiFfiConverterString.check_lower(value.reason)
+            return
 
     @staticmethod
     def write(value, buf):
@@ -1455,6 +1481,9 @@ class _UniffiFfiConverterTypeCoreError(_UniffiConverterRustBuffer):
         if isinstance(value, CoreError.TokenInvalid):
             buf.write_i32(7)
             _UniffiFfiConverterString.write(value.message, buf)
+        if isinstance(value, CoreError.ProtocolVersionMismatch):
+            buf.write_i32(8)
+            _UniffiFfiConverterString.write(value.reason, buf)
 
 class _UniffiFfiConverterUInt64(_UniffiConverterPrimitiveInt):
     CLASS_NAME = "u64"

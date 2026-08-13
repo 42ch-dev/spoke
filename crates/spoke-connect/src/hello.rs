@@ -79,7 +79,7 @@ pub(crate) fn sign_hello(
 /// Verify a received hello.
 ///
 /// Checks, in order (all delegated to the core rule):
-/// 1. `protocol_version` equals the protocol version (`HandshakeFailed`).
+/// 1. `protocol_version` equals the protocol version (`ProtocolVersionMismatch`).
 /// 2. `public_key` derives `expected_peer_id` — the noise-authenticated
 ///    remote peer (`HandshakeFailed`).
 /// 3. The claimed `peer_id` equals `expected_peer_id` (`HandshakeFailed`).
@@ -226,7 +226,7 @@ mod tests {
 
         let err =
             verify_hello(&keypair.public(), &peer_id, &hello, None).expect_err("unsupported version");
-        assert!(matches!(err, ConnectError::HandshakeFailed { .. }));
+        assert!(matches!(err, ConnectError::ProtocolVersionMismatch { .. }));
     }
 
     #[test]

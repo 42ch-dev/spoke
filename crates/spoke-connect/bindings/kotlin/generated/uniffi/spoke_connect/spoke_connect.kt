@@ -4014,7 +4014,7 @@ sealed class CoreException: kotlin.Exception() {
     }
     
     /**
-     * Handshake-level failure (protocol version, peer id binding, …).
+     * Handshake-level failure (peer id binding, dial binding, …).
      */
     class HandshakeFailed(
         
@@ -4071,6 +4071,22 @@ sealed class CoreException: kotlin.Exception() {
             get() = "detail=${ `detail` }"
     }
     
+    /**
+     * The hello's `protocol_version` does not match the core protocol
+     * version — a mixed-version peer or a downgrade attempt. Dedicated
+     * classification for version negotiation failure, distinct from other
+     * handshake faults (spec §Error mapping: `details.kind =
+     * protocol_version_mismatch`). Appended after `TokenInvalid` so the
+     * pre-existing variants keep their binding ordinals.
+     */
+    class ProtocolVersionMismatch(
+        
+        val `reason`: kotlin.String
+        ) : CoreException() {
+        override val message
+            get() = "reason=${ `reason` }"
+    }
+    
 
     
 
@@ -4105,6 +4121,9 @@ public object FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException> 
                 FfiConverterString.read(buf),
                 )
             7 -> CoreException.TokenInvalid(
+                FfiConverterString.read(buf),
+                )
+            8 -> CoreException.ProtocolVersionMismatch(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -4146,6 +4165,11 @@ public object FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException> 
                 4UL
                 + FfiConverterString.allocationSize(value.`detail`)
             )
+            is CoreException.ProtocolVersionMismatch -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`reason`)
+            )
         }
     }
 
@@ -4182,6 +4206,11 @@ public object FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException> 
             is CoreException.TokenInvalid -> {
                 buf.putInt(7)
                 FfiConverterString.write(value.`detail`, buf)
+                Unit
+            }
+            is CoreException.ProtocolVersionMismatch -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.`reason`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

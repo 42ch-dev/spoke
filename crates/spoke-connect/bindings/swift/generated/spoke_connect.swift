@@ -1917,7 +1917,7 @@ enum CoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
      */
     case NonceReplay
     /**
-     * Handshake-level failure (protocol version, peer id binding, …).
+     * Handshake-level failure (peer id binding, dial binding, …).
      */
     case HandshakeFailed(reason: String
     )
@@ -1943,6 +1943,16 @@ enum CoreError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
      * claim-rule violation).
      */
     case TokenInvalid(message: String
+    )
+    /**
+     * The hello's `protocol_version` does not match the core protocol
+     * version — a mixed-version peer or a downgrade attempt. Dedicated
+     * classification for version negotiation failure, distinct from other
+     * handshake faults (spec §Error mapping: `details.kind =
+     * protocol_version_mismatch`). Appended after `TokenInvalid` so the
+     * pre-existing variants keep their binding ordinals.
+     */
+    case ProtocolVersionMismatch(reason: String
     )
 
     
@@ -1990,6 +2000,9 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
         case 7: return .TokenInvalid(
             message: try FfiConverterString.read(from: &buf)
             )
+        case 8: return .ProtocolVersionMismatch(
+            reason: try FfiConverterString.read(from: &buf)
+            )
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -2033,6 +2046,11 @@ public struct FfiConverterTypeCoreError: FfiConverterRustBuffer {
         case let .TokenInvalid(message):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .ProtocolVersionMismatch(reason):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(reason, into: &buf)
             
         }
     }

@@ -8,8 +8,9 @@
  * - `CoreInvokeError` — invoke path (sequence, correlation).
  *
  * The `code` field is a string-code union naming the Rust variant
- * (`invalid_hello_signature`, `nonce_replay`, `sequence_exhausted`,
- * `inbound_sequence_mismatch`, `correlation_mismatch`, `token_invalid`, …).
+ * (`invalid_hello_signature`, `nonce_replay`, `protocol_version_mismatch`,
+ * `sequence_exhausted`, `inbound_sequence_mismatch`,
+ * `correlation_mismatch`, `token_invalid`, …).
  * Callers discriminate on `code`; wire `ErrorEnvelope.code` mapping happens
  * only on the server invoke path (`op_unsupported` for dispatch deny;
  * `auth_failed` for token validation failures at the transport boundary).
@@ -20,6 +21,7 @@ export type CoreErrorCode =
   | "invalid_hello_signature"
   | "nonce_replay"
   | "handshake_failed"
+  | "protocol_version_mismatch"
   | "invalid_nonce"
   | "crypto"
   | "jcs"
@@ -35,6 +37,7 @@ const CORE_ERROR_MESSAGES: Record<CoreErrorCode, string> = {
   invalid_hello_signature: "hello signature invalid",
   nonce_replay: "hello nonce replayed",
   handshake_failed: "handshake failed",
+  protocol_version_mismatch: "protocol version mismatch",
   invalid_nonce: "invalid hello nonce",
   crypto: "crypto error",
   jcs: "JCS canonicalization failed",

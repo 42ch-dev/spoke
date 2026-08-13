@@ -43,8 +43,8 @@ use spoke_schemas::{
 
 use crate::core::{
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, is_allowlisted,
-    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, Correlation, EnvelopeAuthError,
-    EnvelopeAuthErrorKind, NonceStore, OutboundSequence,
+    sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, CoreError, Correlation,
+    EnvelopeAuthError, EnvelopeAuthErrorKind, NonceStore, OutboundSequence,
 };
 use crate::hello::generate_nonce;
 use crate::remote::transport::{Transport, TransportError};
@@ -162,6 +162,14 @@ pub enum RemoteAdapterError {
     Config(String),
     #[error("handshake failed: {0}")]
     Handshake(String),
+    /// A mixed-version responder hello — the peer's `protocol_version` does
+    /// not match the core protocol version. Distinct from other handshake
+    /// faults: the caller can tell version negotiation failure apart from
+    /// signature / identity / nonce failures (spec §Error mapping
+    /// `details.kind = protocol_version_mismatch`; FFI dial kind
+    /// `"protocol_version_mismatch"`).
+    #[error("protocol version mismatch: {0}")]
+    ProtocolVersionMismatch(String),
     #[error("{0}")]
     Timeout(String),
 }
@@ -1000,8 +1008,19 @@ pub async fn connect_remote_adapter(
             RemoteAdapterError::Handshake("expected ConnectHello from server".into())
         })?;
         verify_hello_ed25519(&remote_pubkey, &remote_peer_id, &hello, Some(&nonce)).map_err(
-            |error| {
-                RemoteAdapterError::Handshake(format!("remote hello verification failed: {error}"))
+            |error| match error {
+                // A mixed-version hello is a version-negotiation failure, not
+                // a generic handshake fault: preserve the dedicated kind so
+                // callers (and the FFI dial surface) can tell it apart from
+                // signature / identity / nonce failures.
+                CoreError::ProtocolVersionMismatch { reason } => {
+                    RemoteAdapterError::ProtocolVersionMismatch(format!(
+                        "remote hello protocol version mismatch: {reason}"
+                    ))
+                }
+                error => {
+                    RemoteAdapterError::Handshake(format!("remote hello verification failed: {error}"))
+                }
             },
         )?;
         // Receiver-side nonce single-use (spec §Nonce / replay protection;

@@ -67,7 +67,7 @@ adapter = spoke_connect.connect_remote_adapter_ffi(
 | `allowlist` | 该 adapter 接受的对等节点标识；远端 `peer_id` 必须列入 |
 | `invoke_timeout_ms` | 可选的每次调用超时；超时只让该调用失败，会话保持可用 |
 
-配置、握手或拨号超时失败时，构造函数在 adapter 存在之前即失败 —— 错误为 `FfiError.Dial`，`kind` 为 `config`、`handshake` 或 `timeout`。你的 transport 自身的失败映射为 `TransportError`（连接关闭时为 `Closed`，I/O 错误时为 `Io`）。
+配置、握手、版本不匹配或拨号超时失败时，构造函数在 adapter 存在之前失败 —— 错误为 `FfiError.Dial`，`kind` 为 `config`、`handshake`、`protocol_version_mismatch` 或 `timeout`。你的 transport 自身失败映射为 `TransportError`（连接关闭时为 `Closed`，I/O 错误时为 `Io`）。
 
 ## 3. 调用 port 方法
 
@@ -134,7 +134,8 @@ result_json = router.get_knowledge_entry(entry_id)  # 路由到有能力的对�
 | `kind` | 何时 |
 |--------|------|
 | `config` | 本地种子或远端公钥不是恰好 32 字节、本地 manifest JSON 无效，或远端 `peer_id` 不在 allowlist 上（fail-closed） |
-| `handshake` | 握手签名失败、nonce 单次使用违规、拨号绑定断言、`ConnectSession` 快照校验失败，或已校验 hello 声明混合或未知的 `protocol_version` |
+| `handshake` | 握手签名失败、nonce 单次使用违规、拨号绑定断言或 `ConnectSession` 快照校验失败（版本不匹配以 `protocol_version_mismatch` 呈现） |
+| `protocol_version_mismatch` | hello 通告混合或未知的 `protocol_version` —— 版本门禁是握手校验第 1 步，先于签名校验，因此任何版本不匹配的 hello（无论签名是否有效）都以该种类失败 |
 | `timeout` | 拨号截止时间已过（有界等待握手） |
 
 ### `FfiError.Rejected` —— invoke 路径的 `SpokeResult` 拒绝

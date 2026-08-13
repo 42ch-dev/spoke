@@ -752,6 +752,54 @@ describe("RemoteAdapter loopback interop", () => {
   );
 
   it(
+    "propagates protocol_version_mismatch through the dial when the responder hello version mismatches",
+    async () => {
+      const seedHost = seed(0xa0);
+      const seedClient = seed(0x10);
+      const pubkeyHost = getPublicKeyEd25519(seedHost);
+      const peerIdHost = derivePeerIdFromEd25519Pubkey(pubkeyHost);
+
+      // A mixed-version responder hello: `protocol_version` differs from the
+      // core version, so `verifyHelloEd25519` throws the T1
+      // `CoreError("protocol_version_mismatch")` (version gate runs BEFORE
+      // signature verification — the (v1-signed) signature no longer matches
+      // the mutated object, and that is fine: you do not waste crypto on a
+      // wrong-version peer). `connectRemoteAdapter` propagates the CoreError
+      // uncaught (no wrapping site re-maps it), so the thrown error must
+      // carry `code: "protocol_version_mismatch"` — the kind is preserved.
+      const hello = await signHelloEd25519(
+        seedHost,
+        "mixed-version-host-nonce-1234",
+        schemaConformantManifest(),
+        "initiator-nonce-12345678",
+      );
+      const mismatched = { ...hello, protocol_version: 2 };
+      const bytes = new TextEncoder().encode(encodeJsonMessage(mismatched));
+
+      const mixedVersionTransport: Transport = {
+        send: async () => {},
+        recv: async () => bytes,
+        close: () => {},
+      };
+      await expect(
+        connectRemoteAdapter({
+          transport: mixedVersionTransport,
+          localIdentity: { seed: seedClient },
+          localManifest: clientManifest(),
+          remotePubkey: pubkeyHost,
+          allowlist: [peerIdHost],
+        }),
+      ).rejects.toThrowError(
+        expect.objectContaining({
+          name: "CoreError",
+          code: "protocol_version_mismatch",
+        }),
+      );
+    },
+    15000,
+  );
+
+  it(
     "demuxes concurrent invokes by request_id with out-of-order responses",
     async () => {
       const hostAdapter = ToyWorldAdapter.withCommittedFixtures();

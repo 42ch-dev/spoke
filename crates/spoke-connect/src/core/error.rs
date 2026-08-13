@@ -17,9 +17,17 @@ pub enum CoreError {
     #[error("hello nonce replayed")]
     NonceReplay,
 
-    /// Handshake-level failure (protocol version, peer id binding, …).
+    /// Handshake-level failure (peer id binding, dial binding, …).
     #[error("handshake failed: {reason}")]
     HandshakeFailed { reason: String },
+
+    /// The hello's `protocol_version` does not match the core protocol
+    /// version — a mixed-version peer or a downgrade attempt. This is the
+    /// dedicated classification for version negotiation failure, distinct
+    /// from other handshake faults (spec §Error mapping: `details.kind =
+    /// protocol_version_mismatch`).
+    #[error("protocol version mismatch: {reason}")]
+    ProtocolVersionMismatch { reason: String },
 
     /// The hello nonce does not satisfy the wire constraints (minLength 16).
     #[error("invalid hello nonce: {0}")]

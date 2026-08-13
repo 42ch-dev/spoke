@@ -118,13 +118,13 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 | v2 对等节点 ↔ v1 对等节点 | v2 侧在已校验握手中看到 `protocol_version: 1` 并拒绝建立 —— v1 侧无法产生带签名的会话/invoke 信封。拨号 fail-closed |
 | 双方 v2 | 会话在 v2 规则下建立；所有 post-hello 信封携带必填 `signature` |
 | 双方 v1 | 仅传统 v1 互操作 |
-| 未知版本（> 2） | 通告未知版本的已校验握手 fail-closed，按混合版本拨号处理 |
+| 未知版本（> 2） | 通告未知版本的握手在版本门禁 fail-closed（版本检查是握手校验第 1 步，先于签名校验），按混合版本拨号处理 |
 
 hello 签名字段集（4 字段发起方 / 5 字段响应方）不变；拨号绑定 `peer_nonce` 规则保留。
 
 ### 错误映射
 
-信封认证失败使用共享 `ErrorEnvelope` 词汇：`auth_failed` 覆盖缺失、无效、非规范或字段集漂移的签名与会话绑定不匹配。在 RemoteAdapter 面上，这些以 `SpokeResult` 拒绝呈现 —— `INTERNAL_ERROR`，`details.kind` ∈ {`envelope_auth_missing`、`envelope_auth_invalid`、`envelope_auth_session_unbound`} —— 而混合或未知版本 hello 以握手错误（`RemoteAdapterError::Handshake`；无 adapter 实例）使拨号失败。`protocol_version_mismatch` 是保留给专用版本协商拒绝的规范词汇，当前不发射。
+信封认证失败使用共享 `ErrorEnvelope` 词汇：`auth_failed` 覆盖缺失、无效、非规范或字段集漂移的签名与会话绑定不匹配。在 RemoteAdapter 面上，这些以 `SpokeResult` 拒绝呈现 —— `INTERNAL_ERROR`，`details.kind` ∈ {`envelope_auth_missing`、`envelope_auth_invalid`、`envelope_auth_session_unbound`} —— 而混合或未知版本 hello 以专用种类使拨号失败：`RemoteAdapterError::ProtocolVersionMismatch`（Rust）/ `CoreError`（`code: "protocol_version_mismatch"`，TS），经 FFI 以 `FfiError.Dial`（`kind: "protocol_version_mismatch"`）呈现；无 adapter 实例。版本门禁是握手校验第 1 步 —— 先于签名校验 —— 因此任何版本不匹配的 hello（无论签名是否有效）都以该专用种类失败。
 
 ### 强制
 
@@ -223,8 +223,8 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 | `capability_missing` | `ErrorEnvelope.code` | op 的必需能力不在有效授权中 |
 | `no_capable_peer` | 路由器拒绝 `details.wire_code` / `details.kind` | 没有已注册对等节点通过硬选择门禁时的终结路由器拒绝（`CAPABILITY_PORT_MISSING`）；注册满足条件的对等节点并重新调用 |
 | `envelope_auth_missing` / `envelope_auth_invalid` / `envelope_auth_session_unbound` | RemoteAdapter 拒绝 `details.kind` | `INTERNAL_ERROR` 拒绝上的信封认证拒绝种类（仅该等待者；会话状态不变） |
-| `handshake` | 拨号失败 `details.kind`（`FfiError.Dial`） | 通告混合或未知协议版本的已校验 hello 以握手错误使拨号失败；拨号面恰好为 {`config`、`handshake`、`timeout`}，无 adapter 实例 |
-| `protocol_version_mismatch` | 保留 —— 不发射 | 保留给专用版本协商拒绝的规范词汇；混合/未知版本 hello 以 `handshake` 拨号错误失败 |
+| `handshake` | 拨号失败 `details.kind`（`FfiError.Dial`） | 握手签名 / 身份 / nonce 校验失败（版本不匹配以 `protocol_version_mismatch` 呈现）；拨号面为 {`config`、`handshake`、`timeout`、`protocol_version_mismatch`}，无 adapter 实例 |
+| `protocol_version_mismatch` | 拨号失败 `details.kind`（`FfiError.Dial`） | 通告混合或未知协议版本的 hello 以专用种类使拨号失败 —— `RemoteAdapterError::ProtocolVersionMismatch` / `CoreError("protocol_version_mismatch")`；无 adapter 实例 |
 | `transport` / `session_closed` / `timeout` / `panic` / `correlation_mismatch` / `sequence_exhausted` | RemoteAdapter 拒绝 `details.kind` | 传输 I/O、会话丢失、invoke 超时、panic 遏制、关联不匹配与序列耗尽的 `INTERNAL_ERROR` 拒绝种类 |
 
 ## 相关页面

@@ -16,10 +16,12 @@
     },
     "mind_state_id": {
       "type": "string",
+      "minLength": 1,
       "description": "Stable MindState id (opaque to protocol)."
     },
     "holder_entry_id": {
       "type": "string",
+      "minLength": 1,
       "description": "Reference to the mental actor's KnowledgeEntry (entry_id). This record is a temporal derivative of that entry's modules.mental / modules.belief."
     },
     "canonical_name": {

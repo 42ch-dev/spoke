@@ -67,7 +67,7 @@ adapter = spoke_connect.connect_remote_adapter_ffi(
 | `allowlist` | Peer ids this adapter accepts; the remote `peer_id` must be listed |
 | `invoke_timeout_ms` | Optional per-invoke timeout; on elapse only that call fails and the session stays usable |
 
-The constructor fails before an adapter exists when configuration, the handshake, or the dial timeout fails — the error is `FfiError.Dial` with a `kind` of `config`, `handshake`, or `timeout`. Your transport's own failures map to `TransportError` (`Closed` when the connection closes, `Io` for I/O errors).
+The constructor fails before an adapter exists when configuration, the handshake, a version mismatch, or the dial timeout fails — the error is `FfiError.Dial` with a `kind` of `config`, `handshake`, `protocol_version_mismatch`, or `timeout`. Your transport's own failures map to `TransportError` (`Closed` when the connection closes, `Io` for I/O errors).
 
 ## 3. Invoke a port method
 
@@ -134,7 +134,8 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 | `kind` | When |
 |--------|------|
 | `config` | Local seed or remote public key not exactly 32 bytes, invalid local manifest JSON, or the remote `peer_id` not on the allowlist (fail-closed) |
-| `handshake` | Hello signature failure, nonce single-use violation, dial-binding assert, `ConnectSession` snapshot verification failure, or a verified hello advertising a mixed or unknown `protocol_version` |
+| `handshake` | Hello signature failure, nonce single-use violation, dial-binding assert, or `ConnectSession` snapshot verification failure (version mismatches surface as `protocol_version_mismatch`) |
+| `protocol_version_mismatch` | A hello advertising a mixed or unknown `protocol_version` — the version gate is hello verification step 1, before signature verification, so the kind fires on any mismatched-version hello, valid signature or not |
 | `timeout` | The dial deadline elapsed (bounded-wait handshake) |
 
 ### `FfiError.Rejected` — invoke-path `SpokeResult` rejects

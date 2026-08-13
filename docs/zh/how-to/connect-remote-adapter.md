@@ -173,7 +173,7 @@ port 调用结算为 `SpokeResult`；invoke 路径的失败以拒绝呈现：
 | 分派拒绝（`op_unsupported` / `capability_missing` 线上码） | `CAPABILITY_PORT_MISSING` 拒绝，带 `details.wire_code` |
 | 未知线上码 | `INVALID_INPUT` 拒绝，带 `details.wire_code` |
 
-拨号 / 握手 / allowlist / nonce 失败发生在 adapter 存在之前：`connectRemoteAdapter` 拒绝（TypeScript），或返回带 `Config` / `Handshake` / `Timeout` 变体的 `Err(RemoteAdapterError)`（Rust）。
+拨号 / 握手 / allowlist / nonce 失败发生在 adapter 存在之前：`connectRemoteAdapter` 拒绝（TypeScript），或返回带 `Config` / `Handshake` / `ProtocolVersionMismatch` / `Timeout` 变体的 `Err(RemoteAdapterError)`（Rust）。
 
 ## 6. 信封认证
 

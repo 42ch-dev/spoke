@@ -462,5 +462,5 @@ An integrator can implement mental-state storage + interchange from this handboo
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Sister Domain Profile — Beat / structural mapping |
 | [`spoke-protocol.md`](spoke-protocol.md) | Umbrella protocol; §Extensions |
 | [`spoke-data-model.md`](spoke-data-model.md) | KnowledgeEntry, TimelineEvent, BodyAttribute, ModuleMap, `ComputableLogChange` |
-| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 layer model; optional flags (`l5-fork`, `narrative-modules`); L5 Temporal — `l5-mind` to be registered in spec-sync (companion wire-slice, plan 3) |
+| [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 layer model; optional flags (`l5-fork`, `narrative-modules`); L5 Temporal — `l5-mind` to be registered in spec-sync (companion wire-slice) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Domain Profile; Modules (capability-flagged); TimelineEvent dual-concern |

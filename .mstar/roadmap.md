@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-06  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.  
-**Protocol schema inventory:** **30** (24 baseline + 6 opt-in connect envelopes).
+**Protocol schema inventory:** **31** (24 baseline + 6 opt-in connect envelopes + 1 opt-in `l5-mind` envelope).
 
 ---
 
@@ -80,7 +80,7 @@ Newest first. Dates are delivery dates on `main`.
 | Ops library | Pure TS + Rust helpers + six baseline port families (incl. `HostManifestPort`) + `*Adapter` aliases + injection orchestration; `mergeModuleMaps` / `preserveModuleMaps` |
 | Connect wire (opt-in) | `schemas/connect/` six envelopes; hello JCS + auth paths; `@42ch/spoke-connect` (TypeScript language-native client) + `spoke-connect` Rust reference; native bindings available for C#, Kotlin, Swift, Go, Python per [connect-binding-channels.md](specs/connect-binding-channels.md), with the additive remote-adapter FFI surface (`RemoteAdapterFFI` / `MultiPeerRouterFFI` / callback `Transport`) recorded in [spoke-remote-adapter.md](specs/spoke-remote-adapter.md) D12 |
 | Fixtures | `fixtures/toy-world/` samples + harness + reference adapters; pack companion under `proposed/` |
-| Codegen / CI | Schema inventory **30**; `verify-codegen`; Pages docs workflow |
+| Codegen / CI | Schema inventory **31**; `verify-codegen`; Pages docs workflow |
 | Specs | Umbrella, layers, data-model, ops, operations, extension-modules, Domain Profiles, assemble recipes, connect family under `.mstar/specs/` |
 
 ---

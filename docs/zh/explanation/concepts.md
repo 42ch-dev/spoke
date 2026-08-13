@@ -15,7 +15,7 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 | **L2 正文** | 封闭 `body`：summary、tags、标量 `attributes`（`l2-computable` 下另有可选 `state` / `computable`） |
 | **L3 溯源** | SourceAnchor 指针 |
 | **L4 图** | 类型化有向 Relation（可选 `revision` OCC） |
-| **L5 时间** | TimelineEvent when 轴 + 投影层级 `brief` / `narrative` / `moment`（`l5-fork` 下可选 Fork） |
+| **L5 时间** | TimelineEvent when 轴 + 投影层级 `brief` / `narrative` / `moment`（`l5-fork` 下可选 Fork；`l5-mind` 下可选 `MindState` 心智状态记录） |
 | **L6 约束** | Rule 声明式 `check` 输入 |
 | **L7 Finding** | 检查器输出 + 状态生命周期 |
 | **L8 上下文** | AssemblePacket 线上形状（组装本身留在产品侧） |
@@ -26,6 +26,7 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 
 - **`l2-computable`** —— `body.state` / `body.computable`、`TimelineEvent.computable_logs`，以及 `project` / `compute` ops。
 - **`l5-fork`** —— TimelineEvent 上的 `fork_id` / `parent_fork_id` 分支元数据与 `Scope.fork_id` 过滤。
+- **`l5-mind`** —— when 轴上的可选 `MindState` 时间心智状态记录（快照 / 增量）与 TimelineEvent 上的 `modules.observation` —— 见 [MindState 参考](/zh/reference/mind-state)。
 - **`narrative-modules`** —— 面向跨产品功能方言的可选 `modules`（`ModuleMap`）字段袋。
 - **`spoke-connect`** —— 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志。
 
@@ -33,10 +34,11 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 
 ## 双重关注（dual-concern）对
 
-协议刻意分开两对概念：
+协议刻意分开三组概念：
 
 - KnowledgeEntry 上的本体 `entry_type: "event"` 标签与 L5 `TimelineEvent` when 轴对象 —— 一个本地概念可映射到其中一类或两类线上形状。
 - 本体 `entry_type: "rule"` 标签与 L6 `Rule` 检查器输入 —— Rule 是声明式输入，Finding 是检查器输出。
+- 本体 `entry_type: "character"` / 画像 `mind` 标签与 L5 `MindState` 时间记录 —— 标签对知识节点分类；`MindState` 是持有者心智字段（`modules.mental` / `modules.belief` 为既定归宿）的严格派生快照 / 增量。
 
 名称保持分离，使 `check` / `assemble` 选择器保持无歧义。
 
@@ -48,7 +50,7 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 
 - **Scope** —— `check` / `assemble` 的共享 ops 选择器：必填不透明 `scope_id` 加可选细化（`entry_ids`、`entry_types`、`timeline_scale`、`fork_id` 等）。
 - **Extensions** —— 每个持久对象上的 `extensions.<namespace>` 产品字段袋；adapter 原样往返未知 namespace。
-- **Modules** —— KnowledgeEntry 与 AssemblePacket 上的可选 `modules.*` 字段袋（能力标志 `narrative-modules`），用于跨产品功能方言。
+- **Modules** —— KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选 `modules.*` 字段袋（能力标志 `narrative-modules`），用于跨产品功能方言。
 
 ## 纯函数库姿态
 
@@ -59,3 +61,4 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 - [协议参考](/zh/reference/protocol) —— schema 清单、扩展契约、能力标志。
 - [数据模型参考](/zh/reference/data-model) —— 每层对应的字段表。
 - [领域画像（Domain Profiles）](/zh/explanation/domain-profiles) —— 已发布的开放字符串词汇。
+- [MindState 参考](/zh/reference/mind-state) —— L5 时间心智状态记录（`l5-mind`）。

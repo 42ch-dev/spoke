@@ -138,7 +138,10 @@ First-class when-axis temporal object (L5). Required: `schema_version`, `timelin
 | `sort_key` | string, optional | Opaque ordering hint within a timeline |
 | `fork_id` / `parent_fork_id` | ForkId, optional | World-history branch metadata (`l5-fork`) |
 | `computable_logs` | ComputableLogEntry[], optional | Moment-scale computable change history (`l2-computable`) |
+| `modules` | ModuleMap, optional | Capability-flagged `narrative-modules`; carries event observation metadata (`modules.observation` under `l5-mind`) |
 | `extensions` | ExtensionMap, required | |
+
+`MindState` is the companion L5 temporal record for mental state on the same when-axis — see [MindState reference](/reference/mind-state).
 
 ## Open vocabulary
 
@@ -148,6 +151,7 @@ First-class when-axis temporal object (L5). Required: `schema_version`, `timelin
 
 - Rule is declarative checker **input**; Finding is checker **output** — each keeps its own role.
 - `TimelineEvent` is the L5 when-axis object; `entry_type: "event"` is an ontology label — one local concept may map to both (dual-concern).
+- `MindState` is the L5 temporal mental-state record (`l5-mind`); `entry_type: "character"` / profile `mind` are ontology labels — the record is strictly derivative of the holder's `modules.mental` / `modules.belief` (settled home), never a second authority.
 - `HostCapabilityManifest` carries host metadata (roles, capabilities, namespaces) on its dedicated surface, separate from KnowledgeEntry `extensions`.
 
 ## Related
@@ -156,3 +160,4 @@ First-class when-axis temporal object (L5). Required: `schema_version`, `timelin
 - [Ops wire reference](/reference/ops) — `Scope` and the ops that read these objects.
 - [Concepts](/explanation/concepts) — the layers each object belongs to.
 - [Domain profiles](/explanation/domain-profiles) — open-string vocabulary published over these shapes.
+- [MindState reference](/reference/mind-state) — the L5 temporal mental-state record (`l5-mind`).

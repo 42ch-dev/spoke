@@ -34,11 +34,11 @@ Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integ
 
 | Inventory | Count | Breakdown |
 |-----------|-------|-----------|
-| **Committed `*.schema.json` files** | **30** | 2 common + 8 data + 14 ops (10 baseline + 4 optional `l2-computable` `project` / `compute`) + 6 connect (opt-in `spoke-connect`) |
+| **Committed `*.schema.json` files** | **31** | 2 common + 9 data (8 baseline + 1 optional `l5-mind` `mind-state`) + 14 ops (10 baseline + 4 optional `l2-computable` `project` / `compute`) + 6 connect (opt-in `spoke-connect`) |
 
-Protocol wire inventory is **30** files. `schemas/README.md`, `EXPECTED_SCHEMA_COUNT`, and generated output must match in the same commit as schema changes.
+Protocol wire inventory is **31** files. `schemas/README.md`, `EXPECTED_SCHEMA_COUNT`, and generated output must match in the same commit as schema changes.
 
-Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first **20** schema files (2 common + 8 data + 10 baseline ops); optional `l2-computable` adds four ops schemas, and the opt-in `spoke-connect` family adds six connect envelopes for **30** total.
+Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use the first **20** schema files (2 common + 8 data + 10 baseline ops); optional `l2-computable` adds four ops schemas, the opt-in `spoke-connect` family adds six connect envelopes, and the optional `l5-mind` capability adds `mind-state.schema.json` for **31** total.
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema changes.
 
@@ -205,6 +205,6 @@ Current wire bar: eight data objects (including `HostCapabilityManifest`, `Rule`
 | [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — session ordering, auth model, discovery boundary (opt-in `spoke-connect`) |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` (capability-flagged) |
-| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (30 files committed) |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (31 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

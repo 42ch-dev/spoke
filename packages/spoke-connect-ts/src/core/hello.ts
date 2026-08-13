@@ -100,7 +100,9 @@ export async function signHelloEd25519(
  * Verify a received hello against a raw Ed25519 public key (32 bytes).
  *
  * Checks, in order:
- * 1. `protocol_version` equals the core protocol version.
+ * 1. `protocol_version` equals the core protocol version
+ *    (`protocol_version_mismatch` — a mixed-version peer or downgrade
+ *    attempt; the dedicated kind, not `handshake_failed`).
  * 2. `nonce` meets the wire floor (minLength 16).
  * 3. The verify key derives `expectedPeerId` — the authenticated remote
  *    peer. A key that derives a different peer id cannot attest that peer's
@@ -130,7 +132,7 @@ export async function verifyHelloEd25519(
 ): Promise<void> {
   if (hello.protocol_version !== PROTOCOL_VERSION) {
     throw new CoreError(
-      "handshake_failed",
+      "protocol_version_mismatch",
       `unsupported protocol_version ${hello.protocol_version} (expected ${PROTOCOL_VERSION})`,
     );
   }

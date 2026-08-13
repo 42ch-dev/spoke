@@ -18,6 +18,7 @@ import {
 import { derivePeerIdFromEd25519Pubkey } from "../src/identity.js";
 import { canonicalHelloBytes } from "../src/jcs.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../src/core/hello.js";
+import { PROTOCOL_VERSION } from "../src/core/version.js";
 import { toHex } from "./hex.js";
 
 describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () => {
@@ -74,7 +75,35 @@ describe("signHelloEd25519 / verifyHelloEd25519 (port of hello_crypto.rs)", () =
     const tampered = { ...hello, protocol_version: 2 };
     await expect(
       verifyHelloEd25519(GOLDEN_PUBKEY, GOLDEN_PEER_ID, tampered),
-    ).rejects.toThrowError(expect.objectContaining({ code: "handshake_failed" }));
+    ).rejects.toThrowError(expect.objectContaining({ code: "protocol_version_mismatch" }));
+  });
+
+  it("accepts a same-version hello at verify time", async () => {
+    const hello = await signHelloEd25519(
+      GOLDEN_SEED,
+      GOLDEN_NONCE,
+      schemaConformantManifest(),
+    );
+    expect(hello.protocol_version).toBe(PROTOCOL_VERSION);
+    await expect(
+      verifyHelloEd25519(GOLDEN_PUBKEY, GOLDEN_PEER_ID, hello),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects a downgrade-attempt protocol_version (below the current one) at verify time", async () => {
+    // A hello claiming a version BELOW the current one (0) is a downgrade
+    // attempt: the version gate fires with the dedicated kind, mirroring the
+    // Rust core (where the wire schema floor — NonZeroU64, minimum 1 — makes
+    // version 0 unrepresentable, so Rust rejects it at deserialization).
+    const hello = await signHelloEd25519(
+      GOLDEN_SEED,
+      GOLDEN_NONCE,
+      schemaConformantManifest(),
+    );
+    const tampered = { ...hello, protocol_version: 0 };
+    await expect(
+      verifyHelloEd25519(GOLDEN_PUBKEY, GOLDEN_PEER_ID, tampered),
+    ).rejects.toThrowError(expect.objectContaining({ code: "protocol_version_mismatch" }));
   });
 
   it("rejects a tampered host manifest", async () => {

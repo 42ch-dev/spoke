@@ -60,6 +60,19 @@ Two **packet-level** companion dialects under the optional `AssemblePacket.modul
 
 Key statements: array order is the interchange order — hosts apply their own layout after reading the hints, and an entry may omit a placement row (hosts then use a local default); join `placement[]` / `activation_trace[]` to `entries[]` by `entry_id`; entry-level `modules.activation` is the durable authoring home for preferences, while packet-level `placement[]` is the assembled snapshot for this packet; baseline `AssemblePacket` stays wire-only slim entries — `modules` is opt-in via `narrative-modules`.
 
+## Mental state
+
+**Mental state** defines how narrative hosts exchange mental-state data (beliefs, goals, intentions, emotions, observation access) without a shared engine. It lives as three `modules.*` dialects under capability flags `l5-mind` + `narrative-modules`; a temporal record object (`MindState`) carries derivative snapshots/deltas.
+
+| Published vocabulary | Wire home | Values |
+|----------------------|-----------|--------|
+| Mental fields | `KnowledgeEntry.modules.mental` | nine-field vocabulary: `identity`, `beliefs`, `attention`, `goals`, `intentions`, `emotions`, `dispositions`, `norms`, `constraints` |
+| Belief labels | `KnowledgeEntry.modules.belief` | `holder` (entry_id or `world`), `proposition`, `order` (0–3), seven-dimension labels (Truth/Access/Representation/Content/Source/Context) |
+| Event observation | `TimelineEvent.modules.observation` | `observers: entry_id[]`, optional `access` (perceptual constraints) |
+| Temporal record | `MindState` wire object | `mind_state_id`, `holder_entry_id`, `snapshot`, `deltas` — strictly derivative |
+
+Key statements: the settled home of mental fields and belief labels is the holder KnowledgeEntry `modules.mental`/`modules.belief`; `MindState` is strictly temporal/derivative (no dual authority); false belief = True world fact + False actor belief (one labeled row); unobserved event ⇒ stale belief ⇒ false belief (Knowledge Access derivation).
+
 ## Related
 
 - [Data model reference](/reference/data-model) — the open-string fields these vocabularies ride.

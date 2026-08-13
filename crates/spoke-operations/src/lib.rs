@@ -8,6 +8,7 @@ mod extensions;
 mod error;
 mod finding;
 mod knowledge_entry;
+mod mind_state;
 mod occ;
 mod promote;
 mod relate;
@@ -39,6 +40,7 @@ pub use knowledge_entry::{
     assert_unique_active_knowledge_entry, is_valid_knowledge_entry_status_transition,
     transition_knowledge_entry_status, AssertUniqueActiveKnowledgeEntryInput,
 };
+pub use mind_state::validate_mind_state;
 pub use occ::assert_revision_match;
 pub use promote::{apply_promote_acceptance, validate_promote_request, validate_promote_request_wire};
 pub use relate::{validate_relate_request, RelateMode, ValidateRelateRequestContext};

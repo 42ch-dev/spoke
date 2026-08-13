@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "timeline_event_id": "evt_tw_hidden_transfer",
+  "canonical_name": "Ana moves the marble from box to basket",
+  "timeline_scale": "moment",
+  "occurred_at": "2026-07-23T09:10:00Z",
+  "description": "Hidden transfer: Ana moves the marble while Bo is out of the room.",
+  "participant_entry_ids": ["kb_tw_ana", "kb_tw_marble"],
+  "modules": {
+    "observation": {
+      "observers": ["kb_tw_ana"],
+      "access": {
+        "line_of_sight": true,
+        "hearing_range": true,
+        "modality": ["visual", "auditory"]
+      }
+    }
+  },
+  "created_at": "2026-07-23T09:10:00Z",
+  "updated_at": "2026-07-23T09:10:00Z",
+  "extensions": {
+    "toy": {
+      "story": "false-belief-box-basket"
+    }
+  }
+}

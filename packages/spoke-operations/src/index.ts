@@ -71,6 +71,8 @@ export {
   validateComputeRequest,
 } from "./computable/validate.js";
 
+export { validateMindState } from "./mind-state/validate.js";
+
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {

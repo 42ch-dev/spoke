@@ -5,7 +5,7 @@
  */
 
 /**
- * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry ontology labels such as entry_type: "event" (KB fact node, not this wire type).
+ * First-class when-axis temporal object (L5). Distinct from KnowledgeEntry ontology labels such as entry_type: "event" (KB fact node, not this wire type). Optional modules.* carries capability-flagged functional dialects (e.g. modules.observation: who could perceive the event + perceptual-access constraints; companion wire-slice to l5-mind).
  */
 export interface TimelineEvent {
   /**
@@ -62,6 +62,7 @@ export interface TimelineEvent {
    */
   updated_at?: string;
   extensions: ExtensionMap;
+  modules?: ModuleMap;
 }
 /**
  * Optional manuscript or scene anchor.
@@ -138,4 +139,17 @@ export interface ComputableLogChange {
   path: string;
   previous?: unknown;
   next?: unknown;
+}
+/**
+ * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules; l5-mind for event observation); opt-in. Carries event observation metadata (e.g. modules.observation: observers + access). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.
+ */
+export interface ModuleMap {
+  [k: string]:
+    | (
+        | {
+            [k: string]: unknown | undefined;
+          }
+        | unknown[]
+      )
+    | undefined;
 }

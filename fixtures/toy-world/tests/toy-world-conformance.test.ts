@@ -13,6 +13,7 @@ import type {
   Finding,
   HostCapabilityManifest,
   KnowledgeEntry,
+  MindState,
   Scope,
   TimelineEvent,
 } from "@42ch/spoke-schemas";
@@ -150,6 +151,52 @@ describe("fixtures/toy-world schema conformance", () => {
 
     expect(baseline.fork_id).toBeUndefined();
     expect(baseline.parent_fork_id).toBeUndefined();
+  });
+
+  it("illustrates the l5-mind MindState pair across the hidden transfer", () => {
+    const pre = loadFixture<MindState>("mind_tw_bo_pre_transfer.json");
+    const post = loadFixture<MindState>("mind_tw_bo_post_transfer.json");
+
+    expect(pre.holder_entry_id).toBe("kb_tw_bo");
+    expect(post.holder_entry_id).toBe("kb_tw_bo");
+    expect(pre.extensions.toy).toEqual({
+      story: "false-belief-box-basket",
+      phase: "pre-transfer",
+    });
+    expect(post.extensions.toy).toEqual({
+      story: "false-belief-box-basket",
+      phase: "post-transfer",
+    });
+    // Bo did not observe the hidden transfer: his mental snapshot is
+    // unchanged across the pair — the false-belief when-axis record
+    // (derivative, never a second authority).
+    expect(post.snapshot).toEqual(pre.snapshot);
+    expect(post.deltas).toEqual([]);
+    expect(Date.parse(post.occurred_at!)).toBeGreaterThan(
+      Date.parse(pre.occurred_at!),
+    );
+  });
+
+  it("illustrates modules.observation on the hidden-transfer TimelineEvent", () => {
+    const transfer = loadFixture<TimelineEvent>("evt_tw_hidden_transfer.json");
+    const observation = transfer.modules?.observation as
+      | { observers?: string[]; access?: Record<string, unknown> }
+      | undefined;
+
+    expect(transfer.modules?.observation).toEqual({
+      observers: ["kb_tw_ana"],
+      access: {
+        line_of_sight: true,
+        hearing_range: true,
+        modality: ["visual", "auditory"],
+      },
+    });
+    // Participant vs observer distinction: Ana participates and observes;
+    // Bo is absent from observers (he left the room) — the false-belief
+    // absence mechanic, not a consistency bug.
+    expect(transfer.participant_entry_ids).toEqual(["kb_tw_ana", "kb_tw_marble"]);
+    expect(observation?.observers).toEqual(["kb_tw_ana"]);
+    expect(observation?.observers).not.toContain("kb_tw_bo");
   });
 
   it("illustrates l5-fork wire fields on storm-delay TimelineEvent", () => {

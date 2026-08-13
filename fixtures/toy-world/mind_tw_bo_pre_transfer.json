@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "mind_state_id": "mind_tw_bo_pre_transfer",
+  "holder_entry_id": "kb_tw_bo",
+  "canonical_name": "Bo before the hidden transfer",
+  "occurred_at": "2026-07-23T09:00:00Z",
+  "sort_key": "fb-001",
+  "snapshot": {
+    "beliefs": { "ref": "kb_tw_bo", "count": 2 },
+    "attention": { "target": "kb_tw_room", "modality": "visual" },
+    "emotions": [{ "emotion": "calm", "intensity": 0.4 }]
+  },
+  "deltas": [],
+  "created_at": "2026-07-23T09:00:00Z",
+  "updated_at": "2026-07-23T09:00:00Z",
+  "extensions": {
+    "toy": {
+      "story": "false-belief-box-basket",
+      "phase": "pre-transfer"
+    }
+  }
+}

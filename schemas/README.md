@@ -20,6 +20,7 @@ schemas/
 │   ├── assemble-packet.schema.json
 │   ├── rule.schema.json                # L6 declarative constraint input
 │   ├── timeline-event.schema.json      # L5 when-axis temporal object
+│   ├── mind-state.schema.json          # L5 temporal mental-state record (l5-mind)
 │   └── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
 └── ops/
     ├── upsert-request.schema.json
@@ -50,7 +51,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **30** hand-authored schema files (2 common + 8 data + 14 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **31** hand-authored schema files (2 common + 9 data + 14 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -108,26 +109,27 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 7 | `data/assemble-packet.schema.json` | done |
 | 8 | `data/rule.schema.json` | done |
 | 9 | `data/timeline-event.schema.json` | done |
-| 10 | `data/host-capability-manifest.schema.json` | done |
-| 11 | `ops/upsert-request.schema.json` | done |
-| 12 | `ops/upsert-response.schema.json` | done |
-| 13 | `ops/promote-request.schema.json` | done |
-| 14 | `ops/promote-response.schema.json` | done |
-| 15 | `ops/relate-request.schema.json` | done |
-| 16 | `ops/relate-response.schema.json` | done |
-| 17 | `ops/check-request.schema.json` | done |
-| 18 | `ops/check-response.schema.json` | done |
-| 19 | `ops/assemble-request.schema.json` | done |
-| 20 | `ops/assemble-response.schema.json` | done |
-| 21 | `ops/project-request.schema.json` | done |
-| 22 | `ops/project-response.schema.json` | done |
-| 23 | `ops/compute-request.schema.json` | done |
-| 24 | `ops/compute-response.schema.json` | done |
-| 25 | `connect/connect-hello.schema.json` | done |
-| 26 | `connect/connect-session.schema.json` | done |
-| 27 | `connect/connect-invoke-request.schema.json` | done |
-| 28 | `connect/connect-invoke-response.schema.json` | done |
-| 29 | `connect/connect-auth-challenge.schema.json` | done |
-| 30 | `connect/connect-auth-response.schema.json` | done |
+| 10 | `data/mind-state.schema.json` | done |
+| 11 | `data/host-capability-manifest.schema.json` | done |
+| 12 | `ops/upsert-request.schema.json` | done |
+| 13 | `ops/upsert-response.schema.json` | done |
+| 14 | `ops/promote-request.schema.json` | done |
+| 15 | `ops/promote-response.schema.json` | done |
+| 16 | `ops/relate-request.schema.json` | done |
+| 17 | `ops/relate-response.schema.json` | done |
+| 18 | `ops/check-request.schema.json` | done |
+| 19 | `ops/check-response.schema.json` | done |
+| 20 | `ops/assemble-request.schema.json` | done |
+| 21 | `ops/assemble-response.schema.json` | done |
+| 22 | `ops/project-request.schema.json` | done |
+| 23 | `ops/project-response.schema.json` | done |
+| 24 | `ops/compute-request.schema.json` | done |
+| 25 | `ops/compute-response.schema.json` | done |
+| 26 | `connect/connect-hello.schema.json` | done |
+| 27 | `connect/connect-session.schema.json` | done |
+| 28 | `connect/connect-invoke-request.schema.json` | done |
+| 29 | `connect/connect-invoke-response.schema.json` | done |
+| 30 | `connect/connect-auth-challenge.schema.json` | done |
+| 31 | `connect/connect-auth-response.schema.json` | done |
 
-**Total:** 30 schema files (connect envelope family landed).
+**Total:** 31 schema files (mind-state + connect envelope families landed).

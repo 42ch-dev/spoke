@@ -4,6 +4,8 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 
 **Story:** Cartographer Mira arrives at Harbor Town at dawn; a consistency rule flags an open finding; an AssemblePacket scopes context for the scene. A dual-concern pair links ontology `entry_type: "event"` KnowledgeEntry `kb_tw_harbor_dawn_event` to TimelineEvent `evt_tw_harbor_dawn`. Three additional moment-scale beats extend the Harbor mainline in order — market square inquiry, customs gate inspection (profile `entry_type: "beat"`), berth confirmation — linked by `precedes` Relations on dual KE ids and `extensions.spoke.timeline_entry_id` on each TimelineEvent. Harbor Town carries optional l2-computable `body.state` / `body.computable` (tide and cargo); the dawn moment records `computable_logs` for those field changes.
 
+**l5-mind sample:** a false-belief box/basket story pair. `mind_tw_bo_pre_transfer` / `mind_tw_bo_post_transfer` are `MindState` when-axis records for holder `kb_tw_bo`; the snapshots are identical across the hidden transfer (Bo did not observe it — the false-belief structure as data, no inference engine). `evt_tw_hidden_transfer` is the world-changing `TimelineEvent` carrying `modules.observation` (`observers: ["kb_tw_ana"]`, `access` with line-of-sight / hearing / modality) — Bo's absence from `observers` is the absence mechanic that leaves his belief stale.
+
 ## Host capability manifests (in-process collaboration)
 
 Committed `HostCapabilityManifest` JSON describes two toy-world hosts with **pairwise disjoint** `namespaces[]`:
@@ -93,6 +95,9 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `evt_tw_harbor_customs_gate.json` | TimelineEvent (`timeline_scale: "moment"`, beat-sheet sample) | `evt_tw_harbor_customs_gate` |
 | `evt_tw_harbor_berth_confirm.json` | TimelineEvent (`timeline_scale: "moment"`, beat-sheet sample) | `evt_tw_harbor_berth_confirm` |
 | `evt_tw_harbor_storm_delay.json` | TimelineEvent (`fork_id: fork_tw_storm_branch`) | `evt_tw_harbor_storm_delay` |
+| `evt_tw_hidden_transfer.json` | TimelineEvent (`modules.observation` on the false-belief transfer) | `evt_tw_hidden_transfer` |
+| `mind_tw_bo_pre_transfer.json` | MindState (pre-transfer snapshot for `kb_tw_bo`) | `mind_tw_bo_pre_transfer` |
+| `mind_tw_bo_post_transfer.json` | MindState (post-transfer snapshot for `kb_tw_bo`) | `mind_tw_bo_post_transfer` |
 | `rule_tw_consistency.json` | Rule | `rule_tw_consistency` |
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |
 | `pkt_tw_scope.json` | AssemblePacket | `pkt_tw_scope` |

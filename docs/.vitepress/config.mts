@@ -67,6 +67,7 @@ const enSidebar = [
     items: [
       { text: 'Protocol', link: '/reference/protocol' },
       { text: 'Data model', link: '/reference/data-model' },
+      { text: 'MindState', link: '/reference/mind-state' },
       { text: 'Ops wire', link: '/reference/ops' },
       { text: 'Connect', link: '/reference/connect' },
     ],
@@ -146,6 +147,7 @@ const zhSidebar = [
     items: [
       { text: '协议', link: '/zh/reference/protocol' },
       { text: '数据模型', link: '/zh/reference/data-model' },
+      { text: 'MindState', link: '/zh/reference/mind-state' },
       { text: '操作线上（Ops wire）', link: '/zh/reference/ops' },
       { text: 'connect', link: '/zh/reference/connect' },
     ],

@@ -224,6 +224,7 @@ mod tests {
             description: None,
             extensions: HashMap::new(),
             fork_id: None,
+            modules: HashMap::new(),
             occurred_at: None,
             parent_fork_id: None,
             participant_entry_ids: Vec::new(),

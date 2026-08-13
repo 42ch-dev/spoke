@@ -42,7 +42,7 @@ Shared ops selector for `check` and `assemble`. Required `scope_id` (protocol-ne
 
 ### Domain Profile
 
-How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md).
+How an integrator publishes ontology vocabulary without closing core protocol enums. Open `entry_type` strings + published vocabulary tables in adapter specs — not closed `enum` in core schemas. See [`spoke-protocol-layers.md`](.mstar/specs/spoke-protocol-layers.md). Tracked profile handbooks: narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md); mental-state (`modules.mental` / `modules.belief` / `modules.observation`) — [`domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md).
 
 ### spoke-baseline
 
@@ -92,6 +92,22 @@ Optional capability flag for **world-history branch metadata** on `TimelineEvent
 
 Optional L5 branch identity on `TimelineEvent` under `l5-fork` via wire fields **`fork_id`** and optional **`parent_fork_id`** (`ForkId` in `common.schema.json`). Distinct from `timeline_scale` (projection tier), Domain Profile (ontology adapter), Session (`l2-computable`), and Finding (checker output). Product `extensions.<namespace>` fork hints are adapter folklore — not the normative Fork interchange. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §TimelineEvent / §Fork fields.
 
+### l5-mind
+
+Optional capability flag on the **L5 Temporal layer** (following the `l<N>-<concern>` convention of `l5-fork` / `l2-computable`): declaring it means a product implements the optional **`MindState`** temporal record (`schemas/data/mind-state.schema.json`) and `modules.observation` on `TimelineEvent.modules` (event observation metadata — bag under `narrative-modules`, semantics under `l5-mind`). `modules.mental` / `modules.belief` on the holder KnowledgeEntry are the settled home and ship under `narrative-modules`. Not `spoke-baseline`. Naming / placement / ownership boundary: [`l5-mind-capability-adr.md`](.mstar/specs/l5-mind-capability-adr.md).
+
+### MindState
+
+First-class **L5 temporal record** under the optional `l5-mind` capability — a standalone wire object (`schemas/data/mind-state.schema.json`) on the when-axis, **not** a property of `TimelineEvent`. Strictly **derivative**: it records how mental fields changed over time (`snapshot` via `MentalFieldMap`; `deltas` via `MindDelta[]`), while the holder KnowledgeEntry's `modules.mental` / `modules.belief` remain the single authority — `MindState` is never a second authority. **Distinct from** KnowledgeEntry ontology labels (`entry_type: "belief"`, profile `mind`) — the same dual-concern separation as TimelineEvent vs `entry_type: "event"` — and from `TimelineEvent` (what happened vs the state of a mind over time). Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §MindState; dialect vocabulary: [`domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md).
+
+### MentalFieldMap / MindDelta
+
+Shared definitions (`common.schema.json#/definitions/MentalFieldMap`, `#/definitions/MindDelta`) for `MindState.snapshot` / `MindState.deltas[]` under `l5-mind`. `MentalFieldMap` is an open map of mental-state field names to domain values, matching the `modules.mental` nine-field vocabulary (settled field vocabulary handbook-defined). `MindDelta` mirrors `ComputableLogChange` — `{ path, previous?, next? }` — with `path` pointing within `modules.mental` / `modules.belief`.
+
+### modules.mental / modules.belief / modules.observation
+
+Cross-product **functional** dialects of the capability-flagged `modules` bag — triad authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md). **`modules.mental`** and **`modules.belief`** live on the holder KnowledgeEntry `modules` under `narrative-modules` and are the settled **authority**: the nine-field mental-state vocabulary (identity, beliefs, attention, goals, intentions, emotions, dispositions, norms, constraints) and per-proposition belief records with seven closed-label dimensions (`holder` / `proposition` / `order` + labels; `holder: "world"` splits narrated facts from actor beliefs). **`modules.observation`** lives on `TimelineEvent.modules` (bag `narrative-modules`, semantics `l5-mind`) and records who could perceive an event + perceptual-access constraints — companion wire-slice to `MindState`. Field tables: [`domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md).
+
 ### AssemblePacket
 
 Wire-only context-assembly payload: a list of slim entries (`entry_id`, `entry_type`, `canonical_name`, optional `snippet`), required `extensions`, and optional capability-flagged `modules` (`ModuleMap`). Ranking, retrieval, and token budgeting are product-local; see [`spoke-ops.md` §assemble](.mstar/specs/spoke-ops.md#assemble-wire-only-boundary-normative).
@@ -102,7 +118,7 @@ Product-specific bag on durable data objects and ops envelopes. On `HostCapabili
 
 ### Modules (capability-flagged)
 
-Optional `ModuleMap` on KnowledgeEntry + AssemblePacket; capability-flagged (`narrative-modules`); inner dialect shapes stay handbook-defined. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
+Optional `ModuleMap` on KnowledgeEntry + AssemblePacket + TimelineEvent (event observation); capability-flagged (`narrative-modules`; `l5-mind` for event-observation semantics); inner dialect shapes stay handbook-defined. Placement authority: [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md).
 
 `modules.*` carries **cross-product functional** dialects (for example activation, placement, and activation_trace metadata), distinct from product-owned `extensions.<namespace>`. Absent and empty `modules` are valid; baseline hosts need not emit or parse the bag unless they declare `narrative-modules`. Shared functional dialects use `modules.*`; product bags stay in `extensions.<namespace>`. Knowledge Pack **catalog** metadata (`title` / `version` / `creator`) lives on the product transport envelope — not under `modules.*`.
 
@@ -164,6 +180,19 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 
 ---
 
+## Dual-concern: ontology `"mind"` / `"belief"` vs MindState
+
+| Concern | Wire artifact | Example |
+|---------|---------------|---------|
+| **Ontology / KB label** | `KnowledgeEntry` with profile `entry_type: "mind"` / `"belief"` | “Bo believes the marble is in the box” as a typed KB node |
+| **Settled home (authority)** | holder KnowledgeEntry `modules.mental` / `modules.belief` | Bo's nine mental fields; per-proposition belief rows with seven labels |
+| **Temporal derivative** | `MindState` with `mind_state_id` | Field-level snapshot / delta of Bo's mental fields at `occurred_at` on the when-axis |
+| **Timeline / when-axis (event)** | `TimelineEvent` with `timeline_event_id` | “Marble moved box → basket” placed on the Timeline with `timeline_scale: "moment"` |
+
+Integrators may map one local mental fact to one or more of these surfaces. SPOKE keeps the names separate so the authority (`modules.*`), the derivative (`MindState`), and the when-axis (`TimelineEvent`) stay unambiguous — the same separation as `event` vs `TimelineEvent`.
+
+---
+
 ## Boundaries
 
 | Term | In SPOKE |
@@ -190,6 +219,7 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | TimelineScale wire values (`timeline_scale` field) | **`brief`**, **`narrative`**, **`moment`** (lowercase) |
 | Ontology label on a KB entry | `entry_type: "event"` (string value — **not** the `TimelineEvent` type) |
 | Ontology label vs L6 object | `entry_type: "rule"` — **not** the L6 `Rule` type |
+| Ontology label vs L5 temporal record | `entry_type: "mind"` / `"belief"` — **not** the `MindState` wire object |
 
 ---
 
@@ -204,6 +234,8 @@ Integrators may map one local concept to one or both wire shapes. SPOKE keeps th
 | [`.mstar/specs/spoke-extension-modules.md`](.mstar/specs/spoke-extension-modules.md) | Core / modules / extensions triad |
 | [`.mstar/specs/domain-profile-narrative-structure.md`](.mstar/specs/domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`.mstar/specs/domain-profile-lore-activation.md`](.mstar/specs/domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
+| [`.mstar/specs/domain-profile-mental-state.md`](.mstar/specs/domain-profile-mental-state.md) | Mental-state Domain Profile — `modules.mental` / `modules.belief` / `modules.observation` dialects + MindState sketch |
+| [`.mstar/specs/l5-mind-capability-adr.md`](.mstar/specs/l5-mind-capability-adr.md) | `l5-mind` flag; MindState naming, placement, ownership boundary; rejected alternatives |
 | [`.mstar/specs/assemble-module-recipes.md`](.mstar/specs/assemble-module-recipes.md) | AssemblePacket placement + activation_trace recipes (`modules.placement` / `modules.activation_trace`) |
 | [`.mstar/specs/spoke-ops.md`](.mstar/specs/spoke-ops.md) | Scope, check/assemble, error envelope |
 | [`.mstar/specs/spoke-connect.md`](.mstar/specs/spoke-connect.md) | Connect envelope family, session ordering, auth model (opt-in `spoke-connect`) |

@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.10.0] - 2026-08-14
+
+
+### Added
+
+- L5-mind capability (mind-axis) — MindState wire + modules dialects + validators
+
+
+### Documentation
+
+- Document l5-mind capability in READMEs (#80)
+
+- **knowledge:** Precipitate mind-axis ops extraction gate
+
+- **knowledge:** Align mind-axis ownership frontmatter with schema
+
+
+### Fixed
+
+- **connect:** Protocol_version_mismatch alignment + pnpm allowBuilds fix (#79)
+
+
+### Internal
+
+- Post-merge close record refinements (truthful outcome + reusable gotcha)
+
 ## [0.9.2] - 2026-08-07
 
 

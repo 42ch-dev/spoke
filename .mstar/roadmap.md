@@ -4,7 +4,7 @@
 >
 > **Scope:** this repository only — protocol wire, pure ops libraries, fixtures, connect SDK prep, integrator docs. Consumer product engines (e.g. activation runtimes) are not scheduled here.
 
-**Updated:** 2026-08-06  
+**Updated:** 2026-08-14  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.  
 **Protocol schema inventory:** **31** (24 baseline + 6 opt-in connect envelopes + 1 opt-in `l5-mind` envelope).
 
@@ -29,6 +29,7 @@ No active delivery slice on `main`. See **Up next** for planned work; durable co
 | **iOS xcframework CI automation** | A CI job that assembles the multi-slice `spoke_connectFFI.xcframework` when the FFI surface changes, removing the maintainer manual-refresh step | Follows the three-slice matrix (`macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator`); the xcframework stays repo-committed between FFI-surface changes per [connect-binding-channels.md](specs/connect-binding-channels.md) |
 | **libp2p transitive vulnerability revisit** | Re-check yamux / hickory-proto pins in `Cargo.lock` when upstream libp2p ecosystem ships fixes | Last reviewed 2026-08-02 — no fix available on current libp2p 0.56 line |
 | **Go linux/windows native builds** | Commit release-profile `linux_amd64` / `windows_amd64` natives (`libspoke_connect.so` / `spoke_connect.dll`) into `bindings/go/native/` so Go consumers on those platforms resolve the cdylib from the module tree | Go natives are committed for darwin today; linux/windows release-profile natives stage from the `build-connect-ffi` CI matrix (`linux-x64`, `win-x64`) and are committed when a linux cross-link / Windows mingw build path is available |
+| **Mind-axis ops extraction (demand-gated)** | Pure ops beyond `validateMindState`: `applyMindDeltas` + `MindState` ordering/filtering candidates; checker Finding patterns (`stale_belief_drift`, `dramatic_irony_asymmetry`, …) and observation/belief derivations stay product-local | ≥ 2 independent consumers request mind-axis ops / Scope surface; candidate priority and boundary in [mind-axis-ops-extraction-gate.md](knowledge/architecture-patterns/mind-axis-ops-extraction-gate.md) |
 
 ---
 

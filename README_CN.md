@@ -12,7 +12,7 @@
 
 **包含：**
 
-- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent
+- 数据层 schema：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、**HostCapabilityManifest**、Rule、TimelineEvent、MindState
 - Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
 - 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
 - 纯函数生命周期辅助，以及 **adapter ports** 与 **injection orchestration**（`@42ch/spoke-operations` / `spoke-operations`）
@@ -32,7 +32,7 @@
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | 纯函数辅助、adapter ports 与编排 — 与 `@42ch/spoke-operations` 行为对齐 |
 | [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | 可选连接参考 — libp2p 传输、会话核心、uniffi 绑定接口 |
 
-产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry 与 AssemblePacket 上一个可选、按能力启用的字段袋。见 [数据模型](https://spoke.42ch.dev/zh/reference/data-model)。
+产品专属载荷放在 `extensions.<namespace>` 下（namespace 键由产品自行选择）。多个叙事主机共享的跨产品功能方言（lore 激活、知识包、assemble 摆放）放在 `modules.*` 下 —— 这是 KnowledgeEntry、AssemblePacket 与 TimelineEvent 上一个可选、按能力启用的字段袋。见 [数据模型](https://spoke.42ch.dev/zh/reference/data-model)。
 
 安装固定与软件包职责：[软件包快速开始](https://spoke.42ch.dev/zh/packages/quick-start)。
 
@@ -195,10 +195,11 @@ async function promote() {
 | **Finding** | 一致性、风格或分析类检查器输出 |
 | **Rule** | `check` 的声明式约束输入（L6） |
 | **TimelineEvent** | when 轴上的第一类时间对象（L5） |
+| **MindState** | when 轴上的第一类时间心智状态记录（L5，可选 `l5-mind`） |
 | **AssemblePacket** | 线上上下文组装载荷（供下游 LLM 提示的精简条目） |
 | **HostCapabilityManifest** | 主机角色、能力与所拥有的 `namespaces[]`，用于进程内协作 |
 | **Extensions** | 数据对象上的产品专属字段袋（`extensions.<namespace>`） |
-| **Modules** | KnowledgeEntry + AssemblePacket 上的可选跨产品功能方言字段袋（按能力启用 `narrative-modules`） |
+| **Modules** | KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选跨产品功能方言字段袋（按能力启用 `narrative-modules`） |
 | **Adapter ports** | 注入式读写面（`KnowledgeEntryPort`、`HostManifestPort` 等），由产品负责持久化 |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` 序列：加载 scope、执行门控、经 ports 持久化 |
 
@@ -213,7 +214,9 @@ async function promote() {
 - **`TimelineEvent.computable_logs`** — Moment 层级字段变更展示
 - **`project` / `compute` ops** — 初始化/投影与应用/结算 I/O 信封
 
-需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。需要交换跨产品功能方言（lore 激活、知识包、assemble 摆放 / 激活轨迹）的产品可声明 **`narrative-modules`**：KnowledgeEntry 与 AssemblePacket 上的可选 `modules`（`ModuleMap`）字段袋承载这些方言，适配器对未知 module namespace 原样往返保留。内部形状由 Domain Profile 手册定义。
+需要 fork 作用域时间线查询的产品可声明 **`l5-fork`**。需要交换跨产品功能方言（lore 激活、知识包、assemble 摆放 / 激活轨迹）的产品可声明 **`narrative-modules`**：KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选 `modules`（`ModuleMap`）字段袋承载这些方言，适配器对未知 module namespace 原样往返保留。内部形状由 Domain Profile 手册定义。
+
+可互换「谁在时刻 t 相信 / 想要 / 感受什么」的产品可声明 **`l5-mind`**：when 轴上的可选 `MindState` 时间记录（快照 / 增量）与 `TimelineEvent.modules` 上的 `modules.observation`。心智字段与信念标签的常驻家园是持有者 KnowledgeEntry 的 `modules.mental` / `modules.belief`（`narrative-modules` 字段袋）；`MindState` 严格派生，绝不构成第二权威。心智引擎留在产品侧。按需启用，非 `spoke-baseline`。
 
 需要签名的跨进程交互的产品可声明 **`spoke-connect`**。组合后的 adapter 别名：`BaselineAdapter`、`ComputableAdapter`、`ForkAdapter`、`FullAdapter`。
 
@@ -228,7 +231,7 @@ async function promote() {
 - 按能力切片的 ports 与组合别名（`BaselineAdapter` … `FullAdapter`）
 - 扩展与模块映射合并及往返保留（`mergeExtensionMaps` / `mergeModuleMaps`、`preserveExtensionMaps` / `preserveModuleMaps`）
 - Finding / KnowledgeEntry `status` 迁移辅助
-- 晋升接受与 upsert/relate 校验
+- 晋升接受、upsert/relate 与 MindState 线上形状校验（`validateMindState` / `validate_mind_state`）
 - 由 KnowledgeEntry 构建 AssemblePacket
 - 拒绝路径上统一的 `SpokeResult` / `SpokeRejectCode`
 
@@ -243,6 +246,7 @@ async function promote() {
 | 协议总览 | [协议](https://spoke.42ch.dev/zh/reference/protocol) |
 | 九层模型与能力等级 | [核心概念](https://spoke.42ch.dev/zh/explanation/concepts) |
 | 数据对象与开放词汇 | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |
+| MindState | [MindState 参考](https://spoke.42ch.dev/zh/reference/mind-state) |
 | Ops 请求/响应信封 | [操作线上信封](https://spoke.42ch.dev/zh/reference/ops) |
 | 操作库行为 | [编排操作](https://spoke.42ch.dev/zh/how-to/orchestrate-ops) |
 | Core / modules / extensions | [数据模型](https://spoke.42ch.dev/zh/reference/data-model) |

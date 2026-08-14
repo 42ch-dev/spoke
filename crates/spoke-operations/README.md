@@ -64,7 +64,7 @@ Optional capabilities use `ComputablePorts` / `ForkPorts` with `orchestrate_proj
 - `is_valid_finding_status_transition`, `transition_finding_status`
 - `validate_promote_request`, `apply_promote_acceptance`, `validate_promote_request_wire`
 - `knowledge_entry_to_assemble_entry`, `build_assemble_packet`
-- Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
+- Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators, `validate_mind_state` (wire-shape gate for the optional `l5-mind` capability)
 - `list_body_attributes`, `filter_body_attributes_by_trait_type`, `find_body_attribute` — read/filter `body.attributes` by `trait_type`
 - `filter_timeline_events_by_moment_scale`, `order_timeline_events_by_ids`, `order_timeline_events_by_precedes` — filter and order moment-scale TimelineEvents from caller-supplied sets
 - Adapter ports + orchestration: `KnowledgeEntryPort` … `HostManifestPort` … `FullAdapter`, `CheckRunInput`, `orchestrate_upsert` … `orchestrate_fork_assemble`

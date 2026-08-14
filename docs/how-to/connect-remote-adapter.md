@@ -174,7 +174,7 @@ Port calls settle to `SpokeResult`; invoke-path failures surface as rejects:
 | Dispatch deny (`op_unsupported` / `capability_missing` wire codes) | `CAPABILITY_PORT_MISSING` reject with `details.wire_code` |
 | Unknown wire codes | `INVALID_INPUT` reject with `details.wire_code` |
 
-Dial / hello / allowlist / nonce failures happen before an adapter exists: `connectRemoteAdapter` rejects (TypeScript) or returns `Err(RemoteAdapterError)` with `Config` / `Handshake` / `Timeout` variants (Rust).
+Dial / hello / allowlist / nonce failures happen before an adapter exists: `connectRemoteAdapter` rejects (TypeScript) or returns `Err(RemoteAdapterError)` with `Config` / `Handshake` / `ProtocolVersionMismatch` / `Timeout` variants (Rust).
 
 ## 6. Envelope authentication
 

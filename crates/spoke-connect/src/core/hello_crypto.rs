@@ -119,7 +119,9 @@ pub fn sign_hello_ed25519(
 /// Verify a received hello against a raw Ed25519 public key (32 bytes).
 ///
 /// Checks, in order:
-/// 1. `protocol_version` equals the core protocol version.
+/// 1. `protocol_version` equals the core protocol version
+///    (`ProtocolVersionMismatch` — a mixed-version peer or downgrade
+///    attempt; the dedicated kind, not `HandshakeFailed`).
 /// 2. The verify key derives `expected_peer_id` — the authenticated remote
 ///    peer. A key that derives a different peer id cannot attest that
 ///    peer's identity.
@@ -146,7 +148,7 @@ pub fn verify_hello_ed25519(
     expected_peer_nonce: Option<&str>,
 ) -> Result<(), CoreError> {
     if hello.protocol_version.get() != PROTOCOL_VERSION {
-        return Err(CoreError::HandshakeFailed {
+        return Err(CoreError::ProtocolVersionMismatch {
             reason: format!(
                 "unsupported protocol_version {} (expected {PROTOCOL_VERSION})",
                 hello.protocol_version
@@ -420,12 +422,57 @@ mod tests {
 
     #[test]
     fn unsupported_protocol_version_rejected() {
+        // Mixed-version hello: a peer on a different protocol version must
+        // surface the DEDICATED kind (`ProtocolVersionMismatch`), not a
+        // generic handshake failure. The version gate runs before signature
+        // verification, so this fires on a version-mismatched hello even
+        // though the (v1-signed) signature no longer matches the mutated
+        // object — you do not waste crypto on a wrong-version peer.
         let mut hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest(), None)
             .expect("sign golden hello");
         hello.protocol_version = std::num::NonZeroU64::new(2).expect("non-zero");
         let err = verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello, None)
             .expect_err("unsupported version");
-        assert!(matches!(err, CoreError::HandshakeFailed { .. }));
+        assert!(matches!(err, CoreError::ProtocolVersionMismatch { .. }));
+        assert!(
+            matches!(&err, CoreError::ProtocolVersionMismatch { reason } if reason.contains("unsupported protocol_version 2 (expected 1)")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn same_protocol_version_hello_verifies() {
+        // Same-version hello: a golden hello carrying exactly PROTOCOL_VERSION
+        // passes the version gate and verifies end to end.
+        let hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest(), None)
+            .expect("sign golden hello");
+        assert_eq!(hello.protocol_version.get(), PROTOCOL_VERSION);
+        verify_hello_ed25519(&golden_pubkey(), golden().peer_id.as_str(), &hello, None)
+            .expect("same-version hello verifies");
+    }
+
+    #[test]
+    fn below_floor_downgrade_version_is_rejected_at_the_wire_boundary() {
+        // Downgrade attempt: a hello claiming a protocol_version BELOW the
+        // current one. With PROTOCOL_VERSION = 1 the only lower value is 0,
+        // which the wire schema (minimum 1 → `NonZeroU64`) rejects at
+        // deserialization — a below-floor downgrade hello never reaches the
+        // version gate (fail-closed by construction). The TS port's plain
+        // `number` field CAN carry 0 at runtime, and `verifyHelloEd25519`
+        // rejects it with the same dedicated kind (`0 !== PROTOCOL_VERSION`).
+        // Parity on the representable inputs (1 → Ok, 2 →
+        // ProtocolVersionMismatch) is asserted by the tests above and the TS
+        // mirror suite.
+        let hello = sign_hello_ed25519(&golden_seed(), golden().nonce.as_str(), &golden_manifest(), None)
+            .expect("sign golden hello");
+        let mut json = serde_json::to_value(&hello).expect("serialize hello");
+        json["protocol_version"] = serde_json::Value::from(0u64);
+        let err = serde_json::from_value::<ConnectHello>(json)
+            .expect_err("protocol_version 0 must not deserialize");
+        assert!(
+            err.to_string().contains("nonzero"),
+            "unexpected deserialization error: {err}"
+        );
     }
 
     #[test]

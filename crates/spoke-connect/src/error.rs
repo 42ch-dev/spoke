@@ -15,8 +15,10 @@ use spoke_schemas::connect::connect_invoke_response::ErrorEnvelope;
 
 /// Map a pure core error to the transport-facing [`ConnectError`].
 ///
-/// Identity variants keep their meaning; `InvalidNonce` (a signing-time
-/// caller error) maps to `Config`, and `Crypto` / `Jcs` (cryptographic or
+/// Identity variants keep their meaning; `ProtocolVersionMismatch` maps to
+/// the distinct [`ConnectError::ProtocolVersionMismatch`] (never folded
+/// into `HandshakeFailed`); `InvalidNonce` (a signing-time caller error)
+/// maps to `Config`, and `Crypto` / `Jcs` (cryptographic or
 /// canonicalization failures on the wire path) map to `Transport`.
 /// `TokenInvalid` maps to `AuthFailed` — on the wire it becomes an
 /// `auth_failed` error envelope (see `crate::node`).
@@ -25,6 +27,9 @@ pub(crate) fn map_core_error(err: CoreError) -> ConnectError {
         CoreError::InvalidHelloSignature => ConnectError::InvalidHelloSignature,
         CoreError::NonceReplay => ConnectError::NonceReplay,
         CoreError::HandshakeFailed { reason } => ConnectError::HandshakeFailed { reason },
+        CoreError::ProtocolVersionMismatch { reason } => {
+            ConnectError::ProtocolVersionMismatch { reason }
+        }
         CoreError::InvalidNonce(reason) => ConnectError::Config(reason),
         CoreError::Crypto(reason) => ConnectError::Transport(reason),
         CoreError::Jcs(reason) => ConnectError::Transport(reason),
@@ -63,9 +68,17 @@ pub enum ConnectError {
     #[error("hello nonce replayed")]
     NonceReplay,
 
-    /// Handshake-level failure (protocol version, claimed peer id mismatch, …).
+    /// Handshake-level failure (peer id binding, claimed peer id mismatch, …).
     #[error("handshake failed: {reason}")]
     HandshakeFailed { reason: String },
+
+    /// The hello's `protocol_version` does not match the core protocol
+    /// version — a mixed-version peer or a downgrade attempt. Distinct from
+    /// [`ConnectError::HandshakeFailed`] so callers can tell version
+    /// negotiation failure apart from other handshake faults (spec §Error
+    /// mapping: `details.kind = protocol_version_mismatch`).
+    #[error("protocol version mismatch: {reason}")]
+    ProtocolVersionMismatch { reason: String },
 
     /// Transport-level failure (dial, listen, shutdown, I/O).
     #[error("transport: {0}")]

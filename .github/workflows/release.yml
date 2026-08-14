@@ -137,12 +137,12 @@ jobs:
         # pnpm/action-setup@v4.4.0
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
         with:
-          version: 9
+          version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Setup Rust toolchain
@@ -181,12 +181,12 @@ jobs:
         # pnpm/action-setup@v4.4.0
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
         with:
-          version: 9
+          version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -286,7 +286,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Assert lockstep package versions
         env:
@@ -316,7 +316,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Resolve release notes
         id: notes
@@ -368,7 +368,7 @@ jobs:
         # pnpm/action-setup@v4.4.0
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
         with:
-          version: 9
+          version: 11
 
       # Node 24 + registry-url; use stock npm (do not npm install -g).
       - name: Setup Node.js

@@ -118,13 +118,13 @@ For every v2 post-hello envelope the receiver: (1) presence-checks `signature`; 
 | v2 peer ↔ v1 peer | The v2 side observes `protocol_version: 1` in the verified hello and refuses to establish — the v1 side cannot produce signed session/invoke envelopes. Dial fails closed |
 | Both v2 | Session establishes under v2 rules; all post-hello envelopes carry the required `signature` |
 | Both v1 | Legacy v1 interop only |
-| Unknown version (> 2) | A verified hello advertising an unknown version fails closed, treated like a mixed-version dial |
+| Unknown version (> 2) | A hello advertising an unknown version fails closed at the version gate — the version check is hello verification step 1, before signature verification — treated like a mixed-version dial |
 
 The hello signed-field set (4-field initiator / 5-field responder) is unchanged; the dial-binding `peer_nonce` rule is preserved.
 
 ### Error mapping
 
-Envelope-auth failures use the shared `ErrorEnvelope` vocabulary: `auth_failed` covers missing, invalid, non-canonical, or field-set-drifted signatures and session-binding mismatches. On the RemoteAdapter surface these surface as `SpokeResult` rejects — `INTERNAL_ERROR` with `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} — while a mixed- or unknown-version hello fails the dial as a handshake error (`RemoteAdapterError::Handshake`; no adapter instance). `protocol_version_mismatch` is spec vocabulary reserved for a dedicated version-negotiation reject and is not currently emitted.
+Envelope-auth failures use the shared `ErrorEnvelope` vocabulary: `auth_failed` covers missing, invalid, non-canonical, or field-set-drifted signatures and session-binding mismatches. On the RemoteAdapter surface these surface as `SpokeResult` rejects — `INTERNAL_ERROR` with `details.kind` ∈ {`envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} — while a mixed- or unknown-version hello fails the dial with the dedicated kind: `RemoteAdapterError::ProtocolVersionMismatch` (Rust) / `CoreError` with `code: "protocol_version_mismatch"` (TS), surfaced over FFI as `FfiError.Dial` with `kind: "protocol_version_mismatch"`; no adapter instance exists. The version gate is hello verification step 1 — before signature verification — so the dedicated kind fires on any mismatched-version hello, valid signature or not.
 
 ### Enforcement
 
@@ -223,8 +223,8 @@ The session-core rules — allowlist, `peer_id` derive and reverse, hello crypto
 | `capability_missing` | `ErrorEnvelope.code` | The op's required capability is absent from the effective grant |
 | `no_capable_peer` | Router reject `details.wire_code` / `details.kind` | Terminal router reject when no registered peer passes the hard selection gates (`CAPABILITY_PORT_MISSING`); register a satisfying peer and re-invoke |
 | `envelope_auth_missing` / `envelope_auth_invalid` / `envelope_auth_session_unbound` | RemoteAdapter reject `details.kind` | Envelope-auth rejection kinds on `INTERNAL_ERROR` rejects (waiter only; session state untouched) |
-| `handshake` | Dial failure `details.kind` (`FfiError.Dial`) | A verified hello advertising a mixed or unknown protocol version fails the dial as a handshake error; the dial surface is exactly {`config`, `handshake`, `timeout`} and no adapter instance exists |
-| `protocol_version_mismatch` | Reserved — not emitted | Spec vocabulary reserved for a dedicated version-negotiation reject; mixed/unknown-version hellos fail as a `handshake` dial error |
+| `handshake` | Dial failure `details.kind` (`FfiError.Dial`) | Hello signature / identity / nonce verification failure (version mismatches surface as `protocol_version_mismatch`); the dial surface is {`config`, `handshake`, `timeout`, `protocol_version_mismatch`} and no adapter instance exists |
+| `protocol_version_mismatch` | Dial failure `details.kind` (`FfiError.Dial`) | A hello advertising a mixed or unknown protocol version fails the dial with the dedicated kind — `RemoteAdapterError::ProtocolVersionMismatch` / `CoreError("protocol_version_mismatch")`; no adapter instance exists |
 | `transport` / `session_closed` / `timeout` / `panic` / `correlation_mismatch` / `sequence_exhausted` | RemoteAdapter reject `details.kind` | `INTERNAL_ERROR` reject kinds for transport I/O, session loss, invoke timeout, panic containment, correlation mismatch, and sequence exhaustion |
 
 ## Related

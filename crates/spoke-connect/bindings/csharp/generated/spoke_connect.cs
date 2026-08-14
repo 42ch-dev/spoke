@@ -4650,7 +4650,7 @@ public class CoreException: UniffiException {
     
     
     /// <summary>
-    /// Handshake-level failure (protocol version, peer id binding, …).
+    /// Handshake-level failure (peer id binding, dial binding, …).
     /// </summary>
     
     public class HandshakeFailed : CoreException {
@@ -4737,6 +4737,28 @@ public class CoreException: UniffiException {
         }
     }
     
+    /// <summary>
+    /// The hello's `protocol_version` does not match the core protocol
+    /// version — a mixed-version peer or a downgrade attempt. Dedicated
+    /// classification for version negotiation failure, distinct from other
+    /// handshake faults (spec §Error mapping: `details.kind =
+    /// protocol_version_mismatch`). Appended after `TokenInvalid` so the
+    /// pre-existing variants keep their binding ordinals.
+    /// </summary>
+    
+    public class ProtocolVersionMismatch : CoreException {
+        // Members
+        public string @reason;
+
+        // Constructor
+        public ProtocolVersionMismatch(
+                string @reason) : base(
+                "@reason" + "=" + @reason) {
+
+            this.@reason = @reason;
+        }
+    }
+    
 
     
 }
@@ -4765,6 +4787,9 @@ class FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException>, CallSta
                     FfiConverterString.INSTANCE.Read(stream));
             case 7:
                 return new CoreException.TokenInvalid(
+                    FfiConverterString.INSTANCE.Read(stream));
+            case 8:
+                return new CoreException.ProtocolVersionMismatch(
                     FfiConverterString.INSTANCE.Read(stream));
             default:
                 throw new InternalException(String.Format("invalid error value '{0}' in FfiConverterTypeCoreError.Read()", value));
@@ -4799,6 +4824,10 @@ class FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException>, CallSta
             case CoreException.TokenInvalid variant_value:
                 return 4
                     + FfiConverterString.INSTANCE.AllocationSize(variant_value.@message);
+
+            case CoreException.ProtocolVersionMismatch variant_value:
+                return 4
+                    + FfiConverterString.INSTANCE.AllocationSize(variant_value.@reason);
             default:
                 throw new InternalException(String.Format("invalid error value '{0}' in FfiConverterTypeCoreError.AllocationSize()", value));
         }
@@ -4831,6 +4860,10 @@ class FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException>, CallSta
             case CoreException.TokenInvalid variant_value:
                 stream.WriteInt(7);
                 FfiConverterString.INSTANCE.Write(variant_value.@message, stream);
+                break;
+            case CoreException.ProtocolVersionMismatch variant_value:
+                stream.WriteInt(8);
+                FfiConverterString.INSTANCE.Write(variant_value.@reason, stream);
                 break;
             default:
                 throw new InternalException(String.Format("invalid error value '{0}' in FfiConverterTypeCoreError.Write()", value));

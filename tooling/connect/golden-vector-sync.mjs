@@ -7,6 +7,11 @@
  * libp2p capture authority):
  *
  *   golden-hello.json                  (SSOT, hello + dial-binding responder)
+ *   golden-hello-version-mismatch.json (SSOT, mixed-version hello — the golden
+ *                                       identity advertising `protocol_version`
+ *                                       2 while the core `PROTOCOL_VERSION` is 1;
+ *                                       both languages MUST reject it with the
+ *                                       dedicated `protocol_version_mismatch` kind)
  *   golden-envelope-auth.json          (SSOT, envelope-auth session /
  *                                       invoke-request / invoke-response families)
  *   capability-token-ts-golden.json    (SSOT, TS-minted capability-token proof;
@@ -307,6 +312,77 @@ function isU64(n) {
   );
 }
 
+/**
+ * Structural checks on the mixed-version hello SSOT; appends problems.
+ *
+ * The golden identity advertises `protocol_version` 2 while the core
+ * `PROTOCOL_VERSION` is 1, so the version gate (hello verification step 1,
+ * before signature verification, in both TS and Rust) MUST reject the wire
+ * hello with `protocol_version_mismatch` — the pinned signature is never
+ * consulted and is allowed to be object-stale.
+ */
+function checkHelloVersionMismatchSsot(ssot, problems) {
+  if (ssot.version !== 1) {
+    problems.push(`version: expected 1, got ${JSON.stringify(ssot.version)}`);
+  }
+  if (typeof ssot.seed_hex !== "string" || !HEX64.test(ssot.seed_hex)) {
+    problems.push("seed_hex: expected 64 lowercase hex chars");
+  }
+  if (typeof ssot.pubkey_hex !== "string" || !HEX64.test(ssot.pubkey_hex)) {
+    problems.push("pubkey_hex: expected 64 lowercase hex chars");
+  }
+  if (typeof ssot.peer_id !== "string" || !BASE58.test(ssot.peer_id)) {
+    problems.push("peer_id: expected a base58btc string");
+  }
+
+  const hello = ssot.hello;
+  if (typeof hello !== "object" || hello === null || Array.isArray(hello)) {
+    problems.push("hello: expected an object");
+    return;
+  }
+  if (hello.protocol_version !== 2) {
+    problems.push(
+      `hello.protocol_version: expected 2 (mixed-version vs core 1), got ${JSON.stringify(hello.protocol_version)}`,
+    );
+  }
+  if (hello.peer_id !== ssot.peer_id) {
+    problems.push("hello.peer_id: must equal the fixture peer_id");
+  }
+  if (typeof hello.nonce !== "string" || hello.nonce.length < 16) {
+    problems.push("hello.nonce: expected a string of at least 16 chars (wire floor)");
+  }
+  if (typeof hello.signature !== "string" || !B64U86.test(hello.signature)) {
+    problems.push("hello.signature: expected 86 base64url no-padding chars (64 bytes)");
+  }
+  if (typeof hello.extensions !== "object" || hello.extensions === null || Array.isArray(hello.extensions)) {
+    problems.push("hello.extensions: expected an object");
+  }
+
+  const host = hello.host;
+  if (typeof host !== "object" || host === null || Array.isArray(host)) {
+    problems.push("hello.host: expected an object");
+    return;
+  }
+  if (host.host_id !== "golden-host") {
+    problems.push(`hello.host.host_id: expected "golden-host", got ${JSON.stringify(host.host_id)}`);
+  }
+  if (!Array.isArray(host.namespaces)) {
+    problems.push("hello.host.namespaces: expected an array");
+  }
+  for (const key of ["capabilities", "roles"]) {
+    const value = host[key];
+    if (
+      !Array.isArray(value) ||
+      !value.every((v) => typeof v === "string")
+    ) {
+      problems.push(`hello.host.${key}: expected an array of strings`);
+    }
+  }
+  if (host.schema_version !== 1) {
+    problems.push(`hello.host.schema_version: expected 1, got ${JSON.stringify(host.schema_version)}`);
+  }
+}
+
 /** Structural checks on the TS-minted capability-token SSOT; appends problems. */
 function checkCapabilityTokenTsSsot(ssot, problems) {
   if (ssot.v !== 1) {
@@ -381,6 +457,20 @@ const VECTORS = [
       canonical.manifest_json = canonicalManifestJson(canonical.manifest);
       return JSON.stringify(canonical, null, 2) + "\n";
     },
+  },
+  {
+    name: "hello-version-mismatch",
+    ssotPath: join(
+      REPO_ROOT,
+      "crates/spoke-connect/tests/fixtures/golden-hello-version-mismatch.json",
+    ),
+    // TS consumer (Rust reads the SSOT directly via include_str!).
+    copies: [
+      "packages/spoke-connect-ts/tests/fixtures/golden-hello-version-mismatch.json",
+    ].map((p) => join(REPO_ROOT, p)),
+    check: checkHelloVersionMismatchSsot,
+    // No derived fields — every value is pinned; --write only refreshes copies.
+    refreshSsot: null,
   },
   {
     name: "envelope-auth",

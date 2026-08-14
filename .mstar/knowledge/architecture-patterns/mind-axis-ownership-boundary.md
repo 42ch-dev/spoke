@@ -1,7 +1,7 @@
 ---
 module: mind-axis / capability design
 date: 2026-08-13
-problem_type: architecture-decision
+problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
 plan_id: 2026-08-13-l5-mind-design-adr

@@ -80,7 +80,7 @@ Optional capabilities use the composed port types (`ComputablePorts`, `ForkPorts
 - `isValidFindingStatusTransition`, `transitionFindingStatus`
 - `validatePromoteRequest`, `applyPromoteAcceptance`
 - `knowledgeEntryToAssembleEntry`, `buildAssemblePacket`
-- Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators
+- Scope matchers, OCC revision assert, KnowledgeEntry status/uniqueness, upsert/relate gates, computable validators, `validateMindState` (wire-shape gate for the optional `l5-mind` capability)
 - `listBodyAttributes`, `filterBodyAttributesByTraitType`, `findBodyAttribute` — read/filter `body.attributes` by `trait_type`
 - `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` — filter and order moment-scale TimelineEvents from caller-supplied sets
 - Adapter ports + orchestration: `KnowledgeEntryPort` … `HostManifestPort` … `FullAdapter`, `CheckRunInput`, `orchestrateUpsert` … `orchestrateForkAssemble`

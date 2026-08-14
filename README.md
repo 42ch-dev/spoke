@@ -12,7 +12,7 @@
 
 **Includes:**
 
-- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent
+- Data-layer schemas: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, Rule, TimelineEvent, MindState
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
 - Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
 - Pure lifecycle helpers plus **adapter ports** and **injection orchestration** (`@42ch/spoke-operations` / `spoke-operations`)
@@ -32,7 +32,7 @@ Published consumer packages share one **lockstep SemVer**.
 | [`spoke-operations`](https://crates.io/crates/spoke-operations) | crates.io | Pure helpers, adapter ports, and orchestration — parity with `@42ch/spoke-operations` |
 | [`spoke-connect`](https://crates.io/crates/spoke-connect) | crates.io | Opt-in connect reference — libp2p transport, session core, uniffi binding surface |
 
-Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry and AssemblePacket. See [Data model](https://spoke.42ch.dev/reference/data-model).
+Product-specific payloads live under `extensions.<namespace>` (namespace keys are product-chosen ids). Cross-product functional dialects shared by narrative hosts (lore activation, knowledge packs, assemble placement) live under `modules.*` — an optional, capability-flagged bag on KnowledgeEntry, AssemblePacket, and TimelineEvent. See [Data model](https://spoke.42ch.dev/reference/data-model).
 
 Install pins and package roles: [Package quick-start](https://spoke.42ch.dev/packages/quick-start).
 
@@ -195,10 +195,11 @@ Reference **FullAdapter** and the committed “Mira at Harbor” graph: [`fixtur
 | **Finding** | Checker output for consistency, style, or analysis |
 | **Rule** | Declarative constraint input to `check` (L6) |
 | **TimelineEvent** | First-class temporal object on the when-axis (L5) |
+| **MindState** | First-class temporal mental-state record on the when-axis (L5, optional `l5-mind`) |
 | **AssemblePacket** | Wire context-assembly payload (slim entries for downstream LLM prompts) |
 | **HostCapabilityManifest** | Host roles, capabilities, and owned `namespaces[]` for in-process collaboration |
 | **Extensions** | Product-specific bag on every data object (`extensions.<namespace>`) |
-| **Modules** | Optional cross-product functional-dialect bag on KnowledgeEntry + AssemblePacket (capability-flagged `narrative-modules`) |
+| **Modules** | Optional cross-product functional-dialect bag on KnowledgeEntry, AssemblePacket, and TimelineEvent (capability-flagged `narrative-modules`) |
 | **Adapter ports** | Injected read/write surfaces (`KnowledgeEntryPort`, `HostManifestPort`, …) that own persistence |
 | **Orchestration** | `orchestrate*` / `orchestrate_*` sequences that load scope, apply gates, and persist via ports |
 
@@ -213,7 +214,9 @@ Products that need programmable KnowledgeEntry body state may declare **`l2-comp
 - **`TimelineEvent.computable_logs`** — Moment-scale field-change presentation
 - **`project` / `compute` ops** — init/projection and apply/settle I/O envelopes
 
-Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry and AssemblePacket carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes.
+Products that need fork-scoped timeline queries may declare **`l5-fork`**. Products that exchange cross-product functional dialects (lore activation, knowledge packs, assemble placement / activation trace) may declare **`narrative-modules`**: an optional `modules` (`ModuleMap`) bag on KnowledgeEntry, AssemblePacket, and TimelineEvent carries these dialects, and adapters round-trip unknown module namespaces verbatim. Domain Profile handbooks define the inner shapes.
+
+Products that interchange "who believes / wants / feels what at time t" may declare **`l5-mind`**: an optional `MindState` temporal record (snapshot / delta over the when-axis) and `modules.observation` on `TimelineEvent.modules`. The settled home of mental fields and belief labels is the holder KnowledgeEntry `modules.mental` / `modules.belief` (`narrative-modules` bag); `MindState` is strictly derivative, never a second authority. Mental-state engines stay product-owned. Opt-in, not `spoke-baseline`.
 
 Products that need signed cross-process interaction may declare **`spoke-connect`**. Composed adapter aliases: `BaselineAdapter`, `ComputableAdapter`, `ForkAdapter`, `FullAdapter`.
 
@@ -228,7 +231,7 @@ Baseline integrators use core schemas; optional capabilities are opt-in. Detail:
 - Capability-sliced ports and composed aliases (`BaselineAdapter` … `FullAdapter`)
 - Extension and module map merge and round-trip preservation (`mergeExtensionMaps` / `mergeModuleMaps`, `preserveExtensionMaps` / `preserveModuleMaps`)
 - Finding / KnowledgeEntry `status` transition helpers
-- Promote acceptance and upsert/relate validators
+- Promote acceptance, upsert/relate, and MindState wire-shape validators (`validateMindState` / `validate_mind_state`)
 - AssemblePacket builders from KnowledgeEntries
 - Unified `SpokeResult` / `SpokeRejectCode` on reject paths
 
@@ -243,6 +246,7 @@ Detail: [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops).
 | Protocol umbrella | [Protocol](https://spoke.42ch.dev/reference/protocol) |
 | Nine layers and capability levels | [Concepts](https://spoke.42ch.dev/explanation/concepts) |
 | Data objects and open vocabulary | [Data model](https://spoke.42ch.dev/reference/data-model) |
+| MindState | [MindState reference](https://spoke.42ch.dev/reference/mind-state) |
 | Ops request/response envelopes | [Ops wire](https://spoke.42ch.dev/reference/ops) |
 | Operations library behavior | [Orchestrate operations](https://spoke.42ch.dev/how-to/orchestrate-ops) |
 | Core / modules / extensions | [Data model](https://spoke.42ch.dev/reference/data-model) |

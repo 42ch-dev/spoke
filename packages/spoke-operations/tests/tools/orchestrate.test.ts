@@ -103,6 +103,23 @@ describe("orchestrateInvokeTool", () => {
     }
   });
 
+  it("rejects a null/undefined port with CAPABILITY_PORT_MISSING per-tool blame", async () => {
+    // JS boundary: `null`/`undefined` must reject structurally (same code +
+    // per-tool blame) instead of throwing a TypeError on `port.invokeTool`.
+    for (const notAPort of [null, undefined] as const) {
+      const result = await orchestrateInvokeTool(
+        notAPort as unknown as ToolInvokePort,
+        makeRequest({ capability_id: "tools.tool_demo.rank" }),
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+        expect(result.details).toEqual({ capability: "tools.tool_demo.rank" });
+      }
+    }
+  });
+
   it("does not re-run argument validation (grammar-only; arbitrary arguments reach the port)", async () => {
     const port = createEchoPort();
 

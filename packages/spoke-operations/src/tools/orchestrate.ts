@@ -3,12 +3,12 @@
  *
  * Frozen sequence (`tool-contracts.md` §5; no `requireToolInvokePort`
  * wrapper): (1) `parseToolCapabilityId(request.capability_id)` grammar gate
- * → `INVALID_INPUT`; (2) runtime guard `typeof port.invokeTool ===
- * "function"` → else `CAPABILITY_PORT_MISSING` with
+ * → `INVALID_INPUT`; (2) runtime guard `port == null || typeof
+ * port.invokeTool !== "function"` → else `CAPABILITY_PORT_MISSING` with
  * `details.capability = request.capability_id` (per-tool blame — observable
  * at the JS boundary where structural typing cannot protect dynamic
- * composition: plain objects reject structurally instead of throwing a
- * `TypeError`); (3) `port.invokeTool(request)` returned as-is.
+ * composition: null/undefined and structurally-missing ports reject instead
+ * of throwing a `TypeError`); (3) `port.invokeTool(request)` returned as-is.
  *
  * Argument validation is NOT re-run here — callers run the structural
  * argument gate (`validateToolArguments`, see `tools/helpers.ts`) before
@@ -35,10 +35,10 @@ export async function orchestrateInvokeTool(
   if (!grammar.ok) {
     return grammar;
   }
-  if (typeof port.invokeTool !== "function") {
+  if (port == null || typeof port.invokeTool !== "function") {
     return spokeReject(
       SpokeRejectCode.CAPABILITY_PORT_MISSING,
-      `Missing ToolInvokePort for capability "${request.capability_id}" (invokeTool is not a function)`,
+      `Missing ToolInvokePort for capability "${request.capability_id}" (port is null/undefined or invokeTool is not a function)`,
       { capability: request.capability_id },
     );
   }

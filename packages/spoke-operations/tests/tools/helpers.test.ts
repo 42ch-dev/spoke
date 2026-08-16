@@ -308,6 +308,62 @@ describe("validateManifestTools", () => {
       });
     }
   });
+
+  it("rejects a manifest missing capabilities and namespaces at the JS boundary", () => {
+    const {
+      capabilities: _capabilities,
+      namespaces: _namespaces,
+      ...rest
+    } = makeManifest();
+    const result = validateManifestTools(
+      rest as unknown as HostCapabilityManifest,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "capabilities" });
+    }
+  });
+
+  it("rejects a manifest missing namespaces at the JS boundary", () => {
+    const { namespaces: _namespaces, ...rest } = makeManifest();
+    const result = validateManifestTools(
+      rest as unknown as HostCapabilityManifest,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "namespaces" });
+    }
+  });
+
+  it("rejects non-array capabilities and namespaces at the JS boundary", () => {
+    const nonArrayCapabilities = makeManifest() as unknown as {
+      capabilities?: unknown;
+    };
+    nonArrayCapabilities.capabilities = "spoke-baseline";
+    const capabilitiesResult = validateManifestTools(
+      nonArrayCapabilities as unknown as HostCapabilityManifest,
+    );
+    expect(capabilitiesResult.ok).toBe(false);
+    if (capabilitiesResult.ok === false) {
+      expect(capabilitiesResult.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(capabilitiesResult.details).toEqual({ field: "capabilities" });
+    }
+
+    const nonArrayNamespaces = makeManifest() as unknown as {
+      namespaces?: unknown;
+    };
+    nonArrayNamespaces.namespaces = "tool_demo";
+    const namespacesResult = validateManifestTools(
+      nonArrayNamespaces as unknown as HostCapabilityManifest,
+    );
+    expect(namespacesResult.ok).toBe(false);
+    if (namespacesResult.ok === false) {
+      expect(namespacesResult.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(namespacesResult.details).toEqual({ field: "namespaces" });
+    }
+  });
 });
 
 describe("validateToolArguments", () => {
@@ -384,6 +440,20 @@ describe("validateToolArguments", () => {
     expect(validateToolArguments(descriptor, {}).ok).toBe(true);
   });
 
+  it("rejects a runtime non-object descriptor.input at the JS boundary", () => {
+    // JS boundary: `input: null` from unvalidated JSON must reject with the
+    // same object-ness guard as validateToolDescriptor, not throw a TypeError.
+    const descriptor = makeDescriptor({
+      input: null as unknown as ToolDescriptor["input"],
+    });
+    const result = validateToolArguments(descriptor, {});
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details).toEqual({ field: "input" });
+    }
+  });
+
   it("skips the required-keys gate when required is not an array", () => {
     const descriptor = makeDescriptor({
       input: { type: "object", required: "query" },
@@ -409,6 +479,22 @@ describe("listTools", () => {
 
   it("returns an empty array when tools is absent", () => {
     expect(listTools(makeManifestWithoutTools())).toEqual([]);
+  });
+
+  it("returns a defensive copy (mutating the result does not mutate the manifest)", () => {
+    const tools = [makeDescriptor()];
+    const manifest = makeManifest(tools);
+
+    const listed = listTools(manifest);
+    listed.push(
+      makeDescriptor({
+        capability_id: "tools.tool_demo.rank",
+        op: "tools.tool_demo.rank",
+      }),
+    );
+
+    expect(listed).toHaveLength(2);
+    expect(manifest.tools).toEqual(tools);
   });
 });
 

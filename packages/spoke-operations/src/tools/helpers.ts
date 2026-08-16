@@ -138,11 +138,31 @@ export function validateToolDescriptor(
  * `capability_id` appears in `capabilities[]`, its derived namespace is owned
  * (`namespaces[]` membership), and capability ids are unique within
  * `tools[]`. Rejects with `INVALID_INPUT` and structured `details`
- * (`field: "tools"` + `index`).
+ * (`field: "tools"` + `index`). JS-boundary presence guards reject
+ * missing/non-array `capabilities`/`namespaces` with `details.field` =
+ * `"capabilities"`/`"namespaces"`.
  */
 export function validateManifestTools(
   manifest: HostCapabilityManifest,
 ): SpokeResult<void> {
+  // JS-boundary guards (same rationale as validateToolDescriptor's
+  // input/output guards): the generated TS type declares these required, but
+  // a caller can hand us anything from unvalidated JSON. Missing or
+  // non-array fields reject structurally instead of throwing a TypeError.
+  if (!Array.isArray(manifest.capabilities)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "Manifest capabilities must be an array",
+      { field: "capabilities" },
+    );
+  }
+  if (!Array.isArray(manifest.namespaces)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "Manifest namespaces must be an array",
+      { field: "namespaces" },
+    );
+  }
   const tools = manifest.tools ?? [];
   const seen = new Map<string, number>();
   for (let index = 0; index < tools.length; index += 1) {
@@ -202,6 +222,11 @@ export function validateManifestTools(
  * No deeper JSON-Schema checking — full validation stays consumer/fixture-side.
  * `input: {}` ⇒ vacuous (unconstrained).
  *
+ * A runtime non-object `descriptor.input` (JS-boundary, unvalidated JSON)
+ * REJECTs with `INVALID_INPUT` + `details.field = "input"` — the same
+ * object-ness guard `validateToolDescriptor` applies. Chosen over a vacuous
+ * pass deliberately: a malformed schema must not silently skip the gate.
+ *
  * Named `args` because `arguments` is not a legal binding in strict-mode
  * modules; the contract's second parameter is the tool arguments object.
  */
@@ -216,7 +241,18 @@ export function validateToolArguments(
       { field: "arguments" },
     );
   }
-  const input = descriptor.input as Record<string, unknown>;
+  // JS-boundary guard: `descriptor.input` may be a runtime non-object from
+  // unvalidated JSON. REJECT (INVALID_INPUT + details.field = "input") for
+  // consistency with validateToolDescriptor's object-ness guard — deliberately
+  // not a vacuous pass, so a malformed schema cannot silently skip the gate.
+  if (!isJsonObject(descriptor.input)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ToolDescriptor input must be a JSON object subschema",
+      { field: "input" },
+    );
+  }
+  const input = descriptor.input;
   if (input["type"] !== "object" || !Array.isArray(input["required"])) {
     return spokeOk();
   }
@@ -237,9 +273,11 @@ export function validateToolArguments(
 
 /**
  * List the manifest's tools in declaration order (empty when `tools` absent).
+ * Returns a defensive copy — mutating the result does not mutate the manifest
+ * (parity with Rust `list_tools`, which returns an owned clone).
  */
 export function listTools(manifest: HostCapabilityManifest): ToolDescriptor[] {
-  return manifest.tools ?? [];
+  return [...(manifest.tools ?? [])];
 }
 
 /**

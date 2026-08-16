@@ -54,8 +54,9 @@ export function toolCapabilityId(namespace: string, toolId: string): string {
  * Parse a tool capability id into its namespace and tool id.
  *
  * Rejects with `INVALID_INPUT` for a missing `tools.` prefix and for bad
- * grammar. The pattern is the schema pattern (see `TOOL_CAPABILITY_PATTERN`),
- * so a trailing line terminator is accepted.
+ * grammar. The pattern is the schema pattern (see `TOOL_CAPABILITY_PATTERN`);
+ * ECMA-262 `$` without the `m` flag is a strict end-of-input anchor, so a
+ * trailing line terminator is rejected.
  */
 export function parseToolCapabilityId(
   id: string,
@@ -75,9 +76,8 @@ export function parseToolCapabilityId(
       { capability_id: id },
     );
   }
-  // The pattern guarantees exactly three dot-separated segments; `$` may
-  // match before a trailing line terminator, so split the matched text (not
-  // the raw input) to avoid picking up a trailing `\n`/`\r`.
+  // The pattern guarantees exactly three dot-separated segments; split the
+  // matched text for clarity (strict `$` cannot admit a trailing terminator).
   const [, namespace, toolId] = match[0].split(".");
   return spokeOk({ namespace, toolId });
 }

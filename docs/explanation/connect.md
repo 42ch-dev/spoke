@@ -40,6 +40,21 @@ The router's selection is a pure function of the registered peers and the reques
 
 Capabilities have two sources: the session's `negotiated_capabilities` (the agreed subset of both hosts' lists) and capability tokens (short-lived, capability-scoped grants from a trusted issuer). A token grant authorizes membership for the ops it covers, but it does not replace the negotiated set — both must allow an op when the token gate is active.
 
+## Bidirectional capability flow
+
+A session carries capability traffic in both directions, and the two directions have distinct shapes:
+
+| Direction | Provider | Consumer | Surface |
+|-----------|----------|----------|---------|
+| **Ports** | The host serves its local `BaselinePorts` | The dialer consumes them as a drop-in async surface | Reserved `port.*` ops over the D4 catalogue |
+| **Tools** | The dialer registers handlers for its declared tools | The host discovers them from the authenticated manifest and reverse-invokes them mid-orchestration | `tools.*` ops whose op string IS the tool capability id |
+
+The port direction is host-to-client consumption: the host's `connectResponder` serves `port.*` invokes against the injected `BaselinePorts`, and the dialer's `RemoteAdapter` proxies each port method into an invoke, so the remote port surface appears local. The tool direction is client-to-host provision: the dialer's manifest declares `tools[]`, the dialer registers handlers on its `RemoteAdapter`, and the host lists those tools from the authenticated manifest and invokes them with the responder's `invokeTool` face.
+
+Both directions negotiate through the same mechanism — a capability string must be in `negotiated_capabilities` for its op to dispatch. A tool is therefore negotiated exactly like any other capability: both peers list `tools.toy_world.roll_dice`, the pair intersects, and a `tools.toy_world.roll_dice` invoke dispatches on either side of the session. Discovery for tools is a property of the authenticated session: the host reads the dialer's manifest it already verified at the handshake, so there is no separate advertisement round-trip.
+
+The deny path is shared: an op that is not negotiated, or a tool with no registered handler, answers the wire code `op_unsupported`, mapped to a `CAPABILITY_PORT_MISSING` reject on the invoker — the orchestration observes the denial rather than a silent success. See [Expose and invoke remote tools](/how-to/connect-remote-tools) for the full recipe, and the [wire reference](/reference/connect#tools-reverse-invokes) for the field table and dispatch rule.
+
 ## Where transport lives
 
 Transport is a consumer-implemented seam. The connect packages define a message-oriented `Transport` — one connect envelope per `send` / `recv` call, blocking `recv` until an envelope arrives or the connection closes, idempotent `close` — and ship an in-memory loopback pair for tests. WebSocket and other carriers are consumer-side implementations of the same three methods; byte-stream carriers apply length-prefix (or equivalent) delimiting. The loopback pair is test-only — the smoke that dials through it is a verification flow, not a production carrier.
@@ -49,5 +64,6 @@ Transport is a consumer-implemented seam. The connect packages define a message-
 - [Open your first connect session](/tutorials/first-connect-session) — the learning path, step by step.
 - [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) — dial a remote peer over a consumer `Transport`.
 - [Route across multiple peers](/how-to/multi-peer-routing) — one router over N registered adapters.
+- [Expose and invoke remote tools](/how-to/connect-remote-tools) — the tool direction of the bidirectional flow, end to end.
 - [Connect from native bindings](/how-to/connect-native-bindings) — the shared session core over FFI.
 - [Connect wire reference](/reference/connect) — envelope field tables and the v2 envelope-authentication rules.

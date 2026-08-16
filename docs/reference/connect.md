@@ -195,6 +195,41 @@ The RemoteAdapter proxies each `BaselinePorts` method as a connect invoke with a
 
 Optional families reserve `port.computable.*` (`project` / `compute`, `l2-computable`) and `port.fork.*` (`listForkTimelineEvents`, `l5-fork`) for future products; the baseline adapter ships the table above.
 
+## Tools (reverse invokes)
+
+The manifest's `tools[]` (embedded in the hello `host`) declares the tool ABIs a peer can serve from the session. A `tools.*` invoke is a normal signed `ConnectInvokeRequest` in the reverse direction — the op string IS the capability string — and the surface is symmetric: either side of an established session registers handlers for its own declared tools and can invoke the peer's declared tools with the same `invokeTool` face. The demo and the reference provider (`fixtures/toy-world/`) ship byte-identical descriptors for `tools.toy_world.roll_dice` and `tools.toy_world.lore_lookup`.
+
+### Manifest `tools[]` field table
+
+Each entry in `HostCapabilityManifest.tools` is a `ToolDescriptor` ([`schemas/data/tool-descriptor.schema.json`](https://github.com/42ch-dev/spoke/blob/main/schemas/data/tool-descriptor.schema.json)):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `schema_version` | number | The shared `SchemaVersion` |
+| `capability_id` | string | The tool capability string `tools.<ns>.<tool_id>` matching `^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$`; the namespace must be owned by the declaring manifest (`namespaces[]` membership) |
+| `op` | string | The wire op for this tool; MUST equal `capability_id` (draft-07 cannot express cross-field equality, so the helpers enforce it) |
+| `description` | string | Human-readable tool description |
+| `input` | object | Opaque JSON Schema draft-07 subschema describing the tool arguments; an empty object `{}` declares no constraint |
+| `output` | object | Opaque JSON Schema draft-07 subschema describing the success result; an empty object `{}` declares no constraint |
+| `idempotent` | boolean | Advisory idempotency metadata (default `false`); the protocol defines no idempotency-key machinery |
+
+`validateManifestTools` (spoke-operations) checks a manifest's `tools[]` against the manifest itself: each descriptor is valid, its `capability_id` appears in `capabilities[]`, its namespace is owned in `namespaces[]`, and tool ids are unique. `listTools` returns the descriptors in declaration order. Both helpers run on the host at discovery time and on the provider before the dial.
+
+### The `tools.*` dispatch rule
+
+A `tools.*` invoke dispatches when both conditions hold:
+
+1. **Negotiated** — the op string itself is in the session's `negotiated_capabilities`; both peers declared the tool's capability id, so the pair negotiated it. The tools family is self-describing: it does not ride on `spoke-baseline`.
+2. **Registered** — the serving side has a handler registered for the exact capability id (`registerToolHandler` on the RemoteAdapter or the responder).
+
+Both gates are fail-closed: an unnegotiated tool answers the dispatch-deny code `op_unsupported`, and a negotiated tool with no registered handler answers `op_unsupported` (handler-or-deny serving). A throwing handler answers the error branch through `toErrorEnvelope`; the serve loop never crashes.
+
+The request payload carries the tool arguments as `{ "arguments": <opaque JSON> }`; the success payload is `{ "result": <opaque JSON> }` — `invokeTool` extracts the `result` and rejects a success payload without one.
+
+### Reverse-invoke semantics
+
+`invokeTool(capabilityId, args)` issues a signed `ConnectInvokeRequest` with `op = capabilityId` toward the peer and resolves with the tool's `result`. Deny answers map through the shared error row: `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved — the caller observes the denial, never a silent success. The face exists on both the RemoteAdapter and the responder (`connectResponder`): the host invokes the dialer's tools mid-orchestration with the responder's face, and a dialer invokes the host's declared tools with the adapter's face. A non-`tools.` id fails fast (grammar error, `INVALID_INPUT`). The handler registry does not mutate the manifest — descriptor truth for discovery stays in `tools[]`, and a declared-but-unregistered tool is a provider bug caught by `validateManifestTools` before the hello.
+
 ## Discovery and peering
 
 **Explicit peering is the production path**: hosts are configured with listen addresses and dial each other out-of-band (configured addresses or direct dial). The connect wire carries no discovery fields — discovery is transport-side and session admission stays fully gated by the allowlist and signed-hello gates.
@@ -233,6 +268,7 @@ The session-core rules — allowlist, `peer_id` derive and reverse, hello crypto
 - [Connect from the TypeScript client](/how-to/connect-ts-client) — the language-native client surface.
 - [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) — dial a remote peer over a consumer `Transport` and call its `BaselinePorts` surface.
 - [Route across multiple peers](/how-to/multi-peer-routing) — the router recipe over N registered adapters.
+- [Expose and invoke remote tools](/how-to/connect-remote-tools) — advertise, register, discover, and reverse-invoke tools over a session.
 - [Connect from native bindings](/how-to/connect-native-bindings) — the FFI bindings with install pins.
 - [Connect architecture](/explanation/connect) — session lifecycle, envelope authentication, and capability routing.
 - [Protocol reference](/reference/protocol) — the `spoke-connect` capability flag.

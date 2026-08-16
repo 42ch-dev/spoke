@@ -233,6 +233,7 @@ host.close();
 ## 下一步
 
 - [集成 RemoteAdapter 连接推理主机](/zh/tutorials/integrate-remote-adapter) —— 以 demo 模拟推理主机逐步走通同一契约的学习路径。
+- [暴露并调用远程工具](/zh/how-to/connect-remote-tools) —— 在清单中通告工具、在拨号时注册处理器，并让主机发现与反向调用它们。
 - [跨多个对等节点路由](/zh/how-to/multi-peer-routing) —— 多对等节点路由器在同一个 `BaselinePorts` 面之后组合 N 个已注册 adapter。
 - [从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— 从 C#、Go、Kotlin、Python 或 Swift 以同步 FFI 面使用相同的 adapter 生命周期。
 - [从 TypeScript 客户端连接](/zh/how-to/connect-ts-client) —— 语言原生客户端面，包括 `./remote` 入口。

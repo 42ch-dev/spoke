@@ -20,7 +20,7 @@ Six interaction envelopes ([`schemas/connect/`](https://github.com/42ch-dev/spok
 
 ## Schema inventory and codegen posture
 
-The wire inventory is **31 committed `*.schema.json` files**: 2 common + 9 data + 14 ops + 6 connect envelopes. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` fails the build if the generated tree drifts from `schemas/`; schema changes and regenerated output land in the same commit.
+The wire inventory is **32 committed `*.schema.json` files**: 2 common + 10 data + 14 ops + 6 connect envelopes. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` fails the build if the generated tree drifts from `schemas/`; schema changes and regenerated output land in the same commit.
 
 ## Extensions contract
 

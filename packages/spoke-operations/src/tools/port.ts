@@ -20,7 +20,7 @@ import type { SpokeResult } from "../result.js";
 export type ToolInvokeRequest = {
   /** Tool capability string `tools.<ns>.<tool_id>`. */
   capability_id: string;
-  /** Opaque JSON arguments object for the tool. */
+  /** Opaque JSON arguments object for the tool. Intentionally tighter than Rust's `Value` (any JSON incl. `null`): a non-object payload only reaches the port via a deliberate cast — do not "align" later. */
   arguments: Record<string, unknown>;
 };
 

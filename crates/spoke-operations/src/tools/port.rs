@@ -19,7 +19,9 @@ use serde_json::Value;
 pub struct ToolInvokeRequest {
     /// Tool capability string `tools.<ns>.<tool_id>`.
     pub capability_id: String,
-    /// Opaque JSON arguments object for the tool.
+    /// Opaque JSON arguments object for the tool. Rust intentionally keeps the
+    /// loose `Value`; TS narrows to `Record<string, unknown>` at the JS
+    /// boundary — do not align.
     pub arguments: Value,
 }
 

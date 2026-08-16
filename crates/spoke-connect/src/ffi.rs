@@ -766,6 +766,7 @@ mod remote_adapter_ffi {
 mod multi_peer_router_ffi {
     use std::sync::Arc;
 
+    use serde_json::Value;
     use spoke_operations::{
         FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
         ScopeQueryPort,
@@ -867,6 +868,32 @@ mod multi_peer_router_ffi {
 
         pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
             map_spoke_result(ffi_block_on(self.router.list_peer_host_capability_manifests())?)
+        }
+
+        /// Reverse-invoke face (D15): route a `tools.<ns>.<tool_id>` invoke
+        /// to the registered peer whose cached hello manifest advertises the
+        /// exact tool capability (deterministic lowest-`peer_id` tie-break),
+        /// and return the serving peer's tool `result` payload as a JSON
+        /// string. The library router does all selection — this face adds no
+        /// routing logic of its own; with no capable peer the terminal
+        /// `Rejected { code: "CAPABILITY_PORT_MISSING", kind:
+        /// Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`
+        /// crosses with the capability id embedded in `message`.
+        ///
+        /// Same boundary conventions as
+        /// [`RemoteAdapterFFI::invoke_tool`]: a non-`tools.` id and
+        /// malformed `arguments_json` both fail fast with
+        /// `FfiError::Rejected { code: "INVALID_INPUT", .. }` before any
+        /// peer selection, with zero wire traffic.
+        pub fn invoke_tool(
+            &self,
+            capability_id: String,
+            arguments_json: String,
+        ) -> Result<String, FfiError> {
+            let arguments: Value = parse_json_field(&arguments_json, "tool arguments")?;
+            map_spoke_result(ffi_block_on(
+                self.router.invoke_tool(&capability_id, arguments),
+            )?)
         }
     }
 
@@ -3260,14 +3287,18 @@ mod remote_adapter_ffi_tests {
 
 #[cfg(all(test, feature = "remote-adapter"))]
 mod multi_peer_router_ffi_tests {
-    use std::sync::Arc;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     use ed25519_dalek::SigningKey;
+    use serde_json::{json, Value};
     use spoke_fixture_toy_world::ToyWorldAdapter;
+    use spoke_operations::spoke_ok;
 
     use crate::core::derive_peer_id_from_ed25519_pubkey;
     use crate::remote::{
-        connect_remote_adapter, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity,
+        connect_remote_adapter, connect_responder, ConnectResponderOptions, RemoteAdapter,
+        RemoteAdapterOptions, RemoteIdentity,
     };
     use crate::test_support::loopback_oracle::{
         fresh_entry, manifest, pubkey_client, seed_client, start_loopback_host,
@@ -3656,6 +3687,305 @@ mod multi_peer_router_ffi_tests {
 
         adapter.close();
         host.close();
+    }
+
+    // ── D15: `MultiPeerRouterFFI.invoke_tool` (router tool face) ──────────
+
+    /// Tool-carrying manifest: every tool capability id appears both in
+    /// `capabilities[]` (the router's tools hard filter — the required
+    /// capability IS the op string) and in `tools[]` (hello descriptors).
+    fn tool_manifest_with(
+        host_id: &str,
+        capabilities: &[&str],
+        tool_ids: &[&str],
+    ) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": capabilities,
+            "namespaces": ["math", "echo"],
+            "extensions": {},
+            "tools": tool_ids
+                .iter()
+                .map(|id| json!({
+                    "schema_version": 1,
+                    "capability_id": id,
+                    "op": id,
+                    "description": id,
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .expect("valid tool manifest")
+    }
+
+    /// Records the arguments object and returns `{ "sum": a + b }`.
+    fn add_handler(calls: Arc<Mutex<Vec<Value>>>) -> crate::remote::ToolHandler {
+        Arc::new(move |args: Value| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().expect("calls lock").push(args.clone());
+                let a = args.get("a").and_then(Value::as_i64).unwrap_or(0);
+                let b = args.get("b").and_then(Value::as_i64).unwrap_or(0);
+                spoke_ok(json!({ "sum": a + b }))
+            })
+        })
+    }
+
+    /// Records the arguments object and returns `{ "echo": args }`.
+    fn echo_handler(calls: Arc<Mutex<Vec<Value>>>) -> crate::remote::ToolHandler {
+        Arc::new(move |args: Value| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().expect("calls lock").push(args.clone());
+                spoke_ok(json!({ "echo": args }))
+            })
+        })
+    }
+
+    /// Dial one library adapter against a `connect_responder` serving double
+    /// that answers `tools.*` invokes (D14 topology: router tool invokes
+    /// travel initiator→responder and are served by the peer's responder-side
+    /// tool serving). The dialer advertises the same tool set as its peer so
+    /// the negotiated capabilities include the `tools.*` ops (D13 gate).
+    async fn dial_tool_peer(
+        host_seed: [u8; 32],
+        host_manifest: spoke_schemas::HostCapabilityManifest,
+    ) -> (Arc<RemoteAdapter>, Arc<crate::remote::ConnectResponder>) {
+        let host_pubkey = SigningKey::from_bytes(&host_seed)
+            .verifying_key()
+            .to_bytes();
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&host_pubkey);
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let responder = connect_responder(ConnectResponderOptions {
+            transport: Arc::new(pair.server),
+            identity: RemoteIdentity { seed: host_seed },
+            manifest: host_manifest.clone(),
+            allowlist: vec![peer_id_client.clone()],
+            peer_keys: HashMap::from([(peer_id_client.clone(), pubkey_client())]),
+            ports: None,
+            invoke_timeout_ms: None,
+        })
+        .await;
+        let client = connect_remote_adapter(RemoteAdapterOptions {
+            transport: Arc::new(pair.client),
+            local_identity: RemoteIdentity {
+                seed: seed_client(),
+            },
+            local_manifest: host_manifest,
+            remote_pubkey: host_pubkey,
+            allowlist: vec![peer_id_host],
+            invoke_timeout_ms: None,
+            capability_token: None,
+        })
+        .await
+        .expect("dial");
+        (client, responder)
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_routes_to_the_peer_whose_manifest_offers_the_tool() {
+        let (add_adapter, add_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf1; 32],
+                tool_manifest_with(
+                    "host-add",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let (echo_adapter, echo_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf2; 32],
+                tool_manifest_with(
+                    "host-echo",
+                    &["spoke-baseline", "tools.echo.echo"],
+                    &["tools.echo.echo"],
+                ),
+            )
+            .await
+        });
+        let add_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let echo_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        add_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&add_calls)));
+        echo_responder.register_tool_handler(
+            "tools.echo.echo",
+            echo_handler(Arc::clone(&echo_calls)),
+        );
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(add_adapter.clone()))
+            .expect("register add peer");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(echo_adapter.clone()))
+            .expect("register echo peer");
+
+        // tools.math.add is advertised only by the add peer.
+        let sum_json = router
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 20, "b": 22}"#.to_string())
+            .expect("add routes to the capable peer");
+        let sum: Value = serde_json::from_str(&sum_json).expect("sum json");
+        assert_eq!(sum, json!({ "sum": 42 }));
+        assert_eq!(add_calls.lock().expect("add calls lock").len(), 1);
+        assert!(echo_calls.lock().expect("echo calls lock").is_empty());
+
+        // tools.echo.echo is advertised only by the echo peer.
+        let echo_json = router
+            .invoke_tool("tools.echo.echo".to_string(), r#"{"msg": "hi"}"#.to_string())
+            .expect("echo routes to the capable peer");
+        let echo: Value = serde_json::from_str(&echo_json).expect("echo json");
+        assert_eq!(echo, json!({ "echo": { "msg": "hi" } }));
+        assert_eq!(echo_calls.lock().expect("echo calls lock").len(), 1);
+        assert_eq!(add_calls.lock().expect("add calls lock").len(), 1);
+
+        add_adapter.close();
+        echo_adapter.close();
+        add_responder.close();
+        echo_responder.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_breaks_ties_on_the_lowest_peer_id() {
+        let (alpha_adapter, alpha_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf3; 32],
+                tool_manifest_with(
+                    "host-alpha",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let (beta_adapter, beta_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf4; 32],
+                tool_manifest_with(
+                    "host-beta",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let (gamma_adapter, gamma_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf5; 32],
+                tool_manifest_with(
+                    "host-gamma",
+                    &["spoke-baseline", "tools.echo.echo"],
+                    &["tools.echo.echo"],
+                ),
+            )
+            .await
+        });
+        let alpha_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let beta_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        alpha_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&alpha_calls)));
+        beta_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&beta_calls)));
+        gamma_responder.register_tool_handler(
+            "tools.echo.echo",
+            echo_handler(Arc::new(Mutex::new(Vec::new()))),
+        );
+
+        let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
+        let beta_id = beta_adapter.remote_peer_id().expect("beta peer id");
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(beta_adapter.clone()))
+            .expect("register beta");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(alpha_adapter.clone()))
+            .expect("register alpha");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(gamma_adapter.clone()))
+            .expect("register gamma");
+
+        let result_json = router
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 1, "b": 2}"#.to_string())
+            .expect("tie-break invoke routes");
+        let result: Value = serde_json::from_str(&result_json).expect("result json");
+        assert_eq!(result, json!({ "sum": 3 }));
+
+        // Deterministic tie-break: the lowest peer_id (UTF-8 byte order)
+        // serves the invoke; the higher matching peer stays idle.
+        let (winner_calls, loser_calls) = if alpha_id < beta_id {
+            (alpha_calls, beta_calls)
+        } else {
+            (beta_calls, alpha_calls)
+        };
+        assert_eq!(
+            winner_calls.lock().expect("winner lock").len(),
+            1,
+            "lowest peer_id must serve the tool invoke"
+        );
+        assert!(loser_calls.lock().expect("loser lock").is_empty());
+
+        alpha_adapter.close();
+        beta_adapter.close();
+        gamma_adapter.close();
+        alpha_responder.close();
+        beta_responder.close();
+        gamma_responder.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_rejects_no_capable_peer_with_capability_id_in_message() {
+        let (echo_adapter, echo_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf6; 32],
+                tool_manifest_with(
+                    "host-echo",
+                    &["spoke-baseline", "tools.echo.echo"],
+                    &["tools.echo.echo"],
+                ),
+            )
+            .await
+        });
+        let echo_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        echo_responder.register_tool_handler(
+            "tools.echo.echo",
+            echo_handler(Arc::clone(&echo_calls)),
+        );
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(echo_adapter.clone()))
+            .expect("register echo peer");
+
+        // No registered peer advertises tools.math.add → the locked terminal
+        // reject, with the capability id embedded in the message.
+        let err = router
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("no capable peer must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: Some(kind),
+                wire_code: Some(wire),
+                ..
+            } if code == "CAPABILITY_PORT_MISSING"
+                && kind == "no_capable_peer"
+                && wire == "no_capable_peer"
+                && message.contains("tools.math.add")
+        ));
+        assert!(
+            echo_calls.lock().expect("echo calls lock").is_empty(),
+            "no capable peer must not reach any serving double"
+        );
+
+        echo_adapter.close();
+        echo_responder.close();
     }
 
 

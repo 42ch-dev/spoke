@@ -173,14 +173,13 @@ crates/spoke-connect/bindings/csharp/runtimes/
 # Morning Star harness (.mstar/)
 # Principle: process stays local; results are shared with the team.
 # Ignored (process / coordination):
-.mstar/archived/
-.mstar/iterations/
-.mstar/plans/
-.mstar/sdd/
-.mstar/references/
-.mstar/notes.json
-.mstar/status.json
-.worktrees/
+.mstar/**
+!.mstar/knowledge/
+!.mstar/knowledge/**
+!.mstar/specs/
+!.mstar/specs/**
+!.mstar/AGENTS.md
+!.mstar/roadmap.md
 # Tracked (results): .mstar/AGENTS.md, .mstar/roadmap.md, .mstar/knowledge/, .mstar/specs/
 
 # Morning Star status write lock (local coordination)

@@ -40,6 +40,21 @@ connect 会话经过四个状态：`Disconnected` → `Handshaking` → `Establi
 
 能力有两个来源：会话的 `negotiated_capabilities`（双方列表的协商子集）与 capability token（能力令牌，来自受信任签发方的短期、按能力授权的授权证明）。令牌授权为其覆盖的 ops 授权成员资格，但并不取代协商集 —— 令牌门禁生效时，两者都必须允许该 op。
 
+## 双向能力流
+
+一条会话在两个方向承载能力流量，两个方向的形状不同：
+
+| 方向 | 提供方 | 消费方 | 面 |
+|------|--------|--------|-----|
+| **ports** | 主机提供其本地 `BaselinePorts` | 拨号方以可即插即用的异步面消费 | 经 D4 目录的保留 `port.*` op |
+| **工具（tools）** | 拨号方为其声明的工具注册处理器 | 主机从已认证清单中发现它们并在编排中途反向调用 | `tools.*` op，其 op 字符串就是工具能力 id |
+
+port 方向是主机到客户端的消费：主机的 `connectResponder` 针对注入的 `BaselinePorts` 服务 `port.*` invoke，拨号方的 `RemoteAdapter`（远程适配器）把每个 port 方法代理为一次 invoke，因此远端 port 面看起来就在本地。工具方向是客户端到主机的提供：拨号方的清单声明 `tools[]`，拨号方在其 `RemoteAdapter` 上注册处理器，主机从已认证清单中列出这些工具，并以响应方的 `invokeTool` 面调用它们。
+
+两个方向经同一机制协商 —— 能力字符串必须在 `negotiated_capabilities`（协商能力）中，其 op 才能被分派。因此工具与任何其它能力一样被协商：双方都列出 `tools.toy_world.roll_dice`，双方取交集，`tools.toy_world.roll_dice` invoke 就能在会话任一侧分派。工具发现是已认证会话的属性：主机读取的是它在握手时已校验的拨号方清单，因此不存在独立的通告往返。
+
+拒绝路径是共享的：未协商的 op，或没有注册处理器的工具，以线上码 `op_unsupported` 应答，在调用方映射为 `CAPABILITY_PORT_MISSING` 拒绝 —— 编排观察到拒绝而非静默成功。完整配方见[暴露并调用远程工具](/zh/how-to/connect-remote-tools)，字段表与分派规则见[线上参考](/zh/reference/connect#工具-反向调用)。
+
 ## 传输层在哪里
 
 传输是消费方实现的接缝。connect 软件包定义一个消息导向的 `Transport`（传输接口）—— 每次 `send` / `recv` 调用一个 connect 信封，`recv` 阻塞直到信封到达或连接关闭，`close` 幂等 —— 并附带一个内存回环对（loopback，测试用途）供测试。WebSocket 与其它载体是同样的三个方法的消费方侧实现；字节流载体应用长度前缀（或等价方式）定界。回环对仅供测试 —— 经它拨号的冒烟测试是验证流程，不是生产载体。
@@ -49,5 +64,6 @@ connect 会话经过四个状态：`Disconnected` → `Handshaking` → `Establi
 - [开启你的首个 connect 会话](/zh/tutorials/first-connect-session) —— 逐步的学习路径。
 - [通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter) —— 经消费方 `Transport` 拨号远端对等节点。
 - [跨多个对等节点路由](/zh/how-to/multi-peer-routing) —— 一个路由器管理 N 个已注册 adapter。
+- [暴露并调用远程工具](/zh/how-to/connect-remote-tools) —— 双向能力流中的工具方向，端到端。
 - [从原生绑定连接](/zh/how-to/connect-native-bindings) —— 经 FFI 的共享会话核心。
 - [connect 线上参考](/zh/reference/connect) —— 信封字段表与 v2 信封认证规则。

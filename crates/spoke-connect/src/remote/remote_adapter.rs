@@ -455,8 +455,10 @@ pub struct RemoteAdapter {
     /// `register_tool_handler` fills it; the receive loop's serving path
     /// looks it up by exact capability id. The local manifest's `tools[]`
     /// (carried through hello) is the discovery source — this registry MUST
-    /// NOT mutate the manifest; a registry/manifest mismatch is a provider
-    /// bug caught pre-hello by `validate_manifest_tools`.
+    /// NOT mutate the manifest; a registry/manifest mismatch is surfaced at
+    /// invoke time — a manifest-declared tool with no registered handler is
+    /// denied fail-closed (`op_unsupported` → `CAPABILITY_PORT_MISSING`);
+    /// `validate_manifest_tools` checks manifest-internal consistency only.
     tool_handlers: Mutex<HashMap<String, ToolHandler>>,
 }
 
@@ -540,8 +542,9 @@ impl RemoteAdapter {
     /// The registry does NOT mutate the local manifest — descriptor truth
     /// for discovery stays in the manifest's `tools[]` (sent through
     /// hello); registering a handler for a tool the manifest does not
-    /// declare is a provider bug caught pre-hello by
-    /// `validate_manifest_tools`.
+    /// declare leaves that id unserved — invoking it answers the
+    /// dispatch-deny branch; `validate_manifest_tools` checks
+    /// manifest-internal consistency only.
     pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
         match parse_tool_capability_id(capability_id) {
             SpokeResult::Ok(_) => {}

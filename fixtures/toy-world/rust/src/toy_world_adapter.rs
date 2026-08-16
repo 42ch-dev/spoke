@@ -1,38 +1,82 @@
 //! Toy-world reference adapter — FullAdapter over an in-memory OCC store.
 
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use spoke_operations::{
-    spoke_ok, spoke_reject, ComputablePort, ComputablePorts, FindingPort, ForkPorts,
+    find_tool, list_tools, parse_tool_capability_id, spoke_ok, spoke_reject,
+    validate_tool_arguments, ComputablePort, ComputablePorts, FindingPort, ForkPorts,
     ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
     ScopeQueryPort, SpokeRejectCode, SpokeResult,
 };
+use spoke_schemas::host_capability_manifest::ToolDescriptor;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
     ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 use crate::memory_store::{load_op_fixture, MemoryStore, MemoryStoreSeed};
+use crate::toy_world_tools::{default_tool_handlers, ToolHandler};
 
 /// Toy-world reference adapter — implements FullAdapter over an in-memory store.
-#[derive(Debug)]
 pub struct ToyWorldAdapter {
-    store: Mutex<MemoryStore>,
+    store: Arc<Mutex<MemoryStore>>,
+    /// Tool-handler registry (plan-3 serving surface): `register_tool_handler`
+    /// fills it; `invoke_tool` dispatches by exact capability id. The registry
+    /// MUST NOT mutate the manifest — descriptor truth for discovery stays in
+    /// the manifest's `tools[]`; a registry/manifest mismatch is invisible to
+    /// `validate_manifest_tools` (manifest-internal consistency only) and is
+    /// denied fail-closed at invoke time with `CAPABILITY_PORT_MISSING`.
+    tool_handlers: Mutex<HashMap<String, ToolHandler>>,
+}
+
+impl fmt::Debug for ToyWorldAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let handler_count = self
+            .tool_handlers
+            .lock()
+            .map(|handlers| handlers.len())
+            .unwrap_or(0);
+        f.debug_struct("ToyWorldAdapter")
+            .field("store", &self.store)
+            .field("tool_handler_count", &handler_count)
+            .finish()
+    }
 }
 
 impl ToyWorldAdapter {
     pub fn new(seed: Option<MemoryStoreSeed>) -> Self {
+        let store = Arc::new(Mutex::new(MemoryStore::new(seed)));
         Self {
-            store: Mutex::new(MemoryStore::new(seed)),
+            store: store.clone(),
+            tool_handlers: Mutex::new(default_tool_handlers(store)),
         }
     }
 
     pub fn from_store(store: MemoryStore) -> Self {
+        let store = Arc::new(Mutex::new(store));
         Self {
-            store: Mutex::new(store),
+            store: store.clone(),
+            tool_handlers: Mutex::new(default_tool_handlers(store)),
+        }
+    }
+
+    /// Construct with an explicit tool-handler registry (advanced/test use):
+    /// pass an empty map to build a provider whose manifest declares tools
+    /// but serves none — the declared-but-unregistered provider-bug state.
+    /// The caller's map is used verbatim (no defaults are registered).
+    pub fn from_store_with_handlers(
+        store: MemoryStore,
+        handlers: HashMap<String, ToolHandler>,
+    ) -> Self {
+        let store = Arc::new(Mutex::new(store));
+        Self {
+            store: store.clone(),
+            tool_handlers: Mutex::new(handlers),
         }
     }
 
@@ -243,6 +287,75 @@ impl ForkTimelineQueryPort for ToyWorldAdapter {
                 .collect();
             spoke_ok(events)
         })
+    }
+}
+
+// ── Tool serving (reference provider surface) ─────────────────────────────
+
+impl ToyWorldAdapter {
+    /// List the tools this provider declares, in manifest order (owned
+    /// clone — parity with `list_tools`).
+    pub fn tool_descriptors(&self) -> Vec<ToolDescriptor> {
+        list_tools(&toy_world_self_manifest())
+    }
+
+    /// Register a handler for a `tools.<ns>.<tool_id>` capability (plan-3
+    /// surface parity). Grammar-asserted: a non-`tools.` id panics (provider
+    /// misuse, mirroring `RemoteAdapter::register_tool_handler`). Duplicate
+    /// registration OVERWRITES the previous handler (last-wins, documented).
+    /// The registry does NOT mutate the manifest.
+    pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
+        match parse_tool_capability_id(capability_id) {
+            SpokeResult::Ok(_) => {}
+            SpokeResult::Reject(reject) => {
+                panic!("{}", reject.message);
+            }
+        }
+        self.tool_handlers
+            .lock()
+            .expect("tool handlers lock")
+            .insert(capability_id.to_owned(), handler);
+    }
+
+    /// Invoke a declared tool by capability id. Grammar gate, then descriptor
+    /// lookup in the self manifest, then the structural argument gate
+    /// (`validate_tool_arguments`), then dispatch to the registered handler.
+    /// A tool that is not listed in the manifest rejects with
+    /// `CAPABILITY_PORT_MISSING` (no silent success); a declared tool without
+    /// a registered handler is a provider bug and rejects the same way.
+    pub async fn invoke_tool(&self, capability_id: &str, args: Value) -> SpokeResult<Value> {
+        match parse_tool_capability_id(capability_id) {
+            SpokeResult::Ok(_) => {}
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        }
+        let manifest = toy_world_self_manifest();
+        let Some(descriptor) = find_tool(&manifest, capability_id) else {
+            // Structured details parity with the TS adapter (M2): the
+            // reject carries `{ capability: capability_id }`, matching the
+            // TS connect-style rejects.
+            return spoke_reject(
+                SpokeRejectCode::CapabilityPortMissing,
+                format!("Tool \"{capability_id}\" is not declared in the toy-world manifest (tools[])"),
+                Some(json!({ "capability": capability_id }).as_object().expect("details object").clone()),
+            );
+        };
+        if let SpokeResult::Reject(reject) = validate_tool_arguments(&descriptor, &args) {
+            return SpokeResult::Reject(reject);
+        }
+        let handler = self
+            .tool_handlers
+            .lock()
+            .expect("tool handlers lock")
+            .get(capability_id)
+            .cloned();
+        let Some(handler) = handler else {
+            return spoke_reject(
+                SpokeRejectCode::CapabilityPortMissing,
+                format!("Tool \"{capability_id}\" is declared but has no registered handler"),
+                Some(json!({ "capability": capability_id }).as_object().expect("details object").clone()),
+            );
+        };
+        handler(args).await
     }
 }
 

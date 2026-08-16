@@ -195,6 +195,41 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 
 可选族保留 `port.computable.*`（`project` / `compute`、`l2-computable`）与 `port.fork.*`（`listForkTimelineEvents`、`l5-fork`）供未来产品使用；基线 adapter 交付上表。
 
+## 工具（反向调用）
+
+清单的 `tools[]`（内嵌于握手 `host`）声明对等节点可以从会话提供服务的工具 ABI。`tools.*` invoke 是反方向的一条普通签名 `ConnectInvokeRequest` —— op 字符串就是能力字符串 —— 且该面是对称的：已建立会话的任一侧为自身声明的工具注册处理器，并可以用同一个 `invokeTool` 面调用对端声明的工具。demo 与参考提供方（`fixtures/toy-world/`）为 `tools.toy_world.roll_dice` 与 `tools.toy_world.lore_lookup` 交付逐字节一致的描述符。
+
+### 清单 `tools[]` 字段表
+
+`HostCapabilityManifest.tools` 中的每一项是一个 `ToolDescriptor`（[`schemas/data/tool-descriptor.schema.json`](https://github.com/42ch-dev/spoke/blob/main/schemas/data/tool-descriptor.schema.json)）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `schema_version` | number | 共享的 `SchemaVersion` |
+| `capability_id` | string | 工具能力字符串 `tools.<ns>.<tool_id>`，匹配 `^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$`；namespace 必须由声明清单拥有（`namespaces[]` 成员） |
+| `op` | string | 该工具的线上 op；必须等于 `capability_id`（draft-07 无法表达跨字段相等，由辅助函数强制） |
+| `description` | string | 人类可读的工具描述 |
+| `input` | object | 描述工具参数的不透明 JSON Schema draft-07 子 schema；空对象 `{}` 声明无约束 |
+| `output` | object | 描述成功结果的不透明 JSON Schema draft-07 子 schema；空对象 `{}` 声明无约束 |
+| `idempotent` | boolean | 咨询性幂等元数据（默认 `false`）；协议不定义幂等键机制 |
+
+`validateManifestTools`（spoke-operations）对照清单自身检查其 `tools[]`：每个描述符有效、其 `capability_id` 出现在 `capabilities[]` 中、其 namespace 在 `namespaces[]` 中被拥有、且工具 id 唯一。`listTools` 按声明顺序返回描述符。两个辅助函数都是纯函数 —— 库不会自动调用它们；demo 主机在发现时对拨号方的清单运行它们，集成方应在任何以清单为门禁之处自行调用。
+
+### `tools.*` 分派规则
+
+当两个条件都成立时，`tools.*` invoke 才被分派：
+
+1. **已协商** —— op 字符串本身在会话的 `negotiated_capabilities`（协商能力）中；双方都声明了该工具的能力 id，因此双方协商了它。工具族是自描述的：它不依赖 `spoke-baseline`。
+2. **已注册** —— 服务侧为精确的能力 id 注册了处理器（RemoteAdapter 或响应方上的 `registerToolHandler`）。
+
+两个门禁都 fail-closed：未协商的工具以分派拒绝码 `op_unsupported` 应答；已协商但无注册处理器的工具以 `op_unsupported` 应答（处理器或拒绝式服务）。抛异常的处理器经 `toErrorEnvelope` 应答错误分支；服务循环从不崩溃。
+
+请求载荷以 `{ "arguments": <opaque JSON> }` 携带工具参数；成功载荷为 `{ "result": <opaque JSON> }` —— `invokeTool` 提取 `result`，并拒绝缺少 `result` 的成功载荷。
+
+### 反向调用语义
+
+`invokeTool(capabilityId, args)` 向对端发出以 `op = capabilityId` 的签名 `ConnectInvokeRequest`，并以工具的 `result` 结算。拒绝应答经共享错误行映射：`op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝 —— 调用方观察到拒绝，而非静默成功。该面同时存在于 RemoteAdapter 与响应方（`connectResponder`）：主机以响应方的面在编排中途调用拨号方的工具；拨号方以 adapter 的面调用主机声明的工具。非 `tools.` id 快速失败（语法错误，`INVALID_INPUT`）。处理器注册表不修改清单 —— 用于发现的描述符真源保持在 `tools[]`。已声明但未注册的工具能通过 `validateManifestTools` —— 注册不属于清单内容 —— 并在调用时以 `CAPABILITY_PORT_MISSING` 被拒绝。
+
 ## 发现与显式对等连接
 
 **显式对等连接（explicit peering）是生产路径**：主机配置监听地址，并经带外方式互相拨号（配置的地址或直接拨号）。connect 线上不携带任何发现字段 —— 发现属传输侧职责，会话准入仍完全由 allowlist 与签名握手门禁把关。
@@ -233,6 +268,7 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 - [从 TypeScript 客户端连接](/zh/how-to/connect-ts-client) —— 语言原生客户端面。
 - [通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter) —— 经消费方 `Transport` 拨号远端对等节点并调用其 `BaselinePorts` 面。
 - [跨多个对等节点路由](/zh/how-to/multi-peer-routing) —— 管理 N 个已注册 adapter 的路由器配方。
+- [暴露并调用远程工具](/zh/how-to/connect-remote-tools) —— 在会话上通告、注册、发现并反向调用工具。
 - [从原生绑定连接](/zh/how-to/connect-native-bindings) —— 带安装固定的 FFI 绑定。
 - [Connect 架构](/zh/explanation/connect) —— 会话生命周期、信封认证与能力路由。
 - [协议参考](/zh/reference/protocol) —— `spoke-connect` 能力标志。

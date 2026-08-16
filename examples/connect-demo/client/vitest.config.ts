@@ -25,6 +25,10 @@ export default defineConfig({
         REPO_ROOT,
         "packages/spoke-connect-ts/src/index.ts",
       ),
+      "@42ch/spoke-operations": join(
+        REPO_ROOT,
+        "packages/spoke-operations/src/index.ts",
+      ),
       // The demo server is a devDependency of the client (e2e only) — alias
       // to its source entry so the e2e needs no prior demo build either.
       "@42ch/spoke-demo-server": join(

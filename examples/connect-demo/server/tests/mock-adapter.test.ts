@@ -19,9 +19,9 @@ import type {
   Rule,
   Scope,
 } from "@42ch/spoke-schemas";
-import { SpokeRejectCode, type SpokeResult } from "@42ch/spoke-operations";
+import { SpokeRejectCode, validateManifestTools, type SpokeResult } from "@42ch/spoke-operations";
 
-import { MockAdapter } from "../src/adapter/mock-adapter.js";
+import { DEMO_SERVER_MANIFEST, MockAdapter } from "../src/adapter/mock-adapter.js";
 import { MockEngine } from "../src/engine/mock-engine.js";
 import {
   DEMO_SEED_ENTRIES,
@@ -342,14 +342,14 @@ describe("host manifest", () => {
     const manifest = await adapter.getHostCapabilityManifest();
     expect(manifest.ok).toBe(true);
     if (manifest.ok) {
-      expect(manifest.value).toEqual({
-        schema_version: 1,
-        host_id: "demo-inference-host",
-        roles: ["checker", "assembler"],
-        capabilities: ["spoke-baseline"],
-        namespaces: ["demo-harbor"],
-        extensions: {},
-      });
+      // The server manifest declares the negotiated tool ids too (see
+      // DEMO_SERVER_MANIFEST) — assert against the exported constant so the
+      // fixture surface and the negotiation story stay in lockstep.
+      expect(manifest.value).toEqual(DEMO_SERVER_MANIFEST);
+      const toolsValidated = validateManifestTools(manifest.value);
+      expect(toolsValidated.ok, toolsValidated.ok ? undefined : toolsValidated.message).toBe(
+        true,
+      );
     }
   });
 

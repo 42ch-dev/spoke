@@ -16,6 +16,13 @@ export {
 } from "./engine/seed-corpus.js";
 export { DERIVED_WORLD_DIGEST_ENTRY_ID, MockEngine } from "./engine/mock-engine.js";
 export {
+  DICE_ROLL_ENTRY_ID,
+  DICE_ROLL_TRIGGER_ENTRY_ID,
+  DemoOrchestrator,
+  ORCHESTRATION_ROLL_ARGS,
+} from "./host/orchestration.js";
+export type { DemoOrchestration } from "./host/orchestration.js";
+export {
   DEMO_CLIENT_PEER_ID,
   DEMO_CLIENT_PUBKEY,
   DEMO_CLIENT_SEED,

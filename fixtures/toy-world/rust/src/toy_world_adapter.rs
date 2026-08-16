@@ -64,6 +64,21 @@ impl ToyWorldAdapter {
         }
     }
 
+    /// Construct with an explicit tool-handler registry (advanced/test use):
+    /// pass an empty map to build a provider whose manifest declares tools
+    /// but serves none — the declared-but-unregistered provider-bug state.
+    /// The caller's map is used verbatim (no defaults are registered).
+    pub fn from_store_with_handlers(
+        store: MemoryStore,
+        handlers: HashMap<String, ToolHandler>,
+    ) -> Self {
+        let store = Arc::new(Mutex::new(store));
+        Self {
+            store: store.clone(),
+            tool_handlers: Mutex::new(handlers),
+        }
+    }
+
     /// Construct with committed kb / rel / evt / rule / fnd fixtures loaded.
     pub fn with_committed_fixtures() -> Self {
         Self::from_store(MemoryStore::from_committed_fixtures())
@@ -314,10 +329,13 @@ impl ToyWorldAdapter {
         }
         let manifest = toy_world_self_manifest();
         let Some(descriptor) = find_tool(&manifest, capability_id) else {
+            // Structured details parity with the TS adapter (M2): the
+            // reject carries `{ capability: capability_id }`, matching the
+            // TS connect-style rejects.
             return spoke_reject(
                 SpokeRejectCode::CapabilityPortMissing,
                 format!("Tool \"{capability_id}\" is not declared in the toy-world manifest (tools[])"),
-                None,
+                Some(json!({ "capability": capability_id }).as_object().expect("details object").clone()),
             );
         };
         if let SpokeResult::Reject(reject) = validate_tool_arguments(&descriptor, &args) {
@@ -333,7 +351,7 @@ impl ToyWorldAdapter {
             return spoke_reject(
                 SpokeRejectCode::CapabilityPortMissing,
                 format!("Tool \"{capability_id}\" is declared but has no registered handler"),
-                None,
+                Some(json!({ "capability": capability_id }).as_object().expect("details object").clone()),
             );
         };
         handler(args).await

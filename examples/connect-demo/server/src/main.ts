@@ -30,6 +30,10 @@ console.log("SPOKE connect demo — mock inference host");
 console.log(`  peer_id:   ${peerId}`);
 console.log(`  allowlist: ${DEMO_CLIENT_PEER_ID}`);
 console.log(`  listening: ${url}`);
+console.log(
+  "  tools:     discovers dialer tools from the authenticated manifest;",
+);
+console.log("             reverse-invokes tools.toy_world.roll_dice mid-orchestration");
 console.log("  (Ctrl+C to stop)");
 
 function shutdown(): void {

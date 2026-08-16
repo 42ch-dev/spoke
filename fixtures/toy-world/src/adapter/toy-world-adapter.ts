@@ -98,7 +98,10 @@ export class ToyWorldAdapter implements FullAdapter {
    */
   readonly #toolHandlers: Map<string, ToolHandler>;
 
-  constructor(storeOrSeed?: MemoryStore | MemoryStoreSeed) {
+  constructor(
+    storeOrSeed?: MemoryStore | MemoryStoreSeed,
+    options: { handlers?: Map<string, ToolHandler> } = {},
+  ) {
     if (storeOrSeed instanceof MemoryStore) {
       this.store = storeOrSeed;
     } else if (storeOrSeed !== undefined) {
@@ -106,7 +109,11 @@ export class ToyWorldAdapter implements FullAdapter {
     } else {
       this.store = new MemoryStore();
     }
-    this.#toolHandlers = defaultToyWorldToolHandlers(this.store);
+    // Explicit handler registry (advanced/test use): pass an empty map to
+    // build a provider whose manifest declares tools but serves none — the
+    // declared-but-unregistered provider-bug state. Defaults to the two
+    // frozen toy-world handlers.
+    this.#toolHandlers = options.handlers ?? defaultToyWorldToolHandlers(this.store);
   }
 
   /** Construct with committed kb / rel / evt / rule / fnd fixtures loaded. */

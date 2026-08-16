@@ -172,6 +172,25 @@ describe("toy-world tool provider reference", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      // Structured details parity (M2): `{ capability: capability_id }`.
+      expect(result.details).toEqual({ capability: "tools.toy_world.snipe" });
+    }
+  });
+
+  it("rejects a manifest-declared tool with no registered handler (provider bug)", async () => {
+    // Explicit empty handler registry: the manifest still declares both
+    // frozen tools, but the adapter serves none — the
+    // declared-but-unregistered provider-bug state (M1).
+    const adapter = new ToyWorldAdapter(undefined, { handlers: new Map() });
+    const result = await adapter.invokeTool(TOY_WORLD_ROLL_DICE_ID, {
+      count: 1,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.message).toContain("declared but has no registered handler");
+      expect(result.details).toEqual({ capability: TOY_WORLD_ROLL_DICE_ID });
     }
   });
 

@@ -1,24 +1,31 @@
 /**
- * WebSocket server transport + programmatic demo server surface (plan T3).
+ * WebSocket server transport + programmatic demo server surface (plan T3 +
+ * Task 2 reverse-tool e2e).
  *
  * The server side of the D3 transport seam: a message-oriented `Transport`
  * adapter over one `ws` connection (one connect envelope per WS message —
  * `spoke-connect.md` §Transport framing: WS already frames messages, so no
  * length-prefix is needed), and `serveConnectDemo`, which boots the mock
- * inference host on a real WebSocketServer and attaches a `ConnectHost`
- * responder per connection.
+ * inference host on a real WebSocketServer and attaches the library
+ * `connectResponder` (dogfood: no hand-rolled responder in the demo) with a
+ * `DemoOrchestrator` ports adapter per connection — the host discovers the
+ * dialer's tools from the authenticated manifest and reverse-invokes them
+ * mid-orchestration.
  */
 
 import type { AddressInfo } from "node:net";
 
 import { WebSocket, WebSocketServer } from "ws";
 
-import { NonceStore } from "@42ch/spoke-connect";
+import { connectResponder } from "@42ch/spoke-connect/remote";
 
 import type { EnvelopeBytes, Transport } from "@42ch/spoke-connect/remote";
 
 import { DEMO_SERVER_MANIFEST, MockAdapter } from "../adapter/mock-adapter.js";
-import { ConnectHost } from "../host/connect-host.js";
+import {
+  DemoOrchestrator,
+  type DemoOrchestration,
+} from "../host/orchestration.js";
 import {
   DEMO_CLIENT_PEER_ID,
   DEMO_CLIENT_PUBKEY,
@@ -34,6 +41,12 @@ export interface ServeConnectDemoHandle {
   url: string;
   /** The host's derived Ed25519 peer_id (what the client sees as remote). */
   peerId: string;
+  /**
+   * Every tool-orchestration run across connections, in order (discovery →
+   * reverse invoke → feed). The e2e slices by baseline to isolate per-test
+   * records.
+   */
+  orchestrations: readonly DemoOrchestration[];
   /** Stop accepting connections and close every live socket. Idempotent. */
   close(): void;
 }
@@ -169,9 +182,11 @@ function waitForListening(wss: WebSocketServer): Promise<void> {
 /**
  * Boot the connect demo host on a real WebSocketServer. `port: 0` binds an
  * ephemeral port (used by the e2e); each incoming connection gets a fresh
- * `ConnectHost` serving a fresh `MockAdapter` (one host per connection).
- * Rejects when the port cannot be bound (e.g. already in use) instead of
- * hanging on `listening` with an unhandled `error`.
+ * library `connectResponder` (the dogfooded responder — no hand-rolled
+ * responder remains in the demo) serving a fresh `DemoOrchestrator` over a
+ * fresh `MockAdapter` (one host per connection). Rejects when the port
+ * cannot be bound (e.g. already in use) instead of hanging on `listening`
+ * with an unhandled `error`.
  */
 export async function serveConnectDemo(
   options: { port?: number } = {},
@@ -189,9 +204,9 @@ export async function serveConnectDemo(
   const address = wss.address() as AddressInfo;
   const url = `ws://127.0.0.1:${address.port}`;
   const connections = new Set<WsServerTransport>();
-  // Hello nonce single-use per peer across connections (spec §Nonce): one
-  // store for the whole server, so a captured hello cannot re-establish.
-  const nonceStore = new NonceStore();
+  // Every connection's orchestrator appends its runs here (shared array —
+  // the handle exposes it for the e2e's discovery / deny assertions).
+  const orchestrations: DemoOrchestration[] = [];
 
   wss.on("connection", (socket) => {
     const transport = new WsServerTransport(socket);
@@ -199,22 +214,29 @@ export async function serveConnectDemo(
     socket.on("close", () => {
       connections.delete(transport);
     });
-    const host = new ConnectHost({
-      seed: DEMO_SERVER_SEED,
+    const adapter = new MockAdapter();
+    const orchestrator = new DemoOrchestrator(adapter, orchestrations);
+    // The factory is async; the orchestrator needs the established
+    // responder for reverse invokes, so it is late-bound on settle. The
+    // client's dial is the synchronization point either way.
+    void connectResponder({
+      transport,
+      identity: { seed: DEMO_SERVER_SEED },
       manifest: DEMO_SERVER_MANIFEST,
       allowlist: [DEMO_CLIENT_PEER_ID],
       peerKeys: {
         [DEMO_CLIENT_PEER_ID]: DEMO_CLIENT_PUBKEY,
       },
-      adapter: new MockAdapter(),
-      nonceStore,
+      ports: orchestrator,
+    }).then((responder) => {
+      orchestrator.setResponder(responder);
     });
-    host.attach(transport);
   });
 
   return {
     url,
     peerId: DEMO_SERVER_PEER_ID,
+    orchestrations,
     close(): void {
       // Close every live connection first so the server close is immediate.
       for (const transport of connections) {

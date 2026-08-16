@@ -31,15 +31,35 @@ import {
   DEMO_SERVER_PUBKEY,
   DEMO_SCOPE_ID,
 } from "./identities.js";
+import {
+  LORE_LOOKUP_DESCRIPTOR,
+  ROLL_DICE_DESCRIPTOR,
+  TOY_WORLD_LORE_LOOKUP_ID,
+  TOY_WORLD_ROLL_DICE_ID,
+  loreLookup,
+  rollDice,
+} from "./tools/toy-world-tools.js";
 import { WsTransport } from "./transport/ws-transport.js";
 
-/** The third-party app's own manifest (distinct from the server's). */
+/**
+ * The third-party app's own manifest (distinct from the server's). It
+ * declares the two toy-world tools it can serve: the ids are frozen
+ * (docs/snippet byte-parity), the `toy_world` namespace is owned here, and
+ * `validateManifestTools` (spoke-operations) passes on this manifest — the
+ * host discovers these tools from the authenticated manifest and
+ * reverse-invokes them mid-orchestration.
+ */
 export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-third-party-app",
   roles: ["input-source"],
-  capabilities: ["spoke-baseline"],
-  namespaces: [DEMO_SCOPE_ID],
+  capabilities: [
+    "spoke-baseline",
+    TOY_WORLD_ROLL_DICE_ID,
+    TOY_WORLD_LORE_LOOKUP_ID,
+  ],
+  namespaces: [DEMO_SCOPE_ID, "toy_world"],
+  tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
   extensions: {},
 };
 
@@ -89,6 +109,8 @@ export interface DemoClientRun {
   serverManifest: HostCapabilityManifest;
   /** The server's derived peer_id. */
   remotePeerId: string;
+  /** The tool ids this client registered on the dial (empty when not registered). */
+  registeredToolIds: readonly string[];
   /** The entry as created (revision 1). */
   created: KnowledgeEntry;
   /** The entry after the compare-and-swap update (revision 2). */
@@ -105,22 +127,51 @@ export interface DemoClientRun {
   close(): void;
 }
 
-/**
- * Execute the full third-party flow over a real WebSocket: dial, then
- * manifest → put (OCC create) → put (CAS update) → get → list → findings →
- * peer manifests. Every port call must succeed — a rejection throws.
- */
-export async function runDemoClient(options: {
+export interface RunDemoClientOptions {
   url: string;
-}): Promise<DemoClientRun> {
+  /**
+   * The manifest this client dials with. Defaults to
+   * {@link DEMO_CLIENT_MANIFEST} (tools declared). The negative e2e dials
+   * with a tools-less manifest to prove the host's reverse invoke is denied.
+   */
+  manifest?: HostCapabilityManifest;
+  /**
+   * Register the toy-world tool handlers on the dialed RemoteAdapter.
+   * Defaults to true — the tool ids the client advertises must be servable.
+   */
+  registerTools?: boolean;
+}
+
+/**
+ * Execute the full third-party flow over a real WebSocket: dial (registering
+ * the toy-world tool handlers on the RemoteAdapter so the host can
+ * reverse-invoke them), then manifest → put (OCC create) → put (CAS update)
+ * → get → list → findings → peer manifests. Every port call must succeed —
+ * a rejection throws.
+ */
+export async function runDemoClient(
+  options: RunDemoClientOptions,
+): Promise<DemoClientRun> {
   const transport = new WsTransport(options.url);
   const adapter = await connectRemoteAdapter({
     transport,
     localIdentity: { seed: DEMO_CLIENT_SEED },
-    localManifest: DEMO_CLIENT_MANIFEST,
+    localManifest: options.manifest ?? DEMO_CLIENT_MANIFEST,
     remotePubkey: DEMO_SERVER_PUBKEY,
     allowlist: [DEMO_SERVER_PEER_ID],
   });
+
+  // Step 0 — tool handlers: register the toy-world tools on the dial so the
+  // host's mid-orchestration reverse invokes are served. `lore_lookup` reads
+  // the client's own lore store (entries it submitted).
+  const loreStore = new Map<string, KnowledgeEntry>();
+  if (options.registerTools ?? true) {
+    adapter.registerToolHandler(TOY_WORLD_ROLL_DICE_ID, rollDice);
+    adapter.registerToolHandler(
+      TOY_WORLD_LORE_LOOKUP_ID,
+      loreLookup(loreStore),
+    );
+  }
 
   // Step 1 — capability manifest (cached at establish, no round-trip).
   const serverManifest = adapter.remoteManifest;
@@ -132,12 +183,14 @@ export async function runDemoClient(options: {
   if (created.revision === undefined) {
     throw new Error("demo client: created entry has no revision");
   }
+  loreStore.set(created.entry_id, created);
   const updated = requireOk(
     await adapter.putKnowledgeEntry(
       { ...SUBMITTED_ENTRY, status: "confirmed" },
       created.revision,
     ),
   );
+  loreStore.set(updated.entry_id, updated);
   const fetched = requireOk(
     await adapter.getKnowledgeEntry(SUBMITTED_ENTRY.entry_id),
   );
@@ -160,6 +213,10 @@ export async function runDemoClient(options: {
     adapter,
     serverManifest,
     remotePeerId: adapter.remotePeerId,
+    registeredToolIds:
+      options.registerTools ?? true
+        ? [TOY_WORLD_ROLL_DICE_ID, TOY_WORLD_LORE_LOOKUP_ID]
+        : [],
     created,
     updated,
     fetched,
@@ -200,6 +257,9 @@ async function main(): Promise<void> {
       `    capabilities: ${run.serverManifest.capabilities.join(", ")}`,
     );
     console.log(`    namespaces:   ${run.serverManifest.namespaces.join(", ")}`);
+    console.log(
+      `  tools registered: ${run.registeredToolIds.join(", ")} (served on reverse invoke)`,
+    );
     console.log(
       `  putKnowledgeEntry  ${run.created.entry_id} → revision ${run.created.revision}`,
     );

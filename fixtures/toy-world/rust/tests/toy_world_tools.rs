@@ -2,11 +2,12 @@
 //! manifest consistency (plan-2 `validate_manifest_tools`) + deterministic
 //! handlers (plan-3 serving surface).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 use spoke_fixture_toy_world::toy_world_tools::roll_dice;
-use spoke_fixture_toy_world::{toy_world_fixtures_root, ToyWorldAdapter};
+use spoke_fixture_toy_world::{toy_world_fixtures_root, MemoryStore, ToyWorldAdapter};
 use spoke_operations::{
     find_tool, list_tools, validate_manifest_tools, SpokeRejectCode, SpokeResult,
 };
@@ -166,7 +167,45 @@ fn lore_lookup_rejects_unknown_entries_and_missing_entry_id() {
 fn invoke_tool_rejects_unlisted_tool_with_capability_port_missing() {
     let adapter = ToyWorldAdapter::with_committed_fixtures();
     let result = pollster::block_on(adapter.invoke_tool("tools.toy_world.snipe", json!({})));
-    assert_eq!(reject_code(result), SpokeRejectCode::CapabilityPortMissing);
+    let reject = match result {
+        SpokeResult::Ok(_) => panic!("expected reject, got Ok"),
+        SpokeResult::Reject(reject) => reject,
+    };
+    // M2: structured details parity with the TS adapter —
+    // `{ capability: capability_id }` on the unlisted-tool reject.
+    assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+    assert_eq!(
+        reject.details,
+        Some(json!({ "capability": "tools.toy_world.snipe" }).as_object().expect("details object").clone())
+    );
+}
+
+#[test]
+fn invoke_tool_rejects_declared_tool_without_registered_handler() {
+    // M1: explicit empty handler registry — the manifest still declares
+    // both frozen tools, but the adapter serves none (provider-bug state).
+    let adapter = ToyWorldAdapter::from_store_with_handlers(
+        MemoryStore::from_committed_fixtures(),
+        HashMap::new(),
+    );
+    let result = pollster::block_on(adapter.invoke_tool(
+        TOY_WORLD_ROLL_DICE_ID,
+        json!({ "count": 1 }),
+    ));
+    let reject = match result {
+        SpokeResult::Ok(_) => panic!("expected reject, got Ok"),
+        SpokeResult::Reject(reject) => reject,
+    };
+    assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+    assert!(
+        reject.message.contains("declared but has no registered handler"),
+        "message must name the declared-but-unregistered state: {}",
+        reject.message
+    );
+    assert_eq!(
+        reject.details,
+        Some(json!({ "capability": TOY_WORLD_ROLL_DICE_ID }).as_object().expect("details object").clone())
+    );
 }
 
 #[test]

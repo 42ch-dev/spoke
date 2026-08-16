@@ -40,6 +40,7 @@ import {
 } from "@42ch/spoke-operations";
 import {
   connectRemoteAdapter,
+  isConnectInvokeResponse,
   loopbackTransportPair,
   RemoteAdapter,
   type EnvelopeBytes,
@@ -48,7 +49,10 @@ import {
 import { ToyWorldAdapter } from "@42ch/spoke-fixture-toy-world";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
-import { authenticateInvokeRequest } from "../../src/core/envelope-auth.js";
+import {
+  authenticateInvokeRequest,
+  authenticateInvokeResponse,
+} from "../../src/core/envelope-auth.js";
 import { verifyHelloEd25519 } from "../../src/core/hello.js";
 import { generateNonce } from "../../src/core/nonce.js";
 import { signHelloEd25519 } from "../../src/core/hello.js";
@@ -144,6 +148,8 @@ async function dialWithResponder(
   pair: ReturnType<typeof loopbackTransportPair>;
   peerIdResponder: string;
   peerIdClient: string;
+  /** The dialer's Ed25519 seed (wire-level re-sign fixtures). */
+  seedClient: Uint8Array;
 }> {
   const seedResponder = seed(0xa0);
   const seedClient = seed(0x10);
@@ -181,7 +187,7 @@ async function dialWithResponder(
     allowlist: [peerIdResponder],
     invokeTimeoutMs: options.clientTimeoutMs,
   });
-  return { responder, client, pair, peerIdResponder, peerIdClient };
+  return { responder, client, pair, peerIdResponder, peerIdClient, seedClient };
 }
 
 /** Decode wire bytes to a JSON document (wire-level injector fixtures). */
@@ -622,6 +628,76 @@ describe("connectResponder reverse invoke (invokeTool)", () => {
           message: expect.stringContaining('must start with "tools." prefix'),
           details: { capability_id: "spoke-baseline" },
         });
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "rejects a reverse invokeTool whose dialer success payload lacks a result key (INTERNAL_ERROR kind transport)",
+    async () => {
+      // T2-M1 (folded): the RESPONDER's reverse invokeTool { result } gate.
+      // The dialer's serving path answers a signed success envelope whose
+      // payload is NOT `{ result: <opaque JSON> }` — the frozen tool
+      // success-payload gate must reject instead of surfacing
+      // spokeOk(garbage). Wire-level injector on the CLIENT end: the
+      // dialer's outbound RESPONSES to reverse invokes are re-signed with
+      // malformed payloads (legitimately signed, so the responder's
+      // envelope-auth verify passes and the { result } gate is what
+      // rejects).
+      const malformedPayloads: Record<string, unknown>[] = [
+        {},
+        { not_result: 1 },
+      ];
+      let served = 0;
+      const { responder, client, seedClient } = await dialWithResponder({
+        clientTransport: (clientEnd) => ({
+          send: async (envelope) => {
+            const doc = decodeWire(envelope);
+            if (isConnectInvokeResponse(doc)) {
+              const payload = malformedPayloads[served];
+              if (payload !== undefined) {
+                served += 1;
+                await clientEnd.send(
+                  encodeEnvelope(
+                    await authenticateInvokeResponse(seedClient, {
+                      session_id: doc.session_id,
+                      sequence: doc.sequence,
+                      request_id: doc.request_id,
+                      payload,
+                    }),
+                  ),
+                );
+                return;
+              }
+            }
+            await clientEnd.send(envelope);
+          },
+          recv: () => clientEnd.recv(),
+          close: () => clientEnd.close?.(),
+        }),
+      });
+      try {
+        client.registerToolHandler("tools.math.add", addHandler([]));
+        for (const malformed of malformedPayloads) {
+          const result = await responder.invokeTool("tools.math.add", {
+            a: 1,
+            b: 2,
+          });
+          expect(result).toEqual({
+            ok: false,
+            code: SpokeRejectCode.INTERNAL_ERROR,
+            message: expect.stringContaining("payload decode failed"),
+            details: { kind: "transport" },
+          });
+          // The malformed payload fails only this waiter — the session
+          // stays usable for the next reverse invoke.
+          expect(responder.state).toBe("Established");
+          expect(client.state).toBe("Established");
+        }
       } finally {
         client.close();
         responder.close();

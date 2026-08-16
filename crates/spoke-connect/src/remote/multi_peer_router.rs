@@ -39,7 +39,7 @@ use spoke_operations::{
     ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::{
-    HostCapabilityManifestExtensionsKey, HostCapabilityManifestHostId,
+    HostCapabilityManifestExtensionsKey, HostCapabilityManifestHostId, ToolDescriptor,
 };
 use spoke_schemas::{
     Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent,
@@ -52,15 +52,22 @@ const DEFAULT_ROUTER_HOST_ID: &str = "multi-peer-router";
 
 // ── Locked op → selection-input tables (contract §2 / §3) ────────────────
 
-/// Required capability per op family (contract §2 — locked). Orchestrated
-/// baseline families and the `port.*` baseline ops require `spoke-baseline`;
-/// the computable families require `l2-computable`. Product-defined ops are
-/// product-documented and have no row here; selection REJECTS ops outside
-/// this table (`no_capable_peer`) — an op with no gate must not fall through
-/// ungated (QC2 S-1). The router's fixed six-family surface only ever
-/// queries the `port.*` rows (mirrors the RemoteAdapter `PORT_OPS`
-/// catalogue).
-fn required_capability(op: &str) -> Option<&'static str> {
+/// Required capability per op family (contract §2 — locked) plus the frozen
+/// §6 `tools.` prefix rule (the selection table gains the same widening as
+/// core dispatch): a `tools.<ns>.<tool_id>` op is self-describing — the
+/// required capability IS the op string itself (no registry, no umbrella
+/// flag). Orchestrated baseline families and the `port.*` baseline ops
+/// require `spoke-baseline`; the computable families require
+/// `l2-computable`. Product-defined ops are product-documented and have no
+/// row here; selection REJECTS ops outside this table (`no_capable_peer`) —
+/// an op with no gate must not fall through ungated (QC2 S-1). The router's
+/// fixed six-family surface only ever queries the `port.*` rows (mirrors the
+/// RemoteAdapter `PORT_OPS` catalogue). The output lifetime is tied to `op`
+/// (`Option<&str>`); static rows coerce.
+fn required_capability(op: &str) -> Option<&str> {
+    if op.starts_with("tools.") {
+        return Some(op);
+    }
     match op {
         // Orchestrated op families.
         "upsert" | "promote" | "relate" | "check" | "assemble" => Some("spoke-baseline"),
@@ -336,6 +343,12 @@ pub trait RoutedRemoteAdapter: Send + Sync {
     async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest>;
     async fn list_peer_host_capability_manifests(&self)
         -> SpokeResult<Vec<HostCapabilityManifest>>;
+
+    /// Forward tool-invoke face (frozen §6) — satisfied by
+    /// `RemoteAdapter::invoke_tool`; the router delegates tool invokes to
+    /// the selected peer's adapter (the router never crafts envelopes
+    /// itself).
+    async fn invoke_tool(&self, capability_id: &str, arguments: Value) -> SpokeResult<Value>;
 }
 
 /// Forward the per-peer adapter surface to `RemoteAdapter`'s concrete
@@ -403,6 +416,10 @@ impl RoutedRemoteAdapter for RemoteAdapter {
         &self,
     ) -> SpokeResult<Vec<HostCapabilityManifest>> {
         <Self as HostManifestPort>::list_peer_host_capability_manifests(self).await
+    }
+
+    async fn invoke_tool(&self, capability_id: &str, arguments: Value) -> SpokeResult<Value> {
+        RemoteAdapter::invoke_tool(self, capability_id, arguments).await
     }
 }
 
@@ -522,6 +539,24 @@ impl MultiPeerRouter {
     /// selection).
     pub fn list_peers(&self) -> Vec<String> {
         self.registration_order.lock().expect("order lock").clone()
+    }
+
+    /// Tool-invoke face (frozen §6): select the peer whose cached hello
+    /// manifest `capabilities[]` contains the EXACT tool capability string
+    /// (the selection table's `tools.` prefix rule resolves the required
+    /// capability to the op itself), then delegate to the selected peer's
+    /// adapter `invoke_tool` — the router never crafts envelopes itself. No
+    /// namespace/authority/role filters for tools (the capability string is
+    /// ns-scoped; tool payloads carry no `Scope`); deterministic tie-break
+    /// = lowest `peer_id`; none → the existing terminal `no_capable_peer`
+    /// reject (`details.op = capability_id`). The selected peer's underlying
+    /// `SpokeResult` reject is returned as-is (§7.2 — no alternate-retry).
+    pub async fn invoke_tool(&self, capability_id: &str, arguments: Value) -> SpokeResult<Value> {
+        let selected = match self.select_for_op(capability_id, &json!({})) {
+            Ok(selected) => selected,
+            Err(reject) => return SpokeResult::Reject(reject),
+        };
+        selected.adapter.invoke_tool(capability_id, arguments).await
     }
 
     // ── Selection + delegation internals ───────────────────────────────────
@@ -711,6 +746,19 @@ impl HostManifestPort for MultiPeerRouter {
             .filter(|declared| seen_namespaces.insert(declared.as_str()))
             .cloned()
             .collect();
+        // Frozen §6: `tools[]` unions across connected peers, dedup by
+        // `capability_id` (first occurrence wins), then lexicographic
+        // `capability_id` order for stability — NOT first-seen order.
+        let mut seen_tools: HashSet<&str> = HashSet::new();
+        let mut tools: Vec<ToolDescriptor> = Vec::new();
+        for peer in &connected {
+            for descriptor in &peer.manifest.tools {
+                if seen_tools.insert(descriptor.capability_id.as_str()) {
+                    tools.push(descriptor.clone());
+                }
+            }
+        }
+        tools.sort_by(|a, b| a.capability_id.cmp(&b.capability_id));
 
         let mut router_extensions = Map::new();
         router_extensions.insert(
@@ -738,7 +786,7 @@ impl HostManifestPort for MultiPeerRouter {
             namespaces,
             authority: None,
             extensions,
-            tools: Vec::new(),
+            tools,
         };
         spoke_ok(composed)
     }
@@ -867,6 +915,60 @@ mod tests {
             "extensions": {},
         }))
         .expect("valid HostCapabilityManifest")
+    }
+
+    /// Manifest carrying a `tools[]` array (frozen §2 descriptors).
+    fn manifest_with_tools(
+        host_id: &str,
+        capabilities: &[&str],
+        namespaces: &[&str],
+        tools: Value,
+    ) -> HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": capabilities,
+            "namespaces": namespaces,
+            "extensions": {},
+            "tools": tools,
+        }))
+        .expect("valid HostCapabilityManifest with tools")
+    }
+
+    // ── Tool descriptors (frozen §2: op === capability_id) ─────────────────
+
+    fn add_descriptor() -> Value {
+        json!({
+            "schema_version": 1,
+            "capability_id": "tools.math.add",
+            "op": "tools.math.add",
+            "description": "Add two integers",
+            "input": { "type": "object" },
+            "output": { "type": "object" },
+        })
+    }
+
+    fn echo_descriptor() -> Value {
+        json!({
+            "schema_version": 1,
+            "capability_id": "tools.echo.echo",
+            "op": "tools.echo.echo",
+            "description": "Echo the arguments",
+            "input": { "type": "object" },
+            "output": { "type": "object" },
+        })
+    }
+
+    fn boom_descriptor() -> Value {
+        json!({
+            "schema_version": 1,
+            "capability_id": "tools.echo.boom",
+            "op": "tools.echo.boom",
+            "description": "Explodes",
+            "input": { "type": "object" },
+            "output": { "type": "object" },
+        })
     }
 
     // ── Test double for the per-peer adapter surface (`RoutedRemoteAdapter`)
@@ -1012,6 +1114,16 @@ mod tests {
         ) -> SpokeResult<Vec<HostCapabilityManifest>> {
             self.record_and_maybe_fail("listPeerHostCapabilityManifests")
                 .unwrap_or_else(|| spoke_ok(Vec::new()))
+        }
+
+        /// Forward tool-invoke face (§6) — records the delegation.
+        async fn invoke_tool(
+            &self,
+            _capability_id: &str,
+            _arguments: Value,
+        ) -> SpokeResult<Value> {
+            self.record_and_maybe_fail("invokeTool")
+                .unwrap_or_else(|| spoke_ok(json!({ "served_by": self.peer_id })))
         }
     }
 
@@ -2071,5 +2183,191 @@ mod tests {
             }
             SpokeResult::Reject(reject) => panic!("composed view must succeed: {reject:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn composed_view_unions_tools_deduped_by_capability_id_in_lexicographic_order() {
+        // Frozen §6: `tools[]` unions across connected peers, dedup by
+        // `capability_id` (tools.echo.echo is shared), lexicographic order
+        // for stability — NOT first-seen registration order.
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        router
+            .register_peer(FakePeer::new(
+                "peer-a",
+                manifest_with_tools(
+                    "h-a",
+                    &["spoke-baseline", "tools.math.add", "tools.echo.echo"],
+                    &["math", "echo"],
+                    json!([add_descriptor(), echo_descriptor()]),
+                ),
+                RemoteAdapterState::Established,
+            ))
+            .expect("register a");
+        router
+            .register_peer(FakePeer::new(
+                "peer-b",
+                manifest_with_tools(
+                    "h-b",
+                    &["spoke-baseline", "tools.echo.echo", "tools.echo.boom"],
+                    &["echo"],
+                    json!([echo_descriptor(), boom_descriptor()]),
+                ),
+                RemoteAdapterState::Established,
+            ))
+            .expect("register b");
+
+        let composed = router.get_host_capability_manifest().await;
+        match composed {
+            SpokeResult::Ok(composed) => {
+                let capability_ids: Vec<&str> = composed
+                    .tools
+                    .iter()
+                    .map(|descriptor| descriptor.capability_id.as_str())
+                    .collect();
+                assert_eq!(
+                    capability_ids,
+                    vec!["tools.echo.boom", "tools.echo.echo", "tools.math.add"]
+                );
+            }
+            SpokeResult::Reject(reject) => panic!("composed view must succeed: {reject:?}"),
+        }
+    }
+
+    // ── Tool routing (frozen §6) ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn invoke_tool_routes_to_the_peer_whose_manifest_offers_the_exact_tool_capability() {
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let add_peer = FakePeer::new(
+            "peer-add",
+            manifest_with_tools(
+                "h-add",
+                &["spoke-baseline", "tools.math.add"],
+                &["math"],
+                json!([add_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        let echo_peer = FakePeer::new(
+            "peer-echo",
+            manifest_with_tools(
+                "h-echo",
+                &["spoke-baseline", "tools.echo.echo"],
+                &["echo"],
+                json!([echo_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        router
+            .register_peer(add_peer.clone())
+            .expect("register add");
+        router
+            .register_peer(echo_peer.clone())
+            .expect("register echo");
+
+        // tools.math.add is advertised only by the add peer.
+        let add = router
+            .invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 }))
+            .await;
+        assert!(add.is_ok(), "add must route to the add peer: {add:?}");
+        assert_eq!(add_peer.calls(), vec!["invokeTool"]);
+        assert!(echo_peer.calls().is_empty());
+
+        // tools.echo.echo is advertised only by the echo peer.
+        let echo = router
+            .invoke_tool("tools.echo.echo", json!({ "v": 1 }))
+            .await;
+        assert!(echo.is_ok(), "echo must route to the echo peer: {echo:?}");
+        assert_eq!(echo_peer.calls(), vec!["invokeTool"]);
+        assert_eq!(add_peer.calls(), vec!["invokeTool"]);
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_rejects_with_no_capable_peer_when_no_peer_offers_the_tool() {
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let add_peer = FakePeer::new(
+            "peer-add",
+            manifest_with_tools(
+                "h-add",
+                &["spoke-baseline", "tools.math.add"],
+                &["math"],
+                json!([add_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        router
+            .register_peer(add_peer.clone())
+            .expect("register add");
+
+        let result = router.invoke_tool("tools.echo.boom", json!({})).await;
+        match result {
+            SpokeResult::Reject(reject) => {
+                // §5 locked reject: CAPABILITY_PORT_MISSING + details.kind /
+                // wire_code = no_capable_peer, details.op = capability_id.
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("kind"))
+                        .and_then(Value::as_str),
+                    Some("no_capable_peer")
+                );
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("wire_code"))
+                        .and_then(Value::as_str),
+                    Some("no_capable_peer")
+                );
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("op"))
+                        .and_then(Value::as_str),
+                    Some("tools.echo.boom")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("no capable peer must reject"),
+        }
+        // Terminal: no delegate ran (no wrong-peer fallback).
+        assert!(add_peer.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_breaks_ties_on_the_lowest_peer_id_when_both_peers_offer_the_tool() {
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let peer_b = FakePeer::new(
+            "peer-bbb",
+            manifest_with_tools(
+                "h-b",
+                &["spoke-baseline", "tools.math.add"],
+                &["math"],
+                json!([add_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        let peer_a = FakePeer::new(
+            "peer-aaa",
+            manifest_with_tools(
+                "h-a",
+                &["spoke-baseline", "tools.math.add"],
+                &["math"],
+                json!([add_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        router.register_peer(peer_b.clone()).expect("register b");
+        router.register_peer(peer_a.clone()).expect("register a");
+
+        let result = router
+            .invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 }))
+            .await;
+        assert!(result.is_ok(), "tie-break invoke must route: {result:?}");
+        // §4: lowest peer_id (UTF-8 byte order) wins.
+        assert_eq!(peer_a.calls(), vec!["invokeTool"]);
+        assert!(peer_b.calls().is_empty());
     }
 }

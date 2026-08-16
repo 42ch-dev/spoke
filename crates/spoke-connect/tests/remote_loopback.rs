@@ -48,9 +48,11 @@ use spoke_connect::core::{
     CapabilityClaims, CapabilityTokenProof, CoreInvokeError,
 };
 use spoke_connect::remote::{
-    connect_multi_peer_router, connect_remote_adapter, loopback_transport_pair, reset_accepted_server_hellos_for_test,
+    connect_multi_peer_router, connect_remote_adapter, connect_responder, loopback_transport_pair,
+    reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
     LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions, RemoteAdapter,
-    RemoteAdapterError, RemoteAdapterOptions, RemoteIdentity, Transport, TransportError,
+    RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteIdentity, ToolHandler,
+    Transport, TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
@@ -1878,10 +1880,6 @@ async fn multi_peer_router_composes_host_manifests_over_loopback_peers() {
 // production `connect_responder` (responder-side scenarios).
 // ══════════════════════════════════════════════════════════════════════════
 
-use spoke_connect::remote::{
-    connect_responder, ConnectResponder, ConnectResponderOptions, RemoteAdapterState, ToolHandler,
-};
-
 /// Fixture seed: base+i, all values within byte range for base ≤ 0xe0.
 fn seed(base: u8) -> [u8; 32] {
     let mut bytes = [0u8; 32];
@@ -2489,6 +2487,289 @@ async fn invoke_tool_fails_fast_with_invalid_input_on_a_non_tool_capability_id()
     );
     client.close();
     responder.close();
+}
+
+// ── Multi-peer router tool routing (frozen §6, mirror of TS
+//    multi-peer-router.test.ts) ────────────────────────────────────────────
+
+/// Manifest carrying a `tools[]` array (frozen §2 descriptors).
+fn manifest_with_tools(
+    host_id: &str,
+    capabilities: &[&str],
+    namespaces: &[&str],
+    tools: Value,
+) -> HostCapabilityManifest {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "host_id": host_id,
+        "roles": ["data-store"],
+        "capabilities": capabilities,
+        "namespaces": namespaces,
+        "extensions": {},
+        "tools": tools,
+    }))
+    .expect("valid HostCapabilityManifest with tools")
+}
+
+/// Dial a client (initiator) against a tool-serving minimal responder
+/// double whose manifest carries ONLY `tools` — the peer's cached hello
+/// manifest is exactly what the router's hard filter sees. Distinct host
+/// seeds give distinct peer ids (tie-break). The client advertises the
+/// full fixture tool set so the negotiated intersection includes every
+/// tool under test.
+async fn dial_tool_peer(
+    host_seed: [u8; 32],
+    responder_manifest: HostCapabilityManifest,
+) -> (Arc<RemoteAdapter>, Arc<MinimalResponder>) {
+    let pair = loopback_transport_pair();
+    let host_pubkey = SigningKey::from_bytes(&host_seed)
+        .verifying_key()
+        .to_bytes();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let responder = start_minimal_responder(MinimalResponderOptions {
+        transport: Arc::new(pair.server),
+        seed: host_seed,
+        client_pubkey: pubkey_client(),
+        allowlist: vec![peer_id_client.clone()],
+        manifest: responder_manifest,
+        invoke_timeout_ms: None,
+        response_override: None,
+    })
+    .await;
+    let peer_id_host = derive_peer_id_from_ed25519_pubkey(&host_pubkey);
+    let client = connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(pair.client),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: tool_manifest("test-client"),
+        remote_pubkey: host_pubkey,
+        allowlist: vec![peer_id_host],
+        invoke_timeout_ms: None,
+        capability_token: None,
+    })
+    .await
+    .expect("dial");
+    (client, responder)
+}
+
+#[tokio::test]
+async fn multi_peer_router_routes_tool_invokes_to_the_serving_responder() {
+    // Router-registered adapters are LOCALLY-DIALED: router tool invokes
+    // travel initiator→responder and are served by the PEER's responder-side
+    // tool serving — the proof drives tool-serving responder doubles with
+    // DISJOINT tool sets (the minimal responder's frozen §4 pipeline), not
+    // dialer-side register_tool_handler alone.
+    let add_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let echo_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let (client_a, responder_a) = dial_tool_peer(
+        [0xf1; 32],
+        manifest_with_tools(
+            "host-a",
+            &["spoke-baseline", "tools.math.add"],
+            &["math"],
+            json!([add_descriptor()]),
+        ),
+    )
+    .await;
+    let (client_b, responder_b) = dial_tool_peer(
+        [0xf2; 32],
+        manifest_with_tools(
+            "host-b",
+            &["spoke-baseline", "tools.echo.echo"],
+            &["echo"],
+            json!([echo_descriptor()]),
+        ),
+    )
+    .await;
+
+    responder_a.register_tool_handler("tools.math.add", add_handler(add_calls.clone()));
+    let echo_calls_served = Arc::clone(&echo_calls);
+    responder_b.register_tool_handler(
+        "tools.echo.echo",
+        Arc::new(move |args: Value| {
+            let echo_calls_served = Arc::clone(&echo_calls_served);
+            Box::pin(async move {
+                echo_calls_served.lock().expect("calls lock").push(args.clone());
+                spoke_ok(args)
+            })
+        }),
+    );
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+    router
+        .register_peer(client_a.clone())
+        .expect("register a");
+    router
+        .register_peer(client_b.clone())
+        .expect("register b");
+
+    // tools.math.add is advertised + served only by responder A.
+    let add = router
+        .invoke_tool("tools.math.add", json!({ "a": 2, "b": 3 }))
+        .await;
+    match add {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 5 })),
+        SpokeResult::Reject(reject) => panic!("add must route to responder A: {reject:?}"),
+    }
+    assert_eq!(add_calls.lock().expect("calls lock").len(), 1);
+    assert!(echo_calls.lock().expect("calls lock").is_empty());
+
+    // tools.echo.echo is advertised + served only by responder B.
+    let echo = router
+        .invoke_tool("tools.echo.echo", json!({ "v": 1 }))
+        .await;
+    match echo {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "v": 1 })),
+        SpokeResult::Reject(reject) => panic!("echo must route to responder B: {reject:?}"),
+    }
+    assert_eq!(echo_calls.lock().expect("calls lock").len(), 1);
+    assert_eq!(add_calls.lock().expect("calls lock").len(), 1);
+
+    client_a.close();
+    client_b.close();
+    responder_a.close();
+    responder_b.close();
+}
+
+#[tokio::test]
+async fn multi_peer_router_rejects_no_capable_peer_for_an_unadvertised_tool() {
+    let (client_a, responder_a) = dial_tool_peer(
+        [0xf1; 32],
+        manifest_with_tools(
+            "host-a",
+            &["spoke-baseline", "tools.math.add"],
+            &["math"],
+            json!([add_descriptor()]),
+        ),
+    )
+    .await;
+    let (client_b, responder_b) = dial_tool_peer(
+        [0xf2; 32],
+        manifest_with_tools(
+            "host-b",
+            &["spoke-baseline", "tools.echo.echo"],
+            &["echo"],
+            json!([echo_descriptor()]),
+        ),
+    )
+    .await;
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+    router
+        .register_peer(client_a.clone())
+        .expect("register a");
+    router
+        .register_peer(client_b.clone())
+        .expect("register b");
+
+    // No registered peer's cached manifest offers tools.echo.boom.
+    let result = router.invoke_tool("tools.echo.boom", json!({})).await;
+    match result {
+        SpokeResult::Reject(reject) => {
+            // §5 locked reject: CAPABILITY_PORT_MISSING + details.kind /
+            // wire_code = no_capable_peer, details.op = capability_id.
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("kind"))
+                    .and_then(Value::as_str),
+                Some("no_capable_peer")
+            );
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("no_capable_peer")
+            );
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("op"))
+                    .and_then(Value::as_str),
+                Some("tools.echo.boom")
+            );
+        }
+        SpokeResult::Ok(_) => panic!("no capable peer must reject"),
+    }
+    // Terminal: no responder served anything (selection rejects pre-wire).
+    assert_eq!(
+        responder_a.stats.handlers_run.load(Ordering::SeqCst),
+        0
+    );
+    assert_eq!(
+        responder_b.stats.handlers_run.load(Ordering::SeqCst),
+        0
+    );
+
+    client_a.close();
+    client_b.close();
+    responder_a.close();
+    responder_b.close();
+}
+
+#[tokio::test]
+async fn multi_peer_router_composes_tools_union_over_loopback_peers() {
+    // Frozen §6 over real signed hellos: `tools[]` unions across the
+    // connected peers' cached manifests, dedup by `capability_id`
+    // (tools.echo.echo is shared), lexicographic order for stability.
+    let (peer_a_adapter, peer_a_responder) = dial_tool_peer(
+        [0xf3; 32],
+        manifest_with_tools(
+            "host-a",
+            &["spoke-baseline", "tools.math.add", "tools.echo.echo"],
+            &["math", "echo"],
+            json!([add_descriptor(), echo_descriptor()]),
+        ),
+    )
+    .await;
+    let (peer_b_adapter, peer_b_responder) = dial_tool_peer(
+        [0xf4; 32],
+        manifest_with_tools(
+            "host-b",
+            &["spoke-baseline", "tools.echo.echo", "tools.echo.boom"],
+            &["echo"],
+            json!([echo_descriptor(), boom_descriptor()]),
+        ),
+    )
+    .await;
+
+    let router = connect_multi_peer_router(MultiPeerRouterOptions {
+        host_id: Some("test-router".to_string()),
+    });
+    router
+        .register_peer(peer_a_adapter.clone())
+        .expect("register a");
+    router
+        .register_peer(peer_b_adapter.clone())
+        .expect("register b");
+
+    let composed = router.get_host_capability_manifest().await;
+    match composed {
+        SpokeResult::Ok(composed) => {
+            let capability_ids: Vec<&str> = composed
+                .tools
+                .iter()
+                .map(|descriptor| descriptor.capability_id.as_str())
+                .collect();
+            assert_eq!(
+                capability_ids,
+                vec!["tools.echo.boom", "tools.echo.echo", "tools.math.add"]
+            );
+        }
+        SpokeResult::Reject(reject) => panic!("composed view must succeed: {reject:?}"),
+    }
+
+    peer_a_adapter.close();
+    peer_b_adapter.close();
+    peer_a_responder.close();
+    peer_b_responder.close();
 }
 
 // ── connect_responder (mirror of TS responder.test.ts) ────────────────────

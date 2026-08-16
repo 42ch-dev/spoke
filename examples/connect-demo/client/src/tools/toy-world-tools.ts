@@ -10,9 +10,9 @@
  *
  * The demo client must NOT import the private fixture package (runtime-dep
  * lean: only `@42ch/spoke-connect` + `@42ch/spoke-schemas` + `ws`), so the
- * handlers live here, byte-compatible with the fixture. `validateManifestTools`
- * (spoke-operations, server-side) guarantees the client manifest's tools[]
- * matches these ids.
+ * handlers live here, byte-compatible with the fixture. The client manifest
+ * declares these frozen ids, and the demo host validates it at discovery
+ * with `validateManifestTools` (spoke-operations).
  */
 
 import type { KnowledgeEntry, ToolDescriptor } from "@42ch/spoke-schemas";

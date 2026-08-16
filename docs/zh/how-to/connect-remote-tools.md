@@ -123,7 +123,7 @@ export const ROLL_DICE_DESCRIPTOR: ToolDescriptor = {
 };
 ```
 
-注册从不修改清单 —— 用于发现的描述符真源保持在 `tools[]`（经握手发送）。为清单未声明的工具注册处理器是提供方缺陷，`validateManifestTools` 在握手前即可捕获；为非 `tools.` id 注册处理器是语法错误，会抛出异常。对同一 id 的重复注册覆盖前一个处理器（后者胜出）。
+注册从不修改清单 —— 用于发现的描述符真源保持在 `tools[]`（经握手发送）。注册是 `validateManifestTools` 无法看到的运行时状态：它只检查清单内部一致性（描述符格式、能力成员、namespace 归属、id 唯一性），从不检查处理器注册表。为清单未声明的工具注册处理器是提供方缺陷，会在调用时暴露 —— 该工具永不可发现或协商，因此反向调用被拒绝（`op_unsupported` → `CAPABILITY_PORT_MISSING`），绝不静默成功。为非 `tools.` id 注册处理器是语法错误，会抛出异常。对同一 id 的重复注册覆盖前一个处理器（后者胜出）。
 
 Rust 提供方以 `register_tool_handler` 镜像同一面，其处理器类型为 `Arc<dyn Fn(Value) -> BoxFuture<'static, SpokeResult<Value>> + Send + Sync>`：
 

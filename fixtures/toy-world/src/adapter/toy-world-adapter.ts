@@ -93,8 +93,9 @@ export class ToyWorldAdapter implements FullAdapter {
    * Tool-handler registry (plan-3 serving surface): `registerToolHandler`
    * fills it; `invokeTool` dispatches by exact capability id. The registry
    * MUST NOT mutate the manifest — descriptor truth for discovery stays in
-   * the manifest's `tools[]`; a registry/manifest mismatch is a provider
-   * bug caught by `validateManifestTools`.
+   * the manifest's `tools[]`; a registry/manifest mismatch is invisible to
+   * `validateManifestTools` (manifest-internal consistency only) and is
+   * denied fail-closed at invoke time with `CAPABILITY_PORT_MISSING`.
    */
   readonly #toolHandlers: Map<string, ToolHandler>;
 

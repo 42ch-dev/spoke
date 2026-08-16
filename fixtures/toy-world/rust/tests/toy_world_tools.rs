@@ -134,6 +134,37 @@ fn roll_dice_rejects_missing_count_and_invalid_sides() {
 }
 
 #[test]
+fn roll_dice_rejects_invalid_sides_variants_with_field_details() {
+    let adapter = ToyWorldAdapter::with_committed_fixtures();
+
+    // TS mirror parity: a present-but-invalid `sides` (`-1`, `1.5`, `"x"`,
+    // `0`, `1`) is rejected with INVALID_INPUT and details `{ field: "sides" }`
+    // instead of silently defaulting to 6.
+    let variants: [Value; 5] = [json!(-1), json!(1.5), json!("x"), json!(0), json!(1)];
+    for invalid in variants {
+        let result = pollster::block_on(adapter.invoke_tool(
+            TOY_WORLD_ROLL_DICE_ID,
+            json!({ "count": 1, "sides": invalid }),
+        ));
+        let reject = match result {
+            SpokeResult::Ok(value) => panic!("roll_dice accepted invalid sides {invalid}: {value}"),
+            SpokeResult::Reject(reject) => reject,
+        };
+        assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+        assert_eq!(
+            reject.details,
+            Some(
+                json!({ "field": "sides" })
+                    .as_object()
+                    .expect("details object")
+                    .clone()
+            ),
+            "invalid sides {invalid} must carry field details"
+        );
+    }
+}
+
+#[test]
 fn lore_lookup_returns_seeded_entry_read_only() {
     let adapter = ToyWorldAdapter::with_committed_fixtures();
     let result = pollster::block_on(adapter.invoke_tool(

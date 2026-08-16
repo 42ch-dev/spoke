@@ -123,7 +123,7 @@ export const ROLL_DICE_DESCRIPTOR: ToolDescriptor = {
 };
 ```
 
-Registration never mutates the manifest — descriptor truth for discovery stays in `tools[]` (sent through the hello). Registering a handler for a tool the manifest does not declare is a provider bug that `validateManifestTools` catches before the hello; registering a handler for a non-`tools.` id is a grammar error that throws. Duplicate registration for the same id overwrites the previous handler (last-wins).
+Registration never mutates the manifest — descriptor truth for discovery stays in `tools[]` (sent through the hello). Registration is runtime state the validator cannot see: `validateManifestTools` checks the manifest's internal consistency only (descriptor well-formedness, capability membership, namespace ownership, id uniqueness), never the handler registry. A handler for a tool the manifest does not declare is a provider bug that surfaces at invoke time — the tool is never discoverable or negotiable, so the reverse invoke is denied (`op_unsupported` → `CAPABILITY_PORT_MISSING`), never a silent success. Registering a handler for a non-`tools.` id is a grammar error that throws. Duplicate registration for the same id overwrites the previous handler (last-wins).
 
 The Rust provider mirrors the same surface with `register_tool_handler`, whose handler type is `Arc<dyn Fn(Value) -> BoxFuture<'static, SpokeResult<Value>> + Send + Sync>`:
 

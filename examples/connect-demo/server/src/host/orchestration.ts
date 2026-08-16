@@ -185,8 +185,23 @@ export class DemoOrchestrator implements BaselinePorts {
   async #runOrchestration(): Promise<void> {
     const responder = this.#responder;
     if (responder === null || responder.state !== "Established") {
-      // No authenticated session — nothing to orchestrate (the client's
-      // put already landed; the step is skipped, not failed).
+      // Defensive-only: through the real transport the responder binds
+      // before the handshake completes and invokes dispatch only while
+      // Established, so this is unreachable in practice. Record the skip
+      // anyway instead of a silent return, so every orchestration trigger
+      // leaves an audit trace.
+      this.#records.push({
+        discovered: [],
+        manifestValid: false,
+        tool_id: TOY_WORLD_ROLL_DICE_ID,
+        args: { ...ORCHESTRATION_ROLL_ARGS },
+        result: {
+          ok: false,
+          code: "SKIPPED",
+          message: "orchestration skipped: no established responder",
+          details: { reason: "responder_unavailable" },
+        },
+      });
       return;
     }
 

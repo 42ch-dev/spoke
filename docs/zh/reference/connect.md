@@ -213,7 +213,7 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 | `output` | object | 描述成功结果的不透明 JSON Schema draft-07 子 schema；空对象 `{}` 声明无约束 |
 | `idempotent` | boolean | 咨询性幂等元数据（默认 `false`）；协议不定义幂等键机制 |
 
-`validateManifestTools`（spoke-operations）对照清单自身检查其 `tools[]`：每个描述符有效、其 `capability_id` 出现在 `capabilities[]` 中、其 namespace 在 `namespaces[]` 中被拥有、且工具 id 唯一。`listTools` 按声明顺序返回描述符。两个辅助函数在主机发现时与提供方拨号前运行。
+`validateManifestTools`（spoke-operations）对照清单自身检查其 `tools[]`：每个描述符有效、其 `capability_id` 出现在 `capabilities[]` 中、其 namespace 在 `namespaces[]` 中被拥有、且工具 id 唯一。`listTools` 按声明顺序返回描述符。两个辅助函数都是纯函数 —— 库不会自动调用它们；demo 主机在发现时对拨号方的清单运行它们，集成方应在任何以清单为门禁之处自行调用。
 
 ### `tools.*` 分派规则
 
@@ -228,7 +228,7 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 
 ### 反向调用语义
 
-`invokeTool(capabilityId, args)` 向对端发出以 `op = capabilityId` 的签名 `ConnectInvokeRequest`，并以工具的 `result` 结算。拒绝应答经共享错误行映射：`op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝 —— 调用方观察到拒绝，而非静默成功。该面同时存在于 RemoteAdapter 与响应方（`connectResponder`）：主机以响应方的面在编排中途调用拨号方的工具；拨号方以 adapter 的面调用主机声明的工具。非 `tools.` id 快速失败（语法错误，`INVALID_INPUT`）。处理器注册表不修改清单 —— 用于发现的描述符真源保持在 `tools[]`，已声明但未注册的工具是提供方缺陷，由 `validateManifestTools` 在握手前捕获。
+`invokeTool(capabilityId, args)` 向对端发出以 `op = capabilityId` 的签名 `ConnectInvokeRequest`，并以工具的 `result` 结算。拒绝应答经共享错误行映射：`op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝 —— 调用方观察到拒绝，而非静默成功。该面同时存在于 RemoteAdapter 与响应方（`connectResponder`）：主机以响应方的面在编排中途调用拨号方的工具；拨号方以 adapter 的面调用主机声明的工具。非 `tools.` id 快速失败（语法错误，`INVALID_INPUT`）。处理器注册表不修改清单 —— 用于发现的描述符真源保持在 `tools[]`。已声明但未注册的工具能通过 `validateManifestTools` —— 注册不属于清单内容 —— 并在调用时以 `CAPABILITY_PORT_MISSING` 被拒绝。
 
 ## 发现与显式对等连接
 

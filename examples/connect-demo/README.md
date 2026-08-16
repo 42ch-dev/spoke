@@ -61,7 +61,7 @@ pnpm ci:typescript                          # full repo gate, including both dem
 | `server/src/adapter/mock-adapter.ts` | The `BaselinePorts` adapter a host serves: knowledge/relation/scope/finding/rule/host-manifest families with OCC. The server manifest declares the same tool ids the client serves, so they negotiate. |
 | `server/src/tools/toy-world-tools.ts` | The frozen tool ids + descriptors the demo negotiates (byte-parity with the reference provider). |
 | `server/src/host/orchestration.ts` | The host's tool-assisted orchestration step: discovery from the authenticated manifest → reverse invoke mid-flow → feed the roll result into the engine; every run is recorded (discovery, result, deny path). |
-| `server/src/transport/ws-server.ts` | The server end of the D3 transport seam + `serveConnectDemo({ port })` (port 0 = ephemeral, used by the e2e). Each connection serves the library `connectResponder` with a `DemoOrchestrator` — the dogfooded responder, no hand-rolled copy. |
+| `server/src/transport/ws-server.ts` | The server end of the D3 transport seam + `serveConnectDemo({ port })` (port 0 = ephemeral, used by the e2e). Each connection serves the library `connectResponder` with a `DemoOrchestrator` — the library responder is the demo's only serving path. |
 | `server/src/main.ts` | Server CLI: `--port`, prints peer id + allowlist + URL. |
 | `server/src/identities.ts` | Fixed demo Ed25519 identities (server, client, and a non-allowlisted stranger) — `DEMO ONLY`, never reuse. |
 | `client/src/transport/ws-transport.ts` | The consumer `Transport` contract: one connect envelope per `send`/`recv`, `recv` rejects on close, idempotent `close`. |
@@ -78,7 +78,7 @@ The third-party story is that a client needs **only two SPOKE packages** plus a 
 - `@42ch/spoke-demo-client` runtime deps: `@42ch/spoke-connect` + `@42ch/spoke-schemas` + `ws`.
 - The demo server adds `@42ch/spoke-operations` (the `BaselinePorts` surface + manifest-tools validation helpers).
 
-The demo server is a **devDependency** of the client (used only by the e2e to boot the host). Neither package is published (`"private": true`). The server dogfoods the library's `connectResponder` — no hand-rolled responder path remains in the demo.
+The demo server is a **devDependency** of the client (used only by the e2e to boot the host). Neither package is published (`"private": true`). The server serves connections with the library's `connectResponder` — the library responder is what every connection runs.
 
 ## Docs
 

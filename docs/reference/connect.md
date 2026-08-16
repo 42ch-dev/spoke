@@ -213,7 +213,7 @@ Each entry in `HostCapabilityManifest.tools` is a `ToolDescriptor` ([`schemas/da
 | `output` | object | Opaque JSON Schema draft-07 subschema describing the success result; an empty object `{}` declares no constraint |
 | `idempotent` | boolean | Advisory idempotency metadata (default `false`); the protocol defines no idempotency-key machinery |
 
-`validateManifestTools` (spoke-operations) checks a manifest's `tools[]` against the manifest itself: each descriptor is valid, its `capability_id` appears in `capabilities[]`, its namespace is owned in `namespaces[]`, and tool ids are unique. `listTools` returns the descriptors in declaration order. Both helpers run on the host at discovery time and on the provider before the dial.
+`validateManifestTools` (spoke-operations) checks a manifest's `tools[]` against the manifest itself: each descriptor is valid, its `capability_id` appears in `capabilities[]`, its namespace is owned in `namespaces[]`, and tool ids are unique. `listTools` returns the descriptors in declaration order. Both helpers are pure functions — the library does not call them automatically; the demo host runs them on the dialer's manifest at discovery time, and integrators should call them wherever they gate on a manifest.
 
 ### The `tools.*` dispatch rule
 
@@ -228,7 +228,7 @@ The request payload carries the tool arguments as `{ "arguments": <opaque JSON> 
 
 ### Reverse-invoke semantics
 
-`invokeTool(capabilityId, args)` issues a signed `ConnectInvokeRequest` with `op = capabilityId` toward the peer and resolves with the tool's `result`. Deny answers map through the shared error row: `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved — the caller observes the denial, never a silent success. The face exists on both the RemoteAdapter and the responder (`connectResponder`): the host invokes the dialer's tools mid-orchestration with the responder's face, and a dialer invokes the host's declared tools with the adapter's face. A non-`tools.` id fails fast (grammar error, `INVALID_INPUT`). The handler registry does not mutate the manifest — descriptor truth for discovery stays in `tools[]`, and a declared-but-unregistered tool is a provider bug caught by `validateManifestTools` before the hello.
+`invokeTool(capabilityId, args)` issues a signed `ConnectInvokeRequest` with `op = capabilityId` toward the peer and resolves with the tool's `result`. Deny answers map through the shared error row: `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved — the caller observes the denial, never a silent success. The face exists on both the RemoteAdapter and the responder (`connectResponder`): the host invokes the dialer's tools mid-orchestration with the responder's face, and a dialer invokes the host's declared tools with the adapter's face. A non-`tools.` id fails fast (grammar error, `INVALID_INPUT`). The handler registry does not mutate the manifest — descriptor truth for discovery stays in `tools[]`. A declared-but-unregistered tool passes `validateManifestTools` — registration is not part of the manifest — and is denied at invoke time with `CAPABILITY_PORT_MISSING`.
 
 ## Discovery and peering
 

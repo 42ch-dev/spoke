@@ -28,8 +28,9 @@ pub struct ToyWorldAdapter {
     /// Tool-handler registry (plan-3 serving surface): `register_tool_handler`
     /// fills it; `invoke_tool` dispatches by exact capability id. The registry
     /// MUST NOT mutate the manifest — descriptor truth for discovery stays in
-    /// the manifest's `tools[]`; a registry/manifest mismatch is a provider
-    /// bug caught by `validate_manifest_tools`.
+    /// the manifest's `tools[]`; a registry/manifest mismatch is invisible to
+    /// `validate_manifest_tools` (manifest-internal consistency only) and is
+    /// denied fail-closed at invoke time with `CAPABILITY_PORT_MISSING`.
     tool_handlers: Mutex<HashMap<String, ToolHandler>>,
 }
 

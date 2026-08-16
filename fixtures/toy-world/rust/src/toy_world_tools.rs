@@ -53,10 +53,6 @@ fn splitmix64(seed: u64) -> impl FnMut() -> u64 {
 /// always produce the same rolls. `sides` defaults to 6.
 pub fn roll_dice(args: &Value) -> SpokeResult<Value> {
     let count = args.get("count").and_then(Value::as_u64);
-    let sides = args
-        .get("sides")
-        .and_then(Value::as_u64)
-        .unwrap_or(6);
     let Some(count) = count else {
         return spoke_reject(
             SpokeRejectCode::InvalidInput,
@@ -71,13 +67,27 @@ pub fn roll_dice(args: &Value) -> SpokeResult<Value> {
             None,
         );
     }
-    if sides < 2 {
-        return spoke_reject(
-            SpokeRejectCode::InvalidInput,
-            "roll_dice sides must be an integer >= 2",
-            None,
-        );
-    }
+    // `sides` defaults to 6 only when absent; a present-but-invalid value
+    // (`-1`, `1.5`, `"x"`, `0`, `1`, …) is rejected with the field details,
+    // mirroring the TS handler (fixture parity).
+    let sides = match args.get("sides") {
+        None => 6,
+        Some(value) => match value.as_u64() {
+            Some(sides) if sides >= 2 => sides,
+            _ => {
+                return spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    "roll_dice sides must be an integer >= 2",
+                    Some(
+                        json!({ "field": "sides" })
+                            .as_object()
+                            .expect("details object")
+                            .clone(),
+                    ),
+                );
+            }
+        },
+    };
 
     let mut next = splitmix64(fnv1a(&format!("{count}:{sides}")));
     let rolls: Vec<Value> = (0..count)

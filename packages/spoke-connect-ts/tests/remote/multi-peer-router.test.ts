@@ -1030,6 +1030,59 @@ describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
     expect(peerA.calls).toEqual(["invokeTool"]);
     expect(peerB.calls).toEqual([]);
   });
+
+  it("fails fast with INVALID_INPUT on a non-tools. capability id before any peer selection (§6 grammar gate)", async () => {
+    const router = connectMultiPeerRouter();
+    const addPeer = new FakePeer(
+      "peer-add",
+      manifest({
+        host_id: "h-add",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    router.registerPeer(addPeer);
+
+    // "upsert" is a baseline op — without the grammar gate the router
+    // would select the baseline peer and delegate (or surface it as
+    // no_capable_peer). The D13/D14 parity row promises a fail-fast
+    // INVALID_INPUT with details.capability_id and no peer selection.
+    const result = await router.invokeTool("upsert", {});
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.capability_id).toBe("upsert");
+      // NOT the no_capable_peer / CAPABILITY_PORT_MISSING path.
+      expect(result.details?.wire_code).not.toBe("no_capable_peer");
+    }
+    // Terminal: no peer was selected, no delegate ran.
+    expect(addPeer.calls).toEqual([]);
+  });
+
+  it("fails fast with INVALID_INPUT on a malformed tools.* capability id before any peer selection (§6 grammar gate)", async () => {
+    const router = connectMultiPeerRouter();
+    const addPeer = new FakePeer(
+      "peer-add",
+      manifest({
+        host_id: "h-add",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    router.registerPeer(addPeer);
+
+    for (const badId of ["tools.UPPER.x", "tools.onlyns"]) {
+      const result = await router.invokeTool(badId, {});
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+        expect(result.details?.capability_id).toBe(badId);
+        expect(result.details?.wire_code).not.toBe("no_capable_peer");
+      }
+    }
+    // Terminal: no peer was selected, no delegate ran.
+    expect(addPeer.calls).toEqual([]);
+  });
 });
 
 describe("MultiPeerRouter tool routing over loopback responders (§6 topology)", () => {

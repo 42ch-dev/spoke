@@ -38,8 +38,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    spoke_ok, FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    parse_tool_capability_id, spoke_ok, FindingPort, HostManifestPort, KnowledgeEntryPort,
+    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::{
     HostCapabilityManifestExtensionsKey, HostCapabilityManifestHostId, ToolDescriptor,
@@ -544,17 +544,28 @@ impl MultiPeerRouter {
         self.registration_order.lock().expect("order lock").clone()
     }
 
-    /// Tool-invoke face (frozen §6): select the peer whose cached hello
-    /// manifest `capabilities[]` contains the EXACT tool capability string
-    /// (the selection table's `tools.` prefix rule resolves the required
-    /// capability to the op itself), then delegate to the selected peer's
-    /// adapter `invoke_tool` — the router never crafts envelopes itself. No
-    /// namespace/authority/role filters for tools (the capability string is
-    /// ns-scoped; tool payloads carry no `Scope`); deterministic tie-break
-    /// = lowest `peer_id`; none → the existing terminal `no_capable_peer`
-    /// reject (`details.op = capability_id`). The selected peer's underlying
+    /// Tool-invoke face (frozen §6): fails fast on a non-`tools.`
+    /// capability id (the op string IS the capability string; a
+    /// non-`tools.` id is a programming error) with `INVALID_INPUT` +
+    /// `details.capability_id` before any peer selection — no wire traffic
+    /// (D13/D14 parity with `RemoteAdapter::invoke_tool`). Otherwise select
+    /// the peer whose cached hello manifest `capabilities[]` contains the
+    /// EXACT tool capability string (the selection table's `tools.` prefix
+    /// rule resolves the required capability to the op itself), then
+    /// delegate to the selected peer's adapter `invoke_tool` — the router
+    /// never crafts envelopes itself. No namespace/authority/role filters
+    /// for tools (the capability string is ns-scoped; tool payloads carry
+    /// no `Scope`); deterministic tie-break = lowest `peer_id`; none → the
+    /// existing terminal `no_capable_peer` reject
+    /// (`details.op = capability_id`). The selected peer's underlying
     /// `SpokeResult` reject is returned as-is (§7.2 — no alternate-retry).
     pub async fn invoke_tool(&self, capability_id: &str, arguments: Value) -> SpokeResult<Value> {
+        // Fail fast on a non-tool capability id (the op string IS the
+        // capability string; a non-`tools.` id is a programming error).
+        match parse_tool_capability_id(capability_id) {
+            SpokeResult::Ok(_) => {}
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        }
         let selected = match self.select_for_op(capability_id, &json!({})) {
             Ok(selected) => selected,
             Err(reject) => return SpokeResult::Reject(reject),
@@ -2372,5 +2383,86 @@ mod tests {
         // §4: lowest peer_id (UTF-8 byte order) wins.
         assert_eq!(peer_a.calls(), vec!["invokeTool"]);
         assert!(peer_b.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_fails_fast_with_invalid_input_on_a_non_tools_capability_id_before_peer_selection()
+    {
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let add_peer = FakePeer::new(
+            "peer-add",
+            manifest_with_tools(
+                "h-add",
+                &["spoke-baseline", "tools.math.add"],
+                &["math"],
+                json!([add_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        router
+            .register_peer(add_peer.clone())
+            .expect("register add");
+
+        // "upsert" is a baseline op — without the grammar gate the router
+        // would select the baseline peer and delegate (or surface it as
+        // no_capable_peer). The D13/D14 parity row promises a fail-fast
+        // INVALID_INPUT with details.capability_id and no peer selection.
+        let result = router.invoke_tool("upsert", json!({})).await;
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                assert_ne!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("capability_id"))
+                        .and_then(Value::as_str),
+                    Some("upsert")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("non-tools. id must reject"),
+        }
+        // Terminal: no peer was selected, no delegate ran.
+        assert!(add_peer.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_fails_fast_with_invalid_input_on_a_malformed_tools_capability_id_before_peer_selection()
+    {
+        let router = connect_multi_peer_router(MultiPeerRouterOptions::default());
+        let add_peer = FakePeer::new(
+            "peer-add",
+            manifest_with_tools(
+                "h-add",
+                &["spoke-baseline", "tools.math.add"],
+                &["math"],
+                json!([add_descriptor()]),
+            ),
+            RemoteAdapterState::Established,
+        );
+        router
+            .register_peer(add_peer.clone())
+            .expect("register add");
+
+        for bad_id in ["tools.UPPER.x", "tools.onlyns"] {
+            let result = router.invoke_tool(bad_id, json!({})).await;
+            match result {
+                SpokeResult::Reject(reject) => {
+                    assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                    assert_eq!(
+                        reject
+                            .details
+                            .as_ref()
+                            .and_then(|details| details.get("capability_id"))
+                            .and_then(Value::as_str),
+                        Some(bad_id)
+                    );
+                }
+                SpokeResult::Ok(_) => panic!("malformed tools. id must reject: {bad_id}"),
+            }
+        }
+        // Terminal: no peer was selected, no delegate ran.
+        assert!(add_peer.calls().is_empty());
     }
 }

@@ -36,6 +36,7 @@ import type {
 } from "@42ch/spoke-schemas";
 import {
   SpokeRejectCode,
+  parseToolCapabilityId,
   spokeOk,
   spokeReject,
   type BaselinePorts,
@@ -497,21 +498,32 @@ export class MultiPeerRouter implements BaselinePorts {
   // ── Tool routing (frozen §6) ────────────────────────────────────────────
 
   /**
-   * Tool-invoke face (frozen §6): select the peer whose cached hello
-   * manifest `capabilities[]` contains the EXACT tool capability string
-   * (the selection table's `tools.` prefix rule resolves the required
-   * capability to the op itself), then delegate to the selected peer's
-   * adapter `invokeTool` — the router never crafts envelopes itself. No
-   * namespace/authority/role filters for tools (the capability string is
-   * ns-scoped; tool payloads carry no `Scope`); deterministic tie-break =
-   * lowest `peer_id`; none → the existing terminal `no_capable_peer`
-   * reject (`details.op = capabilityId`). The selected peer's underlying
-   * `SpokeResult` reject is returned as-is (§7.2 — no alternate-retry).
+   * Tool-invoke face (frozen §6): fails fast on a non-`tools.` capability
+   * id (the op string IS the capability string; a non-`tools.` id is a
+   * programming error) with `INVALID_INPUT` + `details.capability_id`
+   * before any peer selection — no wire traffic (D13/D14 parity with
+   * `RemoteAdapter.invokeTool`). Otherwise select the peer whose cached
+   * hello manifest `capabilities[]` contains the EXACT tool capability
+   * string (the selection table's `tools.` prefix rule resolves the
+   * required capability to the op itself), then delegate to the selected
+   * peer's adapter `invokeTool` — the router never crafts envelopes
+   * itself. No namespace/authority/role filters for tools (the capability
+   * string is ns-scoped; tool payloads carry no `Scope`); deterministic
+   * tie-break = lowest `peer_id`; none → the existing terminal
+   * `no_capable_peer` reject (`details.op = capabilityId`). The selected
+   * peer's underlying `SpokeResult` reject is returned as-is (§7.2 — no
+   * alternate-retry).
    */
   async invokeTool(
     capabilityId: string,
     args: Record<string, unknown>,
   ): Promise<SpokeResult<unknown>> {
+    // Fail fast on a non-tool capability id (the op string IS the
+    // capability string; a non-`tools.` id is a programming error).
+    const parsed = parseToolCapabilityId(capabilityId);
+    if (!parsed.ok) {
+      return parsed;
+    }
     const selected = this.#selectPeerForOp(capabilityId, {});
     if (!selected.ok) {
       return selected;

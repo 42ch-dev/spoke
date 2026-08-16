@@ -42,7 +42,7 @@ disposable_close = """
     }
 """
 
-for class_name in ("LoopbackTransport", "LoopbackSmokeHost", "RemoteAdapterFfi"):
+for class_name in ("LoopbackTransport", "LoopbackSmokeHost", "RemoteAdapterFfi", "ConnectResponderFfi"):
     marker = f"open class {class_name}:"
     start = content.find(marker)
     if start == -1:

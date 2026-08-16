@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-14  
 **North star:** Cross-product KnowledgeEntry dialect for check + assemble I/O across independent product runtimes.  
-**Protocol schema inventory:** **31** (24 baseline + 6 opt-in connect envelopes + 1 opt-in `l5-mind` envelope).
+**Protocol schema inventory:** **32** (25 baseline + 6 opt-in connect envelopes + 1 opt-in `l5-mind` envelope).
 
 ---
 
@@ -30,6 +30,7 @@ No active delivery slice on `main`. See **Up next** for planned work; durable co
 | **libp2p transitive vulnerability revisit** | Re-check yamux / hickory-proto pins in `Cargo.lock` when upstream libp2p ecosystem ships fixes | Last reviewed 2026-08-02 — no fix available on current libp2p 0.56 line |
 | **Go linux/windows native builds** | Commit release-profile `linux_amd64` / `windows_amd64` natives (`libspoke_connect.so` / `spoke_connect.dll`) into `bindings/go/native/` so Go consumers on those platforms resolve the cdylib from the module tree | Go natives are committed for darwin today; linux/windows release-profile natives stage from the `build-connect-ffi` CI matrix (`linux-x64`, `win-x64`) and are committed when a linux cross-link / Windows mingw build path is available |
 | **Mind-axis ops extraction (demand-gated)** | Pure ops beyond `validateMindState`: `applyMindDeltas` + `MindState` ordering/filtering candidates; checker Finding patterns (`stale_belief_drift`, `dramatic_irony_asymmetry`, …) and observation/belief derivations stay product-local | ≥ 2 independent consumers request mind-axis ops / Scope surface; candidate priority and boundary in [mind-axis-ops-extraction-gate.md](knowledge/architecture-patterns/mind-axis-ops-extraction-gate.md) |
+| **Reverse-invoke + tool-serving FFI surfaces** | `invokeTool` / `registerToolHandler` (reverse tool-invoke + responder/tool-serving faces) over the connect FFI surface for native binding hosts, per the staged follow-ons in [spoke-remote-adapter.md](specs/spoke-remote-adapter.md) | Trigger: the TS + Rust `invokeTool` / `registerToolHandler` library surfaces validated by consumers; the FFI surface and bindings stay unchanged until then |
 
 ---
 
@@ -83,7 +84,7 @@ Newest first. Dates are delivery dates on `main`.
 | Ops library | Pure TS + Rust helpers + six baseline port families (incl. `HostManifestPort`) + `*Adapter` aliases + injection orchestration; `mergeModuleMaps` / `preserveModuleMaps` |
 | Connect wire (opt-in) | `schemas/connect/` six envelopes; hello JCS + auth paths; `@42ch/spoke-connect` (TypeScript language-native client) + `spoke-connect` Rust reference; native bindings available for C#, Kotlin, Swift, Go, Python per [connect-binding-channels.md](specs/connect-binding-channels.md), with the additive remote-adapter FFI surface (`RemoteAdapterFFI` / `MultiPeerRouterFFI` / callback `Transport`) recorded in [spoke-remote-adapter.md](specs/spoke-remote-adapter.md) D12 |
 | Fixtures | `fixtures/toy-world/` samples + harness + reference adapters; pack companion under `proposed/` |
-| Codegen / CI | Schema inventory **31**; `verify-codegen`; Pages docs workflow |
+| Codegen / CI | Schema inventory **32**; `verify-codegen`; Pages docs workflow |
 | Specs | Umbrella, layers, data-model, ops, operations, extension-modules, Domain Profiles, assemble recipes, connect family under `.mstar/specs/` |
 
 ---

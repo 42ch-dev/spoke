@@ -351,6 +351,8 @@ Logical states and transitions for the **session core** (pure rules). Dialing, N
 | `Established` → `Established` | Inbound response | Accept iff it echoes `session_id`, `sequence`, and `request_id` of a pending request; else correlation failure (local error) |
 | `Established` → `Closed` | Next outbound sequence would exceed 2⁵³−1, or transport loss, or local shutdown | No wrap-around |
 
+> **Advance timing (implementers):** for protocol_version 2 sessions the inbound counter advances per the canonical invoke serving order — peek, then envelope-auth verify, then advance — in §[Op dispatch gate](#op-dispatch-gate); this table row states the sequence rule, not the v2 auth ordering.
+
 These labels and guards are the portable session-core contract so Path A ports match reference behavior without depending on reference-crate internals.
 
 The inbound-invoke guard is **direction-generic**: a reverse invoke — a `ConnectInvokeRequest` issued by the responder toward the initiator — is accepted under the identical `sequence == next_expected_inbound` rule and produces the identical wire-error / no-side-effect behavior as a forward invoke. The session core does not distinguish which peer dialed first; only the direction of travel of the envelope is relevant to the counters.

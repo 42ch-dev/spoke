@@ -366,18 +366,23 @@ Open string (documented, not JSON Schema enum). Schema `description` on `Connect
 | `project` | project-* | Optional; meaningful when remote declares `l2-computable` |
 | `compute` | compute-* | Optional; same |
 
-Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. This vocabulary MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
+Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the seven core values and stays unchanged. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls ([`spoke-remote-adapter.md`](spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)).
+
+Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. The core vocabulary above MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
 
 ## Op dispatch gate
 
 Before executing or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch MUST ensure the capability required by `op` is present in the session’s `negotiated_capabilities`. If the required capability is absent, the host MUST NOT run the op handler and MUST answer with a `ConnectInvokeResponse` error branch (`ErrorEnvelope`, e.g. code `op_unsupported` or `capability_missing`) — no side effects.
 
-For protocol_version 1 core ops, required capabilities are:
+Required capabilities (core table):
 
-| `op` | Required capability (minimum) |
-|------|-------------------------------|
+| `op` | Required capability |
+|------|---------------------|
 | `upsert`, `promote`, `relate`, `check`, `assemble` | `spoke-baseline` (or a deployment-documented synonym that both peers list and intersect into `negotiated_capabilities`) |
 | `project`, `compute` | `l2-computable` |
+| `tools.<ns>.<tool_id>` (reserved product prefix) | the op string itself |
+
+`tools.*` is a **core gate rule**: `tools.<ns>.<tool_id>` ops are self-describing, so the required capability is the op string itself — no registry, no umbrella flag. This is the core-table counterpart of `port.*` being product-map territory: a `tools.*` op never consults a product capability map. A tool id enters `negotiated_capabilities` only when both hellos list that exact string (the agreed-subset rule of §[Session-core state machine](#session-core-state-machine)); the gate then evaluates that exact string as for every op.
 
 Product-defined `op` values MUST document their required capability name(s). The gate is evaluated against **`negotiated_capabilities`**, not against the remote manifest alone and not against unsigned hello `extensions`.
 
@@ -391,6 +396,8 @@ A new or modified ops family that is intended to be remotely invokable over conn
 2. Keep those strings in sync with the corresponding JSON Schema `description` fields under `schemas/ops/` (and connect schema text that cites them);
 3. Declare the capability name(s) hosts must advertise in `HostCapabilityManifest.capabilities` for the family to be negotiable;
 4. Rely on opaque `payload` wrapping of existing ops request/response envelopes — **MUST NOT** require connect envelope shape changes for new ops fields.
+
+**Tools family:** `tools.<ns>.<tool_id>` invokes are self-describing — each tool's ABI is declared by a `ToolDescriptor` in `HostCapabilityManifest.tools[]` rather than ops schema files under `schemas/ops/`, and request/response payloads stay opaque JSON on the wire (no connect envelope change, item 4). The required capability is the op string itself (§[Op dispatch gate](#op-dispatch-gate)); each tool's `capability_id` MUST appear in the declaring manifest's `capabilities[]`. Field-level rules: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest.
 
 Connect schemas and the six envelope shapes stay closed; extensibility is vocabulary + capabilities + opaque payload, not new connect fields.
 

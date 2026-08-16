@@ -146,7 +146,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 
 ## v0.1 acceptance (umbrella)
 
-Current wire bar: ten data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`, `MindState`), five baseline ops plus optional `project` / `compute`, six opt-in connect envelopes (`spoke-connect`), **32** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
+Current wire bar: ten data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`, `MindState`, `ToolDescriptor`), five baseline ops plus optional `project` / `compute`, six opt-in connect envelopes (`spoke-connect`), **32** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
 
 **CI + inventory (required):**
 
@@ -168,6 +168,7 @@ Current wire bar: ten data objects (including `HostCapabilityManifest`, `Rule`, 
 | HostCapabilityManifest | `schemas/data/host-capability-manifest.schema.json` — see [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest |
 | Rule | `schemas/data/rule.schema.json` — see [`spoke-data-model.md`](spoke-data-model.md) |
 | TimelineEvent | `schemas/data/timeline-event.schema.json` — see [`spoke-data-model.md`](spoke-data-model.md) |
+| ToolDescriptor | `schemas/data/tool-descriptor.schema.json` — see [`spoke-data-model.md`](spoke-data-model.md) §Tools |
 
 ## Non-goals (v0.1)
 

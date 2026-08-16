@@ -57,6 +57,7 @@ Schema: `schemas/data/host-capability-manifest.schema.json`.
 | Field | Type | Semantics |
 |-------|------|-----------|
 | `authority` | object | Closed scope pointer for data-store OCC — see §Authority |
+| `tools` | ToolDescriptor[] | Optional self-describing tool ABIs — see §Tools |
 
 ### Host roles (open vocabulary)
 
@@ -83,6 +84,17 @@ Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, an
 | `spoke-baseline` | MUST appear when manifest describes a baseline-compliant adapter |
 | `l2-computable` | MUST appear when `computable-engine` ∈ `roles` |
 | `l5-fork` | SHOULD appear when fork-aware timeline query is advertised |
+
+### Tools (optional)
+
+`tools[]` declares optional self-describing tool ABIs via `ToolDescriptor` (`schemas/data/tool-descriptor.schema.json`). Each descriptor's `capability_id` and `op` are the **same string** `tools.<ns>.<tool_id>` (pattern `^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$` enforced by the schema; `op === capability_id` is a spec-level MUST — draft-07 cannot express cross-field equality, so validation helpers enforce it). The namespace `ns` MUST match `^[a-z][a-z0-9_-]*$` (the same pattern as `namespaces[]`) and MUST be a member of this manifest's `namespaces[]` — namespace ownership is the ownership check; the descriptor has **no separate `namespace` field** (derived from `capability_id`, one source of truth). `tool_id` matches `^[a-z0-9][a-z0-9_-]*$` — an open-ended vocabulary, not enumerated.
+
+Cross-field consistency (spec-level MUSTs, enforced by validation helpers; the schema stays structural):
+
+- Every `tools[].capability_id` MUST also appear in the same manifest's `capabilities[]`.
+- Every `tools[].capability_id` MUST be unique within `tools[]` (helper-owned rule — the schema does not use `uniqueItems`, which cannot catch two different descriptors sharing a `capability_id`).
+
+`input` / `output` are opaque JSON Schema draft-07 subschema objects carried as opaque JSON on the wire (their internals are not code-generated); an empty object `{}` is valid and declares no constraint. `idempotent` is advisory metadata only — the protocol defines no idempotency-key machinery. `tools` is optional: manifests without it remain valid, and no existing manifest field changes semantics.
 
 ### Authority (optional)
 

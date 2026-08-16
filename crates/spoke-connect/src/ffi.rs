@@ -371,16 +371,22 @@ mod foreign_tool_handler {
             Box::pin(async move {
                 let arguments_json =
                     serde_json::to_string(&arguments).expect("tool arguments serialize");
-                match ffi_runtime()
-                    .spawn_blocking(move || handler.handle(arguments_json))
-                    .await
-                {
-                    Ok(Ok(json)) => match serde_json::from_str(&json) {
-                        Ok(value) => SpokeResult::Ok(value),
-                        Err(error) => containment_reject(format!(
-                            "foreign tool handler returned malformed JSON: {error}"
-                        )),
-                    },
+                // The handler's returned JSON parses inside the same
+                // blocking task — foreign-produced output never lands on
+                // an async worker (the same D16 threading principle as
+                // the callback call itself).
+                let handled = ffi_runtime()
+                    .spawn_blocking(move || {
+                        handler
+                            .handle(arguments_json)
+                            .map(|json| serde_json::from_str::<Value>(&json))
+                    })
+                    .await;
+                match handled {
+                    Ok(Ok(Ok(value))) => SpokeResult::Ok(value),
+                    Ok(Ok(Err(error))) => containment_reject(format!(
+                        "foreign tool handler returned malformed JSON: {error}"
+                    )),
                     Ok(Err(FfiError::Rejected {
                         code,
                         message,
@@ -3885,6 +3891,33 @@ mod remote_adapter_ffi_tests {
             other => panic!("expected verbatim reject passthrough, got {other:?}"),
         }
 
+        // Err(Rejected{ code: <unknown> }) → downgrade: the foreign code
+        // string is not in the locked wire vocabulary and cannot be
+        // represented by the typed SpokeRejectCode, so the bridge contains
+        // it to INTERNAL_ERROR — the message stays preserved and kind /
+        // wire_code still re-hang onto details (locked codes pass through
+        // verbatim, asserted above).
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Rejected {
+            code: "NOT_A_WIRE_CODE".into(),
+            message: "unknown code message".into(),
+            kind: Some("some_kind".into()),
+            wire_code: None,
+        });
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({})));
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InternalError);
+                assert_eq!(reject.message, "unknown code message");
+                let details = reject.details.expect("details re-hung");
+                assert_eq!(
+                    details.get("kind").and_then(Value::as_str),
+                    Some("some_kind")
+                );
+            }
+            other => panic!("expected INTERNAL_ERROR downgrade, got {other:?}"),
+        }
+
         // Err(Dial{..}) (non-contract) → containment: INTERNAL_ERROR,
         // details None.
         let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Dial);
@@ -3976,6 +4009,39 @@ mod remote_adapter_ffi_tests {
                 );
             }
             other => panic!("expected verbatim reject on the wire, got {other:?}"),
+        }
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_tool_handler_unknown_reject_code_downgrades_to_internal_error_on_the_wire() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+        // A foreign code string outside the locked wire vocabulary cannot
+        // be represented by the typed SpokeRejectCode — the bridge
+        // downgrades it to INTERNAL_ERROR while the peer still observes
+        // the original message and the re-hung details.
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Rejected {
+            code: "NOT_A_WIRE_CODE".into(),
+            message: "unknown code message".into(),
+            kind: None,
+            wire_code: Some("op_unsupported".into()),
+        });
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("register");
+
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InternalError);
+                assert_eq!(reject.message, "unknown code message");
+                let details = reject.details.expect("details re-hung");
+                assert_eq!(
+                    details.get("wire_code").and_then(Value::as_str),
+                    Some("op_unsupported")
+                );
+            }
+            other => panic!("expected INTERNAL_ERROR downgrade on the wire, got {other:?}"),
         }
         ffi.close();
         responder.close();
@@ -4233,6 +4299,37 @@ mod connect_responder_ffi_tests {
         )
     }
 
+    /// Never-answering foreign `ToolHandler` (D16): records the arguments
+    /// JSON and parks forever — a binding whose `handle` never returns, the
+    /// pending-serving double for the mid-wait close row. The parked
+    /// blocking-pool thread is test-only and inert (no CPU; the serve task
+    /// stays parked until process exit, the accepted F-005 pattern).
+    struct PendingForeignToolHandler {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FfiToolHandler for PendingForeignToolHandler {
+        fn handle(&self, arguments_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("handler calls lock")
+                .push(arguments_json);
+            loop {
+                std::thread::park();
+            }
+        }
+    }
+
+    fn pending_handler() -> (Box<PendingForeignToolHandler>, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(PendingForeignToolHandler {
+                calls: Arc::clone(&calls),
+            }),
+            calls,
+        )
+    }
+
     /// Bounded poll for the handshake to settle — the responder constructor
     /// returns immediately in `Handshaking` (D16 constructor semantics: the
     /// block-on covers only the factory future; the dialer hello is the
@@ -4335,6 +4432,134 @@ mod connect_responder_ffi_tests {
         );
         dialer.close();
         responder.close();
+    }
+
+    // ── Task 5 fix wave: responder-face invoke_tool rows (D15 by
+    // reference — the adapter-face rows mirrored on the responder face) ──
+
+    #[test]
+    fn connect_responder_ffi_invoke_tool_fails_fast_on_a_non_tool_capability_id_with_zero_wire_traffic() {
+        let (responder, dialer) = dial_responder_ffi();
+        let (handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let err = responder
+            .invoke_tool("port.x".to_string(), r#"{}"#.to_string())
+            .expect_err("non-tools id must reject");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref message,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INVALID_INPUT"
+                    && message.contains("port.x")
+                    && kind.is_none()
+                    && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+        assert!(
+            dialer_calls.lock().expect("calls lock").is_empty(),
+            "grammar fail-fast must not reach the serving foreign handler"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_invoke_tool_rejects_malformed_arguments_json_with_zero_wire_traffic() {
+        let (responder, dialer) = dial_responder_ffi();
+        let (handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let err = responder
+            .invoke_tool("tools.math.add".to_string(), "{ not json".to_string())
+            .expect_err("malformed arguments json must reject");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref message,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INVALID_INPUT"
+                    && message.contains("invalid tool arguments JSON")
+                    && message.contains("key must be a string")
+                    && kind.is_none()
+                    && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+        assert!(
+            dialer_calls.lock().expect("calls lock").is_empty(),
+            "malformed arguments must not reach the wire"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_close_mid_wait_settles_pending_reverse_invoke_session_closed() {
+        let (responder, dialer) = dial_responder_ffi();
+        // Never-answering foreign handler on the dialer: the responder's
+        // reverse invoke stays pending until close (the adapter-face
+        // mid-wait row mirrored for the responder→dialer direction).
+        let (handler, dialer_calls) = pending_handler();
+        dialer
+            .register_tool_handler("tools.echo.boom".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let invoke_slot = Arc::new(Mutex::new(None));
+        let invoke_slot_thread = Arc::clone(&invoke_slot);
+        let responder_thread = Arc::clone(&responder);
+        let invoke_handle = std::thread::spawn(move || {
+            let result = responder_thread.invoke_tool(
+                "tools.echo.boom".to_string(),
+                r#"{}"#.to_string(),
+            );
+            *invoke_slot_thread.lock().expect("invoke slot lock") = Some(result);
+        });
+        // The reverse invoke hit the wire once the dialer's foreign handler
+        // ran — the responder's waiter registers before the send (D10), so
+        // a close at this point must settle the pending invoke with
+        // `session_closed`.
+        wait_for("reverse invoke to reach the dialer's foreign handler", || {
+            !dialer_calls.lock().expect("calls lock").is_empty()
+        });
+        responder.close();
+        assert_eq!(responder.state(), "Closed");
+        invoke_handle.join().expect("invoke thread joined");
+        let err = invoke_slot
+            .lock()
+            .expect("invoke slot lock")
+            .take()
+            .expect("invoke result")
+            .expect_err("pending reverse invoke must settle session_closed on close");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INTERNAL_ERROR"
+                    && kind.as_deref() == Some("session_closed")
+                    && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+        dialer.close();
     }
 
     // ── Task 5: both-directions integration over the router ──────────────

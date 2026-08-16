@@ -1,10 +1,14 @@
 # spoke-connect Swift iOS smoke (maintainer-local)
 
-iOS-simulator golden-parity smoke for the `SpokeConnect` SPM product. Runs the
+iOS-simulator smoke for the `SpokeConnect` SPM product. Runs the
 same golden checks as the macOS `Smoke/` (peer id, hello signature, protocol
-version) through the committed `spoke_connectFFI.xcframework` simulator slice,
-proving an iOS integrator links and executes the session core without running
-Rust or bindgen.
+version) plus the tool faces over the in-repo loopback pair (D15/D16: dialer
+`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
+invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
+deny, handler-thrown reject passthrough) through the committed
+`spoke_connectFFI.xcframework` simulator slice, proving an iOS integrator links
+and executes the session core without running Rust or bindgen. No smoke host is
+required — every tool face is on the production xcframework.
 
 > This package is **maintainer validation only**: it is not referenced from the
 > repo-root `Package.swift` and is not part of the shipped SPM product layout.

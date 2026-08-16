@@ -6,7 +6,11 @@ signs and verifies the golden hello (asserting base64url signature parity), and
 exercises the rest of the exported surface (allowlist, sequences, nonce store,
 dispatch gate, correlation, protocol version) with the mapped error cases, then
 exercises `RemoteAdapterFFI` over a callback `Transport` on the in-repo loopback pair
-(put → get knowledge entry round-trip, session state, host peer id).
+(put → get knowledge entry round-trip, session state, host peer id), then drives
+both FFI tool faces over a second loopback pair (D15/D16): dialer `invoke_tool`
+served by a responder foreign `ToolHandler`, responder reverse invoke served by
+a dialer-side handler, unregistered-tool `op_unsupported` deny, and
+handler-thrown reject passthrough.
 
 > Local env quirk: this machine's `~/.cargo/config.toml` carries
 > `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).

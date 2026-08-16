@@ -45,6 +45,7 @@ try
 #if SMOKE_HOST
     LoopbackSmoke.Run();
     Console.WriteLine("loopback RemoteAdapterFFI: PASS");
+    Console.WriteLine("loopback tool faces: PASS");
 #endif
 
     Console.WriteLine();

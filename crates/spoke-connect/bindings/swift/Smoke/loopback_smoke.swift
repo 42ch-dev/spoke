@@ -27,8 +27,11 @@ final class LoopbackCallbackTransport: Transport {
 
 private struct LoopbackSmokeFixture {
     let seedClient: Data
+    let seedHost: Data
     let pubkeyHost: Data
+    let pubkeyClient: Data
     let peerIdHost: String
+    let peerIdClient: String
     let clientManifestJson: String
     let sessionId: String
     let entryId: String
@@ -47,9 +50,14 @@ private struct LoopbackSmokeFixture {
         guard
             let seedClientHex = json["seed_client_hex"] as? String,
             let seedClient = hexData(seedClientHex),
+            let seedHostHex = json["seed_host_hex"] as? String,
+            let seedHost = hexData(seedHostHex),
             let pubkeyHostHex = json["pubkey_host_hex"] as? String,
             let pubkeyHost = hexData(pubkeyHostHex),
+            let pubkeyClientHex = json["pubkey_client_hex"] as? String,
+            let pubkeyClient = hexData(pubkeyClientHex),
             let peerIdHost = json["peer_id_host"] as? String,
+            let peerIdClient = json["peer_id_client"] as? String,
             let clientManifestJson = json["client_manifest_json"] as? String,
             let sessionId = json["session_id"] as? String,
             let entryId = json["entry_id"] as? String,
@@ -61,8 +69,11 @@ private struct LoopbackSmokeFixture {
         }
         return LoopbackSmokeFixture(
             seedClient: seedClient,
+            seedHost: seedHost,
             pubkeyHost: pubkeyHost,
+            pubkeyClient: pubkeyClient,
             peerIdHost: peerIdHost,
+            peerIdClient: peerIdClient,
             clientManifestJson: clientManifestJson,
             sessionId: sessionId,
             entryId: entryId,
@@ -134,4 +145,208 @@ func runLoopbackRemoteAdapterSmoke(_ r: Reporter) throws {
     adapter.close()
     r.check("RemoteAdapterFFI state is Closed after close", adapter.state() == "Closed")
     host.close()
+}
+
+/// Tool faces over the loopback pair (D15/D16): both ends are FFI objects —
+/// the responder serves a foreign `ToolHandler`, the dialer serves reverse
+/// invokes through `RemoteAdapterFFI.registerToolHandler`, unregistered tools
+/// deny with `op_unsupported`, and a handler-thrown application reject passes
+/// through verbatim (parity with
+/// crates/spoke-connect/src/ffi.rs connect_responder_ffi_tests).
+func runToolLoopbackSmoke(_ r: Reporter) throws {
+    let fixture = try LoopbackSmokeFixture.load()
+
+    let pair = loopbackTransportPair()
+    // The accept-side constructor returns immediately in `Handshaking` (D16):
+    // the dialer hello is the sync point, so the smoke polls `state()`
+    // (bounded) to `Established` before invoking; a handshake failure
+    // surfaces as `Closed`, never a thrown constructor error.
+    let responder = try connectResponderFfi(
+        transport: LoopbackCallbackTransport(inner: pair.server()),
+        seed: fixture.seedHost,
+        manifestJson: toolManifestJson(hostId: "test-responder"),
+        allowlist: [fixture.peerIdClient],
+        peerKeys: [fixture.peerIdClient: fixture.pubkeyClient],
+        invokeTimeoutMs: nil
+    )
+    let dialer = try connectRemoteAdapterFfi(
+        transport: LoopbackCallbackTransport(inner: pair.client()),
+        localSeed: fixture.seedClient,
+        localManifestJson: toolManifestJson(hostId: "test-client"),
+        remotePubkey: fixture.pubkeyHost,
+        allowlist: [fixture.peerIdHost],
+        invokeTimeoutMs: nil
+    )
+
+    defer {
+        dialer.close()
+        responder.close()
+    }
+
+    r.check("tool dialer state is Established", dialer.state() == "Established")
+    try waitForState("tool responder handshake", { responder.state() }, "Established")
+
+    // 1. Dialer FFI invoke_tool -> responder FFI foreign ToolHandler.
+    let responderSum = SumToolHandler()
+    try responder.registerToolHandler(capabilityId: "tools.math.add", handler: responderSum)
+    let sumJson = try dialer.invokeTool(capabilityId: "tools.math.add", argumentsJson: "{\"a\": 1, \"b\": 2}")
+    r.check("dialer invoke_tool answered by responder foreign ToolHandler", parseSum(sumJson) == 3)
+    r.check("responder handler invocation count is 1", responderSum.calls == 1)
+
+    // 2. Responder FFI invoke_tool -> dialer-side handler registered via
+    //    RemoteAdapterFFI.registerToolHandler.
+    let dialerSum = SumToolHandler()
+    try dialer.registerToolHandler(capabilityId: "tools.math.add", handler: dialerSum)
+    let reverseSumJson = try responder.invokeTool(capabilityId: "tools.math.add", argumentsJson: "{\"a\": 21, \"b\": 21}")
+    r.check("responder invoke_tool answered by dialer-side handler", parseSum(reverseSumJson) == 42)
+    r.check("dialer handler invocation count is 1", dialerSum.calls == 1)
+
+    // 3. Negotiated but unregistered tool -> fail-closed op_unsupported.
+    do {
+        _ = try dialer.invokeTool(capabilityId: "tools.echo.boom", argumentsJson: "{}")
+        r.check("unregistered tool is denied", false)
+    } catch let error as FfiError {
+        if case let .Rejected(code, _, _, wireCode) = error {
+            r.check("unregistered tool deny code is CAPABILITY_PORT_MISSING", code == "CAPABILITY_PORT_MISSING")
+            r.check("unregistered tool deny wire_code is op_unsupported", wireCode == "op_unsupported")
+        } else {
+            r.check("unregistered tool deny surfaces as FfiError.Rejected (got \(error))", false)
+        }
+    } catch {
+        r.check("unregistered tool deny surfaces as FfiError (got \(error))", false)
+    }
+
+    // 4. Handler-thrown application reject passes through verbatim (kind /
+    //    wire_code re-hung onto details by the bridge).
+    try dialer.registerToolHandler(
+        capabilityId: "tools.echo.boom",
+        handler: ThrowingToolHandler(
+            error: FfiError.Rejected(
+                code: "REVISION_CONFLICT",
+                message: "foreign handler rejected",
+                kind: nil,
+                wireCode: "op_unsupported"
+            )
+        )
+    )
+    do {
+        _ = try responder.invokeTool(capabilityId: "tools.echo.boom", argumentsJson: "{}")
+        r.check("handler-thrown reject passes through", false)
+    } catch let error as FfiError {
+        if case let .Rejected(code, message, _, wireCode) = error {
+            r.check("reject passthrough code is REVISION_CONFLICT", code == "REVISION_CONFLICT")
+            r.check("reject passthrough message is verbatim", message == "foreign handler rejected")
+            r.check("reject passthrough wire_code is op_unsupported", wireCode == "op_unsupported")
+        } else {
+            r.check("reject passthrough surfaces as FfiError.Rejected (got \(error))", false)
+        }
+    } catch {
+        r.check("reject passthrough surfaces as FfiError (got \(error))", false)
+    }
+}
+
+/// Tool-carrying manifest — every tool capability also sits in
+/// `capabilities[]` so the negotiated set includes the `tools.*` ops (D13
+/// dispatch gate). Mirror of the Rust `tool_manifest` test helper.
+private func toolManifestJson(hostId: String) -> String {
+    let manifest: [String: Any] = [
+        "schema_version": 1,
+        "host_id": hostId,
+        "roles": ["data-store"],
+        "capabilities": ["spoke-baseline", "tools.math.add", "tools.echo.echo", "tools.echo.boom"],
+        "namespaces": ["math", "echo", "toy_world"],
+        "extensions": [:],
+        "tools": [
+            [
+                "schema_version": 1,
+                "capability_id": "tools.math.add",
+                "op": "tools.math.add",
+                "description": "Add two integers",
+                "input": ["type": "object"],
+                "output": ["type": "object"],
+            ],
+            [
+                "schema_version": 1,
+                "capability_id": "tools.echo.echo",
+                "op": "tools.echo.echo",
+                "description": "Echo the arguments",
+                "input": ["type": "object"],
+                "output": ["type": "object"],
+            ],
+            [
+                "schema_version": 1,
+                "capability_id": "tools.echo.boom",
+                "op": "tools.echo.boom",
+                "description": "Explodes",
+                "input": ["type": "object"],
+                "output": ["type": "object"],
+            ],
+        ],
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: manifest)
+    return String(data: data, encoding: .utf8)!
+}
+
+/// Bounded poll for the handshake to settle (D16 constructor semantics).
+private func waitForState(_ what: String, _ state: () -> String, _ expected: String) throws {
+    let deadline = Date().addingTimeInterval(5)
+    var last = state()
+    while last != expected {
+        if Date() > deadline {
+            throw NSError(domain: "loopback_smoke", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "\(what): timed out waiting for \(expected) (last: \(last))",
+            ])
+        }
+        Thread.sleep(forTimeInterval: 0.01)
+        last = state()
+    }
+}
+
+/// Parse `{ "sum": N }` from a tool result JSON string (nil-safe: returns
+/// nil on malformed input so the caller's check fails visibly).
+private func parseSum(_ resultJson: String) -> Int64? {
+    guard
+        let data = resultJson.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+        return nil
+    }
+    return (object["sum"] as? NSNumber)?.int64Value
+}
+
+/// Foreign-callback tool handler: sums `a` + `b` (Rust `add_handler` parity)
+/// and records the invocation count.
+private final class SumToolHandler: ToolHandler {
+    private let lock = NSLock()
+    private var _calls = 0
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _calls
+    }
+
+    func handle(argumentsJson: String) throws -> String {
+        lock.lock()
+        _calls += 1
+        lock.unlock()
+        let args = try? JSONSerialization.jsonObject(with: Data(argumentsJson.utf8)) as? [String: Any]
+        let a = (args?["a"] as? NSNumber)?.int64Value ?? 0
+        let b = (args?["b"] as? NSNumber)?.int64Value ?? 0
+        return "{\"sum\": \(a + b)}"
+    }
+}
+
+/// Foreign-callback tool handler that always throws the given application
+/// reject (D16 passthrough row).
+private final class ThrowingToolHandler: ToolHandler {
+    private let error: Error
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func handle(argumentsJson: String) throws -> String {
+        throw error
+    }
 }

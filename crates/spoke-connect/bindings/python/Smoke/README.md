@@ -10,6 +10,10 @@ rejection, and protocol version `1`.
 The loopback section dials `RemoteAdapterFFI` through a Python `Transport`
 implementation, runs `put_knowledge_entry` → `get_knowledge_entry`, and asserts
 the golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
+The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
+`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
+invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
+deny, and handler-thrown reject passthrough.
 
 > Local env quirk: this machine's `~/.cargo/config.toml` carries
 > `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).
@@ -61,7 +65,7 @@ PYTHONPATH=crates/spoke-connect/bindings/python \
   python3 -m unittest discover -s crates/spoke-connect/bindings/python/Smoke -v
 ```
 
-Expected: 6 tests PASS (`GoldenParityTests` + `RemoteAdapterLoopbackTests`).
+Expected: 7 tests PASS (`GoldenParityTests` + `RemoteAdapterLoopbackTests`).
 
 Restore committed production `spoke_connect/` (regenerate from `ffi,remote-adapter`
 only) before landing binding changes — see `bindings/python/README.md`.

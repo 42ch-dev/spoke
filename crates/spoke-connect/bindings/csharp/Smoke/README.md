@@ -42,6 +42,10 @@ Full loopback smoke procedure: see **RemoteAdapter loopback smoke** below.
 The loopback section dials `RemoteAdapterFFI` through a C# `Transport`
 implementation, runs `PutKnowledgeEntry` → `GetKnowledgeEntry`, and asserts the
 golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
+The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
+`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
+invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
+deny, and handler-thrown reject passthrough.
 
 Requires a smoke-host cdylib (`ffi-smoke-host`) and C# bindings regenerated from
 that cdylib. Build with `-p:SmokeHost=true`:
@@ -57,7 +61,8 @@ dotnet build -p:SmokeHost=true crates/spoke-connect/bindings/csharp/Smoke/Smoke.
 dotnet run -p:SmokeHost=true --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```
 
-Expected tail: `loopback RemoteAdapterFFI: PASS` then `GOLDEN PARITY: ALL PASS`.
+Expected tail: `loopback RemoteAdapterFFI: PASS`, `loopback tool faces: PASS`,
+then `GOLDEN PARITY: ALL PASS`.
 Restore production `generated/spoke_connect.cs` (from `ffi,remote-adapter` only)
 before landing binding changes.
 

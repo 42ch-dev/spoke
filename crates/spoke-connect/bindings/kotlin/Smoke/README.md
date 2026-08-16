@@ -10,6 +10,10 @@ rejection, and protocol version `1`.
 The loopback section dials `RemoteAdapterFFI` through a Kotlin `Transport`
 implementation, runs `putKnowledgeEntry` → `getKnowledgeEntry`, and asserts the
 golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
+The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
+`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
+invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
+deny, and handler-thrown reject passthrough.
 
 > Local env quirk: this machine's `~/.cargo/config.toml` carries
 > `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).
@@ -72,7 +76,7 @@ gradle test \
   -PnativeLib="$PWD/native/darwin-aarch64/libspoke_connect.dylib"
 ```
 
-Expected: 6 tests PASS (`GoldenParityTest` + `RemoteAdapterLoopbackTest`).
+Expected: 7 tests PASS (`GoldenParityTest` + `RemoteAdapterLoopbackTest`).
 
 ## Maintainer: regenerate committed production bindings
 

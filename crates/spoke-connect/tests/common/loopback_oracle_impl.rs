@@ -973,7 +973,7 @@ pub fn seed_host() -> [u8; 32] {
 /// construction (envelope-auth contract §3/§5) so the loopback host emits
 /// the schema-v2 wire form (`signature` required on every post-hello
 /// envelope) the client's typed deserialization demands.
-fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
+pub(crate) fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
     let jcs_bytes = serde_jcs::to_vec(signed_object).expect("signed object JCS-canonicalizes");
     let signature = SigningKey::from_bytes(secret).sign(&jcs_bytes);
     URL_SAFE_NO_PAD.encode(signature.to_bytes())
@@ -986,30 +986,30 @@ fn sign_envelope(secret: &[u8; 32], signed_object: &impl Serialize) -> String {
 /// this integration test; the locked kinds + wire code are the contract's
 /// surface).
 #[derive(Debug)]
-struct HostEnvelopeAuthError {
+pub(crate) struct HostEnvelopeAuthError {
     /// The locked `details.kind` (`envelope_auth_missing` /
     /// `envelope_auth_invalid` / `envelope_auth_session_unbound`); `None`
     /// for the local key-misuse case, which carries no wire kind.
-    kind: Option<&'static str>,
-    message: String,
+    pub(crate) kind: Option<&'static str>,
+    pub(crate) message: String,
 }
 
 impl HostEnvelopeAuthError {
-    fn missing(message: impl Into<String>) -> Self {
+    pub(crate) fn missing(message: impl Into<String>) -> Self {
         Self {
             kind: Some("envelope_auth_missing"),
             message: message.into(),
         }
     }
 
-    fn invalid(message: impl Into<String>) -> Self {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
         Self {
             kind: Some("envelope_auth_invalid"),
             message: message.into(),
         }
     }
 
-    fn session_unbound(message: impl Into<String>) -> Self {
+    pub(crate) fn session_unbound(message: impl Into<String>) -> Self {
         Self {
             kind: Some("envelope_auth_session_unbound"),
             message: message.into(),
@@ -1023,7 +1023,7 @@ impl HostEnvelopeAuthError {
 /// helper is `pub(crate)` (encapsulation HARD, contract §9) and unreachable
 /// from this integration test, so the loopback double re-derives the same
 /// 7-step check; the core helper itself is pinned by golden vectors.
-fn verify_invoke_request_envelope(
+pub(crate) fn verify_invoke_request_envelope(
     wire: &Value,
     session_id: &str,
     client_pubkey: &[u8; 32],

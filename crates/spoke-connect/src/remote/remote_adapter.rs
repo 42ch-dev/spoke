@@ -24,11 +24,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::{BoxFuture, FutureExt};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    from_error_envelope, spoke_ok, spoke_reject, FindingPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
+    FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -42,9 +44,9 @@ use spoke_schemas::{
 };
 
 use crate::core::{
-    check_response_correlation, derive_peer_id_from_ed25519_pubkey, is_allowlisted,
+    check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed, is_allowlisted,
     sign_hello_ed25519, verify_hello_ed25519, CapabilityTokenProof, CoreError, Correlation,
-    EnvelopeAuthError, EnvelopeAuthErrorKind, NonceStore, OutboundSequence,
+    EnvelopeAuthError, EnvelopeAuthErrorKind, InboundSequence, NonceStore, OutboundSequence,
 };
 use crate::hello::generate_nonce;
 use crate::remote::transport::{Transport, TransportError};
@@ -179,7 +181,7 @@ pub enum RemoteAdapterError {
 /// `details.kind` — except [`connect_remote_adapter`], which errors for
 /// dial/hello failures (§8.2 last row). Parity with TS `RemoteErrorKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RemoteErrorKind {
+pub(crate) enum RemoteErrorKind {
     Transport,
     SessionClosed,
     Timeout,
@@ -193,7 +195,7 @@ enum RemoteErrorKind {
 }
 
 impl RemoteErrorKind {
-    const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Transport => "transport",
             Self::SessionClosed => "session_closed",
@@ -221,13 +223,13 @@ fn envelope_auth_kind_to_remote_error(kind: EnvelopeAuthErrorKind) -> RemoteErro
 
 /// Internal invoke failure (mirror of TS `RemoteError`).
 #[derive(Debug, Clone)]
-struct RemoteError {
-    kind: RemoteErrorKind,
-    message: String,
+pub(crate) struct RemoteError {
+    pub(crate) kind: RemoteErrorKind,
+    pub(crate) message: String,
 }
 
 impl RemoteError {
-    fn new(kind: RemoteErrorKind, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: RemoteErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),
@@ -235,12 +237,31 @@ impl RemoteError {
     }
 }
 
+impl std::fmt::Display for RemoteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 /// `SpokeResult` reject with `INTERNAL_ERROR` + `details.kind` (contract
 /// §8.2 transport/session/timeout/correlation rows).
-fn internal_error<T>(kind: &str, message: impl Into<String>) -> SpokeResult<T> {
+pub(crate) fn internal_error<T>(kind: &str, message: impl Into<String>) -> SpokeResult<T> {
     let mut details = Map::new();
     details.insert("kind".into(), Value::String(kind.into()));
     spoke_reject(SpokeRejectCode::InternalError, message, Some(details))
+}
+
+/// Extract a human-readable message from a `catch_unwind` payload (mirror
+/// of the `ffi.rs` helper of the same name — a panicking tool handler is
+/// answered with the error branch, never allowed to crash the loop).
+pub(crate) fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_owned();
+    }
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+    "tool handler panicked".to_owned()
 }
 
 /// Dispatch-deny wire codes (contract §8.2): the host answered that the op or
@@ -249,11 +270,41 @@ fn is_dispatch_deny(code: &str) -> bool {
     matches!(code, "op_unsupported" | "capability_missing")
 }
 
+/// Request-shape discriminator (mirror of TS `isConnectInvokeRequest`): an
+/// inbound envelope carrying `op` plus the correlation echo fields and a
+/// payload is a `ConnectInvokeRequest` — a reverse invoke.
+///
+/// Classification rule (normative `spoke-connect.md` §Request / response
+/// classification): an inbound envelope carrying `op` is a request — NEVER
+/// a response, even though a reverse request carries the same correlation
+/// echo fields (`session_id` / `sequence` / `request_id`) and a `payload`
+/// as the response success branch. Without the request-first order the
+/// reverse request would satisfy the response discriminator and be silently
+/// swallowed by the `request_id` demux.
+pub(crate) fn is_connect_invoke_request(doc: &Value) -> bool {
+    doc.get("session_id").is_some()
+        && doc.get("sequence").is_some()
+        && doc.get("request_id").is_some()
+        && doc.get("op").is_some()
+        && doc.get("payload").is_some()
+}
+
 /// Extract the correlation echo fields from a response-shaped wire document
 /// (both `payload` and `error` branches carry the three fields at the top
 /// level). `None` for any other envelope shape — the receive-loop
 /// discriminator (mirror of TS `isConnectInvokeResponse`).
-fn wire_response_correlation(doc: &Value) -> Option<Correlation> {
+pub(crate) fn wire_response_correlation(doc: &Value) -> Option<Correlation> {
+    // Classification rule (mirror of TS `isConnectInvokeResponse`): an
+    // envelope carrying `op` is a `ConnectInvokeRequest` — NEVER a
+    // response. A reverse request carries the same correlation echo fields
+    // + a `payload` as the success branch, so without this exclusion it
+    // would satisfy the response discriminator and be silently swallowed by
+    // a `request_id` demux (architect HIGH finding). No response ever
+    // carried `op` per the wire field tables, so rejecting `op`-bearing
+    // docs is strictly hardening.
+    if doc.get("op").is_some() {
+        return None;
+    }
     // Parity with TS `isConnectInvokeResponse`: the doc must carry at
     // least one response branch — the wire type is a `payload` XOR `error`
     // sum branch, so a branch-less fragment is not a response and is not
@@ -274,7 +325,7 @@ fn wire_response_correlation(doc: &Value) -> Option<Correlation> {
 /// The error branch carries the codegen-inline wire `ErrorEnvelope`, which is
 /// field-identical to `spoke_schemas::ErrorEnvelope`; the shared
 /// `from_error_envelope` mapping runs after a lossless value conversion.
-fn map_error_envelope(error: &WireErrorEnvelope) -> SpokeReject {
+pub(crate) fn map_error_envelope(error: &WireErrorEnvelope) -> SpokeReject {
     let mut details = error.details.clone();
     if is_dispatch_deny(&error.code) {
         details.insert("wire_code".into(), Value::String(error.code.clone()));
@@ -310,7 +361,7 @@ fn map_error_envelope(error: &WireErrorEnvelope) -> SpokeReject {
 
 /// Convert the ops/data `HostCapabilityManifest` to the field-identical
 /// hello wire type (codegen-inline shapes; lossless).
-fn connect_manifest(manifest: &HostCapabilityManifest) -> ConnectHostCapabilityManifest {
+pub(crate) fn connect_manifest(manifest: &HostCapabilityManifest) -> ConnectHostCapabilityManifest {
     serde_json::from_value(serde_json::to_value(manifest).expect("manifest serializes"))
         .expect("field-identical manifest converts")
 }
@@ -328,7 +379,16 @@ struct EstablishedSession {
     /// on every post-hello envelope — envelope-auth contract §5). Same
     /// role as `SessionHandle.local_secret` in the node/session path.
     local_secret: [u8; 32],
+    /// The session's negotiated capabilities (intersection of the local and
+    /// remote hello manifests) — the dispatch gate for inbound invokes
+    /// (`tools.*` ops require the op string itself, evaluated against this
+    /// set; frozen §3).
+    negotiated_capabilities: Vec<String>,
     sequence: Mutex<OutboundSequence>,
+    /// Inbound invoke sequence expectation (receiver side) — the reverse
+    /// serving gate peeks (non-mutating) before envelope-auth verify and
+    /// advances only after verify passes (auth-before-advance, frozen §4).
+    inbound: Mutex<InboundSequence>,
 }
 
 /// A parked invoke: correlation material + the waiter channel + the timeout
@@ -337,6 +397,29 @@ struct PendingInvoke {
     correlation: Correlation,
     tx: tokio::sync::mpsc::Sender<Result<ConnectInvokeResponse, RemoteError>>,
     timeout_task: tokio::task::JoinHandle<()>,
+}
+
+/// Registered tool handler (frozen contract §1/§6): receives the tool's
+/// `arguments` JSON value from the request payload and resolves with the
+/// tool result as a `SpokeResult`. A panicking handler answers the error
+/// branch (mapped via `toErrorEnvelope` semantics) and never crashes the
+/// receive loop (`catch_unwind` containment, mirroring the existing invoke
+/// path's panic containment).
+pub type ToolHandler =
+    Arc<dyn Fn(Value) -> BoxFuture<'static, SpokeResult<Value>> + Send + Sync>;
+
+/// Gate-phase outcome for a reverse invoke (see [`RemoteAdapter::run_reverse_gate`]).
+enum ReverseGateResult {
+    /// Stray request (no established session) — ignored, no response.
+    Stray,
+    /// Gate rejection: answer the error branch with these wire fields.
+    Denied {
+        code: String,
+        message: String,
+        details: Option<Map<String, Value>>,
+    },
+    /// Gate passed — dispatch may run.
+    Ok,
 }
 
 /// Single-peer async `BaselinePorts` proxy over an established connect
@@ -368,6 +451,13 @@ pub struct RemoteAdapter {
     remote_manifest: Mutex<Option<HostCapabilityManifest>>,
     pending: Arc<Mutex<HashMap<String, PendingInvoke>>>,
     receive_loop_running: AtomicBool,
+    /// Tool-handler registry for reverse invokes (frozen contract §6):
+    /// `register_tool_handler` fills it; the receive loop's serving path
+    /// looks it up by exact capability id. The local manifest's `tools[]`
+    /// (carried through hello) is the discovery source — this registry MUST
+    /// NOT mutate the manifest; a registry/manifest mismatch is a provider
+    /// bug caught pre-hello by `validate_manifest_tools`.
+    tool_handlers: Mutex<HashMap<String, ToolHandler>>,
 }
 
 impl RemoteAdapter {
@@ -388,6 +478,7 @@ impl RemoteAdapter {
             remote_manifest: Mutex::new(None),
             pending: Arc::new(Mutex::new(HashMap::new())),
             receive_loop_running: AtomicBool::new(false),
+            tool_handlers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -430,6 +521,85 @@ impl RemoteAdapter {
     /// "Transport close mid-flight" / §8.2).
     pub fn close(&self) {
         self.close_session("local shutdown");
+    }
+
+    // ── Tool serving (reverse invokes) ─────────────────────────────────────
+
+    /// Register a handler for a `tools.<ns>.<tool_id>` capability served on
+    /// this adapter (frozen contract §6). A reverse invoke whose op passes
+    /// the dispatch gate dispatches to the registered handler; the handler
+    /// runs off the receive loop and its `SpokeResult` maps to a signed
+    /// `ConnectInvokeResponse` (success `{ result }` branch, or the error
+    /// branch via `to_error_envelope`).
+    ///
+    /// Grammar-asserted: a non-`tools.` id panics (programmer misuse, like
+    /// the generated-type ergonomics of `tool_capability_id`). Duplicate
+    /// registration for the same id OVERWRITES the previous handler
+    /// (last-wins, documented).
+    ///
+    /// The registry does NOT mutate the local manifest — descriptor truth
+    /// for discovery stays in the manifest's `tools[]` (sent through
+    /// hello); registering a handler for a tool the manifest does not
+    /// declare is a provider bug caught pre-hello by
+    /// `validate_manifest_tools`.
+    pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
+        match parse_tool_capability_id(capability_id) {
+            SpokeResult::Ok(_) => {}
+            SpokeResult::Reject(reject) => {
+                panic!("{}", reject.message);
+            }
+        }
+        self.tool_handlers
+            .lock()
+            .expect("tool handlers lock")
+            .insert(capability_id.to_owned(), handler);
+    }
+
+    /// Forward tool-invoke face (frozen contract §6): issue a
+    /// `ConnectInvokeRequest` with `op = capability_id` toward the remote
+    /// peer and resolve with the tool's `result` (extracted from the success
+    /// `payload = { result: <opaque JSON> }`). Deny answers map via the
+    /// existing D7 row (`op_unsupported` / `capability_missing` →
+    /// `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved). Reuses
+    /// the `invoke_op` wire-order serialization and its deferred-send
+    /// poison-close.
+    pub async fn invoke_tool(
+        &self,
+        capability_id: &str,
+        arguments: Value,
+    ) -> SpokeResult<Value> {
+        // Fail fast on a non-tool capability id (the op string IS the
+        // capability string; a non-`tools.` id is a programming error).
+        match parse_tool_capability_id(capability_id) {
+            SpokeResult::Ok(_) => {}
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        }
+        // Tool invoke payload shape: `{ "arguments": <opaque JSON> }` (§4).
+        let response = match self.invoke_op(capability_id, json!({ "arguments": arguments })).await {
+            Ok(response) => response,
+            Err(error) => return internal_error(error.kind.as_str(), error.message),
+        };
+        match response {
+            ConnectInvokeResponse::Variant1 { error, .. } => {
+                SpokeResult::Reject(map_error_envelope(&error))
+            }
+            ConnectInvokeResponse::Variant0 { payload, .. } => {
+                // Tool success-payload gate (frozen §4): success is
+                // `payload = { "result": <opaque JSON> }`; a success payload
+                // without a `result` key rejects with `INTERNAL_ERROR`
+                // `details.kind = "transport"` (mirrors the `invoke_mapped`
+                // shape gate).
+                match payload.get("result") {
+                    Some(result) => spoke_ok(result.clone()),
+                    None => internal_error(
+                        "transport",
+                        format!(
+                            "response payload decode failed: payload does not match the {capability_id} success shape"
+                        ),
+                    ),
+                }
+            }
+        }
     }
 
     // ── Session lifecycle (internal; called by connect_remote_adapter) ────
@@ -499,7 +669,7 @@ impl RemoteAdapter {
         });
     }
 
-    async fn receive_loop(&self) {
+    async fn receive_loop(self: &Arc<Self>) {
         while *self.state.lock().expect("state lock") == RemoteAdapterState::Established {
             let bytes = match self.transport.recv().await {
                 Ok(bytes) => bytes,
@@ -519,12 +689,38 @@ impl RemoteAdapter {
                     return;
                 }
             };
+            // Classify request shape FIRST (normative `spoke-connect.md`
+            // §Request / response classification): an inbound envelope
+            // carrying `op` is a `ConnectInvokeRequest` — never a response,
+            // even though a reverse request carries the same correlation
+            // echo fields + payload as the response success branch. Without
+            // this order the reverse request would satisfy the response
+            // discriminator and be silently swallowed by the request_id
+            // demux below.
+            if is_connect_invoke_request(&doc) {
+                // Reverse invoke serving. The gate (peek → verify →
+                // advance) is awaited INLINE: the loop reads the next
+                // envelope only after this request's gate completes, so
+                // steps 3–5 are serialized per session (frozen §4). Dispatch
+                // (gate → handler) fires without blocking the loop.
+                match self.serve_reverse_invoke(&doc).await {
+                    Ok(()) => continue,
+                    Err(error) => {
+                        // Unexpected serving failure (local key
+                        // misconfiguration / internal bug): fail closed like
+                        // transport loss — a live session must not silently
+                        // drop reverse invokes.
+                        self.close_session(&format!(
+                            "reverse invoke serving failed: {error}"
+                        ));
+                        return;
+                    }
+                }
+            }
             // Response-shape discriminator on the wire form (mirror of TS
             // `isConnectInvokeResponse`): both branches carry the three echo
             // fields at the top level. Everything else (hello / session /
             // unknown shape) is a post-handshake stray envelope — ignored.
-            // Unexpected invoke requests are host-role — out of the
-            // single-peer client scope (contract §4).
             let Some(correlation) = wire_response_correlation(&doc) else {
                 continue;
             };
@@ -598,6 +794,339 @@ impl RemoteAdapter {
                     })
                 });
             let _ = entry.tx.try_send(outcome);
+        }
+    }
+
+    // ── Reverse invoke serving (frozen §4 pipeline) ───────────────────────
+
+    /// Send one signed response envelope, fire-and-forget (responses are
+    /// demuxed by `request_id` on the peer; a send failure is not observable
+    /// to this session).
+    fn send_reverse_response(&self, doc: &Value) {
+        let envelope = match serde_json::to_vec(doc) {
+            Ok(envelope) => envelope,
+            Err(_) => return, // non-JSON-serializable response — drop
+        };
+        let transport = Arc::clone(&self.transport);
+        tokio::spawn(async move {
+            let _ = transport.send(&envelope).await;
+        });
+    }
+
+    /// Sign + send an error-branch response to a reverse invoke. The echo
+    /// fields come from the wire document (the request discriminator
+    /// guarantees their presence), so reject paths that run before typed
+    /// deserialization (sequence gate, envelope-auth verify) can still
+    /// answer the sender.
+    async fn send_reverse_error_envelope(
+        &self,
+        doc: &Value,
+        code: &str,
+        message: &str,
+        details: Option<&Map<String, Value>>,
+    ) -> Result<(), RemoteError> {
+        let Some(session_id) = doc.get("session_id").and_then(Value::as_str) else {
+            return Ok(()); // stray — no echo to answer
+        };
+        let Some(sequence) = doc.get("sequence").and_then(Value::as_i64) else {
+            return Ok(());
+        };
+        let Some(request_id) = doc.get("request_id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let session_guard = self.session.lock().expect("session lock");
+        let Some(session) = session_guard.as_ref() else {
+            return Ok(()); // session gone — fire-and-forget boundary
+        };
+        let mut error = Map::new();
+        error.insert("code".into(), Value::String(code.to_owned()));
+        error.insert("message".into(), Value::String(message.to_owned()));
+        if let Some(details) = details {
+            error.insert("details".into(), Value::Object(details.clone()));
+        }
+        error.insert("extensions".into(), json!({}));
+        let signed = crate::core::authenticate_invoke_response(
+            &session.local_secret,
+            &crate::core::InvokeResponseSignInput::Error {
+                session_id: session_id.to_owned(),
+                sequence,
+                request_id: request_id.to_owned(),
+                error: serde_json::from_value(Value::Object(error))
+                    .map_err(|error| {
+                        RemoteError::new(
+                            RemoteErrorKind::Transport,
+                            format!("error envelope build failed: {error}"),
+                        )
+                    })?,
+            },
+            HashMap::new(),
+        )
+        .map_err(|error| {
+            RemoteError::new(
+                RemoteErrorKind::Transport,
+                format!("response sign failed: {error}"),
+            )
+        })?;
+        self.send_reverse_response(
+            &serde_json::to_value(signed).expect("signed response serializes"),
+        );
+        Ok(())
+    }
+
+    /// Serve one reverse invoke per the canonical order (frozen §4):
+    /// classify (caller) → stray → sequence peek → envelope-auth verify →
+    /// advance → gate → handler → signed response. The caller (receive
+    /// loop) awaits this method inline so peek → verify → advance are
+    /// serialized; dispatch fires without blocking the loop.
+    async fn serve_reverse_invoke(self: &Arc<Self>, doc: &Value) -> Result<(), RemoteError> {
+        match self.run_reverse_gate(doc).await? {
+            ReverseGateResult::Stray => Ok(()),
+            ReverseGateResult::Denied {
+                code,
+                message,
+                details,
+            } => {
+                self.send_reverse_error_envelope(doc, &code, &message, details.as_ref())
+                    .await?;
+                Ok(())
+            }
+            ReverseGateResult::Ok => {
+                let doc = doc.clone();
+                let adapter = Arc::clone(self);
+                tokio::spawn(async move {
+                    adapter.dispatch_reverse_invoke(doc).await;
+                });
+                Ok(())
+            }
+        }
+    }
+
+    /// Gate phase — sequence peek (non-mutating) → envelope-auth verify →
+    /// advance. Fail-closed (auth-before-advance, spec §Verify rules): a
+    /// forged/tampered/stripped signature answers `auth_failed` and leaves
+    /// the inbound counter unchanged. Returns [`ReverseGateResult::Stray`]
+    /// for stray requests (ignored), a rejection spec for gate failures, or
+    /// [`ReverseGateResult::Ok`] when dispatch may run.
+    async fn run_reverse_gate(&self, doc: &Value) -> Result<ReverseGateResult, RemoteError> {
+        let session_guard = self.session.lock().expect("session lock");
+        let Some(session) = session_guard.as_ref() else {
+            return Ok(ReverseGateResult::Stray); // stray — no established session
+        };
+        let Some(sequence) = doc.get("sequence").and_then(Value::as_i64) else {
+            return Ok(ReverseGateResult::Stray);
+        };
+        // Stray check (single-peer adapter): a `session_id` bound to a
+        // DIFFERENT live session would be ignored — this adapter owns one
+        // session, so verify owns the session-binding assert
+        // (`envelope_auth_session_unbound` on mismatch), mirroring TS.
+        // 1. Sequence peek — non-mutating (auth-before-advance, frozen §4):
+        //    the wire position is validated WITHOUT consuming it, so a
+        //    bogus-signature envelope cannot desync the session.
+        let peek_ok = session
+            .inbound
+            .lock()
+            .expect("inbound lock")
+            .peek(sequence)
+            .is_ok();
+        if !peek_ok {
+            return Ok(ReverseGateResult::Denied {
+                code: "invalid_sequence".to_owned(),
+                message: format!("inbound sequence {sequence} is not the next expected"),
+                details: None,
+            });
+        }
+        // 2. Envelope-auth verify (contract §7 — auth-before-advance): the
+        //    request signature is verified over the wire form against the
+        //    remote's hello Ed25519 public key BEFORE the inbound counter
+        //    advances. A forged / tampered / missing signature is answered
+        //    `auth_failed` carrying the locked `details.kind`, and the
+        //    session state is left untouched.
+        if let Err(error) =
+            crate::core::verify_invoke_request_auth(&self.remote_pubkey, doc, &session.session_id)
+        {
+            return match error.kind() {
+                Some(kind) => Ok(ReverseGateResult::Denied {
+                    code: EnvelopeAuthError::CODE.to_owned(),
+                    message: error.to_string(),
+                    details: Some(Map::from_iter([(
+                        "kind".into(),
+                        Value::String(kind.as_str().to_owned()),
+                    )])),
+                }),
+                // Wrong-length key is adapter misconfiguration — fail loudly.
+                None => Err(RemoteError::new(
+                    RemoteErrorKind::EnvelopeAuthInvalid,
+                    error.to_string(),
+                )),
+            };
+        }
+        // 3. Advance the inbound counter only after envelope-auth verify
+        //    passed. The serialized gate makes the advance race-free (the
+        //    loop awaits the gate inline before reading the next envelope).
+        session
+            .inbound
+            .lock()
+            .expect("inbound lock")
+            .advance(sequence)
+            .map_err(|error| {
+                RemoteError::new(
+                    RemoteErrorKind::Transport,
+                    format!("inbound sequence advance failed: {error}"),
+                )
+            })?;
+        Ok(ReverseGateResult::Ok)
+    }
+
+    /// Dispatch phase — runs after the serialized gate; may interleave with
+    /// other invokes. Fully contained: a throwing/panicking handler answers
+    /// the error branch and never crashes the loop.
+    async fn dispatch_reverse_invoke(self: &Arc<Self>, doc: Value) {
+        if let Err(error) = self.try_dispatch_reverse_invoke(&doc).await {
+            // Unexpected serving failure (e.g. non-JSON-serializable handler
+            // result): answer the error branch so the invoker never hangs,
+            // and never crash the loop.
+            let _ = self
+                .send_reverse_error_envelope(
+                    &doc,
+                    SpokeRejectCode::InternalError.as_str(),
+                    &format!("tool invoke failed: {error}"),
+                    None,
+                )
+                .await;
+        }
+    }
+
+    /// Contained dispatch body (see [`RemoteAdapter::dispatch_reverse_invoke`]).
+    async fn try_dispatch_reverse_invoke(&self, doc: &Value) -> Result<(), RemoteError> {
+        // Extract session material + wire echo fields under the guard; never
+        // hold a MutexGuard across an await.
+        let (local_secret, negotiated) = {
+            let session_guard = self.session.lock().expect("session lock");
+            let Some(session) = session_guard.as_ref() else {
+                return Ok(()); // stray — belt-and-braces; the gate checked
+            };
+            (session.local_secret, session.negotiated_capabilities.clone())
+        };
+        let (Some(op), Some(session_id), Some(sequence), Some(request_id)) = (
+            doc.get("op").and_then(Value::as_str),
+            doc.get("session_id").and_then(Value::as_str),
+            doc.get("sequence").and_then(Value::as_i64),
+            doc.get("request_id").and_then(Value::as_str),
+        ) else {
+            return Ok(());
+        };
+        // Dispatch gate — `dispatch_allowed`-level logic (frozen §3):
+        // `tools.*` ops require the op string itself, evaluated against
+        // `negotiated_capabilities` (never a raw requirements-map
+        // composition, which would deny the self-describing tools family).
+        if !dispatch_allowed(op, &negotiated) {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("op {op} is not authorized by this session"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
+        // Handler or deny — fail-closed serving (frozen deny matrix): a gate
+        // pass with no registered handler answers `op_unsupported`.
+        let handler = self
+            .tool_handlers
+            .lock()
+            .expect("tool handlers lock")
+            .get(op)
+            .cloned();
+        let Some(handler) = handler else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no handler registered for {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // The request payload carries the tool arguments as
+        // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object
+        // arguments field is a malformed provider request — serve `{}`
+        // (the structural argument gate is caller-side).
+        let arguments = doc
+            .get("payload")
+            .and_then(|payload| payload.get("arguments"))
+            .filter(|arguments| arguments.is_object())
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        // A panicking handler answers the error branch (catch_unwind
+        // containment — the panic is caught at the future-poll boundary so
+        // the receive loop / serve loop never crashes), mirroring the
+        // existing invoke path's panic containment.
+        let result = match std::panic::AssertUnwindSafe(handler(arguments))
+            .catch_unwind()
+            .await
+        {
+            Ok(result) => result,
+            Err(payload) => {
+                let message = panic_payload_message(payload);
+                SpokeResult::<Value>::Reject(SpokeReject {
+                    code: SpokeRejectCode::InternalError,
+                    message,
+                    details: None,
+                })
+            }
+        };
+        match result {
+            SpokeResult::Ok(value) => {
+                // Success branch: `payload = { "result": <opaque JSON> }`
+                // (frozen §4).
+                let signed = crate::core::authenticate_invoke_response(
+                    &local_secret,
+                    &crate::core::InvokeResponseSignInput::Success {
+                        session_id: session_id.to_owned(),
+                        sequence,
+                        request_id: request_id.to_owned(),
+                        payload: json!({ "result": value }),
+                    },
+                    HashMap::new(),
+                )
+                .map_err(|error| {
+                    RemoteError::new(
+                        RemoteErrorKind::Transport,
+                        format!("response sign failed: {error}"),
+                    )
+                })?;
+                self.send_reverse_response(
+                    &serde_json::to_value(signed).expect("signed response serializes"),
+                );
+                Ok(())
+            }
+            SpokeResult::Reject(reject) => {
+                let error: WireErrorEnvelope =
+                    serde_json::from_value(serde_json::to_value(to_error_envelope(&reject)).expect(
+                        "ops error envelope serializes",
+                    ))
+                    .expect("field-identical error envelope converts");
+                let signed = crate::core::authenticate_invoke_response(
+                    &local_secret,
+                    &crate::core::InvokeResponseSignInput::Error {
+                        session_id: session_id.to_owned(),
+                        sequence,
+                        request_id: request_id.to_owned(),
+                        error,
+                    },
+                    HashMap::new(),
+                )
+                .map_err(|error| {
+                    RemoteError::new(
+                        RemoteErrorKind::Transport,
+                        format!("response sign failed: {error}"),
+                    )
+                })?;
+                self.send_reverse_response(
+                    &serde_json::to_value(signed).expect("signed response serializes"),
+                );
+                Ok(())
+            }
         }
     }
 
@@ -1092,12 +1621,24 @@ pub async fn connect_remote_adapter(
         }
 
         // 4. Bind the authenticated session and start the receive loop.
+        //    The negotiated capability set is the intersection of the two
+        //    authenticated hello manifests (mirror of TS
+        //    `negotiatedCapabilities`); the reverse-invoke dispatch gate
+        //    evaluates `tools.*` ops against it (frozen §3).
+        let negotiated: Vec<String> = local_manifest
+            .capabilities
+            .iter()
+            .filter(|cap| remote_manifest.capabilities.iter().any(|remote| remote == *cap))
+            .cloned()
+            .collect();
         adapter.establish(
             EstablishedSession {
                 session_id: session_doc.session_id.to_string(),
                 responder_peer_id: remote_peer_id,
                 local_secret: local_identity.seed,
+                negotiated_capabilities: negotiated,
                 sequence: Mutex::new(OutboundSequence::new()),
+                inbound: Mutex::new(InboundSequence::new()),
             },
             remote_manifest,
         );
@@ -1141,6 +1682,59 @@ mod tests {
     use crate::core::MAX_SEQUENCE;
     use crate::remote::transport::loopback_transport_pair;
 
+    /// Guard-level misclassification regression (frozen §4, mirror of the
+    /// TS `classifies request shape before response shape` test): an
+    /// op-bearing doc is a `ConnectInvokeRequest` — NEVER a response, even
+    /// though a reverse request carries the same correlation echo fields +
+    /// a payload as the response success branch. Without the hardening the
+    /// reverse request would satisfy the response discriminator and be
+    /// silently swallowed by the `request_id` demux.
+    #[test]
+    fn request_shaped_docs_are_never_demuxed_as_responses() {
+        let request_shaped = json!({
+            "session_id": "s",
+            "sequence": 0,
+            "request_id": "r",
+            "op": "tools.math.add",
+            "payload": { "arguments": {} },
+            "signature": "x",
+            "extensions": {},
+        });
+        assert!(is_connect_invoke_request(&request_shaped));
+        assert_eq!(wire_response_correlation(&request_shaped), None);
+
+        let response_shaped_with_op = json!({
+            "session_id": "s",
+            "sequence": 0,
+            "request_id": "r",
+            "op": "tools.math.add",
+            "payload": { "result": 1 },
+            "signature": "x",
+            "extensions": {},
+        });
+        assert_eq!(wire_response_correlation(&response_shaped_with_op), None);
+
+        // A real response (no `op`) still correlates — the hardening is
+        // strictly an exclusion, never a regression for response demux.
+        let response = json!({
+            "session_id": "s",
+            "sequence": 0,
+            "request_id": "r",
+            "payload": { "result": 1 },
+            "signature": "x",
+            "extensions": {},
+        });
+        assert_eq!(
+            wire_response_correlation(&response),
+            Some(Correlation {
+                session_id: "s".into(),
+                sequence: 0,
+                request_id: "r".into(),
+            })
+        );
+        assert!(!is_connect_invoke_request(&response));
+    }
+
     /// Outbound sequence exhaustion: the next `allocate` fails, the session
     /// is closed (no wrap-around), and the port call settles to
     /// `INTERNAL_ERROR` `details.kind = "sequence_exhausted"` (contract
@@ -1177,7 +1771,9 @@ mod tests {
                 session_id: "test-session-exhausted".into(),
                 responder_peer_id: "test-remote-peer".into(),
                 local_secret: [0x2a; 32],
+                negotiated_capabilities: vec!["spoke-baseline".to_owned()],
                 sequence: Mutex::new(sequence),
+                inbound: Mutex::new(InboundSequence::new()),
             },
             manifest,
         );

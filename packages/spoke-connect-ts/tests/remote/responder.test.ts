@@ -1022,6 +1022,56 @@ describe("connectResponder per-invoke gate (peek → verify → advance)", () =>
   );
 
   it(
+    "answers invalid_sequence for a present but non-numeric sequence (deny observability)",
+    async () => {
+      const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+        await startRawResponder();
+      try {
+        const { session_id: sessionId } = await rawHandshake(clientEnd, {
+          seed: seedClient,
+          manifest: toolManifest("test-client"),
+          pubkeyResponder,
+          peerIdResponder,
+        });
+        // A wire request whose `sequence` is present but is a STRING: the
+        // strict `InboundSequence.peek` throws → `invalid_sequence` deny
+        // (Rust mirrors this deny at the gate's sequence extraction — the
+        // normative deny-observability parity, not a silent `Stray`).
+        const malformed = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: "5" as unknown as number,
+          request_id: "non-numeric-seq",
+          op: "port.knowledge.get",
+          payload: { entry_id: MIRA_ENTRY_ID },
+        });
+        await clientEnd.send(encodeEnvelope(malformed));
+        const rejection = decodeEnvelope(await clientEnd.recv()) as {
+          error: { code: string };
+        };
+        expect(rejection.error.code).toBe("invalid_sequence");
+
+        // The inbound counter is still at 0: a valid invoke at sequence 0
+        // dispatches and succeeds.
+        const valid = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 0,
+          request_id: "valid-after-non-numeric",
+          op: "port.knowledge.get",
+          payload: { entry_id: MIRA_ENTRY_ID },
+        });
+        await clientEnd.send(encodeEnvelope(valid));
+        const okResponse = decodeEnvelope(await clientEnd.recv()) as {
+          payload: { entry_id: string };
+        };
+        expect(okResponse.payload.entry_id).toBe(MIRA_ENTRY_ID);
+      } finally {
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
     "rejects a tampered invoke with auth_failed and does NOT advance the counter",
     async () => {
       const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =

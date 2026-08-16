@@ -828,8 +828,16 @@ impl RemoteAdapter {
         let Some(session_id) = doc.get("session_id").and_then(Value::as_str) else {
             return Ok(()); // stray — no echo to answer
         };
-        let Some(sequence) = doc.get("sequence").and_then(Value::as_i64) else {
-            return Ok(());
+        // A present-but-non-numeric `sequence` is denied at the gate's
+        // sequence-extraction step (parity with the TS gate, which echoes
+        // the raw value verbatim); the typed response envelope carries an
+        // i64 `sequence`, so echo a wire-impossible sentinel (-1 is below
+        // the wire floor of 0) — the deny is still observable and
+        // request_id-correlatable, and a well-formed sender never produces
+        // a non-numeric sequence.
+        let sequence = match doc.get("sequence") {
+            Some(value) => value.as_i64().unwrap_or(-1),
+            None => return Ok(()), // stray — no echo to answer
         };
         let Some(request_id) = doc.get("request_id").and_then(Value::as_str) else {
             return Ok(());
@@ -912,8 +920,24 @@ impl RemoteAdapter {
         let Some(session) = session_guard.as_ref() else {
             return Ok(ReverseGateResult::Stray); // stray — no established session
         };
-        let Some(sequence) = doc.get("sequence").and_then(Value::as_i64) else {
-            return Ok(ReverseGateResult::Stray);
+        let sequence = match doc.get("sequence") {
+            // A present-but-non-numeric `sequence` is a malformed wire
+            // request: answer the deny branch (parity with the TS gate,
+            // whose strict `InboundSequence.peek` throws on a non-number →
+            // `invalid_sequence`) instead of silently ignoring it as `Stray`
+            // (deny observability parity — a silent ignore makes the sender
+            // wait out its timeout for no answer).
+            Some(value) => match value.as_i64() {
+                Some(sequence) => sequence,
+                None => {
+                    return Ok(ReverseGateResult::Denied {
+                        code: "invalid_sequence".to_owned(),
+                        message: format!("inbound sequence {value} is not the next expected"),
+                        details: None,
+                    });
+                }
+            },
+            None => return Ok(ReverseGateResult::Stray),
         };
         // Stray check (single-peer adapter): a `session_id` bound to a
         // DIFFERENT live session would be ignored — this adapter owns one

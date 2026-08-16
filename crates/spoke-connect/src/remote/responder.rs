@@ -321,10 +321,12 @@ pub struct ConnectResponder {
     /// synchronously in call order, but the send of invoke N must not start
     /// until the send of invoke N−1 finished (the dialer's strict inbound
     /// gate rejects out-of-order requests). Mirror of the TS `#sendTail`
-    /// promise chain; unlike the adapter's lock-first `invoke_op`, the tail
-    /// lock is acquired AFTER waiter registration so a timeout that fires
-    /// while a send is queued is observable as a settled waiter (the
-    /// deferred-send poison-close mirror, frozen §6).
+    /// promise chain; like the adapter's lock-first `invoke_op`, the tail
+    /// lock is acquired BEFORE the outbound allocation so the wire order
+    /// matches the allocation order. The waiter is registered before the
+    /// tail (its timeout clock starts at call time), so a timeout that fires
+    /// while a send is queued behind the tail is observable as a settled
+    /// waiter (the deferred-send poison-close mirror, frozen §6).
     send_tail: tokio::sync::Mutex<()>,
 }
 
@@ -730,8 +732,24 @@ impl ConnectResponder {
             };
             (session.session_id.clone(), session.client_pubkey)
         };
-        let Some(sequence) = doc.get("sequence").and_then(Value::as_i64) else {
-            return Ok(ServeGateResult::Stray);
+        let sequence = match doc.get("sequence") {
+            // A present-but-non-numeric `sequence` is a malformed wire
+            // request: answer the deny branch (parity with the TS gate,
+            // whose strict `InboundSequence.peek` throws on a non-number →
+            // `invalid_sequence`) instead of silently ignoring it as `Stray`
+            // (deny observability parity — a silent ignore makes the sender
+            // wait out its timeout for no answer).
+            Some(value) => match value.as_i64() {
+                Some(sequence) => sequence,
+                None => {
+                    return Ok(ServeGateResult::Denied {
+                        code: "invalid_sequence".to_owned(),
+                        message: format!("inbound sequence {value} is not the next expected"),
+                        details: None,
+                    });
+                }
+            },
+            None => return Ok(ServeGateResult::Stray),
         };
         // Stray check: a `session_id` bound to a DIFFERENT live session
         // would be ignored — this responder owns one session, so verify owns
@@ -1063,8 +1081,16 @@ impl ConnectResponder {
         let Some(session_id) = doc.get("session_id").and_then(Value::as_str) else {
             return Ok(()); // stray — no echo to answer
         };
-        let Some(sequence) = doc.get("sequence").and_then(Value::as_i64) else {
-            return Ok(());
+        // A present-but-non-numeric `sequence` is denied at the gate's
+        // sequence-extraction step (parity with the TS gate, which echoes
+        // the raw value verbatim); the typed response envelope carries an
+        // i64 `sequence`, so echo a wire-impossible sentinel (-1 is below
+        // the wire floor of 0) — the deny is still observable and
+        // request_id-correlatable, and a well-formed sender never produces
+        // a non-numeric sequence.
+        let sequence = match doc.get("sequence") {
+            Some(value) => value.as_i64().unwrap_or(-1),
+            None => return Ok(()), // stray — no echo to answer
         };
         let Some(request_id) = doc.get("request_id").and_then(Value::as_str) else {
             return Ok(());
@@ -1225,16 +1251,18 @@ impl ConnectResponder {
     /// envelope. Errors with [`ResponderError`] on timeout / transport
     /// failure / session close / correlation mismatch / sequence exhaustion.
     ///
-    /// Outbound wire-order serialization (contract §5.3 / §10): sequences
-    /// are allocated in call order; the send tail lock guarantees the wire
-    /// order matches the allocation order. The lock is acquired AFTER the
-    /// waiter registration so a timeout that fires while a send is queued
-    /// behind the tail is observable (the deferred-send poison-close
-    /// mirror): a waiter that settled while its send was still queued means
-    /// the allocated outbound sequence never hit the wire — close the
-    /// session (the peer's inbound gate would be stuck at that sequence)
-    /// instead of leaving a silently poisoned session or transmitting late
-    /// (a duplicate dispatch on the peer).
+    /// Outbound wire-order serialization (contract §5.3 / §10): the send
+    /// tail lock is acquired BEFORE the outbound sequence allocation
+    /// (mirroring the adapter's lock-first `invoke_op`), so concurrent
+    /// reverse invokes reach the wire in exactly the order they allocated.
+    /// The waiter is registered BEFORE the tail (its timeout clock starts at
+    /// call time), so a timeout that fires while a send is queued behind the
+    /// tail is observable as a settled waiter (the deferred-send
+    /// poison-close mirror): a waiter that settled while its send was still
+    /// queued means the allocated outbound sequence never hit the wire —
+    /// close the session (the peer's inbound gate would be stuck at that
+    /// sequence) instead of leaving a silently poisoned session or
+    /// transmitting late (a duplicate dispatch on the peer).
     async fn invoke_op(
         &self,
         op: &str,
@@ -1247,8 +1275,17 @@ impl ConnectResponder {
                 format!("connect session is not established (state {state})"),
             ));
         }
-        // Outbound sequence allocation (synchronous, in call order).
-        let (session_id, sequence) = {
+        // Waiter registration FIRST (call-time clock, BEFORE the send tail):
+        // the request_id + waiter channel + timeout task + a provisional
+        // pending entry are created synchronously, so a reverse invoke that
+        // queues behind the tail still runs its timeout — a waiter that
+        // settles while its send is queued is observable (the deferred-send
+        // poison-close mirror; TS `#invokeOp` starts its timer before the
+        // send-chain tail wait). The entry's correlation is completed with
+        // the allocated sequence once the tail is held below; no response
+        // can arrive before the send, so the provisional entry is never
+        // demuxed.
+        let session_id = {
             let session_guard = self.session.lock().expect("session lock");
             let Some(session) = session_guard.as_ref() else {
                 return Err(ResponderError::new(
@@ -1256,51 +1293,10 @@ impl ConnectResponder {
                     "connect session is not established",
                 ));
             };
-            let allocate_result = session.outbound.lock().expect("outbound lock").allocate();
-            let sequence = match allocate_result {
-                Ok(sequence) => sequence,
-                Err(_) => {
-                    drop(session_guard);
-                    // Outbound sequence exhaustion: the session is unusable
-                    // (no wrap); close it and fail this invoke with
-                    // `sequence_exhausted`.
-                    self.close_session("outbound sequence exhausted");
-                    return Err(ResponderError::new(
-                        ResponderErrorKind::SequenceExhausted,
-                        "outbound sequence space exhausted — reopen session",
-                    ));
-                }
-            };
-            (session.session_id.clone(), sequence)
+            session.session_id.clone()
         };
         let request_id = generate_request_id()
             .map_err(|error| ResponderError::new(ResponderErrorKind::Transport, error.to_string()))?;
-        // The wire request to sign (`spoke-connect-invoke-request-jcs-v1`,
-        // envelope-auth contract §2/§3): the signed object covers
-        // `{session_id, sequence, request_id, op, payload}`.
-        let signed = authenticate_invoke_request(
-            &self.local_secret,
-            &InvokeRequestSignInput {
-                session_id: session_id.clone(),
-                sequence: sequence as i64,
-                request_id: request_id.clone(),
-                op: op.to_owned(),
-                payload,
-                auth: None,
-            },
-            HashMap::new(),
-        )
-        .map_err(|error| {
-            ResponderError::new(
-                ResponderErrorKind::Transport,
-                format!("envelope auth signing failed: {error}"),
-            )
-        })?;
-
-        // The waiter is registered SYNCHRONOUSLY, before the send: from the
-        // caller's perspective the invoke is in flight immediately, so a
-        // transport close during the queued send fails it with
-        // `session_closed`.
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let timeout_task = {
             let pending = Arc::clone(&self.pending);
@@ -1329,17 +1325,81 @@ impl ConnectResponder {
         self.pending.lock().expect("pending lock").insert(
             request_id.clone(),
             PendingReverseInvoke {
-                correlation: Correlation::from(&signed),
+                correlation: Correlation {
+                    session_id: session_id.clone(),
+                    sequence: -1, // provisional — completed with the allocated sequence below
+                    request_id: request_id.clone(),
+                },
                 tx: tx.clone(),
                 timeout_task,
             },
         );
 
-        // Send-tail serialization: acquired AFTER the waiter registration so
-        // a timeout that fires while queued is observable as a settled
-        // waiter. Concurrent invokes reach the wire in exactly the order
-        // they allocated.
+        // Send-tail serialization (wire-order fix): the tail is acquired
+        // BEFORE the outbound allocation, mirroring the adapter's lock-first
+        // `invoke_op` — concurrent reverse invokes reach the wire in exactly
+        // the order they allocated (contract §5.3 / §10; the dialer's strict
+        // inbound gate rejects an out-of-order request).
         let _send_guard = self.send_tail.lock().await;
+
+        // Outbound sequence allocation (synchronous, under the tail).
+        let sequence = {
+            let session_guard = self.session.lock().expect("session lock");
+            let Some(session) = session_guard.as_ref() else {
+                self.drop_pending(&request_id);
+                return Err(ResponderError::new(
+                    ResponderErrorKind::SessionClosed,
+                    "connect session is not established",
+                ));
+            };
+            let allocate_result = session.outbound.lock().expect("outbound lock").allocate();
+            match allocate_result {
+                Ok(sequence) => sequence,
+                Err(_) => {
+                    drop(session_guard);
+                    self.drop_pending(&request_id);
+                    // Outbound sequence exhaustion: the session is unusable
+                    // (no wrap); close it and fail this invoke with
+                    // `sequence_exhausted`.
+                    self.close_session("outbound sequence exhausted");
+                    return Err(ResponderError::new(
+                        ResponderErrorKind::SequenceExhausted,
+                        "outbound sequence space exhausted — reopen session",
+                    ));
+                }
+            }
+        };
+        // The wire request to sign (`spoke-connect-invoke-request-jcs-v1`,
+        // envelope-auth contract §2/§3): the signed object covers
+        // `{session_id, sequence, request_id, op, payload}`.
+        let signed = authenticate_invoke_request(
+            &self.local_secret,
+            &InvokeRequestSignInput {
+                session_id,
+                sequence: sequence as i64,
+                request_id: request_id.clone(),
+                op: op.to_owned(),
+                payload,
+                auth: None,
+            },
+            HashMap::new(),
+        )
+        .map_err(|error| {
+            self.drop_pending(&request_id);
+            ResponderError::new(
+                ResponderErrorKind::Transport,
+                format!("envelope auth signing failed: {error}"),
+            )
+        })?;
+
+        // Complete the waiter's correlation with the allocated sequence (the
+        // entry is only demuxed after the send below).
+        {
+            let mut pending = self.pending.lock().expect("pending lock");
+            if let Some(entry) = pending.get_mut(&request_id) {
+                entry.correlation.sequence = sequence as i64;
+            }
+        }
 
         // Poison check (deferred-send poison-close mirror): a waiter that
         // settled while its send was queued behind the tail means the
@@ -1406,6 +1466,22 @@ impl ConnectResponder {
                 ResponderErrorKind::Transport,
                 message.to_owned(),
             )));
+        }
+    }
+
+    /// Remove a registered waiter WITHOUT settling (aborting its timeout
+    /// task). Used by the pre-send failure paths (allocation / sign) after
+    /// the provisional registration — the invoke never reached the wire, so
+    /// the caller observes the error directly and the waiter channel is
+    /// dropped with this function's caller.
+    fn drop_pending(&self, request_id: &str) {
+        if let Some(entry) = self
+            .pending
+            .lock()
+            .expect("pending lock")
+            .remove(request_id)
+        {
+            entry.timeout_task.abort();
         }
     }
 }

@@ -32,6 +32,7 @@ import type {
 } from "@42ch/spoke-schemas";
 import {
   fromErrorEnvelope,
+  parseToolCapabilityId,
   SpokeRejectCode,
   spokeOk,
   spokeReject,
@@ -560,6 +561,13 @@ export async function startMinimalResponder(
     sessionId: SESSION_ID,
     stats,
     registerToolHandler(capabilityId, handler) {
+      // Grammar gate parity with the production surface (D13): a non-`tools.`
+      // capability id is a test-harness programming error — throw instead of
+      // registering a handler that could never be dispatched.
+      const parsed = parseToolCapabilityId(capabilityId);
+      if (!parsed.ok) {
+        throw new Error(parsed.message);
+      }
       toolHandlers.set(capabilityId, handler);
     },
     async issueInvoke(op, args, sequence) {

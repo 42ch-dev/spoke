@@ -2305,6 +2305,132 @@ async fn rejects_a_sequence_gap_reverse_invoke_with_invalid_sequence_and_does_no
 }
 
 #[tokio::test]
+async fn adapter_answers_invalid_sequence_for_a_present_but_non_numeric_sequence_reverse_invoke() {
+    // Parity with the TS gate (deny observability) on the ADAPTER's reverse
+    // gate: a PRESENT but non-numeric `sequence` on a reverse invoke is a
+    // malformed wire request — deny `invalid_sequence` instead of silently
+    // ignoring it as `Stray` (a silent ignore makes the sender wait out its
+    // timeout for no answer). The test drives the real
+    // `connect_remote_adapter` against a raw test-side peer (signed hello +
+    // session snapshot handshake), then injects the malformed frame.
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let peer_id_responder = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+    let dial = {
+        let peer_id_responder = peer_id_responder.clone();
+        tokio::spawn(async move {
+            connect_remote_adapter(RemoteAdapterOptions {
+                transport: Arc::new(pair.client.clone()),
+                local_identity: RemoteIdentity {
+                    seed: seed_client(),
+                },
+                local_manifest: tool_manifest("test-client"),
+                remote_pubkey: pubkey_host(),
+                allowlist: vec![peer_id_responder],
+                invoke_timeout_ms: Some(5000),
+                capability_token: None,
+            })
+            .await
+        })
+    };
+
+    // Raw responder-side handshake (mirror of the minimal responder's):
+    // read the initiator hello, answer with a dial-bound responder hello
+    // (`peer_nonce` = initiator nonce) + signed session snapshot.
+    let initiator_hello: ConnectHello = serde_json::from_slice(
+        &pair.server.recv().await.expect("initiator hello recv"),
+    )
+    .expect("initiator hello decode");
+    assert_eq!(initiator_hello.peer_id.as_str(), peer_id_client.as_str());
+    let nonce = "raw-peer-nonce-0001".to_owned();
+    let responder_hello = sign_hello_ed25519(
+        &seed_host(),
+        &nonce,
+        &serde_json::from_value(
+            serde_json::to_value(tool_manifest("test-responder")).expect("manifest serializes"),
+        )
+        .expect("manifest converts"),
+        Some(initiator_hello.nonce.as_str()),
+    )
+    .expect("responder hello sign");
+    pair.server
+        .send(&serde_json::to_vec(&responder_hello).expect("bytes"))
+        .await
+        .expect("send");
+    let snapshot = json!({
+        "session_id": format!("connect-responder-session-{peer_id_client}"),
+        "initiator_peer_id": peer_id_client,
+        "responder_peer_id": peer_id_responder,
+        "opened_at": "2026-01-01T00:00:00Z",
+        "negotiated_capabilities": [
+            "spoke-baseline",
+            "tools.math.add",
+            "tools.echo.echo",
+            "tools.echo.boom",
+        ],
+        "initial_sequence": 0,
+    });
+    let signature = sign_envelope(&seed_host(), &snapshot);
+    let mut wire = snapshot.as_object().expect("object").clone();
+    wire.insert("extensions".into(), json!({}));
+    wire.insert("signature".into(), json!(signature));
+    pair.server
+        .send(&serde_json::to_vec(&Value::Object(wire)).expect("bytes"))
+        .await
+        .expect("send");
+
+    let client = dial.await.expect("dial task").expect("dial");
+    client.register_tool_handler(
+        "tools.math.add",
+        add_handler(Arc::new(Mutex::new(Vec::new()))),
+    );
+    let session_id = client.session_id().expect("session id");
+
+    // A reverse invoke whose `sequence` is present but is a STRING: signed
+    // over the exact wire object (the deny fires before the signature is
+    // ever verified).
+    let malformed = json!({
+        "session_id": session_id,
+        "sequence": "5",
+        "request_id": "non-numeric-seq",
+        "op": "tools.math.add",
+        "payload": { "arguments": { "a": 1, "b": 2 } },
+    });
+    let signature = sign_envelope(&seed_host(), &malformed);
+    let mut wire = malformed.as_object().expect("object").clone();
+    wire.insert("extensions".into(), json!({}));
+    wire.insert("signature".into(), json!(signature));
+    pair.server
+        .send(&serde_json::to_vec(&Value::Object(wire)).expect("bytes"))
+        .await
+        .expect("send");
+    let rejection: Value =
+        serde_json::from_slice(&pair.server.recv().await.expect("recv")).expect("decode");
+    assert_eq!(rejection["error"]["code"], "invalid_sequence");
+
+    // The inbound counter is still at 0: a valid reverse invoke at sequence
+    // 0 dispatches to the registered handler and succeeds.
+    let valid = sign_invoke_request(
+        seed_host(),
+        &session_id,
+        0,
+        "valid-after-non-numeric",
+        "tools.math.add",
+        json!({ "arguments": { "a": 2, "b": 3 } }),
+    );
+    pair.server
+        .send(&serde_json::to_vec(&valid).expect("bytes"))
+        .await
+        .expect("send");
+    let ok_response: Value =
+        serde_json::from_slice(&pair.server.recv().await.expect("recv")).expect("decode");
+    assert_eq!(ok_response["payload"]["result"]["sum"], 5);
+
+    client.close();
+}
+
+#[tokio::test]
 async fn answers_the_error_branch_when_a_handler_panics_without_loop_damage() {
     let (client, responder) = dial_with_tools(None, None, None).await;
     client.register_tool_handler("tools.echo.boom", Arc::new(|_args: Value| {
@@ -2785,6 +2911,7 @@ struct ResponderDialOptions {
     ports: Option<Arc<dyn BaselinePorts + Send + Sync>>,
     responder_timeout_ms: Option<u64>,
     responder_transport: Option<TransportWrap>,
+    client_transport: Option<TransportWrap>,
 }
 
 /// Loopback pair: `connect_responder` (server end) + real
@@ -2814,8 +2941,12 @@ async fn dial_with_responder(
         invoke_timeout_ms: options.responder_timeout_ms,
     })
     .await;
+    let client_end: Arc<dyn Transport> = match options.client_transport {
+        Some(wrap) => wrap(Arc::new(pair.client.clone())),
+        None => Arc::new(pair.client.clone()),
+    };
     let client = connect_remote_adapter(RemoteAdapterOptions {
-        transport: Arc::new(pair.client.clone()),
+        transport: client_end,
         local_identity: RemoteIdentity {
             seed: seed_client(),
         },
@@ -3289,6 +3420,88 @@ async fn responder_closes_the_session_when_a_timed_out_queued_reverse_invoke_sen
     responder.close();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn responder_concurrent_reverse_invokes_reach_the_wire_in_allocation_order() {
+    // Mirror of the adapter's `concurrent_invokes_reach_the_wire_in_allocation_order`
+    // (W-1 regression guard): the responder's reverse-invoke send tail must
+    // serialize the wire so concurrent `invoke_tool` calls reach the dialer
+    // in exactly the allocation order 0..N-1. The yield inside every send
+    // widens the interleave window at the responder's `transport.send().await`
+    // yield point on a multi-threaded runtime; without the
+    // tail-before-allocation lock, a later-allocated request can win the
+    // tail race, the dialer's strict inbound gate rejects it
+    // (`invalid_sequence`), and the invoke fails.
+    const CONCURRENT_INVOKES: i64 = 32;
+
+    let captured: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions {
+        // Yield inside every responder send so concurrent reverse invokes
+        // genuinely race for the wire position.
+        responder_transport: Some(Box::new(|server_end| {
+            Arc::new(YieldingSendTransport { inner: server_end })
+        })),
+        // Record every envelope the dialer receives; the handshake hellos /
+        // snapshot are filtered out below by the op-bearing check.
+        client_transport: Some(Box::new({
+            let captured = Arc::clone(&captured);
+            move |client_end| {
+                Arc::new(RecordingTransport {
+                    inner: client_end,
+                    captured: Arc::clone(&captured),
+                })
+            }
+        })),
+        ..ResponderDialOptions::default()
+    })
+    .await;
+    client.register_tool_handler(
+        "tools.math.add",
+        add_handler(Arc::new(Mutex::new(Vec::new()))),
+    );
+
+    // Fire all reverse invokes concurrently; each allocates its outbound
+    // sequence in call order. Serialized sends must put them on the wire
+    // 0..N-1.
+    let mut handles = Vec::new();
+    for _ in 0..CONCURRENT_INVOKES {
+        let responder = Arc::clone(&responder);
+        handles.push(tokio::spawn(async move {
+            responder
+                .invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 }))
+                .await
+        }));
+    }
+    for handle in handles {
+        let result = handle.await.expect("invoke task must not panic");
+        assert!(
+            result.is_ok(),
+            "concurrent reverse invoke must succeed: {result:?}"
+        );
+    }
+
+    // Wire witness: the request envelopes the dialer received carry exactly
+    // the monotonic allocation order 0..N-1 (an out-of-order request would
+    // have been denied invalid_sequence and that invoke would have failed
+    // above).
+    let captured = captured.lock().expect("captured lock").clone();
+    let sequences: Vec<i64> = captured
+        .iter()
+        .filter_map(|bytes| {
+            let doc: Value = serde_json::from_slice(bytes).ok()?;
+            doc.get("op").is_some().then(|| doc.get("sequence")?.as_i64())
+        })
+        .flatten()
+        .collect();
+    assert_eq!(
+        sequences,
+        (0..CONCURRENT_INVOKES).collect::<Vec<i64>>(),
+        "wire request sequences must be monotonic (allocation order)"
+    );
+
+    client.close();
+    responder.close();
+}
+
 #[tokio::test]
 async fn responder_serves_a_forward_invoke_tool_through_a_registered_handler() {
     let responder_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
@@ -3529,6 +3742,60 @@ async fn responder_rejects_a_sequence_gap_invoke_with_invalid_sequence_and_no_ad
         &session_id,
         0,
         "valid-after-gap",
+        "port.knowledge.get",
+        json!({ "entry_id": "kb_tw_mira" }),
+    );
+    pair.client
+        .send(&serde_json::to_vec(&valid).expect("bytes"))
+        .await
+        .expect("send");
+    let ok_response: Value =
+        serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
+    assert_eq!(ok_response["payload"]["entry_id"], "kb_tw_mira");
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_answers_invalid_sequence_for_a_present_but_non_numeric_sequence() {
+    // Parity with the TS gate (deny observability): a PRESENT but
+    // non-numeric `sequence` on an inbound invoke is a malformed wire
+    // request — the gate must answer the `invalid_sequence` deny branch
+    // instead of silently ignoring it as `Stray` (a silent ignore makes the
+    // sender wait out its timeout for no answer). The deny fires at the
+    // sequence extraction (the first gate step), before the envelope-auth
+    // verify.
+    let (responder, pair, seed_client, _peer_id_client) = start_raw_responder().await;
+    let session_id = raw_handshake(&pair.client, seed_client, &tool_manifest("test-client")).await;
+
+    // A wire request whose `sequence` is present but is a STRING: signed
+    // over the exact wire object (the deny fires before the signature is
+    // ever verified).
+    let malformed = json!({
+        "session_id": session_id,
+        "sequence": "5",
+        "request_id": "non-numeric-seq",
+        "op": "port.knowledge.get",
+        "payload": { "entry_id": "kb_tw_mira" },
+    });
+    let signature = sign_envelope(&seed_client, &malformed);
+    let mut wire = malformed.as_object().expect("object").clone();
+    wire.insert("extensions".into(), json!({}));
+    wire.insert("signature".into(), json!(signature));
+    pair.client
+        .send(&serde_json::to_vec(&Value::Object(wire)).expect("bytes"))
+        .await
+        .expect("send");
+    let rejection: Value =
+        serde_json::from_slice(&pair.client.recv().await.expect("recv")).expect("decode");
+    assert_eq!(rejection["error"]["code"], "invalid_sequence");
+
+    // The inbound counter is still at 0: a valid invoke at sequence 0
+    // dispatches and succeeds.
+    let valid = sign_invoke_request(
+        seed_client,
+        &session_id,
+        0,
+        "valid-after-non-numeric",
         "port.knowledge.get",
         json!({ "entry_id": "kb_tw_mira" }),
     );

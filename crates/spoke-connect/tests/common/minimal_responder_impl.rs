@@ -26,8 +26,8 @@ use spoke_connect::core::{
 };
 use spoke_connect::remote::{ToolHandler, Transport};
 use spoke_operations::{
-    from_error_envelope, spoke_ok, spoke_reject, to_error_envelope, SpokeReject, SpokeRejectCode,
-    SpokeResult,
+    from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
+    SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -156,6 +156,14 @@ pub struct MinimalResponder {
 impl MinimalResponder {
     /// Register a tool handler served for forward invokes.
     pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
+        // Grammar gate parity with the production surface (D13): a
+        // non-`tools.` capability id is a test-harness programming error —
+        // panic instead of registering a handler that could never be
+        // dispatched (mirror of the production `register_tool_handler`).
+        match parse_tool_capability_id(capability_id) {
+            SpokeResult::Ok(_) => {}
+            SpokeResult::Reject(reject) => panic!("{}", reject.message),
+        }
         self.inner
             .tool_handlers
             .lock()

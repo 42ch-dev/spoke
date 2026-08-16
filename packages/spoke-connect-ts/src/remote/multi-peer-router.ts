@@ -16,7 +16,10 @@
  * per-peer manifests (§6: composed view / per-peer array — no round-trip).
  *
  * Public surface (§8): `connectMultiPeerRouter(options)`, `registerPeer`,
- * `unregisterPeer`, `listPeers`, and the async `BaselinePorts` six families.
+ * `unregisterPeer`, `listPeers`, the async `BaselinePorts` six families,
+ * and the tool-invoke face `invokeTool(capabilityId, arguments)` (D14 —
+ * exact-capability hard filter, lowest-`peer_id` tie-break, terminal
+ * `no_capable_peer` reject, composed-manifest `tools[]` union).
  * Per-peer adapters are encapsulated — the router never exposes them after
  * registration.
  */

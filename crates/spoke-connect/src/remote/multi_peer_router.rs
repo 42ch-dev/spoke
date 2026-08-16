@@ -18,9 +18,12 @@
 //! view / per-peer array — no round-trip).
 //!
 //! Public surface (§8): `connect_multi_peer_router(options)`,
-//! `register_peer`, `unregister_peer`, `list_peers`, and the async
-//! `BaselinePorts` six families. Per-peer adapters are encapsulated — the
-//! router never exposes them after registration; consumers hold only the
+//! `register_peer`, `unregister_peer`, `list_peers`, the async
+//! `BaselinePorts` six families, and the tool-invoke face
+//! `invoke_tool(capability_id, arguments)` (D14 — exact-capability hard
+//! filter, lowest-`peer_id` tie-break, terminal `no_capable_peer` reject,
+//! composed-manifest `tools[]` union). Per-peer adapters are encapsulated —
+//! the router never exposes them after registration; consumers hold only the
 //! adapter `Arc` they dialed themselves.
 //!
 //! The router stores `Arc<dyn RoutedRemoteAdapter>` (the parity shape of

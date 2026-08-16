@@ -240,7 +240,7 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 
 - [x] Transport is message-oriented; framing delimiter ownership unchanged  
 - [x] Port-method mapping reuses opaque invoke payload; no schema change  
-- [x] Encapsulation boundary: public surface = `BaselinePorts` + dial/accept constructors + session info + `close` + tool registry & invoke faces (`registerToolHandler` / `registerTool`) + responder/router tool surfaces (D13/D14); all session/auth/sequence internals stay private  
+- [x] Encapsulation boundary: public surface = `BaselinePorts` + dial/accept constructors + session info + `close` + tool registry & invoke faces (`registerToolHandler` / `register_tool_handler` + `invokeTool` / `invoke_tool`) + responder/router tool surfaces (D13/D14); all session/auth/sequence internals stay private  
 - [x] Concurrent invoke + error mapping rules recorded  
 - [x] Session-core parity surface non-widening recorded  
 - [x] Loopback interop suites land with the connect remote module in TS (`./remote`) and Rust (`remote-adapter` feature); both green  

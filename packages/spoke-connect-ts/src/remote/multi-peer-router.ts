@@ -16,7 +16,10 @@
  * per-peer manifests (§6: composed view / per-peer array — no round-trip).
  *
  * Public surface (§8): `connectMultiPeerRouter(options)`, `registerPeer`,
- * `unregisterPeer`, `listPeers`, and the async `BaselinePorts` six families.
+ * `unregisterPeer`, `listPeers`, the async `BaselinePorts` six families,
+ * and the tool-invoke face `invokeTool(capabilityId, arguments)` (D14 —
+ * exact-capability hard filter, lowest-`peer_id` tie-break, terminal
+ * `no_capable_peer` reject, composed-manifest `tools[]` union).
  * Per-peer adapters are encapsulated — the router never exposes them after
  * registration.
  */
@@ -29,6 +32,7 @@ import type {
   Rule,
   Scope,
   TimelineEvent,
+  ToolDescriptor,
 } from "@42ch/spoke-schemas";
 import {
   SpokeRejectCode,
@@ -91,6 +95,22 @@ const PREFERRED_ROLE: Readonly<Record<string, string>> = {
   project: "l2-computable",
   compute: "l2-computable",
 };
+
+/**
+ * Required capability for an op (contract §2 + frozen §6 `tools.` prefix
+ * rule — the selection table gains the same widening as core dispatch):
+ * a `tools.<ns>.<tool_id>` op is self-describing — the required capability
+ * IS the op string itself (no registry, no umbrella flag); every other op
+ * resolves through the locked table above. Ops outside both resolve to
+ * `undefined` and are rejected outright by selection (no ungated
+ * fall-through, QC2 S-1).
+ */
+function requiredCapability(op: string): string | undefined {
+  if (op.startsWith("tools.")) {
+    return op;
+  }
+  return REQUIRED_CAPABILITY[op];
+}
 
 // ── Payload-derived selection inputs (contract §2 / §3) ──────────────────
 
@@ -175,6 +195,28 @@ function unionOf(arrays: readonly (readonly string[])[]): [string, ...string[]] 
   return [...seen] as [string, ...string[]];
 }
 
+/**
+ * Tool-descriptor union across the connected peers' `tools[]` (frozen §6):
+ * dedup by `capability_id` (first occurrence wins) and sort by
+ * `capability_id` in lexicographic UTF-8 byte order — stability across
+ * registration order, unlike the first-seen string unions above.
+ */
+function unionTools(
+  arrays: readonly (readonly ToolDescriptor[])[],
+): ToolDescriptor[] {
+  const byId = new Map<string, ToolDescriptor>();
+  for (const array of arrays) {
+    for (const descriptor of array) {
+      if (!byId.has(descriptor.capability_id)) {
+        byId.set(descriptor.capability_id, descriptor);
+      }
+    }
+  }
+  return [...byId.values()].sort((a, b) =>
+    compareUtf8PeerIds(a.capability_id, b.capability_id),
+  );
+}
+
 /** The locked §5 no-capable-peer reject: terminal, no retry, no fallback. */
 function noCapablePeer(op: string, reason: string): SpokeReject {
   return spokeReject(
@@ -224,8 +266,8 @@ export function selectPeerForOp(
     return noCapablePeer(op, "no established peer registered");
   }
 
-  const requiredCapability = REQUIRED_CAPABILITY[op];
-  if (requiredCapability === undefined) {
+  const required = requiredCapability(op);
+  if (required === undefined) {
     // Unknown ops are rejected outright: the §3 capability gate is step 1 of
     // every selection, and an op outside the locked mapping table has no gate
     // to run — falling through would select an arbitrary Established peer
@@ -233,12 +275,12 @@ export function selectPeerForOp(
     return noCapablePeer(op, `no capability mapping for unknown op "${op}"`);
   }
   let survivors = candidates.filter((candidate) =>
-    candidate.manifest.capabilities.includes(requiredCapability),
+    candidate.manifest.capabilities.includes(required),
   );
   if (survivors.length === 0) {
     return noCapablePeer(
       op,
-      `no peer advertises capability "${requiredCapability}"`,
+      `no peer advertises capability "${required}"`,
     );
   }
 
@@ -297,6 +339,15 @@ export interface RoutedRemoteAdapter extends BaselinePorts {
   readonly state: RemoteAdapterState;
   readonly remotePeerId: string;
   readonly remoteManifest: HostCapabilityManifest;
+  /**
+   * Forward tool-invoke face (frozen §6) — satisfied by
+   * `RemoteAdapter.invokeTool`; the router delegates tool invokes to the
+   * selected peer's adapter (the router never crafts envelopes itself).
+   */
+  invokeTool(
+    capabilityId: string,
+    args: Record<string, unknown>,
+  ): Promise<SpokeResult<unknown>>;
 }
 
 export interface MultiPeerRouterOptions {
@@ -443,6 +494,31 @@ export class MultiPeerRouter implements BaselinePorts {
     );
   }
 
+  // ── Tool routing (frozen §6) ────────────────────────────────────────────
+
+  /**
+   * Tool-invoke face (frozen §6): select the peer whose cached hello
+   * manifest `capabilities[]` contains the EXACT tool capability string
+   * (the selection table's `tools.` prefix rule resolves the required
+   * capability to the op itself), then delegate to the selected peer's
+   * adapter `invokeTool` — the router never crafts envelopes itself. No
+   * namespace/authority/role filters for tools (the capability string is
+   * ns-scoped; tool payloads carry no `Scope`); deterministic tie-break =
+   * lowest `peer_id`; none → the existing terminal `no_capable_peer`
+   * reject (`details.op = capabilityId`). The selected peer's underlying
+   * `SpokeResult` reject is returned as-is (§7.2 — no alternate-retry).
+   */
+  async invokeTool(
+    capabilityId: string,
+    args: Record<string, unknown>,
+  ): Promise<SpokeResult<unknown>> {
+    const selected = this.#selectPeerForOp(capabilityId, {});
+    if (!selected.ok) {
+      return selected;
+    }
+    return selected.value.adapter.invokeTool(capabilityId, args);
+  }
+
   // ── HostManifestPort — aggregated locally (contract §6, no round-trip) ──
 
   /**
@@ -461,6 +537,9 @@ export class MultiPeerRouter implements BaselinePorts {
       capabilities: unionOf(connected.map((peer) => peer.manifest.capabilities)),
       roles: unionOf(connected.map((peer) => peer.manifest.roles)),
       namespaces: unionOf(connected.map((peer) => peer.manifest.namespaces)),
+      // Frozen §6: `tools[]` unions across connected peers, deduped by
+      // `capability_id` in lexicographic order (stability, not first-seen).
+      tools: unionTools(connected.map((peer) => peer.manifest.tools ?? [])),
       extensions: { router: { peers: connected.map((peer) => peer.peerId) } },
     };
     return spokeOk(composed);

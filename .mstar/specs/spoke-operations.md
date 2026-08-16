@@ -548,13 +548,39 @@ Beat-assist pure helpers over caller-supplied `TimelineEvent[]` and `Relation[]`
 
 ---
 
+### 15. Tool capability helpers — `tools/*`
+
+Tool capability helpers over `ToolDescriptor` and `HostCapabilityManifest.tools[]` (wire shape: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest; capability grammar and dispatch gate: [`spoke-connect.md`](spoke-connect.md) §Op dispatch gate). **Purity unchanged (HARD):** no I/O / storage / LLM / HTTP / MCP / JSON-Schema-validator dependency; `input` / `output` are data — full JSON-Schema validation stays consumer / fixture-side (AJV in `fixtures/`). Signatures below are frozen (verbatim from the tool contracts SSOT §5).
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `toolCapabilityId(namespace, toolId)` | `tool_capability_id(namespace: &str, tool_id: &str)` | Compose `tools.<ns>.<tool_id>`; pattern-asserts inputs (throw / panic on bad grammar — programmer misuse) | Pure |
+| `parseToolCapabilityId(id)` | `parse_tool_capability_id(id: &str)` | Parse into `{ namespace, toolId }` (Rust: `ToolCapabilityId { namespace, tool_id }`); `INVALID_INPUT` for non-`tools.` prefix and bad grammar | Pure |
+| `validateToolDescriptor(descriptor)` | `validate_tool_descriptor(descriptor: &ToolDescriptor)` | Pattern on `capability_id` / `op`; `op === capability_id`; `input` / `output` are objects → `INVALID_INPUT` | Pure |
+| `validateManifestTools(manifest)` | `validate_manifest_tools(manifest: &HostCapabilityManifest)` | Every descriptor valid; `capability_id ∈ capabilities[]`; derived ns ∈ `namespaces[]`; unique capability ids → `INVALID_INPUT` with structured `details` (field + index) | Pure |
+| `validateToolArguments(descriptor, arguments)` | `validate_tool_arguments(descriptor: &ToolDescriptor, arguments: &Value)` | Structural argument gate — rules below | Pure |
+| `listTools(manifest)` | `list_tools(manifest: &HostCapabilityManifest)` | `ToolDescriptor[]` in manifest order; empty when `tools` absent | Pure |
+| `findTool(manifest, capabilityId)` | `find_tool(manifest: &HostCapabilityManifest, capability_id: &str)` | Exact `capability_id` match; absent when no match | Pure |
+
+**`validateToolArguments` structural gate (frozen granularity):**
+
+1. `arguments` MUST be a JSON object → else `INVALID_INPUT` (`details.field = "arguments"`);
+2. when `descriptor.input` declares top-level `"type": "object"` with `"required": [...]`, each listed key MUST be present → else `INVALID_INPUT` listing missing keys;
+3. no deeper checking — full JSON-Schema validation stays consumer / fixture-side (AJV in `fixtures/`, hosts MAY run their own). `input: {}` → step 2 vacuous (unconstrained).
+
+Hosts call `validateToolArguments` before `orchestrateInvokeTool`; the orchestrator itself does not take a descriptor (its signature has only port + request) and validates only request grammar.
+
+**Tests must cover:** compose / parse round-trip + bad grammar rejects; descriptor `op !== capability_id` reject; manifest cross-field rejects (`capabilities[]` membership, `namespaces[]` membership, duplicate capability ids) with structured `details`; arguments non-object reject; missing required keys reject; `input: {}` passes any object.
+
+---
+
 ## Adapter Interfaces (normative)
 
 The operations packages define the **implementation protocol** for storage and query adapters. Port interfaces are capability-sliced and accept generated wire types directly. Adapter implementations own transport, persistence, transactions, and product DTO mapping; the operations package owns the port contracts and the injection orchestration below.
 
 ### Port policy
 
-Port methods are asynchronous on the normative surface. TypeScript port methods return `Promise<SpokeResult<T>>`; Rust port traits are `#[async_trait] async fn …(&self, …) -> SpokeResult<T>` with `Send` futures (normative ports use the default `#[async_trait]`, not `#[async_trait(?Send)]`). All nine `orchestrate*` entrypoints are `async` — `export async function orchestrateX(…): Promise<SpokeResult<R>>` in TypeScript, `pub async fn orchestrate_x(…) -> SpokeResult<R>` in Rust — and await every injected port call. The library itself stays I/O-free: `await` appears only on injected port method calls, and pure helpers remain synchronous. Checker callbacks stay synchronous: `orchestrateCheck` / `orchestrateForkCheck` accept `(input: CheckRunInput) => SpokeResult<Finding[]>` (TypeScript) / `F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>` (Rust) — pure product logic, not ports. Rust port traits use the `async-trait` crate, which keeps the dyn availability probes (`as_computable`, `as_fork_timeline`) object-safe. The async form is the only surface: methods never return `T | Promise<T>` unions, and no sync variants or compatibility shims exist.
+Port methods are asynchronous on the normative surface. TypeScript port methods return `Promise<SpokeResult<T>>`; Rust port traits are `#[async_trait] async fn …(&self, …) -> SpokeResult<T>` with `Send` futures (normative ports use the default `#[async_trait]`, not `#[async_trait(?Send)]`). All ten `orchestrate*` entrypoints are `async` — `export async function orchestrateX(…): Promise<SpokeResult<R>>` in TypeScript, `pub async fn orchestrate_x(…) -> SpokeResult<R>` in Rust — and await every injected port call. The library itself stays I/O-free: `await` appears only on injected port method calls, and pure helpers remain synchronous. Checker callbacks stay synchronous: `orchestrateCheck` / `orchestrateForkCheck` accept `(input: CheckRunInput) => SpokeResult<Finding[]>` (TypeScript) / `F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>` (Rust) — pure product logic, not ports. Rust port traits use the `async-trait` crate, which keeps the dyn availability probes (`as_computable`, `as_fork_timeline`) object-safe. The async form is the only surface: methods never return `T | Promise<T>` unions, and no sync variants or compatibility shims exist.
 
 All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
 
@@ -567,8 +593,9 @@ All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter
 | `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, **`HostManifestPort`** | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
 | `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
 | `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
+| `tools.<ns>.<tool_id>` (per-tool; no umbrella flag) | `ToolInvokePort` | `orchestrateInvokeTool` |
 
-Unclaimed capabilities need no ports; their orchestrators are not callable for that product.
+Unclaimed capabilities need no ports; their orchestrators are not callable for that product. Tool capabilities are **per-tool strings**: a host claiming `tools.<ns>.<tool_id>` in `capabilities[]` implements `ToolInvokePort`, and `orchestrateInvokeTool` is callable for each declared tool capability string — the family has no umbrella capability flag.
 
 ### Baseline port families
 
@@ -632,8 +659,27 @@ Optional manifest `authority.scope_key` binds the data-store role to an opaque c
 |---|---|---|---|---|
 | `l2-computable` | Computable session | `ComputablePort` | `ComputablePort` | `project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>` / `async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse>`; `compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>` / `async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse>` |
 | `l5-fork` | Fork-aware timeline query | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` | `listForkTimelineEvents(scope: Scope & { fork_id: ForkId }): Promise<SpokeResult<TimelineEvent[]>>` / `async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>` |
+| per-tool (`tools.<ns>.<tool_id>`) | Tool invoke | `ToolInvokePort` | `ToolInvokePort` | `invokeTool(request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>>` / `async fn invoke_tool(&self, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse>` |
 
 `ForkTimelineQueryPort` is a capability-specific refinement of `ScopeQueryPort`; one object MAY satisfy both.
+
+**`ToolInvokePort` (standalone optional family).** Port shape, verbatim from the frozen tool contracts SSOT:
+
+| Language | Port shape |
+|----------|------------|
+| TypeScript | `interface ToolInvokePort { invokeTool(request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>> }` |
+| Rust | `#[async_trait] pub trait ToolInvokePort { async fn invoke_tool(&self, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse> }` (Send futures) |
+
+**`ToolInvokeRequest` / `ToolInvokeResponse` (hand-written types — no ops schema files):**
+
+| Type (TS) | Type (Rust) | Fields |
+|-----------|-------------|--------|
+| `ToolInvokeRequest` | `ToolInvokeRequest` | `capability_id: string` / `capability_id: String`; `arguments: Record<string, unknown>` / `arguments: Value` |
+| `ToolInvokeResponse` | `ToolInvokeResponse` | `result: unknown` / `result: Value` |
+
+The `{ "arguments": <opaque JSON> }` request body and the `{ "result": <opaque JSON> }` success body are library-typed ([`spoke-connect.md`](spoke-connect.md) §Tools over connect); failure travels the existing error branch.
+
+**Standalone family:** `ToolInvokePort` is **not** composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`, and no `ToolsPort` / `ToolsAdapter` alias joins the adapter-alias table — capability gating is per-tool, not per-composed-type. A host implements `ToolInvokePort` for each tool capability string it claims and calls `validateToolArguments` before `orchestrateInvokeTool` (§15).
 
 ### Capability composition and availability
 
@@ -660,6 +706,8 @@ Integrators implement **one** adapter type (class/struct) that satisfies the por
 | `ComputableAdapter` | `ComputablePorts` | baseline + `l2-computable` |
 | `ForkAdapter` | `ForkPorts` | baseline + `l5-fork` |
 | `FullAdapter` | `FullPorts` | baseline + computable + fork |
+
+The tools family has **no adapter alias**: `ToolInvokePort` stays a standalone optional family, is not folded into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`, and no `ToolsPort` / `ToolsAdapter` composed alias exists — capability gating is per-tool, not per-composed-type.
 
 Rust exports the same names with TS/Rust parity per the **Alias implementation** table below.
 
@@ -718,8 +766,11 @@ Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The ca
 | compute | `export async function orchestrateCompute(ports: ComputablePorts, request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>` | `pub async fn orchestrate_compute(ports: &impl ComputablePorts, request: ComputeRequest) -> SpokeResult<ComputeResponse>` | `ComputablePort` | Call `validateComputeRequest`; call `compute`; any settled-state persistence is an explicit adapter step |
 | fork check | `export async function orchestrateForkCheck(ports: ForkPorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): Promise<SpokeResult<CheckResponse>>` | `pub async fn orchestrate_fork_check(ports: &impl ForkPorts, request: CheckRequest, run_checker: impl FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ForkTimelineQueryPort` plus baseline check ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; resolve rules; apply scope helpers; invoke `runChecker`; call `putFindings` |
 | fork assemble | `export async function orchestrateForkAssemble(ports: ForkPorts, request: AssembleRequest): Promise<SpokeResult<AssembleResponse>>` | `pub async fn orchestrate_fork_assemble(ports: &impl ForkPorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ForkTimelineQueryPort` plus baseline assemble ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; apply scope helpers; call `buildAssemblePacket` |
+| invoke tool | `export async function orchestrateInvokeTool(port: ToolInvokePort, request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>>` | `pub async fn orchestrate_invoke_tool(port: &dyn ToolInvokePort, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse>` | `ToolInvokePort` | Call `parseToolCapabilityId(request.capability_id)` — grammar reject `INVALID_INPUT`; TS runtime guard `typeof port.invokeTool === "function"` else `CAPABILITY_PORT_MISSING` with `details.capability = request.capability_id` (Rust: `&dyn ToolInvokePort` cannot be absent at the type level — the negative test uses a `MissingToolInvokePort` double whose `invoke_tool` returns the same reject, demonstrating code parity); call `port.invokeTool(request)` and return as-is |
 
 Orchestrators compose pure helpers and port I/O only. Checker engines, compute engines, ranking, retrieval, transactions, and retries remain adapter- or product-owned. The adapter controls transaction boundaries.
+
+**Reject-code usage (tools):** the operations-layer `CAPABILITY_PORT_MISSING` (port-family absence) carries `details.capability = tools.<ns>.<tool_id>` — per-tool blame. This is distinct from the connect-layer mapping ([`spoke-remote-adapter.md`](spoke-remote-adapter.md) D7), where an invoke-path dispatch deny maps to the same reject code with `details.wire_code` preserved; same reject code, different `details` key, different trigger.
 
 ### Public export and module paths
 
@@ -751,6 +802,8 @@ TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and 
 | `orchestrateCompute` | `orchestrate_compute` |
 | `orchestrateForkCheck` | `orchestrate_fork_check` |
 | `orchestrateForkAssemble` | `orchestrate_fork_assemble` |
+| `ToolInvokePort` | `ToolInvokePort` |
+| `orchestrateInvokeTool` | `orchestrate_invoke_tool` |
 
 ## Package contract
 

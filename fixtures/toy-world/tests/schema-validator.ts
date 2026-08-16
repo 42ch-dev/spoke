@@ -83,6 +83,7 @@ export const SCHEMA_IDS = {
   computeResponse: "https://spoke42.invalid/schemas/ops/compute-response.schema.json",
   hostCapabilityManifest:
     "https://spoke42.invalid/schemas/data/host-capability-manifest.schema.json",
+  toolDescriptor: "https://spoke42.invalid/schemas/data/tool-descriptor.schema.json",
   connectHello: "https://spoke42.invalid/schemas/connect/connect-hello.schema.json",
   connectSession: "https://spoke42.invalid/schemas/connect/connect-session.schema.json",
   connectInvokeRequest:
@@ -122,6 +123,8 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "op_tw_compute_settle_response.json": SCHEMA_IDS.computeResponse,
   "host_tw_primary.json": SCHEMA_IDS.hostCapabilityManifest,
   "host_tw_peer.json": SCHEMA_IDS.hostCapabilityManifest,
+  "host_tw_tools.json": SCHEMA_IDS.hostCapabilityManifest,
+  "tool_tw_minimal.json": SCHEMA_IDS.toolDescriptor,
   "conn_tw_hello_primary_to_peer.json": SCHEMA_IDS.connectHello,
   "conn_tw_hello_peer_to_primary.json": SCHEMA_IDS.connectHello,
   "conn_tw_session.json": SCHEMA_IDS.connectSession,

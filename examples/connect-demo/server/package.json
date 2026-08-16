@@ -19,7 +19,6 @@
     "@42ch/spoke-connect": "workspace:*",
     "@42ch/spoke-operations": "workspace:*",
     "@42ch/spoke-schemas": "workspace:*",
-    "canonicalize": "3.0.0",
     "ws": "^8.18.1"
   },
   "devDependencies": {

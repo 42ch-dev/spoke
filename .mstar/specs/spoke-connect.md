@@ -309,6 +309,7 @@ Receivers MUST NOT use top-level hello `extensions` for authorization or trust d
 | First invoke | `sequence = 0` |
 | Increment | Each new **outbound** `ConnectInvokeRequest` from a peer in a session uses `last_sequence + 1` |
 | Direction | Each peer maintains its **own** outbound counter; sequences are not a single shared total-order across both directions |
+| Invoke direction | Either **Established** peer MAY issue `ConnectInvokeRequest`s — the responder invokes under the same per-direction outbound counter rules as the initiator; there is no forward-only restriction and no separate reverse counter |
 | Correlation | Response MUST echo `session_id`, `sequence`, and `request_id` from the request |
 | Timeout / retry | Timeout, retry, and duplicate detection are adapter-owned; `request_id` is the correlation handle for retries — protocol v1 defines no retry semantics |
 | Concurrent invokes | Allowed. Assign sequence atomically at send time. Completions MAY arrive out of order; apps that need FIFO processing sort/buffer by `sequence` |
@@ -350,7 +351,11 @@ Logical states and transitions for the **session core** (pure rules). Dialing, N
 | `Established` → `Established` | Inbound response | Accept iff it echoes `session_id`, `sequence`, and `request_id` of a pending request; else correlation failure (local error) |
 | `Established` → `Closed` | Next outbound sequence would exceed 2⁵³−1, or transport loss, or local shutdown | No wrap-around |
 
+> **Advance timing (implementers):** for protocol_version 2 sessions the inbound counter advances per the canonical invoke serving order — peek, then envelope-auth verify, then advance — in §[Op dispatch gate](#op-dispatch-gate); this table row states the sequence rule, not the v2 auth ordering.
+
 These labels and guards are the portable session-core contract so Path A ports match reference behavior without depending on reference-crate internals.
+
+The inbound-invoke guard is **direction-generic**: a reverse invoke — a `ConnectInvokeRequest` issued by the responder toward the initiator — is accepted under the identical `sequence == next_expected_inbound` rule and produces the identical wire-error / no-side-effect behavior as a forward invoke. The session core does not distinguish which peer dialed first; only the direction of travel of the envelope is relevant to the counters.
 
 ## `op` core vocabulary
 
@@ -366,22 +371,53 @@ Open string (documented, not JSON Schema enum). Schema `description` on `Connect
 | `project` | project-* | Optional; meaningful when remote declares `l2-computable` |
 | `compute` | compute-* | Optional; same |
 
-Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. This vocabulary MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
+Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the seven core values and stays unchanged. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls ([`spoke-remote-adapter.md`](spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)).
+
+Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. The core vocabulary above MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
 
 ## Op dispatch gate
 
 Before executing or forwarding a `ConnectInvokeRequest`, a host that performs op dispatch MUST ensure the capability required by `op` is present in the session’s `negotiated_capabilities`. If the required capability is absent, the host MUST NOT run the op handler and MUST answer with a `ConnectInvokeResponse` error branch (`ErrorEnvelope`, e.g. code `op_unsupported` or `capability_missing`) — no side effects.
 
-For protocol_version 1 core ops, required capabilities are:
+Required capabilities (core table):
 
-| `op` | Required capability (minimum) |
-|------|-------------------------------|
+| `op` | Required capability |
+|------|---------------------|
 | `upsert`, `promote`, `relate`, `check`, `assemble` | `spoke-baseline` (or a deployment-documented synonym that both peers list and intersect into `negotiated_capabilities`) |
 | `project`, `compute` | `l2-computable` |
+| `tools.<ns>.<tool_id>` (reserved product prefix) | the op string itself |
+
+`tools.*` is a **core gate rule**: `tools.<ns>.<tool_id>` ops are self-describing, so the required capability is the op string itself — no registry, no umbrella flag. This is the core-table counterpart of `port.*` being product-map territory: a `tools.*` op never consults a product capability map. A tool id enters `negotiated_capabilities` only when both hellos list that exact string (the agreed-subset rule of §[Session-core state machine](#session-core-state-machine)); the gate then evaluates that exact string as for every op.
 
 Product-defined `op` values MUST document their required capability name(s). The gate is evaluated against **`negotiated_capabilities`**, not against the remote manifest alone and not against unsigned hello `extensions`.
 
 Sequence and correlation checks (§[Session-core state machine](#session-core-state-machine)) apply before or with this gate; a failed sequence check also produces no handler side effect.
+
+The gate applies **identically in both directions**: a reverse `ConnectInvokeRequest` — issued by the responder toward the initiator — is dispatched against the same `negotiated_capabilities` as a forward invoke. There is no separate reverse gate and no looser or stricter treatment of the responder's invokes.
+
+**Invoke serving order (canonical, both directions).** Serving an inbound `ConnectInvokeRequest` follows the same canonical order whether the invoke is forward or reverse:
+
+1. **Classify request-first**: an inbound envelope carrying `op` is a `ConnectInvokeRequest`; response-shape and correlation checks apply only after request classification (see [§Tools over connect](#tools-over-connect)).
+2. **Stray check (multiplexed transports)**: an envelope whose `session_id` is bound to a **different live session** is ignored — no response. An envelope whose `session_id` is not bound to any established session stays on this path and is rejected `auth_failed` at the envelope-auth verify step (step 4; §[Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) — Session binding).
+3. **Sequence peek** (non-mutating): a `sequence` not equal to `next_expected_inbound` answers the error branch with `invalid_sequence`; the inbound counter is NOT advanced.
+4. **Envelope-auth verify**: verify per [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); failure answers `auth_failed` and does NOT advance session state (auth-before-advance — that section's Verify rules).
+5. **Advance** the inbound counter.
+6. **Dispatch gate**: the required capability for `op` MUST be present in `negotiated_capabilities` (this table). The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)).
+7. **Handler or deny**, then a signed `ConnectInvokeResponse` echoing `session_id` / `sequence` / `request_id`.
+
+Steps 3–5 MUST be serialized per session — they read and mutate the same inbound counter, so a concurrent request must not observe a pre-advance counter; dispatch (steps 6–7) may interleave.
+
+**Invoke deny-code matrix (frozen — existing shipped wire codes; no new wire codes are introduced):**
+
+| Condition | Wire error code | Notes |
+|-----------|-----------------|-------|
+| Gate fail: `tools.*` op ∉ `negotiated_capabilities` | `op_unsupported` | No handler side effect |
+| Gate pass but no registered handler for that `capability_id` | `op_unsupported` | Fail-closed — a peer that serves no handlers still answers `op_unsupported` |
+| Unknown non-`tools` op (no core-table row, no product-defined mapping) | `op_unsupported` | Existing behavior |
+| Signature missing / invalid / session-unbound | `auth_failed` | Existing envelope-auth branch |
+| Sequence gap or duplicate | `invalid_sequence` | Shipped Rust node wire code; the TS demo responder uses `inbound_sequence_mismatch` as a product-side variant (not normative); no counter advance |
+
+All deny paths produce no handler side effect; the sequence and envelope-auth denies additionally leave session state unadvanced.
 
 ## Ops-family registration
 
@@ -392,7 +428,19 @@ A new or modified ops family that is intended to be remotely invokable over conn
 3. Declare the capability name(s) hosts must advertise in `HostCapabilityManifest.capabilities` for the family to be negotiable;
 4. Rely on opaque `payload` wrapping of existing ops request/response envelopes — **MUST NOT** require connect envelope shape changes for new ops fields.
 
+**Tools family:** `tools.<ns>.<tool_id>` invokes are self-describing — each tool's ABI is declared by a `ToolDescriptor` in `HostCapabilityManifest.tools[]` rather than ops schema files under `schemas/ops/`, and request/response payloads stay opaque JSON on the wire (no connect envelope change, item 4). The required capability is the op string itself (§[Op dispatch gate](#op-dispatch-gate)); each tool's `capability_id` MUST appear in the declaring manifest's `capabilities[]`. Field-level rules: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest.
+
 Connect schemas and the six envelope shapes stay closed; extensibility is vocabulary + capabilities + opaque payload, not new connect fields.
+
+## Tools over connect
+
+Tools ride the existing connect machinery: closed envelopes, the open `op` vocabulary, opaque `payload`, and the same session-core ordering / envelope-auth / dispatch-gate rules as every other op — no connect envelope change and no ops schema files.
+
+**Discovery.** A host that exposes tools declares them in its `HostCapabilityManifest.tools[]` (descriptor contract: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest). The manifest is carried inside the signed hello, so a peer observes the declaring host's tool descriptors only after hello verification (§[Signature canonicalization (hello)](#signature-canonicalization-hello)); unsigned hello `extensions` never carry trust (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2)). A tool id enters `negotiated_capabilities` only when both hellos list that exact string (§[Op dispatch gate](#op-dispatch-gate)).
+
+**Invocation.** A tool invoke is a `ConnectInvokeRequest` with `op = tools.<ns>.<tool_id>` and an opaque `payload` of shape `{ "arguments": <opaque JSON> }`. Either **Established** peer MAY issue it (§[Ordering semantics](#ordering-semantics)); the responder→initiator direction is a reverse invoke under the same session-core rules. The serving host runs the same dispatch gate (§[Op dispatch gate](#op-dispatch-gate)) and answers with the success branch carrying `payload = { "result": <opaque JSON> }`, or with the existing error branch per the deny-code matrix in §[Op dispatch gate](#op-dispatch-gate) — no new wire codes. The `{ arguments }` request body and the `{ result }` response body are typed in client/server libraries, not in ops schema files: the wire carries them as opaque JSON and the six connect envelope shapes stay closed.
+
+**Request / response classification.** An inbound envelope carrying `op` is a `ConnectInvokeRequest`; receivers MUST classify request shape before response shape. A reverse request carries the same correlation echo fields (`session_id`, `sequence`, `request_id`) as a response, so a receiver MUST NOT treat an `op`-bearing envelope as a response to a pending request — response correlation applies only after the request classification rejects it.
 
 ## `method` core vocabulary
 
@@ -567,6 +615,8 @@ The two response branches are signed over their respective field sets (oneOf); t
 ### Session binding
 
 Signatures bind to the session via the signed `session_id` and the session-core binding rules (already required: `initiator_peer_id` / `responder_peer_id` MUST equal the authenticated hello `peer_id`s). The verify public key is the peer's hello Ed25519 public key. No new key exchange, no new MAC, no new KDF. A `session_id` not bound to an established session ⇒ reject `auth_failed`. Cross-session replay fails closed: an envelope captured from session S1 and replayed into session S2 is rejected because the S2 receiver verifies against the S2 peer's hello public key (which signed S2, not S1) and the `session_id` does not match the bound session.
+
+Signing and verification are **direction-symmetric**: each side signs its outbound envelopes with its own hello identity key and verifies inbound envelopes with the authenticated hello public key of the peer that sent them. A reverse invoke (responder → initiator) therefore uses the same request/response signature construction as a forward invoke — there are no direction-specific signing or verification rules.
 
 ### Version strategy — `protocol_version` 1 → 2 (fail-closed, no compat shim)
 

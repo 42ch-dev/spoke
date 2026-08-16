@@ -27,14 +27,33 @@ import {
 
 import { MockEngine } from "../engine/mock-engine.js";
 import { DEMO_SCOPE_ID } from "../engine/seed-corpus.js";
+import {
+  LORE_LOOKUP_DESCRIPTOR,
+  ROLL_DICE_DESCRIPTOR,
+  TOY_WORLD_LORE_LOOKUP_ID,
+  TOY_WORLD_NAMESPACE,
+  TOY_WORLD_ROLL_DICE_ID,
+} from "../tools/toy-world-tools.js";
 
-/** Server self-manifest (verbatim per plan) — served by getHostCapabilityManifest. */
+/**
+ * Server self-manifest (verbatim per plan) — served by
+ * getHostCapabilityManifest. The tool capability ids are listed so the
+ * client's reverse-invoked tools are negotiated (the negotiated set is the
+ * intersection of both manifests' capabilities); the host declares the same
+ * descriptors the client serves, and `validateManifestTools` passes on this
+ * manifest.
+ */
 export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-inference-host",
   roles: ["checker", "assembler"],
-  capabilities: ["spoke-baseline"],
-  namespaces: [DEMO_SCOPE_ID],
+  capabilities: [
+    "spoke-baseline",
+    TOY_WORLD_ROLL_DICE_ID,
+    TOY_WORLD_LORE_LOOKUP_ID,
+  ],
+  namespaces: [DEMO_SCOPE_ID, TOY_WORLD_NAMESPACE],
+  tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
   extensions: {},
 };
 

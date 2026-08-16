@@ -24,19 +24,32 @@ import type {
   Rule,
   Scope,
   TimelineEvent,
+  ToolDescriptor,
 } from "@42ch/spoke-schemas";
 import {
   SpokeRejectCode,
   spokeOk,
+  validateManifestTools,
   type SpokeReject,
   type SpokeResult,
 } from "@42ch/spoke-operations";
 import {
   connectMultiPeerRouter,
+  connectRemoteAdapter,
+  loopbackTransportPair,
+  type RemoteAdapter,
   type RemoteAdapterState,
   type RoutedRemoteAdapter,
 } from "@42ch/spoke-connect/remote";
 
+import { getPublicKeyEd25519 } from "../../src/crypto.js";
+import { schemaConformantManifest } from "../../src/golden.js";
+import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
+import {
+  startMinimalResponder,
+  type MinimalResponder,
+  type TestToolHandler,
+} from "./minimal-responder.js";
 import {
   selectPeerForOp,
   type SelectablePeer,
@@ -45,6 +58,118 @@ import {
 /** Delegate-call dummy values — routing tests never inspect the payloads. */
 const FAKE_ENTRY = { entry_id: "e1" } as KnowledgeEntry;
 const FAKE_RELATION = { relation_id: "r1" } as Relation;
+
+// ── Tool fixtures (frozen §2: op === capability_id, namespaces owned) ─────
+
+const ADD_DESCRIPTOR: ToolDescriptor = {
+  schema_version: 1,
+  capability_id: "tools.math.add",
+  op: "tools.math.add",
+  description: "Add two numbers",
+  input: {},
+  output: {},
+};
+
+const ECHO_DESCRIPTOR: ToolDescriptor = {
+  schema_version: 1,
+  capability_id: "tools.echo.echo",
+  op: "tools.echo.echo",
+  description: "Echo the arguments back",
+  input: {},
+  output: {},
+};
+
+const BOOM_DESCRIPTOR: ToolDescriptor = {
+  schema_version: 1,
+  capability_id: "tools.echo.boom",
+  op: "tools.echo.boom",
+  description: "Handler that throws",
+  input: {},
+  output: {},
+};
+
+/** Descriptor lookup by capability id (the fixture set above). */
+const DESCRIPTOR_BY_ID: Readonly<Record<string, ToolDescriptor>> = {
+  "tools.math.add": ADD_DESCRIPTOR,
+  "tools.echo.echo": ECHO_DESCRIPTOR,
+  "tools.echo.boom": BOOM_DESCRIPTOR,
+};
+
+/**
+ * Tool-carrying manifest: namespaces own the tool namespaces; every tool
+ * capability ∈ capabilities[] (the router's hard filter keys on
+ * `capabilities`, the composed view unions `tools`).
+ */
+function toolManifest(hostId: string, toolIds: readonly string[]): HostCapabilityManifest {
+  const descriptors = toolIds.map((capabilityId) => DESCRIPTOR_BY_ID[capabilityId]);
+  const namespaces = new Set<string>(["toy_world"]);
+  for (const capabilityId of toolIds) {
+    namespaces.add(capabilityId.split(".")[1]);
+  }
+  return {
+    ...schemaConformantManifest(),
+    host_id: hostId,
+    namespaces: [...namespaces] as [string, ...string[]],
+    capabilities: ["spoke-baseline", ...toolIds] as [string, ...string[]],
+    tools: descriptors,
+  };
+}
+
+/**
+ * Loopback pair for the dual-peer proof: a locally-dialed `RemoteAdapter`
+ * (initiator) against a tool-serving minimal responder double (the peer).
+ * The RESPONDER's manifest (the peer's cached hello manifest) carries only
+ * `tools` — the router's hard filter sees exactly what each responder
+ * serves. The client (dialer) advertises the full fixture tool set so the
+ * negotiated intersection includes every tool under test.
+ */
+async function dialToolPeer(options: {
+  /** Responder Ed25519 seed base (distinct per peer → distinct peer ids). */
+  responderSeedBase: number;
+  /** Tools the responder advertises + serves. */
+  tools: string[];
+}): Promise<{ client: RemoteAdapter; responder: MinimalResponder; peerId: string }> {
+  const seedResponder = seed(options.responderSeedBase);
+  const seedClient = seed(0x10);
+  const pubkeyResponder = getPublicKeyEd25519(seedResponder);
+  const pubkeyClient = getPublicKeyEd25519(seedClient);
+  const peerIdResponder = derivePeerIdFromEd25519Pubkey(pubkeyResponder);
+  const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
+
+  const responderManifest = toolManifest("test-responder", options.tools);
+  const clientManifest = toolManifest("test-client", [
+    "tools.math.add",
+    "tools.echo.echo",
+    "tools.echo.boom",
+  ]);
+  // Fixture hygiene: both manifests satisfy the manifest-tools rules.
+  for (const manifest of [responderManifest, clientManifest]) {
+    const validated = validateManifestTools(manifest);
+    expect(validated.ok, `manifest tools must validate: ${manifest.host_id}`).toBe(true);
+  }
+
+  const pair = loopbackTransportPair();
+  const responder = await startMinimalResponder({
+    transport: pair.server,
+    seed: seedResponder,
+    clientPubkey: pubkeyClient,
+    allowlist: [peerIdClient],
+    manifest: responderManifest,
+  });
+  const client = await connectRemoteAdapter({
+    transport: pair.client,
+    localIdentity: { seed: seedClient },
+    localManifest: clientManifest,
+    remotePubkey: pubkeyResponder,
+    allowlist: [peerIdResponder],
+  });
+  return { client, responder, peerId: peerIdResponder };
+}
+
+/** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
+function seed(base: number): Uint8Array {
+  return Uint8Array.from({ length: 32 }, (_, i) => base + i);
+}
 
 /** Schema-shaped manifest builder; defaults to a baseline data-store peer. */
 function manifest(
@@ -139,6 +264,14 @@ class FakePeer implements RoutedRemoteAdapter {
     SpokeResult<HostCapabilityManifest[]>
   > {
     return this.#recordAndFail("listPeerHostCapabilityManifests") ?? spokeOk([]);
+  }
+
+  /** Forward tool-invoke face (§6) — records the delegation, returns the peer id. */
+  async invokeTool(
+    _capabilityId: string,
+    _args: Record<string, unknown>,
+  ): Promise<SpokeResult<unknown>> {
+    return this.#recordAndFail("invokeTool") ?? spokeOk({ served_by: this.remotePeerId });
   }
 }
 
@@ -765,4 +898,279 @@ describe("HostManifest aggregation (§6)", () => {
       expect(composed.value.extensions.router).toEqual({ peers: ["peer-live"] });
     }
   });
+
+  it("unions tools[] across connected peers (dedup by capability_id, lexicographic order)", async () => {
+    const router = connectMultiPeerRouter();
+    router.registerPeer(
+      new FakePeer(
+        "peer-a",
+        manifest({
+          host_id: "h-a",
+          capabilities: [
+            "spoke-baseline",
+            "tools.math.add",
+            "tools.echo.echo",
+          ],
+          tools: [ADD_DESCRIPTOR, ECHO_DESCRIPTOR],
+        }),
+      ),
+    );
+    router.registerPeer(
+      new FakePeer(
+        "peer-b",
+        manifest({
+          host_id: "h-b",
+          capabilities: [
+            "spoke-baseline",
+            "tools.echo.echo",
+            "tools.echo.boom",
+          ],
+          tools: [ECHO_DESCRIPTOR, BOOM_DESCRIPTOR],
+        }),
+      ),
+    );
+
+    const result = await router.getHostCapabilityManifest();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // tools.echo.echo is shared → deduped; the union is ordered by
+      // capability_id lexicographically (§6 stability, not first-seen).
+      expect(result.value.tools?.map((descriptor) => descriptor.capability_id)).toEqual([
+        "tools.echo.boom",
+        "tools.echo.echo",
+        "tools.math.add",
+      ]);
+    }
+  });
 });
+
+describe("MultiPeerRouter tool routing (§6 frozen contract)", () => {
+  it("routes invokeTool to the peer whose cached manifest capabilities include the exact tool capability (disjoint tools)", async () => {
+    const router = connectMultiPeerRouter();
+    const addPeer = new FakePeer(
+      "peer-add",
+      manifest({
+        host_id: "h-add",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    const echoPeer = new FakePeer(
+      "peer-echo",
+      manifest({
+        host_id: "h-echo",
+        capabilities: ["spoke-baseline", "tools.echo.echo"],
+      }),
+    );
+    router.registerPeer(echoPeer);
+    router.registerPeer(addPeer);
+
+    const add = await router.invokeTool("tools.math.add", { a: 1, b: 2 });
+    expect(add.ok).toBe(true);
+    // The selected peer's adapter invokeTool ran — the router delegates,
+    // never crafts envelopes itself (§6).
+    expect(addPeer.calls).toEqual(["invokeTool"]);
+    expect(echoPeer.calls).toEqual([]);
+
+    const echo = await router.invokeTool("tools.echo.echo", { v: 1 });
+    expect(echo.ok).toBe(true);
+    expect(echoPeer.calls).toEqual(["invokeTool"]);
+    expect(addPeer.calls).toEqual(["invokeTool"]);
+  });
+
+  it("rejects with the locked no_capable_peer reject when no peer's capabilities include the tool (§5, details.op = capability_id)", async () => {
+    const router = connectMultiPeerRouter();
+    const addPeer = new FakePeer(
+      "peer-add",
+      manifest({
+        host_id: "h-add",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    router.registerPeer(addPeer);
+
+    const result = await router.invokeTool("tools.echo.boom", {});
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("no_capable_peer");
+      expect(result.details?.kind).toBe("no_capable_peer");
+      expect(result.details?.op).toBe("tools.echo.boom");
+    }
+    // Terminal: no delegate ran (no wrong-peer fallback).
+    expect(addPeer.calls).toEqual([]);
+  });
+
+  it("breaks ties on the lowest peer_id when both peers offer the tool (§4)", async () => {
+    const router = connectMultiPeerRouter();
+    const peerB = new FakePeer(
+      "peer-bbb",
+      manifest({
+        host_id: "h-b",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    const peerA = new FakePeer(
+      "peer-aaa",
+      manifest({
+        host_id: "h-a",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    router.registerPeer(peerB);
+    router.registerPeer(peerA);
+
+    const result = await router.invokeTool("tools.math.add", { a: 1, b: 2 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toEqual({ served_by: "peer-aaa" });
+    }
+    expect(peerA.calls).toEqual(["invokeTool"]);
+    expect(peerB.calls).toEqual([]);
+  });
+
+  it("fails fast with INVALID_INPUT on a non-tools. capability id before any peer selection (§6 grammar gate)", async () => {
+    const router = connectMultiPeerRouter();
+    const addPeer = new FakePeer(
+      "peer-add",
+      manifest({
+        host_id: "h-add",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    router.registerPeer(addPeer);
+
+    // "upsert" is a baseline op — without the grammar gate the router
+    // would select the baseline peer and delegate (or surface it as
+    // no_capable_peer). The D13/D14 parity row promises a fail-fast
+    // INVALID_INPUT with details.capability_id and no peer selection.
+    const result = await router.invokeTool("upsert", {});
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.capability_id).toBe("upsert");
+      // NOT the no_capable_peer / CAPABILITY_PORT_MISSING path.
+      expect(result.details?.wire_code).not.toBe("no_capable_peer");
+    }
+    // Terminal: no peer was selected, no delegate ran.
+    expect(addPeer.calls).toEqual([]);
+  });
+
+  it("fails fast with INVALID_INPUT on a malformed tools.* capability id before any peer selection (§6 grammar gate)", async () => {
+    const router = connectMultiPeerRouter();
+    const addPeer = new FakePeer(
+      "peer-add",
+      manifest({
+        host_id: "h-add",
+        capabilities: ["spoke-baseline", "tools.math.add"],
+      }),
+    );
+    router.registerPeer(addPeer);
+
+    for (const badId of ["tools.UPPER.x", "tools.onlyns"]) {
+      const result = await router.invokeTool(badId, {});
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+        expect(result.details?.capability_id).toBe(badId);
+        expect(result.details?.wire_code).not.toBe("no_capable_peer");
+      }
+    }
+    // Terminal: no peer was selected, no delegate ran.
+    expect(addPeer.calls).toEqual([]);
+  });
+});
+
+describe("MultiPeerRouter tool routing over loopback responders (§6 topology)", () => {
+  // Router-registered adapters are LOCALLY-DIALED: router tool invokes
+  // travel initiator→responder and are served by the PEER's responder-side
+  // tool serving — the proof drives tool-serving responder doubles (the
+  // minimal responder with the frozen §4 pipeline), not dialer-side
+  // registerToolHandler alone.
+  it("routes invokeTool to the serving responder by exact tool capability (disjoint tools)", async () => {
+    const addCalls: { args: Record<string, unknown> }[] = [];
+    const echoCalls: { args: Record<string, unknown> }[] = [];
+    const { client: clientA, responder: responderA } = await dialToolPeer({
+      responderSeedBase: 0xa1,
+      tools: ["tools.math.add"],
+    });
+    const { client: clientB, responder: responderB } = await dialToolPeer({
+      responderSeedBase: 0xb2,
+      tools: ["tools.echo.echo"],
+    });
+    try {
+      responderA.registerToolHandler("tools.math.add", addHandler(addCalls));
+      responderB.registerToolHandler("tools.echo.echo", async (args) => {
+        echoCalls.push({ args });
+        return spokeOk(args);
+      });
+
+      const router = connectMultiPeerRouter();
+      router.registerPeer(clientA);
+      router.registerPeer(clientB);
+
+      // tools.math.add is advertised + served only by responder A.
+      const add = await router.invokeTool("tools.math.add", { a: 2, b: 3 });
+      expect(add).toEqual({ ok: true, value: { sum: 5 } });
+      expect(addCalls).toEqual([{ args: { a: 2, b: 3 } }]);
+      expect(echoCalls).toEqual([]);
+
+      // tools.echo.echo is advertised + served only by responder B.
+      const echo = await router.invokeTool("tools.echo.echo", { v: 1 });
+      expect(echo).toEqual({ ok: true, value: { v: 1 } });
+      expect(echoCalls).toEqual([{ args: { v: 1 } }]);
+      expect(addCalls).toHaveLength(1);
+    } finally {
+      clientA.close();
+      clientB.close();
+      responderA.close();
+      responderB.close();
+    }
+  }, 15000);
+
+  it("rejects with no_capable_peer when no registered peer's responder serves the tool", async () => {
+    const { client: clientA, responder: responderA } = await dialToolPeer({
+      responderSeedBase: 0xa1,
+      tools: ["tools.math.add"],
+    });
+    const { client: clientB, responder: responderB } = await dialToolPeer({
+      responderSeedBase: 0xb2,
+      tools: ["tools.echo.echo"],
+    });
+    try {
+      const router = connectMultiPeerRouter();
+      router.registerPeer(clientA);
+      router.registerPeer(clientB);
+
+      const result = await router.invokeTool("tools.echo.boom", {});
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+        expect(result.details?.wire_code).toBe("no_capable_peer");
+        expect(result.details?.kind).toBe("no_capable_peer");
+        expect(result.details?.op).toBe("tools.echo.boom");
+      }
+      // Terminal: neither responder served anything.
+      expect(responderA.stats.handlersRun).toBe(0);
+      expect(responderB.stats.handlersRun).toBe(0);
+    } finally {
+      clientA.close();
+      clientB.close();
+      responderA.close();
+      responderB.close();
+    }
+  }, 15000);
+});
+
+/** The add handler used by loopback fixtures. */
+function addHandler(calls: { args: Record<string, unknown> }[]): TestToolHandler {
+  return async (args) => {
+    calls.push({ args });
+    return spokeOk({ sum: (args.a as number) + (args.b as number) });
+  };
+}

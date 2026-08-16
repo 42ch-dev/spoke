@@ -57,6 +57,7 @@ Schema: `schemas/data/host-capability-manifest.schema.json`.
 | Field | Type | Semantics |
 |-------|------|-----------|
 | `authority` | object | Closed scope pointer for data-store OCC — see §Authority |
+| `tools` | ToolDescriptor[] | Optional self-describing tool ABIs — see §Tools |
 
 ### Host roles (open vocabulary)
 
@@ -93,6 +94,17 @@ When `authority` is present, it is a **closed** object (`additionalProperties: f
 | `scope_key` | yes | Opaque collaboration scope for OCC / active-uniqueness (aligns with operations `scope_key` folklore in `assertUniqueActiveKnowledgeEntry`) |
 
 `authority` is **not** schema-required when `data-store` ∈ `roles`. When absent, integrators treat this manifest's `host_id` as the implicit write authority for its collaboration scope. No CRDT or vector-clock fields on the wire.
+
+### Tools (optional)
+
+`tools[]` declares optional self-describing tool ABIs via `ToolDescriptor` (`schemas/data/tool-descriptor.schema.json`). Each descriptor's `capability_id` and `op` are the **same string** `tools.<ns>.<tool_id>` (pattern `^tools\.[a-z][a-z0-9_-]*\.[a-z0-9][a-z0-9_-]*$` enforced by the schema; `op === capability_id` is a spec-level MUST — draft-07 cannot express cross-field equality, so validation helpers enforce it). The namespace `ns` MUST match `^[a-z][a-z0-9_-]*$` (the same pattern as `namespaces[]`) and MUST be a member of this manifest's `namespaces[]` — namespace ownership is the ownership check; the descriptor has **no separate `namespace` field** (derived from `capability_id`, one source of truth). `tool_id` matches `^[a-z0-9][a-z0-9_-]*$` — an open-ended vocabulary, not enumerated.
+
+Cross-field consistency (spec-level MUSTs, enforced by validation helpers; the schema stays structural):
+
+- Every `tools[].capability_id` MUST also appear in the same manifest's `capabilities[]`.
+- Every `tools[].capability_id` MUST be unique within `tools[]` (helper-owned rule — the schema does not use `uniqueItems`, which cannot catch two different descriptors sharing a `capability_id`).
+
+`input` / `output` are opaque JSON Schema draft-07 subschema objects carried as opaque JSON on the wire (their internals are not code-generated); an empty object `{}` is valid and declares no constraint. `idempotent` is advisory metadata only — the protocol defines no idempotency-key machinery. `tools` is optional: manifests without it remain valid, and no existing manifest field changes semantics.
 
 ### Namespace exclusivity
 

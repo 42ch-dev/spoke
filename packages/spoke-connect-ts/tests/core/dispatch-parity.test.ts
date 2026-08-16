@@ -96,3 +96,32 @@ describe("core-op dispatch table spot-check (parity with dispatch.rs)", () => {
     }
   });
 });
+
+describe("tools.* prefix rule (parity golden vector, frozen §3)", () => {
+  const TOOL_OP = "tools.math.add";
+
+  it("requiredCapability returns the op string itself for the tools. prefix", () => {
+    expect(requiredCapability(TOOL_OP)).toBe(TOOL_OP);
+    expect(requiredCapability("tools.any.namespaced.thing")).toBe(
+      "tools.any.namespaced.thing",
+    );
+  });
+
+  it("dispatchAllowed authorizes only when the exact capability is negotiated", () => {
+    // Authorized: the tool capability string itself is negotiated.
+    expect(dispatchAllowed(TOOL_OP, [TOOL_OP])).toBe(true);
+    // Not negotiated / wrong capability: denied (the self-describing tool
+    // gate never consults an umbrella flag or the baseline capability).
+    expect(dispatchAllowed(TOOL_OP, [CAPABILITY_SPOKE_BASELINE])).toBe(false);
+    expect(dispatchAllowed(TOOL_OP, [CAPABILITY_L2_COMPUTABLE])).toBe(false);
+    expect(dispatchAllowed(TOOL_OP, [])).toBe(false);
+  });
+
+  it("tokenAuthorizesOp authorizes iff the grant contains the exact capability", () => {
+    expect(tokenAuthorizesOp(requiredCapability(TOOL_OP), [TOOL_OP])).toBe(true);
+    expect(
+      tokenAuthorizesOp(requiredCapability(TOOL_OP), [CAPABILITY_SPOKE_BASELINE]),
+    ).toBe(false);
+    expect(tokenAuthorizesOp(requiredCapability(TOOL_OP), [])).toBe(false);
+  });
+});

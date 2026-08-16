@@ -19,8 +19,19 @@ pub const CAPABILITY_L2_COMPUTABLE: &str = "l2-computable";
 /// core-op table. Product-defined `op` values return `None` — their required
 /// capability is documented by the product and configured outside the core
 /// table.
+///
+/// `tools.<ns>.<tool_id>` is a **core gate rule** (normative
+/// `spoke-connect.md` §Op dispatch gate): self-describing tools require the
+/// op string itself — no registry, no umbrella flag. The gate then
+/// evaluates that exact string against `negotiated_capabilities` as for
+/// every op.
+///
+/// The output lifetime is tied to `op` (`Option<&str>`); static rows coerce.
 #[must_use]
-pub fn required_capability(op: &str) -> Option<&'static str> {
+pub fn required_capability(op: &str) -> Option<&str> {
+    if op.starts_with("tools.") {
+        return Some(op);
+    }
     match op {
         "upsert" | "promote" | "relate" | "check" | "assemble" => Some(CAPABILITY_SPOKE_BASELINE),
         "project" | "compute" => Some(CAPABILITY_L2_COMPUTABLE),
@@ -146,5 +157,52 @@ mod tests {
         // never authorized by the token gate.
         assert!(!token_authorizes_op(None, &caps(&["spoke-baseline"])));
         assert!(!token_authorizes_op(None, &caps(&[])));
+    }
+
+    // `tools.<ns>.<tool_id>` prefix rule — parity golden vector with the TS
+    // `dispatch-parity.test.ts` "tools.* prefix rule" block (frozen §3):
+    // self-describing tools require the op string itself; the gate then
+    // evaluates that exact string against `negotiated_capabilities` as for
+    // every op.
+
+    #[test]
+    fn tools_prefix_rule_returns_the_op_string_itself() {
+        let tool_op = "tools.math.add";
+        assert_eq!(required_capability(tool_op), Some(tool_op));
+        assert_eq!(
+            required_capability("tools.any.namespaced.thing"),
+            Some("tools.any.namespaced.thing")
+        );
+    }
+
+    #[test]
+    fn tools_prefix_rule_authorizes_only_when_the_exact_capability_is_negotiated() {
+        let tool_op = "tools.math.add";
+        // Authorized: the tool capability string itself is negotiated.
+        assert!(dispatch_allowed(tool_op, &caps(&[tool_op])));
+        // Not negotiated / wrong capability: denied (the self-describing
+        // tool gate never consults an umbrella flag or the baseline
+        // capability).
+        assert!(!dispatch_allowed(tool_op, &caps(&[CAPABILITY_SPOKE_BASELINE])));
+        assert!(!dispatch_allowed(tool_op, &caps(&[CAPABILITY_L2_COMPUTABLE])));
+        assert!(!dispatch_allowed(tool_op, &caps(&[])));
+    }
+
+    #[test]
+    fn tools_prefix_rule_token_grant_requires_the_exact_capability() {
+        let tool_op = "tools.math.add";
+        // Membership of the exact capability string in the grant.
+        assert!(token_authorizes_op(
+            required_capability(tool_op),
+            &caps(&[tool_op])
+        ));
+        assert!(!token_authorizes_op(
+            required_capability(tool_op),
+            &caps(&[CAPABILITY_SPOKE_BASELINE])
+        ));
+        assert!(!token_authorizes_op(
+            required_capability(tool_op),
+            &caps(&[])
+        ));
     }
 }

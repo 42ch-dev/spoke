@@ -59,7 +59,7 @@ When adding a variant to a `uniffi::Error` enum, **append at the end** (after th
 
 ## Why This Matters
 
-The `protocol_version_mismatch` alignment (v0-iter036) required touching all four layers. The architect pass caught the dual FFI surface (F3) and the omitted `map_core_error` arm (F1) — both would have caused silent failures or compile errors. The four-layer chain is not obvious from reading any single file.
+The `protocol_version_mismatch` alignment (2026-08-13) required touching all four layers. The architect pass caught the dual FFI surface (F3) and the omitted `map_core_error` arm (F1) — both would have caused silent failures or compile errors. The four-layer chain is not obvious from reading any single file.
 
 ## When to Apply
 
@@ -69,7 +69,7 @@ The `protocol_version_mismatch` alignment (v0-iter036) required touching all fou
 
 ## Examples
 
-**protocol_version_mismatch (v0-iter036):**
+**protocol_version_mismatch (2026-08-13):**
 - `CoreError::ProtocolVersionMismatch { reason: String }` in `core/error.rs`
 - Emitted at `hello_crypto.rs:151` (version gate, before signature)
 - `map_core_error` arm in `error.rs:30-31`

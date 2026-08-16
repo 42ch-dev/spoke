@@ -17,7 +17,14 @@ export type {
   RemoteAdapterOptions,
   RemoteAdapterState,
   RemoteIdentity,
+  ToolHandler,
 } from "./remote-adapter.js";
+
+export { connectResponder, ConnectResponder } from "./responder.js";
+export type {
+  ConnectResponderOptions,
+  ConnectResponderState,
+} from "./responder.js";
 
 export { connectMultiPeerRouter, MultiPeerRouter } from "./multi-peer-router.js";
 export type {

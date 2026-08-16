@@ -10,6 +10,7 @@ pub mod relation;
 pub mod rule;
 pub mod source_anchor;
 pub mod timeline_event;
+pub mod tool_descriptor;
 
 pub use assemble_packet::AssemblePacket;
 pub use finding::Finding;
@@ -20,3 +21,4 @@ pub use relation::Relation;
 pub use rule::Rule;
 pub use source_anchor::SourceAnchor;
 pub use timeline_event::TimelineEvent;
+pub use tool_descriptor::ToolDescriptor;

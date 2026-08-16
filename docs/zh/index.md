@@ -16,7 +16,7 @@ features:
 
 ## 从这里开始
 
-如果你的产品存储叙事知识，请[实现 Adapter](/zh/how-to/implement-adapter) —— 为你声明的能力挑选 port 族，并调用匹配的编排器。如果你运行独立的 SPOKE 主机并想与另一台主机对话，请[开启 connect 会话](/zh/tutorials/first-connect-session)，或直接跳到 [TypeScript 客户端](/zh/how-to/connect-ts-client) / [原生绑定](/zh/how-to/connect-native-bindings)。自带消息导向 `Transport`？通过 [RemoteAdapter over a Transport](/zh/how-to/connect-remote-adapter) 拨号远端主机、[跨多个对等节点路由](/zh/how-to/multi-peer-routing)，或经[原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) 驱动同一 adapter 面。全新用户按顺序完成两个教程：[安装并创建你的第一条 KnowledgeEntry](/zh/tutorials/install-and-first-entry)，然后是[开启你的首个 connect 会话](/zh/tutorials/first-connect-session)。
+如果你的产品存储叙事知识，请[实现 Adapter](/zh/how-to/implement-adapter) —— 为你声明的能力挑选 port 族，并调用匹配的编排器。如果你运行独立的 SPOKE 主机并想与另一台主机对话，请[开启 connect 会话](/zh/tutorials/first-connect-session)，或直接跳到 [TypeScript 客户端](/zh/how-to/connect-ts-client) / [原生绑定](/zh/how-to/connect-native-bindings)。自带消息导向 `Transport`？通过 [RemoteAdapter over a Transport](/zh/how-to/connect-remote-adapter) 拨号远端主机、[跨多个对等节点路由](/zh/how-to/multi-peer-routing)，或经[原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) 驱动同一 adapter 面。用[远程工具](/zh/how-to/connect-remote-tools)暴露可被主机发现并在编排中途反向调用的工具。全新用户按顺序完成两个教程：[安装并创建你的第一条 KnowledgeEntry](/zh/tutorials/install-and-first-entry)，然后是[开启你的首个 connect 会话](/zh/tutorials/first-connect-session)。
 
 ## 为什么选择 SPOKE
 

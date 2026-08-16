@@ -73,6 +73,25 @@ export {
 
 export { validateMindState } from "./mind-state/validate.js";
 
+export {
+  toolCapabilityId,
+  parseToolCapabilityId,
+  validateToolDescriptor,
+  validateManifestTools,
+  validateToolArguments,
+  listTools,
+  findTool,
+  type ToolCapabilityId,
+} from "./tools/helpers.js";
+
+export type {
+  ToolInvokePort,
+  ToolInvokeRequest,
+  ToolInvokeResponse,
+} from "./tools/port.js";
+
+export { orchestrateInvokeTool } from "./tools/orchestrate.js";
+
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {

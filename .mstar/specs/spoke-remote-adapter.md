@@ -167,8 +167,8 @@ The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback inter
 
 1. Optional computable/fork port ops (`port.computable.*`, `port.fork.*`) when product needs remote optional capabilities
 2. Consumer-side WebSocket Transport packages
-3. Reverse-invoke FFI surface — the `invokeTool` / `invoke_tool` reverse tool-invoke face over FFI for native binding hosts (deferred from the tool-contracts slice: no `ffi.rs` edits, no bindings regen); trigger: the TS + Rust tool-invoke library surfaces validated by consumers
-4. Responder / tool-serving native surfaces — `connectResponder` / `connect_responder` and `registerToolHandler` / `register_tool_handler` over FFI for native hosts that serve `tools.*` ops (same trigger; the tool-contracts slice ships TS + Rust library surfaces only)
+3. Reverse-invoke FFI surface — the `invokeTool` / `invoke_tool` reverse tool-invoke face over FFI for native binding hosts (deferred from the tool wire + library surfaces: no `ffi.rs` edits, no bindings regen); trigger: the TS + Rust tool-invoke library surfaces validated by consumers
+4. Responder / tool-serving native surfaces — `connectResponder` / `connect_responder` and `registerToolHandler` / `register_tool_handler` over FFI for native hosts that serve `tools.*` ops (same trigger; the tool wire + library surfaces ship TS + Rust library surfaces only)
 
 ## Acceptance
 

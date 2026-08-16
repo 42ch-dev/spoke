@@ -398,24 +398,24 @@ The gate applies **identically in both directions**: a reverse `ConnectInvokeReq
 **Invoke serving order (canonical, both directions).** Serving an inbound `ConnectInvokeRequest` follows the same canonical order whether the invoke is forward or reverse:
 
 1. **Classify request-first**: an inbound envelope carrying `op` is a `ConnectInvokeRequest`; response-shape and correlation checks apply only after request classification (see [§Tools over connect](#tools-over-connect)).
-2. **Stray check**: an envelope whose `session_id` is not bound to the established session is ignored — no response.
-3. **Sequence peek** (non-mutating): a `sequence` not equal to `next_expected_inbound` answers the error branch with `inbound_sequence_mismatch`; the inbound counter is NOT advanced.
+2. **Stray check (multiplexed transports)**: an envelope whose `session_id` is bound to a **different live session** is ignored — no response. An envelope whose `session_id` is not bound to any established session stays on this path and is rejected `auth_failed` at the envelope-auth verify step (step 4; §[Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2) — Session binding).
+3. **Sequence peek** (non-mutating): a `sequence` not equal to `next_expected_inbound` answers the error branch with `invalid_sequence`; the inbound counter is NOT advanced.
 4. **Envelope-auth verify**: verify per [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); failure answers `auth_failed` and does NOT advance session state (auth-before-advance — that section's Verify rules).
 5. **Advance** the inbound counter.
-6. **Dispatch gate**: the required capability for `op` MUST be present in `negotiated_capabilities` (this table).
+6. **Dispatch gate**: the required capability for `op` MUST be present in `negotiated_capabilities` (this table). The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)).
 7. **Handler or deny**, then a signed `ConnectInvokeResponse` echoing `session_id` / `sequence` / `request_id`.
 
 Steps 3–5 MUST be serialized per session — they read and mutate the same inbound counter, so a concurrent request must not observe a pre-advance counter; dispatch (steps 6–7) may interleave.
 
-**Invoke deny-code matrix (frozen — the existing error branch, no new wire codes):**
+**Invoke deny-code matrix (frozen — existing shipped wire codes; no new wire codes are introduced):**
 
 | Condition | Wire error code | Notes |
 |-----------|-----------------|-------|
-| Gate fail: `tools.*` op ∉ `negotiated_capabilities` | `capability_missing` | No handler side effect |
+| Gate fail: `tools.*` op ∉ `negotiated_capabilities` | `op_unsupported` | No handler side effect |
 | Gate pass but no registered handler for that `capability_id` | `op_unsupported` | Fail-closed — a peer that serves no handlers still answers `op_unsupported` |
 | Unknown non-`tools` op (no core-table row, no product-defined mapping) | `op_unsupported` | Existing behavior |
 | Signature missing / invalid / session-unbound | `auth_failed` | Existing envelope-auth branch |
-| Sequence gap or duplicate | `inbound_sequence_mismatch` | Existing branch; no counter advance |
+| Sequence gap or duplicate | `invalid_sequence` | Shipped Rust node wire code; the TS demo responder uses `inbound_sequence_mismatch` as a product-side variant (not normative); no counter advance |
 
 All deny paths produce no handler side effect; the sequence and envelope-auth denies additionally leave session state unadvanced.
 

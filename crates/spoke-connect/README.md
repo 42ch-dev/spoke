@@ -384,7 +384,7 @@ cargo build -p spoke-connect --features ffi,remote-adapter
 
 | Rust (FFI) | Swift | Methods |
 |------------|-------|---------|
-|| `RemoteAdapterFFI` | `RemoteAdapterFfi` | `state() -> String`; `session_id()` / `remote_peer_id()` / `remote_manifest()` (optional strings); BaselinePorts proxies — `get_host_capability_manifest()`, `get_knowledge_entry(entry_id)`, `put_knowledge_entry(entry_json, expected_base_revision)`, `get_relation(relation_id)`, `put_relation(relation_json, expected_base_revision)`, `list_knowledge_entries(scope_json)`, `list_timeline_events(scope_json)`, `put_findings(findings_json)`, `list_rules(rule_refs)`, `list_peer_host_capability_manifests()` (each `Result<String, FfiError>` JSON payload); `invoke_tool(capability_id, arguments_json) -> Result<String, FfiError>` (tool result JSON; a non-`tools.` id or malformed arguments fails fast `INVALID_INPUT` with zero wire traffic); `register_tool_handler(capability_id, handler) -> Result<(), FfiError>` (dialer-side tool serving, last-wins); `close()` |
+| `RemoteAdapterFFI` | `RemoteAdapterFfi` | `state() -> String`; `session_id()` / `remote_peer_id()` / `remote_manifest()` (optional strings); BaselinePorts proxies — `get_host_capability_manifest()`, `get_knowledge_entry(entry_id)`, `put_knowledge_entry(entry_json, expected_base_revision)`, `get_relation(relation_id)`, `put_relation(relation_json, expected_base_revision)`, `list_knowledge_entries(scope_json)`, `list_timeline_events(scope_json)`, `put_findings(findings_json)`, `list_rules(rule_refs)`, `list_peer_host_capability_manifests()` (each `Result<String, FfiError>` JSON payload); `invoke_tool(capability_id, arguments_json) -> Result<String, FfiError>` (tool result JSON; a non-`tools.` id or malformed arguments fails fast `INVALID_INPUT` with zero wire traffic); `register_tool_handler(capability_id, handler) -> Result<(), FfiError>` (dialer-side tool serving, last-wins); `close()` |
 
 | Rust (FFI) | Swift | Behavior |
 |------------|-------|----------|
@@ -392,21 +392,21 @@ cargo build -p spoke-connect --features ffi,remote-adapter
 
 | Rust (FFI) | Swift | Methods |
 |------------|-------|---------|
-|| `MultiPeerRouterFFI` | `MultiPeerRouterFfi` | `register_peer(adapter) -> Result<String, FfiError>` (accepts an established `RemoteAdapterFFI`, returns the remote `peer_id`); `unregister_peer(peer_id)`; `list_peers() -> Vec<String>`; the BaselinePorts proxies and both `HostManifestPort` views (each `Result<String, FfiError>` JSON payload); `invoke_tool(capability_id, arguments_json) -> Result<String, FfiError>` (routes to the registered peer advertising the exact tool capability, lowest-`peer_id` tie-break; no capable peer → `CAPABILITY_PORT_MISSING` reject) |
+| `MultiPeerRouterFFI` | `MultiPeerRouterFfi` | `register_peer(adapter) -> Result<String, FfiError>` (accepts an established `RemoteAdapterFFI`, returns the remote `peer_id`); `unregister_peer(peer_id)`; `list_peers() -> Vec<String>`; the BaselinePorts proxies and both `HostManifestPort` views (each `Result<String, FfiError>` JSON payload); `invoke_tool(capability_id, arguments_json) -> Result<String, FfiError>` (routes to the registered peer advertising the exact tool capability, lowest-`peer_id` tie-break; no capable peer → `CAPABILITY_PORT_MISSING` reject) |
 
 Callback transport (foreign binding implements; Rust calls synchronously):
 
-|| Rust (FFI) | Swift | Methods |
-||------------|-------|---------|
-|| `Transport` (callback interface) | `Transport` | `send(envelope) -> Result<(), TransportError>`; `recv() -> Result<Vec<u8>, TransportError>` (blocks until one envelope or close); `close() -> Result<(), TransportError>` (idempotent) |
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `Transport` (callback interface) | `Transport` | `send(envelope) -> Result<(), TransportError>`; `recv() -> Result<Vec<u8>, TransportError>` (blocks until one envelope or close); `close() -> Result<(), TransportError>` (idempotent) |
 
 Tool-serving callback (foreign binding implements; the bridge runs each call on
 the cdylib runtime's blocking pool, so a foreign `handle` never blocks an
 async worker):
 
-|| Rust (FFI) | Swift | Methods |
-||------------|-------|---------|
-|| `ToolHandler` (callback interface) | `ToolHandler` | `handle(arguments_json: String) throws -> String` — serves a `tools.*` reverse invoke; a `Rejected` throw passes through as an application reject, any other outcome is contained to `INTERNAL_ERROR` and the session survives |
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `ToolHandler` (callback interface) | `ToolHandler` | `handle(arguments_json: String) throws -> String` — serves a `tools.*` reverse invoke; a `Rejected` throw passes through as an application reject, any other outcome is contained to `INTERNAL_ERROR` and the session survives |
 
 Loopback test helpers (in-memory pair for binding smokes — no network):
 
@@ -440,13 +440,13 @@ length) return `FfiError::Dial { kind: "config" }`. `ports` stays absent on
 the FFI responder — a `port.*` invoke is answered with the documented deny
 branch (`CAPABILITY_PORT_MISSING`, `wire_code: "op_unsupported"`).
 
-|| Rust (FFI) | Swift | Behavior |
-||------------|-------|----------|
-|| `connect_responder_ffi(transport, seed, manifest_json, allowlist, peer_keys, invoke_timeout_ms) -> Result<ConnectResponderFFI, FfiError>` | `connectResponderFfi(transport:seed:manifestJson:allowlist:peerKeys:invokeTimeoutMs:) throws -> ConnectResponderFfi` | Accept-side constructor over the callback `Transport`; returns a live responder handle |
+| Rust (FFI) | Swift | Behavior |
+|------------|-------|----------|
+| `connect_responder_ffi(transport, seed, manifest_json, allowlist, peer_keys, invoke_timeout_ms) -> Result<ConnectResponderFFI, FfiError>` | `connectResponderFfi(transport:seed:manifestJson:allowlist:peerKeys:invokeTimeoutMs:) throws -> ConnectResponderFfi` | Accept-side constructor over the callback `Transport`; returns a live responder handle |
 
-|| Rust (FFI) | Swift | Methods |
-||------------|-------|---------|
-|| `ConnectResponderFFI` | `ConnectResponderFfi` | `state() -> String`; `session_id()` / `remote_peer_id()` / `remote_manifest()` (optional strings); `register_tool_handler(capability_id, handler) -> Result<(), FfiError>` (responder-side tool serving, last-wins); `invoke_tool(capability_id, arguments_json) -> Result<String, FfiError>` (responder→dialer reverse invoke, same error rows as the adapter face); `close()` |
+| Rust (FFI) | Swift | Methods |
+|------------|-------|---------|
+| `ConnectResponderFFI` | `ConnectResponderFfi` | `state() -> String`; `session_id()` / `remote_peer_id()` / `remote_manifest()` (optional strings); `register_tool_handler(capability_id, handler) -> Result<(), FfiError>` (responder-side tool serving, last-wins); `invoke_tool(capability_id, arguments_json) -> Result<String, FfiError>` (responder→dialer reverse invoke, same error rows as the adapter face); `close()` |
 
 ### Native-binding scope (first language)
 

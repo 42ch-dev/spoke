@@ -402,7 +402,9 @@ Callback transport (foreign binding implements; Rust calls synchronously):
 
 Tool-serving callback (foreign binding implements; the bridge runs each call on
 the cdylib runtime's blocking pool, so a foreign `handle` never blocks an
-async worker):
+async worker). Handlers run on the blocking pool and must not synchronously
+call back into the FFI faces — re-entrancy wedges the session; do async
+handoff in the host instead:
 
 | Rust (FFI) | Swift | Methods |
 |------------|-------|---------|

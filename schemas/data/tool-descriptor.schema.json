@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/tool-descriptor.schema.json",
+  "title": "ToolDescriptor",
+  "description": "Declared tool ABI for a RemoteAdapter-exposed tool: capability identity, opaque argument/result subschemas, and metadata. Declared in HostCapabilityManifest.tools.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "capability_id",
+    "op",
+    "description",
+    "input",
+    "output"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "capability_id": {
+      "type": "string",
+      "pattern": "^tools\\.[a-z][a-z0-9_-]*\\.[a-z0-9][a-z0-9_-]*$",
+      "description": "Tool capability string `tools.<ns>.<tool_id>`. The namespace MUST be owned by the declaring manifest (namespaces[] membership); tool_id is an open-ended vocabulary."
+    },
+    "op": {
+      "type": "string",
+      "pattern": "^tools\\.[a-z][a-z0-9_-]*\\.[a-z0-9][a-z0-9_-]*$",
+      "description": "Wire op for this tool. MUST equal capability_id (spec-level rule; draft-07 cannot express cross-field equality, so helpers enforce it)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable tool description."
+    },
+    "input": {
+      "type": "object",
+      "description": "Opaque JSON Schema draft-07 subschema describing tool arguments. An empty object `{}` declares no constraint (unconstrained ABI)."
+    },
+    "output": {
+      "type": "object",
+      "description": "Opaque JSON Schema draft-07 subschema describing the success result. An empty object `{}` declares no constraint (unconstrained ABI)."
+    },
+    "idempotent": {
+      "type": "boolean",
+      "default": false,
+      "description": "Advisory idempotency metadata only; the protocol defines no idempotency-key machinery."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": 1,
+      "capability_id": "tools.tool_demo.lookup",
+      "op": "tools.tool_demo.lookup",
+      "description": "Look up a knowledge entry by id.",
+      "input": {},
+      "output": {}
+    },
+    {
+      "schema_version": 1,
+      "capability_id": "tools.tool_demo.rank",
+      "op": "tools.tool_demo.rank",
+      "description": "Rank candidate entries against a query.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": ["query"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ranked_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["ranked_ids"]
+      },
+      "idempotent": true
+    }
+  ]
+}

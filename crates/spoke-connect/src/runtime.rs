@@ -281,6 +281,7 @@ mod tests {
             namespaces: Vec::new(),
             roles: vec!["data-store".into()],
             schema_version: std::num::NonZeroU64::new(1).expect("non-zero"),
+            tools: Vec::new(),
         }
     }
 

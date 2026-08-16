@@ -13,3 +13,4 @@ export type { Relation } from './relation';
 export type { Rule } from './rule';
 export type { SourceAnchor } from './source-anchor';
 export type { TimelineEvent } from './timeline-event';
+export type { ToolDescriptor } from './tool-descriptor';

@@ -24,6 +24,7 @@ fn manifest(host_id: &str, role: &str) -> HostCapabilityManifest {
         namespaces: Vec::new(),
         roles: vec![role.into()],
         schema_version: NonZeroU64::new(1).expect("non-zero"),
+        tools: Vec::new(),
     }
 }
 

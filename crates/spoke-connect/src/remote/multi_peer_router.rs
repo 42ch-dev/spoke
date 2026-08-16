@@ -738,6 +738,7 @@ impl HostManifestPort for MultiPeerRouter {
             namespaces,
             authority: None,
             extensions,
+            tools: Vec::new(),
         };
         spoke_ok(composed)
     }

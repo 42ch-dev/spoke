@@ -64,6 +64,13 @@
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/tool-descriptor.schema.json"
+      },
+      "description": "Optional declared tool ABIs. Every tool capability_id MUST also appear in capabilities[] and derive a namespace owned by this manifest (namespaces[] membership); capability_id is unique within tools[] (spec-level MUSTs, enforced by validation helpers)."
     }
   },
   "additionalProperties": false,
@@ -85,6 +92,36 @@
       "extensions": {
         "my_product": { "deployment": "staging" }
       }
+    },
+    {
+      "schema_version": 1,
+      "host_id": "host_tw_tools",
+      "roles": ["checker", "input-source"],
+      "capabilities": ["spoke-baseline", "tools.tool_demo.lookup"],
+      "namespaces": ["tool_demo"],
+      "extensions": {},
+      "tools": [
+        {
+          "schema_version": 1,
+          "capability_id": "tools.tool_demo.lookup",
+          "op": "tools.tool_demo.lookup",
+          "description": "Look up a knowledge entry by id.",
+          "input": {
+            "type": "object",
+            "properties": {
+              "entry_id": { "type": "string" }
+            },
+            "required": ["entry_id"]
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "entry": { "type": "object" }
+            }
+          },
+          "idempotent": true
+        }
+      ]
     }
   ]
 }

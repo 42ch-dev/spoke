@@ -104,6 +104,7 @@ fn manifest_with_capabilities(
         namespaces: Vec::new(),
         roles: roles.iter().map(|r| (*r).to_string()).collect(),
         schema_version: std::num::NonZeroU64::new(1).expect("non-zero"),
+        tools: Vec::new(),
     }
 }
 

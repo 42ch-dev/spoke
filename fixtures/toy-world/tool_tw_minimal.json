@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "capability_id": "tools.tool_demo.lookup",
+  "op": "tools.tool_demo.lookup",
+  "description": "Look up a knowledge entry by id.",
+  "input": {},
+  "output": {}
+}

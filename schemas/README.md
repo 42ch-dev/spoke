@@ -21,7 +21,8 @@ schemas/
 │   ├── rule.schema.json                # L6 declarative constraint input
 │   ├── timeline-event.schema.json      # L5 when-axis temporal object
 │   ├── mind-state.schema.json          # L5 temporal mental-state record (l5-mind)
-│   └── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
+│   ├── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
+│   └── tool-descriptor.schema.json     # declared tool ABI (tools.<ns>.<tool_id>)
 └── ops/
     ├── upsert-request.schema.json
     ├── upsert-response.schema.json
@@ -51,7 +52,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **31** hand-authored schema files (2 common + 9 data + 14 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **32** hand-authored schema files (2 common + 10 data + 14 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -131,5 +132,6 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 29 | `connect/connect-invoke-response.schema.json` | done |
 | 30 | `connect/connect-auth-challenge.schema.json` | done |
 | 31 | `connect/connect-auth-response.schema.json` | done |
+| 32 | `data/tool-descriptor.schema.json` | done |
 
-**Total:** 31 schema files (mind-state + connect envelope families landed).
+**Total:** 32 schema files (mind-state + connect envelope families + tool-descriptor landed).

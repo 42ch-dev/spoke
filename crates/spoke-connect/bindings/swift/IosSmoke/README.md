@@ -10,6 +10,13 @@ deny, handler-thrown reject passthrough) through the committed
 and executes the session core without running Rust or bindgen. No smoke host is
 required — every tool face is on the production xcframework.
 
+> Fixture note: the loopback seeds (`Tests/IosSmokeTests/fixtures/loopback-smoke.json`)
+> are exactly 32 bytes and derive the fixture's golden pubkey / peer_id via the
+> in-crate oracle (`crates/spoke-connect/src/test_support/mod.rs` →
+> `loopback_oracle`, `tests/common/loopback_oracle_impl.rs`). `seed_host_hex`
+> was corrected 33 → 32 bytes and `pubkey_client_hex` added for the D16
+> tool-pair smokes.
+
 > This package is **maintainer validation only**: it is not referenced from the
 > repo-root `Package.swift` and is not part of the shipped SPM product layout.
 > Do not add it to the root manifest.

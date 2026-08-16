@@ -22,7 +22,11 @@ Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/sp
 | Local smoke cdylib + smoke Go bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
-Full loopback smoke procedure: [`Smoke/loopback_remote_adapter_test.go`](Smoke/loopback_remote_adapter_test.go) (`-tags smokehost`).
+The tool-faces loopback test (`Smoke/tool_loopback_ffi_test.go`,
+`TestToolLoopbackFfiPair`) runs in the **default** `go test` suite against the
+committed production binding + native — no `-tags smokehost` needed. The
+optional smoke-host put/get suite (`Smoke/loopback_remote_adapter_test.go`)
+requires `-tags smokehost`; full procedure below.
 
 ## RemoteAdapter FFI surface
 
@@ -59,7 +63,7 @@ The surface bounds messages at one envelope per call; byte-stream carriers apply
 | `generated/spoke_connect/` | Generated Go + C header + cgo link shims (maintainer-internal; regenerate when FFI surface changes) |
 | `native/<goos>_<goarch>/` | Committed cdylib per platform (`libspoke_connect.dylib` / `.so` / `.dll`) |
 | `bindgen/` | Vendored `uniffi-bindgen-go` fork retargeted to uniffi 0.32 |
-| `Smoke/` | Golden-parity smoke (`go test`) |
+| `Smoke/` | Golden-parity + tool-faces loopback smoke (default `go test`; smoke-host put/get via `-tags smokehost`) |
 
 cgo selects `native/<goos>_<goarch>/` via per-platform `#cgo LDFLAGS` in `generated/spoke_connect/cgo_link*.go`. Consumers need `CGO_ENABLED=1` and a C toolchain; never a Rust toolchain.
 
@@ -105,11 +109,18 @@ install_name_tool -id @rpath/libspoke_connect.dylib \
 #    linux_amd64 / windows_amd64: copy from release.yml build-connect-ffi artifacts
 #    into native/linux_amd64/libspoke_connect.so and native/windows_amd64/spoke_connect.dll
 
-# 4. Golden-parity smoke
+# 4. Golden-parity + tool-faces smoke (default suite)
 CGO_ENABLED=1 go test -v ./crates/spoke-connect/bindings/go/Smoke/
 ```
 
-Expected: all five golden tests PASS (`derive_peer_id`, hello signature, verify, tamper rejection, `protocol_version == 1`).
+Expected: all six tests PASS — the five golden tests (`derive_peer_id`,
+hello signature, verify, tamper rejection, `protocol_version == 1`) plus
+`TestToolLoopbackFfiPair` (tool faces over the loopback pair, D15/D16: dialer
+`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
+invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
+deny, handler-thrown reject passthrough, and post-close `Closed` state). The
+tool test runs on the **committed production binding + native** — every face
+is on `ffi,remote-adapter`; no `-tags smokehost`.
 
 ## Generation mechanism
 
@@ -118,8 +129,17 @@ Expected: all five golden tests PASS (`derive_peer_id`, hello signature, verify,
 
 ## RemoteAdapter loopback smoke (optional)
 
-`Smoke/loopback_remote_adapter_test.go` is gated with `-tags smokehost` and
-requires bindings regenerated from a smoke cdylib (`ffi-smoke-host`):
+> Fixture note: the loopback seeds are exactly 32 bytes and derive the
+> fixture's golden pubkey / peer_id via the in-crate oracle
+> (`crates/spoke-connect/src/test_support/mod.rs` → `loopback_oracle`,
+> `tests/common/loopback_oracle_impl.rs`). `seed_host_hex` was corrected
+> 33 → 32 bytes and `pubkey_client_hex` added for the D16 tool-pair smokes
+> (shared fixture `Smoke/fixtures/loopback-smoke.json`).
+
+`Smoke/loopback_remote_adapter_test.go` (smoke-host put/get round-trip) is
+gated with `-tags smokehost` and requires bindings regenerated from a smoke
+cdylib (`ffi-smoke-host`) — distinct from `Smoke/tool_loopback_ffi_test.go`,
+which runs in the default suite on the committed production binding:
 
 ```bash
 cargo +nightly build -p spoke-connect --features ffi,remote-adapter,ffi-smoke-host

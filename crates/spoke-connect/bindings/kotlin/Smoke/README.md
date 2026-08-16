@@ -8,12 +8,14 @@ Golden parity asserts peer id, hello signature, verify round-trip, tamper
 rejection, and protocol version `1`.
 
 The loopback section dials `RemoteAdapterFFI` through a Kotlin `Transport`
-implementation, runs `putKnowledgeEntry` → `getKnowledgeEntry`, and asserts the
-golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
-The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
-`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
-invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
-deny, and handler-thrown reject passthrough.
+implementation. The tool section drives both FFI faces over a loopback pair
+(D15/D16): dialer `invoke_tool` served by a responder foreign `ToolHandler`,
+responder reverse invoke served by a dialer-side handler, unregistered-tool
+`op_unsupported` deny, and handler-thrown reject passthrough — every face is on
+the committed production binding, so it runs in the default `gradle test`.
+The smoke-host put/get round-trip additionally dials the reference smoke host
+(`startLoopbackSmokeHost`, `ffi-smoke-host` only) and asserts the golden host
+peer id and payload (parity with Swift `loopback_smoke.swift`).
 
 > Local env quirk: this machine's `~/.cargo/config.toml` carries
 > `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).
@@ -29,7 +31,13 @@ deny, and handler-thrown reject passthrough.
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
 
-## Golden parity only (committed production cdylib)
+> Fixture note: the loopback seeds are exactly 32 bytes and derive the
+> fixture's golden pubkey / peer_id via the in-crate oracle
+> (`crates/spoke-connect/src/test_support/mod.rs` → `loopback_oracle`,
+> `tests/common/loopback_oracle_impl.rs`). `seed_host_hex` was corrected
+> 33 → 32 bytes and `pubkey_client_hex` added for the D16 tool-pair smokes.
+
+## Golden parity + tool faces (committed production cdylib)
 
 From `crates/spoke-connect/bindings/kotlin/` (requires host native under
 `native/<rid>/` — see `native/README.md`):
@@ -38,7 +46,7 @@ From `crates/spoke-connect/bindings/kotlin/` (requires host native under
 gradle test
 ```
 
-Expected: 5 tests PASS (`GoldenParityTest`).
+Expected: 6 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest`).
 
 Override native path explicitly:
 
@@ -76,7 +84,8 @@ gradle test \
   -PnativeLib="$PWD/native/darwin-aarch64/libspoke_connect.dylib"
 ```
 
-Expected: 7 tests PASS (`GoldenParityTest` + `RemoteAdapterLoopbackTest`).
+Expected: 7 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest` +
+`RemoteAdapterLoopbackTest`).
 
 ## Maintainer: regenerate committed production bindings
 

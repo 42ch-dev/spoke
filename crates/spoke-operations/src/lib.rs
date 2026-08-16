@@ -60,6 +60,7 @@ pub use tools::helpers::{
     validate_manifest_tools, validate_tool_arguments, validate_tool_descriptor,
     ToolCapabilityId,
 };
+pub use tools::orchestrate::orchestrate_invoke_tool;
 pub use tools::port::{ToolInvokePort, ToolInvokeRequest, ToolInvokeResponse};
 pub use upsert::{
     validate_upsert_knowledge_entry, UpsertMode, ValidateUpsertKnowledgeEntryContext,

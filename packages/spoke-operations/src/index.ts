@@ -90,6 +90,8 @@ export type {
   ToolInvokeResponse,
 } from "./tools/port.js";
 
+export { orchestrateInvokeTool } from "./tools/orchestrate.js";
+
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {

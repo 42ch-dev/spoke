@@ -17,6 +17,7 @@ export type {
   RemoteAdapterOptions,
   RemoteAdapterState,
   RemoteIdentity,
+  ToolHandler,
 } from "./remote-adapter.js";
 
 export { connectMultiPeerRouter, MultiPeerRouter } from "./multi-peer-router.js";

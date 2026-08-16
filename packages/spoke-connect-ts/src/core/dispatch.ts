@@ -24,8 +24,17 @@ export const CAPABILITY_L2_COMPUTABLE = "l2-computable";
  * core-op table. Product-defined `op` values return `undefined` — their
  * required capability is documented by the product and configured outside
  * the core table.
+ *
+ * `tools.<ns>.<tool_id>` is a **core gate rule** (normative
+ * `spoke-connect.md` §Op dispatch gate): self-describing tools require the
+ * op string itself — no registry, no umbrella flag. The gate then
+ * evaluates that exact string against `negotiated_capabilities` as for
+ * every op.
  */
 export function requiredCapability(op: string): string | undefined {
+  if (op.startsWith("tools.")) {
+    return op;
+  }
   switch (op) {
     case "upsert":
     case "promote":

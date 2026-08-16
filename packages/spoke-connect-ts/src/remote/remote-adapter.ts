@@ -33,9 +33,11 @@ import type {
 } from "@42ch/spoke-schemas";
 import {
   fromErrorEnvelope,
+  parseToolCapabilityId,
   SpokeRejectCode,
   spokeOk,
   spokeReject,
+  toErrorEnvelope,
   type BaselinePorts,
   type SpokeReject,
   type SpokeResult,
@@ -52,8 +54,10 @@ import {
 } from "../core/correlate.js";
 import {
   authenticateInvokeRequest,
+  authenticateInvokeResponse,
   authenticateSession,
   EnvelopeAuthError,
+  verifyInvokeRequestAuth,
   verifyInvokeResponseAuth,
   verifySessionAuth,
   type InvokeRequestSignInput,
@@ -66,6 +70,7 @@ import { decodeJsonMessage, encodeJsonMessage } from "../framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../identity.js";
 import {
   isConnectHello,
+  isConnectInvokeRequest,
   isConnectInvokeResponse,
   isConnectSession,
 } from "./guards.js";
@@ -250,6 +255,32 @@ interface PendingInvoke {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/** Gate-phase outcome for a reverse invoke (see `#runReverseGate`). */
+type ReverseGateResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      details?: Record<string, unknown>;
+    }
+  | null;
+
+/**
+ * Registered tool handler (frozen contract §1/§6): receives the tool's
+ * `arguments` object from the request payload and resolves with the tool
+ * result as a `SpokeResult`. A throwing/rejecting handler answers the error
+ * branch (mapped via `toErrorEnvelope`) and never crashes the receive loop.
+ *
+ * The frozen contract writes the parameter as `arguments`; TypeScript
+ * rejects `arguments` as a binding identifier in strict mode (TS1215), so
+ * the TS surface names it `args` — the contract is positional, and
+ * consumers passing a handler of the frozen shape type-check unchanged.
+ */
+export type ToolHandler = (
+  args: Record<string, unknown>,
+) => Promise<SpokeResult<unknown>>;
+
 /**
  * Single-peer async `BaselinePorts` proxy over an established connect
  * session. Construct via `connectRemoteAdapter` — the constructor alone
@@ -274,6 +305,15 @@ export class RemoteAdapter implements BaselinePorts {
   #remoteManifestInternal: HostCapabilityManifest | null = null;
   #receiveLoopRunning = false;
   #pending = new Map<string, PendingInvoke>();
+  /**
+   * Tool-handler registry for reverse invokes (frozen contract §6):
+   * `registerToolHandler` fills it; the receive loop's serving path looks
+   * it up by exact capability id. The local manifest's `tools[]` (carried
+   * through hello) is the discovery source — this registry MUST NOT mutate
+   * the manifest; a registry/manifest mismatch is a provider bug caught
+   * pre-hello by `validateManifestTools`.
+   */
+  #toolHandlers = new Map<string, ToolHandler>();
   /**
    * Outbound send serialization tail. Sequences are allocated synchronously
    * in call order, but the Ed25519 sign is async (WebCrypto) — without a
@@ -409,6 +449,83 @@ export class RemoteAdapter implements BaselinePorts {
     this.#closeSession("local shutdown");
   }
 
+  // ── Tool serving (reverse invokes) ───────────────────────────────────────
+
+  /**
+   * Register a handler for a `tools.<ns>.<tool_id>` capability served on
+   * this adapter (frozen contract §6). A reverse invoke whose op passes the
+   * dispatch gate dispatches to the registered handler; the handler runs
+   * off the receive loop and its `SpokeResult` maps to a signed
+   * `ConnectInvokeResponse` (success `{ result }` branch, or the error
+   * branch via `toErrorEnvelope`).
+   *
+   * Grammar-asserted: a non-`tools.` id throws (programmer misuse, like the
+   * generated-type ergonomics of `toolCapabilityId`). Duplicate registration
+   * for the same id OVERWRITES the previous handler (last-wins, documented).
+   *
+   * The registry does NOT mutate the local manifest — descriptor truth for
+   * discovery stays in the manifest's `tools[]` (sent through hello);
+   * registering a handler for a tool the manifest does not declare is a
+   * provider bug caught pre-hello by `validateManifestTools`.
+   */
+  registerToolHandler(capabilityId: string, handler: ToolHandler): void {
+    const parsed = parseToolCapabilityId(capabilityId);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+    this.#toolHandlers.set(capabilityId, handler);
+  }
+
+  /**
+   * Forward tool-invoke face (frozen contract §6): issue a
+   * `ConnectInvokeRequest` with `op = capabilityId` toward the remote peer
+   * and resolve with the tool's `result` (extracted from the success
+   * `payload = { result: <opaque JSON> }`). Deny answers map via the
+   * existing D7 row (`op_unsupported` / `capability_missing` →
+   * `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved). Reuses
+   * the `#invokeOp` wire-order tail and its deferred-send poison-close.
+   */
+  async invokeTool(
+    capabilityId: string,
+    args: Record<string, unknown>,
+  ): Promise<SpokeResult<unknown>> {
+    // Fail fast on a non-tool capability id (the op string IS the
+    // capability string; a non-`tools.` id is a programming error).
+    const parsed = parseToolCapabilityId(capabilityId);
+    if (!parsed.ok) {
+      return parsed;
+    }
+    try {
+      const response = await this.#invokeOp(capabilityId, { arguments: args });
+      if ("error" in response) {
+        return mapErrorEnvelope(response.error);
+      }
+      // Tool success-payload gate (frozen §4): success is
+      // `payload = { "result": <opaque JSON> }`; a success payload without
+      // a `result` key rejects with `INTERNAL_ERROR` `details.kind =
+      // "transport"` (mirrors the `#invokeMapped` shape gate).
+      if (
+        typeof response.payload !== "object" ||
+        response.payload === null ||
+        !("result" in response.payload)
+      ) {
+        return internalError(
+          "transport",
+          `response payload decode failed: payload does not match the ${capabilityId} success shape`,
+        );
+      }
+      return spokeOk(response.payload.result);
+    } catch (error) {
+      if (error instanceof RemoteError) {
+        return internalError(error.kind, error.message);
+      }
+      return internalError(
+        "transport",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   // ── Session lifecycle (hard-private — only `connectRemoteAdapter` dials) ─
   //
   // ECMAScript `#`-private methods AND state fields: invisible to consumers
@@ -513,6 +630,33 @@ export class RemoteAdapter implements BaselinePorts {
         return;
       }
 
+      // Classify request shape FIRST (normative `spoke-connect.md`
+      // §Request / response classification): an inbound envelope carrying
+      // `op` is a `ConnectInvokeRequest` — never a response, even though a
+      // reverse request carries the same correlation echo fields + payload
+      // as the response success branch. Without this order the reverse
+      // request would satisfy the response discriminator and be silently
+      // swallowed by the request_id demux below.
+      if (isConnectInvokeRequest(doc)) {
+        // Reverse invoke serving. The gate (peek → verify → advance) is
+        // awaited INLINE: the loop reads the next envelope only after this
+        // request's gate completes, so steps 3–5 are serialized per session
+        // (frozen §4). Dispatch (gate → handler) fires without blocking the
+        // loop.
+        try {
+          await this.#serveReverseInvoke(doc);
+        } catch (error) {
+          // Unexpected serving failure (local key misconfiguration /
+          // internal bug): fail closed like transport loss — a live
+          // session must not silently drop reverse invokes.
+          this.#closeSession(
+            `reverse invoke serving failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return;
+        }
+        continue;
+      }
+
       if (isConnectInvokeResponse(doc)) {
         // Demux by request_id; unknown/duplicate responses are dropped
         // (protocol v1 defines no retry).
@@ -554,8 +698,199 @@ export class RemoteAdapter implements BaselinePorts {
       }
 
       // Post-handshake stray envelope (hello / session / unknown shape):
-      // ignored. Unexpected invoke requests are host-role — out of the
-      // single-peer client scope (contract §4).
+      // ignored.
+    }
+  }
+
+  // ── Reverse invoke serving (frozen §4 pipeline) ─────────────────────────
+
+  /**
+   * Send one signed response envelope, fire-and-forget (responses are
+   * demuxed by `request_id` on the peer; a send failure is not observable
+   * to this session).
+   */
+  #sendReverseResponse(doc: unknown): void {
+    void this.#transport.send(encodeEnvelope(doc)).catch(() => {
+      // Peer gone — responses are fire-and-forget at the serving boundary.
+    });
+  }
+
+  /** Sign + send an error-branch response to a reverse invoke. */
+  async #sendReverseErrorEnvelope(
+    doc: ConnectInvokeRequest,
+    error: ErrorEnvelope,
+  ): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
+    this.#sendReverseResponse(
+      await authenticateInvokeResponse(this.#secret, {
+        session_id: doc.session_id,
+        sequence: doc.sequence,
+        request_id: doc.request_id,
+        error,
+      }),
+    );
+  }
+
+  /**
+   * Serve one reverse invoke per the canonical order (frozen §4):
+   * classify (caller) → stray → sequence peek → envelope-auth verify →
+   * advance → gate → handler → signed response. The caller (receive loop)
+   * awaits this method inline so peek → verify → advance are serialized;
+   * dispatch fires without blocking the loop.
+   */
+  async #serveReverseInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const gate = await this.#runReverseGate(doc);
+    if (gate === null) {
+      return; // stray — ignored
+    }
+    if (!gate.ok) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: gate.code,
+        message: gate.message,
+        ...(gate.details !== undefined ? { details: gate.details } : {}),
+        extensions: {},
+      });
+      return;
+    }
+    void this.#dispatchReverseInvoke(doc);
+  }
+
+  /**
+   * Gate phase — sequence peek (non-mutating) → envelope-auth verify →
+   * advance. Fail-closed (auth-before-advance, spec §Verify rules): a
+   * forged/tampered/stripped signature answers `auth_failed` and leaves the
+   * inbound counter unchanged. Returns `null` for stray requests (ignored),
+   * a rejection spec for gate failures, or `{ok: true}` when dispatch may
+   * run.
+   */
+  async #runReverseGate(doc: ConnectInvokeRequest): Promise<ReverseGateResult> {
+    const session = this.#session;
+    if (session === null) {
+      return null; // stray — no established session
+    }
+    // Stray check (single-peer adapter): a `session_id` bound to a
+    // DIFFERENT live session is ignored — no response. A `session_id`
+    // bound to no established session stays on this path and is rejected
+    // `auth_failed` at verify (session-binding assert below) — this
+    // adapter owns one session, so verify owns the binding check.
+    try {
+      session.peekInboundSequence(doc.sequence);
+    } catch {
+      return {
+        ok: false,
+        code: "invalid_sequence",
+        message: `inbound sequence ${doc.sequence} is not the next expected`,
+      };
+    }
+    try {
+      await verifyInvokeRequestAuth(
+        this.#remotePubkey,
+        doc,
+        session.session_id,
+      );
+    } catch (error) {
+      if (error instanceof EnvelopeAuthError) {
+        return {
+          ok: false,
+          code: "auth_failed",
+          message: error.message,
+          details: { kind: error.kind },
+        };
+      }
+      throw error; // wrong-length key is adapter misconfiguration — fail loudly
+    }
+    // Advance the inbound counter only after envelope-auth verify passed.
+    session.acceptInboundSequence(doc.sequence);
+    return { ok: true };
+  }
+
+  /**
+   * Dispatch phase — runs after the serialized gate; may interleave with
+   * other invokes. Fully contained: a throwing/rejecting handler answers
+   * the error branch and never crashes the loop.
+   */
+  async #dispatchReverseInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
+    try {
+      // Dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3):
+      // `tools.*` ops require the op string itself, evaluated against
+      // `negotiated_capabilities` (never a raw requirements-map
+      // composition, which would deny the self-describing tools family).
+      if (!session.dispatchAllowed(doc.op)) {
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: "op_unsupported",
+          message: `op ${doc.op} is not authorized by this session`,
+          extensions: {},
+        });
+        return;
+      }
+      // Handler or deny — fail-closed serving (frozen deny matrix): a gate
+      // pass with no registered handler answers `op_unsupported`.
+      const handler = this.#toolHandlers.get(doc.op);
+      if (handler === undefined) {
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: "op_unsupported",
+          message: `no handler registered for ${doc.op}`,
+          extensions: {},
+        });
+        return;
+      }
+      // The request payload carries the tool arguments as
+      // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object
+      // arguments field is a malformed provider request — serve `{}`
+      // (the structural argument gate is caller-side).
+      const argumentsField = doc.payload.arguments;
+      const handlerArgs: Record<string, unknown> =
+        typeof argumentsField === "object" &&
+        argumentsField !== null &&
+        !Array.isArray(argumentsField)
+          ? (argumentsField as Record<string, unknown>)
+          : {};
+      let result: SpokeResult<unknown>;
+      try {
+        result = await handler(handlerArgs);
+      } catch (error) {
+        // Handler threw → error branch via toErrorEnvelope (INTERNAL_ERROR
+        // for a crash); never crashes the loop (frozen §6).
+        result = spokeReject(
+          SpokeRejectCode.INTERNAL_ERROR,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      if (result.ok) {
+        // Success branch: `payload = { "result": <opaque JSON> }` (frozen §4).
+        this.#sendReverseResponse(
+          await authenticateInvokeResponse(this.#secret, {
+            session_id: doc.session_id,
+            sequence: doc.sequence,
+            request_id: doc.request_id,
+            payload: {
+              result: "value" in result ? result.value : undefined,
+            },
+          }),
+        );
+      } else {
+        await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      }
+    } catch (error) {
+      // Unexpected serving failure (e.g. non-JSON-serializable handler
+      // result): answer the error branch so the invoker never hangs, and
+      // never crash the loop.
+      try {
+        await this.#sendReverseErrorEnvelope(doc, {
+          code: SpokeRejectCode.INTERNAL_ERROR,
+          message: `tool invoke failed: ${error instanceof Error ? error.message : String(error)}`,
+          extensions: {},
+        });
+      } catch {
+        // Peer gone — responses are fire-and-forget.
+      }
     }
   }
 

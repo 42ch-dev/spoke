@@ -55,7 +55,7 @@ export const LORE_LOOKUP_DESCRIPTOR: ToolDescriptor = {
   capability_id: TOY_WORLD_LORE_LOOKUP_ID,
   op: TOY_WORLD_LORE_LOOKUP_ID,
   description:
-    "Look up a knowledge entry by id from the client's own lore store. Read-only and deterministic.",
+    "Look up a toy-world lore entry (KnowledgeEntry) by id from the adapter's committed store. Read-only and deterministic.",
   input: {
     type: "object",
     properties: {

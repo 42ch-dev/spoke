@@ -24,7 +24,7 @@ A pnpm version bump (9 → 11) changed where `overrides` are read from (`package
 
 ## Why This Matters
 
-The v0-iter036 pnpm fix initially only fixed local (pnpm 11) but broke CI (pnpm 9). The advisory caught the inversion: "fix local, break CI." The correct fix was aligning both environments to the same pnpm version, not dual-sourcing the config.
+The 2026-08-14 pnpm fix initially only fixed local (pnpm 11) but broke CI (pnpm 9). The advisory caught the inversion: "fix local, break CI." The correct fix was aligning both environments to the same pnpm version, not dual-sourcing the config.
 
 ## When to Apply
 

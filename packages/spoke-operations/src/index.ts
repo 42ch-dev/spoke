@@ -84,6 +84,12 @@ export {
   type ToolCapabilityId,
 } from "./tools/helpers.js";
 
+export type {
+  ToolInvokePort,
+  ToolInvokeRequest,
+  ToolInvokeResponse,
+} from "./tools/port.js";
+
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {

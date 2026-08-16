@@ -206,6 +206,52 @@ Rust: `pub type ToolHandler = Arc<dyn Fn(Value) -> BoxFuture<'static, SpokeResul
 - **Composed manifest:** `getHostCapabilityManifest` unions `tools[]` alongside the existing unions — dedup by `capability_id`, sorted by `capability_id` lexicographically (UTF-8 byte order) for stability; `listPeerHostCapabilityManifests` unchanged (per-peer views already carry their own `tools`).
 - **Topology note:** router-registered adapters are locally dialed (local = initiator), so router tool invokes travel initiator→responder and are served by the **peer's responder-side** tool serving — the dual-peer proofs drive tool-serving responder doubles (connectResponder-based or minimal test responders with the D13 pipeline), not dialer-side `registerToolHandler` alone.
 
+### D15 — Reverse-invoke FFI face (invokeTool over FFI)
+
+`RemoteAdapterFFI` and `MultiPeerRouterFFI` expose the shipped tool-invoke library faces — `RemoteAdapter::invoke_tool` and `MultiPeerRouter::invoke_tool` (D13/D14) — as synchronous methods for native binding hosts, joining the existing objects on the D12 cdylib surface (`ffi` + `remote-adapter` features; the surface is generated into the same five native binding channels — C#, Go, Kotlin, Python, Swift). Every call is a block-on-async call over the cdylib-owned runtime (D12): the foreign thread blocks while the library future resolves. Tool arguments cross the boundary as a JSON string (`arguments_json`, parsed inside Rust); success returns the tool's `result` payload value serialized as a JSON string.
+
+```rust
+impl RemoteAdapterFFI {
+    /// `capability_id` must match the `tools.<ns>.<tool_id>` grammar — otherwise
+    /// fail-fast `FfiError::Rejected { code: "INVALID_INPUT", .. }` with zero wire
+    /// traffic. Success returns the tool's `result` payload as a JSON string;
+    /// deny / timeout / session failures map through the D7 rows (table below).
+    fn invoke_tool(&self, capability_id: String, arguments_json: String) -> Result<String, FfiError>;
+}
+impl MultiPeerRouterFFI {
+    /// Same invoke semantics. No capable peer → `Rejected {
+    /// code: "CAPABILITY_PORT_MISSING", kind: Some("no_capable_peer"),
+    /// wire_code: Some("no_capable_peer") }` with the capability id embedded
+    /// in the message.
+    fn invoke_tool(&self, capability_id: String, arguments_json: String) -> Result<String, FfiError>;
+}
+```
+
+**Grammar fail-fast:** `capability_id` is foreign input. A non-`tools.<ns>.<tool_id>` id fails fast with `FfiError::Rejected { code: "INVALID_INPUT", kind: None, wire_code: None }` and zero wire traffic on both faces — the library grammar reject (`parse_tool_capability_id`, the `spoke-operations` public API) passes through, the offending id rides in `message`, and the router rejects before any peer selection. `arguments_json` parses before the library call through the FFI face's JSON convention (`parse_json_field`): malformed JSON rejects `INVALID_INPUT` with the parse error in `message` (`kind` / `wire_code` `None`), also with zero wire traffic.
+
+**Router semantics:** `MultiPeerRouterFFI.invoke_tool` adds no routing logic of its own. Exact-capability hard filter over the cached hello manifest, lowest-`peer_id` (UTF-8 byte order) tie-break, and the terminal `no_capable_peer` reject are the library router's (D14); the selected peer's underlying reject returns as-is. With no registered peer advertising the exact tool capability, the terminal reject crosses as `Rejected { code: "CAPABILITY_PORT_MISSING", kind: Some("no_capable_peer"), wire_code: Some("no_capable_peer") }` with the capability id embedded in `message`.
+
+**Concurrency:** concurrent `invoke_tool` calls from multiple foreign threads are allowed — each call blocks its own calling thread and the shared runtime multiplexes the library futures (D6).
+
+**Error rows (D7 extension by reference):** every library `SpokeResult` reject crosses through the existing D7 mapping — `code` and `message` preserved, `details.kind` → `kind`, `details.wire_code` → `wire_code`; no other detail field is surfaced separately (the library reject's `details.capability_id` and `details.op` ride in `message`). The `FfiError` shape is unchanged and no wire semantics are added.
+
+| Invoke-path failure | `FfiError` row | Library source |
+|---------------------|----------------|-----------------|
+| Malformed `arguments_json` (FFI-boundary parse) | `Rejected { code: "INVALID_INPUT", kind: None, wire_code: None }`, parse error in `message` | FFI JSON convention (D12 face) |
+| `capability_id` fails the `tools.<ns>.<tool_id>` grammar | `Rejected { code: "INVALID_INPUT", kind: None, wire_code: None }`, offending id in `message`; zero wire traffic | D13 grammar fail-fast |
+| Dispatch deny — capability not negotiated, or serving side has no registered handler (peer answers `op_unsupported`; `capability_missing` is the same class) | `Rejected { code: "CAPABILITY_PORT_MISSING", kind: None, wire_code: Some("op_unsupported") }` | D13 deny matrix + D7 dispatch-deny row |
+| Peer answers `auth_failed` (envelope-auth failure) | `Rejected { code: "INTERNAL_ERROR", kind: Some("envelope_auth_missing" \| "envelope_auth_invalid" \| "envelope_auth_session_unbound") }` | D13 serving pipeline + D7 envelope-auth row |
+| Peer answers `invalid_sequence` | `Rejected { code: "INVALID_INPUT", kind: None, wire_code: Some("invalid_sequence") }` | D13 deny matrix + D7 unknown-wire-code row |
+| Router has no capable peer for the tool | `Rejected { code: "CAPABILITY_PORT_MISSING", kind: Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`, capability id in `message` | D14 router tool face |
+| Per-waiter invoke timeout | `Rejected { code: "INTERNAL_ERROR", kind: Some("timeout") }` — waiter only, session stays usable | D7 invoke-timeout row |
+| Session closed / invoke after `close` | `Rejected { code: "INTERNAL_ERROR", kind: Some("session_closed") }` | D7 session-closed row |
+| Transport I/O failure during the invoke | `Rejected { code: "INTERNAL_ERROR", kind: Some("transport") }` | D7 transport row |
+| Success payload without a `result` key | `Rejected { code: "INTERNAL_ERROR", kind: Some("transport") }` — session stays usable | D13 success-payload gate |
+| Response correlation mismatch | `Rejected { code: "INTERNAL_ERROR", kind: Some("correlation_mismatch") }` | D7 correlation-mismatch row |
+| Response envelope-auth verify failure (forged / tampered / stripped-signature / session-unbound response) | `Rejected { code: "INTERNAL_ERROR", kind: Some("envelope_auth_missing" \| "envelope_auth_invalid" \| "envelope_auth_session_unbound") }` — waiter only, session stays usable | D7 envelope-auth row (D10 enforcement) |
+| Sequence exhaustion at send allocation | `Rejected { code: "INTERNAL_ERROR", kind: Some("sequence_exhausted") }`; the session closes | D7 sequence-exhaustion row |
+| Panic inside the block-on-async invoke future | `Rejected { code: "INTERNAL_ERROR", kind: Some("panic") }` — waiter only, never unwinds across the FFI boundary; `message` carries the raw panic payload | D7 panic-containment row (D12 runtime) |
+
 ## TS↔Rust parity
 
 The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback interop suites in both languages):

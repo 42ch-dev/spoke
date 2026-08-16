@@ -8,14 +8,15 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 
 ## Host capability manifests (in-process collaboration)
 
-Committed `HostCapabilityManifest` JSON describes two toy-world hosts with **pairwise disjoint** `namespaces[]`:
+Committed `HostCapabilityManifest` JSON describes three toy-world hosts with **pairwise disjoint** `namespaces[]`:
 
 | Fixture | `host_id` | Owned namespaces | Roles (summary) |
 |---------|-----------|------------------|-----------------|
 | `host_tw_primary.json` | `host_tw_primary` | `toy_world` | `data-store`, `checker`, `assembler`, `input-source` |
 | `host_tw_peer.json` | `host_tw_peer` | `peer_demo` | `checker`, `input-source` |
+| `host_tw_tools.json` | `host_tw_tools` | `tool_demo` | `checker`, `input-source` |
 
-Both declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fixture JSON; peer hosts resolve through product-supplied in-memory listing.
+Both baseline hosts declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. The tools host additionally declares a `tools[]` entry (`tools.tool_demo.lookup`) whose `capability_id` also appears in `capabilities[]` and whose namespace (`tool_demo`) is owned by the manifest. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fixture JSON; peer hosts resolve through product-supplied in-memory listing.
 
 ## Connect envelope samples (opt-in `spoke-connect`)
 
@@ -108,6 +109,8 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host) | `host_tw_primary` |
 | `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
+| `host_tw_tools.json` | HostCapabilityManifest (tool provider host, `tools[]` declared) | `host_tw_tools` |
+| `tool_tw_minimal.json` | ToolDescriptor (unconstrained `{}` input/output ABI) | `tools.tool_demo.lookup` |
 | `conn_tw_hello_primary_to_peer.json` | ConnectHello (opt-in `spoke-connect` handshake) | `peer_tw_primary` / `host_tw_primary` |
 | `conn_tw_hello_peer_to_primary.json` | ConnectHello (opt-in `spoke-connect` handshake) | `peer_tw_peer` / `host_tw_peer` |
 | `conn_tw_session.json` | ConnectSession (established session snapshot) | `sess_tw_connect_0001` |

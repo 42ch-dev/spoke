@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "host_id": "host_tw_tools",
+  "roles": ["checker", "input-source"],
+  "capabilities": ["spoke-baseline", "tools.tool_demo.lookup"],
+  "namespaces": ["tool_demo"],
+  "extensions": {
+    "tool_demo": { "display_name": "Toy World tool provider host" }
+  },
+  "tools": [
+    {
+      "schema_version": 1,
+      "capability_id": "tools.tool_demo.lookup",
+      "op": "tools.tool_demo.lookup",
+      "description": "Look up a knowledge entry by id.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "entry_id": { "type": "string" }
+        },
+        "required": ["entry_id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "entry": { "type": "object" }
+        }
+      },
+      "idempotent": true
+    }
+  ]
+}

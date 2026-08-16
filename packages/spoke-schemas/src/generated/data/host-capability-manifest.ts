@@ -44,6 +44,10 @@ export interface HostCapabilityManifest {
     scope_key: string;
   };
   extensions: ExtensionMap;
+  /**
+   * Optional declared tool ABIs. Every tool capability_id MUST also appear in capabilities[] and derive a namespace owned by this manifest (namespaces[] membership); capability_id is unique within tools[] (spec-level MUSTs, enforced by validation helpers).
+   */
+  tools?: ToolDescriptor[];
 }
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
@@ -54,4 +58,41 @@ export interface ExtensionMap {
         [k: string]: unknown | undefined;
       }
     | undefined;
+}
+/**
+ * Declared tool ABI for a RemoteAdapter-exposed tool: capability identity, opaque argument/result subschemas, and metadata. Declared in HostCapabilityManifest.tools.
+ */
+export interface ToolDescriptor {
+  /**
+   * Wire schema version (integer >= 1).
+   */
+  schema_version: number;
+  /**
+   * Tool capability string `tools.<ns>.<tool_id>`. The namespace MUST be owned by the declaring manifest (namespaces[] membership); tool_id is an open-ended vocabulary.
+   */
+  capability_id: string;
+  /**
+   * Wire op for this tool. MUST equal capability_id (spec-level rule; draft-07 cannot express cross-field equality, so helpers enforce it).
+   */
+  op: string;
+  /**
+   * Human-readable tool description.
+   */
+  description: string;
+  /**
+   * Opaque JSON Schema draft-07 subschema describing tool arguments. An empty object `{}` declares no constraint (unconstrained ABI).
+   */
+  input: {
+    [k: string]: unknown | undefined;
+  };
+  /**
+   * Opaque JSON Schema draft-07 subschema describing the success result. An empty object `{}` declares no constraint (unconstrained ABI).
+   */
+  output: {
+    [k: string]: unknown | undefined;
+  };
+  /**
+   * Advisory idempotency metadata only; the protocol defines no idempotency-key machinery.
+   */
+  idempotent?: boolean;
 }

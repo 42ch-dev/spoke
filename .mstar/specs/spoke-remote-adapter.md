@@ -252,6 +252,101 @@ impl MultiPeerRouterFFI {
 | Sequence exhaustion at send allocation | `Rejected { code: "INTERNAL_ERROR", kind: Some("sequence_exhausted") }`; the session closes | D7 sequence-exhaustion row |
 | Panic inside the block-on-async invoke future | `Rejected { code: "INTERNAL_ERROR", kind: Some("panic") }` — waiter only, never unwinds across the FFI boundary; `message` carries the raw panic payload | D7 panic-containment row (D12 runtime) |
 
+### D16 — Responder / tool-serving FFI face (ToolHandler + ConnectResponderFFI)
+
+The tool-serving library faces — `ToolHandler` registration and serving on `RemoteAdapter` / `ConnectResponder`, and the `connect_responder` factory (D13/D14) — cross to native binding hosts as the `ToolHandler` callback interface, `RemoteAdapterFFI.register_tool_handler`, and the `ConnectResponderFFI` object, joining the D12/D15 surface on the `spoke-connect` cdylib (`ffi` + `remote-adapter` features; generated into the same five native binding channels — C#, Go, Kotlin, Python, Swift). Every method is a sync block-on-async call over the cdylib-owned runtime (D12). `RemoteAdapterFFI.register_tool_handler` is the dialer-side serving face — the registration surface for responder→dialer reverse invokes, the serving direction the bidirectional loopback smokes exercise. Tool arguments and results cross as JSON strings, keys as raw byte arrays, peer ids as strings (D12 boundary conventions).
+
+**Names:** the foreign callback interface is **`ToolHandler`**, unprefixed — the callback-`Transport` naming precedent: a callback face carries the library-face concept name, while wrapper objects carry the `FFI` suffix (`RemoteAdapterFFI`, `ConnectResponderFFI`). The Rust-side name collision with the library handler type resolves by import alias (`use crate::remote::ToolHandler as RemoteToolHandler`), the mirror of the existing `use super::foreign_transport::Transport as FfiTransport`. Boundary-type discipline follows the D12 compile face: callback parameters are `Box<dyn Trait>` (the `connect_remote_adapter_ffi(transport: Box<dyn FfiTransport>, …)` precedent; `Arc<dyn …>` parameters are not a compile precedent here), with Rust converting to a long-held `Arc` via `Arc::from(box)` exactly as dial does. Data crosses the boundary only as `String` / `Vec<u8>` / `Vec<String>` / `HashMap<String, Vec<u8>>` / `Option<u64>`, plus object handles and the two callback interfaces.
+
+```rust
+// D16 — tool-serving faces
+#[uniffi::export(callback_interface)]
+trait ToolHandler: Send + Sync {
+    /// Sync foreign callback; the bridge runs each call on the cdylib runtime's
+    /// `spawn_blocking` pool (the `ForeignCallbackTransport` bridge, including
+    /// the JoinError mapping; see the threading model below).
+    /// Ok(json) → SpokeResult::Ok; Err(Rejected{..}) → the application
+    /// SpokeReject passes through verbatim; Err(Dial{..}) (non-contract) /
+    /// foreign exception / panic → INTERNAL_ERROR reject (details: None,
+    /// mirroring the library `catch_unwind` containment).
+    fn handle(&self, arguments_json: String) -> Result<String, FfiError>;
+}
+
+impl RemoteAdapterFFI {
+    /// Dialer-side serving registration (serves responder→dialer reverse
+    /// invokes): the capability id is pre-validated via
+    /// `parse_tool_capability_id` — an invalid id rejects
+    /// `FfiError::Rejected { code: "INVALID_INPUT", .. }` with zero wire
+    /// traffic; a valid id registers on the library face (last-wins; the
+    /// registry never mutates the manifest).
+    fn register_tool_handler(&self, capability_id: String, handler: Box<dyn ToolHandler>) -> Result<(), FfiError>;
+}
+
+#[derive(uniffi::Object)]
+struct ConnectResponderFFI { inner: Arc<ConnectResponder> }
+
+#[uniffi::export]
+fn connect_responder_ffi(
+    transport: Box<dyn Transport>,        // connected (host-accepted) callback Transport
+    seed: Vec<u8>,                        // 32-byte Ed25519 seed (Vec<u8> boundary convention; length validated inside Rust)
+    manifest_json: String,                // HostCapabilityManifest JSON (optional tools[] included)
+    allowlist: Vec<String>,               // fail-closed dialer allowlist
+    peer_keys: HashMap<String, Vec<u8>>,  // peer_id → 32-byte Ed25519 pubkey (responder-owned trust config)
+    invoke_timeout_ms: Option<u64>,       // None → the library default (DEFAULT_INVOKE_TIMEOUT_MS = 5000 ms)
+) -> Result<Arc<ConnectResponderFFI>, FfiError>;
+
+impl ConnectResponderFFI {
+    fn register_tool_handler(&self, capability_id: String, handler: Box<dyn ToolHandler>) -> Result<(), FfiError>;
+    fn invoke_tool(&self, capability_id: String, arguments_json: String) -> Result<String, FfiError>;
+    fn state(&self) -> String;            // "Disconnected" | "Handshaking" | "Established" | "Closed"
+    fn session_id(&self) -> Option<String>;
+    fn remote_peer_id(&self) -> Option<String>;
+    fn remote_manifest(&self) -> Option<String>;  // manifest JSON string (same as RemoteAdapterFFI)
+    fn close(&self);
+}
+```
+
+**Options mirror (1:1 with the shipped `ConnectResponderOptions`, `crates/spoke-connect/src/remote/responder.rs`):**
+
+| Library field | FFI parameter | Notes |
+|---|---|---|
+| `transport: Arc<dyn Transport>` | `transport: Box<dyn Transport>` | callback → `Arc::from` wrapped in the `ForeignCallbackTransport` bridge (dial same) |
+| `identity: RemoteIdentity` (`seed: [u8;32]`) | `seed: Vec<u8>` | FFI layer validates exactly 32 bytes; failure → `Dial { kind: "config" }` (dial seed-length precedent) |
+| `manifest: HostCapabilityManifest` | `manifest_json: String` | parsed inside Rust with `serde_json`; failure → `Dial { kind: "config" }` (dial precedent) |
+| `allowlist: Vec<String>` | `allowlist: Vec<String>` | passed through |
+| `peer_keys: HashMap<String, [u8;32]>` | `peer_keys: HashMap<String, Vec<u8>>` | each value validated as 32 bytes (failure → `Dial { kind: "config" }`). **Mandatory parameter**: an allowlisted peer without a preconfigured key fails the handshake fail-closed — an FFI responder without this parameter could never establish a session |
+| `ports: Option<Arc<dyn BaselinePorts>>` | (no parameter; pinned `None`) | no foreign-callback ports face; `port.*` invokes hit the library's documented absent-ports deny branch (non-goals below) |
+| `invoke_timeout_ms: Option<u64>` | `invoke_timeout_ms: Option<u64>` | passed through (None → library default 5000 ms) |
+
+**Constructor semantics (library-faithful — not a block-on handshake):** the library `connect_responder` factory returns a `Handshaking` responder immediately (the handshake runs on the background serve loop; the dialer hello is the sync point; the factory has **no error path** — the intentional TS↔Rust divergence recorded in D14). The FFI constructor carries the same semantics: the block-on covers only the factory future, which completes immediately, and the returned responder is in `Handshaking`. The `Result` slot carries FFI-side config-validation failures only — manifest JSON, seed length, or peer-key length → `Dial { kind: "config" }`. Handshake failures (allowlist deny, hello-verify deny, peer never appearing) produce **no error row**: they surface as `state() → "Closed"` with the transport closing, and hosts / tests / smokes poll `state()` to `Established` under a bounded wait, matching the TS and Rust consumers.
+
+**Grammar pre-validation on registration (resolved):** over FFI, `capability_id` is foreign input, so `register_tool_handler` returns `Result<(), FfiError>` — a non-`tools.` grammar id rejects `Rejected { code: "INVALID_INPUT", kind: None, wire_code: None }` with the offending id in `message` and zero wire traffic. The wrapper pre-validates with `parse_tool_capability_id` (the `spoke-operations` public API) before the library call, so the library's grammar panic stays unreachable through the FFI boundary. Rationale: the `ffi.rs` convention validates foreign input before calling the library (`parse_json_field` / seed-length precedents); the mapping is symmetric with `invoke_tool` on the same grammar failure (same input, same row); a panic is not a contractable cross-uniffi error channel; and bindings smokes assert an error row instead of catching a crash. The library faces are untouched — TS throws / Rust panics remain the programmer-error semantics for native TS/Rust consumers.
+
+**`ToolHandler.handle` error type (resolved):** the callback throws `FfiError` — the existing exported error enum is reused, adding no new error surface. uniffi 0.32 callback methods support `Result<T, E>` over an exported error enum, so the reuse is zero-surface, and a single error vocabulary lowers the error-mapping cost across the five bindings. Guardrails: a `Dial` throw from a handler is non-contract — the bridge routes it to the `INTERNAL_ERROR` containment branch — and handler documentation states that handlers should only throw `Rejected`. The residual risk — whether the vendored C#/Go fork binders fully support fielded error enums in callbacks — is covered by a callback-error positive control in the core suite plus per-language handler-error smokes in every binding channel.
+
+**Threading and containment model:** every FFI method is a sync block-on-async call over the cdylib-owned tokio runtime (D12); concurrent calls from multiple foreign threads are allowed — each blocks its own calling thread while the shared runtime multiplexes the library futures (D6). Foreign callbacks (`Transport::recv`, `ToolHandler::handle`) bridge through `spawn_blocking` so a blocking foreign call never monopolizes an async worker (D12 precedent — the `ForeignCallbackTransport` bridge: `spawn_blocking` plus `JoinError → error` mapping). The `ToolHandler` bridge stores the callback via `Arc::from(box)` in the closure and runs each call as `runtime.spawn_blocking(move || handler.handle(json))`: `Ok(json)` parses with `serde_json` into a `Value` (malformed → containment branch); `Err(Rejected)` constructs a `SpokeReject` (kind / wire_code re-hung onto `details` — the inverse of `map_spoke_reject`) and passes through; `Err(Dial)` (non-contract) and `JoinError` (foreign-crash signal) map to the `INTERNAL_ERROR` reject with `details: None`. The library serve loop's `catch_unwind` at the future-poll boundary remains the last line of defense — two containment layers with the same semantics, so the serve loop never dies from a foreign crash; the bridge treats every non-`Rejected` `Err` as containment regardless of uniffi's internal exception handling.
+
+**Error rows (D7 extension by reference — `FfiError` shape unchanged):** `ConnectResponderFFI.invoke_tool` (the responder→dialer reverse invoke) follows the D15 table verbatim — grammar fail-fast, dispatch deny, deny codes, per-waiter timeout, session-closed, transport I/O, success-payload gate, correlation, panic containment. The D16-specific rows:
+
+| Failure | `FfiError` row |
+|---|---|
+| `register_tool_handler` non-`tools.` grammar (either wrapper object) | `Rejected { code: "INVALID_INPUT", kind: None, wire_code: None }`, offending id in `message`, zero wire traffic — FFI-layer pre-validation via `parse_tool_capability_id`; the library grammar reject's `details.capability_id` is not surfaced separately (`map_spoke_reject` extracts only `kind` / `wire_code`) |
+| Foreign `ToolHandler` returns `Err(Rejected{..})` | Application reject passes through verbatim — `code` / `message` preserved; `kind` / `wire_code` re-hung onto `details` (the inverse of `map_spoke_reject`) |
+| Foreign `ToolHandler` returns `Err(Dial{..})` / a non-contract exception / panics / the bridge sees `JoinError` | `Rejected { code: "INTERNAL_ERROR", kind: None }` — containment, `details: None` mirroring the library `catch_unwind`; the serve loop survives |
+| `connect_responder_ffi` config-validation failure (manifest JSON / seed length / peer-key length) | `Dial { kind: "config", message }` — the constructor `Result` slot's only inhabitant |
+| Responder handshake failure (allowlist deny / hello-verify deny / peer never appears) | **No error row** — `state() → "Closed"`, `session_id() → None` (library semantics passthrough; the D14 divergence) |
+| FFI responder (`ports` pinned `None`) receives a `port.*` invoke | Peer answers the documented deny branch → the caller gets `Rejected { code: "CAPABILITY_PORT_MISSING", kind: None, wire_code: Some("op_unsupported") }` |
+
+**Accept topology (the responder FFI face's one new shape):** the FFI surface never builds a listener. The host product process owns listen/accept in its own language's network stack, wraps the connected socket as its callback `Transport` implementation, and passes that to `connect_responder_ffi` — symmetric with dial: `connect_remote_adapter_ffi` takes a connected outbound `Transport`; `connect_responder_ffi` takes a connected inbound `Transport`. Loopback proofs run over `loopback_transport_pair()`: one end dials through the dialer FFI face, the other serves through the responder FFI face, with invokes in both directions; tests and smokes poll `state()` to `Established` (the constructor does not wait for the handshake).
+
+**Non-goals (this decision):**
+
+- The `FfiError` shape is unchanged; no new error enums are added (including the handler error type — `FfiError` is reused).
+- The session-core parity surface is untouched; the six envelope schemas are unchanged; no new wire codes.
+- No host-callable verify/sign helpers are exported (the encapsulation hard rule stands).
+- Responder-side `port.*` serving does not cross the FFI boundary: `ports` is pinned `None` and `port.*` invokes hit the library's documented absent-ports deny branch. A foreign-callback `BaselinePorts` face stays out of scope for this decision (a recorded capability gap).
+- True-async FFI, listeners inside the FFI surface, and `port.computable.*` / `port.fork.*` FFI faces are out of scope.
+
 ## TS↔Rust parity
 
 The TS and Rust RemoteAdapter/Transport are behaviorally aligned (loopback interop suites in both languages):

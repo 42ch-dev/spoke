@@ -591,7 +591,7 @@ mod remote_adapter_ffi {
         })
     }
 
-    fn ed25519_seed(bytes: Vec<u8>) -> Result<[u8; 32], FfiError> {
+    pub(super) fn ed25519_seed(bytes: Vec<u8>) -> Result<[u8; 32], FfiError> {
         bytes.try_into().map_err(|_| FfiError::Dial {
             kind: "config".into(),
             message: "local seed must be exactly 32 bytes".into(),
@@ -911,6 +911,157 @@ mod remote_adapter_ffi {
     }
 }
 
+// ── Sync `ConnectResponderFFI` over the async responder (D16) ────────────
+#[cfg(feature = "remote-adapter")]
+mod connect_responder_ffi {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use serde_json::Value;
+    use spoke_operations::{parse_tool_capability_id, SpokeResult};
+    use spoke_schemas::HostCapabilityManifest;
+
+    use crate::remote::{
+        connect_responder, ConnectResponder, ConnectResponderOptions, RemoteIdentity,
+    };
+
+    use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
+    use super::foreign_transport::ForeignCallbackTransport;
+    use super::foreign_transport::Transport as FfiTransport;
+    use super::remote_adapter_ffi::{
+        ed25519_seed, ffi_block_on, ffi_block_on_void, map_spoke_reject, map_spoke_result,
+        parse_json_field, FfiError,
+    };
+
+    /// Sync wrapper over the library [`ConnectResponder`] (D16): the
+    /// host-accepted callback [`FfiTransport`] plus the responder lifecycle
+    /// — session info, tool serving (`register_tool_handler`), the reverse
+    /// tool invoke face (`invoke_tool`), and `close`.
+    #[derive(uniffi::Object)]
+    pub struct ConnectResponderFFI {
+        inner: Arc<ConnectResponder>,
+    }
+
+    #[uniffi::export]
+    impl ConnectResponderFFI {
+        /// One of `Disconnected` / `Handshaking` / `Established` / `Closed`.
+        pub fn state(&self) -> String {
+            self.inner.state().as_str().to_string()
+        }
+
+        pub fn session_id(&self) -> Option<String> {
+            self.inner.session_id()
+        }
+
+        pub fn remote_peer_id(&self) -> Option<String> {
+            self.inner.remote_peer_id()
+        }
+
+        /// The dialer's `HostCapabilityManifest` (hello `host`, cached at
+        /// session establish) as a JSON string — same shape as
+        /// `RemoteAdapterFFI::remote_manifest`.
+        pub fn remote_manifest(&self) -> Option<String> {
+            self.inner.remote_manifest().and_then(|manifest| {
+                serde_json::to_string(&manifest).ok()
+            })
+        }
+
+        /// Responder-side tool-serving registration (D16): `capability_id`
+        /// is pre-validated with `parse_tool_capability_id` before the
+        /// library call — a non-`tools.` id rejects
+        /// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+        /// wire_code: None }` with the offending id in `message` and zero
+        /// side effect (the library's grammar panic stays unreachable
+        /// through FFI). A valid id registers last-wins on the library face.
+        pub fn register_tool_handler(
+            &self,
+            capability_id: String,
+            handler: Box<dyn FfiToolHandler>,
+        ) -> Result<(), FfiError> {
+            match parse_tool_capability_id(&capability_id) {
+                SpokeResult::Ok(_) => {}
+                SpokeResult::Reject(reject) => return Err(map_spoke_reject(reject)),
+            }
+            self.inner
+                .register_tool_handler(&capability_id, into_remote_handler(handler));
+            Ok(())
+        }
+
+        /// Responder→dialer reverse invoke (D16): same face and error rows
+        /// as `RemoteAdapterFFI::invoke_tool` (the D15 table applies by
+        /// reference).
+        pub fn invoke_tool(
+            &self,
+            capability_id: String,
+            arguments_json: String,
+        ) -> Result<String, FfiError> {
+            let arguments: Value = parse_json_field(&arguments_json, "tool arguments")?;
+            map_spoke_result(ffi_block_on(
+                self.inner.invoke_tool(&capability_id, arguments),
+            )?)
+        }
+
+        pub fn close(&self) {
+            ffi_block_on_void(async {
+                self.inner.close();
+            });
+        }
+    }
+
+    /// Accept-side constructor (D16): wraps a *connected* (host-accepted)
+    /// callback [`FfiTransport`] into the library [`connect_responder`] —
+    /// symmetric with `connect_remote_adapter_ffi`, which takes a connected
+    /// outbound transport; the host product owns listen/accept in its own
+    /// network stack.
+    ///
+    /// Constructor semantics are library-faithful (D16): the block-on
+    /// covers ONLY the factory future, which completes immediately — the
+    /// responder returns in `Handshaking` (the dialer hello is the sync
+    /// point; the library factory has no error path, D14 divergence). The
+    /// `Result` slot carries FFI-side config-validation failures only:
+    /// seed length, manifest JSON, or peer-key length →
+    /// `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
+    /// deny, hello-verify deny) produce NO error row — they surface as
+    /// `state() → "Closed"` with `session_id() → None`.
+    #[uniffi::export]
+    pub fn connect_responder_ffi(
+        transport: Box<dyn FfiTransport>,
+        seed: Vec<u8>,
+        manifest_json: String,
+        allowlist: Vec<String>,
+        peer_keys: HashMap<String, Vec<u8>>,
+        invoke_timeout_ms: Option<u64>,
+    ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
+        let manifest: HostCapabilityManifest = serde_json::from_str(&manifest_json)
+            .map_err(|error| FfiError::Dial {
+                kind: "config".into(),
+                message: format!("invalid host manifest JSON: {error}"),
+            })?;
+        let peer_keys = peer_keys
+            .into_iter()
+            .map(|(peer_id, key_bytes)| {
+                let key: [u8; 32] = key_bytes.try_into().map_err(|_| FfiError::Dial {
+                    kind: "config".into(),
+                    message: format!("peer key for {peer_id} must be exactly 32 bytes"),
+                })?;
+                Ok((peer_id, key))
+            })
+            .collect::<Result<HashMap<_, _>, FfiError>>()?;
+        let responder = ffi_block_on(connect_responder(ConnectResponderOptions {
+            transport: Arc::new(ForeignCallbackTransport::new(Arc::from(transport))),
+            identity: RemoteIdentity {
+                seed: ed25519_seed(seed)?,
+            },
+            manifest,
+            allowlist,
+            peer_keys,
+            ports: None,
+            invoke_timeout_ms,
+        }))?;
+        Ok(Arc::new(ConnectResponderFFI { inner: responder }))
+    }
+}
+
 // ── Sync `MultiPeerRouterFFI` over the async router (AR-6 / D11) ─────────
 #[cfg(feature = "remote-adapter")]
 mod multi_peer_router_ffi {
@@ -1166,6 +1317,8 @@ mod loopback_smoke_host {
 
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+#[cfg(feature = "remote-adapter")]
+pub use connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
 #[cfg(feature = "remote-adapter")]
 pub use multi_peer_router_ffi::{new_multi_peer_router_ffi, MultiPeerRouterFFI};
 #[cfg(feature = "ffi-smoke-host")]
@@ -3774,6 +3927,413 @@ mod remote_adapter_ffi_tests {
         assert_eq!(second_calls.lock().expect("second calls lock").len(), 1);
         ffi.close();
         responder.close();
+    }
+}
+
+#[cfg(all(test, feature = "remote-adapter"))]
+mod connect_responder_ffi_tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use serde_json::{json, Value};
+
+    use crate::core::derive_peer_id_from_ed25519_pubkey;
+    use crate::remote::transport::Transport as RemoteAsyncTransport;
+    use crate::test_support::loopback_oracle::{
+        pubkey_client, pubkey_host, seed_client, seed_host,
+    };
+
+    use super::connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
+    use super::foreign_transport::Transport as FfiTransport;
+    use super::foreign_transport::TransportError;
+    use super::foreign_tool_handler::ToolHandler as FfiToolHandler;
+    use super::ffi_runtime;
+    use super::remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+
+    /// Callback `Transport` impl over the loopback end — exactly what a
+    /// native binding implements (D16 accept topology: the host product
+    /// owns listen/accept and wraps the connected socket as its callback
+    /// `Transport`).
+    struct LoopbackCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+    }
+
+    impl FfiTransport for LoopbackCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    /// Tool-carrying manifest — every tool capability also sits in
+    /// `capabilities[]` so the negotiated set includes the `tools.*` ops
+    /// (D13 dispatch gate).
+    fn tool_manifest(host_id: &str) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": [
+                "spoke-baseline",
+                "tools.math.add",
+                "tools.echo.echo",
+                "tools.echo.boom",
+            ],
+            "namespaces": ["math", "echo", "toy_world"],
+            "extensions": {},
+            "tools": [
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.math.add",
+                    "op": "tools.math.add",
+                    "description": "Add two integers",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.echo.echo",
+                    "op": "tools.echo.echo",
+                    "description": "Echo the arguments",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.echo.boom",
+                    "op": "tools.echo.boom",
+                    "description": "Explodes",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+            ],
+        }))
+        .expect("valid tool manifest")
+    }
+
+    fn tool_manifest_json(host_id: &str) -> String {
+        serde_json::to_string(&tool_manifest(host_id)).expect("tool manifest json")
+    }
+
+    /// Foreign `ToolHandler` impl (D16): records the arguments JSON and
+    /// returns `{ "sum": a + b }` — the binding-side success path.
+    struct SumForeignToolHandler {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FfiToolHandler for SumForeignToolHandler {
+        fn handle(&self, arguments_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("handler calls lock")
+                .push(arguments_json.clone());
+            let args: Value =
+                serde_json::from_str(&arguments_json).expect("test handler receives JSON");
+            let a = args.get("a").and_then(Value::as_i64).unwrap_or(0);
+            let b = args.get("b").and_then(Value::as_i64).unwrap_or(0);
+            Ok(serde_json::to_string(&json!({ "sum": a + b })).expect("handler value serializes"))
+        }
+    }
+
+    fn sum_handler() -> (Box<SumForeignToolHandler>, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(SumForeignToolHandler {
+                calls: Arc::clone(&calls),
+            }),
+            calls,
+        )
+    }
+
+    /// Bounded poll for the handshake to settle — the responder constructor
+    /// returns immediately in `Handshaking` (D16 constructor semantics: the
+    /// block-on covers only the factory future; the dialer hello is the
+    /// sync point).
+    fn wait_for<F: Fn() -> bool>(what: &str, check: F) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !check() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Loopback pair through both FFI faces (D16 accept topology): the
+    /// responder FFI owns the server end (host-accepted transport), the
+    /// dialer FFI owns the client end. Both ends establish.
+    fn dial_responder_ffi() -> (Arc<ConnectResponderFFI>, Arc<RemoteAdapterFFI>) {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+        let responder = connect_responder_ffi(
+            Box::new(LoopbackCallback { inner: pair.server }),
+            seed_host().to_vec(),
+            tool_manifest_json("test-responder"),
+            vec![peer_id_client.clone()],
+            HashMap::from([(peer_id_client.clone(), pubkey_client().to_vec())]),
+            None,
+        )
+        .expect("responder constructs");
+        // The constructor returns in `Handshaking` (D16: no library
+        // constructor error path — block-on covers only the factory future).
+        assert_eq!(responder.state(), "Handshaking");
+
+        let dialer = connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: pair.client }),
+            seed_client().to_vec(),
+            tool_manifest_json("test-client"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        )
+        .expect("ffi dial");
+        assert_eq!(dialer.state(), "Established");
+        wait_for("responder handshake to establish", || {
+            responder.state() == "Established"
+        });
+        (responder, dialer)
+    }
+
+    #[test]
+    fn connect_responder_ffi_establishes_pair_and_serves_responder_reverse_invoke() {
+        let (responder, dialer) = dial_responder_ffi();
+
+        // The dialer serves responder→dialer reverse invokes through its
+        // foreign `ToolHandler` (D16 dialer-side serving face).
+        let (handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        // Session info matches on both ends.
+        let responder_session = responder.session_id().expect("responder session id");
+        assert_eq!(
+            dialer.session_id().as_deref(),
+            Some(responder_session.as_str()),
+            "both ends bind the same session"
+        );
+        assert_eq!(
+            responder.remote_peer_id().as_deref(),
+            Some(derive_peer_id_from_ed25519_pubkey(&pubkey_client()).as_str()),
+            "responder sees the dialer's peer id"
+        );
+        assert_eq!(
+            dialer.remote_peer_id().as_deref(),
+            Some(derive_peer_id_from_ed25519_pubkey(&pubkey_host()).as_str()),
+            "dialer sees the responder's peer id"
+        );
+        let responder_view: Value =
+            serde_json::from_str(&responder.remote_manifest().expect("responder manifest"))
+                .expect("manifest json");
+        assert_eq!(responder_view["host_id"], "test-client");
+        let dialer_view: Value =
+            serde_json::from_str(&dialer.remote_manifest().expect("dialer manifest"))
+                .expect("manifest json");
+        assert_eq!(dialer_view["host_id"], "test-responder");
+
+        // The responder's reverse invoke reaches the dialer's foreign
+        // handler and returns the tool result JSON.
+        let result = responder
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 21, "b": 21}"#.to_string())
+            .expect("responder reverse invoke succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result).expect("result json"),
+            json!({ "sum": 42 })
+        );
+        assert_eq!(
+            dialer_calls.lock().expect("calls lock").len(),
+            1,
+            "the dialer's foreign handler served the invoke"
+        );
+    }
+
+    #[test]
+    fn connect_responder_ffi_serves_tools_through_a_foreign_handler() {
+        let (responder, dialer) = dial_responder_ffi();
+
+        let (handler, responder_calls) = sum_handler();
+        responder
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        // Dialer → responder: the responder FFI serves the tool through
+        // the foreign callback handler (D16 accept topology).
+        let result = dialer
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 1, "b": 2}"#.to_string())
+            .expect("dialer invoke succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result).expect("result json"),
+            json!({ "sum": 3 })
+        );
+        assert_eq!(
+            responder_calls.lock().expect("calls lock").len(),
+            1,
+            "the responder's foreign handler served the invoke"
+        );
+
+        // Deny row: negotiated but unregistered tool → fail-closed
+        // `op_unsupported` → D7 dispatch-deny row.
+        let err = dialer
+            .invoke_tool("tools.echo.boom".to_string(), "{}".to_string())
+            .expect_err("unregistered tool is denied");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref wire_code,
+                    ..
+                } if code == "CAPABILITY_PORT_MISSING"
+                    && wire_code.as_deref() == Some("op_unsupported")
+            ),
+            "expected dispatch-deny row, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn connect_responder_ffi_port_invoke_hits_the_absent_ports_deny_branch() {
+        let (responder, dialer) = dial_responder_ffi();
+        let _ = responder;
+        // `ports` is pinned `None` on the FFI responder (D16 non-goal), so
+        // a `port.*` op answers the documented absent-ports deny branch.
+        let err = dialer
+            .get_knowledge_entry("kb_ffi_missing_entry".to_string())
+            .expect_err("absent ports deny");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref wire_code,
+                    ..
+                } if code == "CAPABILITY_PORT_MISSING"
+                    && wire_code.as_deref() == Some("op_unsupported")
+            ),
+            "expected absent-ports deny row, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn connect_responder_ffi_rejects_invalid_config_with_dial_config() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_keys = HashMap::from([(peer_id_client.clone(), pubkey_client().to_vec())]);
+
+        // Wrong seed length → `Dial { kind: "config" }` (dial precedent).
+        let err = match connect_responder_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.server.clone(),
+            }),
+            vec![0u8; 31],
+            tool_manifest_json("test-responder"),
+            vec![peer_id_client.clone()],
+            peer_keys.clone(),
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("short seed must fail the constructor"),
+        };
+        assert!(
+            matches!(err, FfiError::Dial { ref kind, .. } if kind == "config"),
+            "expected config dial error, got {err:?}"
+        );
+
+        // Malformed manifest JSON → `Dial { kind: "config" }` (dial precedent).
+        let err = match connect_responder_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.server.clone(),
+            }),
+            seed_host().to_vec(),
+            "{ not json".to_string(),
+            vec![peer_id_client.clone()],
+            peer_keys.clone(),
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("malformed manifest must fail the constructor"),
+        };
+        assert!(
+            matches!(err, FfiError::Dial { ref kind, .. } if kind == "config"),
+            "expected config dial error, got {err:?}"
+        );
+
+        // Peer key with the wrong length → `Dial { kind: "config" }`.
+        let bad_keys = HashMap::from([(peer_id_client.clone(), vec![0u8; 31])]);
+        let err = match connect_responder_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.server.clone(),
+            }),
+            seed_host().to_vec(),
+            tool_manifest_json("test-responder"),
+            vec![peer_id_client],
+            bad_keys,
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("short peer key must fail the constructor"),
+        };
+        assert!(
+            matches!(err, FfiError::Dial { ref kind, .. } if kind == "config"),
+            "expected config dial error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn connect_responder_ffi_allowlist_rejection_surfaces_as_closed_not_dial_error() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+        // Fail-closed responder: the dialer is not allowlisted.
+        let responder = connect_responder_ffi(
+            Box::new(LoopbackCallback { inner: pair.server }),
+            seed_host().to_vec(),
+            tool_manifest_json("test-responder"),
+            vec![],
+            HashMap::from([(peer_id_client, pubkey_client().to_vec())]),
+            None,
+        )
+        .expect("constructor has no error path for handshake failures");
+
+        let dial_err = match connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: pair.client }),
+            seed_client().to_vec(),
+            tool_manifest_json("test-client"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("allowlist deny must fail the dial"),
+        };
+        assert!(
+            matches!(dial_err, FfiError::Dial { ref kind, .. } if kind == "handshake"),
+            "expected handshake dial failure, got {dial_err:?}"
+        );
+
+        // The responder surfaces the rejection via state — NOT an error
+        // row (the library factory has no constructor error path).
+        wait_for("responder to close after the rejected handshake", || {
+            responder.state() == "Closed"
+        });
+        assert_eq!(responder.session_id(), None);
     }
 }
 

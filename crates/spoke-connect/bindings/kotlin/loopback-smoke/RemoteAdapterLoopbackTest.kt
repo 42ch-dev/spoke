@@ -14,7 +14,9 @@ import uniffi.spoke_connect.startLoopbackSmokeHost
 /**
  * RemoteAdapterFFI loopback smoke — callback [Transport] over an in-memory pair
  * with the reference ToyWorld smoke host (parity with Swift `loopback_smoke.swift`
- * and `crates/spoke-connect/src/ffi.rs` remote_adapter_ffi_tests).
+ * and `crates/spoke-connect/src/ffi.rs` remote_adapter_ffi_tests). The
+ * tool-faces loopback smoke (no smoke host needed) lives in
+ * `ToolLoopbackFfiPairTest` and runs in the default `gradle test`.
  *
  * Requires a smoke-host cdylib (`ffi-smoke-host`) and Kotlin bindings regenerated
  * from that cdylib — see [Smoke/README.md](../README.md).

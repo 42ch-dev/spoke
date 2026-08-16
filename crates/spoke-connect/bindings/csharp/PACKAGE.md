@@ -33,7 +33,7 @@ Native libraries resolve via NuGet RID assets (`runtimes/<rid>/native/`). Transp
 
 ## Scope
 
-Session core: `peer_id`, hello sign/verify, allowlist, nonce, sequence, correlation, dispatch. The package also carries the additive remote-adapter FFI surface — `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, and the in-memory loopback helpers. The native library is built from the production feature pair `ffi,remote-adapter`: regenerated bindings reference `remote-adapter` symbols at load time, so the release build always carries both features. Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
+Session core: `peer_id`, hello sign/verify, allowlist, nonce, sequence, correlation, dispatch. The package also carries the additive remote-adapter FFI surface — `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces: `InvokeTool` on the adapter, router, and responder, `RegisterToolHandler` on the adapter and responder, the `ToolHandler` callback, and `ConnectResponderFfi` for the accept side. The native library is built from the production feature pair `ffi,remote-adapter`: regenerated bindings reference `remote-adapter` symbols at load time, so the release build always carries both features. Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
 
 ## Transport contract
 
@@ -50,3 +50,10 @@ The surface bounds messages at one envelope per call; byte-stream carriers apply
 ## MultiPeerRouterFFI
 
 `NewMultiPeerRouterFfi()` returns the router as a synchronous object over the cdylib-owned tokio runtime: a peer registry (`RegisterPeer` accepts an established `RemoteAdapterFfi` and returns its `peer_id`; `UnregisterPeer`; `ListPeers`), the `BaselinePorts` six families routed per call to exactly one capable peer, and the two `HostManifestPort` aggregation views — the composed `GetHostCapabilityManifest` and the per-peer `ListPeerHostCapabilityManifests`. Selection matches each registered peer's cached `HostCapabilityManifest`: required capability, exact namespace, soft role preference, and a deterministic lowest-`peer_id` tie-break.
+
+## Tool faces
+
+- `InvokeTool(capabilityId, argumentsJson)` — invoke a tool on the peer (dialer → responder, responder → dialer, or router → capable peer); returns the tool's `result` as a JSON string. A non-`tools.` id or malformed arguments rejects `INVALID_INPUT` with zero wire traffic; a dispatch deny rejects `CAPABILITY_PORT_MISSING` with the peer's preserved `wireCode`.
+- `RegisterToolHandler(capabilityId, handler)` — serve reverse invokes through a foreign `ToolHandler`; last-wins per id, never mutates the manifest. The callback's `Handle(string argumentsJson)` returns the result JSON; a thrown `FfiException.Rejected` passes through verbatim as an application reject, any other outcome is contained to `INTERNAL_ERROR` and the session survives.
+- `SpokeConnectMethods.ConnectResponderFfi(...)` / `ConnectResponderFfi` — the accept side: wrap a connected (host-accepted) callback `Transport`. The constructor returns immediately in `Handshaking` — poll `State()` (bounded) to `Established` before invoking; a handshake failure surfaces as `State() == "Closed"` (never a thrown constructor error), config-validation failures throw `FfiException.Dial` with `kind == "config"`.
+- Handlers run on the FFI blocking pool — do not synchronously call back into the FFI faces from `Handle`; hand off asynchronously in the host instead.

@@ -1,29 +1,10 @@
 // loopback_smoke.swift — RemoteAdapterFFI loopback round-trip over the callback
-// Transport seam (parity with crates/spoke-connect/src/ffi.rs remote_adapter_ffi_tests).
+// Transport seam with the reference ToyWorld smoke host (parity with
+// crates/spoke-connect/src/ffi.rs remote_adapter_ffi_tests). Smoke-host-only:
+// the tool-faces loopback smoke (no smoke host needed) lives in
+// tool_loopback_smoke.swift and runs in the default macOS smoke.
 
 import Foundation
-
-/// Foreign-callback `Transport` that delegates to the client end of a
-/// loopback pair (mirror of the Rust `LoopbackCallback` test helper).
-final class LoopbackCallbackTransport: Transport {
-    private let inner: LoopbackTransport
-
-    init(inner: LoopbackTransport) {
-        self.inner = inner
-    }
-
-    func send(envelope: Data) throws {
-        try inner.send(envelope: envelope)
-    }
-
-    func recv() throws -> Data {
-        try inner.recv()
-    }
-
-    func close() throws {
-        try inner.close()
-    }
-}
 
 private struct LoopbackSmokeFixture {
     let seedClient: Data

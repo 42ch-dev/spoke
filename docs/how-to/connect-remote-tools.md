@@ -218,3 +218,4 @@ pnpm -F @42ch/spoke-demo-client test
 - [Connect architecture](/explanation/connect) — the bidirectional capability flow behind tools and ports.
 - [Walk the ToyWorld reference adapter](/how-to/walk-toy-world) — the copyable provider in TypeScript and Rust.
 - [RemoteAdapter over a Transport](/how-to/connect-remote-adapter) — the dial and the `port.*` direction this guide builds on.
+- [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding) — the same tool contract over the FFI surface (C#, Go, Kotlin, Python, Swift).

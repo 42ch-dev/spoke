@@ -46,6 +46,8 @@ try
     LoopbackSmoke.Run();
     Console.WriteLine("loopback RemoteAdapterFFI: PASS");
 #endif
+    ToolLoopbackSmoke.Run();
+    Console.WriteLine("loopback tool faces: PASS");
 
     Console.WriteLine();
     Console.WriteLine("GOLDEN PARITY: ALL PASS");

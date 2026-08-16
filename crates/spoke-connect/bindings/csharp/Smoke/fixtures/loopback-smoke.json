@@ -1,7 +1,8 @@
 {
   "seed_client_hex": "1010101010101010101010101010101010101010101010101010101010101010",
-  "seed_host_hex": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
+  "seed_host_hex": "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
   "pubkey_host_hex": "b533d8ad9fcfbdde0b481c1b334ddc3c53412fd614564e7e5afd020368d382c3",
+  "pubkey_client_hex": "5c9c6df261c9cb840475776aaefcd944b405328fab28f9b3a95ef40490d3de84",
   "peer_id_host": "12D3KooWN1hpF14DNzraYWzE2HQH1zK7hNtYy7HALnB9s3gE79TY",
   "peer_id_client": "12D3KooWG3t2M63pjiZP7UHsWruK1tQomm9kMsTm4FS3YMTfE6ao",
   "client_manifest_json": "{\"capabilities\":[\"spoke-baseline\"],\"extensions\":{},\"host_id\":\"test-client\",\"namespaces\":[\"toy_world\"],\"roles\":[\"data-store\"],\"schema_version\":1}",

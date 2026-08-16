@@ -15,6 +15,7 @@ mod relate;
 mod result;
 mod scope;
 mod timeline;
+mod tools;
 mod upsert;
 mod util;
 
@@ -54,6 +55,11 @@ pub use timeline::{
     filter_timeline_events_by_moment_scale, order_timeline_events_by_ids,
     order_timeline_events_by_precedes, OrderTimelineEventsByPrecedesOptions,
 };
+pub use tools::helpers::{
+    find_tool, list_tools, parse_tool_capability_id, tool_capability_id,
+    validate_manifest_tools, validate_tool_arguments, validate_tool_descriptor,
+    ToolCapabilityId,
+};
 pub use upsert::{
     validate_upsert_knowledge_entry, UpsertMode, ValidateUpsertKnowledgeEntryContext,
 };
@@ -71,3 +77,10 @@ pub use adapter::{
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;
+
+/// The manifest-carried `ToolDescriptor`. typify emits the schema twice — the
+/// standalone `spoke_schemas::ToolDescriptor` and an inline copy inside
+/// `host_capability_manifest` — and `HostCapabilityManifest.tools` uses the
+/// latter. The tools helpers operate on this type; import it from here to
+/// avoid the duplicate-name trap.
+pub use spoke_schemas::host_capability_manifest::ToolDescriptor;

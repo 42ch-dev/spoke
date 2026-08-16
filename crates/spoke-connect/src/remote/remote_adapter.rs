@@ -455,8 +455,10 @@ pub struct RemoteAdapter {
     /// `register_tool_handler` fills it; the receive loop's serving path
     /// looks it up by exact capability id. The local manifest's `tools[]`
     /// (carried through hello) is the discovery source — this registry MUST
-    /// NOT mutate the manifest; a registry/manifest mismatch is a provider
-    /// bug caught pre-hello by `validate_manifest_tools`.
+    /// NOT mutate the manifest; a registry/manifest mismatch is surfaced at
+    /// invoke time — a manifest-declared tool with no registered handler is
+    /// denied fail-closed (`op_unsupported` → `CAPABILITY_PORT_MISSING`);
+    /// `validate_manifest_tools` checks manifest-internal consistency only.
     tool_handlers: Mutex<HashMap<String, ToolHandler>>,
 }
 

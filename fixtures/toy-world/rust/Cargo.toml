@@ -12,6 +12,7 @@ spoke-schemas = { path = "../../../crates/spoke-schemas" }
 serde.workspace = true
 serde_json.workspace = true
 async-trait.workspace = true
+futures = "0.3"
 
 [dev-dependencies]
 pollster.workspace = true

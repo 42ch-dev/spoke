@@ -16,7 +16,7 @@ Committed `HostCapabilityManifest` JSON describes three toy-world hosts with **p
 | `host_tw_peer.json` | `host_tw_peer` | `peer_demo` | `checker`, `input-source` |
 | `host_tw_tools.json` | `host_tw_tools` | `tool_demo` | `checker`, `input-source` |
 
-Both baseline hosts declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. The tools host additionally declares a `tools[]` entry (`tools.tool_demo.lookup`) whose `capability_id` also appears in `capabilities[]` and whose namespace (`tool_demo`) is owned by the manifest. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fixture JSON; peer hosts resolve through product-supplied in-memory listing.
+All hosts declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. The primary host also declares a `tools[]` surface — the copyable tool-provider reference: `tools.toy_world.roll_dice` (deterministic seeded dice) and `tools.toy_world.lore_lookup` (read-only store lookup), both listed in `capabilities[]` with the owned `toy_world` namespace; `validateManifestTools` passes on the manifest. The tools host additionally declares a `tools[]` entry (`tools.tool_demo.lookup`) whose `capability_id` also appears in `capabilities[]` and whose namespace (`tool_demo`) is owned by the manifest. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fi…
 
 ## Connect envelope samples (opt-in `spoke-connect`)
 
@@ -41,8 +41,9 @@ One adapter type implements the port families, then call `orchestrate*` from `@4
 2. Construct the adapter: `ToyWorldAdapter.withCommittedFixtures()` (seeded `kb_tw_*` / `rel_tw_*` / `evt_tw_*` / `rule_tw_*` / `fnd_tw_*`) or `new ToyWorldAdapter()` for an empty store.
 3. Pass the same adapter instance into baseline orchestrators: `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble`.
 4. For Full composition, the same type also implements `project` / `compute` / `listForkTimelineEvents` — call `orchestrateProject`, `orchestrateCompute`, and fork-aware orchestrators against that instance.
+5. For the tool-provider surface, the adapter serves `tools.toy_world.roll_dice` and `tools.toy_world.lore_lookup` out of the box: `adapter.toolDescriptors()` lists them (defensive copy of manifest `tools[]`), `adapter.registerToolHandler(id, handler)` overrides a handler (last-wins; a non-`tools.` id throws), and `await adapter.invokeTool(id, args)` runs the grammar gate → descriptor lookup → argument gate → handler dispatch. `validateManifestTools` passes on the adapter's manifest.
 
-Vitest demos live in `tests/toy-world-adapter.test.ts` (imports adapter source directly).
+Vitest demos live in `tests/toy-world-adapter.test.ts` and `tests/toy-world-tools.test.ts` (import adapter source directly).
 
 ## Integrator path (Rust)
 
@@ -53,8 +54,9 @@ One adapter type implements the port traits, then call `orchestrate_*` from `spo
 3. Pass the same adapter into baseline orchestrators: `orchestrate_upsert`, `orchestrate_promote`, `orchestrate_relate`, `orchestrate_check`, `orchestrate_assemble`.
 4. For Full composition, the same type also implements `project` / `compute` / `list_fork_timeline_events` — call `orchestrate_project`, `orchestrate_compute`, and fork-aware orchestrators against that instance.
 5. For a baseline-only dynamic boundary, wrap with `as_baseline_only(adapter)` so optional ports surface `CAPABILITY_PORT_MISSING`.
+6. For the tool-provider surface (mirror of the TypeScript surface), the adapter serves the same two tools out of the box: `adapter.tool_descriptors()`, `adapter.register_tool_handler(id, handler)` (last-wins; a non-`tools.` id panics), and `adapter.invoke_tool(id, args).await`. The `ToolHandler` type in `toy_world_tools` mirrors `spoke-connect`'s handler shape so copied provider code adapts directly.
 
-Cargo demos live in `rust/tests/toy_world_adapter.rs`.
+Cargo demos live in `rust/tests/toy_world_adapter.rs` and `rust/tests/toy_world_tools.rs`.
 
 ### Full stub policy (reference behavior)
 
@@ -64,6 +66,7 @@ Cargo demos live in `rust/tests/toy_world_adapter.rs`.
 | `HostManifestPort` | Self manifest from `host_tw_primary.json`; peer list from in-memory `host_tw_peer.json` (exclude self; dedupe by `host_id`; ascending `host_id` sort) |
 | `ComputablePort` | Wire-valid `ProjectResponse` / `ComputeResponse` synthesized from `op_tw_project_response.json` / `op_tw_compute_settle_response.json` (echo request `session_id` / `entry_id`) |
 | `ForkTimelineQueryPort` | Seeded timeline events filtered by `scope.fork_id` (e.g. `evt_tw_harbor_storm_delay.json` for `fork_tw_storm_branch`) |
+| Tool surface (`tools.*`) | `toolDescriptors()` / `tool_descriptors()` list the manifest `tools[]`; `registerToolHandler` / `register_tool_handler` registers a handler (grammar-asserted, last-wins); `invokeTool` / `invoke_tool` runs the grammar gate → descriptor lookup → argument gate → handler. Both frozen tools are pre-registered: `roll_dice` (seeded deterministic) and `lore_lookup` (read-only store lookup) |
 
 Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-operations.md) § Reference adapter stub policy.
 
@@ -107,7 +110,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `op_tw_compute_request.json` | ComputeRequest (mid-Session apply) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_request.json` | ComputeRequest (`settle: true`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
-| `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host) | `host_tw_primary` |
+| `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host, `tools[]` declared: `tools.toy_world.roll_dice` / `tools.toy_world.lore_lookup`) | `host_tw_primary` |
 | `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
 | `host_tw_tools.json` | HostCapabilityManifest (tool provider host, `tools[]` declared) | `host_tw_tools` |
 | `tool_tw_minimal.json` | ToolDescriptor (unconstrained `{}` input/output ABI) | `tools.tool_demo.lookup` |

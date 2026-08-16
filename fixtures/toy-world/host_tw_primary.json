@@ -2,10 +2,63 @@
   "schema_version": 1,
   "host_id": "host_tw_primary",
   "roles": ["data-store", "checker", "assembler", "input-source"],
-  "capabilities": ["spoke-baseline"],
+  "capabilities": [
+    "spoke-baseline",
+    "tools.toy_world.roll_dice",
+    "tools.toy_world.lore_lookup"
+  ],
   "namespaces": ["toy_world"],
   "authority": { "scope_key": "collab_toy_world" },
   "extensions": {
     "toy_world": { "display_name": "Toy World primary host" }
-  }
+  },
+  "tools": [
+    {
+      "schema_version": 1,
+      "capability_id": "tools.toy_world.roll_dice",
+      "op": "tools.toy_world.roll_dice",
+      "description": "Roll `count` dice with `sides` faces each. Deterministic: the same arguments always produce the same rolls (seeded from the arguments).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer", "minimum": 1 },
+          "sides": { "type": "integer", "minimum": 2 }
+        },
+        "required": ["count"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "rolls": {
+            "type": "array",
+            "items": { "type": "integer" }
+          },
+          "total": { "type": "integer" }
+        },
+        "required": ["rolls", "total"]
+      },
+      "idempotent": true
+    },
+    {
+      "schema_version": 1,
+      "capability_id": "tools.toy_world.lore_lookup",
+      "op": "tools.toy_world.lore_lookup",
+      "description": "Look up a toy-world lore entry (KnowledgeEntry) by id from the adapter's committed store. Read-only and deterministic.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "entry_id": { "type": "string" }
+        },
+        "required": ["entry_id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "entry": { "type": "object" }
+        },
+        "required": ["entry"]
+      },
+      "idempotent": true
+    }
+  ]
 }

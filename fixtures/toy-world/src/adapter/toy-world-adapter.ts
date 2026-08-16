@@ -19,11 +19,16 @@ import type {
   Rule,
   Scope,
   TimelineEvent,
+  ToolDescriptor,
 } from "@42ch/spoke-schemas";
 import {
   SpokeRejectCode,
+  findTool,
+  listTools,
+  parseToolCapabilityId,
   spokeOk,
   spokeReject,
+  validateToolArguments,
   type BaselineAdapter,
   type FullAdapter,
   type SpokeResult,
@@ -34,6 +39,10 @@ import {
   TOY_WORLD_FIXTURES_ROOT,
   type MemoryStoreSeed,
 } from "./memory-store.js";
+import {
+  defaultToyWorldToolHandlers,
+  type ToolHandler,
+} from "./toy-world-tools.js";
 
 function loadOpFixture<T>(filename: string): T {
   const raw = readFileSync(join(TOY_WORLD_FIXTURES_ROOT, filename), "utf8");
@@ -80,6 +89,15 @@ export function normalizePeerManifests(
 export class ToyWorldAdapter implements FullAdapter {
   readonly store: MemoryStore;
 
+  /**
+   * Tool-handler registry (plan-3 serving surface): `registerToolHandler`
+   * fills it; `invokeTool` dispatches by exact capability id. The registry
+   * MUST NOT mutate the manifest — descriptor truth for discovery stays in
+   * the manifest's `tools[]`; a registry/manifest mismatch is a provider
+   * bug caught by `validateManifestTools`.
+   */
+  readonly #toolHandlers: Map<string, ToolHandler>;
+
   constructor(storeOrSeed?: MemoryStore | MemoryStoreSeed) {
     if (storeOrSeed instanceof MemoryStore) {
       this.store = storeOrSeed;
@@ -88,6 +106,7 @@ export class ToyWorldAdapter implements FullAdapter {
     } else {
       this.store = new MemoryStore();
     }
+    this.#toolHandlers = defaultToyWorldToolHandlers(this.store);
   }
 
   /** Construct with committed kb / rel / evt / rule / fnd fixtures loaded. */
@@ -207,6 +226,71 @@ export class ToyWorldAdapter implements FullAdapter {
       (event) => event.fork_id === scope.fork_id,
     );
     return spokeOk(events);
+  }
+
+  // ── Tool serving (reference provider surface) ──────────────────────────
+
+  /**
+   * List the tools this provider declares, in manifest order. Returns a
+   * defensive copy (parity with `listTools` — mutating the result does not
+   * mutate the manifest).
+   */
+  toolDescriptors(): ToolDescriptor[] {
+    return listTools(TOY_WORLD_SELF_MANIFEST);
+  }
+
+  /**
+   * Register a handler for a `tools.<ns>.<tool_id>` capability (plan-3
+   * surface parity). Grammar-asserted: a non-`tools.` id throws (provider
+   * misuse, mirroring `RemoteAdapter.registerToolHandler`). Duplicate
+   * registration OVERWRITES the previous handler (last-wins, documented).
+   * The registry does NOT mutate the manifest.
+   */
+  registerToolHandler(capabilityId: string, handler: ToolHandler): void {
+    const parsed = parseToolCapabilityId(capabilityId);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+    this.#toolHandlers.set(capabilityId, handler);
+  }
+
+  /**
+   * Invoke a declared tool by capability id. Grammar gate, then descriptor
+   * lookup in the self manifest, then the structural argument gate
+   * (`validateToolArguments`), then dispatch to the registered handler.
+   * A tool that is not listed in the manifest rejects with
+   * `CAPABILITY_PORT_MISSING` (no silent success); a declared tool without
+   * a registered handler is a provider bug and rejects the same way.
+   */
+  async invokeTool(
+    capabilityId: string,
+    args: Record<string, unknown>,
+  ): Promise<SpokeResult<unknown>> {
+    const parsed = parseToolCapabilityId(capabilityId);
+    if (!parsed.ok) {
+      return parsed;
+    }
+    const descriptor = findTool(TOY_WORLD_SELF_MANIFEST, capabilityId);
+    if (descriptor === undefined) {
+      return spokeReject(
+        SpokeRejectCode.CAPABILITY_PORT_MISSING,
+        `Tool "${capabilityId}" is not declared in the toy-world manifest (tools[])`,
+        { capability: capabilityId },
+      );
+    }
+    const argsCheck = validateToolArguments(descriptor, args);
+    if (!argsCheck.ok) {
+      return argsCheck;
+    }
+    const handler = this.#toolHandlers.get(capabilityId);
+    if (handler === undefined) {
+      return spokeReject(
+        SpokeRejectCode.CAPABILITY_PORT_MISSING,
+        `Tool "${capabilityId}" is declared but has no registered handler`,
+        { capability: capabilityId },
+      );
+    }
+    return handler(args);
   }
 }
 

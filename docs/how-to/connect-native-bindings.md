@@ -134,10 +134,11 @@ Binding README: [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/
 
 All five bindings expose the same synchronous core surface: `peer_id` derivation, hello sign/verify, allowlist, nonce store, sequence allocation, response correlation, dispatch gate, and protocol version. Keys cross the FFI boundary as raw bytes (validated to exactly 32 bytes), peer ids as strings, and manifests / hello envelopes as JSON strings — transport adapters stay in the host language against the wire contract.
 
-The TypeScript **language-native client** ([Connect from the TypeScript client](/how-to/connect-ts-client)) implements the same session-core rules directly in TypeScript — it is the sibling path, not a binding row. The **Rust reference** (`spoke-connect` on crates.io) is the session-core reference and the binding source; see the [connect wire reference](/reference/connect) for the shared contract. The RemoteAdapter contract ships over the same FFI surface as synchronous objects (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) — see [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding).
+The TypeScript **language-native client** ([Connect from the TypeScript client](/how-to/connect-ts-client)) implements the same session-core rules directly in TypeScript — it is the sibling path, not a binding row. The **Rust reference** (`spoke-connect` on crates.io) is the session-core reference and the binding source; see the [connect wire reference](/reference/connect) for the shared contract. The RemoteAdapter contract ships over the same FFI surface as synchronous objects (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) — see [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding). The same surface carries the tool contract: `invoke_tool` on the adapter, router, and responder, `register_tool_handler` with the foreign `ToolHandler` callback for tool serving, and the accept-side `ConnectResponderFFI` / `connect_responder_ffi`.
 
 ## Next steps
 
 - [Open your first connect session](/tutorials/first-connect-session) — the handshake flow every binding implements.
 - [Use RemoteAdapter from a native binding](/how-to/remote-adapter-native-binding) — dial a `Transport`, call port methods, and route across peers over FFI.
+- [Expose and invoke remote tools](/how-to/connect-remote-tools) — advertise, discover, and reverse-invoke tools from a native host.
 - [Connect wire reference](/reference/connect) — envelope field tables and identity binding.

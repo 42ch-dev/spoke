@@ -18,7 +18,7 @@ Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/sp
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`InvokeTool`, `RegisterToolHandler`, `ToolHandler`, `NewConnectResponderFfi` / `ConnectResponderFfi`) — **no** `startLoopbackSmokeHost` |
 | Local smoke cdylib + smoke Go bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -26,7 +26,7 @@ Full loopback smoke procedure: [`Smoke/loopback_remote_adapter_test.go`](Smoke/l
 
 ## RemoteAdapter FFI surface
 
-With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, and the in-memory loopback helpers.
+With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces — `InvokeTool` / `RegisterToolHandler` on the adapter, router, and responder, the `ToolHandler` callback, and `NewConnectResponderFfi` / `ConnectResponderFfi` for the accept side.
 
 ### Transport contract
 
@@ -43,6 +43,13 @@ The surface bounds messages at one envelope per call; byte-stream carriers apply
 ### MultiPeerRouterFFI
 
 `NewMultiPeerRouterFfi()` returns the router as a synchronous object over the same runtime: a peer registry (`RegisterPeer(adapter)` accepts an established `RemoteAdapterFfi` and returns its `peer_id`; `UnregisterPeer(peerId)`; `ListPeers()`), the `BaselinePorts` six families routed per call to exactly one capable peer, and the two `HostManifestPort` aggregation views — the composed `GetHostCapabilityManifest()` and the per-peer `ListPeerHostCapabilityManifests()`. Selection matches each registered peer's cached `HostCapabilityManifest`: required capability, exact namespace, soft role preference, and a deterministic lowest-`peer_id` tie-break.
+
+### Tool faces
+
+- `InvokeTool(capabilityId, argumentsJson)` — invoke a tool on the peer (dialer → responder, responder → dialer, or router → capable peer); returns the tool's `result` as a JSON string. A non-`tools.` id or malformed arguments rejects `INVALID_INPUT` with zero wire traffic; a dispatch deny rejects `CAPABILITY_PORT_MISSING` with the peer's preserved `wire_code`.
+- `RegisterToolHandler(capabilityId, handler)` — serve reverse invokes through a foreign `ToolHandler`; last-wins per id, never mutates the manifest. The callback's `Handle(argumentsJson)` returns the result JSON; a returned `FfiError.Rejected` passes through verbatim as an application reject, any other outcome is contained to `INTERNAL_ERROR` and the session survives.
+- `NewConnectResponderFfi(...)` / `ConnectResponderFfi` — the accept side: wrap a connected (host-accepted) callback `Transport`. The constructor returns immediately in `Handshaking` — poll `State()` (bounded) to `Established` before invoking; a handshake failure surfaces as `State() == "Closed"` (never a thrown constructor error), config-validation failures return `FfiErrorDial` with `Kind == "config"`.
+- Handlers run on the FFI blocking pool — do not synchronously call back into the FFI faces from `Handle`; hand off asynchronously in the host instead.
 
 ## Layout
 

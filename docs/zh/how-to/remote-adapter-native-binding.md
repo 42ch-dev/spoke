@@ -125,7 +125,7 @@ result_json = router.get_knowledge_entry(entry_id)  # 路由到有能力的对�
 
 ## 6. 在 FFI 上服务并调用工具
 
-FFI 面在两个方向携带工具契约：拨号方调用响应方经带外 `ToolHandler`（工具处理器）回调服务的工具；响应方反向调用拨号方经 `register_tool_handler` 注册的处理器服务的工具。`invoke_tool` 与 `register_tool_handler` 存在于 `RemoteAdapterFFI`、`MultiPeerRouterFFI` 与 `ConnectResponderFFI` 上。
+FFI 面在两个方向携带工具契约：拨号方调用响应方经带外 `ToolHandler`（工具处理器）回调服务的工具；响应方反向调用拨号方经 `register_tool_handler` 注册的处理器服务的工具。`invoke_tool` 存在于 `RemoteAdapterFFI`、`MultiPeerRouterFFI` 与 `ConnectResponderFFI` 上；`register_tool_handler` 存在于 `RemoteAdapterFFI` 与 `ConnectResponderFFI` 上。
 
 发现是已认证会话的属性：`remote_manifest()` 返回对等节点的 `HostCapabilityManifest`（主机能力清单）JSON，其 `tools[]` 描述符即对等节点能服务的工具：
 
@@ -171,7 +171,7 @@ FFI 面从不构建 listener（监听器）—— 主机产品在其自身网络
 responder = spoke_connect.connect_responder_ffi(
     LoopbackCallbackTransport(pair.server()),
     seed_host,
-    tool_manifest_json("test-responder"),  # 带 tools[] 的 HostCapabilityManifest
+    _tool_manifest_json("test-responder"),  # 带 tools[] 的 HostCapabilityManifest
     [peer_id_client],                      # fail-closed 拨号方 allowlist
     {peer_id_client: pubkey_client},       # peer_id -> 32 字节 Ed25519 公钥
     None,                                  # 调用超时（毫秒）；None 使用默认值

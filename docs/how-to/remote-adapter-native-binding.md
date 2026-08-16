@@ -125,7 +125,7 @@ Selection reads each registered peer's cached `HostCapabilityManifest` — hard 
 
 ## 6. Serve and invoke tools over FFI
 
-The FFI surface carries the tool contract in both directions: the dialer invokes tools the responder serves through a foreign `ToolHandler` callback, and the responder reverse-invokes tools the dialer serves through handlers registered with `register_tool_handler`. `invoke_tool` and `register_tool_handler` exist on `RemoteAdapterFFI`, `MultiPeerRouterFFI`, and `ConnectResponderFFI`.
+The FFI surface carries the tool contract in both directions: the dialer invokes tools the responder serves through a foreign `ToolHandler` callback, and the responder reverse-invokes tools the dialer serves through handlers registered with `register_tool_handler`. `invoke_tool` exists on `RemoteAdapterFFI`, `MultiPeerRouterFFI`, and `ConnectResponderFFI`; `register_tool_handler` exists on `RemoteAdapterFFI` and `ConnectResponderFFI`.
 
 Discovery is a property of the authenticated session: `remote_manifest()` returns the peer's `HostCapabilityManifest` JSON, and its `tools[]` descriptors are the tools the peer can serve:
 
@@ -171,7 +171,7 @@ The FFI surface never builds a listener — the host product owns listen/accept 
 responder = spoke_connect.connect_responder_ffi(
     LoopbackCallbackTransport(pair.server()),
     seed_host,
-    tool_manifest_json("test-responder"),  # HostCapabilityManifest with tools[]
+    _tool_manifest_json("test-responder"),  # HostCapabilityManifest with tools[]
     [peer_id_client],                      # fail-closed dialer allowlist
     {peer_id_client: pubkey_client},       # peer_id -> 32-byte Ed25519 pubkey
     None,                                  # invoke timeout in ms; None uses the default

@@ -33,7 +33,7 @@ Native libraries resolve via NuGet RID assets (`runtimes/<rid>/native/`). Transp
 
 ## Scope
 
-Session core: `peer_id`, hello sign/verify, allowlist, nonce, sequence, correlation, dispatch. The package also carries the additive remote-adapter FFI surface — `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces: `InvokeTool` / `RegisterToolHandler` on the adapter, router, and responder, the `ToolHandler` callback, and `ConnectResponderFfi` for the accept side. The native library is built from the production feature pair `ffi,remote-adapter`: regenerated bindings reference `remote-adapter` symbols at load time, so the release build always carries both features. Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
+Session core: `peer_id`, hello sign/verify, allowlist, nonce, sequence, correlation, dispatch. The package also carries the additive remote-adapter FFI surface — `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces: `InvokeTool` on the adapter, router, and responder, `RegisterToolHandler` on the adapter and responder, the `ToolHandler` callback, and `ConnectResponderFfi` for the accept side. The native library is built from the production feature pair `ffi,remote-adapter`: regenerated bindings reference `remote-adapter` symbols at load time, so the release build always carries both features. Version locksteps with the spoke monorepo SemVer / git tag `vX.Y.Z`.
 
 ## Transport contract
 

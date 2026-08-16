@@ -26,7 +26,7 @@ Full loopback smoke procedure: [`Smoke/loopback_remote_adapter_test.go`](Smoke/l
 
 ## RemoteAdapter FFI surface
 
-With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces — `InvokeTool` / `RegisterToolHandler` on the adapter, router, and responder, the `ToolHandler` callback, and `NewConnectResponderFfi` / `ConnectResponderFfi` for the accept side.
+With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces — `InvokeTool` on the adapter, router, and responder, `RegisterToolHandler` on the adapter and responder, the `ToolHandler` callback, and `NewConnectResponderFfi` / `ConnectResponderFfi` for the accept side.
 
 ### Transport contract
 

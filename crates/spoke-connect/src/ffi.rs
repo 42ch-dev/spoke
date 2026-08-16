@@ -3508,10 +3508,13 @@ mod remote_adapter_ffi_tests {
             err,
             FfiError::Rejected {
                 code,
+                message,
                 kind: None,
                 wire_code: None,
                 ..
             } if code == "INVALID_INPUT"
+                && message.contains("invalid tool arguments JSON")
+                && message.contains("key must be a string")
         ));
         assert!(
             calls.lock().expect("calls lock").is_empty(),
@@ -3584,6 +3587,173 @@ mod remote_adapter_ffi_tests {
         let result: Value = serde_json::from_str(&retry).expect("retry result json");
         assert_eq!(result, json!({ "sum": 42 }));
         ffi.close();
+        responder.close();
+    }
+
+    // ── Task 5: concurrency + close semantics over the tool faces ─────────
+
+    #[test]
+    fn ffi_invoke_tool_concurrent_invokes_from_os_threads_block_on_independently() {
+        let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let (responder, client) = dial_responder(None);
+        responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls)));
+        let ffi = Arc::new(dial_ffi_with_tools(client, None));
+        assert_eq!(ffi.state(), "Established");
+
+        // Multiple OS threads block on the same adapter concurrently — each
+        // call blocks its own calling thread while the shared runtime
+        // multiplexes the library futures (D15 concurrency / AR-6 pattern).
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let ffi = Arc::clone(&ffi);
+                thread::spawn(move || {
+                    let result_json = ffi
+                        .invoke_tool(
+                            "tools.math.add".to_string(),
+                            format!(r#"{{"a": {i}, "b": 1}}"#),
+                        )
+                        .expect("concurrent tool invoke");
+                    let result: Value =
+                        serde_json::from_str(&result_json).expect("result json");
+                    assert_eq!(result, json!({ "sum": i + 1 }));
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("thread join");
+        }
+        assert_eq!(
+            calls.lock().expect("calls lock").len(),
+            4,
+            "every concurrent invoke was served"
+        );
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_close_mid_wait_settles_pending_invoke_tool_session_closed_and_post_close_rejects() {
+        use std::time::{Duration, Instant};
+
+        let (responder, client) = dial_responder(None);
+        // Never-answering serving double: the handler never settles, so the
+        // dialer's tool invoke stays pending until close.
+        let boom_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let boom_calls_handler = Arc::clone(&boom_calls);
+        responder.register_tool_handler(
+            "tools.echo.boom",
+            Arc::new(move |args: Value| {
+                let boom_calls = Arc::clone(&boom_calls_handler);
+                Box::pin(async move {
+                    boom_calls.lock().expect("calls lock").push(args.clone());
+                    futures::future::pending::<SpokeResult<Value>>().await
+                })
+            }),
+        );
+        let ffi = Arc::new(dial_ffi_with_tools(client, None));
+        assert_eq!(ffi.state(), "Established");
+
+        let invoke_slot = Arc::new(Mutex::new(None));
+        let invoke_slot_thread = Arc::clone(&invoke_slot);
+        let ffi_thread = Arc::clone(&ffi);
+        let invoke_handle = thread::spawn(move || {
+            let result =
+                ffi_thread.invoke_tool("tools.echo.boom".to_string(), r#"{}"#.to_string());
+            *invoke_slot_thread.lock().expect("invoke slot lock") = Some(result);
+        });
+        // The request hit the wire once the serving double's handler ran —
+        // the dialer's waiter registers before the send (D10), so a close at
+        // this point must settle the pending invoke with `session_closed`.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while boom_calls.lock().expect("calls lock").is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "invoke never reached the serving double"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        ffi.close();
+        assert_eq!(ffi.state(), "Closed");
+        invoke_handle.join().expect("invoke thread joined");
+        let err = invoke_slot
+            .lock()
+            .expect("invoke slot lock")
+            .take()
+            .expect("invoke result")
+            .expect_err("pending invoke must settle session_closed on close");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: None,
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+
+        // Post-close `invoke_tool` rejects the same row (D15 session-closed).
+        let err = ffi
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("post-close tool invoke must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: None,
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_register_tool_handler_after_close_behaves_per_d16() {
+        let (responder, client) = dial_responder(None);
+        let ffi = dial_ffi_with_tools(client, None);
+        assert_eq!(ffi.state(), "Established");
+        ffi.close();
+        assert_eq!(ffi.state(), "Closed");
+
+        // Registration is a registry-only operation with no session-state
+        // check (D13): a valid id still registers on the library face after
+        // close — the session is closed, so the handler can never serve, but
+        // the call itself is not an error row (D16 has no close row for
+        // registration; the wrapper's grammar pre-validation is the whole
+        // FFI-side contract).
+        let (handler, calls) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "sum": 42 })));
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers after close");
+
+        // Grammar pre-validation still applies after close (D16 row).
+        let (bad_handler, _) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({})));
+        let err = ffi
+            .register_tool_handler("port.x".to_string(), bad_handler)
+            .expect_err("invalid grammar rejects after close");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT" && message.contains("port.x")
+        ));
+
+        // The registry entry is inert: the closed session cannot serve.
+        assert!(calls.lock().expect("calls lock").is_empty());
+        let err = ffi
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("post-close invoke stays rejected");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
         responder.close();
     }
 
@@ -3949,6 +4119,7 @@ mod connect_responder_ffi_tests {
     use super::foreign_transport::TransportError;
     use super::foreign_tool_handler::ToolHandler as FfiToolHandler;
     use super::ffi_runtime;
+    use super::multi_peer_router_ffi::new_multi_peer_router_ffi;
     use super::remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
 
     /// Callback `Transport` impl over the loopback end — exactly what a
@@ -4162,6 +4333,117 @@ mod connect_responder_ffi_tests {
             1,
             "the dialer's foreign handler served the invoke"
         );
+        dialer.close();
+        responder.close();
+    }
+
+    // ── Task 5: both-directions integration over the router ──────────────
+
+    #[test]
+    fn both_ends_register_handlers_and_invoke_in_both_directions_over_the_router() {
+        let (responder, dialer) = dial_responder_ffi();
+
+        // Both ends register handlers: the dialer serves responder→dialer
+        // reverse invokes (D16 dialer-side serving face), the responder
+        // serves dialer→responder invokes (D16 accept topology).
+        let (dialer_handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.echo.echo".to_string(), dialer_handler)
+            .expect("dialer registers");
+        let (responder_handler, responder_calls) = sum_handler();
+        responder
+            .register_tool_handler("tools.math.add".to_string(), responder_handler)
+            .expect("responder registers");
+
+        // Dialer→responder over the router: the dialer's established adapter
+        // is the router's only registered peer; the router selects it from
+        // the cached hello manifest (tools.math.add) and delegates through
+        // the adapter's tool face.
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(Arc::clone(&dialer))
+            .expect("register dialer peer");
+        let result_json = router
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 20, "b": 22}"#.to_string())
+            .expect("router routes the dialer→responder invoke");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result_json).expect("result json"),
+            json!({ "sum": 42 })
+        );
+        assert_eq!(
+            responder_calls.lock().expect("responder calls lock").len(),
+            1,
+            "the responder's foreign handler served the dialer→responder invoke"
+        );
+
+        // Responder→dialer: the responder's reverse invoke reaches the
+        // dialer's foreign handler — both directions serve through
+        // registered handlers.
+        let result_json = responder
+            .invoke_tool("tools.echo.echo".to_string(), r#"{"a": 1, "b": 2}"#.to_string())
+            .expect("responder reverse invoke succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result_json).expect("result json"),
+            json!({ "sum": 3 })
+        );
+        assert_eq!(
+            dialer_calls.lock().expect("dialer calls lock").len(),
+            1,
+            "the dialer's foreign handler served the responder→dialer invoke"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_register_tool_handler_after_close_behaves_per_d16() {
+        let (responder, dialer) = dial_responder_ffi();
+        responder.close();
+        assert_eq!(responder.state(), "Closed");
+
+        // Registry-only registration (D13): a valid id still registers on
+        // the library face after close — no D16 close row for registration,
+        // the wrapper's grammar pre-validation is the whole FFI contract.
+        let (handler, _) = sum_handler();
+        responder
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers after close");
+
+        // Grammar pre-validation still applies after close (D16 row).
+        let (bad_handler, _) = sum_handler();
+        let err = responder
+            .register_tool_handler("port.x".to_string(), bad_handler)
+            .expect_err("invalid grammar rejects after close");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INVALID_INPUT" && kind.is_none() && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+
+        // The closed session cannot serve or invoke (D15 session-closed row).
+        let err = responder
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("post-close reverse invoke rejects");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ..
+                } if code == "INTERNAL_ERROR" && kind.as_deref() == Some("session_closed")
+            ),
+            "unexpected error row: {err:?}"
+        );
+        dialer.close();
     }
 
     #[test]
@@ -4198,13 +4480,18 @@ mod connect_responder_ffi_tests {
                 err,
                 FfiError::Rejected {
                     ref code,
+                    ref kind,
                     ref wire_code,
                     ..
                 } if code == "CAPABILITY_PORT_MISSING"
+                    && kind.is_none()
                     && wire_code.as_deref() == Some("op_unsupported")
             ),
             "expected dispatch-deny row, got {err:?}"
         );
+
+        dialer.close();
+        responder.close();
     }
 
     #[test]
@@ -4221,13 +4508,17 @@ mod connect_responder_ffi_tests {
                 err,
                 FfiError::Rejected {
                     ref code,
+                    ref kind,
                     ref wire_code,
                     ..
                 } if code == "CAPABILITY_PORT_MISSING"
+                    && kind.is_none()
                     && wire_code.as_deref() == Some("op_unsupported")
             ),
             "expected absent-ports deny row, got {err:?}"
         );
+        dialer.close();
+        responder.close();
     }
 
     #[test]
@@ -4904,6 +5195,73 @@ mod multi_peer_router_ffi_tests {
     }
 
     #[test]
+    fn multi_peer_router_ffi_invoke_tool_fails_fast_on_bad_input_with_zero_router_traffic() {
+        let (add_adapter, add_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf7; 32],
+                tool_manifest_with(
+                    "host-add",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let add_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        add_responder.register_tool_handler(
+            "tools.math.add",
+            add_handler(Arc::clone(&add_calls)),
+        );
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(add_adapter.clone()))
+            .expect("register add peer");
+
+        // Non-`tools.` id → INVALID_INPUT with the offending id in message,
+        // before any peer selection (D15 grammar fail-fast, zero wire
+        // traffic) — even though the registered peer WOULD be capable.
+        let err = router
+            .invoke_tool("port.x".to_string(), r#"{}"#.to_string())
+            .expect_err("non-tools id must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT" && message.contains("port.x")
+        ));
+
+        // Malformed arguments JSON → INVALID_INPUT with the parse error in
+        // message (D15 FFI-boundary parse row), also zero wire traffic.
+        let err = router
+            .invoke_tool("tools.math.add".to_string(), "{ not json".to_string())
+            .expect_err("malformed arguments json must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT"
+                && message.contains("invalid tool arguments JSON")
+                && message.contains("key must be a string")
+        ));
+        assert!(
+            add_calls.lock().expect("add calls lock").is_empty(),
+            "fail-fast must not reach any serving double"
+        );
+
+        add_adapter.close();
+        add_responder.close();
+    }
+
+    #[test]
     fn multi_peer_router_ffi_invoke_tool_breaks_ties_on_the_lowest_peer_id() {
         let (alpha_adapter, alpha_responder) = ffi_runtime().block_on(async {
             dial_tool_peer(
@@ -4940,11 +5298,12 @@ mod multi_peer_router_ffi_tests {
         });
         let alpha_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         let beta_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let gamma_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
         alpha_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&alpha_calls)));
         beta_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&beta_calls)));
         gamma_responder.register_tool_handler(
             "tools.echo.echo",
-            echo_handler(Arc::new(Mutex::new(Vec::new()))),
+            echo_handler(Arc::clone(&gamma_calls)),
         );
 
         let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
@@ -4980,6 +5339,10 @@ mod multi_peer_router_ffi_tests {
             "lowest peer_id must serve the tool invoke"
         );
         assert!(loser_calls.lock().expect("loser lock").is_empty());
+        assert!(
+            gamma_calls.lock().expect("gamma calls lock").is_empty(),
+            "the non-matching third peer must receive zero invokes"
+        );
 
         alpha_adapter.close();
         beta_adapter.close();

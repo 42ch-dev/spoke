@@ -120,6 +120,17 @@ func TestToolLoopbackFfiPair(t *testing.T) {
 	if passed.WireCode == nil || *passed.WireCode != "op_unsupported" {
 		t.Fatalf("reject passthrough wire_code: got %v want op_unsupported", passed.WireCode)
 	}
+
+	// Post-close state: both FFI faces report Closed after close (Cleanup
+	// above double-closes; close is idempotent).
+	dialer.Close()
+	responder.Close()
+	if got := dialer.State(); got != "Closed" {
+		t.Fatalf("tool dialer state after close: got %q want Closed", got)
+	}
+	if got := responder.State(); got != "Closed" {
+		t.Fatalf("tool responder state after close: got %q want Closed", got)
+	}
 }
 
 // toolManifestJSON — tool-carrying manifest: every tool capability also sits

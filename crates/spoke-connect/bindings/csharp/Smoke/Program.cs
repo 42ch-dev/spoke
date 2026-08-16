@@ -45,8 +45,9 @@ try
 #if SMOKE_HOST
     LoopbackSmoke.Run();
     Console.WriteLine("loopback RemoteAdapterFFI: PASS");
-    Console.WriteLine("loopback tool faces: PASS");
 #endif
+    ToolLoopbackSmoke.Run();
+    Console.WriteLine("loopback tool faces: PASS");
 
     Console.WriteLine();
     Console.WriteLine("GOLDEN PARITY: ALL PASS");

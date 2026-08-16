@@ -267,6 +267,8 @@ final class IosSmokeTests: XCTestCase {
         defer {
             dialer.close()
             responder.close()
+            XCTAssertEqual(dialer.state(), "Closed", "tool dialer state after close")
+            XCTAssertEqual(responder.state(), "Closed", "tool responder state after close")
         }
 
         XCTAssertEqual(dialer.state(), "Established")

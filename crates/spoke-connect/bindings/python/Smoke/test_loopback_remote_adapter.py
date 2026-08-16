@@ -1,15 +1,15 @@
 """RemoteAdapterFFI loopback smoke for the spoke-connect Python binding.
 
 Dials `RemoteAdapterFFI` through a Python `Transport` implementation over the
-in-memory loopback pair and the reference smoke host (parity with Swift
-`loopback_smoke.swift`, Kotlin `RemoteAdapterLoopbackTest.kt`, and
-`crates/spoke-connect/src/ffi.rs` remote_adapter_ffi_tests). The tool-pair
-test drives both FFI faces (D15/D16) over a loopback pair with no smoke host:
-both ends are FFI objects.
-
-Requires bindings regenerated from a smoke cdylib (`ffi-smoke-host`) and that
-cdylib staged beside `spoke_connect/__init__.py`. Production bindings skip this
-module via `unittest.skipUnless`.
+in-memory loopback pair. The tool-pair test drives both FFI faces (D15/D16)
+over a loopback pair with no smoke host — both ends are FFI objects, every
+face is on the committed production binding (`ffi,remote-adapter`), so it runs
+in the default `unittest discover` suite. The smoke-host put/get round-trip
+(parity with Swift `loopback_smoke.swift`, Kotlin `RemoteAdapterLoopbackTest.kt`,
+and `crates/spoke-connect/src/ffi.rs` remote_adapter_ffi_tests) additionally
+needs the reference smoke host: bindings regenerated from a smoke cdylib
+(`ffi-smoke-host`) staged beside `spoke_connect/__init__.py`, and is gated by
+`unittest.skipUnless` on production bindings.
 """
 
 from __future__ import annotations
@@ -187,6 +187,8 @@ class RemoteAdapterLoopbackTests(unittest.TestCase):
             self.assertEqual("Closed", adapter.state())
             host.close()
 
+
+class ToolLoopbackFfiPairTests(unittest.TestCase):
     def test_tool_loopback_ffi_pair(self) -> None:
         """Tool faces over the loopback pair (D15/D16): both ends are FFI
         objects — the responder serves a foreign `ToolHandler`, the dialer

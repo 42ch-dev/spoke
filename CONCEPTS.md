@@ -60,7 +60,7 @@ Baseline-required adapter port: `getHostCapabilityManifest` / `listPeerHostCapab
 
 A wire descriptor (`schemas/data/tool-descriptor.schema.json`) declaring the ABI of one remote-invokable tool. A manifest that exposes tools carries its descriptors in `HostCapabilityManifest.tools[]`; each descriptor's `capability_id` — the `tools.<ns>.<tool_id>` string — also appears in the same manifest's `capabilities[]`, and the namespace derived from the capability id is a member of the manifest's `namespaces[]`. The descriptor pairs `op` with the same string as `capability_id`, carries a `description`, and declares `input` / `output` as JSON Schema draft-07 subschema objects, where `{}` declares an unconstrained ABI. `idempotent` is optional metadata. Field tables: [`spoke-data-model.md`](.mstar/specs/spoke-data-model.md) §HostCapabilityManifest.
 
-### tool capability id
+### Tool capability id
 
 The `tools.<ns>.<tool_id>` string that names one tool and gates its dispatch. `ns` matches the manifest namespace pattern and is a member of the declaring manifest's `namespaces[]`; `tool_id` is an open-ended lowercase token (`^[a-z0-9][a-z0-9_-]*$`). The capability id is the `op` string for the tool and the required capability for dispatching the invoke; it enters `negotiated_capabilities` when both session hellos list that exact string. Grammar and gate: [`spoke-connect.md`](.mstar/specs/spoke-connect.md) §Op dispatch gate.
 

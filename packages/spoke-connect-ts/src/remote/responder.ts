@@ -307,8 +307,10 @@ export class ConnectResponder {
    * `registerToolHandler` fills it; the serving path looks it up by exact
    * capability id. The local manifest's `tools[]` (carried through hello)
    * is the discovery source — this registry MUST NOT mutate the manifest;
-   * a registry/manifest mismatch is a provider bug caught pre-hello by
-   * `validateManifestTools`.
+   * a registry/manifest mismatch is surfaced at invoke time: a
+   * manifest-declared tool with no registered handler is denied
+   * fail-closed (op_unsupported → CAPABILITY_PORT_MISSING);
+   * `validateManifestTools` checks manifest-internal consistency only.
    */
   #toolHandlers = new Map<string, ToolHandler>();
   /**

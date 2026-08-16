@@ -310,8 +310,10 @@ export class RemoteAdapter implements BaselinePorts {
    * `registerToolHandler` fills it; the receive loop's serving path looks
    * it up by exact capability id. The local manifest's `tools[]` (carried
    * through hello) is the discovery source — this registry MUST NOT mutate
-   * the manifest; a registry/manifest mismatch is a provider bug caught
-   * pre-hello by `validateManifestTools`.
+   * the manifest; a registry/manifest mismatch is surfaced at invoke
+   * time: a manifest-declared tool with no registered handler is denied
+   * fail-closed (op_unsupported → CAPABILITY_PORT_MISSING);
+   * `validateManifestTools` checks manifest-internal consistency only.
    */
   #toolHandlers = new Map<string, ToolHandler>();
   /**
@@ -465,8 +467,10 @@ export class RemoteAdapter implements BaselinePorts {
    *
    * The registry does NOT mutate the local manifest — descriptor truth for
    * discovery stays in the manifest's `tools[]` (sent through hello);
-   * registering a handler for a tool the manifest does not declare is a
-   * provider bug caught pre-hello by `validateManifestTools`.
+   * registering a handler for a tool the manifest does not declare
+   * leaves that id unserved — invoking it answers the dispatch-deny
+   * branch; `validateManifestTools` checks manifest-internal
+   * consistency only.
    */
   registerToolHandler(capabilityId: string, handler: ToolHandler): void {
     const parsed = parseToolCapabilityId(capabilityId);

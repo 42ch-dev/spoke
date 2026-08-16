@@ -540,8 +540,9 @@ impl RemoteAdapter {
     /// The registry does NOT mutate the local manifest — descriptor truth
     /// for discovery stays in the manifest's `tools[]` (sent through
     /// hello); registering a handler for a tool the manifest does not
-    /// declare is a provider bug caught pre-hello by
-    /// `validate_manifest_tools`.
+    /// declare leaves that id unserved — invoking it answers the
+    /// dispatch-deny branch; `validate_manifest_tools` checks
+    /// manifest-internal consistency only.
     pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
         match parse_tool_capability_id(capability_id) {
             SpokeResult::Ok(_) => {}

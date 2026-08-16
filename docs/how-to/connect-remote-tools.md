@@ -10,7 +10,7 @@ The story in one line: a client's manifest advertises tools in `tools[]`; the ho
 
 ## 1. Advertise tools in the manifest
 
-Three manifest fields describe the tools a host can serve from a dialed session:
+Three manifest fields describe the tools a dialer advertises for the host to discover and reverse-invoke over an established session:
 
 | Field | Role |
 |-------|------|

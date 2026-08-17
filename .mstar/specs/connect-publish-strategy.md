@@ -2,7 +2,7 @@
 
 **Status:** Informative decision — does not change connect envelopes or the lockstep release policy for core wire packages.
 
-**Updated:** 2026-08-03
+**Updated:** 2026-08-17
 
 ---
 
@@ -107,6 +107,19 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 - `release.yml` remains the **sole top-level publish workflow** (tag push `v*` or `release`-labeled PR merge). Trusted Publishing OIDC binds to that filename — keep npm/crates/PyPI publish inside `publish-npm` / `publish-crates` / `publish-pypi`; C# NuGet and Kotlin Maven publish are sibling jobs in the same workflow.
 - SPM and Go module bindings resolve from the repo via `vX.Y.Z` tags; they require the tag gate but no `release.yml` publish job.
 - Stable tags `vX.Y.Z` and prerelease SemVer tags without `-rc.` publish registries; tags containing `-rc.` create GitHub pre-releases only (no npm / crates.io / GitHub Packages binding / PyPI push).
+
+**Re-run semantics:**
+
+Re-running Release at an already-published lockstep tag is safe for the PyPI and Maven lanes: the `publish-pypi` and `publish-maven` jobs pre-check the registry for the full expected artifact set at the tag SemVer and skip build + publish when it is complete. The pre-check is the skip gate; registry flags are per-file guards only.
+
+| Lane | Pre-check | Skip when complete | Partial-set behavior |
+|------|-----------|--------------------|----------------------|
+| **PyPI** (`publish-pypi`) | `GET https://pypi.org/pypi/spoke-connect/<version>/json` (package name from `crates/spoke-connect/bindings/python/pyproject.toml`; version = tag minus the `v` prefix). Expected set = the three platform wheels locked by `tooling/connect/verify-python-wheels.sh` — `spoke_connect-<ver>-py3-none-manylinux_2_35_x86_64.whl`, `spoke_connect-<ver>-py3-none-macosx_11_0_arm64.whl`, `spoke_connect-<ver>-py3-none-win_amd64.whl`; no sdist | All three wheels present → build and publish steps skipped, skip reason logged. `skip-existing: true` on the pinned `pypa/gh-action-pypi-publish` step is a per-file duplicate guard during an actual publish attempt only — the unconditional re-probe decides green. Yanked wheels (PEP 592) count as absent, so a yanked expected file keeps the probe red | Missing wheels are attempted; already-present wheels are tolerated as duplicates during the resume. The unconditional `Confirm published set` re-probe must show all three wheels or the job fails |
+| **Maven** (`publish-maven`) | Authenticated `GET` on `https://maven.pkg.github.com/42ch-dev/spoke/dev/42ch/spoke-connect/<version>/` for `spoke-connect-<ver>.pom`, `spoke-connect-<ver>.module`, `spoke-connect-<ver>.jar` with `Authorization: Bearer $GITHUB_TOKEN`, plus a jar-entries check for the three JNA resources (`linux-x86-64/libspoke_connect.so`, `darwin-aarch64/libspoke_connect.dylib`, `win32-x86-64/spoke_connect.dll`). Expected set enumerated from the Gradle publication (`from(components["java"])`); no sources/javadoc or native classifiers | Full set (pom + module + jar with all JNA entries) present → `gradle publish` skipped, skip reason logged | The job attempts `gradle publish` for the whole set with the publish step set to `continue-on-error`, so the unconditional re-probe is the sole arbiter: a verified full set greens the job (a concurrent winner's full set included), while a still-partial set fails the job naming the missing files. Recovery is manual — delete the package version in the GitHub Packages UI and re-run (no automated registry deletion) |
+
+Both jobs close with an unconditional `Confirm published set` re-probe step (`if: ${{ always() }}`): only the re-probe decides green — the job is green on a verified full set, on the skip path and the publish path alike. Registry doubt fails the job: network errors, HTTP 401/403/5xx (HTTP 404 means the version is absent → publish needed), malformed JSON, or an unexpected payload shape exit non-zero with a message naming the registry and the status.
+
+Each probe decides on the expected artifact set alone: the expected set is the sole input to the skip decision. Registry entries outside the expected set — extra `urls[]` files on PyPI, extra files listed in the Gradle module metadata on Maven — are logged to stderr as warnings for observability; the verdict always reflects the expected set alone.
 
 ---
 

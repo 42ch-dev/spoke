@@ -19,7 +19,7 @@
     "test:operations": "pnpm -F @42ch/spoke-operations test",
     "test:connect-ts": "pnpm -F @42ch/spoke-connect test",
     "test:demo": "pnpm -F @42ch/spoke-demo-server test && pnpm -F @42ch/spoke-demo-client test",
-    "test:release": "node --test tooling/release/assert-lockstep-version.test.mjs tooling/release/bump-version.test.mjs",
+    "test:release": "node --test tooling/release/assert-lockstep-version.test.mjs tooling/release/bump-version.test.mjs tooling/release/check-pypi-published.test.mjs tooling/release/check-maven-published.test.mjs",
     "ci:typescript": "pnpm run build:schema && pnpm run typecheck && pnpm run test && pnpm run test:fixtures && pnpm run test:connect-ts && pnpm run build:operations && pnpm run test:release && pnpm run test:demo",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",

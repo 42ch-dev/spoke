@@ -28,6 +28,22 @@ SWIFT_BINDINGS="${REPO_ROOT}/crates/spoke-connect/bindings/swift"
 GENERATED="${SWIFT_BINDINGS}/generated"
 XCFRAMEWORK="${SWIFT_BINDINGS}/xcframework/spoke_connectFFI.xcframework"
 
+# CI affordance: when XCFRAMEWORK_OUTPUT_DIR is set, write the generated
+# bindings and xcframework under it, leaving the committed trees untouched
+# so the drift gate can compare committed vs built output.
+if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
+  GENERATED="${XCFRAMEWORK_OUTPUT_DIR}/generated"
+  XCFRAMEWORK="${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework"
+fi
+
+# CI affordance: --locked pins the committed Cargo.lock for reproducible CI
+# builds; local nightly builds may run with a modified lockfile, so the flag
+# stays off unless requested (XCFRAMEWORK_LOCKED=1).
+LOCKED=()
+if [[ "${XCFRAMEWORK_LOCKED:-0}" == "1" ]]; then
+  LOCKED=(--locked)
+fi
+
 # Prefer nightly locally (AGENTS.md); fall back to default cargo (CI stable).
 CARGO=(cargo)
 RUSTUP_TOOLCHAIN=()
@@ -71,7 +87,7 @@ TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c '
 FFI_FEATURES="ffi,remote-adapter"
 
 echo "==> build ffi cdylib (bindgen metadata source; production surface — no ffi-smoke-host)"
-"${CARGO[@]}" build -p spoke-connect --features "${FFI_FEATURES}" --release
+"${CARGO[@]}" build "${LOCKED[@]}" -p spoke-connect --features "${FFI_FEATURES}" --release
 CDYLIB="${TARGET_DIR}/release/libspoke_connect.dylib"
 if [[ ! -f "${CDYLIB}" ]]; then
   echo "missing cdylib: ${CDYLIB}" >&2
@@ -80,7 +96,7 @@ fi
 
 echo "==> generate Swift bindings"
 mkdir -p "${GENERATED}"
-"${CARGO[@]}" run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+"${CARGO[@]}" run "${LOCKED[@]}" -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
   generate --library "${CDYLIB}" \
   --language swift \
   --out-dir "${GENERATED}"
@@ -104,7 +120,7 @@ for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
   echo "  -> ${slice} (${triple})"
-  "${CARGO[@]}" rustc -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
+  "${CARGO[@]}" rustc "${LOCKED[@]}" -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
   STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
   if [[ ! -f "${STATICLIB}" ]]; then
     echo "missing staticlib: ${STATICLIB}" >&2

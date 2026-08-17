@@ -1,0 +1,91 @@
+name: Xcframework
+
+# Dedicated xcframework job: assembles the three-slice spoke_connectFFI
+# xcframework from the checkout's Rust sources and fails the job when the
+# built bytes drift from the committed (LFS) artifact. Path-filtered so the
+# macOS runner is used only when the FFI surface (or this automation itself)
+# changes — never per-push unconditional. Mirrors ci.yml's event set.
+on:
+  pull_request:
+    paths:
+      - crates/spoke-connect/src/**
+      - crates/spoke-connect/uniffi-bindgen.rs
+      - crates/spoke-connect/Cargo.toml
+      - Cargo.lock
+      - tooling/connect/build-swift-xcframework.sh
+      - tooling/connect/verify-xcframework-drift.sh
+      - crates/spoke-connect/bindings/swift/generated/**
+      - .github/workflows/xcframework.yml
+  push:
+    branches:
+      - main
+      - iteration/**
+    paths:
+      - crates/spoke-connect/src/**
+      - crates/spoke-connect/uniffi-bindgen.rs
+      - crates/spoke-connect/Cargo.toml
+      - Cargo.lock
+      - tooling/connect/build-swift-xcframework.sh
+      - tooling/connect/verify-xcframework-drift.sh
+      - crates/spoke-connect/bindings/swift/generated/**
+      - .github/workflows/xcframework.yml
+
+concurrency:
+  group: xcframework-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  xcframework:
+    name: xcframework
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2 — lfs: true so the drift compare sees real
+        # .a bytes, not LFS pointers.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: true
+
+      - name: Setup Rust toolchain (pinned exact stable + Apple targets)
+        # dtolnay/rust-toolchain@stable (2026-07-16) — toolchain pinned to an
+        # exact stable release so xcframework bytes are reproducible run to
+        # run (the build script uses its default-toolchain/CI-stable path).
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+          targets: aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+
+      - name: Build Swift xcframework (staged, locked)
+        # Staged output keeps the committed trees untouched for the drift
+        # compare; --locked pins the committed Cargo.lock.
+        env:
+          XCFRAMEWORK_LOCKED: "1"
+          XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xcframework-stage
+        run: ./tooling/connect/build-swift-xcframework.sh
+
+      - name: Verify drift vs committed xcframework
+        # Red job = committed artifact no longer matches the sources at this
+        # SHA. The artifact still uploads (below) for the apply path.
+        run: |
+          ./tooling/connect/verify-xcframework-drift.sh \
+            crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
+            "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
+
+      - name: Write xcframework hash manifest
+        run: |
+          cd "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
+          find . -type f | LC_ALL=C sort | xargs shasum -a 256 > ../spoke_connectFFI.xcframework.sha256
+
+      - name: Upload xcframework artifact
+        # actions/upload-artifact@v4.6.2 — unconditional so a failing drift
+        # run still hands the maintainer the apply input.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spoke-connect-xcframework
+          path: ${{ runner.temp }}/xcframework-stage
+          if-no-files-found: error
+          retention-days: 5

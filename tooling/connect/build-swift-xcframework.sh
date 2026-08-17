@@ -44,10 +44,15 @@ if [[ "${XCFRAMEWORK_LOCKED:-0}" == "1" ]]; then
   LOCKED=(--locked)
 fi
 
-# Prefer nightly locally (AGENTS.md); fall back to default cargo (CI stable).
+# Prefer nightly locally (AGENTS.md); the locked/CI path builds with the
+# workflow-pinned default toolchain exactly (XCFRAMEWORK_LOCKED=1 opts into
+# --locked builds and the pinned toolchain — never +nightly, so a runner
+# image that ships nightly cannot bypass the pin).
 CARGO=(cargo)
 RUSTUP_TOOLCHAIN=()
-if command -v rustup >/dev/null 2>&1 && rustup toolchain list | grep -q '^nightly'; then
+if [[ "${XCFRAMEWORK_LOCKED:-0}" != "1" ]] \
+  && command -v rustup >/dev/null 2>&1 \
+  && rustup toolchain list | grep -q '^nightly'; then
   CARGO=(cargo +nightly)
   RUSTUP_TOOLCHAIN=(--toolchain nightly)
 fi

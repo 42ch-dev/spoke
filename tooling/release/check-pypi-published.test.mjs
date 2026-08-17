@@ -1,0 +1,240 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  expectedWheelFilenames,
+  normalizeDistributionName,
+  parsePyprojectName,
+} from "./check-pypi-published.mjs";
+import {
+  cleanupTempRepo,
+  createTempRepo,
+} from "./test-harness.mjs";
+
+const SCRIPT_PATH = fileURLToPath(
+  new URL("./check-pypi-published.mjs", import.meta.url),
+);
+
+// Fake PyPI JSON API. Responses are keyed by the SemVer in the request path so
+// every case is self-contained and tests never depend on the live registry.
+// The server lives in THIS process, so the CLI child must be spawned
+// asynchronously (spawnSync would block this event loop and deadlock the
+// probe against the server).
+let server;
+let baseUrl;
+
+const wheelUrls = (version) =>
+  expectedWheelFilenames("spoke-connect", version).map((filename) => ({
+    filename,
+  }));
+
+before(async () => {
+  server = createServer((req, res) => {
+    const match = req.url?.match(/^\/pypi\/spoke-connect\/([^/]+)\/json$/);
+    const version = match?.[1] ?? "";
+    const json = (status, body) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    switch (version) {
+      case "0.1.0": // absent — not published at this SemVer
+        json(404, { message: "not found" });
+        break;
+      case "0.2.0": // full expected set present
+        json(200, { urls: wheelUrls("0.2.0") });
+        break;
+      case "0.3.0": // partial — win_amd64 wheel missing
+        json(200, {
+          urls: wheelUrls("0.3.0").filter((u) => !u.filename.includes("win_amd64")),
+        });
+        break;
+      case "0.4.0": // registry error
+        res.writeHead(503, { "content-type": "text/plain" });
+        res.end("temporarily unavailable");
+        break;
+      case "0.5.0": // malformed JSON
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end("{ this is not json");
+        break;
+      case "0.6.0": // 200 but unexpected payload shape
+        json(200, { info: {} });
+        break;
+      default:
+        json(404, { message: "not found" });
+        break;
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  baseUrl = `http://127.0.0.1:${address.port}`;
+});
+
+after(async () => {
+  // fetch (undici) keeps the probe connection alive; closeAllConnections()
+  // unblocks server.close() so the test process can exit.
+  server.closeAllConnections();
+  await new Promise((resolve, reject) =>
+    server.close((err) => (err ? reject(err) : resolve())),
+  );
+});
+
+/**
+ * Spawn the CLI against the fake PyPI API from a temp lockstep fixture repo.
+ *
+ * @param {object} opts
+ * @param {string} opts.tag RELEASE_TAG value (e.g. "v0.2.0").
+ * @param {string[]} [opts.args] Extra CLI args (e.g. ["--verify"]).
+ * @param {string} [opts.githubOutput] When set, point GITHUB_OUTPUT at this file.
+ * @returns {Promise<{ status: number | null; stdout: string; stderr: string }>}
+ */
+async function runCheck({ tag, args = [], githubOutput }) {
+  const repoRoot = createTempRepo();
+  const env = {
+    ...process.env,
+    SPOKE_REPO_ROOT: repoRoot,
+    RELEASE_TAG: tag,
+    PYPI_BASE_URL: baseUrl,
+  };
+  delete env.GITHUB_OUTPUT;
+  if (githubOutput) {
+    env.GITHUB_OUTPUT = githubOutput;
+  }
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [SCRIPT_PATH, ...args], {
+        cwd: repoRoot,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.on("error", reject);
+      child.on("close", (status) => resolve({ status, stdout, stderr }));
+    });
+  } finally {
+    cleanupTempRepo(repoRoot);
+  }
+}
+
+describe("check-pypi-published.mjs CLI", () => {
+  it("reports publish needed when the version is absent (404)", async () => {
+    const result = await runCheck({ tag: "v0.1.0" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /not found on PyPI \(HTTP 404\)/);
+    assert.match(result.stdout, /publish_needed=true/);
+    assert.match(
+      result.stdout,
+      /missing_files=spoke_connect-0\.1\.0-py3-none-manylinux_2_35_x86_64\.whl,spoke_connect-0\.1\.0-py3-none-macosx_11_0_arm64\.whl,spoke_connect-0\.1\.0-py3-none-win_amd64\.whl/,
+    );
+  });
+
+  it("skips when the full expected set is present", async () => {
+    const result = await runCheck({ tag: "v0.2.0" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /already published on PyPI \(3\/3 expected files present\)/);
+    assert.match(result.stdout, /publish_needed=false/);
+    assert.match(result.stdout, /missing_files=$/m);
+  });
+
+  it("does not skip-green on a partial set", async () => {
+    const result = await runCheck({ tag: "v0.3.0" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /partially published on PyPI/);
+    assert.match(result.stdout, /publish_needed=true/);
+    assert.match(
+      result.stdout,
+      /missing_files=spoke_connect-0\.3\.0-py3-none-win_amd64\.whl/,
+    );
+    assert.doesNotMatch(result.stdout, /publish_needed=false/);
+  });
+
+  it("writes publish_needed and missing_files to GITHUB_OUTPUT", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "pypi-gh-output-"));
+    const outFile = join(outDir, "step-output");
+    try {
+      const result = await runCheck({ tag: "v0.2.0", githubOutput: outFile });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      const written = readFileSync(outFile, "utf8");
+      assert.match(written, /publish_needed=false/);
+      assert.match(written, /missing_files=$/m);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits non-zero on registry error (503)", async () => {
+    const result = await runCheck({ tag: "v0.4.0" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /HTTP 503/);
+  });
+
+  it("exits non-zero on malformed JSON", async () => {
+    const result = await runCheck({ tag: "v0.5.0" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /malformed JSON/);
+  });
+
+  it("exits non-zero when the payload is missing the urls array", async () => {
+    const result = await runCheck({ tag: "v0.6.0" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /"urls"/);
+  });
+
+  it("requires a v-prefixed RELEASE_TAG", async () => {
+    const result = await runCheck({ tag: "0.2.0" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /RELEASE_TAG/);
+  });
+
+  it("--verify passes when the full set is present", async () => {
+    const result = await runCheck({ tag: "v0.2.0", args: ["--verify"] });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /confirmed full expected set/);
+  });
+
+  it("--verify fails on a partial set", async () => {
+    const result = await runCheck({ tag: "v0.3.0", args: ["--verify"] });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing/);
+  });
+
+  it("--verify fails when the version is absent", async () => {
+    const result = await runCheck({ tag: "v0.1.0", args: ["--verify"] });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing/);
+  });
+});
+
+describe("check-pypi-published.mjs expected set", () => {
+  it("derives exactly the three locked platform wheels (no sdist)", () => {
+    assert.deepEqual(expectedWheelFilenames("spoke-connect", "0.10.0"), [
+      "spoke_connect-0.10.0-py3-none-manylinux_2_35_x86_64.whl",
+      "spoke_connect-0.10.0-py3-none-macosx_11_0_arm64.whl",
+      "spoke_connect-0.10.0-py3-none-win_amd64.whl",
+    ]);
+  });
+
+  it("normalizes the distribution name per PEP 503", () => {
+    assert.equal(normalizeDistributionName("spoke-connect"), "spoke_connect");
+  });
+
+  it("parses the [project] name from pyproject.toml", () => {
+    assert.equal(
+      parsePyprojectName('[project]\nname = "spoke-connect"\nversion = "0.10.0"\n'),
+      "spoke-connect",
+    );
+    assert.equal(parsePyprojectName('[tool.foo]\nname = "other"\n'), null);
+  });
+});

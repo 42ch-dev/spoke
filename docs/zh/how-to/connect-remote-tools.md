@@ -192,6 +192,8 @@ void connectResponder({
 });
 ```
 
+`connectResponder` 接受与 adapter 相同的每次调用超时旋钮：`invokeTimeoutMs`（可选；默认 5000）。超时仅使该次反向调用失败 —— 会话保持可用。
+
 服务器的清单声明与客户端所服务的相同的工具 id，因此两个方向在同一会话上协商。
 
 ## 5. 运行 demo

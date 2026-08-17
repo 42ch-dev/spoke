@@ -120,8 +120,12 @@ Pre-release tags `vX.Y.Z-rc.N` create a GitHub pre-release. Tags without `-rc.` 
 |------|-----|
 | npm **Trusted Publisher** | OIDC from `release.yml` → `publish-npm` (each package: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
 | crates.io **Trusted Publishing** | OIDC from `release.yml` → `publish-crates` via `rust-lang/crates-io-auth-action` (each crate: org `42ch-dev`, repo `spoke`, workflow `release.yml`) |
+| PyPI **Trusted Publishing** | OIDC from `release.yml` → `publish-pypi` (publisher registered to org `42ch-dev`, repo `spoke`, workflow `release.yml`) — no long-lived `PYPI_TOKEN` |
+| GitHub Packages **Maven** | `GITHUB_TOKEN` with `packages: write` on `release.yml` → `publish-maven` (registry `maven.pkg.github.com/42ch-dev/spoke`) |
 
 If `publish-crates` fails after npm succeeded, re-run the failed job (or push the annotated tag with a non-`GITHUB_TOKEN` credential so `push.tags` starts **Release** again).
+
+Re-running Release at an already-published tag is safe for **PyPI** and **Maven**: both jobs pre-check the registry for the full expected artifact set and skip build + publish when it is complete. PyPI's pre-check queries the `pypi.org/pypi/spoke-connect/<version>/json` JSON API for the three platform wheels (no sdist); Maven's pre-check performs authenticated GETs for the `dev.42ch:spoke-connect` POM, Gradle module metadata, and jar (JNA natives verified inside the jar) on GitHub Packages. Partial uploads are attempted — `skip-existing` lets PyPI resume, `gradle publish` re-attempts Maven — and an unconditional re-probe closes each job: green requires the verified full set. Any registry doubt (network error, HTTP 401/403/5xx, malformed payload) fails the job loud instead of skipping.
 
 ## Further reading
 

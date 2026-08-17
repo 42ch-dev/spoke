@@ -149,6 +149,26 @@ xcodebuild -create-xcframework \
   -library "${STAGE}/ios-simulator/libspoke_connect.a" -headers "${HDRS}" \
   -output "${XCFRAMEWORK}"
 
+# xcodebuild -create-xcframework emits AvailableLibraries in nondeterministic
+# order (observed across identical invocations on the same machine/image),
+# which would make the committed artifact drift from an otherwise identical
+# CI rebuild. Normalize the ordering (sorted keys + LibraryIdentifier) so the
+# build output is byte-deterministic; the drift gate compares real bytes.
+echo "==> normalize Info.plist library ordering"
+XCFRAMEWORK="${XCFRAMEWORK}" python3 - <<'PY'
+import os
+import plistlib
+
+path = os.path.join(os.environ["XCFRAMEWORK"], "Info.plist")
+with open(path, "rb") as f:
+    plist = plistlib.load(f)
+plist["AvailableLibraries"] = sorted(
+    plist["AvailableLibraries"], key=lambda lib: lib["LibraryIdentifier"]
+)
+with open(path, "wb") as f:
+    plistlib.dump(plist, f, sort_keys=True)
+PY
+
 echo "==> validate xcframework"
 plutil -lint "${XCFRAMEWORK}/Info.plist"
 for lib in "${XCFRAMEWORK}"/*/libspoke_connect.a; do

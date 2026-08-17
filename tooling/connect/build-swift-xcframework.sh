@@ -63,7 +63,10 @@ SLICES=(
 echo "==> assert Apple target triples installed"
 if command -v rustup >/dev/null 2>&1; then
   # Assert against the same toolchain that builds (nightly locally, default in CI).
-  INSTALLED="$(rustup target list --installed "${RUSTUP_TOOLCHAIN[@]}")"
+  # bash 3.2 (macOS system bash) treats an empty "${arr[@]}" under set -u as
+  # an unbound variable; the + idiom expands to nothing when the array is
+  # empty (the CI-stable path has no --toolchain flag).
+  INSTALLED="$(rustup target list --installed ${RUSTUP_TOOLCHAIN[@]+"${RUSTUP_TOOLCHAIN[@]}"})"
   MISSING=()
   for entry in "${SLICES[@]}"; do
     triple="${entry#*|}"
@@ -87,7 +90,7 @@ TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c '
 FFI_FEATURES="ffi,remote-adapter"
 
 echo "==> build ffi cdylib (bindgen metadata source; production surface — no ffi-smoke-host)"
-"${CARGO[@]}" build "${LOCKED[@]}" -p spoke-connect --features "${FFI_FEATURES}" --release
+"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release
 CDYLIB="${TARGET_DIR}/release/libspoke_connect.dylib"
 if [[ ! -f "${CDYLIB}" ]]; then
   echo "missing cdylib: ${CDYLIB}" >&2
@@ -96,7 +99,7 @@ fi
 
 echo "==> generate Swift bindings"
 mkdir -p "${GENERATED}"
-"${CARGO[@]}" run "${LOCKED[@]}" -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+"${CARGO[@]}" run ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
   generate --library "${CDYLIB}" \
   --language swift \
   --out-dir "${GENERATED}"
@@ -120,7 +123,7 @@ for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
   echo "  -> ${slice} (${triple})"
-  "${CARGO[@]}" rustc "${LOCKED[@]}" -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
+  "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
   STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
   if [[ ! -f "${STATICLIB}" ]]; then
     echo "missing staticlib: ${STATICLIB}" >&2

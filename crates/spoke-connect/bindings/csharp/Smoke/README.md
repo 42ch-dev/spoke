@@ -48,8 +48,10 @@ See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`]
 The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
 `invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
-deny, and handler-thrown reject passthrough. Every face is on the committed
-production binding, so the default Smoke run executes it:
+deny, handler-thrown reject passthrough, and the error rows — an unknown
+reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault
+contained to `INTERNAL_ERROR` with the serve loop surviving. Every face is on
+the committed production binding, so the default Smoke run executes it:
 
 ```bash
 dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj

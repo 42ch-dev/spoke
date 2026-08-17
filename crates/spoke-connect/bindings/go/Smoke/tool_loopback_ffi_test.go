@@ -121,6 +121,68 @@ func TestToolLoopbackFfiPair(t *testing.T) {
 		t.Fatalf("reject passthrough wire_code: got %v want op_unsupported", passed.WireCode)
 	}
 
+	// 5. Handler rejects with an unknown code string -> the host observes the
+	//    INTERNAL_ERROR downgrade (message preserved, details re-hung): the
+	//    foreign code cannot be represented by the typed SpokeRejectCode, so
+	//    the bridge falls back.
+	unknownWire := "op_unsupported"
+	if err := dialer.RegisterToolHandler(
+		"tools.echo.boom",
+		&throwingToolHandler{err: sc.NewFfiErrorRejected("NOT_A_WIRE_CODE", "unknown code message", nil, &unknownWire)},
+	); err != nil {
+		t.Fatalf("dialer register unknown-code handler: %v", err)
+	}
+	_, err = responder.InvokeTool("tools.echo.boom", `{}`)
+	var downgraded *sc.FfiErrorRejected
+	if !errors.As(err, &downgraded) {
+		t.Fatalf("expected FfiErrorRejected for unknown-code downgrade, got %v", err)
+	}
+	if downgraded.Code != "INTERNAL_ERROR" {
+		t.Fatalf("unknown-code downgrade code: got %q want INTERNAL_ERROR", downgraded.Code)
+	}
+	if downgraded.Message != "unknown code message" {
+		t.Fatalf("unknown-code downgrade message: got %q want %q", downgraded.Message, "unknown code message")
+	}
+	if downgraded.WireCode == nil || *downgraded.WireCode != "op_unsupported" {
+		t.Fatalf("unknown-code downgrade wire_code: got %v want op_unsupported", downgraded.WireCode)
+	}
+
+	// 6. Handler throws a foreign (non-FfiError) fault -> contained to
+	//    INTERNAL_ERROR with no details; the session survives and the serve
+	//    loop still answers the next healthy reverse invoke.
+	//    Channel caveat: the Go vendored-fork bindgen carries the stock uniffi
+	//    callback-error machinery unpatched (no fielded-error patch script
+	//    like Kotlin's) — the fielded ERROR path is proven by steps 4–5 and
+	//    the plain-fault path by this step; assert only what the stock
+	//    trampoline can express (non-FfiError error -> unexpected callback
+	//    error).
+	if err := dialer.RegisterToolHandler(
+		"tools.echo.boom",
+		&throwingToolHandler{err: errors.New("foreign fault")},
+	); err != nil {
+		t.Fatalf("dialer register faulting handler: %v", err)
+	}
+	_, err = responder.InvokeTool("tools.echo.boom", `{}`)
+	var contained *sc.FfiErrorRejected
+	if !errors.As(err, &contained) {
+		t.Fatalf("expected FfiErrorRejected for foreign-fault containment, got %v", err)
+	}
+	if contained.Code != "INTERNAL_ERROR" {
+		t.Fatalf("foreign-fault containment code: got %q want INTERNAL_ERROR", contained.Code)
+	}
+	if contained.WireCode != nil {
+		t.Fatalf("foreign-fault containment wire_code: got %v want nil (details None)", *contained.WireCode)
+	}
+
+	healthyJSON, err := responder.InvokeTool("tools.math.add", `{"a": 21, "b": 21}`)
+	if err != nil {
+		t.Fatalf("serve loop must survive foreign-fault containment: %v", err)
+	}
+	assertSum(t, healthyJSON, 42, "serve loop survives foreign-fault containment")
+	if got := dialerSum.calls(); got != 2 {
+		t.Fatalf("dialer handler invocation count after containment: got %d want 2", got)
+	}
+
 	// Post-close state: both FFI faces report Closed after close (Cleanup
 	// above double-closes; close is idempotent).
 	dialer.Close()

@@ -8,9 +8,10 @@ dispatch gate, correlation, protocol version) with the mapped error cases, then
 drives both FFI tool faces over the loopback pair (D15/D16): dialer
 `invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
-deny, handler-thrown reject passthrough, and post-close `Closed` state — every
-tool face is on the committed production binding, so the default gate runs
-them without a smoke host. The smoke-host sections (RemoteAdapter put/get
+deny, handler-thrown reject passthrough, the error rows (unknown reject code
+→ `INTERNAL_ERROR` downgrade; foreign-fault containment with serve-loop
+survival), and post-close `Closed` state — every tool face is on the committed
+production binding, so the default gate runs them without a smoke host. The smoke-host sections (RemoteAdapter put/get
 round-trip against the reference smoke host, and the multi-peer router smoke)
 compile only with `-D SMOKE_HOST`.
 
@@ -71,8 +72,10 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
 ./crates/spoke-connect/bindings/swift/Smoke/smoke
 ```
 
-Expected: `37 checks passed` (golden parity + tool faces, incl. post-close
-`Closed` state), exit 0.
+Expected: `44 checks passed` (golden parity + tool faces incl. the error
+rows — unknown-code downgrade, foreign-fault containment, and
+post-containment serve-loop survival — and post-close `Closed` state),
+exit 0.
 
 ## Full smoke (golden parity + RemoteAdapter loopback + multi-peer router)
 

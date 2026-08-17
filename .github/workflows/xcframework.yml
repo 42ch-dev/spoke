@@ -66,6 +66,13 @@ jobs:
           XCFRAMEWORK_OUTPUT_DIR: ${{ runner.temp }}/xcframework-stage
         run: ./tooling/connect/build-swift-xcframework.sh
 
+      - name: Write xcframework hash manifest
+        # Written before the drift gate so a red (drift) run still ships the
+        # manifest in the artifact for the apply path.
+        run: |
+          cd "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
+          find . -type f | LC_ALL=C sort | xargs shasum -a 256 > ../spoke_connectFFI.xcframework.sha256
+
       - name: Verify drift vs committed xcframework
         # Red job = committed artifact no longer matches the sources at this
         # SHA. The artifact still uploads (below) for the apply path.
@@ -73,11 +80,6 @@ jobs:
           ./tooling/connect/verify-xcframework-drift.sh \
             crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
             "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
-
-      - name: Write xcframework hash manifest
-        run: |
-          cd "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
-          find . -type f | LC_ALL=C sort | xargs shasum -a 256 > ../spoke_connectFFI.xcframework.sha256
 
       - name: Upload xcframework artifact
         # actions/upload-artifact@v4.6.2 — unconditional so a failing drift

@@ -113,7 +113,16 @@ Refresh the committed artifact from a run in one command (requires the `gh` CLI 
 ./tooling/connect/apply-xcframework-artifact.sh <run-id>
 ```
 
-The script downloads the artifact, checksum-verifies it against the manifest, rsyncs it over the committed tree, and stages the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials so the workflow re-triggers.
+The script first verifies the run's provenance — the `Xcframework` workflow, a `success` conclusion (or a `failure` caused only by the drift gate, which still ships a complete artifact), and a `headSha` matching the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build). It then requires the artifact's hash manifest and checksum-verifies every file against it before rsyncing the built tree over the committed one and staging the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials (token pushes don't re-trigger workflows and can't carry LFS objects).
+
+A refresh-only push does not re-trigger the `xcframework` job (the committed xcframework path is off the workflow's own filter), so after committing a refreshed artifact, confirm the drift gate is still green before pushing — re-run the producing job (`gh run rerun <run-id>`), or compare the artifact's built tree against the committed one locally:
+
+```bash
+gh run download <run-id> --name spoke-connect-xcframework --dir /tmp/xcf-stage
+./tooling/connect/verify-xcframework-drift.sh \
+  crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
+  /tmp/xcf-stage/spoke_connectFFI.xcframework
+```
 
 ## Release
 

@@ -5,6 +5,11 @@ name: Xcframework
 # built bytes drift from the committed (LFS) artifact. Path-filtered so the
 # macOS runner is used only when the FFI surface (or this automation itself)
 # changes — never per-push unconditional. Mirrors ci.yml's event set.
+#
+# Deliberately off-filter: crates/spoke-operations/**, crates/spoke-schemas/**,
+# crates/spoke-fixture-toy-world/** — they change artifact bytes but not the
+# FFI ABI; ABI-relevant drift there is already forced by ci.yml's
+# verify-binding-regen.sh gate (generated Swift tree diff).
 on:
   pull_request:
     paths:
@@ -67,11 +72,15 @@ jobs:
         run: ./tooling/connect/build-swift-xcframework.sh
 
       - name: Write xcframework hash manifest
-        # Written before the drift gate so a red (drift) run still ships the
-        # manifest in the artifact for the apply path.
+        # Single generator for the manifest format: the drift script's
+        # --manifest mode (apply-xcframework-artifact.sh consumes the same
+        # format via `shasum -a 256 -c`). Written before the drift gate so a
+        # red (drift) run still ships the manifest in the artifact for the
+        # apply path.
         run: |
-          cd "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework"
-          find . -type f | LC_ALL=C sort | xargs shasum -a 256 > ../spoke_connectFFI.xcframework.sha256
+          ./tooling/connect/verify-xcframework-drift.sh --manifest \
+            "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework" \
+            > "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework.sha256"
 
       - name: Verify drift vs committed xcframework
         # Red job = committed artifact no longer matches the sources at this

@@ -650,6 +650,9 @@ internal open class UniffiForeignFutureResultVoid(
 internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
     fun callback(`callbackData`: Long,`result`: UniffiForeignFutureResultVoid.UniffiByValue,)
 }
+internal interface UniffiCallbackInterfaceToolHandlerMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`argumentsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfaceTransportMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`envelope`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
@@ -658,6 +661,25 @@ internal interface UniffiCallbackInterfaceTransportMethod1 : com.sun.jna.Callbac
 }
 internal interface UniffiCallbackInterfaceTransportMethod2 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "handle")
+internal open class UniffiVTableCallbackInterfaceToolHandler(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `handle`: UniffiCallbackInterfaceToolHandlerMethod0? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `handle`: UniffiCallbackInterfaceToolHandlerMethod0? = null,
+    ): UniffiVTableCallbackInterfaceToolHandler(`uniffiFree`,`uniffiClone`,`handle`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceToolHandler) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `handle` = other.`handle`
+    }
+
 }
 @Structure.FieldOrder("uniffiFree", "uniffiClone", "send", "recv", "close")
 internal open class UniffiVTableCallbackInterfaceTransport(
@@ -723,6 +745,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_func_verify_hello_ed25519(
     ): Int
+    external fun uniffi_spoke_connect_checksum_func_connect_responder_ffi(
+    ): Int
     external fun uniffi_spoke_connect_checksum_func_loopback_transport_pair(
     ): Int
     external fun uniffi_spoke_connect_checksum_func_new_multi_peer_router_ffi(
@@ -734,6 +758,20 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_spoke_connect_checksum_method_noncestore_check_and_record(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_outboundsequence_allocate(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_close(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_invoke_tool(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_register_tool_handler(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_remote_manifest(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_remote_peer_id(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_session_id(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_connectresponderffi_state(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_loopbacktransport_close(
     ): Int
@@ -750,6 +788,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_knowledge_entry(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_invoke_tool(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries(
     ): Int
@@ -779,6 +819,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation(
     ): Int
+    external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool(
+    ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests(
@@ -793,6 +835,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation(
     ): Int
+    external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_register_tool_handler(
+    ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_peer_id(
@@ -806,6 +850,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_spoke_connect_checksum_constructor_noncestore_new(
     ): Int
     external fun uniffi_spoke_connect_checksum_constructor_outboundsequence_new(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_toolhandler_handle(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_transport_send(
     ): Int
@@ -829,6 +875,7 @@ internal object UniffiLib {
 
     init {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "spoke_connect"))
+        uniffiCallbackInterfaceToolHandler.register(this)
         uniffiCallbackInterfaceTransport.register(this)
         
     }
@@ -856,6 +903,24 @@ internal object UniffiLib {
     ): Long
     external fun uniffi_spoke_connect_fn_method_outboundsequence_allocate(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
+    external fun uniffi_spoke_connect_fn_clone_connectresponderffi(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_spoke_connect_fn_free_connectresponderffi(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_close(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_invoke_tool(`ptr`: Long,`capabilityId`: RustBuffer.ByValue,`argumentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_register_tool_handler(`ptr`: Long,`capabilityId`: RustBuffer.ByValue,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_remote_manifest(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_remote_peer_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_session_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_connectresponderffi_state(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_clone_loopbacktransport(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_spoke_connect_fn_free_loopbacktransport(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -883,6 +948,8 @@ internal object UniffiLib {
     external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_get_knowledge_entry(`ptr`: Long,`entryId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation(`ptr`: Long,`relationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_invoke_tool(`ptr`: Long,`capabilityId`: RustBuffer.ByValue,`argumentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_multipeerrouterffi_list_knowledge_entries(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -916,6 +983,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_get_relation(`ptr`: Long,`relationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_remoteadapterffi_invoke_tool(`ptr`: Long,`capabilityId`: RustBuffer.ByValue,`argumentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -930,6 +999,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_put_relation(`ptr`: Long,`relationJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_remoteadapterffi_register_tool_handler(`ptr`: Long,`capabilityId`: RustBuffer.ByValue,`handler`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_remote_manifest(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_remote_peer_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -938,6 +1009,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_state(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_init_callback_vtable_toolhandler(`vtable`: UniffiVTableCallbackInterfaceToolHandler,
+    ): Unit
     external fun uniffi_spoke_connect_fn_init_callback_vtable_transport(`vtable`: UniffiVTableCallbackInterfaceTransport,
     ): Unit
     external fun uniffi_spoke_connect_fn_func_check_response_correlation(`expectedSessionId`: RustBuffer.ByValue,`expectedSequence`: Long,`expectedRequestId`: RustBuffer.ByValue,`actualSessionId`: RustBuffer.ByValue,`actualSequence`: Long,`actualRequestId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -956,6 +1029,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_func_verify_hello_ed25519(`publicKey`: RustBuffer.ByValue,`expectedPeerId`: RustBuffer.ByValue,`helloJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_spoke_connect_fn_func_connect_responder_ffi(`transport`: Long,`seed`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`allowlist`: RustBuffer.ByValue,`peerKeys`: RustBuffer.ByValue,`invokeTimeoutMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     external fun uniffi_spoke_connect_fn_func_loopback_transport_pair(uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_spoke_connect_fn_func_new_multi_peer_router_ffi(uniffi_out_err: UniffiRustCallStatus, 
@@ -1105,6 +1180,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_func_verify_hello_ed25519() != 15847) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 7775) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1121,6 +1199,27 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_outboundsequence_allocate() != 57422) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_close() != 12558) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_invoke_tool() != 1388) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_register_tool_handler() != 8493) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_remote_manifest() != 14971) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_remote_peer_id() != 61887) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_session_id() != 11982) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_connectresponderffi_state() != 49043) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_loopbacktransport_close() != 20355) {
@@ -1145,6 +1244,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() != 18470) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_invoke_tool() != 26685) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() != 38484) {
@@ -1189,6 +1291,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation() != 47371) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool() != 50002) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1210,6 +1315,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation() != 40493) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_register_tool_handler() != 2890) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest() != 12957) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1229,6 +1337,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_transport_send() != 34348) {
@@ -1570,6 +1681,408 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
     override fun write(value: ByteArray, buf: ByteBuffer) {
         buf.putInt(value.size)
         buf.put(value)
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Sync wrapper over the library [`ConnectResponder`] (D16): the
+ * host-accepted callback [`FfiTransport`] plus the responder lifecycle
+ * — session info, tool serving (`register_tool_handler`), the reverse
+ * tool invoke face (`invoke_tool`), and `close`.
+ */
+public interface ConnectResponderFfiInterface {
+    
+    fun close()
+    
+    /**
+     * Responder→dialer reverse invoke (D16): same face and error rows
+     * as `RemoteAdapterFFI::invoke_tool` (the D15 table applies by
+     * reference).
+     */
+    fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String
+    
+    /**
+     * Responder-side tool-serving registration (D16): `capability_id`
+     * is pre-validated with `parse_tool_capability_id` before the
+     * library call — a non-`tools.` id rejects
+     * `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+     * wire_code: None }` with the offending id in `message` and zero
+     * side effect (the library's grammar panic stays unreachable
+     * through FFI). A valid id registers last-wins on the library face.
+     */
+    fun `registerToolHandler`(`capabilityId`: kotlin.String, `handler`: ToolHandler)
+    
+    /**
+     * The dialer's `HostCapabilityManifest` (hello `host`, cached at
+     * session establish) as a JSON string — same shape as
+     * `RemoteAdapterFFI::remote_manifest`.
+     */
+    fun `remoteManifest`(): kotlin.String?
+    
+    fun `remotePeerId`(): kotlin.String?
+    
+    fun `sessionId`(): kotlin.String?
+    
+    /**
+     * One of `Disconnected` / `Handshaking` / `Established` / `Closed`.
+     */
+    fun `state`(): kotlin.String
+    
+    companion object
+}
+
+/**
+ * Sync wrapper over the library [`ConnectResponder`] (D16): the
+ * host-accepted callback [`FfiTransport`] plus the responder lifecycle
+ * — session info, tool serving (`register_tool_handler`), the reverse
+ * tool invoke face (`invoke_tool`), and `close`.
+ */
+open class ConnectResponderFfi: Disposable, AutoCloseable, ConnectResponderFfiInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_spoke_connect_fn_free_connectresponderffi(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_spoke_connect_fn_clone_connectresponderffi(handle, status)
+        }
+    }
+
+    @Synchronized
+    override fun close()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_close(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Responder→dialer reverse invoke (D16): same face and error rows
+     * as `RemoteAdapterFFI::invoke_tool` (the D15 table applies by
+     * reference).
+     */
+    @Throws(FfiException::class)override fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_invoke_tool(
+        it,
+        
+        FfiConverterString.lower(`capabilityId`),
+        FfiConverterString.lower(`argumentsJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Responder-side tool-serving registration (D16): `capability_id`
+     * is pre-validated with `parse_tool_capability_id` before the
+     * library call — a non-`tools.` id rejects
+     * `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+     * wire_code: None }` with the offending id in `message` and zero
+     * side effect (the library's grammar panic stays unreachable
+     * through FFI). A valid id registers last-wins on the library face.
+     */
+    @Throws(FfiException::class)override fun `registerToolHandler`(`capabilityId`: kotlin.String, `handler`: ToolHandler)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_register_tool_handler(
+        it,
+        
+        FfiConverterString.lower(`capabilityId`),
+        FfiConverterTypeToolHandler.lower(`handler`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * The dialer's `HostCapabilityManifest` (hello `host`, cached at
+     * session establish) as a JSON string — same shape as
+     * `RemoteAdapterFFI::remote_manifest`.
+     */override fun `remoteManifest`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_remote_manifest(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `remotePeerId`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_remote_peer_id(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `sessionId`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_session_id(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * One of `Disconnected` / `Handshaking` / `Established` / `Closed`.
+     */override fun `state`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_connectresponderffi_state(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeConnectResponderFFI: FfiConverter<ConnectResponderFfi, Long> {
+    override fun lower(value: ConnectResponderFfi): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): ConnectResponderFfi {
+        return ConnectResponderFfi(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): ConnectResponderFfi {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: ConnectResponderFfi) = 8UL
+
+    override fun write(value: ConnectResponderFfi, buf: ByteBuffer) {
+        buf.putLong(lower(value))
     }
 }
 
@@ -2579,6 +3092,25 @@ public interface MultiPeerRouterFfiInterface {
     
     fun `getRelation`(`relationId`: kotlin.String): kotlin.String
     
+    /**
+     * Reverse-invoke face (D15): route a `tools.<ns>.<tool_id>` invoke
+     * to the registered peer whose cached hello manifest advertises the
+     * exact tool capability (deterministic lowest-`peer_id` tie-break),
+     * and return the serving peer's tool `result` payload as a JSON
+     * string. The library router does all selection — this face adds no
+     * routing logic of its own; with no capable peer the terminal
+     * `Rejected { code: "CAPABILITY_PORT_MISSING", kind:
+     * Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`
+     * crosses with the capability id embedded in `message`.
+     *
+     * Same boundary conventions as
+     * [`RemoteAdapterFFI::invoke_tool`]: a non-`tools.` id and
+     * malformed `arguments_json` both fail fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` before any
+     * peer selection, with zero wire traffic.
+     */
+    fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String
+    
     fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String
     
     fun `listPeerHostCapabilityManifests`(): kotlin.String
@@ -2741,6 +3273,39 @@ open class MultiPeerRouterFfi: Disposable, AutoCloseable, MultiPeerRouterFfiInte
         it,
         
         FfiConverterString.lower(`relationId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Reverse-invoke face (D15): route a `tools.<ns>.<tool_id>` invoke
+     * to the registered peer whose cached hello manifest advertises the
+     * exact tool capability (deterministic lowest-`peer_id` tie-break),
+     * and return the serving peer's tool `result` payload as a JSON
+     * string. The library router does all selection — this face adds no
+     * routing logic of its own; with no capable peer the terminal
+     * `Rejected { code: "CAPABILITY_PORT_MISSING", kind:
+     * Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`
+     * crosses with the capability id embedded in `message`.
+     *
+     * Same boundary conventions as
+     * [`RemoteAdapterFFI::invoke_tool`]: a non-`tools.` id and
+     * malformed `arguments_json` both fail fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` before any
+     * peer selection, with zero wire traffic.
+     */
+    @Throws(FfiException::class)override fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_multipeerrouterffi_invoke_tool(
+        it,
+        
+        FfiConverterString.lower(`capabilityId`),
+        FfiConverterString.lower(`argumentsJson`),_status)
 }
     }
     )
@@ -3609,6 +4174,22 @@ public interface RemoteAdapterFfiInterface {
     
     fun `getRelation`(`relationId`: kotlin.String): kotlin.String
     
+    /**
+     * Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
+     * toward the remote peer and return the tool's `result` payload as
+     * a JSON string.
+     *
+     * `capability_id` must match the `tools.<ns>.<tool_id>` grammar —
+     * a non-`tools.` id fails fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` (the library
+     * grammar reject passes through; the offending id rides in
+     * `message`) and zero wire traffic. `arguments_json` parses at the
+     * FFI boundary via the module's JSON convention (malformed →
+     * `INVALID_INPUT`, also zero wire traffic). Deny / timeout /
+     * session failures map through the D7 rows (see D15 error table).
+     */
+    fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String
+    
     fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String
     
     fun `listPeerHostCapabilityManifests`(): kotlin.String
@@ -3622,6 +4203,22 @@ public interface RemoteAdapterFfiInterface {
     fun `putKnowledgeEntry`(`entryJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
     
     fun `putRelation`(`relationJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
+    
+    /**
+     * Dialer-side tool-serving registration (D16): serve `tools.*`
+     * reverse invokes from the remote peer with a foreign-callback
+     * handler.
+     *
+     * `capability_id` is pre-validated with `parse_tool_capability_id`
+     * (the `spoke-operations` public API) before the library call — a
+     * non-`tools.` id rejects `FfiError::Rejected { code:
+     * "INVALID_INPUT", kind: None, wire_code: None }` with the
+     * offending id in `message` and zero side effect (the library's
+     * grammar panic stays unreachable through FFI). A valid id
+     * registers on the library face — last-wins overwrite, and the
+     * registry never mutates the manifest.
+     */
+    fun `registerToolHandler`(`capabilityId`: kotlin.String, `handler`: ToolHandler)
     
     fun `remoteManifest`(): kotlin.String?
     
@@ -3789,6 +4386,36 @@ open class RemoteAdapterFfi: Disposable, AutoCloseable, RemoteAdapterFfiInterfac
     
 
     
+    /**
+     * Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
+     * toward the remote peer and return the tool's `result` payload as
+     * a JSON string.
+     *
+     * `capability_id` must match the `tools.<ns>.<tool_id>` grammar —
+     * a non-`tools.` id fails fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` (the library
+     * grammar reject passes through; the offending id rides in
+     * `message`) and zero wire traffic. `arguments_json` parses at the
+     * FFI boundary via the module's JSON convention (malformed →
+     * `INVALID_INPUT`, also zero wire traffic). Deny / timeout /
+     * session failures map through the D7 rows (see D15 error table).
+     */
+    @Throws(FfiException::class)override fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_invoke_tool(
+        it,
+        
+        FfiConverterString.lower(`capabilityId`),
+        FfiConverterString.lower(`argumentsJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(FfiException::class)override fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
@@ -3892,6 +4519,35 @@ open class RemoteAdapterFfi: Disposable, AutoCloseable, RemoteAdapterFfiInterfac
     }
     )
     }
+    
+
+    
+    /**
+     * Dialer-side tool-serving registration (D16): serve `tools.*`
+     * reverse invokes from the remote peer with a foreign-callback
+     * handler.
+     *
+     * `capability_id` is pre-validated with `parse_tool_capability_id`
+     * (the `spoke-operations` public API) before the library call — a
+     * non-`tools.` id rejects `FfiError::Rejected { code:
+     * "INVALID_INPUT", kind: None, wire_code: None }` with the
+     * offending id in `message` and zero side effect (the library's
+     * grammar panic stays unreachable through FFI). A valid id
+     * registers on the library face — last-wins overwrite, and the
+     * registry never mutates the manifest.
+     */
+    @Throws(FfiException::class)override fun `registerToolHandler`(`capabilityId`: kotlin.String, `handler`: ToolHandler)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_register_tool_handler(
+        it,
+        
+        FfiConverterString.lower(`capabilityId`),
+        FfiConverterTypeToolHandler.lower(`handler`),_status)
+}
+    }
+    
     
 
     override fun `remoteManifest`(): kotlin.String? {
@@ -4538,6 +5194,82 @@ public object FfiConverterTypeTransportError : FfiConverterRustBuffer<TransportE
 
 
 /**
+ * Foreign-callback tool handler (D16): the native binding implements
+ * this synchronous face; [`into_remote_handler`] bridges it into the
+ * async [`crate::remote::ToolHandler`] the library serving path runs.
+ *
+ * `Ok(json)` → the tool's result `Value` (parsed inside the bridge;
+ * malformed JSON is contained). `Err(FfiError::Rejected{..})` → an
+ * application `SpokeReject` passes through verbatim. Any other outcome
+ * (`Dial`, foreign exception, panic) is contained to `INTERNAL_ERROR`
+ * with `details: None` — handlers should only throw `Rejected`.
+ */
+public interface ToolHandler {
+    
+    fun `handle`(`argumentsJson`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceToolHandler {
+    internal object `handle`: UniffiCallbackInterfaceToolHandlerMethod0 {
+        override fun callback(`uniffiHandle`: Long,`argumentsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeToolHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`handle`(
+                    FfiConverterString.lift(`argumentsJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeToolHandler.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypeToolHandler.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceToolHandler.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `handle`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_spoke_connect_fn_init_callback_vtable_toolhandler(vtable)
+    }
+}
+
+/**
+ * The ffiConverter which transforms the Callbacks in to handles to pass to Rust.
+ *
+ * @suppress
+ */
+public object FfiConverterTypeToolHandler: FfiConverterCallbackInterface<ToolHandler>()
+
+
+
+
+
+/**
  * Message-oriented transport implemented by the foreign binding.
  *
  * Mirrors the async [`transport::Transport`] seam 1:1 over the
@@ -4746,6 +5478,45 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
         }
     }
 }
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterMapStringByteArray: FfiConverterRustBuffer<Map<kotlin.String, kotlin.ByteArray>> {
+    override fun read(buf: ByteBuffer): Map<kotlin.String, kotlin.ByteArray> {
+        val len = buf.getInt()
+        return buildMap<kotlin.String, kotlin.ByteArray>(len) {
+            repeat(len) {
+                val k = FfiConverterString.read(buf)
+                val v = FfiConverterByteArray.read(buf)
+                this[k] = v
+            }
+        }
+    }
+
+    override fun allocationSize(value: Map<kotlin.String, kotlin.ByteArray>): ULong {
+        val spaceForMapSize = 4UL
+        val spaceForChildren = value.map { (k, v) ->
+            FfiConverterString.allocationSize(k) +
+            FfiConverterByteArray.allocationSize(v)
+        }.sum()
+        return spaceForMapSize + spaceForChildren
+    }
+
+    override fun write(value: Map<kotlin.String, kotlin.ByteArray>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        // The parens on `(k, v)` here ensure we're calling the right method,
+        // which is important for compatibility with older android devices.
+        // Ref https://blog.danlew.net/2017/03/16/kotlin-puzzler-whose-line-is-it-anyways/
+        value.forEach { (k, v) ->
+            FfiConverterString.write(k, buf)
+            FfiConverterByteArray.write(v, buf)
+        }
+    }
+}
         /**
          * Checks that a response echoes the request's `session_id` / `sequence` /
          * `request_id` — the three echo fields, flattened to primitives.
@@ -4888,6 +5659,40 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
         FfiConverterString.lower(`helloJson`),_status)
 }
     
+    
+
+        /**
+         * Accept-side constructor (D16): wraps a *connected* (host-accepted)
+         * callback [`FfiTransport`] into the library [`connect_responder`] —
+         * symmetric with `connect_remote_adapter_ffi`, which takes a connected
+         * outbound transport; the host product owns listen/accept in its own
+         * network stack.
+         *
+         * Constructor semantics are library-faithful (D16): the block-on
+         * covers ONLY the factory future, which completes immediately — the
+         * responder returns in `Handshaking` (the dialer hello is the sync
+         * point; the library factory has no error path, D14 divergence). The
+         * `Result` slot carries FFI-side config-validation failures only:
+         * seed length, manifest JSON, or peer-key length →
+         * `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
+         * deny, hello-verify deny) produce NO error row — they surface as
+         * `state() → "Closed"` with `session_id() → None`.
+         */
+    @Throws(FfiException::class) fun `connectResponderFfi`(`transport`: Transport, `seed`: kotlin.ByteArray, `manifestJson`: kotlin.String, `allowlist`: List<kotlin.String>, `peerKeys`: Map<kotlin.String, kotlin.ByteArray>, `invokeTimeoutMs`: kotlin.ULong?): ConnectResponderFfi {
+            return FfiConverterTypeConnectResponderFFI.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_func_connect_responder_ffi(
+    
+        
+        FfiConverterTypeTransport.lower(`transport`),
+        FfiConverterByteArray.lower(`seed`),
+        FfiConverterString.lower(`manifestJson`),
+        FfiConverterSequenceString.lower(`allowlist`),
+        FfiConverterMapStringByteArray.lower(`peerKeys`),
+        FfiConverterOptionalULong.lower(`invokeTimeoutMs`),_status)
+}
+    )
+    }
     
 
         /**

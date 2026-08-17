@@ -25,23 +25,43 @@ See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`]
 | Local smoke cdylib + smoke C# bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section (`-p:SmokeHost=true`) |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
-Full loopback smoke procedure: see **RemoteAdapter loopback smoke** below.
+
+> Fixture note: the loopback seeds are exactly 32 bytes and derive the
+> fixture's golden pubkey / peer_id via the in-crate oracle
+> (`crates/spoke-connect/src/test_support/mod.rs` → `loopback_oracle`,
+> `tests/common/loopback_oracle_impl.rs`). `seed_host_hex` was corrected
+> 33 → 32 bytes and `pubkey_client_hex` added for the D16 tool-pair smokes.
 
 ## What's here
 
-| Path | Contents |
-|------|----------|
-| `../42ch.Spoke.Connect.csproj` | Packable net8.0 library — PackageId `42ch.Spoke.Connect`, compiles `../generated/**/*.cs`, packs `runtimes/<rid>/native/*` |
-| `../generated/spoke_connect.cs` | Generated binding (regenerate only when the FFI surface changes) |
-| `Smoke.csproj` | net8.0 console — `ProjectReference` to the packable project |
-| `Program.cs` / `tests/GoldenParity.cs` | Golden-parity checks across the exported surface |
+|| Path | Contents |
+||------|----------|
+|| `../42ch.Spoke.Connect.csproj` | Packable net8.0 library — PackageId `42ch.Spoke.Connect`, compiles `../generated/**/*.cs`, packs `runtimes/<rid>/native/*` |
+|| `../generated/spoke_connect.cs` | Generated binding (regenerate only when the FFI surface changes) |
+|| `Smoke.csproj` | net8.0 console — `ProjectReference` to the packable project |
+|| `Program.cs` / `tests/GoldenParity.cs` | Golden-parity checks across the exported surface |
+|| `tests/ToolLoopbackSmoke.cs` | Tool faces over the loopback pair (D15/D16) — runs in the default `dotnet run` on the committed production binding, no smoke host needed |
+|| `tests/LoopbackShared.cs` | Shared loopback harness (fixture load, callback transport, asserts) |
 
+## Tool faces over the loopback pair (default)
+
+The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
+`invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
+invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
+deny, and handler-thrown reject passthrough. Every face is on the committed
+production binding, so the default Smoke run executes it:
+
+```bash
+dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
+```
+
+Expected tail: `loopback tool faces: PASS`, then `GOLDEN PARITY: ALL PASS`.
 
 ## RemoteAdapter loopback smoke (optional)
 
 The loopback section dials `RemoteAdapterFFI` through a C# `Transport`
-implementation, runs `PutKnowledgeEntry` → `GetKnowledgeEntry`, and asserts the
-golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
+implementation and runs `PutKnowledgeEntry` → `GetKnowledgeEntry`, asserting
+the golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
 
 Requires a smoke-host cdylib (`ffi-smoke-host`) and C# bindings regenerated from
 that cdylib. Build with `-p:SmokeHost=true`:
@@ -57,7 +77,8 @@ dotnet build -p:SmokeHost=true crates/spoke-connect/bindings/csharp/Smoke/Smoke.
 dotnet run -p:SmokeHost=true --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```
 
-Expected tail: `loopback RemoteAdapterFFI: PASS` then `GOLDEN PARITY: ALL PASS`.
+Expected tail: `loopback RemoteAdapterFFI: PASS`, `loopback tool faces: PASS`,
+then `GOLDEN PARITY: ALL PASS`.
 Restore production `generated/spoke_connect.cs` (from `ffi,remote-adapter` only)
 before landing binding changes.
 
@@ -88,7 +109,8 @@ dotnet build crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```
 
-Expected output ends with `GOLDEN PARITY: ALL PASS`.
+Expected output ends with `loopback tool faces: PASS`, then
+`GOLDEN PARITY: ALL PASS`.
 
 ## Generation mechanism
 

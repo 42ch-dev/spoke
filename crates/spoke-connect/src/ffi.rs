@@ -287,6 +287,135 @@ pub use foreign_transport::{
     Transport, TransportError,
 };
 
+// ── Foreign-callback `ToolHandler` over the async seam (D16) ─────────────
+//
+// The library serving faces register `remote::ToolHandler` — an async
+// `Fn(Value) -> BoxFuture<'static, SpokeResult<Value>>`. Over FFI the
+// binding implements a *synchronous* callback `ToolHandler`
+// (`handle(arguments_json) -> Result<String, FfiError>`).
+// [`into_remote_handler`] bridges the two: each callback call runs through
+// the shared runtime's `spawn_blocking` pool (the `ForeignCallbackTransport`
+// precedent — a blocking foreign call never monopolizes an async worker),
+// and the outcome classes map per D16: `Ok(json)` parses into the success
+// `Value` (malformed → containment); `Err(Rejected{..})` passes through as
+// an application `SpokeReject` (kind / wire_code re-hung onto `details` —
+// the inverse of `map_spoke_reject`); `Err(Dial{..})` (non-contract) and
+// `JoinError` (foreign-crash signal) map to the `INTERNAL_ERROR` reject with
+// `details: None`, mirroring the library `catch_unwind` containment — the
+// serve loop's own `catch_unwind` at the future-poll boundary stays the
+// last line of defense.
+#[cfg(feature = "remote-adapter")]
+mod foreign_tool_handler {
+    use std::sync::Arc;
+
+    use serde_json::Value;
+    use spoke_operations::{SpokeReject, SpokeRejectCode, SpokeResult};
+
+    use crate::remote::ToolHandler as RemoteToolHandler;
+
+    use super::{ffi_runtime, remote_adapter_ffi::FfiError};
+
+    /// Foreign-callback tool handler (D16): the native binding implements
+    /// this synchronous face; [`into_remote_handler`] bridges it into the
+    /// async [`crate::remote::ToolHandler`] the library serving path runs.
+    ///
+    /// `Ok(json)` → the tool's result `Value` (parsed inside the bridge;
+    /// malformed JSON is contained). `Err(FfiError::Rejected{..})` → an
+    /// application `SpokeReject` passes through verbatim. Any other outcome
+    /// (`Dial`, foreign exception, panic) is contained to `INTERNAL_ERROR`
+    /// with `details: None` — handlers should only throw `Rejected`.
+    #[uniffi::export(callback_interface)]
+    pub trait ToolHandler: Send + Sync {
+        fn handle(&self, arguments_json: String) -> Result<String, FfiError>;
+    }
+
+    /// Containment reject (D16): `INTERNAL_ERROR` with `details: None`,
+    /// mirroring the library `catch_unwind` at the future-poll boundary.
+    fn containment_reject(message: String) -> SpokeResult<Value> {
+        SpokeResult::Reject(SpokeReject {
+            code: SpokeRejectCode::InternalError,
+            message,
+            details: None,
+        })
+    }
+
+    /// Re-hang `kind` / `wire_code` onto a `details` map — the inverse of
+    /// `map_spoke_reject`'s extraction (D16 passthrough row). `None` when
+    /// neither field is present.
+    fn rehang_details(
+        kind: Option<String>,
+        wire_code: Option<String>,
+    ) -> Option<serde_json::Map<String, Value>> {
+        let mut details = serde_json::Map::new();
+        if let Some(kind) = kind {
+            details.insert("kind".into(), Value::String(kind));
+        }
+        if let Some(wire_code) = wire_code {
+            details.insert("wire_code".into(), Value::String(wire_code));
+        }
+        (!details.is_empty()).then_some(details)
+    }
+
+    /// Bridge a foreign-callback [`ToolHandler`] into the library
+    /// [`crate::remote::ToolHandler`] type (D16 threading model).
+    ///
+    /// The callback is long-held via `Arc::from(box)` and each call runs as
+    /// `ffi_runtime().spawn_blocking(move || handler.handle(json))` — a
+    /// blocking foreign call never monopolizes an async worker (the
+    /// `ForeignCallbackTransport` precedent). A `JoinError` from the
+    /// blocking task is the foreign-crash signal and maps to containment.
+    pub fn into_remote_handler(handler: Box<dyn ToolHandler>) -> RemoteToolHandler {
+        let handler: Arc<dyn ToolHandler> = Arc::from(handler);
+        Arc::new(move |arguments: Value| {
+            let handler = Arc::clone(&handler);
+            Box::pin(async move {
+                let arguments_json =
+                    serde_json::to_string(&arguments).expect("tool arguments serialize");
+                // The handler's returned JSON parses inside the same
+                // blocking task — foreign-produced output never lands on
+                // an async worker (the same D16 threading principle as
+                // the callback call itself).
+                let handled = ffi_runtime()
+                    .spawn_blocking(move || {
+                        handler
+                            .handle(arguments_json)
+                            .map(|json| serde_json::from_str::<Value>(&json))
+                    })
+                    .await;
+                match handled {
+                    Ok(Ok(Ok(value))) => SpokeResult::Ok(value),
+                    Ok(Ok(Err(error))) => containment_reject(format!(
+                        "foreign tool handler returned malformed JSON: {error}"
+                    )),
+                    Ok(Err(FfiError::Rejected {
+                        code,
+                        message,
+                        kind,
+                        wire_code,
+                    })) => SpokeResult::Reject(SpokeReject {
+                        // The foreign binding throws locked wire codes; an
+                        // unknown code is foreign misuse and falls back to
+                        // the containment code (the message is preserved).
+                        code: SpokeRejectCode::try_from_str(&code)
+                            .unwrap_or(SpokeRejectCode::InternalError),
+                        message,
+                        details: rehang_details(kind, wire_code),
+                    }),
+                    Ok(Err(FfiError::Dial { kind, message })) => containment_reject(format!(
+                        "foreign tool handler threw Dial({kind}): {message}"
+                    )),
+                    Err(join) => containment_reject(format!(
+                        "foreign tool handler task failed: {join}"
+                    )),
+                }
+            })
+        })
+    }
+}
+
+#[cfg(feature = "remote-adapter")]
+pub use foreign_tool_handler::ToolHandler;
+
 // ── Sync `RemoteAdapterFFI` over the async adapter (AR-4 / AR-5 / AR-6) ───
 #[cfg(feature = "remote-adapter")]
 mod remote_adapter_ffi {
@@ -301,8 +430,8 @@ mod remote_adapter_ffi {
     use serde::Serialize;
     use serde_json::Value;
     use spoke_operations::{
-        FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-        ScopeQueryPort, SpokeReject, SpokeResult,
+        parse_tool_capability_id, FindingPort, HostManifestPort, KnowledgeEntryPort,
+        RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeResult,
     };
     use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
 
@@ -311,6 +440,7 @@ mod remote_adapter_ffi {
         RemoteIdentity,
     };
 
+    use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
     use super::foreign_transport::ForeignCallbackTransport;
     use super::foreign_transport::Transport as FfiTransport;
     use super::{ffi_runtime, panic_payload_message};
@@ -467,7 +597,7 @@ mod remote_adapter_ffi {
         })
     }
 
-    fn ed25519_seed(bytes: Vec<u8>) -> Result<[u8; 32], FfiError> {
+    pub(super) fn ed25519_seed(bytes: Vec<u8>) -> Result<[u8; 32], FfiError> {
         bytes.try_into().map_err(|_| FfiError::Dial {
             kind: "config".into(),
             message: "local seed must be exactly 32 bytes".into(),
@@ -562,6 +692,55 @@ mod remote_adapter_ffi {
 
         pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
             map_spoke_result(ffi_block_on(self.inner.list_peer_host_capability_manifests())?)
+        }
+
+        /// Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
+        /// toward the remote peer and return the tool's `result` payload as
+        /// a JSON string.
+        ///
+        /// `capability_id` must match the `tools.<ns>.<tool_id>` grammar —
+        /// a non-`tools.` id fails fast with
+        /// `FfiError::Rejected { code: "INVALID_INPUT", .. }` (the library
+        /// grammar reject passes through; the offending id rides in
+        /// `message`) and zero wire traffic. `arguments_json` parses at the
+        /// FFI boundary via the module's JSON convention (malformed →
+        /// `INVALID_INPUT`, also zero wire traffic). Deny / timeout /
+        /// session failures map through the D7 rows (see D15 error table).
+        pub fn invoke_tool(
+            &self,
+            capability_id: String,
+            arguments_json: String,
+        ) -> Result<String, FfiError> {
+            let arguments: Value = parse_json_field(&arguments_json, "tool arguments")?;
+            map_spoke_result(ffi_block_on(
+                self.inner.invoke_tool(&capability_id, arguments),
+            )?)
+        }
+
+        /// Dialer-side tool-serving registration (D16): serve `tools.*`
+        /// reverse invokes from the remote peer with a foreign-callback
+        /// handler.
+        ///
+        /// `capability_id` is pre-validated with `parse_tool_capability_id`
+        /// (the `spoke-operations` public API) before the library call — a
+        /// non-`tools.` id rejects `FfiError::Rejected { code:
+        /// "INVALID_INPUT", kind: None, wire_code: None }` with the
+        /// offending id in `message` and zero side effect (the library's
+        /// grammar panic stays unreachable through FFI). A valid id
+        /// registers on the library face — last-wins overwrite, and the
+        /// registry never mutates the manifest.
+        pub fn register_tool_handler(
+            &self,
+            capability_id: String,
+            handler: Box<dyn FfiToolHandler>,
+        ) -> Result<(), FfiError> {
+            match parse_tool_capability_id(&capability_id) {
+                SpokeResult::Ok(_) => {}
+                SpokeResult::Reject(reject) => return Err(map_spoke_reject(reject)),
+            }
+            self.inner
+                .register_tool_handler(&capability_id, into_remote_handler(handler));
+            Ok(())
         }
 
         pub fn close(&self) {
@@ -738,11 +917,163 @@ mod remote_adapter_ffi {
     }
 }
 
+// ── Sync `ConnectResponderFFI` over the async responder (D16) ────────────
+#[cfg(feature = "remote-adapter")]
+mod connect_responder_ffi {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use serde_json::Value;
+    use spoke_operations::{parse_tool_capability_id, SpokeResult};
+    use spoke_schemas::HostCapabilityManifest;
+
+    use crate::remote::{
+        connect_responder, ConnectResponder, ConnectResponderOptions, RemoteIdentity,
+    };
+
+    use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
+    use super::foreign_transport::ForeignCallbackTransport;
+    use super::foreign_transport::Transport as FfiTransport;
+    use super::remote_adapter_ffi::{
+        ed25519_seed, ffi_block_on, ffi_block_on_void, map_spoke_reject, map_spoke_result,
+        parse_json_field, FfiError,
+    };
+
+    /// Sync wrapper over the library [`ConnectResponder`] (D16): the
+    /// host-accepted callback [`FfiTransport`] plus the responder lifecycle
+    /// — session info, tool serving (`register_tool_handler`), the reverse
+    /// tool invoke face (`invoke_tool`), and `close`.
+    #[derive(uniffi::Object)]
+    pub struct ConnectResponderFFI {
+        inner: Arc<ConnectResponder>,
+    }
+
+    #[uniffi::export]
+    impl ConnectResponderFFI {
+        /// One of `Disconnected` / `Handshaking` / `Established` / `Closed`.
+        pub fn state(&self) -> String {
+            self.inner.state().as_str().to_string()
+        }
+
+        pub fn session_id(&self) -> Option<String> {
+            self.inner.session_id()
+        }
+
+        pub fn remote_peer_id(&self) -> Option<String> {
+            self.inner.remote_peer_id()
+        }
+
+        /// The dialer's `HostCapabilityManifest` (hello `host`, cached at
+        /// session establish) as a JSON string — same shape as
+        /// `RemoteAdapterFFI::remote_manifest`.
+        pub fn remote_manifest(&self) -> Option<String> {
+            self.inner.remote_manifest().and_then(|manifest| {
+                serde_json::to_string(&manifest).ok()
+            })
+        }
+
+        /// Responder-side tool-serving registration (D16): `capability_id`
+        /// is pre-validated with `parse_tool_capability_id` before the
+        /// library call — a non-`tools.` id rejects
+        /// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+        /// wire_code: None }` with the offending id in `message` and zero
+        /// side effect (the library's grammar panic stays unreachable
+        /// through FFI). A valid id registers last-wins on the library face.
+        pub fn register_tool_handler(
+            &self,
+            capability_id: String,
+            handler: Box<dyn FfiToolHandler>,
+        ) -> Result<(), FfiError> {
+            match parse_tool_capability_id(&capability_id) {
+                SpokeResult::Ok(_) => {}
+                SpokeResult::Reject(reject) => return Err(map_spoke_reject(reject)),
+            }
+            self.inner
+                .register_tool_handler(&capability_id, into_remote_handler(handler));
+            Ok(())
+        }
+
+        /// Responder→dialer reverse invoke (D16): same face and error rows
+        /// as `RemoteAdapterFFI::invoke_tool` (the D15 table applies by
+        /// reference).
+        pub fn invoke_tool(
+            &self,
+            capability_id: String,
+            arguments_json: String,
+        ) -> Result<String, FfiError> {
+            let arguments: Value = parse_json_field(&arguments_json, "tool arguments")?;
+            map_spoke_result(ffi_block_on(
+                self.inner.invoke_tool(&capability_id, arguments),
+            )?)
+        }
+
+        pub fn close(&self) {
+            ffi_block_on_void(async {
+                self.inner.close();
+            });
+        }
+    }
+
+    /// Accept-side constructor (D16): wraps a *connected* (host-accepted)
+    /// callback [`FfiTransport`] into the library [`connect_responder`] —
+    /// symmetric with `connect_remote_adapter_ffi`, which takes a connected
+    /// outbound transport; the host product owns listen/accept in its own
+    /// network stack.
+    ///
+    /// Constructor semantics are library-faithful (D16): the block-on
+    /// covers ONLY the factory future, which completes immediately — the
+    /// responder returns in `Handshaking` (the dialer hello is the sync
+    /// point; the library factory has no error path, D14 divergence). The
+    /// `Result` slot carries FFI-side config-validation failures only:
+    /// seed length, manifest JSON, or peer-key length →
+    /// `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
+    /// deny, hello-verify deny) produce NO error row — they surface as
+    /// `state() → "Closed"` with `session_id() → None`.
+    #[uniffi::export]
+    pub fn connect_responder_ffi(
+        transport: Box<dyn FfiTransport>,
+        seed: Vec<u8>,
+        manifest_json: String,
+        allowlist: Vec<String>,
+        peer_keys: HashMap<String, Vec<u8>>,
+        invoke_timeout_ms: Option<u64>,
+    ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
+        let manifest: HostCapabilityManifest = serde_json::from_str(&manifest_json)
+            .map_err(|error| FfiError::Dial {
+                kind: "config".into(),
+                message: format!("invalid host manifest JSON: {error}"),
+            })?;
+        let peer_keys = peer_keys
+            .into_iter()
+            .map(|(peer_id, key_bytes)| {
+                let key: [u8; 32] = key_bytes.try_into().map_err(|_| FfiError::Dial {
+                    kind: "config".into(),
+                    message: format!("peer key for {peer_id} must be exactly 32 bytes"),
+                })?;
+                Ok((peer_id, key))
+            })
+            .collect::<Result<HashMap<_, _>, FfiError>>()?;
+        let responder = ffi_block_on(connect_responder(ConnectResponderOptions {
+            transport: Arc::new(ForeignCallbackTransport::new(Arc::from(transport))),
+            identity: RemoteIdentity {
+                seed: ed25519_seed(seed)?,
+            },
+            manifest,
+            allowlist,
+            peer_keys,
+            ports: None,
+            invoke_timeout_ms,
+        }))?;
+        Ok(Arc::new(ConnectResponderFFI { inner: responder }))
+    }
+}
+
 // ── Sync `MultiPeerRouterFFI` over the async router (AR-6 / D11) ─────────
 #[cfg(feature = "remote-adapter")]
 mod multi_peer_router_ffi {
     use std::sync::Arc;
 
+    use serde_json::Value;
     use spoke_operations::{
         FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
         ScopeQueryPort,
@@ -844,6 +1175,32 @@ mod multi_peer_router_ffi {
 
         pub fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
             map_spoke_result(ffi_block_on(self.router.list_peer_host_capability_manifests())?)
+        }
+
+        /// Reverse-invoke face (D15): route a `tools.<ns>.<tool_id>` invoke
+        /// to the registered peer whose cached hello manifest advertises the
+        /// exact tool capability (deterministic lowest-`peer_id` tie-break),
+        /// and return the serving peer's tool `result` payload as a JSON
+        /// string. The library router does all selection — this face adds no
+        /// routing logic of its own; with no capable peer the terminal
+        /// `Rejected { code: "CAPABILITY_PORT_MISSING", kind:
+        /// Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`
+        /// crosses with the capability id embedded in `message`.
+        ///
+        /// Same boundary conventions as
+        /// [`RemoteAdapterFFI::invoke_tool`]: a non-`tools.` id and
+        /// malformed `arguments_json` both fail fast with
+        /// `FfiError::Rejected { code: "INVALID_INPUT", .. }` before any
+        /// peer selection, with zero wire traffic.
+        pub fn invoke_tool(
+            &self,
+            capability_id: String,
+            arguments_json: String,
+        ) -> Result<String, FfiError> {
+            let arguments: Value = parse_json_field(&arguments_json, "tool arguments")?;
+            map_spoke_result(ffi_block_on(
+                self.router.invoke_tool(&capability_id, arguments),
+            )?)
         }
     }
 
@@ -966,6 +1323,8 @@ mod loopback_smoke_host {
 
 #[cfg(feature = "remote-adapter")]
 pub use remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+#[cfg(feature = "remote-adapter")]
+pub use connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
 #[cfg(feature = "remote-adapter")]
 pub use multi_peer_router_ffi::{new_multi_peer_router_ffi, MultiPeerRouterFFI};
 #[cfg(feature = "ffi-smoke-host")]
@@ -1696,13 +2055,17 @@ mod tests {
 
 #[cfg(all(test, feature = "remote-adapter"))]
 mod remote_adapter_ffi_tests {
+    use std::collections::HashMap;
     use std::sync::mpsc;
     use std::sync::{Arc, Mutex};
     use std::thread;
 
     use serde_json::json;
     use spoke_fixture_toy_world::ToyWorldAdapter;
+    use spoke_operations::spoke_ok;
     use spoke_schemas::KnowledgeEntry;
+
+    use crate::remote::{connect_responder, ConnectResponderOptions};
 
     use crate::core::derive_peer_id_from_ed25519_pubkey;
     use crate::core::golden::{golden, golden_pubkey, golden_seed};
@@ -2979,18 +3342,1531 @@ mod remote_adapter_ffi_tests {
         ffi.close();
         drop(host);
     }
+
+    // ── D15: `RemoteAdapterFFI.invoke_tool` (reverse-invoke FFI face) ─────
+
+    /// Tool-carrying manifest: every tool capability ∈ capabilities[] so the
+    /// negotiated set includes the `tools.*` ops (D13 dispatch gate).
+    fn tool_manifest(host_id: &str) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": [
+                "spoke-baseline",
+                "tools.math.add",
+                "tools.echo.echo",
+                "tools.echo.boom",
+            ],
+            "namespaces": ["math", "echo", "toy_world"],
+            "extensions": {},
+            "tools": [
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.math.add",
+                    "op": "tools.math.add",
+                    "description": "Add two integers",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.echo.echo",
+                    "op": "tools.echo.echo",
+                    "description": "Echo the arguments",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.echo.boom",
+                    "op": "tools.echo.boom",
+                    "description": "Explodes",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+            ],
+        }))
+        .expect("valid tool manifest")
+    }
+
+    fn tool_manifest_json(host_id: &str) -> String {
+        serde_json::to_string(&tool_manifest(host_id)).expect("tool manifest json")
+    }
+
+    /// Records the arguments object and returns `{ "sum": a + b }`.
+    fn add_handler(calls: Arc<Mutex<Vec<Value>>>) -> crate::remote::ToolHandler {
+        Arc::new(move |args: Value| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().expect("calls lock").push(args.clone());
+                let a = args.get("a").and_then(Value::as_i64).unwrap_or(0);
+                let b = args.get("b").and_then(Value::as_i64).unwrap_or(0);
+                spoke_ok(json!({ "sum": a + b }))
+            })
+        })
+    }
+
+    /// Dial the FFI adapter with a tool-carrying local manifest (the tool
+    /// capability must be in the negotiated set for the serving gate).
+    fn dial_ffi_with_tools(
+        client: crate::remote::transport::LoopbackTransport,
+        invoke_timeout_ms: Option<u64>,
+    ) -> Arc<RemoteAdapterFFI> {
+        let callback = Box::new(LoopbackCallback { inner: client });
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+        connect_remote_adapter_ffi(
+            callback,
+            seed_client().to_vec(),
+            tool_manifest_json("test-client"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            invoke_timeout_ms,
+        )
+        .expect("ffi dial")
+    }
+
+    /// Loopback pair: the production `connect_responder` (serving double for
+    /// `tools.*` per the D14 topology note) on the server end + the raw
+    /// client transport end for the FFI callback dial.
+    fn dial_responder(
+        responder_timeout_ms: Option<u64>,
+    ) -> (
+        Arc<crate::remote::ConnectResponder>,
+        crate::remote::transport::LoopbackTransport,
+    ) {
+        ffi_runtime().block_on(async {
+            let pair = crate::remote::transport::loopback_transport_pair();
+            let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+            let responder = connect_responder(ConnectResponderOptions {
+                transport: Arc::new(pair.server.clone()),
+                identity: RemoteIdentity {
+                    seed: seed_host(),
+                },
+                manifest: tool_manifest("test-responder"),
+                allowlist: vec![peer_id_client.clone()],
+                peer_keys: HashMap::from([(peer_id_client.clone(), pubkey_client())]),
+                ports: None,
+                invoke_timeout_ms: responder_timeout_ms,
+            })
+            .await;
+            (responder, pair.client)
+        })
+    }
+
+    #[test]
+    fn ffi_invoke_tool_round_trips_the_serving_sides_tool_result() {
+        let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let (responder, client) = dial_responder(None);
+        responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls)));
+        let ffi = dial_ffi_with_tools(client, None);
+        assert_eq!(ffi.state(), "Established");
+
+        let result_json = ffi
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 21, "b": 21}"#.to_string())
+            .expect("tool invoke succeeds");
+        let result: Value = serde_json::from_str(&result_json).expect("result json");
+        assert_eq!(result, json!({ "sum": 42 }));
+        assert_eq!(calls.lock().expect("calls lock").len(), 1);
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_invoke_tool_fails_fast_on_a_non_tool_capability_id_with_zero_wire_traffic() {
+        let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let (responder, client) = dial_responder(None);
+        responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls)));
+        let ffi = dial_ffi_with_tools(client, None);
+
+        let err = ffi
+            .invoke_tool("port.x".to_string(), r#"{}"#.to_string())
+            .expect_err("non-tools id must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT" && message.contains("port.x")
+        ));
+        assert!(
+            calls.lock().expect("calls lock").is_empty(),
+            "grammar fail-fast must not reach the serving double"
+        );
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_invoke_tool_rejects_malformed_arguments_json_with_zero_wire_traffic() {
+        let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let (responder, client) = dial_responder(None);
+        responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls)));
+        let ffi = dial_ffi_with_tools(client, None);
+
+        let err = ffi
+            .invoke_tool("tools.math.add".to_string(), "{ not json".to_string())
+            .expect_err("malformed arguments json must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT"
+                && message.contains("invalid tool arguments JSON")
+                && message.contains("key must be a string")
+        ));
+        assert!(
+            calls.lock().expect("calls lock").is_empty(),
+            "malformed arguments must not reach the wire"
+        );
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_invoke_tool_maps_op_unsupported_deny_with_wire_code() {
+        let (responder, client) = dial_responder(None);
+        // tools.echo.boom IS negotiated but the responder serves no handler
+        // for it — fail-closed deny → op_unsupported → D7 dispatch-deny row.
+        let ffi = dial_ffi_with_tools(client, None);
+
+        let err = ffi
+            .invoke_tool("tools.echo.boom".to_string(), r#"{}"#.to_string())
+            .expect_err("unserved tool must deny");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: None,
+                wire_code: Some(wire),
+                ..
+            } if code == "CAPABILITY_PORT_MISSING" && wire == "op_unsupported"
+        ));
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_invoke_tool_times_out_waiter_only_and_session_stays_usable() {
+        let (responder, client) = dial_responder(None);
+        // Never-answering serving double: the handler never settles, so the
+        // responder never answers the invoke — the dialer's per-waiter
+        // timeout must fire and fail only that waiter.
+        responder.register_tool_handler(
+            "tools.echo.boom",
+            Arc::new(|_args: Value| {
+                Box::pin(async move { futures::future::pending::<SpokeResult<Value>>().await })
+            }),
+        );
+        let ffi = dial_ffi_with_tools(client, Some(100));
+        assert_eq!(ffi.state(), "Established");
+
+        let timed_out = ffi
+            .invoke_tool("tools.echo.boom".to_string(), r#"{}"#.to_string())
+            .expect_err("never-answering double must time out");
+        assert!(matches!(
+            timed_out,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: None,
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "timeout"
+        ));
+
+        // Waiter-only: the session stays usable — a healthy tool still serves.
+        let retry_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        responder.register_tool_handler(
+            "tools.math.add",
+            add_handler(Arc::clone(&retry_calls)),
+        );
+        let retry = ffi
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 40, "b": 2}"#.to_string())
+            .expect("session stays usable after invoke timeout");
+        let result: Value = serde_json::from_str(&retry).expect("retry result json");
+        assert_eq!(result, json!({ "sum": 42 }));
+        ffi.close();
+        responder.close();
+    }
+
+    // ── Task 5: concurrency + close semantics over the tool faces ─────────
+
+    #[test]
+    fn ffi_invoke_tool_concurrent_invokes_from_os_threads_block_on_independently() {
+        let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let (responder, client) = dial_responder(None);
+        responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls)));
+        let ffi = Arc::new(dial_ffi_with_tools(client, None));
+        assert_eq!(ffi.state(), "Established");
+
+        // Multiple OS threads block on the same adapter concurrently — each
+        // call blocks its own calling thread while the shared runtime
+        // multiplexes the library futures (D15 concurrency / AR-6 pattern).
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let ffi = Arc::clone(&ffi);
+                thread::spawn(move || {
+                    let result_json = ffi
+                        .invoke_tool(
+                            "tools.math.add".to_string(),
+                            format!(r#"{{"a": {i}, "b": 1}}"#),
+                        )
+                        .expect("concurrent tool invoke");
+                    let result: Value =
+                        serde_json::from_str(&result_json).expect("result json");
+                    assert_eq!(result, json!({ "sum": i + 1 }));
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("thread join");
+        }
+        assert_eq!(
+            calls.lock().expect("calls lock").len(),
+            4,
+            "every concurrent invoke was served"
+        );
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_close_mid_wait_settles_pending_invoke_tool_session_closed_and_post_close_rejects() {
+        use std::time::{Duration, Instant};
+
+        let (responder, client) = dial_responder(None);
+        // Never-answering serving double: the handler never settles, so the
+        // dialer's tool invoke stays pending until close.
+        let boom_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let boom_calls_handler = Arc::clone(&boom_calls);
+        responder.register_tool_handler(
+            "tools.echo.boom",
+            Arc::new(move |args: Value| {
+                let boom_calls = Arc::clone(&boom_calls_handler);
+                Box::pin(async move {
+                    boom_calls.lock().expect("calls lock").push(args.clone());
+                    futures::future::pending::<SpokeResult<Value>>().await
+                })
+            }),
+        );
+        let ffi = Arc::new(dial_ffi_with_tools(client, None));
+        assert_eq!(ffi.state(), "Established");
+
+        let invoke_slot = Arc::new(Mutex::new(None));
+        let invoke_slot_thread = Arc::clone(&invoke_slot);
+        let ffi_thread = Arc::clone(&ffi);
+        let invoke_handle = thread::spawn(move || {
+            let result =
+                ffi_thread.invoke_tool("tools.echo.boom".to_string(), r#"{}"#.to_string());
+            *invoke_slot_thread.lock().expect("invoke slot lock") = Some(result);
+        });
+        // The request hit the wire once the serving double's handler ran —
+        // the dialer's waiter registers before the send (D10), so a close at
+        // this point must settle the pending invoke with `session_closed`.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while boom_calls.lock().expect("calls lock").is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "invoke never reached the serving double"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        ffi.close();
+        assert_eq!(ffi.state(), "Closed");
+        invoke_handle.join().expect("invoke thread joined");
+        let err = invoke_slot
+            .lock()
+            .expect("invoke slot lock")
+            .take()
+            .expect("invoke result")
+            .expect_err("pending invoke must settle session_closed on close");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: None,
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+
+        // Post-close `invoke_tool` rejects the same row (D15 session-closed).
+        let err = ffi
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("post-close tool invoke must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                wire_code: None,
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_register_tool_handler_after_close_behaves_per_d16() {
+        let (responder, client) = dial_responder(None);
+        let ffi = dial_ffi_with_tools(client, None);
+        assert_eq!(ffi.state(), "Established");
+        ffi.close();
+        assert_eq!(ffi.state(), "Closed");
+
+        // Registration is a registry-only operation with no session-state
+        // check (D13): a valid id still registers on the library face after
+        // close — the session is closed, so the handler can never serve, but
+        // the call itself is not an error row (D16 has no close row for
+        // registration; the wrapper's grammar pre-validation is the whole
+        // FFI-side contract).
+        let (handler, calls) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "sum": 42 })));
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers after close");
+
+        // Grammar pre-validation still applies after close (D16 row).
+        let (bad_handler, _) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({})));
+        let err = ffi
+            .register_tool_handler("port.x".to_string(), bad_handler)
+            .expect_err("invalid grammar rejects after close");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT" && message.contains("port.x")
+        ));
+
+        // The registry entry is inert: the closed session cannot serve.
+        assert!(calls.lock().expect("calls lock").is_empty());
+        let err = ffi
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("post-close invoke stays rejected");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                kind: Some(kind),
+                ..
+            } if code == "INTERNAL_ERROR" && kind == "session_closed"
+        ));
+        responder.close();
+    }
+
+    // ── D16: foreign-callback `ToolHandler` + dialer-side serving ─────────
+
+    use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
+
+    /// Controllable foreign-callback behavior for the bridge / serving
+    /// tests — one impl covers every D16 outcome class.
+    #[derive(Clone)]
+    enum ForeignHandlerBehavior {
+        /// Return `Ok` with this JSON value.
+        Ok(Value),
+        /// Return `Ok` with malformed JSON (bridge containment).
+        MalformedOk,
+        /// Throw an application reject (verbatim passthrough).
+        Rejected {
+            code: String,
+            message: String,
+            kind: Option<String>,
+            wire_code: Option<String>,
+        },
+        /// Throw a non-contract `Dial` error (bridge containment).
+        Dial,
+        /// Panic inside the foreign impl (bridge `JoinError` containment).
+        Panic,
+    }
+
+    /// Test foreign `ToolHandler` impl: records the `arguments_json` it
+    /// received and behaves per the shared `behavior` state.
+    struct TestForeignToolHandler {
+        behavior: Arc<Mutex<ForeignHandlerBehavior>>,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FfiToolHandler for TestForeignToolHandler {
+        fn handle(&self, arguments_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("handler calls lock")
+                .push(arguments_json.clone());
+            match &*self.behavior.lock().expect("handler behavior lock") {
+                ForeignHandlerBehavior::Ok(value) => {
+                    Ok(serde_json::to_string(value).expect("handler value serializes"))
+                }
+                ForeignHandlerBehavior::MalformedOk => Ok("{ not json".to_string()),
+                ForeignHandlerBehavior::Rejected {
+                    code,
+                    message,
+                    kind,
+                    wire_code,
+                } => Err(FfiError::Rejected {
+                    code: code.clone(),
+                    message: message.clone(),
+                    kind: kind.clone(),
+                    wire_code: wire_code.clone(),
+                }),
+                ForeignHandlerBehavior::Dial => Err(FfiError::Dial {
+                    kind: "config".into(),
+                    message: "non-contract handler dial".into(),
+                }),
+                ForeignHandlerBehavior::Panic => panic!("foreign tool handler panicked"),
+            }
+        }
+    }
+
+    fn test_foreign_handler(
+        behavior: ForeignHandlerBehavior,
+    ) -> (Box<TestForeignToolHandler>, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(TestForeignToolHandler {
+                behavior: Arc::new(Mutex::new(behavior)),
+                calls: Arc::clone(&calls),
+            }),
+            calls,
+        )
+    }
+
+    #[test]
+    fn into_remote_handler_bridge_maps_every_foreign_outcome_class() {
+        // Ok(json) → SpokeResult::Ok with the parsed value.
+        let (handler, calls) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "sum": 42 })));
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({ "a": 21, "b": 21 })));
+        assert!(
+            matches!(&result, SpokeResult::Ok(value) if value == &json!({ "sum": 42 })),
+            "expected success payload, got {result:?}"
+        );
+        assert_eq!(
+            calls.lock().expect("calls lock").as_slice(),
+            &[r#"{"a":21,"b":21}"#.to_string()],
+            "handler received the serialized arguments"
+        );
+
+        // Ok(malformed json) → containment: INTERNAL_ERROR, details None.
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::MalformedOk);
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({})));
+        assert!(
+            matches!(
+                &result,
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::InternalError && reject.details.is_none()
+            ),
+            "expected containment reject, got {result:?}"
+        );
+
+        // Err(Rejected{..}) → verbatim application passthrough with kind /
+        // wire_code re-hung onto details (the inverse of map_spoke_reject).
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Rejected {
+            code: "INVALID_INPUT".into(),
+            message: "bad arguments".into(),
+            kind: None,
+            wire_code: Some("op_unsupported".into()),
+        });
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({})));
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                assert_eq!(reject.message, "bad arguments");
+                let details = reject.details.expect("details re-hung");
+                assert_eq!(
+                    details.get("wire_code").and_then(Value::as_str),
+                    Some("op_unsupported")
+                );
+            }
+            other => panic!("expected verbatim reject passthrough, got {other:?}"),
+        }
+
+        // Err(Rejected{ code: <unknown> }) → downgrade: the foreign code
+        // string is not in the locked wire vocabulary and cannot be
+        // represented by the typed SpokeRejectCode, so the bridge contains
+        // it to INTERNAL_ERROR — the message stays preserved and kind /
+        // wire_code still re-hang onto details (locked codes pass through
+        // verbatim, asserted above).
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Rejected {
+            code: "NOT_A_WIRE_CODE".into(),
+            message: "unknown code message".into(),
+            kind: Some("some_kind".into()),
+            wire_code: None,
+        });
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({})));
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InternalError);
+                assert_eq!(reject.message, "unknown code message");
+                let details = reject.details.expect("details re-hung");
+                assert_eq!(
+                    details.get("kind").and_then(Value::as_str),
+                    Some("some_kind")
+                );
+            }
+            other => panic!("expected INTERNAL_ERROR downgrade, got {other:?}"),
+        }
+
+        // Err(Dial{..}) (non-contract) → containment: INTERNAL_ERROR,
+        // details None.
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Dial);
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({})));
+        assert!(
+            matches!(
+                &result,
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::InternalError && reject.details.is_none()
+            ),
+            "expected containment reject for Dial, got {result:?}"
+        );
+
+        // Panic inside the foreign impl → spawn_blocking JoinError →
+        // containment: INTERNAL_ERROR, details None.
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Panic);
+        let remote = into_remote_handler(handler);
+        let result = ffi_runtime().block_on(remote(json!({})));
+        assert!(
+            matches!(
+                &result,
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::InternalError && reject.details.is_none()
+            ),
+            "expected containment reject for foreign panic, got {result:?}"
+        );
+    }
+
+    /// Dial a tool-carrying FFI adapter against a tool-carrying library
+    /// responder, so `tools.*` is in the negotiated capabilities and the
+    /// responder can drive responder→dialer reverse invokes served by the
+    /// dialer's registered foreign handler (D16 accept topology, dialer-side
+    /// serving).
+    fn dial_ffi_against_responder(
+        invoke_timeout_ms: Option<u64>,
+    ) -> (Arc<RemoteAdapterFFI>, Arc<crate::remote::ConnectResponder>) {
+        let (responder, client) = dial_responder(invoke_timeout_ms);
+        let ffi = dial_ffi_with_tools(client, None);
+        assert_eq!(ffi.state(), "Established");
+        (ffi, responder)
+    }
+
+    #[test]
+    fn ffi_register_tool_handler_serves_a_responder_to_dialer_reverse_invoke() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+        let (handler, calls) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "sum": 42 })));
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let result = ffi_runtime().block_on(responder.invoke_tool(
+            "tools.math.add",
+            json!({ "a": 21, "b": 21 }),
+        ));
+        match result {
+            SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
+            other => panic!("expected success payload, got {other:?}"),
+        }
+        assert_eq!(
+            calls.lock().expect("calls lock").as_slice(),
+            &[r#"{"a":21,"b":21}"#.to_string()],
+            "the foreign handler received the arguments JSON"
+        );
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_tool_handler_reject_passes_through_verbatim_on_the_wire() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Rejected {
+            code: "REVISION_CONFLICT".into(),
+            message: "foreign handler rejected".into(),
+            kind: None,
+            wire_code: Some("op_unsupported".into()),
+        });
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("register");
+
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::RevisionConflict);
+                assert_eq!(reject.message, "foreign handler rejected");
+                let details = reject.details.expect("details re-hung");
+                assert_eq!(
+                    details.get("wire_code").and_then(Value::as_str),
+                    Some("op_unsupported")
+                );
+            }
+            other => panic!("expected verbatim reject on the wire, got {other:?}"),
+        }
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_tool_handler_unknown_reject_code_downgrades_to_internal_error_on_the_wire() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+        // A foreign code string outside the locked wire vocabulary cannot
+        // be represented by the typed SpokeRejectCode — the bridge
+        // downgrades it to INTERNAL_ERROR while the peer still observes
+        // the original message and the re-hung details.
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Rejected {
+            code: "NOT_A_WIRE_CODE".into(),
+            message: "unknown code message".into(),
+            kind: None,
+            wire_code: Some("op_unsupported".into()),
+        });
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("register");
+
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InternalError);
+                assert_eq!(reject.message, "unknown code message");
+                let details = reject.details.expect("details re-hung");
+                assert_eq!(
+                    details.get("wire_code").and_then(Value::as_str),
+                    Some("op_unsupported")
+                );
+            }
+            other => panic!("expected INTERNAL_ERROR downgrade on the wire, got {other:?}"),
+        }
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_tool_handler_contains_dial_and_panic_and_keeps_the_serve_loop_alive() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+
+        // Non-contract `Dial` throw → INTERNAL_ERROR with details None.
+        let (dial_handler, _) = test_foreign_handler(ForeignHandlerBehavior::Dial);
+        ffi.register_tool_handler("tools.math.add".to_string(), dial_handler)
+            .expect("register dial handler");
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        assert!(
+            matches!(
+                &result,
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::InternalError && reject.details.is_none()
+            ),
+            "expected containment reject for Dial, got {result:?}"
+        );
+
+        // Foreign panic → JoinError → the same containment row.
+        let (panic_handler, _) = test_foreign_handler(ForeignHandlerBehavior::Panic);
+        ffi.register_tool_handler("tools.math.add".to_string(), panic_handler)
+            .expect("register panic handler");
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        assert!(
+            matches!(
+                &result,
+                SpokeResult::Reject(reject)
+                    if reject.code == SpokeRejectCode::InternalError && reject.details.is_none()
+            ),
+            "expected containment reject for foreign panic, got {result:?}"
+        );
+
+        // The serve loop survived: a healthy handler still serves the next
+        // reverse invoke.
+        let (ok_handler, calls) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "sum": 42 })));
+        ffi.register_tool_handler("tools.math.add".to_string(), ok_handler)
+            .expect("register healthy handler");
+        let result = ffi_runtime().block_on(responder.invoke_tool(
+            "tools.math.add",
+            json!({ "a": 1, "b": 2 }),
+        ));
+        match result {
+            SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
+            other => panic!("expected success after containment, got {other:?}"),
+        }
+        assert_eq!(calls.lock().expect("calls lock").len(), 1);
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_register_tool_handler_rejects_non_tools_grammar_with_zero_side_effect() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+
+        for bad in ["port.x", "tools.9bad.id", "tools.math.", "nottools.a.b"] {
+            let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({})));
+            let err = ffi
+                .register_tool_handler(bad.to_string(), handler)
+                .expect_err("invalid grammar must reject");
+            assert!(
+                matches!(
+                    &err,
+                    FfiError::Rejected {
+                        code,
+                        kind: None,
+                        wire_code: None,
+                        ..
+                    } if code == "INVALID_INPUT"
+                ),
+                "unexpected error row for {bad:?}: {err:?}"
+            );
+            assert!(
+                format!("{err:?}").contains(bad),
+                "offending id rides in the error message: {err:?}"
+            );
+        }
+
+        // Zero side effect: nothing was registered for the rejected ids — a
+        // valid registration still works and the session stays usable.
+        let (handler, _) = test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "ok": true })));
+        ffi.register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid id registers");
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        assert!(
+            matches!(&result, SpokeResult::Ok(value) if value == &json!({ "ok": true })),
+            "expected the registered handler to serve, got {result:?}"
+        );
+        ffi.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ffi_register_tool_handler_last_wins_overwrite() {
+        let (ffi, responder) = dial_ffi_against_responder(None);
+        let (first, first_calls) =
+            test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "winner": false })));
+        ffi.register_tool_handler("tools.math.add".to_string(), first)
+            .expect("register first handler");
+        let (second, second_calls) =
+            test_foreign_handler(ForeignHandlerBehavior::Ok(json!({ "winner": true })));
+        ffi.register_tool_handler("tools.math.add".to_string(), second)
+            .expect("register second handler");
+
+        let result = ffi_runtime().block_on(responder.invoke_tool("tools.math.add", json!({})));
+        match result {
+            SpokeResult::Ok(value) => assert_eq!(value, json!({ "winner": true })),
+            other => panic!("expected the last-wins payload, got {other:?}"),
+        }
+        assert_eq!(
+            first_calls.lock().expect("first calls lock").len(),
+            0,
+            "the first handler was overwritten and must not be called"
+        );
+        assert_eq!(second_calls.lock().expect("second calls lock").len(), 1);
+        ffi.close();
+        responder.close();
+    }
+}
+
+#[cfg(all(test, feature = "remote-adapter"))]
+mod connect_responder_ffi_tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use serde_json::{json, Value};
+
+    use crate::core::derive_peer_id_from_ed25519_pubkey;
+    use crate::remote::transport::Transport as RemoteAsyncTransport;
+    use crate::test_support::loopback_oracle::{
+        pubkey_client, pubkey_host, seed_client, seed_host,
+    };
+
+    use super::connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
+    use super::foreign_transport::Transport as FfiTransport;
+    use super::foreign_transport::TransportError;
+    use super::foreign_tool_handler::ToolHandler as FfiToolHandler;
+    use super::ffi_runtime;
+    use super::multi_peer_router_ffi::new_multi_peer_router_ffi;
+    use super::remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+
+    /// Callback `Transport` impl over the loopback end — exactly what a
+    /// native binding implements (D16 accept topology: the host product
+    /// owns listen/accept and wraps the connected socket as its callback
+    /// `Transport`).
+    struct LoopbackCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+    }
+
+    impl FfiTransport for LoopbackCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    /// Tool-carrying manifest — every tool capability also sits in
+    /// `capabilities[]` so the negotiated set includes the `tools.*` ops
+    /// (D13 dispatch gate).
+    fn tool_manifest(host_id: &str) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": [
+                "spoke-baseline",
+                "tools.math.add",
+                "tools.echo.echo",
+                "tools.echo.boom",
+            ],
+            "namespaces": ["math", "echo", "toy_world"],
+            "extensions": {},
+            "tools": [
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.math.add",
+                    "op": "tools.math.add",
+                    "description": "Add two integers",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.echo.echo",
+                    "op": "tools.echo.echo",
+                    "description": "Echo the arguments",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+                {
+                    "schema_version": 1,
+                    "capability_id": "tools.echo.boom",
+                    "op": "tools.echo.boom",
+                    "description": "Explodes",
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                },
+            ],
+        }))
+        .expect("valid tool manifest")
+    }
+
+    fn tool_manifest_json(host_id: &str) -> String {
+        serde_json::to_string(&tool_manifest(host_id)).expect("tool manifest json")
+    }
+
+    /// Foreign `ToolHandler` impl (D16): records the arguments JSON and
+    /// returns `{ "sum": a + b }` — the binding-side success path.
+    struct SumForeignToolHandler {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FfiToolHandler for SumForeignToolHandler {
+        fn handle(&self, arguments_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("handler calls lock")
+                .push(arguments_json.clone());
+            let args: Value =
+                serde_json::from_str(&arguments_json).expect("test handler receives JSON");
+            let a = args.get("a").and_then(Value::as_i64).unwrap_or(0);
+            let b = args.get("b").and_then(Value::as_i64).unwrap_or(0);
+            Ok(serde_json::to_string(&json!({ "sum": a + b })).expect("handler value serializes"))
+        }
+    }
+
+    fn sum_handler() -> (Box<SumForeignToolHandler>, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(SumForeignToolHandler {
+                calls: Arc::clone(&calls),
+            }),
+            calls,
+        )
+    }
+
+    /// Never-answering foreign `ToolHandler` (D16): records the arguments
+    /// JSON and parks forever — a binding whose `handle` never returns, the
+    /// pending-serving double for the mid-wait close row. The parked
+    /// blocking-pool thread is test-only and inert (no CPU; the serve task
+    /// stays parked until process exit, the accepted F-005 pattern).
+    struct PendingForeignToolHandler {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FfiToolHandler for PendingForeignToolHandler {
+        fn handle(&self, arguments_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("handler calls lock")
+                .push(arguments_json);
+            loop {
+                std::thread::park();
+            }
+        }
+    }
+
+    fn pending_handler() -> (Box<PendingForeignToolHandler>, Arc<Mutex<Vec<String>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(PendingForeignToolHandler {
+                calls: Arc::clone(&calls),
+            }),
+            calls,
+        )
+    }
+
+    /// Bounded poll for the handshake to settle — the responder constructor
+    /// returns immediately in `Handshaking` (D16 constructor semantics: the
+    /// block-on covers only the factory future; the dialer hello is the
+    /// sync point).
+    fn wait_for<F: Fn() -> bool>(what: &str, check: F) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !check() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Loopback pair through both FFI faces (D16 accept topology): the
+    /// responder FFI owns the server end (host-accepted transport), the
+    /// dialer FFI owns the client end. Both ends establish.
+    fn dial_responder_ffi() -> (Arc<ConnectResponderFFI>, Arc<RemoteAdapterFFI>) {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+        let responder = connect_responder_ffi(
+            Box::new(LoopbackCallback { inner: pair.server }),
+            seed_host().to_vec(),
+            tool_manifest_json("test-responder"),
+            vec![peer_id_client.clone()],
+            HashMap::from([(peer_id_client.clone(), pubkey_client().to_vec())]),
+            None,
+        )
+        .expect("responder constructs");
+        // The constructor returns in `Handshaking` (D16: no library
+        // constructor error path — block-on covers only the factory future).
+        assert_eq!(responder.state(), "Handshaking");
+
+        let dialer = connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: pair.client }),
+            seed_client().to_vec(),
+            tool_manifest_json("test-client"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        )
+        .expect("ffi dial");
+        assert_eq!(dialer.state(), "Established");
+        wait_for("responder handshake to establish", || {
+            responder.state() == "Established"
+        });
+        (responder, dialer)
+    }
+
+    #[test]
+    fn connect_responder_ffi_establishes_pair_and_serves_responder_reverse_invoke() {
+        let (responder, dialer) = dial_responder_ffi();
+
+        // The dialer serves responder→dialer reverse invokes through its
+        // foreign `ToolHandler` (D16 dialer-side serving face).
+        let (handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        // Session info matches on both ends.
+        let responder_session = responder.session_id().expect("responder session id");
+        assert_eq!(
+            dialer.session_id().as_deref(),
+            Some(responder_session.as_str()),
+            "both ends bind the same session"
+        );
+        assert_eq!(
+            responder.remote_peer_id().as_deref(),
+            Some(derive_peer_id_from_ed25519_pubkey(&pubkey_client()).as_str()),
+            "responder sees the dialer's peer id"
+        );
+        assert_eq!(
+            dialer.remote_peer_id().as_deref(),
+            Some(derive_peer_id_from_ed25519_pubkey(&pubkey_host()).as_str()),
+            "dialer sees the responder's peer id"
+        );
+        let responder_view: Value =
+            serde_json::from_str(&responder.remote_manifest().expect("responder manifest"))
+                .expect("manifest json");
+        assert_eq!(responder_view["host_id"], "test-client");
+        let dialer_view: Value =
+            serde_json::from_str(&dialer.remote_manifest().expect("dialer manifest"))
+                .expect("manifest json");
+        assert_eq!(dialer_view["host_id"], "test-responder");
+
+        // The responder's reverse invoke reaches the dialer's foreign
+        // handler and returns the tool result JSON.
+        let result = responder
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 21, "b": 21}"#.to_string())
+            .expect("responder reverse invoke succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result).expect("result json"),
+            json!({ "sum": 42 })
+        );
+        assert_eq!(
+            dialer_calls.lock().expect("calls lock").len(),
+            1,
+            "the dialer's foreign handler served the invoke"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    // ── Task 5 fix wave: responder-face invoke_tool rows (D15 by
+    // reference — the adapter-face rows mirrored on the responder face) ──
+
+    #[test]
+    fn connect_responder_ffi_invoke_tool_fails_fast_on_a_non_tool_capability_id_with_zero_wire_traffic() {
+        let (responder, dialer) = dial_responder_ffi();
+        let (handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let err = responder
+            .invoke_tool("port.x".to_string(), r#"{}"#.to_string())
+            .expect_err("non-tools id must reject");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref message,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INVALID_INPUT"
+                    && message.contains("port.x")
+                    && kind.is_none()
+                    && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+        assert!(
+            dialer_calls.lock().expect("calls lock").is_empty(),
+            "grammar fail-fast must not reach the serving foreign handler"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_invoke_tool_rejects_malformed_arguments_json_with_zero_wire_traffic() {
+        let (responder, dialer) = dial_responder_ffi();
+        let (handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let err = responder
+            .invoke_tool("tools.math.add".to_string(), "{ not json".to_string())
+            .expect_err("malformed arguments json must reject");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref message,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INVALID_INPUT"
+                    && message.contains("invalid tool arguments JSON")
+                    && message.contains("key must be a string")
+                    && kind.is_none()
+                    && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+        assert!(
+            dialer_calls.lock().expect("calls lock").is_empty(),
+            "malformed arguments must not reach the wire"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_close_mid_wait_settles_pending_reverse_invoke_session_closed() {
+        let (responder, dialer) = dial_responder_ffi();
+        // Never-answering foreign handler on the dialer: the responder's
+        // reverse invoke stays pending until close (the adapter-face
+        // mid-wait row mirrored for the responder→dialer direction).
+        let (handler, dialer_calls) = pending_handler();
+        dialer
+            .register_tool_handler("tools.echo.boom".to_string(), handler)
+            .expect("valid grammar registers");
+
+        let invoke_slot = Arc::new(Mutex::new(None));
+        let invoke_slot_thread = Arc::clone(&invoke_slot);
+        let responder_thread = Arc::clone(&responder);
+        let invoke_handle = std::thread::spawn(move || {
+            let result = responder_thread.invoke_tool(
+                "tools.echo.boom".to_string(),
+                r#"{}"#.to_string(),
+            );
+            *invoke_slot_thread.lock().expect("invoke slot lock") = Some(result);
+        });
+        // The reverse invoke hit the wire once the dialer's foreign handler
+        // ran — the responder's waiter registers before the send (D10), so
+        // a close at this point must settle the pending invoke with
+        // `session_closed`.
+        wait_for("reverse invoke to reach the dialer's foreign handler", || {
+            !dialer_calls.lock().expect("calls lock").is_empty()
+        });
+        responder.close();
+        assert_eq!(responder.state(), "Closed");
+        invoke_handle.join().expect("invoke thread joined");
+        let err = invoke_slot
+            .lock()
+            .expect("invoke slot lock")
+            .take()
+            .expect("invoke result")
+            .expect_err("pending reverse invoke must settle session_closed on close");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INTERNAL_ERROR"
+                    && kind.as_deref() == Some("session_closed")
+                    && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+        dialer.close();
+    }
+
+    // ── Task 5: both-directions integration over the router ──────────────
+
+    #[test]
+    fn both_ends_register_handlers_and_invoke_in_both_directions_over_the_router() {
+        let (responder, dialer) = dial_responder_ffi();
+
+        // Both ends register handlers: the dialer serves responder→dialer
+        // reverse invokes (D16 dialer-side serving face), the responder
+        // serves dialer→responder invokes (D16 accept topology).
+        let (dialer_handler, dialer_calls) = sum_handler();
+        dialer
+            .register_tool_handler("tools.echo.echo".to_string(), dialer_handler)
+            .expect("dialer registers");
+        let (responder_handler, responder_calls) = sum_handler();
+        responder
+            .register_tool_handler("tools.math.add".to_string(), responder_handler)
+            .expect("responder registers");
+
+        // Dialer→responder over the router: the dialer's established adapter
+        // is the router's only registered peer; the router selects it from
+        // the cached hello manifest (tools.math.add) and delegates through
+        // the adapter's tool face.
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(Arc::clone(&dialer))
+            .expect("register dialer peer");
+        let result_json = router
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 20, "b": 22}"#.to_string())
+            .expect("router routes the dialer→responder invoke");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result_json).expect("result json"),
+            json!({ "sum": 42 })
+        );
+        assert_eq!(
+            responder_calls.lock().expect("responder calls lock").len(),
+            1,
+            "the responder's foreign handler served the dialer→responder invoke"
+        );
+
+        // Responder→dialer: the responder's reverse invoke reaches the
+        // dialer's foreign handler — both directions serve through
+        // registered handlers.
+        let result_json = responder
+            .invoke_tool("tools.echo.echo".to_string(), r#"{"a": 1, "b": 2}"#.to_string())
+            .expect("responder reverse invoke succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result_json).expect("result json"),
+            json!({ "sum": 3 })
+        );
+        assert_eq!(
+            dialer_calls.lock().expect("dialer calls lock").len(),
+            1,
+            "the dialer's foreign handler served the responder→dialer invoke"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_register_tool_handler_after_close_behaves_per_d16() {
+        let (responder, dialer) = dial_responder_ffi();
+        responder.close();
+        assert_eq!(responder.state(), "Closed");
+
+        // Registry-only registration (D13): a valid id still registers on
+        // the library face after close — no D16 close row for registration,
+        // the wrapper's grammar pre-validation is the whole FFI contract.
+        let (handler, _) = sum_handler();
+        responder
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers after close");
+
+        // Grammar pre-validation still applies after close (D16 row).
+        let (bad_handler, _) = sum_handler();
+        let err = responder
+            .register_tool_handler("port.x".to_string(), bad_handler)
+            .expect_err("invalid grammar rejects after close");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "INVALID_INPUT" && kind.is_none() && wire_code.is_none()
+            ),
+            "unexpected error row: {err:?}"
+        );
+
+        // The closed session cannot serve or invoke (D15 session-closed row).
+        let err = responder
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("post-close reverse invoke rejects");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ..
+                } if code == "INTERNAL_ERROR" && kind.as_deref() == Some("session_closed")
+            ),
+            "unexpected error row: {err:?}"
+        );
+        dialer.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_serves_tools_through_a_foreign_handler() {
+        let (responder, dialer) = dial_responder_ffi();
+
+        let (handler, responder_calls) = sum_handler();
+        responder
+            .register_tool_handler("tools.math.add".to_string(), handler)
+            .expect("valid grammar registers");
+
+        // Dialer → responder: the responder FFI serves the tool through
+        // the foreign callback handler (D16 accept topology).
+        let result = dialer
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 1, "b": 2}"#.to_string())
+            .expect("dialer invoke succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&result).expect("result json"),
+            json!({ "sum": 3 })
+        );
+        assert_eq!(
+            responder_calls.lock().expect("calls lock").len(),
+            1,
+            "the responder's foreign handler served the invoke"
+        );
+
+        // Deny row: negotiated but unregistered tool → fail-closed
+        // `op_unsupported` → D7 dispatch-deny row.
+        let err = dialer
+            .invoke_tool("tools.echo.boom".to_string(), "{}".to_string())
+            .expect_err("unregistered tool is denied");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "CAPABILITY_PORT_MISSING"
+                    && kind.is_none()
+                    && wire_code.as_deref() == Some("op_unsupported")
+            ),
+            "expected dispatch-deny row, got {err:?}"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_port_invoke_hits_the_absent_ports_deny_branch() {
+        let (responder, dialer) = dial_responder_ffi();
+        let _ = responder;
+        // `ports` is pinned `None` on the FFI responder (D16 non-goal), so
+        // a `port.*` op answers the documented absent-ports deny branch.
+        let err = dialer
+            .get_knowledge_entry("kb_ffi_missing_entry".to_string())
+            .expect_err("absent ports deny");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    ref wire_code,
+                    ..
+                } if code == "CAPABILITY_PORT_MISSING"
+                    && kind.is_none()
+                    && wire_code.as_deref() == Some("op_unsupported")
+            ),
+            "expected absent-ports deny row, got {err:?}"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_rejects_invalid_config_with_dial_config() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_keys = HashMap::from([(peer_id_client.clone(), pubkey_client().to_vec())]);
+
+        // Wrong seed length → `Dial { kind: "config" }` (dial precedent).
+        let err = match connect_responder_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.server.clone(),
+            }),
+            vec![0u8; 31],
+            tool_manifest_json("test-responder"),
+            vec![peer_id_client.clone()],
+            peer_keys.clone(),
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("short seed must fail the constructor"),
+        };
+        assert!(
+            matches!(err, FfiError::Dial { ref kind, .. } if kind == "config"),
+            "expected config dial error, got {err:?}"
+        );
+
+        // Malformed manifest JSON → `Dial { kind: "config" }` (dial precedent).
+        let err = match connect_responder_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.server.clone(),
+            }),
+            seed_host().to_vec(),
+            "{ not json".to_string(),
+            vec![peer_id_client.clone()],
+            peer_keys.clone(),
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("malformed manifest must fail the constructor"),
+        };
+        assert!(
+            matches!(err, FfiError::Dial { ref kind, .. } if kind == "config"),
+            "expected config dial error, got {err:?}"
+        );
+
+        // Peer key with the wrong length → `Dial { kind: "config" }`.
+        let bad_keys = HashMap::from([(peer_id_client.clone(), vec![0u8; 31])]);
+        let err = match connect_responder_ffi(
+            Box::new(LoopbackCallback {
+                inner: pair.server.clone(),
+            }),
+            seed_host().to_vec(),
+            tool_manifest_json("test-responder"),
+            vec![peer_id_client],
+            bad_keys,
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("short peer key must fail the constructor"),
+        };
+        assert!(
+            matches!(err, FfiError::Dial { ref kind, .. } if kind == "config"),
+            "expected config dial error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn connect_responder_ffi_allowlist_rejection_surfaces_as_closed_not_dial_error() {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+        // Fail-closed responder: the dialer is not allowlisted.
+        let responder = connect_responder_ffi(
+            Box::new(LoopbackCallback { inner: pair.server }),
+            seed_host().to_vec(),
+            tool_manifest_json("test-responder"),
+            vec![],
+            HashMap::from([(peer_id_client, pubkey_client().to_vec())]),
+            None,
+        )
+        .expect("constructor has no error path for handshake failures");
+
+        let dial_err = match connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: pair.client }),
+            seed_client().to_vec(),
+            tool_manifest_json("test-client"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("allowlist deny must fail the dial"),
+        };
+        assert!(
+            matches!(dial_err, FfiError::Dial { ref kind, .. } if kind == "handshake"),
+            "expected handshake dial failure, got {dial_err:?}"
+        );
+
+        // The responder surfaces the rejection via state — NOT an error
+        // row (the library factory has no constructor error path).
+        wait_for("responder to close after the rejected handshake", || {
+            responder.state() == "Closed"
+        });
+        assert_eq!(responder.session_id(), None);
+    }
 }
 
 #[cfg(all(test, feature = "remote-adapter"))]
 mod multi_peer_router_ffi_tests {
-    use std::sync::Arc;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     use ed25519_dalek::SigningKey;
+    use serde_json::{json, Value};
     use spoke_fixture_toy_world::ToyWorldAdapter;
+    use spoke_operations::spoke_ok;
 
     use crate::core::derive_peer_id_from_ed25519_pubkey;
     use crate::remote::{
-        connect_remote_adapter, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity,
+        connect_remote_adapter, connect_responder, ConnectResponderOptions, RemoteAdapter,
+        RemoteAdapterOptions, RemoteIdentity,
     };
     use crate::test_support::loopback_oracle::{
         fresh_entry, manifest, pubkey_client, seed_client, start_loopback_host,
@@ -3379,6 +5255,377 @@ mod multi_peer_router_ffi_tests {
 
         adapter.close();
         host.close();
+    }
+
+    // ── D15: `MultiPeerRouterFFI.invoke_tool` (router tool face) ──────────
+
+    /// Tool-carrying manifest: every tool capability id appears both in
+    /// `capabilities[]` (the router's tools hard filter — the required
+    /// capability IS the op string) and in `tools[]` (hello descriptors).
+    fn tool_manifest_with(
+        host_id: &str,
+        capabilities: &[&str],
+        tool_ids: &[&str],
+    ) -> spoke_schemas::HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": capabilities,
+            "namespaces": ["math", "echo"],
+            "extensions": {},
+            "tools": tool_ids
+                .iter()
+                .map(|id| json!({
+                    "schema_version": 1,
+                    "capability_id": id,
+                    "op": id,
+                    "description": id,
+                    "input": { "type": "object" },
+                    "output": { "type": "object" },
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .expect("valid tool manifest")
+    }
+
+    /// Records the arguments object and returns `{ "sum": a + b }`.
+    fn add_handler(calls: Arc<Mutex<Vec<Value>>>) -> crate::remote::ToolHandler {
+        Arc::new(move |args: Value| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().expect("calls lock").push(args.clone());
+                let a = args.get("a").and_then(Value::as_i64).unwrap_or(0);
+                let b = args.get("b").and_then(Value::as_i64).unwrap_or(0);
+                spoke_ok(json!({ "sum": a + b }))
+            })
+        })
+    }
+
+    /// Records the arguments object and returns `{ "echo": args }`.
+    fn echo_handler(calls: Arc<Mutex<Vec<Value>>>) -> crate::remote::ToolHandler {
+        Arc::new(move |args: Value| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().expect("calls lock").push(args.clone());
+                spoke_ok(json!({ "echo": args }))
+            })
+        })
+    }
+
+    /// Dial one library adapter against a `connect_responder` serving double
+    /// that answers `tools.*` invokes (D14 topology: router tool invokes
+    /// travel initiator→responder and are served by the peer's responder-side
+    /// tool serving). The dialer advertises the same tool set as its peer so
+    /// the negotiated capabilities include the `tools.*` ops (D13 gate).
+    async fn dial_tool_peer(
+        host_seed: [u8; 32],
+        host_manifest: spoke_schemas::HostCapabilityManifest,
+    ) -> (Arc<RemoteAdapter>, Arc<crate::remote::ConnectResponder>) {
+        let host_pubkey = SigningKey::from_bytes(&host_seed)
+            .verifying_key()
+            .to_bytes();
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&host_pubkey);
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let responder = connect_responder(ConnectResponderOptions {
+            transport: Arc::new(pair.server),
+            identity: RemoteIdentity { seed: host_seed },
+            manifest: host_manifest.clone(),
+            allowlist: vec![peer_id_client.clone()],
+            peer_keys: HashMap::from([(peer_id_client.clone(), pubkey_client())]),
+            ports: None,
+            invoke_timeout_ms: None,
+        })
+        .await;
+        let client = connect_remote_adapter(RemoteAdapterOptions {
+            transport: Arc::new(pair.client),
+            local_identity: RemoteIdentity {
+                seed: seed_client(),
+            },
+            local_manifest: host_manifest,
+            remote_pubkey: host_pubkey,
+            allowlist: vec![peer_id_host],
+            invoke_timeout_ms: None,
+            capability_token: None,
+        })
+        .await
+        .expect("dial");
+        (client, responder)
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_routes_to_the_peer_whose_manifest_offers_the_tool() {
+        let (add_adapter, add_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf1; 32],
+                tool_manifest_with(
+                    "host-add",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let (echo_adapter, echo_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf2; 32],
+                tool_manifest_with(
+                    "host-echo",
+                    &["spoke-baseline", "tools.echo.echo"],
+                    &["tools.echo.echo"],
+                ),
+            )
+            .await
+        });
+        let add_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let echo_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        add_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&add_calls)));
+        echo_responder.register_tool_handler(
+            "tools.echo.echo",
+            echo_handler(Arc::clone(&echo_calls)),
+        );
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(add_adapter.clone()))
+            .expect("register add peer");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(echo_adapter.clone()))
+            .expect("register echo peer");
+
+        // tools.math.add is advertised only by the add peer.
+        let sum_json = router
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 20, "b": 22}"#.to_string())
+            .expect("add routes to the capable peer");
+        let sum: Value = serde_json::from_str(&sum_json).expect("sum json");
+        assert_eq!(sum, json!({ "sum": 42 }));
+        assert_eq!(add_calls.lock().expect("add calls lock").len(), 1);
+        assert!(echo_calls.lock().expect("echo calls lock").is_empty());
+
+        // tools.echo.echo is advertised only by the echo peer.
+        let echo_json = router
+            .invoke_tool("tools.echo.echo".to_string(), r#"{"msg": "hi"}"#.to_string())
+            .expect("echo routes to the capable peer");
+        let echo: Value = serde_json::from_str(&echo_json).expect("echo json");
+        assert_eq!(echo, json!({ "echo": { "msg": "hi" } }));
+        assert_eq!(echo_calls.lock().expect("echo calls lock").len(), 1);
+        assert_eq!(add_calls.lock().expect("add calls lock").len(), 1);
+
+        add_adapter.close();
+        echo_adapter.close();
+        add_responder.close();
+        echo_responder.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_fails_fast_on_bad_input_with_zero_router_traffic() {
+        let (add_adapter, add_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf7; 32],
+                tool_manifest_with(
+                    "host-add",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let add_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        add_responder.register_tool_handler(
+            "tools.math.add",
+            add_handler(Arc::clone(&add_calls)),
+        );
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(add_adapter.clone()))
+            .expect("register add peer");
+
+        // Non-`tools.` id → INVALID_INPUT with the offending id in message,
+        // before any peer selection (D15 grammar fail-fast, zero wire
+        // traffic) — even though the registered peer WOULD be capable.
+        let err = router
+            .invoke_tool("port.x".to_string(), r#"{}"#.to_string())
+            .expect_err("non-tools id must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT" && message.contains("port.x")
+        ));
+
+        // Malformed arguments JSON → INVALID_INPUT with the parse error in
+        // message (D15 FFI-boundary parse row), also zero wire traffic.
+        let err = router
+            .invoke_tool("tools.math.add".to_string(), "{ not json".to_string())
+            .expect_err("malformed arguments json must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: None,
+                wire_code: None,
+                ..
+            } if code == "INVALID_INPUT"
+                && message.contains("invalid tool arguments JSON")
+                && message.contains("key must be a string")
+        ));
+        assert!(
+            add_calls.lock().expect("add calls lock").is_empty(),
+            "fail-fast must not reach any serving double"
+        );
+
+        add_adapter.close();
+        add_responder.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_breaks_ties_on_the_lowest_peer_id() {
+        let (alpha_adapter, alpha_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf3; 32],
+                tool_manifest_with(
+                    "host-alpha",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let (beta_adapter, beta_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf4; 32],
+                tool_manifest_with(
+                    "host-beta",
+                    &["spoke-baseline", "tools.math.add"],
+                    &["tools.math.add"],
+                ),
+            )
+            .await
+        });
+        let (gamma_adapter, gamma_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf5; 32],
+                tool_manifest_with(
+                    "host-gamma",
+                    &["spoke-baseline", "tools.echo.echo"],
+                    &["tools.echo.echo"],
+                ),
+            )
+            .await
+        });
+        let alpha_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let beta_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let gamma_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        alpha_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&alpha_calls)));
+        beta_responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&beta_calls)));
+        gamma_responder.register_tool_handler(
+            "tools.echo.echo",
+            echo_handler(Arc::clone(&gamma_calls)),
+        );
+
+        let alpha_id = alpha_adapter.remote_peer_id().expect("alpha peer id");
+        let beta_id = beta_adapter.remote_peer_id().expect("beta peer id");
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(beta_adapter.clone()))
+            .expect("register beta");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(alpha_adapter.clone()))
+            .expect("register alpha");
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(gamma_adapter.clone()))
+            .expect("register gamma");
+
+        let result_json = router
+            .invoke_tool("tools.math.add".to_string(), r#"{"a": 1, "b": 2}"#.to_string())
+            .expect("tie-break invoke routes");
+        let result: Value = serde_json::from_str(&result_json).expect("result json");
+        assert_eq!(result, json!({ "sum": 3 }));
+
+        // Deterministic tie-break: the lowest peer_id (UTF-8 byte order)
+        // serves the invoke; the higher matching peer stays idle.
+        let (winner_calls, loser_calls) = if alpha_id < beta_id {
+            (alpha_calls, beta_calls)
+        } else {
+            (beta_calls, alpha_calls)
+        };
+        assert_eq!(
+            winner_calls.lock().expect("winner lock").len(),
+            1,
+            "lowest peer_id must serve the tool invoke"
+        );
+        assert!(loser_calls.lock().expect("loser lock").is_empty());
+        assert!(
+            gamma_calls.lock().expect("gamma calls lock").is_empty(),
+            "the non-matching third peer must receive zero invokes"
+        );
+
+        alpha_adapter.close();
+        beta_adapter.close();
+        gamma_adapter.close();
+        alpha_responder.close();
+        beta_responder.close();
+        gamma_responder.close();
+    }
+
+    #[test]
+    fn multi_peer_router_ffi_invoke_tool_rejects_no_capable_peer_with_capability_id_in_message() {
+        let (echo_adapter, echo_responder) = ffi_runtime().block_on(async {
+            dial_tool_peer(
+                [0xf6; 32],
+                tool_manifest_with(
+                    "host-echo",
+                    &["spoke-baseline", "tools.echo.echo"],
+                    &["tools.echo.echo"],
+                ),
+            )
+            .await
+        });
+        let echo_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        echo_responder.register_tool_handler(
+            "tools.echo.echo",
+            echo_handler(Arc::clone(&echo_calls)),
+        );
+
+        let router = new_multi_peer_router_ffi();
+        router
+            .register_peer(RemoteAdapterFFI::from_adapter(echo_adapter.clone()))
+            .expect("register echo peer");
+
+        // No registered peer advertises tools.math.add → the locked terminal
+        // reject, with the capability id embedded in the message.
+        let err = router
+            .invoke_tool("tools.math.add".to_string(), r#"{}"#.to_string())
+            .expect_err("no capable peer must reject");
+        assert!(matches!(
+            err,
+            FfiError::Rejected {
+                code,
+                message,
+                kind: Some(kind),
+                wire_code: Some(wire),
+                ..
+            } if code == "CAPABILITY_PORT_MISSING"
+                && kind == "no_capable_peer"
+                && wire == "no_capable_peer"
+                && message.contains("tools.math.add")
+        ));
+        assert!(
+            echo_calls.lock().expect("echo calls lock").is_empty(),
+            "no capable peer must not reach any serving double"
+        );
+
+        echo_adapter.close();
+        echo_responder.close();
     }
 
 

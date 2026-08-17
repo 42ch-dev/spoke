@@ -218,3 +218,4 @@ pnpm -F @42ch/spoke-demo-client test
 - [Connect 架构](/zh/explanation/connect) —— 工具与 ports 背后的双向能力流。
 - [ToyWorld 参考适配器走读](/zh/how-to/walk-toy-world) —— TypeScript 与 Rust 的可复制提供方。
 - [通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter) —— 本指南所基于的拨号与 `port.*` 方向。
+- [从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— 同一工具契约的 FFI 面（C#、Go、Kotlin、Python、Swift）。

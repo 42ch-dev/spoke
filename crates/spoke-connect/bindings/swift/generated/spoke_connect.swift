@@ -592,6 +592,247 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * Sync wrapper over the library [`ConnectResponder`] (D16): the
+ * host-accepted callback [`FfiTransport`] plus the responder lifecycle
+ * — session info, tool serving (`register_tool_handler`), the reverse
+ * tool invoke face (`invoke_tool`), and `close`.
+ */
+public protocol ConnectResponderFfiProtocol: AnyObject, Sendable {
+    
+    func close() 
+    
+    /**
+     * Responder→dialer reverse invoke (D16): same face and error rows
+     * as `RemoteAdapterFFI::invoke_tool` (the D15 table applies by
+     * reference).
+     */
+    func invokeTool(capabilityId: String, argumentsJson: String) throws  -> String
+    
+    /**
+     * Responder-side tool-serving registration (D16): `capability_id`
+     * is pre-validated with `parse_tool_capability_id` before the
+     * library call — a non-`tools.` id rejects
+     * `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+     * wire_code: None }` with the offending id in `message` and zero
+     * side effect (the library's grammar panic stays unreachable
+     * through FFI). A valid id registers last-wins on the library face.
+     */
+    func registerToolHandler(capabilityId: String, handler: ToolHandler) throws 
+    
+    /**
+     * The dialer's `HostCapabilityManifest` (hello `host`, cached at
+     * session establish) as a JSON string — same shape as
+     * `RemoteAdapterFFI::remote_manifest`.
+     */
+    func remoteManifest()  -> String?
+    
+    func remotePeerId()  -> String?
+    
+    func sessionId()  -> String?
+    
+    /**
+     * One of `Disconnected` / `Handshaking` / `Established` / `Closed`.
+     */
+    func state()  -> String
+    
+}
+/**
+ * Sync wrapper over the library [`ConnectResponder`] (D16): the
+ * host-accepted callback [`FfiTransport`] plus the responder lifecycle
+ * — session info, tool serving (`register_tool_handler`), the reverse
+ * tool invoke face (`invoke_tool`), and `close`.
+ */
+open class ConnectResponderFfi: ConnectResponderFfiProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_spoke_connect_fn_clone_connectresponderffi(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_spoke_connect_fn_free_connectresponderffi(handle, $0) }
+    }
+
+    
+
+    
+open func close()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_close(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Responder→dialer reverse invoke (D16): same face and error rows
+     * as `RemoteAdapterFFI::invoke_tool` (the D15 table applies by
+     * reference).
+     */
+open func invokeTool(capabilityId: String, argumentsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_invoke_tool(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(capabilityId),
+        FfiConverterString.lower(argumentsJson),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Responder-side tool-serving registration (D16): `capability_id`
+     * is pre-validated with `parse_tool_capability_id` before the
+     * library call — a non-`tools.` id rejects
+     * `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+     * wire_code: None }` with the offending id in `message` and zero
+     * side effect (the library's grammar panic stays unreachable
+     * through FFI). A valid id registers last-wins on the library face.
+     */
+open func registerToolHandler(capabilityId: String, handler: ToolHandler)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_register_tool_handler(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(capabilityId),
+        FfiConverterCallbackInterfaceToolHandler_lower(handler),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * The dialer's `HostCapabilityManifest` (hello `host`, cached at
+     * session establish) as a JSON string — same shape as
+     * `RemoteAdapterFFI::remote_manifest`.
+     */
+open func remoteManifest() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_remote_manifest(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func remotePeerId() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_remote_peer_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func sessionId() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_session_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * One of `Disconnected` / `Handshaking` / `Established` / `Closed`.
+     */
+open func state() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_connectresponderffi_state(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConnectResponderFFI: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ConnectResponderFfi
+
+    public static func lift(_ handle: UInt64) throws -> ConnectResponderFfi {
+        return ConnectResponderFfi(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ConnectResponderFfi) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConnectResponderFfi {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ConnectResponderFfi, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConnectResponderFFI_lift(_ handle: UInt64) throws -> ConnectResponderFfi {
+    return try FfiConverterTypeConnectResponderFFI.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConnectResponderFFI_lower(_ value: ConnectResponderFfi) -> UInt64 {
+    return FfiConverterTypeConnectResponderFFI.lower(value)
+}
+
+
+
+
+
+
+/**
  * Inbound sequence expectation — thread-safe FFI wrapper over the core
  * expectation, starting at 0.
  */
@@ -1074,6 +1315,25 @@ public protocol MultiPeerRouterFfiProtocol: AnyObject, Sendable {
     
     func getRelation(relationId: String) throws  -> String
     
+    /**
+     * Reverse-invoke face (D15): route a `tools.<ns>.<tool_id>` invoke
+     * to the registered peer whose cached hello manifest advertises the
+     * exact tool capability (deterministic lowest-`peer_id` tie-break),
+     * and return the serving peer's tool `result` payload as a JSON
+     * string. The library router does all selection — this face adds no
+     * routing logic of its own; with no capable peer the terminal
+     * `Rejected { code: "CAPABILITY_PORT_MISSING", kind:
+     * Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`
+     * crosses with the capability id embedded in `message`.
+     *
+     * Same boundary conventions as
+     * [`RemoteAdapterFFI::invoke_tool`]: a non-`tools.` id and
+     * malformed `arguments_json` both fail fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` before any
+     * peer selection, with zero wire traffic.
+     */
+    func invokeTool(capabilityId: String, argumentsJson: String) throws  -> String
+    
     func listKnowledgeEntries(scopeJson: String) throws  -> String
     
     func listPeerHostCapabilityManifests() throws  -> String
@@ -1173,6 +1433,34 @@ open func getRelation(relationId: String)throws  -> String  {
     uniffi_spoke_connect_fn_method_multipeerrouterffi_get_relation(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(relationId),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Reverse-invoke face (D15): route a `tools.<ns>.<tool_id>` invoke
+     * to the registered peer whose cached hello manifest advertises the
+     * exact tool capability (deterministic lowest-`peer_id` tie-break),
+     * and return the serving peer's tool `result` payload as a JSON
+     * string. The library router does all selection — this face adds no
+     * routing logic of its own; with no capable peer the terminal
+     * `Rejected { code: "CAPABILITY_PORT_MISSING", kind:
+     * Some("no_capable_peer"), wire_code: Some("no_capable_peer") }`
+     * crosses with the capability id embedded in `message`.
+     *
+     * Same boundary conventions as
+     * [`RemoteAdapterFFI::invoke_tool`]: a non-`tools.` id and
+     * malformed `arguments_json` both fail fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` before any
+     * peer selection, with zero wire traffic.
+     */
+open func invokeTool(capabilityId: String, argumentsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_multipeerrouterffi_invoke_tool(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(capabilityId),
+        FfiConverterString.lower(argumentsJson),uniffiCallStatus
     )
 })
 }
@@ -1630,6 +1918,22 @@ public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
     
     func getRelation(relationId: String) throws  -> String
     
+    /**
+     * Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
+     * toward the remote peer and return the tool's `result` payload as
+     * a JSON string.
+     *
+     * `capability_id` must match the `tools.<ns>.<tool_id>` grammar —
+     * a non-`tools.` id fails fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` (the library
+     * grammar reject passes through; the offending id rides in
+     * `message`) and zero wire traffic. `arguments_json` parses at the
+     * FFI boundary via the module's JSON convention (malformed →
+     * `INVALID_INPUT`, also zero wire traffic). Deny / timeout /
+     * session failures map through the D7 rows (see D15 error table).
+     */
+    func invokeTool(capabilityId: String, argumentsJson: String) throws  -> String
+    
     func listKnowledgeEntries(scopeJson: String) throws  -> String
     
     func listPeerHostCapabilityManifests() throws  -> String
@@ -1643,6 +1947,22 @@ public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
     func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?) throws  -> String
     
     func putRelation(relationJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    /**
+     * Dialer-side tool-serving registration (D16): serve `tools.*`
+     * reverse invokes from the remote peer with a foreign-callback
+     * handler.
+     *
+     * `capability_id` is pre-validated with `parse_tool_capability_id`
+     * (the `spoke-operations` public API) before the library call — a
+     * non-`tools.` id rejects `FfiError::Rejected { code:
+     * "INVALID_INPUT", kind: None, wire_code: None }` with the
+     * offending id in `message` and zero side effect (the library's
+     * grammar panic stays unreachable through FFI). A valid id
+     * registers on the library face — last-wins overwrite, and the
+     * registry never mutates the manifest.
+     */
+    func registerToolHandler(capabilityId: String, handler: ToolHandler) throws 
     
     func remoteManifest()  -> String?
     
@@ -1743,6 +2063,31 @@ open func getRelation(relationId: String)throws  -> String  {
 })
 }
     
+    /**
+     * Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
+     * toward the remote peer and return the tool's `result` payload as
+     * a JSON string.
+     *
+     * `capability_id` must match the `tools.<ns>.<tool_id>` grammar —
+     * a non-`tools.` id fails fast with
+     * `FfiError::Rejected { code: "INVALID_INPUT", .. }` (the library
+     * grammar reject passes through; the offending id rides in
+     * `message`) and zero wire traffic. `arguments_json` parses at the
+     * FFI boundary via the module's JSON convention (malformed →
+     * `INVALID_INPUT`, also zero wire traffic). Deny / timeout /
+     * session failures map through the D7 rows (see D15 error table).
+     */
+open func invokeTool(capabilityId: String, argumentsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_invoke_tool(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(capabilityId),
+        FfiConverterString.lower(argumentsJson),uniffiCallStatus
+    )
+})
+}
+    
 open func listKnowledgeEntries(scopeJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
@@ -1812,6 +2157,30 @@ open func putRelation(relationJson: String, expectedBaseRevision: UInt64?)throws
         FfiConverterOptionUInt64.lower(expectedBaseRevision),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Dialer-side tool-serving registration (D16): serve `tools.*`
+     * reverse invokes from the remote peer with a foreign-callback
+     * handler.
+     *
+     * `capability_id` is pre-validated with `parse_tool_capability_id`
+     * (the `spoke-operations` public API) before the library call — a
+     * non-`tools.` id rejects `FfiError::Rejected { code:
+     * "INVALID_INPUT", kind: None, wire_code: None }` with the
+     * offending id in `message` and zero side effect (the library's
+     * grammar panic stays unreachable through FFI). A valid id
+     * registers on the library face — last-wins overwrite, and the
+     * registry never mutates the manifest.
+     */
+open func registerToolHandler(capabilityId: String, handler: ToolHandler)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_register_tool_handler(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(capabilityId),
+        FfiConverterCallbackInterfaceToolHandler_lower(handler),uniffiCallStatus
+    )
+}
 }
     
 open func remoteManifest() -> String?  {
@@ -2376,6 +2745,153 @@ public func FfiConverterTypeTransportError_lower(_ value: TransportError) -> Rus
 
 
 /**
+ * Foreign-callback tool handler (D16): the native binding implements
+ * this synchronous face; [`into_remote_handler`] bridges it into the
+ * async [`crate::remote::ToolHandler`] the library serving path runs.
+ *
+ * `Ok(json)` → the tool's result `Value` (parsed inside the bridge;
+ * malformed JSON is contained). `Err(FfiError::Rejected{..})` → an
+ * application `SpokeReject` passes through verbatim. Any other outcome
+ * (`Dial`, foreign exception, panic) is contained to `INTERNAL_ERROR`
+ * with `details: None` — handlers should only throw `Rejected`.
+ */
+public protocol ToolHandler: AnyObject, Sendable {
+    
+    func handle(argumentsJson: String) throws  -> String
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceToolHandler {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceToolHandler = UniffiVTableCallbackInterfaceToolHandler(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfaceToolHandler.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface ToolHandler: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfaceToolHandler.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface ToolHandler: handle missing in uniffiClone")
+            }
+        },
+        handle: { (
+            uniffiHandle: UInt64,
+            argumentsJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceToolHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.handle(
+                     argumentsJson: try FfiConverterString.lift(argumentsJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceToolHandler> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceToolHandler>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitToolHandler() {
+    uniffi_spoke_connect_fn_init_callback_vtable_toolhandler(UniffiCallbackInterfaceToolHandler.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceToolHandler {
+    fileprivate static let handleMap = UniffiHandleMap<ToolHandler>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceToolHandler : FfiConverter {
+    typealias SwiftType = ToolHandler
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceToolHandler_lift(_ handle: UInt64) throws -> ToolHandler {
+    return try FfiConverterCallbackInterfaceToolHandler.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceToolHandler_lower(_ v: ToolHandler) -> UInt64 {
+    return FfiConverterCallbackInterfaceToolHandler.lower(v)
+}
+
+
+
+
+/**
  * Message-oriented transport implemented by the foreign binding.
  *
  * Mirrors the async [`transport::Transport`] seam 1:1 over the
@@ -2649,6 +3165,32 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringData: FfiConverterRustBuffer {
+    public static func write(_ value: [String: Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterData.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: Data] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: Data]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterData.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
 /**
  * Checks that a response echoes the request's `session_id` / `sequence` /
  * `request_id` — the three echo fields, flattened to primitives.
@@ -2766,6 +3308,36 @@ public func verifyHelloEd25519(publicKey: Data, expectedPeerId: String, helloJso
 }
 }
 /**
+ * Accept-side constructor (D16): wraps a *connected* (host-accepted)
+ * callback [`FfiTransport`] into the library [`connect_responder`] —
+ * symmetric with `connect_remote_adapter_ffi`, which takes a connected
+ * outbound transport; the host product owns listen/accept in its own
+ * network stack.
+ *
+ * Constructor semantics are library-faithful (D16): the block-on
+ * covers ONLY the factory future, which completes immediately — the
+ * responder returns in `Handshaking` (the dialer hello is the sync
+ * point; the library factory has no error path, D14 divergence). The
+ * `Result` slot carries FFI-side config-validation failures only:
+ * seed length, manifest JSON, or peer-key length →
+ * `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
+ * deny, hello-verify deny) produce NO error row — they surface as
+ * `state() → "Closed"` with `session_id() → None`.
+ */
+public func connectResponderFfi(transport: Transport, seed: Data, manifestJson: String, allowlist: [String], peerKeys: [String: Data], invokeTimeoutMs: UInt64?)throws  -> ConnectResponderFfi  {
+    return try  FfiConverterTypeConnectResponderFFI_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_func_connect_responder_ffi(
+        FfiConverterCallbackInterfaceTransport_lower(transport),
+        FfiConverterData.lower(seed),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterSequenceString.lower(allowlist),
+        FfiConverterDictionaryStringData.lower(peerKeys),
+        FfiConverterOptionUInt64.lower(invokeTimeoutMs),uniffiCallStatus
+    )
+})
+}
+/**
  * Create a back-to-back loopback transport pair (client + server ends).
  */
 public func loopbackTransportPair() -> LoopbackTransportPair  {
@@ -2835,6 +3407,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_func_verify_hello_ed25519() != 15847) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 7775) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2851,6 +3426,27 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_outboundsequence_allocate() != 57422) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_close() != 12558) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_invoke_tool() != 1388) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_register_tool_handler() != 8493) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_remote_manifest() != 14971) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_remote_peer_id() != 61887) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_session_id() != 11982) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_connectresponderffi_state() != 49043) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_loopbacktransport_close() != 20355) {
@@ -2875,6 +3471,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_get_relation() != 18470) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_invoke_tool() != 26685) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_multipeerrouterffi_list_knowledge_entries() != 38484) {
@@ -2919,6 +3518,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_get_relation() != 47371) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool() != 50002) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2938,6 +3540,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_put_relation() != 40493) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_register_tool_handler() != 2890) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_remote_manifest() != 12957) {
@@ -2961,6 +3566,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_transport_send() != 34348) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2971,6 +3579,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitToolHandler()
     uniffiCallbackInitTransport()
     return InitializationResult.ok
 }()

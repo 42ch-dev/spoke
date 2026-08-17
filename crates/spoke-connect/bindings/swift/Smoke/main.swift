@@ -6,40 +6,38 @@
 // here means the Swift surface produces the same peer id and hello signature
 // as the Rust reference.
 //
-// Build & run (from the repository root):
+// Build & run — DEFAULT gate (committed production bindings + committed
+// native, no smoke host; tool-faces loopback included):
 //
-//   # 1. Build the cdylib that carries the exported-surface metadata.
-//   cargo build -p spoke-connect --features ffi
-//
-//   # 2. Regenerate the Swift bindings from the cdylib.
-//   cargo run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
-//     generate --library target/debug/libspoke_connect.dylib \
-//     --language swift --out-dir crates/spoke-connect/bindings/swift/generated
-//
-//   # 3. Point the dylib install name at @rpath (cargo bakes in the absolute
-//   #    deps-dir path, which would pin the smoke to one machine).
-//   install_name_tool -id @rpath/libspoke_connect.dylib target/debug/libspoke_connect.dylib
-//
-//   # 4. Compile the smoke (Swift 5 language mode keeps top-level code
+//   # 1. Compile the smoke (Swift 5 language mode keeps top-level code
 //   #    simple; `-fmodule-map-file` is required — the Clang importer does
-//   #    not discover the uniffi module map from `-I` alone).
+//   #    not discover the uniffi module map from `-I` alone). The native is
+//   #    the committed production cdylib (identical bytes across the
+//   #    bindings trees; e.g. bindings/go/native/darwin_arm64/).
 //   swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generated/spoke_connectFFI.modulemap" \
-//     -L target/debug -lspoke_connect \
-//     -Xlinker -rpath -Xlinker "$PWD/target/debug" \
+//     -L "$PWD/crates/spoke-connect/bindings/go/native/darwin_arm64" -lspoke_connect \
+//     -Xlinker -rpath -Xlinker "$PWD/crates/spoke-connect/bindings/go/native/darwin_arm64" \
 //     -swift-version 5 \
 //     -o crates/spoke-connect/bindings/swift/Smoke/smoke \
 //     crates/spoke-connect/bindings/swift/Smoke/main.swift \
+//     crates/spoke-connect/bindings/swift/Smoke/tool_loopback_smoke.swift \
+//     crates/spoke-connect/bindings/swift/Smoke/loopback_transport.swift \
 //     crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
 //
-//   # 5. Run it.
+//   # 2. Run it.
 //   ./crates/spoke-connect/bindings/swift/Smoke/smoke
 //
-// See README.md in this directory for the same sequence.
+// Smoke-host flow (adds the RemoteAdapter put/get and multi-peer router
+// sections; requires `ffi-smoke-host`): build the smoke cdylib, regenerate
+// Swift bindings into a local dir (SMOKE_GEN), then compile with the
+// smoke-generated bindings + `-D SMOKE_HOST` and also link
+// loopback_smoke.swift + multi_peer_router_smoke.swift. Full sequence in
+// README.md in this directory.
 //
 // Note: a plain `cargo build` (default features) between steps replaces the
 // ffi cdylib in the shared `target/debug`. If the smoke fails with
-// `dyld: Symbol not found: _ffi_spoke_connect_rustbuffer_free`, re-run step 1
-// (`cargo build -p spoke-connect --features ffi`) before recompiling.
+// `dyld: Symbol not found: _ffi_spoke_connect_rustbuffer_free`, re-run the
+// cdylib build before recompiling.
 
 import Foundation
 
@@ -218,8 +216,11 @@ func run() throws {
         r.check("correlation mismatch surfaces as CoreInvokeError (got \(error))", false)
     }
 
+#if SMOKE_HOST
     try runLoopbackRemoteAdapterSmoke(r)
     try runMultiPeerRouterSmoke(r)
+#endif
+    try runToolLoopbackSmoke(r)
 
     print("\(r.passed) checks passed")
 }

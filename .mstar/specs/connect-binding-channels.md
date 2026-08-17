@@ -58,7 +58,7 @@
 | Import path | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` — integrator package `spokeconnect` re-exports the generated `generated/spoke_connect` cgo surface; consumers import `bindings/go`, not the generated subdirectory |
 | Versioning | Repo tags `vX.Y.Z`; consumers `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` |
 | Layout | `crates/spoke-connect/bindings/go/` — committed generated Go + `native/<goos>_<goarch>/` + `Smoke/` + README |
-| Native set | `linux_amd64/libspoke_connect.so`, `windows_amd64/spoke_connect.dll`, `darwin_arm64/libspoke_connect.dylib` — committed, rebuilt when the FFI surface changes |
+| Native set | `darwin_amd64/libspoke_connect.dylib`, `darwin_arm64/libspoke_connect.dylib` — committed, rebuilt when the FFI surface changes; `linux_amd64` / `windows_amd64` natives are a recorded follow-up ([roadmap Up next](../roadmap.md)) |
 | Native wiring | cgo (`CGO_ENABLED=1`): `#cgo LDFLAGS` selects `native/${GOOS}_${GOARCH}` under `${SRCDIR}` (per-platform shim files or `${GOOS}`/`${GOARCH}` substitution); rpath covers Linux/macOS lookup; Windows consumers place `spoke_connect.dll` beside the executable. Consumers need a C toolchain, never a Rust toolchain |
 | Generator | Community `uniffi-bindgen-go` — vendored fork retargeted to uniffi 0.32 (landed; §5) |
 

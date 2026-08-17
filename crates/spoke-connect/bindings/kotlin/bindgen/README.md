@@ -43,8 +43,8 @@ On `CoreException.InvalidNonce`, `Crypto`, `Jcs`, and `TokenInvalid` and on
 | `` override val message get() = "message=${ `message` }" `` | `` … "detail=${ `detail` }" `` |
 | `` value.`message` `` in FfiConverter write/allocationSize | `` value.`detail` `` |
 
-On `LoopbackTransport`, `LoopbackSmokeHost`, and `RemoteAdapterFfi`: removes the
-Disposable `close()` that collides with the domain `close()` export and keeps a
-single synchronized domain `close()`.
+On `LoopbackTransport`, `LoopbackSmokeHost`, `RemoteAdapterFfi`, and
+`ConnectResponderFfi`: removes the Disposable `close()` that collides with the
+domain `close()` export and keeps a single synchronized domain `close()`.
 
 FFI wire encoding is unchanged — only the Kotlin property name differs from the Rust field label.

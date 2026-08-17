@@ -103,6 +103,18 @@ The integrator-facing VitePress site lives in `docs/` (config: `docs/.vitepress/
 
 Pages summarize each topic and link the normative body in `.mstar/specs/` — the specs remain the single source of truth for normative detail. The build gate runs on PRs and the Pages deploy runs on `main` via [`.github/workflows/docs.yml`](.github/workflows/docs.yml); the Pages source must be **GitHub Actions** (repo Settings → Pages → Source).
 
+## Refreshing the Swift xcframework
+
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the path-filtered `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-14` from the checkout's Rust sources — pinned toolchain 1.96.0, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. The job runs when the FFI surface changes; `tooling/connect/verify-xcframework-drift.sh` compares per-file SHA-256 hashes of the CI build against the committed (LFS) artifact and fails the job on drift. The built xcframework and its hash manifest upload on every run.
+
+Refresh the committed artifact from a run in one command (requires the `gh` CLI and `rsync`):
+
+```bash
+./tooling/connect/apply-xcframework-artifact.sh <run-id>
+```
+
+The script downloads the artifact, checksum-verifies it against the manifest, rsyncs it over the committed tree, and stages the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials so the workflow re-triggers.
+
 ## Release
 
 Primary path — **New release** on GitHub Actions, then merge the PR:

@@ -31,8 +31,11 @@
  * `$GITHUB_OUTPUT` when set. Exit 0 for both "already published" (skip) and
  * "absent / partial" (publish needed); exit non-zero on any doubt (missing
  * GITHUB_TOKEN, network error, 401/403 auth failure, other non-404 status,
- * malformed jar, tag/build.gradle.kts version mismatch) — fail loud, never
- * skip on doubt.
+ * non-XML .pom body, non-JSON .module body, malformed jar,
+ * tag/build.gradle.kts version mismatch) — fail loud, never skip on doubt.
+ * Files the module metadata records beyond the expected set are logged to
+ * stderr as a warning and never change the verdict (expected-set-subset
+ * semantics).
  *
  * `--verify` mode (the unconditional `Confirm published set` re-probe) exits 0
  * only when the FULL expected set (pom + module + jar with all JNA entries) is
@@ -167,16 +170,23 @@ export function listZipEntryNames(buffer) {
  * @param {string} opts.version SemVer without the leading "v".
  * @param {string} opts.token GITHUB_TOKEN (Bearer auth; must read the package).
  * @param {string} [opts.baseUrl] Override for tests; defaults to the live registry.
- * @returns {Promise<{ outcome: "published" | "absent" | "partial"; missingFiles: string[] }>}
+ * @returns {Promise<{ outcome: "published" | "absent" | "partial"; missingFiles: string[]; unexpectedEntries: string[] }>}
+ *   `unexpectedEntries` lists files the module metadata records beyond the
+ *   expected set (observability only — subset semantics, the verdict never
+ *   depends on it).
  * @throws {Error} Fail-loud conditions (network, auth 401/403, other
- *   non-404 status, malformed jar payload).
+ *   non-404 status, non-XML .pom body, non-JSON .module body, malformed jar
+ *   payload).
  */
 async function probeMaven({ version, token, baseUrl = MAVEN_BASE_URL }) {
   const filenames = expectedArtifactNames(version);
+  const expectedNames = new Set(filenames);
   /** @type {Record<string, "present" | "absent">} */
   const presence = {};
   /** @type {Buffer | null} */
   let jarBuffer = null;
+  /** @type {Set<string>} Files the module metadata lists beyond the expected set. */
+  const unexpectedEntries = new Set();
 
   for (const filename of filenames) {
     const url = artifactUrl(baseUrl, version, filename);
@@ -203,12 +213,44 @@ async function probeMaven({ version, token, baseUrl = MAVEN_BASE_URL }) {
         `GitHub Packages Maven returned HTTP ${response.status} for ${url}`,
       );
     }
-    presence[filename] = "present";
-    if (filename.endsWith(".jar")) {
+    if (filename.endsWith(".pom")) {
+      const text = await response.text();
+      if (!text.trimStart().startsWith("<?xml")) {
+        throw new Error(
+          `GitHub Packages Maven served a non-XML body for ${url} (expected .pom content)`,
+        );
+      }
+    } else if (filename.endsWith(".module")) {
+      const text = await response.text();
+      if (!text.trimStart().startsWith("{")) {
+        throw new Error(
+          `GitHub Packages Maven served a non-JSON body for ${url} (expected .module content)`,
+        );
+      }
+      // The module metadata records the publication's file list — surface any
+      // entry outside the expected set (observability only, subset semantics).
+      let metadata;
+      try {
+        metadata = JSON.parse(text);
+      } catch (err) {
+        throw new Error(
+          `GitHub Packages Maven module metadata is not valid JSON for ${url}: ${err.message}`,
+        );
+      }
+      if (Array.isArray(metadata?.files)) {
+        for (const entry of metadata.files) {
+          if (typeof entry?.name === "string" && !expectedNames.has(entry.name)) {
+            unexpectedEntries.add(entry.name);
+          }
+        }
+      }
+    } else if (filename.endsWith(".jar")) {
       jarBuffer = Buffer.from(await response.arrayBuffer());
     }
+    presence[filename] = "present";
   }
 
+  const unexpected = [...unexpectedEntries];
   const missingFiles = filenames.filter(
     (filename) => presence[filename] !== "present",
   );
@@ -230,12 +272,16 @@ async function probeMaven({ version, token, baseUrl = MAVEN_BASE_URL }) {
   }
 
   if (missingFiles.length === 0) {
-    return { outcome: "published", missingFiles: [] };
+    return { outcome: "published", missingFiles: [], unexpectedEntries: unexpected };
   }
   const allAbsent =
     filenames.every((filename) => presence[filename] === "absent") &&
     !jarBuffer;
-  return { outcome: allAbsent ? "absent" : "partial", missingFiles };
+  return {
+    outcome: allAbsent ? "absent" : "partial",
+    missingFiles,
+    unexpectedEntries: unexpected,
+  };
 }
 
 async function main() {
@@ -301,6 +347,12 @@ async function main() {
   } catch (err) {
     console.error(`check-maven-published: ${err.message}`);
     process.exit(1);
+  }
+
+  if (outcome.unexpectedEntries.length > 0) {
+    console.error(
+      `check-maven-published: warning — module metadata lists files outside the expected set for ${GROUP_ID}:${ARTIFACT_ID} ${version}: ${outcome.unexpectedEntries.join(", ")}`,
+    );
   }
 
   const expected = expectedArtifactNames(version);

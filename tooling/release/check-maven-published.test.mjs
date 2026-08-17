@@ -74,12 +74,12 @@ before(async () => {
         if (ext === "jar") {
           serve(200, jarFor(JNA_JAR_FULL_B64), "application/java-archive");
         } else {
-          serve(200, ext === "pom" ? "<project/>" : '{"formatVersion":"1.1"}', "application/xml");
+          serve(200, ext === "pom" ? '<?xml version="1.0" encoding="UTF-8"?>\n<project/>' : '{"formatVersion":"1.1"}', "application/xml");
         }
         break;
       case "0.3.0": // partial — pom only (module + jar missing)
         if (ext === "pom") {
-          serve(200, "<project/>", "application/xml");
+          serve(200, '<?xml version="1.0" encoding="UTF-8"?>\n<project/>', "application/xml");
         } else {
           serve(404, "not found");
         }
@@ -88,7 +88,7 @@ before(async () => {
         if (ext === "jar") {
           serve(200, jarFor(JNA_JAR_PARTIAL_B64), "application/java-archive");
         } else {
-          serve(200, ext === "pom" ? "<project/>" : '{"formatVersion":"1.1"}', "application/xml");
+          serve(200, ext === "pom" ? '<?xml version="1.0" encoding="UTF-8"?>\n<project/>' : '{"formatVersion":"1.1"}', "application/xml");
         }
         break;
       case "0.5.0": // auth failure — 401
@@ -104,7 +104,42 @@ before(async () => {
         if (ext === "jar") {
           serve(200, "this is definitely not a zip archive", "application/java-archive");
         } else {
-          serve(200, ext === "pom" ? "<project/>" : '{"formatVersion":"1.1"}', "application/xml");
+          serve(200, ext === "pom" ? '<?xml version="1.0" encoding="UTF-8"?>\n<project/>' : '{"formatVersion":"1.1"}', "application/xml");
+        }
+        break;
+      case "0.9.0": // pom 200 but an HTML error page — must fail loud
+        if (ext === "pom") {
+          serve(200, "<html><body>not a pom</body></html>", "text/html");
+        } else {
+          serve(404, "not found");
+        }
+        break;
+      case "0.12.0": // module 200 but an HTML error page — must fail loud
+        if (ext === "module") {
+          serve(200, "<html><body>not a module</body></html>", "text/html");
+        } else {
+          serve(200, '<?xml version="1.0" encoding="UTF-8"?>\n<project/>', "application/xml");
+        }
+        break;
+      case "0.11.0": // full set; module metadata lists an extra file — warning only
+        if (ext === "jar") {
+          serve(200, jarFor(JNA_JAR_FULL_B64), "application/java-archive");
+        } else if (ext === "pom") {
+          serve(200, '<?xml version="1.0" encoding="UTF-8"?>\n<project/>', "application/xml");
+        } else {
+          serve(
+            200,
+            JSON.stringify({
+              formatVersion: "1.1",
+              files: [
+                { name: "spoke-connect-0.11.0.pom", url: "spoke-connect-0.11.0.pom" },
+                { name: "spoke-connect-0.11.0.module", url: "spoke-connect-0.11.0.module" },
+                { name: "spoke-connect-0.11.0.jar", url: "spoke-connect-0.11.0.jar" },
+                { name: "spoke-connect-0.11.0-sources.jar", url: "spoke-connect-0.11.0-sources.jar" },
+              ],
+            }),
+            "application/json",
+          );
         }
         break;
       default:
@@ -359,6 +394,28 @@ describe("check-maven-published.mjs CLI", () => {
     const result = await runCheck({ tag: "v0.4.0", args: ["--verify"] });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing/);
+  });
+
+  it("fails loud when a .pom response is not XML (HTML error page)", async () => {
+    const result = await runCheck({ tag: "v0.9.0" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /non-XML body/);
+    assert.match(result.stderr, /\.pom/);
+  });
+
+  it("fails loud when a .module response is not JSON (HTML error page)", async () => {
+    const result = await runCheck({ tag: "v0.12.0" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /non-JSON body/);
+    assert.match(result.stderr, /\.module/);
+  });
+
+  it("warns on module-metadata files outside the expected set without changing the verdict", async () => {
+    const result = await runCheck({ tag: "v0.11.0" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stderr, /warning/);
+    assert.match(result.stderr, /spoke-connect-0\.11\.0-sources\.jar/);
+    assert.match(result.stdout, /publish_needed=false/);
   });
 });
 

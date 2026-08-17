@@ -21,8 +21,11 @@
  * (`true|false`) and `missing_files` (comma-joined) to stdout and
  * `$GITHUB_OUTPUT` when set. Exit 0 for both "already published" (skip) and
  * "absent / partial" (publish needed); exit non-zero on any doubt (network
- * error, non-200/404 response, malformed JSON, unexpected payload shape) —
- * fail loud, never skip on doubt.
+ * error, non-200/404 response, malformed JSON, unexpected payload shape,
+ * RELEASE_TAG/pyproject.toml version mismatch) — fail loud, never skip on
+ * doubt. `urls[]` entries with `yanked: true` (PEP 592) count as absent.
+ * Registry entries outside the expected set are logged to stderr as a
+ * warning and never change the verdict (expected-set-subset semantics).
  *
  * `--verify` mode (the unconditional `Confirm published set` re-probe) exits 0
  * only when the FULL expected set is verified present; absent/partial or any
@@ -32,7 +35,10 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { PYPI_CONNECT_PYPROJECT_PATH } from "./lockstep-surfaces.mjs";
+import {
+  parsePyprojectVersion,
+  PYPI_CONNECT_PYPROJECT_PATH,
+} from "./lockstep-surfaces.mjs";
 import { SEMVER_PATTERN } from "./semver.mjs";
 
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
@@ -61,6 +67,67 @@ export function normalizeDistributionName(name) {
 }
 
 /**
+ * PEP 440 normalize a version string for wheel-filename construction.
+ *
+ * Wheel filenames (PEP 427) embed the PEP 440-normalized version: prerelease
+ * segments lose their separators and use the canonical letters (`alpha`/`a`
+ * → `a`, `beta`/`b` → `b`, `pre`/`preview`/`c`/`rc` → `rc`), and post/dev
+ * segments use `.postN` / `.devN`. Stable versions are already canonical and
+ * pass through unchanged.
+ *
+ * Examples: `0.2.0-alpha.1` → `0.2.0a1`; `0.2.0-beta.1` → `0.2.0b1`;
+ * `0.2.0-rc.1` → `0.2.0rc1`; `0.2.0-rc1` → `0.2.0rc1`; `0.2.0-dev.3` →
+ * `0.2.0.dev3`.
+ *
+ * @param {string} version SemVer without the leading "v".
+ * @returns {string}
+ */
+export function normalizePep440Version(version) {
+  const hyphen = version.indexOf("-");
+  if (hyphen === -1) {
+    return version;
+  }
+  const release = version.slice(0, hyphen);
+  const ids = version.slice(hyphen + 1).split(".");
+
+  /** @type {Record<string, string>} PEP 440 prerelease canonical letters. */
+  const PRE_LETTERS = {
+    a: "a",
+    alpha: "a",
+    b: "b",
+    beta: "b",
+    c: "rc",
+    pre: "rc",
+    preview: "rc",
+    rc: "rc",
+  };
+
+  let pre = "";
+  let post = "";
+  let dev = "";
+  for (let i = 0; i < ids.length; i += 1) {
+    const match = ids[i].match(/^([A-Za-z]+)([0-9]*)$/);
+    if (!match) {
+      continue; // bare numeric identifier — number for the preceding marker
+    }
+    const word = match[1].toLowerCase();
+    let num = match[2];
+    if (num === "" && i + 1 < ids.length && /^[0-9]+$/.test(ids[i + 1])) {
+      num = ids[i + 1];
+      i += 1;
+    }
+    if (PRE_LETTERS[word] !== undefined) {
+      pre = `${PRE_LETTERS[word]}${num || "0"}`;
+    } else if (word === "post" || word === "rev" || word === "r") {
+      post = `.post${num || "0"}`;
+    } else if (word === "dev") {
+      dev = `.dev${num || "0"}`;
+    }
+  }
+  return `${release}${pre}${post}${dev}`;
+}
+
+/**
  * Expected PyPI wheel filenames for a lockstep SemVer (no sdist).
  *
  * @param {string} packageName Distribution name (source of truth: pyproject.toml).
@@ -69,8 +136,9 @@ export function normalizeDistributionName(name) {
  */
 export function expectedWheelFilenames(packageName, version) {
   const dist = normalizeDistributionName(packageName);
+  const normalizedVersion = normalizePep440Version(version);
   return WHEEL_PLATFORM_TAGS.map(
-    (tag) => `${dist}-${version}-py3-none-${tag}.whl`,
+    (tag) => `${dist}-${normalizedVersion}-py3-none-${tag}.whl`,
   );
 }
 
@@ -96,7 +164,10 @@ export function parsePyprojectName(contents) {
  * @param {string} opts.packageName Distribution name (e.g. "spoke-connect").
  * @param {string} opts.version SemVer without the leading "v".
  * @param {string} [opts.baseUrl] Override for tests; defaults to pypi.org.
- * @returns {Promise<{ outcome: "published" | "absent" | "partial"; missingFiles: string[] }>}
+ * @returns {Promise<{ outcome: "published" | "absent" | "partial"; missingFiles: string[]; unexpectedEntries: string[] }>}
+ *   `unexpectedEntries` lists `urls[]` filenames outside the expected set
+ *   (observability only — subset semantics, the verdict never depends on it).
+ *   `urls[]` entries with `yanked: true` (PEP 592) count as absent.
  * @throws {Error} Fail-loud conditions (network, non-200/404, malformed JSON,
  *   unexpected payload shape).
  */
@@ -111,7 +182,7 @@ async function probePyPI({ packageName, version, baseUrl = PYPI_BASE_URL }) {
     throw new Error(`cannot reach PyPI JSON API at ${url}: ${err.message}`);
   }
   if (response.status === 404) {
-    return { outcome: "absent", missingFiles: expected };
+    return { outcome: "absent", missingFiles: expected, unexpectedEntries: [] };
   }
   if (!response.ok) {
     throw new Error(`PyPI JSON API returned HTTP ${response.status} for ${url}`);
@@ -127,14 +198,21 @@ async function probePyPI({ packageName, version, baseUrl = PYPI_BASE_URL }) {
     throw new Error(`PyPI JSON API payload missing "urls" array for ${url}`);
   }
 
+  const expectedSet = new Set(expected);
+  const unexpectedEntries = payload.urls
+    .map((entry) => entry?.filename)
+    .filter((filename) => typeof filename === "string" && !expectedSet.has(filename));
   const published = new Set(
-    payload.urls.map((entry) => entry?.filename).filter(Boolean),
+    payload.urls
+      .filter((entry) => entry && entry.yanked !== true)
+      .map((entry) => entry?.filename)
+      .filter(Boolean),
   );
   const missingFiles = expected.filter((filename) => !published.has(filename));
   if (missingFiles.length === 0) {
-    return { outcome: "published", missingFiles: [] };
+    return { outcome: "published", missingFiles: [], unexpectedEntries };
   }
-  return { outcome: "partial", missingFiles };
+  return { outcome: "partial", missingFiles, unexpectedEntries };
 }
 
 async function main() {
@@ -162,6 +240,7 @@ async function main() {
   }
 
   let packageName;
+  let manifestVersion;
   try {
     const contents = readFileSync(
       join(REPO_ROOT, PYPI_CONNECT_PYPROJECT_PATH),
@@ -171,9 +250,22 @@ async function main() {
     if (!packageName) {
       throw new Error(`missing [project] name`);
     }
+    manifestVersion = parsePyprojectVersion(contents);
+    if (!manifestVersion) {
+      throw new Error(`missing [project] version`);
+    }
   } catch (err) {
     console.error(
-      `check-pypi-published: cannot read package name from ${PYPI_CONNECT_PYPROJECT_PATH}: ${err.message}`,
+      `check-pypi-published: cannot read package name and version from ${PYPI_CONNECT_PYPROJECT_PATH}: ${err.message}`,
+    );
+    process.exit(1);
+  }
+
+  // The registry path is derived from the tag; cross-check it against the
+  // lockstep version surface so a mismatched tag never probes a wrong version.
+  if (manifestVersion !== version) {
+    console.error(
+      `check-pypi-published: ${PYPI_CONNECT_PYPROJECT_PATH} version "${manifestVersion}" does not match RELEASE_TAG version "${version}"`,
     );
     process.exit(1);
   }
@@ -184,6 +276,12 @@ async function main() {
   } catch (err) {
     console.error(`check-pypi-published: ${err.message}`);
     process.exit(1);
+  }
+
+  if (outcome.unexpectedEntries.length > 0) {
+    console.error(
+      `check-pypi-published: warning — registry lists files outside the expected set for ${packageName} ${version}: ${outcome.unexpectedEntries.join(", ")}`,
+    );
   }
 
   const expected = expectedWheelFilenames(packageName, version);

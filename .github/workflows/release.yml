@@ -734,11 +734,18 @@ jobs:
 
       # Gradle has no --skip-duplicate: a duplicate artifact fails with 409, so
       # on a partial set we still attempt the whole publish (it may upload the
-      # missing files before hitting a duplicate), then the Confirm step below
-      # decides green. If still partial afterwards: delete the package version
-      # in the GitHub Packages UI and re-run (no automated registry deletion).
+      # missing files before hitting a duplicate). The publish step is
+      # continue-on-error on purpose: a 409 (or any publish failure) must not
+      # decide the job — the unconditional Confirm step below is the true
+      # arbiter. Confirm greens the job only on a verified full set (a
+      # concurrent winner's full set included) and reds it when any expected
+      # file is still missing, so build/auth failures that left the registry
+      # incomplete still fail the job loud. Manual recovery for a still partial
+      # set: delete the package version in the GitHub Packages UI and re-run
+      # (no automated registry deletion).
       - name: Publish to GitHub Packages Maven
         if: steps.check-maven.outputs.publish_needed == 'true'
+        continue-on-error: true
         working-directory: crates/spoke-connect/bindings/kotlin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

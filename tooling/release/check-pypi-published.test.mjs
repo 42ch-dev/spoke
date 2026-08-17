@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   expectedWheelFilenames,
   normalizeDistributionName,
+  normalizePep440Version,
   parsePyprojectName,
 } from "./check-pypi-published.mjs";
 import {
@@ -64,6 +65,21 @@ before(async () => {
       case "0.6.0": // 200 but unexpected payload shape
         json(200, { info: {} });
         break;
+      case "0.7.0": // all expected wheels listed, but one yanked (PEP 592)
+        json(200, {
+          urls: wheelUrls("0.7.0").map((u) =>
+            u.filename.includes("macosx") ? { ...u, yanked: true } : u,
+          ),
+        });
+        break;
+      case "0.8.0-alpha.1": // prerelease tag: full set with PEP 440-normalized filenames
+        json(200, { urls: wheelUrls("0.8.0-alpha.1") });
+        break;
+      case "0.12.0": // full set plus an unexpected entry — warning only
+        json(200, {
+          urls: [...wheelUrls("0.12.0"), { filename: "spoke_connect-0.12.0.tar.gz" }],
+        });
+        break;
       default:
         json(404, { message: "not found" });
         break;
@@ -85,6 +101,27 @@ after(async () => {
 });
 
 /**
+ * Rewrite the `version = "…"` line in the `[project]` table of a temp fixture
+ * pyproject.toml so the lockstep cross-check matches the RELEASE_TAG under test.
+ *
+ * @param {string} repoRoot
+ * @param {string} version
+ */
+function setFixturePyprojectVersion(repoRoot, version) {
+  const pyprojectPath = join(
+    repoRoot,
+    "crates/spoke-connect/bindings/python/pyproject.toml",
+  );
+  const contents = readFileSync(pyprojectPath, "utf8");
+  const updated = contents.replace(
+    /^version\s*=\s*"[^"]+"/m,
+    `version = "${version}"`,
+  );
+  assert.notEqual(updated, contents, "fixture pyproject version line not found");
+  writeFileSync(pyprojectPath, updated);
+}
+
+/**
  * Spawn the CLI against the fake PyPI API from a temp lockstep fixture repo.
  *
  * @param {object} opts
@@ -95,6 +132,7 @@ after(async () => {
  */
 async function runCheck({ tag, args = [], githubOutput }) {
   const repoRoot = createTempRepo();
+  setFixturePyprojectVersion(repoRoot, tag.slice(1));
   const env = {
     ...process.env,
     SPOKE_REPO_ROOT: repoRoot,
@@ -215,6 +253,87 @@ describe("check-pypi-published.mjs CLI", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing/);
   });
+
+  it("treats a yanked wheel as absent (pre-check → publish needed)", async () => {
+    const result = await runCheck({ tag: "v0.7.0" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /partially published on PyPI/);
+    assert.match(result.stdout, /publish_needed=true/);
+    assert.match(
+      result.stdout,
+      /missing_files=spoke_connect-0\.7\.0-py3-none-macosx_11_0_arm64\.whl/,
+    );
+    assert.doesNotMatch(result.stdout, /publish_needed=false/);
+  });
+
+  it("--verify reds while any expected wheel is yanked", async () => {
+    const result = await runCheck({ tag: "v0.7.0", args: ["--verify"] });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing/);
+    assert.match(result.stderr, /macosx_11_0_arm64/);
+  });
+
+  it("skips a prerelease tag whose PEP 440-normalized wheel filenames are present", async () => {
+    const result = await runCheck({ tag: "v0.8.0-alpha.1" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /already published on PyPI \(3\/3 expected files present\)/);
+    assert.match(result.stdout, /publish_needed=false/);
+    assert.match(result.stdout, /missing_files=$/m);
+  });
+
+  it("--verify passes for a prerelease tag with normalized filenames", async () => {
+    const result = await runCheck({ tag: "v0.8.0-alpha.1", args: ["--verify"] });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /confirmed full expected set/);
+  });
+
+  it("warns on unexpected registry entries without changing the verdict", async () => {
+    const result = await runCheck({ tag: "v0.12.0" });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stderr, /warning/);
+    assert.match(result.stderr, /spoke_connect-0\.12\.0\.tar\.gz/);
+    assert.match(result.stdout, /publish_needed=false/);
+  });
+
+  it("exits non-zero when the tag version mismatches pyproject.toml", async () => {
+    // Fixture pyproject version is rewritten to the tag by runCheck, so
+    // simulate drift by rewriting it to a different version afterwards.
+    const repoRoot = createTempRepo();
+    setFixturePyprojectVersion(repoRoot, "0.2.0");
+    setFixturePyprojectVersion(repoRoot, "9.9.9");
+    const env = {
+      ...process.env,
+      SPOKE_REPO_ROOT: repoRoot,
+      RELEASE_TAG: "v0.2.0",
+      PYPI_BASE_URL: baseUrl,
+    };
+    delete env.GITHUB_OUTPUT;
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [SCRIPT_PATH], {
+          cwd: repoRoot,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
+        child.on("error", reject);
+        child.on("close", (status) => resolve({ status, stdout, stderr }));
+      });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /pyproject\.toml/);
+      assert.match(result.stderr, /9\.9\.9/);
+      assert.match(result.stderr, /0\.2\.0/);
+    } finally {
+      cleanupTempRepo(repoRoot);
+    }
+  });
 });
 
 describe("check-pypi-published.mjs expected set", () => {
@@ -236,5 +355,22 @@ describe("check-pypi-published.mjs expected set", () => {
       "spoke-connect",
     );
     assert.equal(parsePyprojectName('[tool.foo]\nname = "other"\n'), null);
+  });
+
+  it("normalizes prerelease versions per PEP 440", () => {
+    assert.equal(normalizePep440Version("0.2.0-alpha.1"), "0.2.0a1");
+    assert.equal(normalizePep440Version("0.2.0-beta.1"), "0.2.0b1");
+    assert.equal(normalizePep440Version("0.2.0-rc.1"), "0.2.0rc1");
+    assert.equal(normalizePep440Version("0.2.0-rc1"), "0.2.0rc1");
+    assert.equal(normalizePep440Version("0.2.0-dev.3"), "0.2.0.dev3");
+    assert.equal(normalizePep440Version("0.10.0"), "0.10.0");
+  });
+
+  it("builds PEP 440-normalized wheel filenames for prerelease versions", () => {
+    assert.deepEqual(expectedWheelFilenames("spoke-connect", "0.2.0-alpha.1"), [
+      "spoke_connect-0.2.0a1-py3-none-manylinux_2_35_x86_64.whl",
+      "spoke_connect-0.2.0a1-py3-none-macosx_11_0_arm64.whl",
+      "spoke_connect-0.2.0a1-py3-none-win_amd64.whl",
+    ]);
   });
 });

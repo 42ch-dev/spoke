@@ -6,7 +6,7 @@ Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release
 
 ## Prerequisites
 
-- Node.js ≥ 20 and pnpm ≥ 8
+- Node.js ≥ 20 and pnpm ≥ 11.21 (pinned via the root packageManager field)
 - Rust toolchain (stable) for `spoke-schemas` / `spoke-operations` crates
 
 ```bash
@@ -23,7 +23,8 @@ Useful scripts (repo root):
 |--------|---------|
 | `pnpm run codegen` | Regenerate TypeScript and Rust types from `schemas/` |
 | `pnpm run verify-codegen` | Codegen + schema-count assert + `git diff` on generated trees |
-| `pnpm run typecheck` | Typecheck `@42ch/spoke-schemas` and `@42ch/spoke-operations` |
+| `pnpm run typecheck` | Typecheck all workspace TS packages (`@42ch/spoke-schemas`, `@42ch/spoke-operations`, `@42ch/spoke-connect`, `@42ch/spoke-demo-server`, `@42ch/spoke-demo-client`) — warm-tree helper; the cold-clone gate is `ci:typescript` |
+| `pnpm run ci:typescript` | Cold-clone gate mirroring the ci.yml `typescript` job stage chain in dependency order, then the demo typechecks + `test:demo` |
 | `pnpm run build:schema` / `build:operations` | Build published npm packages |
 | `pnpm run test` / `test:fixtures` | Operations unit tests / toy-world fixture harness |
 | `pnpm run verify:version` | Lockstep SemVer assert across publish surfaces |

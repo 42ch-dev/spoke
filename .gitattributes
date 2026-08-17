@@ -1,8 +1,10 @@
 # Git LFS — large committed native binaries.
 #
-# The Swift xcframework static libraries are maintainer-built, committed
-# artifacts (refreshed when the uniffi FFI surface changes), tracked via LFS
-# so the repository does not accumulate ~120 MB of staticlib churn on every
+# The Swift xcframework static libraries are CI-assembled, committed
+# artifacts (assembled on macos-14 by .github/workflows/xcframework.yml when
+# the uniffi FFI surface changes; refreshed via
+# tooling/connect/apply-xcframework-artifact.sh), tracked via LFS so the
+# repository does not accumulate ~120 MB of staticlib churn on every
 # refresh. SPM consumers resolve the xcframework from git; git-lfs is bundled
 # with Xcode (CLI `swift build` users run `git lfs install` once).
 #

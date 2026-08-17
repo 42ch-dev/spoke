@@ -103,6 +103,27 @@ The integrator-facing VitePress site lives in `docs/` (config: `docs/.vitepress/
 
 Pages summarize each topic and link the normative body in `.mstar/specs/` — the specs remain the single source of truth for normative detail. The build gate runs on PRs and the Pages deploy runs on `main` via [`.github/workflows/docs.yml`](.github/workflows/docs.yml); the Pages source must be **GitHub Actions** (repo Settings → Pages → Source).
 
+## Refreshing the Swift xcframework
+
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the path-filtered `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-14` from the checkout's Rust sources — pinned toolchain 1.96.0, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. The job runs when the FFI surface changes; `tooling/connect/verify-xcframework-drift.sh` compares per-file SHA-256 hashes of the CI build against the committed (LFS) artifact and fails the job on drift. The built xcframework and its hash manifest upload on every run.
+
+Refresh the committed artifact from a run in one command (requires the `gh` CLI and `rsync`):
+
+```bash
+./tooling/connect/apply-xcframework-artifact.sh <run-id>
+```
+
+The script first verifies the run's provenance — the `Xcframework` workflow, a `success` conclusion (or a `failure` caused only by the drift gate, which still ships a complete artifact), and a `headSha` matching the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build). It then requires the artifact's hash manifest and checksum-verifies every file against it before rsyncing the built tree over the committed one and staging the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials (token pushes don't re-trigger workflows and can't carry LFS objects).
+
+A refresh-only push does not re-trigger the `xcframework` job (the committed xcframework path is off the workflow's own filter), so after committing a refreshed artifact, confirm the drift gate is still green before pushing — re-run the producing job (`gh run rerun <run-id>`), or compare the artifact's built tree against the committed one locally:
+
+```bash
+gh run download <run-id> --name spoke-connect-xcframework --dir /tmp/xcf-stage
+./tooling/connect/verify-xcframework-drift.sh \
+  crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
+  /tmp/xcf-stage/spoke_connectFFI.xcframework
+```
+
 ## Release
 
 Primary path — **New release** on GitHub Actions, then merge the PR:

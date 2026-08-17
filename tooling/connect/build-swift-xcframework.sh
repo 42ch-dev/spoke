@@ -28,6 +28,22 @@ SWIFT_BINDINGS="${REPO_ROOT}/crates/spoke-connect/bindings/swift"
 GENERATED="${SWIFT_BINDINGS}/generated"
 XCFRAMEWORK="${SWIFT_BINDINGS}/xcframework/spoke_connectFFI.xcframework"
 
+# CI affordance: when XCFRAMEWORK_OUTPUT_DIR is set, write the generated
+# bindings and xcframework under it, leaving the committed trees untouched
+# so the drift gate can compare committed vs built output.
+if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
+  GENERATED="${XCFRAMEWORK_OUTPUT_DIR}/generated"
+  XCFRAMEWORK="${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework"
+fi
+
+# CI affordance: --locked pins the committed Cargo.lock for reproducible CI
+# builds; local nightly builds may run with a modified lockfile, so the flag
+# stays off unless requested (XCFRAMEWORK_LOCKED=1).
+LOCKED=()
+if [[ "${XCFRAMEWORK_LOCKED:-0}" == "1" ]]; then
+  LOCKED=(--locked)
+fi
+
 # Prefer nightly locally (AGENTS.md); fall back to default cargo (CI stable).
 CARGO=(cargo)
 RUSTUP_TOOLCHAIN=()
@@ -47,7 +63,10 @@ SLICES=(
 echo "==> assert Apple target triples installed"
 if command -v rustup >/dev/null 2>&1; then
   # Assert against the same toolchain that builds (nightly locally, default in CI).
-  INSTALLED="$(rustup target list --installed "${RUSTUP_TOOLCHAIN[@]}")"
+  # bash 3.2 (macOS system bash) treats an empty "${arr[@]}" under set -u as
+  # an unbound variable; the + idiom expands to nothing when the array is
+  # empty (the CI-stable path has no --toolchain flag).
+  INSTALLED="$(rustup target list --installed ${RUSTUP_TOOLCHAIN[@]+"${RUSTUP_TOOLCHAIN[@]}"})"
   MISSING=()
   for entry in "${SLICES[@]}"; do
     triple="${entry#*|}"
@@ -71,7 +90,7 @@ TARGET_DIR="$("${CARGO[@]}" metadata --no-deps --format-version 1 | python3 -c '
 FFI_FEATURES="ffi,remote-adapter"
 
 echo "==> build ffi cdylib (bindgen metadata source; production surface — no ffi-smoke-host)"
-"${CARGO[@]}" build -p spoke-connect --features "${FFI_FEATURES}" --release
+"${CARGO[@]}" build ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release
 CDYLIB="${TARGET_DIR}/release/libspoke_connect.dylib"
 if [[ ! -f "${CDYLIB}" ]]; then
   echo "missing cdylib: ${CDYLIB}" >&2
@@ -80,7 +99,7 @@ fi
 
 echo "==> generate Swift bindings"
 mkdir -p "${GENERATED}"
-"${CARGO[@]}" run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
+"${CARGO[@]}" run ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
   generate --library "${CDYLIB}" \
   --language swift \
   --out-dir "${GENERATED}"
@@ -104,7 +123,7 @@ for entry in "${SLICES[@]}"; do
   slice="${entry%%|*}"
   triple="${entry#*|}"
   echo "  -> ${slice} (${triple})"
-  "${CARGO[@]}" rustc -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
+  "${CARGO[@]}" rustc ${LOCKED[@]+"${LOCKED[@]}"} -p spoke-connect --features "${FFI_FEATURES}" --release --crate-type staticlib --target "${triple}"
   STATICLIB="${TARGET_DIR}/${triple}/release/libspoke_connect.a"
   if [[ ! -f "${STATICLIB}" ]]; then
     echo "missing staticlib: ${STATICLIB}" >&2
@@ -129,6 +148,26 @@ xcodebuild -create-xcframework \
   -library "${STAGE}/ios-arm64/libspoke_connect.a" -headers "${HDRS}" \
   -library "${STAGE}/ios-simulator/libspoke_connect.a" -headers "${HDRS}" \
   -output "${XCFRAMEWORK}"
+
+# xcodebuild -create-xcframework emits AvailableLibraries in nondeterministic
+# order (observed across identical invocations on the same machine/image),
+# which would make the committed artifact drift from an otherwise identical
+# CI rebuild. Normalize the ordering (sorted keys + LibraryIdentifier) so the
+# build output is byte-deterministic; the drift gate compares real bytes.
+echo "==> normalize Info.plist library ordering"
+XCFRAMEWORK="${XCFRAMEWORK}" python3 - <<'PY'
+import os
+import plistlib
+
+path = os.path.join(os.environ["XCFRAMEWORK"], "Info.plist")
+with open(path, "rb") as f:
+    plist = plistlib.load(f)
+plist["AvailableLibraries"] = sorted(
+    plist["AvailableLibraries"], key=lambda lib: lib["LibraryIdentifier"]
+)
+with open(path, "wb") as f:
+    plistlib.dump(plist, f, sort_keys=True)
+PY
 
 echo "==> validate xcframework"
 plutil -lint "${XCFRAMEWORK}/Info.plist"

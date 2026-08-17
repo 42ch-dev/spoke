@@ -118,7 +118,7 @@ hello signature, verify, tamper rejection, `protocol_version == 1`) plus
 `TestToolLoopbackFfiPair` (tool faces over the loopback pair, D15/D16: dialer
 `invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
-deny, handler-thrown reject passthrough, and post-close `Closed` state). The
+deny, handler-thrown reject passthrough, the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving — and post-close `Closed` state). The
 tool test runs on the **committed production binding + native** — every face
 is on `ffi,remote-adapter`; no `-tags smokehost`.
 

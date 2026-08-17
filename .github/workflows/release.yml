@@ -136,8 +136,6 @@ jobs:
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
-        with:
-          version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -180,8 +178,6 @@ jobs:
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
-        with:
-          version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -367,8 +363,6 @@ jobs:
       - name: Setup pnpm
         # pnpm/action-setup@v4.4.0
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
-        with:
-          version: 11
 
       # Node 24 + registry-url; use stock npm (do not npm install -g).
       - name: Setup Node.js
@@ -590,8 +584,18 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Pre-check published set on PyPI
+        id: check-pypi
+        run: node tooling/release/check-pypi-published.mjs
+
       - name: Download FFI artifacts
         # actions/download-artifact@v4.3.0
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ffi-*
@@ -599,6 +603,7 @@ jobs:
           merge-multiple: false
 
       - name: Assemble FFI natives for wheel build
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -612,26 +617,41 @@ jobs:
 
       - name: Setup Python
         # actions/setup-python@v5.4.0
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
         with:
           python-version: "3.12"
 
       - name: Install wheel tooling
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         run: python -m pip install setuptools wheel
 
       - name: Build platform wheels
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         run: ./tooling/connect/build-python-wheels-from-ffi.sh ffi-assembled
 
       - name: Verify wheel inventory
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         run: ./tooling/connect/verify-python-wheels.sh
 
       - name: Publish to PyPI
         # pypa/gh-action-pypi-publish@v1.14.2 — pin peeled commit (GHCR image tag), not annotated-tag object SHA
         # Trusted Publishing OIDC (Pending publisher: spoke-connect)
+        # skip-existing is the per-file duplicate guard only (default false): it makes a
+        # partial-set resume upload tolerate already-present wheels. The pre-check owns
+        # skip/partial/fail-loud semantics and the Confirm step decides green — never here.
+        if: steps.check-pypi.outputs.publish_needed == 'true'
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: crates/spoke-connect/bindings/python/dist/
           print-hash: true
+          skip-existing: true
+
+      - name: Confirm published set on PyPI
+        # Unconditional re-probe: the job is green only on a verified full set,
+        # skip and publish paths alike.
+        if: ${{ always() }}
+        run: node tooling/release/check-pypi-published.mjs --verify
 
   publish-maven:
     name: publish-maven
@@ -653,8 +673,24 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Pre-check published set on GitHub Packages Maven
+        # Primary skip gate (architect-locked): full set present (pom + module
+        # + jar with the three JNA entries) -> publish_needed=false. Absent /
+        # partial -> publish_needed=true. Doubt (auth, network, bad payload)
+        # fails the job — never skip on doubt.
+        id: check-maven
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/release/check-maven-published.mjs
+
       - name: Download FFI artifacts
         # actions/download-artifact@v4.3.0
+        if: steps.check-maven.outputs.publish_needed == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ffi-*
@@ -662,6 +698,7 @@ jobs:
           merge-multiple: false
 
       - name: Assemble Kotlin JNA resources
+        if: steps.check-maven.outputs.publish_needed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -676,6 +713,7 @@ jobs:
 
       - name: Setup Java
         # actions/setup-java@v4.7.0
+        if: steps.check-maven.outputs.publish_needed == 'true'
         uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: temurin
@@ -683,11 +721,25 @@ jobs:
 
       - name: Setup Gradle
         # gradle/actions/setup-gradle@v4.4.2
+        if: steps.check-maven.outputs.publish_needed == 'true'
         uses: gradle/actions/setup-gradle@017a9effdb900e5b5b2fddfb590a105619dca3c3
         with:
           gradle-version: "9.6.1"
 
+      # Gradle has no --skip-duplicate: a duplicate artifact fails with 409, so
+      # on a partial set we still attempt the whole publish (it may upload the
+      # missing files before hitting a duplicate). The publish step is
+      # continue-on-error on purpose: a 409 (or any publish failure) must not
+      # decide the job — the unconditional Confirm step below is the true
+      # arbiter. Confirm greens the job only on a verified full set (a
+      # concurrent winner's full set included) and reds it when any expected
+      # file is still missing, so build/auth failures that left the registry
+      # incomplete still fail the job loud. Manual recovery for a still partial
+      # set: delete the package version in the GitHub Packages UI and re-run
+      # (no automated registry deletion).
       - name: Publish to GitHub Packages Maven
+        if: steps.check-maven.outputs.publish_needed == 'true'
+        continue-on-error: true
         working-directory: crates/spoke-connect/bindings/kotlin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -696,3 +748,11 @@ jobs:
           gradle publish \
             -Pgpr.user="${{ github.actor }}" \
             -Pgpr.key="${GITHUB_TOKEN}"
+
+      - name: Confirm published set on GitHub Packages Maven
+        # Unconditional re-probe: the job is green only on a verified full set,
+        # skip and publish paths alike.
+        if: ${{ always() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/release/check-maven-published.mjs --verify

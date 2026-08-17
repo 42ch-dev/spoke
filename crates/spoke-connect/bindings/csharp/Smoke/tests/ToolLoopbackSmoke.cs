@@ -88,6 +88,47 @@ public static class ToolLoopbackSmoke
             LoopbackAssert.AssertEqual("REVISION_CONFLICT", passed.code, "reject passthrough code");
             LoopbackAssert.AssertEqual("foreign handler rejected", passed.message, "reject passthrough message");
             LoopbackAssert.AssertEqual("op_unsupported", passed.wireCode, "reject passthrough wire_code");
+
+            // 5. Handler rejects with an unknown code string -> the host
+            //    observes the INTERNAL_ERROR downgrade (message preserved,
+            //    details re-hung) — the foreign code cannot be represented by
+            //    the typed SpokeRejectCode, so the bridge falls back.
+            dialer.RegisterToolHandler(
+                "tools.echo.boom",
+                new ThrowingToolHandler(
+                    new FfiException.Rejected(
+                        "NOT_A_WIRE_CODE",
+                        "unknown code message",
+                        null,
+                        "op_unsupported")));
+            var downgraded = AssertRejected(() => responder.InvokeTool("tools.echo.boom", "{}"));
+            LoopbackAssert.AssertEqual("INTERNAL_ERROR", downgraded.code, "unknown-code downgrade code");
+            LoopbackAssert.AssertEqual("unknown code message", downgraded.message, "unknown-code downgrade message");
+            LoopbackAssert.AssertEqual("op_unsupported", downgraded.wireCode, "unknown-code downgrade wire_code");
+
+            // 6. Handler throws a foreign (non-Rejected) fault -> contained to
+            //    INTERNAL_ERROR with no details; the session survives and the
+            //    serve loop still answers the next healthy reverse invoke.
+            //    Channel caveat: the C# vendored-fork bindgen carries the
+            //    stock uniffi callback-error machinery unpatched (no
+            //    fielded-error patch script like Kotlin's) — the fielded
+            //    ERROR path is proven by steps 4–5 and the plain-fault path
+            //    by this step; assert only what the stock trampoline can
+            //    express (plain System.Exception -> unexpected callback error).
+            dialer.RegisterToolHandler(
+                "tools.echo.boom",
+                new FaultingToolHandler(new Exception("foreign fault")));
+            var contained = AssertRejected(() => responder.InvokeTool("tools.echo.boom", "{}"));
+            LoopbackAssert.AssertEqual("INTERNAL_ERROR", contained.code, "foreign-fault containment code");
+            LoopbackAssert.AssertEqual(null, contained.wireCode, "foreign-fault containment wire_code (details None)");
+
+            var healthyJson = responder.InvokeTool("tools.math.add", """{"a": 21, "b": 21}""");
+            using var healthyDoc = JsonDocument.Parse(healthyJson);
+            LoopbackAssert.AssertEqual(
+                42L,
+                healthyDoc.RootElement.GetProperty("sum").GetInt64(),
+                "serve loop survives foreign-fault containment");
+            LoopbackAssert.AssertEqual(2, dialerSum.Calls, "dialer handler invocation count after containment");
         }
         finally
         {
@@ -178,5 +219,16 @@ public static class ToolLoopbackSmoke
         public ThrowingToolHandler(FfiException.Rejected reject) => _reject = reject;
 
         public string Handle(string argumentsJson) => throw _reject;
+    }
+
+    /// <summary>Foreign-callback tool handler that always throws a plain
+    /// (non-Rejected) fault — the D16 non-contract failure row.</summary>
+    private sealed class FaultingToolHandler : ToolHandler
+    {
+        private readonly Exception _fault;
+
+        public FaultingToolHandler(Exception fault) => _fault = fault;
+
+        public string Handle(string argumentsJson) => throw _fault;
     }
 }

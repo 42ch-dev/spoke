@@ -215,6 +215,14 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 
 `validateManifestTools`（spoke-operations）对照清单自身检查其 `tools[]`：每个描述符有效、其 `capability_id` 出现在 `capabilities[]` 中、其 namespace 在 `namespaces[]` 中被拥有、且工具 id 唯一。`listTools` 按声明顺序返回描述符。两个辅助函数都是纯函数 —— 库不会自动调用它们；demo 主机在发现时对拨号方的清单运行它们，集成方应在任何以清单为门禁之处自行调用。
 
+### 工具调用辅助函数
+
+`@42ch/spoke-operations` 为调用路径提供三个辅助函数（Rust 对应物为 `spoke-operations` crate 中的 `validate_tool_arguments` / `ToolInvokePort` / `orchestrate_invoke_tool`）：
+
+- **`validateToolArguments(descriptor, args)`** —— 结构参数门禁（粒度冻结）：`args` 必须是 JSON 对象；当 `descriptor.input` 声明顶层 `"type": "object"` 且带有 `"required": [...]` 列表时，每个列出的键必须存在于 `args` 中。它以 `INVALID_INPUT` 拒绝，并携带 `details.field`（非对象载荷为 `"arguments"`，畸形子 schema 为 `"input"`）以及缺失键的 `details.missing`；`input: {}` 是空转通过（无约束）。不做更深的 JSON-Schema 检查 —— 完整校验留在消费方或 fixture 侧。
+- **`ToolInvokePort`** —— 可选的远程工具调用注入缝：`invokeTool(request)`，入参 `ToolInvokeRequest { capability_id, arguments }`，结算为 `SpokeResult<ToolInvokeResponse { result }>`。该族独立存在 —— 不并入 `BaselinePorts`，能力门禁按工具（即能力字符串本身）进行。端口**不**重新校验请求参数：调用方应在调用前运行 `validateToolArguments`。
+- **`orchestrateInvokeTool(port, request)`** —— 冻结的编排序列：(1) 能力 id 语法门禁（`parseToolCapabilityId`）→ `INVALID_INPUT`；(2) 运行时端口守卫（`null`/`undefined` 端口或结构上缺失的 `invokeTool`）→ 携带 `details.capability = request.capability_id` 的 `CAPABILITY_PORT_MISSING`；(3) 原样返回 `port.invokeTool(request)`。此处不重跑参数校验 —— 只校验请求语法。
+
 ### `tools.*` 分派规则
 
 当两个条件都成立时，`tools.*` invoke 才被分派：

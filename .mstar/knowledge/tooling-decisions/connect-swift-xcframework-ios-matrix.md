@@ -1,11 +1,23 @@
 ---
 module: spoke-connect
 date: 2026-08-04
+last_updated: 2026-08-18
 problem_type: tooling_decision
 category: tooling-decisions
 severity: medium
-applies_when: ["extending the Swift xcframework to a new Apple platform slice", "reassembling the committed xcframework after an FFI surface change", "cross-compiling the Rust crate for iOS targets"]
-tags: [spoke-connect, swift, xcframework, ios, cross-compile, lipo, swiftpm, uniffi]
+applies_when:
+  - extending the Swift xcframework to a new Apple platform slice
+  - refreshing the committed xcframework after an FFI surface change
+  - cross-compiling the Rust crate for iOS targets
+tags:
+  - spoke-connect
+  - swift
+  - xcframework
+  - ios
+  - cross-compile
+  - lipo
+  - swiftpm
+  - uniffi
 ---
 
 # Swift xcframework multi-target build matrix (iOS slices)
@@ -29,9 +41,11 @@ The Swift binding ships the `SpokeConnect` SwiftPM product from a **committed** 
 - Delivered shape: three `LibraryIdentifier`s covering four target triples — `macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator` (arm64 + x86_64 fat). Coverage equals four discrete slices.
 - `xcodebuild -validate-xcframework` does not exist in Xcode 26.6 (only `-create-xcframework`). Validate with `plutil -lint` on the Info.plist, per-slice `lipo -info` arch assertions, and the consumer-path link builds below.
 
-### 3. Committed maintainer-built staticlib model
+### 3. Committed artifact, CI-assembled
 
-- The xcframework stays **committed in the repo**; assembling it is a maintainer operation (CI does not need the Rust iOS targets). Regenerate when the FFI surface changes; between FFI changes the committed framework is the consumer artifact.
+- The xcframework stays **committed in the repo**; between FFI changes the committed framework is the consumer artifact. Assembly runs in CI (`.github/workflows/xcframework.yml`, path-filtered on the FFI surface): the job builds the slices on `macos-14` and the committed artifact is the drift baseline — a sorted per-file SHA-256 manifest diff (`tooling/connect/verify-xcframework-drift.sh`) fails the job on mismatch, and the built artifact uploads on every run.
+- Refresh path: `tooling/connect/apply-xcframework-artifact.sh <run-id>` downloads the CI artifact, checksum-verifies against its manifest, verifies run provenance, and stages the LFS pointers — no local four-target Rust build. After committing a refresh, re-run the drift check locally or via the workflow (a refresh-only push does not re-trigger the path-filtered gate).
+- Build determinism: the script normalizes the `Info.plist` `AvailableLibraries` ordering (xcodebuild emits it nondeterministically) — same inputs, same bytes. Pattern details: [`ci-assembled-committed-native-artifacts.md`](ci-assembled-committed-native-artifacts.md).
 - Generated Swift sources (`generated/spoke_connect.swift`, `spoke_connectFFI.h`, modulemap) stay **byte-identical** across rebuilds while the FFI surface is unchanged — the script verifies with SHA-256 before/after and must not rewrite them.
 - Repo hygiene: `.gitignore` covers SwiftPM artifacts (`.build/`, `.swiftpm/`) at the repo root and local packages, mirroring the C#/Kotlin artifact-ignore pattern.
 
@@ -50,9 +64,8 @@ The Swift binding ships the `SpokeConnect` SwiftPM product from a **committed** 
 
 ## When to Apply
 
-- Adding a new platform slice to the Swift binding (e.g. visionOS/tvOS) or regenerating the xcframework after an FFI surface change.
-- Automating the matrix in CI: a follow-up job that assembles the xcframework when the FFI surface changes, replacing the maintainer manual refresh (the framework stays repo-committed between FFI changes).
-- Any future binding that ships prebuilt per-platform artifacts — reuse the commit-maintainer-artifact + local-package-smoke shape.
+- Adding a new platform slice to the Swift binding (e.g. visionOS/tvOS) or refreshing the xcframework after an FFI surface change (CI assembles; apply script refreshes).
+- Any future binding that ships prebuilt per-platform artifacts — reuse the committed-artifact + CI drift-gate + local-package-smoke shape.
 
 ## Examples
 

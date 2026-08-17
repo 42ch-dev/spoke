@@ -11,7 +11,7 @@ The loopback section dials `RemoteAdapterFFI` through a Python `Transport`
 implementation. The tool section drives both FFI faces over a loopback pair
 (D15/D16): dialer `invoke_tool` served by a responder foreign `ToolHandler`,
 responder reverse invoke served by a dialer-side handler, unregistered-tool
-`op_unsupported` deny, and handler-thrown reject passthrough — every face is on
+`op_unsupported` deny, handler-thrown reject passthrough, and the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving — every face is on
 the committed production binding, so it runs in the default `unittest discover`
 suite. The smoke-host put/get round-trip additionally dials the reference
 smoke host (`start_loopback_smoke_host`, `ffi-smoke-host` only) and asserts

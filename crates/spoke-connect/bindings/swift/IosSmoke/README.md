@@ -5,7 +5,7 @@ same golden checks as the macOS `Smoke/` (peer id, hello signature, protocol
 version) plus the tool faces over the in-repo loopback pair (D15/D16: dialer
 `invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
-deny, handler-thrown reject passthrough) through the committed
+deny, handler-thrown reject passthrough, and the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving) through the committed
 `spoke_connectFFI.xcframework` simulator slice, proving an iOS integrator links
 and executes the session core without running Rust or bindgen. No smoke host is
 required — every tool face is on the production xcframework.

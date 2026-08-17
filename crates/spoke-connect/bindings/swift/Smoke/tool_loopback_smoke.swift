@@ -146,6 +146,67 @@ func runToolLoopbackSmoke(_ r: Reporter) throws {
     } catch {
         r.check("reject passthrough surfaces as FfiError (got \(error))", false)
     }
+
+    // 5. Handler rejects with an unknown code string -> the host observes the
+    //    INTERNAL_ERROR downgrade (message preserved, details re-hung): the
+    //    foreign code cannot be represented by the typed SpokeRejectCode, so
+    //    the bridge falls back.
+    try dialer.registerToolHandler(
+        capabilityId: "tools.echo.boom",
+        handler: ThrowingToolHandler(
+            error: FfiError.Rejected(
+                code: "NOT_A_WIRE_CODE",
+                message: "unknown code message",
+                kind: nil,
+                wireCode: "op_unsupported"
+            )
+        )
+    )
+    do {
+        _ = try responder.invokeTool(capabilityId: "tools.echo.boom", argumentsJson: "{}")
+        r.check("unknown-code handler is downgraded", false)
+    } catch let error as FfiError {
+        if case let .Rejected(code, message, _, wireCode) = error {
+            r.check("unknown-code downgrade code is INTERNAL_ERROR", code == "INTERNAL_ERROR")
+            r.check("unknown-code downgrade message is preserved", message == "unknown code message")
+            r.check("unknown-code downgrade wire_code is op_unsupported", wireCode == "op_unsupported")
+        } else {
+            r.check("unknown-code downgrade surfaces as FfiError.Rejected (got \(error))", false)
+        }
+    } catch {
+        r.check("unknown-code downgrade surfaces as FfiError (got \(error))", false)
+    }
+
+    // 6. Handler throws a foreign (non-Rejected) fault -> contained to
+    //    INTERNAL_ERROR with no details; the session survives and the serve
+    //    loop still answers the next healthy reverse invoke.
+    try dialer.registerToolHandler(
+        capabilityId: "tools.echo.boom",
+        handler: ThrowingToolHandler(
+            error: NSError(
+                domain: "spoke-connect-smoke",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "foreign fault"]
+            )
+        )
+    )
+    do {
+        _ = try responder.invokeTool(capabilityId: "tools.echo.boom", argumentsJson: "{}")
+        r.check("foreign-fault handler is contained", false)
+    } catch let error as FfiError {
+        if case let .Rejected(code, _, _, wireCode) = error {
+            r.check("foreign-fault containment code is INTERNAL_ERROR", code == "INTERNAL_ERROR")
+            r.check("foreign-fault containment wire_code is nil (details None)", wireCode == nil)
+        } else {
+            r.check("foreign-fault containment surfaces as FfiError.Rejected (got \(error))", false)
+        }
+    } catch {
+        r.check("foreign-fault containment surfaces as FfiError (got \(error))", false)
+    }
+
+    let healthyJson = try responder.invokeTool(capabilityId: "tools.math.add", argumentsJson: "{\"a\": 21, \"b\": 21}")
+    r.check("serve loop survives foreign-fault containment", parseSum(healthyJson) == 42)
+    r.check("dialer handler invocation count after containment is 2", dialerSum.calls == 2)
 }
 
 /// Tool-carrying manifest — every tool capability also sits in

@@ -117,6 +117,17 @@ class _ThrowingToolHandler:
         raise self._reject
 
 
+class _FaultingToolHandler:
+    """Foreign-callback tool handler that always raises a plain
+    (non-Rejected) fault — the D16 non-contract failure row."""
+
+    def __init__(self, fault: Exception) -> None:
+        self._fault = fault
+
+    def handle(self, arguments_json: str) -> str:
+        raise self._fault
+
+
 class LoopbackCallbackTransport:
     """Foreign-callback transport delegating to the client end of a loopback pair."""
 
@@ -265,6 +276,40 @@ class ToolLoopbackFfiPairTests(unittest.TestCase):
             self.assertEqual("REVISION_CONFLICT", passed.exception.code)
             self.assertEqual("foreign handler rejected", passed.exception.message)
             self.assertEqual("op_unsupported", passed.exception.wire_code)
+
+            # 5. Handler rejects with an unknown code string -> the host
+            #    observes the INTERNAL_ERROR downgrade (message preserved,
+            #    details re-hung): the foreign code cannot be represented by
+            #    the typed SpokeRejectCode, so the bridge falls back.
+            dialer.register_tool_handler(
+                "tools.echo.boom",
+                _ThrowingToolHandler(
+                    spoke_connect.FfiError.Rejected(
+                        "NOT_A_WIRE_CODE", "unknown code message", None, "op_unsupported"
+                    )
+                ),
+            )
+            with self.assertRaises(spoke_connect.FfiError.Rejected) as downgraded:
+                responder.invoke_tool("tools.echo.boom", "{}")
+            self.assertEqual("INTERNAL_ERROR", downgraded.exception.code)
+            self.assertEqual("unknown code message", downgraded.exception.message)
+            self.assertEqual("op_unsupported", downgraded.exception.wire_code)
+
+            # 6. Handler raises a foreign (non-Rejected) fault -> contained to
+            #    INTERNAL_ERROR with no details; the session survives and the
+            #    serve loop still answers the next healthy reverse invoke.
+            dialer.register_tool_handler(
+                "tools.echo.boom",
+                _FaultingToolHandler(RuntimeError("foreign fault")),
+            )
+            with self.assertRaises(spoke_connect.FfiError.Rejected) as contained:
+                responder.invoke_tool("tools.echo.boom", "{}")
+            self.assertEqual("INTERNAL_ERROR", contained.exception.code)
+            self.assertIsNone(contained.exception.wire_code, "containment wire_code is None (details None)")
+
+            healthy_json = responder.invoke_tool("tools.math.add", '{"a": 21, "b": 21}')
+            self.assertEqual(42, json.loads(healthy_json)["sum"], "serve loop survives foreign-fault containment")
+            self.assertEqual(2, dialer_sum.calls(), "dialer handler invocation count after containment")
         finally:
             dialer.close()
             responder.close()

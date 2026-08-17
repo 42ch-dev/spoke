@@ -2,6 +2,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import org.json.JSONObject
 import uniffi.spoke_connect.ConnectResponderFfi
 import uniffi.spoke_connect.FfiException
@@ -132,6 +133,45 @@ class ToolLoopbackFfiPairTest {
             assertEquals("REVISION_CONFLICT", passed.code, "reject passthrough code")
             assertEquals("foreign handler rejected", passed.detail, "reject passthrough message")
             assertEquals("op_unsupported", passed.wireCode, "reject passthrough wire_code")
+
+            // 5. Handler rejects with an unknown code string -> the host
+            //    observes the INTERNAL_ERROR downgrade (message preserved,
+            //    details re-hung): the foreign code cannot be represented by
+            //    the typed SpokeRejectCode, so the bridge falls back.
+            dialer.registerToolHandler(
+                "tools.echo.boom",
+                ThrowingToolHandler(
+                    FfiException.Rejected(
+                        code = "NOT_A_WIRE_CODE",
+                        detail = "unknown code message",
+                        kind = null,
+                        wireCode = "op_unsupported",
+                    ),
+                ),
+            )
+            val downgraded = assertRejected("unknown-code downgrade") {
+                responder.invokeTool("tools.echo.boom", "{}")
+            }
+            assertEquals("INTERNAL_ERROR", downgraded.code, "unknown-code downgrade code")
+            assertEquals("unknown code message", downgraded.detail, "unknown-code downgrade message")
+            assertEquals("op_unsupported", downgraded.wireCode, "unknown-code downgrade wire_code")
+
+            // 6. Handler throws a foreign (non-Rejected) fault -> contained to
+            //    INTERNAL_ERROR with no details; the session survives and the
+            //    serve loop still answers the next healthy reverse invoke.
+            dialer.registerToolHandler(
+                "tools.echo.boom",
+                FaultingToolHandler(RuntimeException("foreign fault")),
+            )
+            val contained = assertRejected("foreign-fault containment") {
+                responder.invokeTool("tools.echo.boom", "{}")
+            }
+            assertEquals("INTERNAL_ERROR", contained.code, "foreign-fault containment code")
+            assertNull(contained.wireCode, "foreign-fault containment wire_code (details None)")
+
+            val healthyJson = responder.invokeTool("tools.math.add", """{"a": 21, "b": 21}""")
+            assertEquals(42L, JSONObject(healthyJson).getLong("sum"), "serve loop survives foreign-fault containment")
+            assertEquals(2, dialerSum.calls(), "dialer handler invocation count after containment")
         } finally {
             dialer.close()
             responder.close()
@@ -196,5 +236,11 @@ class ToolLoopbackFfiPairTest {
      * application reject (D16 passthrough row). */
     private class ThrowingToolHandler(private val reject: FfiException.Rejected) : ToolHandler {
         override fun handle(argumentsJson: String): String = throw reject
+    }
+
+    /** Foreign-callback tool handler that always throws a plain
+     * (non-Rejected) fault — the D16 non-contract failure row. */
+    private class FaultingToolHandler(private val fault: RuntimeException) : ToolHandler {
+        override fun handle(argumentsJson: String): String = throw fault
     }
 }

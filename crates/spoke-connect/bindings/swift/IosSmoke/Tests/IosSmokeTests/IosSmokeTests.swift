@@ -331,5 +331,66 @@ final class IosSmokeTests: XCTestCase {
         } catch {
             XCTFail("reject passthrough surfaced as \(error), expected FfiError")
         }
+
+        // 5. Handler rejects with an unknown code string -> the host observes
+        //    the INTERNAL_ERROR downgrade (message preserved, details
+        //    re-hung): the foreign code cannot be represented by the typed
+        //    SpokeRejectCode, so the bridge falls back.
+        try dialer.registerToolHandler(
+            capabilityId: "tools.echo.boom",
+            handler: ThrowingToolHandler(
+                error: FfiError.Rejected(
+                    code: "NOT_A_WIRE_CODE",
+                    message: "unknown code message",
+                    kind: nil,
+                    wireCode: "op_unsupported"
+                )
+            )
+        )
+        do {
+            _ = try responder.invokeTool(capabilityId: "tools.echo.boom", argumentsJson: "{}")
+            XCTFail("unknown-code handler must be downgraded")
+        } catch let error as FfiError {
+            if case let .Rejected(code, message, _, wireCode) = error {
+                XCTAssertEqual(code, "INTERNAL_ERROR", "unknown-code downgrade code")
+                XCTAssertEqual(message, "unknown code message", "unknown-code downgrade message")
+                XCTAssertEqual(wireCode, "op_unsupported", "unknown-code downgrade wire_code")
+            } else {
+                XCTFail("unknown-code downgrade surfaced as \(error), expected FfiError.Rejected")
+            }
+        } catch {
+            XCTFail("unknown-code downgrade surfaced as \(error), expected FfiError")
+        }
+
+        // 6. Handler throws a foreign (non-Rejected) fault -> contained to
+        //    INTERNAL_ERROR with no details; the session survives and the
+        //    serve loop still answers the next healthy reverse invoke.
+        try dialer.registerToolHandler(
+            capabilityId: "tools.echo.boom",
+            handler: ThrowingToolHandler(
+                error: NSError(
+                    domain: "ios-smoke",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "foreign fault"]
+                )
+            )
+        )
+        do {
+            _ = try responder.invokeTool(capabilityId: "tools.echo.boom", argumentsJson: "{}")
+            XCTFail("foreign-fault handler must be contained")
+        } catch let error as FfiError {
+            if case let .Rejected(code, _, _, wireCode) = error {
+                XCTAssertEqual(code, "INTERNAL_ERROR", "foreign-fault containment code")
+                XCTAssertNil(wireCode, "foreign-fault containment wire_code (details None)")
+            } else {
+                XCTFail("foreign-fault containment surfaced as \(error), expected FfiError.Rejected")
+            }
+        } catch {
+            XCTFail("foreign-fault containment surfaced as \(error), expected FfiError")
+        }
+
+        let healthyJson = try responder.invokeTool(capabilityId: "tools.math.add", argumentsJson: "{\"a\": 21, \"b\": 21}")
+        XCTAssertEqual(parseSum(healthyJson), 42, "serve loop survives foreign-fault containment")
+        XCTAssertEqual(dialerSum.calls, 2, "dialer handler invocation count after containment")
     }
 }

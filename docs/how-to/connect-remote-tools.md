@@ -192,6 +192,8 @@ void connectResponder({
 });
 ```
 
+`connectResponder` takes the same per-invoke timeout knob as the adapter: `invokeTimeoutMs` (optional; default 5000). On elapse only that reverse invoke fails — the session stays usable.
+
 The server's manifest declares the same tool ids the client serves, so both directions negotiate on the same session.
 
 ## 5. Run the demo

@@ -215,6 +215,14 @@ Each entry in `HostCapabilityManifest.tools` is a `ToolDescriptor` ([`schemas/da
 
 `validateManifestTools` (spoke-operations) checks a manifest's `tools[]` against the manifest itself: each descriptor is valid, its `capability_id` appears in `capabilities[]`, its namespace is owned in `namespaces[]`, and tool ids are unique. `listTools` returns the descriptors in declaration order. Both helpers are pure functions — the library does not call them automatically; the demo host runs them on the dialer's manifest at discovery time, and integrators should call them wherever they gate on a manifest.
 
+### Tool invocation helpers
+
+`@42ch/spoke-operations` ships three helpers for the invoke path (Rust twins `validate_tool_arguments` / `ToolInvokePort` / `orchestrate_invoke_tool` in the `spoke-operations` crate):
+
+- **`validateToolArguments(descriptor, args)`** — structural argument gate with frozen granularity: `args` must be a JSON object; when `descriptor.input` declares top-level `"type": "object"` with a `"required": [...]` list, every listed key must be present in `args`. It rejects with `INVALID_INPUT` and `details.field` (`"arguments"` for a non-object payload, `"input"` for a malformed subschema) plus `details.missing` for absent keys; `input: {}` is a vacuous pass (unconstrained). There is no deeper JSON-Schema checking — full validation stays consumer- or fixture-side.
+- **`ToolInvokePort`** — optional injection seam for remote tool invocation: `invokeTool(request)` with `ToolInvokeRequest { capability_id, arguments }` resolving to `SpokeResult<ToolInvokeResponse { result }>`. The family is standalone — not folded into `BaselinePorts`, and capability gating is per-tool (the capability string itself). The port does **not** re-validate request arguments: callers run `validateToolArguments` before invoking.
+- **`orchestrateInvokeTool(port, request)`** — the frozen orchestration sequence: (1) capability-id grammar gate (`parseToolCapabilityId`) → `INVALID_INPUT`; (2) runtime port guard (`null`/`undefined` port or a structurally missing `invokeTool`) → `CAPABILITY_PORT_MISSING` with `details.capability = request.capability_id`; (3) `port.invokeTool(request)` returned as-is. Argument validation is not re-run here — only request grammar is validated.
+
 ### The `tools.*` dispatch rule
 
 A `tools.*` invoke dispatches when both conditions hold:

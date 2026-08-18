@@ -394,7 +394,7 @@ demo 流程之后，摘要读取为：
         "character": 1,
         "location": 1,
         "item": 1,
-        "artifact": 1
+        "note": 1
       },
       "entry_ids_sorted": [
         "demo-harbor/artifact/dice-roll",
@@ -410,6 +410,8 @@ demo 流程之后，摘要读取为：
 ```
 
 摘要的 `revision` 等于推导计数 —— 每次被接受的 put 都会前进，因此该产物是用户历史的稳定函数。`derived/` id 命名空间是保留的：用户向其中的 put 会被拒绝。这就是真实推理主机的输出经过同一个 `BaselinePorts` 面的样子：派生的知识出现在普通列表与读取中，形状上与用户数据无异。
+
+时间线列表同理：三个预置的 storm-fork 事件也出现在基线 `listTimelineEvents` 输出中 —— fork 事件是共享存储中的普通事件，`listForkTimelineEvents` 只是按 fork 精化的查询（见第 8 节）。
 
 ## 7. 处理错误
 

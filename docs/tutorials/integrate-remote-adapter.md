@@ -394,7 +394,7 @@ After the demo flow, the digest reads:
         "character": 1,
         "location": 1,
         "item": 1,
-        "artifact": 1
+        "note": 1
       },
       "entry_ids_sorted": [
         "demo-harbor/artifact/dice-roll",
@@ -410,6 +410,8 @@ After the demo flow, the digest reads:
 ```
 
 The digest's `revision` equals the derivation count — it advances on every accepted put, so the artifact is a stable function of user history. The `derived/` id namespace is reserved: user puts into it are rejected. This is what a real inference host's output looks like through the same `BaselinePorts` surface: derived knowledge appears in ordinary listings and reads, indistinguishable in shape from user data.
+
+Timeline listings work the same way: the three seeded storm-fork events appear in the baseline `listTimelineEvents` output too — fork events are ordinary events in the shared store, and `listForkTimelineEvents` is only the fork-scoped refinement (section 8).
 
 ## 7. Handle errors
 

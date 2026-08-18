@@ -187,6 +187,8 @@ Beyond the baseline six families, the adapter ships the optional `l2-computable`
     );
 ```
 
+The `PROJECT_STATE` and `COMPUTE_DELTA` constants the snippet spreads are defined in the demo client source (`examples/connect-demo/client/src/main.ts`): the static state the session projects and the delta `compute` merges.
+
 The family must be **negotiated**: both manifests declare it in `capabilities[]`, so the session's `negotiated_capabilities` contains it. The demo gates its optional steps on its own manifest's declarations — the negotiated set is the intersection, so a server that did not declare a family denies loudly instead of being skipped. Denials map through the shared dispatch-deny row: wire `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved (section 5 below).
 
 The Rust adapter exposes the same faces as `project` / `compute` / `list_fork_timeline_events`; over FFI the same methods live on `RemoteAdapterFFI` (per-language casing in the [symbol map](/how-to/remote-adapter-native-binding#symbol-map-across-the-bindings)). Serving the families on the responder side — the library `ports` option, the Rust `RemoteServePorts` seam, and the foreign-callback `PortsHandler` — is documented in [Optional port families](/reference/connect#optional-port-families).

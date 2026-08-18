@@ -186,6 +186,8 @@ const got = await adapter.getKnowledgeEntry(entry.entry_id);
     );
 ```
 
+片段中展开的 `PROJECT_STATE` 与 `COMPUTE_DELTA` 常量定义在 demo 客户端源码中（`examples/connect-demo/client/src/main.ts`）：即会话投影的静态状态与 `compute` 合并的增量。
+
 该族必须**已协商**：双方 manifest 都在 `capabilities[]` 中声明它，于是会话的 `negotiated_capabilities` 包含它。demo 以自身 manifest 的声明来门控可选步骤 —— 协商集是交集，因此未声明该族的服务器会响亮地拒绝，而不是被静默跳过。拒绝经共享的分派拒绝行映射：线上码 `op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝（见下节 5）。
 
 Rust adapter 以 `project` / `compute` / `list_fork_timeline_events` 暴露同样的面；FFI 上同样的方法位于 `RemoteAdapterFFI`（各语言的命名风格见[符号对照表](/zh/how-to/remote-adapter-native-binding#各绑定符号对照表)）。在响应方侧服务这些族 —— 库的 `ports` 选项、Rust `RemoteServePorts` 接缝、以及带外回调 `PortsHandler` —— 见[可选 port 族](/zh/reference/connect#可选-port-族)。

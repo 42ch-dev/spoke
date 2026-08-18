@@ -20,6 +20,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { connectResponder } from "@42ch/spoke-connect/remote";
 
 import type { EnvelopeBytes, Transport } from "@42ch/spoke-connect/remote";
+import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
 import { DEMO_SERVER_MANIFEST, MockAdapter } from "../adapter/mock-adapter.js";
 import {
@@ -187,11 +188,18 @@ function waitForListening(wss: WebSocketServer): Promise<void> {
  * fresh `MockAdapter` (one host per connection). Rejects when the port
  * cannot be bound (e.g. already in use) instead of hanging on `listening`
  * with an unhandled `error`.
+ *
+ * `manifest` overrides the advertised self-manifest (defaults to
+ * {@link DEMO_SERVER_MANIFEST} — the full optional-capability story). The
+ * e2e's undeclared-capability deny negative boots a variant whose
+ * capabilities omit `l2-computable`; the ports face is unchanged, so the
+ * responder's capability gate (not the provider) is what denies.
  */
 export async function serveConnectDemo(
-  options: { port?: number } = {},
+  options: { port?: number; manifest?: HostCapabilityManifest } = {},
 ): Promise<ServeConnectDemoHandle> {
   const port = options.port ?? DEFAULT_PORT;
+  const manifest = options.manifest ?? DEMO_SERVER_MANIFEST;
   const wss = new WebSocketServer({ host: "127.0.0.1", port });
   try {
     await waitForListening(wss);
@@ -222,7 +230,7 @@ export async function serveConnectDemo(
     void connectResponder({
       transport,
       identity: { seed: DEMO_SERVER_SEED },
-      manifest: DEMO_SERVER_MANIFEST,
+      manifest,
       allowlist: [DEMO_CLIENT_PEER_ID],
       peerKeys: {
         [DEMO_CLIENT_PEER_ID]: DEMO_CLIENT_PUBKEY,

@@ -90,6 +90,8 @@ get_json = adapter.get_knowledge_entry(entry_id)
 
 Each `BaselinePorts` family maps to a method with the same JSON-in / JSON-out shape: `get_host_capability_manifest`, `get_relation` / `put_relation`, `list_knowledge_entries` / `list_timeline_events`, `put_findings`, `list_rules`, and `list_peer_host_capability_manifests`. Invoke-path failures surface as `FfiError.Rejected` with the `SpokeResult` code preserved, plus `kind` and `wire_code` where the mapping defines them (for example `INTERNAL_ERROR` with `kind = "transport"`, or `CAPABILITY_PORT_MISSING` with `wire_code = "no_capable_peer"`).
 
+The adapter also exposes the optional-port faces with the same JSON-in / JSON-out shape: `project(project_request_json)` and `compute(compute_request_json)` (the `l2-computable` family) and `list_fork_timeline_events(scope_json)` (the `l5-fork` family). The family must be in the session's negotiated capabilities — both manifests declare it; a peer that did not negotiate the family denies with `FfiError.Rejected` (`code: "CAPABILITY_PORT_MISSING"`, preserved `wire_code: "op_unsupported"`). The full catalogue is in [Optional port families](/reference/connect#optional-port-families).
+
 Concurrent calls on one adapter are allowed; responses demultiplex on `request_id` and may arrive out of order.
 
 ## 4. Read session info
@@ -174,6 +176,7 @@ responder = spoke_connect.connect_responder_ffi(
     _tool_manifest_json("test-responder"),  # HostCapabilityManifest with tools[]
     [peer_id_client],                      # fail-closed dialer allowlist
     {peer_id_client: pubkey_client},       # peer_id -> 32-byte Ed25519 pubkey
+    ports,                                 # optional foreign PortsHandler; None keeps the deny branch
     None,                                  # invoke timeout in ms; None uses the default
 )
 ```
@@ -190,7 +193,69 @@ while responder.state() != "Established":
     time.sleep(0.01)
 ```
 
-The constructor's `Result` slot carries config-validation failures only — manifest JSON, seed length, or peer-key length → `Dial { kind: "config" }`. `ports` is pinned absent on the FFI responder: a `port.*` invoke at the responder answers the documented deny branch (`CAPABILITY_PORT_MISSING`, `wire_code: "op_unsupported"`).
+The constructor's `Result` slot carries config-validation failures only — manifest JSON, seed length, or peer-key length → `Dial { kind: "config" }`. `ports` is an **optional** foreign-callback ports face: pass a `PortsHandler` to serve `port.*` invokes (baseline + optional families) through the callback bridge, or `None` to keep the documented absent-ports deny branch — every `port.*` invoke then answers `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"` (the same fail-closed row as the library responder without `ports`). See [The `PortsHandler` callback](#the-portshandler-callback) below.
+
+### The `PortsHandler` callback
+
+A `PortsHandler` is the responder's foreign-callback ports face: each method takes the request payload as a JSON string and returns the success payload as a JSON string — the same catalogue the library responder serves through its `ports` option. The interface has twelve methods (nine baseline + three optional):
+
+| Method | Family | Serves op |
+|--------|--------|-----------|
+| `get_knowledge_entry(entry_id)` | baseline | `port.knowledge.get` |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | baseline | `port.knowledge.put` |
+| `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | baseline | `port.relation.get` / `port.relation.put` |
+| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | baseline | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `put_findings(findings_json)` | baseline | `port.finding.put` |
+| `list_rules(rule_refs)` | baseline | `port.rule.list` |
+| `list_peer_host_capability_manifests()` | baseline | `port.host.list_peer_manifests` |
+| `project(project_request_json)` | `l2-computable` | `port.computable.project` |
+| `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
+| `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+
+`get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method may raise `FfiError.Rejected` to deny an op it does not serve; the reject passes through to the invoker as an application reject. The optional families are served only when the pair negotiated the family (both manifests declare it) — the capability gate runs before the callback, and a host that declared a family but does not provide its method answers the same deny branch as absent `ports`.
+
+The reference shape ships in the Python loopback smoke (`bindings/python/Smoke/test_ports_loopback.py`); the optional methods show the JSON contract:
+
+```python
+    def project(self, project_request_json: str) -> str:
+        request = json.loads(project_request_json)
+        return json.dumps(
+            {
+                "session_id": request["session_id"],
+                "entry_id": request["entry_id"],
+                "computable": {"tide_level": 2.4, "cargo_tons": 38},
+            }
+        )
+
+    def compute(self, compute_request_json: str) -> str:
+        request = json.loads(compute_request_json)
+        return json.dumps(
+            {
+                "session_id": request["session_id"],
+                "entry_id": request["entry_id"],
+                "computable": request["computable"],
+                "state": request["computable"],
+            }
+        )
+
+    def list_fork_timeline_events(self, scope_json: str) -> str:
+        scope = json.loads(scope_json)
+        if scope["fork_id"] != "fork_tw_ffi_events":
+            return "[]"
+        return json.dumps(
+            [
+                {
+                    "schema_version": 1,
+                    "timeline_event_id": "evt_tw_ffi_storm",
+                    "canonical_name": "FFI Fork Storm",
+                    "fork_id": "fork_tw_ffi_events",
+                    "extensions": {},
+                }
+            ]
+        )
+```
+
+The same re-entrancy rule as tool handlers applies: never call back into the FFI surface from inside a ports callback — hand the work off to your own async machinery and return.
 
 ### The loopback pair end to end
 
@@ -313,9 +378,11 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 | Router constructor | `NewMultiPeerRouterFfi()` | `NewMultiPeerRouterFfi()` | `newMultiPeerRouterFfi()` | `new_multi_peer_router_ffi()` | `newMultiPeerRouterFfi()` |
 | Router object | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
 | Port methods | PascalCase (`GetKnowledgeEntry`) | PascalCase (`GetKnowledgeEntry`) | camelCase (`getKnowledgeEntry`) | snake_case (`get_knowledge_entry`) | camelCase (`getKnowledgeEntry`) |
+| Optional port methods | `Project` / `Compute` / `ListForkTimelineEvents` | `Project` / `Compute` / `ListForkTimelineEvents` | `project` / `compute` / `listForkTimelineEvents` | `project` / `compute` / `list_fork_timeline_events` | `project` / `compute` / `listForkTimelineEvents` |
 | Tool invoke | `InvokeTool(...)` | `InvokeTool(...)` | `invokeTool(...)` | `invoke_tool(...)` | `invokeTool(capabilityId:argumentsJson:)` |
 | Tool serving registration | `RegisterToolHandler(...)` | `RegisterToolHandler(...)` | `registerToolHandler(...)` | `register_tool_handler(...)` | `registerToolHandler(capabilityId:handler:)` |
 | Tool handler callback | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` |
+| Ports callback | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` |
 | Responder constructor | `SpokeConnectMethods.ConnectResponderFfi(...)` | `NewConnectResponderFfi(...)` | `connectResponderFfi(...)` | `connect_responder_ffi(...)` | `connectResponderFfi(...)` |
 | Responder object | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` |
 

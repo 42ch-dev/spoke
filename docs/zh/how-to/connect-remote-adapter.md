@@ -156,6 +156,42 @@ const got = await adapter.getKnowledgeEntry(entry.entry_id);
 
 每个 port 方法映射到一个保留的 `port.*` 产品 op（`port.knowledge.put`、`port.relation.get`、……），作为 invoke 的 `op` 携带；该映射在 adapter 内部。见线上参考中的 [Port-method ops（RemoteAdapter）](/zh/reference/connect#port-method-ops-remoteadapter)。
 
+### 可选 port 族
+
+在基线六族之外，adapter 还交付可选的 `l2-computable`（`project` / `compute`）与 `l5-fork`（`listForkTimelineEvents`）面。它们就是同一已建立会话上的普通 port 方法 —— demo 客户端在真实 WebSocket 上驱动全部三个往返（`examples/connect-demo/client/src/main.ts`）：
+
+```ts
+    const projectedResult = requireOk(
+      await adapter.project({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        state: { ...PROJECT_STATE },
+      }),
+    );
+
+    const computedResult = requireOk(
+      await adapter.compute({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        computable: { ...COMPUTE_DELTA },
+        settle: true,
+      }),
+    );
+
+    forkEvents = requireOk(
+      await adapter.listForkTimelineEvents({
+        scope_id: DEMO_SCOPE_ID,
+        fork_id: DEMO_STORM_FORK_ID,
+      }),
+    );
+```
+
+片段中展开的 `PROJECT_STATE` 与 `COMPUTE_DELTA` 常量定义在 demo 客户端源码中（`examples/connect-demo/client/src/main.ts`）：即会话投影的静态状态与 `compute` 合并的增量。
+
+该族必须**已协商**：双方 manifest 都在 `capabilities[]` 中声明它，于是会话的 `negotiated_capabilities` 包含它。demo 以自身 manifest 的声明来门控可选步骤 —— 协商集是交集，因此未声明该族的服务器会响亮地拒绝，而不是被静默跳过。拒绝经共享的分派拒绝行映射：线上码 `op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝（见下节 5）。
+
+Rust adapter 以 `project` / `compute` / `list_fork_timeline_events` 暴露同样的面；FFI 上同样的方法位于 `RemoteAdapterFFI`（各语言的命名风格见[符号对照表](/zh/how-to/remote-adapter-native-binding#各绑定符号对照表)）。在响应方侧服务这些族 —— 库的 `ports` 选项、Rust `RemoteServePorts` 接缝、以及带外回调 `PortsHandler` —— 见[可选 port 族](/zh/reference/connect#可选-port-族)。
+
 ## 5. 并发与错误
 
 同一已建立会话上的并发 port 调用被允许：出站 `sequence` 在发送时分配，响应按 `request_id` 解复用，完成可能乱序到达。每个挂起 invoke 携带 adapter 拥有的超时；超时只让该调用失败，会话保持可用。

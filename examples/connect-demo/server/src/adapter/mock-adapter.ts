@@ -1,17 +1,24 @@
 /**
- * BaselinePorts adapter backed by the deterministic mock inference engine.
+ * FullPorts adapter backed by the deterministic mock inference engine.
  *
  * Serves the demo server's `spoke-baseline` capability families: knowledge /
  * relation persistence with OCC, scope query (demo-harbor namespace), finding
- * persistence, rule query, and the host manifest surface. Port shapes mirror
- * the toy-world reference adapter; the engine owns all storage and
+ * persistence, rule query, and the host manifest surface — plus the optional
+ * `l2-computable` (project / compute sessions) and `l5-fork`
+ * (listForkTimelineEvents over the seeded storm fork) families. Port shapes
+ * mirror the toy-world reference adapter; the engine owns all storage and
  * derivation.
  */
 
 import type {
+  ComputeRequest,
+  ComputeResponse,
   Finding,
+  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
   Relation,
   Rule,
   Scope,
@@ -21,7 +28,7 @@ import {
   filterKnowledgeEntriesByScope,
   filterTimelineEventsByScope,
   spokeOk,
-  type BaselinePorts,
+  type FullPorts,
   type SpokeResult,
 } from "@42ch/spoke-operations";
 
@@ -41,7 +48,9 @@ import {
  * client's reverse-invoked tools are negotiated (the negotiated set is the
  * intersection of both manifests' capabilities); the host declares the same
  * descriptors the client serves, and `validateManifestTools` passes on this
- * manifest.
+ * manifest. The optional `l2-computable` / `l5-fork` families are declared
+ * because the provider serves them through the ports face (the e2e's
+ * undeclared-capability deny uses a variant of this manifest).
  */
 export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
@@ -51,13 +60,15 @@ export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
     "spoke-baseline",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
+    "l2-computable",
+    "l5-fork",
   ],
   namespaces: [DEMO_SCOPE_ID, TOY_WORLD_NAMESPACE],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
   extensions: {},
 };
 
-export class MockAdapter implements BaselinePorts {
+export class MockAdapter implements FullPorts {
   readonly engine: MockEngine;
 
   constructor(engine?: MockEngine) {
@@ -98,6 +109,41 @@ export class MockAdapter implements BaselinePorts {
   }
 
   async listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>> {
+    if (scope.scope_id !== undefined && scope.scope_id !== DEMO_SCOPE_ID) {
+      return spokeOk([]);
+    }
+    return spokeOk(
+      filterTimelineEventsByScope(this.engine.listTimelineEvents(), scope),
+    );
+  }
+
+  // ── Optional families (served through the same ports face) ─────────────
+
+  /**
+   * l2-computable projection — materialize the session's computable view
+   * from static state (engine-owned session store).
+   */
+  async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
+    return this.engine.projectComputable(request);
+  }
+
+  /**
+   * l2-computable apply/settle — merge the computable delta into the
+   * session view; `settle: true` merges the view back into static state.
+   */
+  async compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>> {
+    return this.engine.computeComputable(request);
+  }
+
+  /**
+   * l5-fork timeline query — the fork_id-scoped refinement of
+   * `listTimelineEvents`, served through the library scope matcher (no
+   * protocol-rule reimplementation). One provider satisfies both the
+   * ScopeQueryPort and ForkTimelineQueryPort contracts.
+   */
+  async listForkTimelineEvents(
+    scope: Scope & { fork_id: ForkId },
+  ): Promise<SpokeResult<TimelineEvent[]>> {
     if (scope.scope_id !== undefined && scope.scope_id !== DEMO_SCOPE_ID) {
       return spokeOk([]);
     }

@@ -157,6 +157,42 @@ const got = await adapter.getKnowledgeEntry(entry.entry_id);
 
 Each port method maps to a reserved `port.*` product op (`port.knowledge.put`, `port.relation.get`, …) carried as the invoke `op`; the mapping is internal to the adapter. See [Port-method ops](/reference/connect#port-method-ops-remoteadapter) in the wire reference.
 
+### Optional port families
+
+Beyond the baseline six families, the adapter ships the optional `l2-computable` (`project` / `compute`) and `l5-fork` (`listForkTimelineEvents`) faces. They are plain port methods on the same established session — the demo client drives all three round-trips over a real WebSocket (`examples/connect-demo/client/src/main.ts`):
+
+```ts
+    const projectedResult = requireOk(
+      await adapter.project({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        state: { ...PROJECT_STATE },
+      }),
+    );
+
+    const computedResult = requireOk(
+      await adapter.compute({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        computable: { ...COMPUTE_DELTA },
+        settle: true,
+      }),
+    );
+
+    forkEvents = requireOk(
+      await adapter.listForkTimelineEvents({
+        scope_id: DEMO_SCOPE_ID,
+        fork_id: DEMO_STORM_FORK_ID,
+      }),
+    );
+```
+
+The `PROJECT_STATE` and `COMPUTE_DELTA` constants the snippet spreads are defined in the demo client source (`examples/connect-demo/client/src/main.ts`): the static state the session projects and the delta `compute` merges.
+
+The family must be **negotiated**: both manifests declare it in `capabilities[]`, so the session's `negotiated_capabilities` contains it. The demo gates its optional steps on its own manifest's declarations — the negotiated set is the intersection, so a server that did not declare a family denies loudly instead of being skipped. Denials map through the shared dispatch-deny row: wire `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved (section 5 below).
+
+The Rust adapter exposes the same faces as `project` / `compute` / `list_fork_timeline_events`; over FFI the same methods live on `RemoteAdapterFFI` (per-language casing in the [symbol map](/how-to/remote-adapter-native-binding#symbol-map-across-the-bindings)). Serving the families on the responder side — the library `ports` option, the Rust `RemoteServePorts` seam, and the foreign-callback `PortsHandler` — is documented in [Optional port families](/reference/connect#optional-port-families).
+
 ## 5. Concurrency and errors
 
 Concurrent port calls on one established session are allowed: outbound `sequence` is allocated at send time, responses demultiplex on `request_id`, and completions may arrive out of order. Each pending invoke carries an adapter-owned timeout; on elapse only that call fails and the session stays usable.

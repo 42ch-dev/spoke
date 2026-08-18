@@ -25,8 +25,10 @@ import { DEMO_SERVER_MANIFEST, MockAdapter } from "../src/adapter/mock-adapter.j
 import { MockEngine } from "../src/engine/mock-engine.js";
 import {
   DEMO_SEED_ENTRIES,
+  DEMO_SEED_FORK_ID,
   DEMO_SEED_RELATIONS,
   DEMO_SEED_RULES,
+  DEMO_SEED_TIMELINE_EVENTS,
   DEMO_SCOPE_ID,
 } from "../src/engine/seed-corpus.js";
 
@@ -39,6 +41,15 @@ function expectRejected(
   if (!result.ok) {
     expect(result.code).toBe(code);
   }
+}
+
+/**
+ * Assert a wire success branch (no `error` key) and narrow the
+ * ProjectResponse / ComputeResponse unions to it (type guard).
+ */
+function expectSuccess<T extends object>(response: T): Exclude<T, { error: unknown }> {
+  expect("error" in response).toBe(false);
+  return response as Exclude<T, { error: unknown }>;
 }
 
 const COMPASS_ENTRY: KnowledgeEntry = {
@@ -371,6 +382,102 @@ describe("host manifest", () => {
     if (second.ok) {
       expect(second.value.host_id).toBe("demo-inference-host");
     }
+  });
+});
+
+describe("optional families (l2-computable / l5-fork)", () => {
+  it("projects a computable view and settles compute deltas into static state", async () => {
+    const adapter = new MockAdapter();
+
+    const projected = await adapter.project({
+      session_id: "demo-session/unit-1",
+      entry_id: "demo-harbor/location/harbor",
+      state: { ships_at_dock: 3 },
+    });
+    expect(projected.ok).toBe(true);
+    if (projected.ok) {
+      const value = expectSuccess(projected.value);
+      expect(value.session_id).toBe("demo-session/unit-1");
+      expect(value.computable).toEqual({ ships_at_dock: 3 });
+    }
+
+    // compute merges the delta into the session view; settle merges the
+    // view back into static state (the derived state).
+    const computed = await adapter.compute({
+      session_id: "demo-session/unit-1",
+      entry_id: "demo-harbor/location/harbor",
+      computable: { tide: "rising" },
+      settle: true,
+    });
+    expect(computed.ok).toBe(true);
+    if (computed.ok) {
+      const value = expectSuccess(computed.value);
+      expect(value.computable).toEqual({
+        ships_at_dock: 3,
+        tide: "rising",
+      });
+      expect(value.state).toEqual({
+        ships_at_dock: 3,
+        tide: "rising",
+      });
+    }
+
+    // A non-settling compute carries the updated view without state.
+    const unsettled = await adapter.compute({
+      session_id: "demo-session/unit-1",
+      entry_id: "demo-harbor/location/harbor",
+      computable: { tide: "falling" },
+    });
+    expect(unsettled.ok).toBe(true);
+    if (unsettled.ok) {
+      const value = expectSuccess(unsettled.value);
+      expect(value.computable).toEqual({
+        ships_at_dock: 3,
+        tide: "falling",
+      });
+      // A non-settling compute carries no `state` key at all — assert the
+      // key's absence, not an explicit-undefined value.
+      expect("state" in value).toBe(false);
+    }
+  });
+
+  it("lists the seeded storm-fork timeline events by fork_id", async () => {
+    const adapter = new MockAdapter();
+
+    const events = await adapter.listForkTimelineEvents({
+      scope_id: DEMO_SCOPE_ID,
+      fork_id: DEMO_SEED_FORK_ID,
+    });
+    expect(events.ok).toBe(true);
+    if (events.ok) {
+      expect(events.value).toEqual(DEMO_SEED_TIMELINE_EVENTS);
+      expect(events.value.length).toBeGreaterThan(0);
+    }
+
+    // An unknown fork id round-trips as an empty timeline; a foreign scope
+    // is empty too (mirrors the baseline scope guard).
+    const unknown = await adapter.listForkTimelineEvents({
+      scope_id: DEMO_SCOPE_ID,
+      fork_id: "demo-harbor/fork/unknown",
+    });
+    expect(unknown.ok).toBe(true);
+    if (unknown.ok) {
+      expect(unknown.value).toEqual([]);
+    }
+    const foreign = await adapter.listForkTimelineEvents({
+      scope_id: "other-scope",
+      fork_id: DEMO_SEED_FORK_ID,
+    });
+    expect(foreign.ok).toBe(true);
+    if (foreign.ok) {
+      expect(foreign.value).toEqual([]);
+    }
+  });
+
+  it("declares the optional families in the server manifest", async () => {
+    expect(DEMO_SERVER_MANIFEST.capabilities).toEqual(
+      expect.arrayContaining(["l2-computable", "l5-fork"]),
+    );
   });
 });
 

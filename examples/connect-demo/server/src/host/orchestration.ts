@@ -25,9 +25,14 @@
  */
 
 import type {
+  ComputeRequest,
+  ComputeResponse,
   Finding,
+  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
   Relation,
   Rule,
   Scope,
@@ -36,7 +41,7 @@ import type {
 import {
   listTools,
   validateManifestTools,
-  type BaselinePorts,
+  type FullPorts,
   type SpokeResult,
 } from "@42ch/spoke-operations";
 import type { ConnectResponder } from "@42ch/spoke-connect/remote";
@@ -100,11 +105,14 @@ function diceRollEntry(roll: RollResult): KnowledgeEntry {
 }
 
 /**
- * BaselinePorts adapter with the tool-assisted orchestration step. All port
+ * FullPorts adapter with the tool-assisted orchestration step. All port
  * families delegate to the wrapped MockAdapter except `putKnowledgeEntry`,
  * which runs the orchestration after the client's compass submission lands.
+ * The optional `l2-computable` / `l5-fork` families delegate too — the
+ * injected ports object serves them through the responder's structural
+ * probe (gate → probe → serve/deny).
  */
-export class DemoOrchestrator implements BaselinePorts {
+export class DemoOrchestrator implements FullPorts {
   readonly #adapter: MockAdapter;
   readonly #records: DemoOrchestration[];
   #responder: ConnectResponder | null = null;
@@ -160,6 +168,20 @@ export class DemoOrchestrator implements BaselinePorts {
 
   async listTimelineEvents(scope: Scope): Promise<SpokeResult<TimelineEvent[]>> {
     return this.#adapter.listTimelineEvents(scope);
+  }
+
+  async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
+    return this.#adapter.project(request);
+  }
+
+  async compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>> {
+    return this.#adapter.compute(request);
+  }
+
+  async listForkTimelineEvents(
+    scope: Scope & { fork_id: ForkId },
+  ): Promise<SpokeResult<TimelineEvent[]>> {
+    return this.#adapter.listForkTimelineEvents(scope);
   }
 
   async putFindings(findings: Finding[]): Promise<SpokeResult<Finding[]>> {

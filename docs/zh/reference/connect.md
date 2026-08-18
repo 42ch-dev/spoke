@@ -172,6 +172,7 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 |------|----------|
 | `upsert`、`promote`、`relate`、`check`、`assemble`（以及 `port.*` 基线操作） | `spoke-baseline` |
 | `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
+| `listForkTimelineEvents`（以及 `port.fork.*`） | `l5-fork` |
 | 产品自定义操作 | 产品文档化的能力 |
 
 能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。
@@ -191,9 +192,64 @@ RemoteAdapter 把每个 `BaselinePorts` 方法代理为一个 connect invoke，�
 | `putFindings` | `port.finding.put` | `{ "findings": Finding[] }` | `Finding[]` |
 | `listRules` | `port.rule.list` | `{ "rule_refs": string[] }` | `Rule[]` |
 | `listPeerHostCapabilityManifests` | `port.host.list_peer_manifests` | `{}` | `HostCapabilityManifest[]` |
+| `project` | `port.computable.project` | `{ "session_id": string, "entry_id": string, "state": ComputableFieldMap }` | `ProjectResponse` |
+| `compute` | `port.computable.compute` | `{ "session_id": string, "entry_id": string, "computable": ComputableFieldMap, "settle": boolean }` | `ComputeResponse` |
+| `listForkTimelineEvents` | `port.fork.list_timeline_events` | `{ "scope": { "scope_id": string, "fork_id": string } }` | `TimelineEvent[]` |
 | `getHostCapabilityManifest` | *（无 —— 会话缓存）* | —— | 建立时缓存的远端握手 `host`；无往返 |
 
-可选族保留 `port.computable.*`（`project` / `compute`、`l2-computable`）与 `port.fork.*`（`listForkTimelineEvents`、`l5-fork`）供未来产品使用；基线 adapter 交付上表。
+可选 `l2-computable`（`project` / `compute`）与 `l5-fork`（`listForkTimelineEvents`）族随同目录交付，与基线行一样按能力门控 —— 库与原生绑定两侧的声明 / 服务 / 驱动 / 拒绝契约见[可选 port 族](#可选-port-族)。
+
+## 可选 port 族
+
+两个可选族把 port 目录扩展到 `spoke-baseline` 之外：`l2-computable`（`project` / `compute` 会话）与 `l5-fork`（分支时间线查询）。它们遵循与基线行相同的 port 模式 —— manifest 声明的能力、由响应方服务的 provider 面、以及 RemoteAdapter 代理方法 —— 外加一条规则：**该族必须被协商**。双方 manifest 都必须在 `capabilities[]` 中声明它，于是会话的 `negotiated_capabilities`（双方握手交集）包含它；响应方的 dispatch gate 评估协商集，只有一侧声明的族与未知 op 一样被拒绝。
+
+### 声明
+
+| 族 | 能力 | Ops | Provider 面 |
+|----|------|-----|-------------|
+| 可计算会话 | `l2-computable` | `project` / `compute` | `ComputablePort` |
+| 分支时间线 | `l5-fork` | `listForkTimelineEvents` | `ForkTimelineQueryPort` |
+
+Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组合类型 `FullPorts` 即 `BaselinePorts & ComputablePort & ForkTimelineQueryPort`。
+
+### 服务（响应方）
+
+响应方经其注入的 `ports` provider 服务 `port.*` 调用。可选族走同一条接缝，分派前做结构性探测 —— gate → probe → serve/deny：
+
+| 面 | 形状 |
+|----|------|
+| TypeScript —— `connectResponder({ ports })` | 实现 `BaselinePorts` 及可选方法（`project` / `compute` / `listForkTimelineEvents`）的 `ports` provider；组合类型 `FullPorts` 覆盖全部十二个服务方法 |
+| Rust —— `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>`：当 provider 实现 `BaselinePorts + ComputablePort + ForkTimelineQueryPort` 时，blanket impl 服务所有族；混合主机经 `RemoteServePortsComposite::new(baseline, computable, fork)` 组合，未提供的面传 `None` |
+| FFI —— `connect_responder_ffi` 的 `ports` 参数 | 可选的带外回调 `PortsHandler`，实现全部十二个方法（九个基线 + 三个可选）；见下方回调表 |
+
+| FFI `PortsHandler` 方法 | 族 | 服务的 op |
+|-------------------------|----|-----------|
+| `get_knowledge_entry(entry_id)` | 基线 | `port.knowledge.get` |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | 基线 | `port.knowledge.put` |
+| `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | 基线 | `port.relation.get` / `port.relation.put` |
+| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | 基线 | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `put_findings(findings_json)` | 基线 | `port.finding.put` |
+| `list_rules(rule_refs)` | 基线 | `port.rule.list` |
+| `list_peer_host_capability_manifests()` | 基线 | `port.host.list_peer_manifests` |
+| `project(project_request_json)` | `l2-computable` | `port.computable.project` |
+| `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
+| `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+
+每个 `PortsHandler` 方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷。`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。不服务某 op 的方法抛出 `FfiError.Rejected`，原样穿透给调用方作为应用拒绝；缺席的 `ports` handler（构造参数 `ports = None`）对每条 `port.*` 调用保留文档化的拒绝分支。
+
+### 驱动（adapter）
+
+RemoteAdapter 在已建立的会话上像任何基线方法一样代理这三个可选 op：
+
+| 面 | 方法 |
+|----|------|
+| TypeScript `RemoteAdapter` | `project(request)` / `compute(request)` / `listForkTimelineEvents(scope)` —— 类型化请求，`SpokeResult` 结算 |
+| Rust `RemoteAdapter` | `project(request)` / `compute(request)` / `list_fork_timeline_events(scope)` —— 同一契约 |
+| FFI `RemoteAdapterFFI` | `project(project_request_json)` / `compute(compute_request_json)` / `list_fork_timeline_events(scope_json)` —— JSON 进 / JSON 出 |
+
+### 拒绝映射
+
+可选 port 的拒绝与其它任何分派拒绝走同一行：响应方 gate 以线上码 `op_unsupported` 应答（族未协商 —— 任一侧都未声明，或只有一侧声明），RemoteAdapter 将其映射为带 `details.wire_code = "op_unsupported"` 的 `CAPABILITY_PORT_MISSING` 拒绝；FFI 上同一行是 `code: "CAPABILITY_PORT_MISSING"` 且保留 `wire_code` 的 `FfiError.Rejected`。声明了某族但不为其提供任何 provider 面的主机 —— `ports` 缺席，或探测缺失方法 —— 应答同一拒绝分支，因此调用方总能观察到拒绝，而非静默成功。
 
 ## 工具（反向调用）
 

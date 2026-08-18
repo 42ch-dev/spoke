@@ -134,7 +134,7 @@ version = spoke_connect.protocol_version()  # 1
 
 五种绑定暴露同一套同步核心面：`peer_id` 推导、握手签名/校验、allowlist、nonce store、sequence 分配、响应关联、dispatch gate 与协议版本。密钥以原始字节跨 FFI 边界（校验为恰好 32 字节），peer id 以字符串，manifest / 握手信封以 JSON 字符串 —— 传输 adapter 留在宿主语言，按线上契约实现。
 
-TypeScript **语言原生客户端**（[从 TypeScript 客户端连接](/zh/how-to/connect-ts-client)）直接用 TypeScript 实现同一套会话核心规则 —— 它是并行的姊妹路径，不是绑定行。**Rust 参考实现**（crates.io 上的 `spoke-connect`）是会话核心参考与绑定来源；共享契约见[connect 线上参考](/zh/reference/connect)。RemoteAdapter 契约经同一 FFI 面以同步对象形式交付（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`）—— 见[从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding)。同一面还携带工具契约：adapter、路由器与响应方上的 `invoke_tool`；adapter 与响应方上用于工具服务的 `register_tool_handler` 与带外 `ToolHandler`（工具处理器）回调；以及接受侧 `ConnectResponderFFI` / `connect_responder_ffi`。
+TypeScript **语言原生客户端**（[从 TypeScript 客户端连接](/zh/how-to/connect-ts-client)）直接用 TypeScript 实现同一套会话核心规则 —— 它是并行的姊妹路径，不是绑定行。**Rust 参考实现**（crates.io 上的 `spoke-connect`）是会话核心参考与绑定来源；共享契约见[connect 线上参考](/zh/reference/connect)。RemoteAdapter 契约经同一 FFI 面以同步对象形式交付（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`）—— 见[从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding)。同一面还携带工具契约：adapter、路由器与响应方上的 `invoke_tool`；adapter 与响应方上用于工具服务的 `register_tool_handler` 与带外 `ToolHandler`（工具处理器）回调；以及接受侧 `ConnectResponderFFI` / `connect_responder_ffi`。同一面还携带可选 port 族：`RemoteAdapterFFI` 暴露 `project` / `compute` / `list_fork_timeline_events`（JSON 进 / JSON 出），响应方的 `ports` 参数接受一个可选的带外 `PortsHandler`，服务基线及可选的 `port.*` 族 —— 见[从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding)与[可选 port 族](/zh/reference/connect#可选-port-族)。
 
 ## 下一步
 

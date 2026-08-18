@@ -90,6 +90,8 @@ get_json = adapter.get_knowledge_entry(entry_id)
 
 每个 `BaselinePorts` 族映射为一个方法，形状相同（JSON 进 / JSON 出）：`get_host_capability_manifest`、`get_relation` / `put_relation`、`list_knowledge_entries` / `list_timeline_events`、`put_findings`、`list_rules` 与 `list_peer_host_capability_manifests`。调用路径的失败以 `FfiError.Rejected` 呈现，`SpokeResult` 码原样保留，并在映射定义的场景携带 `kind` 与 `wire_code`（例如 `INTERNAL_ERROR` 且 `kind = "transport"`，或 `CAPABILITY_PORT_MISSING` 且 `wire_code = "no_capable_peer"`）。
 
+adapter 还以相同的 JSON 进 / JSON 出形状暴露可选 port 面：`project(project_request_json)` 与 `compute(compute_request_json)`（`l2-computable` 族），以及 `list_fork_timeline_events(scope_json)`（`l5-fork` 族）。该族必须位于会话的协商能力中 —— 双方 manifest 都声明它；未协商该族的对等节点以 `FfiError.Rejected` 拒绝（`code: "CAPABILITY_PORT_MISSING"`，保留 `wire_code: "op_unsupported"`）。完整目录见[可选 port 族](/zh/reference/connect#可选-port-族)。
+
 同一 adapter 上的并发调用被允许；响应按 `request_id` 解复用，可能乱序到达。
 
 ## 4. 读取会话信息
@@ -174,6 +176,7 @@ responder = spoke_connect.connect_responder_ffi(
     _tool_manifest_json("test-responder"),  # 带 tools[] 的 HostCapabilityManifest
     [peer_id_client],                      # fail-closed 拨号方 allowlist
     {peer_id_client: pubkey_client},       # peer_id -> 32 字节 Ed25519 公钥
+    ports,                                 # 可选带外 PortsHandler；None 保留拒绝分支
     None,                                  # 调用超时（毫秒）；None 使用默认值
 )
 ```
@@ -190,7 +193,69 @@ while responder.state() != "Established":
     time.sleep(0.01)
 ```
 
-构造函数的 `Result` 槽只携带配置校验失败 —— manifest JSON、种子长度或对等节点密钥长度 → `Dial { kind: "config" }`。FFI 响应方上 `ports` 固定缺席：发往响应方的 `port.*` 调用以文档化拒绝分支应答（`CAPABILITY_PORT_MISSING`，`wire_code: "op_unsupported"`）。
+构造函数的 `Result` 槽只携带配置校验失败 —— manifest JSON、种子长度或对等节点密钥长度 → `Dial { kind: "config" }`。`ports` 是一个**可选**的带外回调 ports 面：传入 `PortsHandler` 以经回调桥服务 `port.*` 调用（基线 + 可选族），或传 `None` 保留文档化的缺席 ports 拒绝分支 —— 此时每条 `port.*` 调用都以 `CAPABILITY_PORT_MISSING`（`wire_code: "op_unsupported"`）应答（与不带 `ports` 的库响应方相同的 fail-closed 行）。见下文[`PortsHandler` 回调](#portshandler-回调)。
+
+### `PortsHandler` 回调
+
+`PortsHandler` 是响应方的带外回调 ports 面：每个方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷 —— 与库响应方经其 `ports` 选项服务的目录相同。接口有十二个方法（九个基线 + 三个可选）：
+
+| 方法 | 族 | 服务的 op |
+|------|----|-----------|
+| `get_knowledge_entry(entry_id)` | 基线 | `port.knowledge.get` |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | 基线 | `port.knowledge.put` |
+| `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | 基线 | `port.relation.get` / `port.relation.put` |
+| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | 基线 | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `put_findings(findings_json)` | 基线 | `port.finding.put` |
+| `list_rules(rule_refs)` | 基线 | `port.rule.list` |
+| `list_peer_host_capability_manifests()` | 基线 | `port.host.list_peer_manifests` |
+| `project(project_request_json)` | `l2-computable` | `port.computable.project` |
+| `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
+| `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+
+`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。方法可以抛出 `FfiError.Rejected` 拒绝它不服务的 op；该拒绝原样穿透给调用方作为应用拒绝。可选族仅在双方协商了该族（双方 manifest 都声明）时才被服务 —— 能力门禁先于回调运行，声明了某族却不提供其方法的主机应答与缺席 `ports` 相同的拒绝分支。
+
+参考形状随 Python 回环 smoke 交付（`bindings/python/Smoke/test_ports_loopback.py`）；可选方法展示 JSON 契约：
+
+```python
+    def project(self, project_request_json: str) -> str:
+        request = json.loads(project_request_json)
+        return json.dumps(
+            {
+                "session_id": request["session_id"],
+                "entry_id": request["entry_id"],
+                "computable": {"tide_level": 2.4, "cargo_tons": 38},
+            }
+        )
+
+    def compute(self, compute_request_json: str) -> str:
+        request = json.loads(compute_request_json)
+        return json.dumps(
+            {
+                "session_id": request["session_id"],
+                "entry_id": request["entry_id"],
+                "computable": request["computable"],
+                "state": request["computable"],
+            }
+        )
+
+    def list_fork_timeline_events(self, scope_json: str) -> str:
+        scope = json.loads(scope_json)
+        if scope["fork_id"] != "fork_tw_ffi_events":
+            return "[]"
+        return json.dumps(
+            [
+                {
+                    "schema_version": 1,
+                    "timeline_event_id": "evt_tw_ffi_storm",
+                    "canonical_name": "FFI Fork Storm",
+                    "fork_id": "fork_tw_ffi_events",
+                    "extensions": {},
+                }
+            ]
+        )
+```
+
+与工具处理器相同的重入规则适用：绝不要在 ports 回调内部回调 FFI 面 —— 把工作交给你自己的异步机制然后返回。
 
 ### 端到端回环对
 
@@ -313,9 +378,11 @@ except spoke_connect.FfiError.Rejected as passed:
 | 路由器构造 | `NewMultiPeerRouterFfi()` | `NewMultiPeerRouterFfi()` | `newMultiPeerRouterFfi()` | `new_multi_peer_router_ffi()` | `newMultiPeerRouterFfi()` |
 | 路由器对象 | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
 | port 方法 | PascalCase（`GetKnowledgeEntry`） | PascalCase（`GetKnowledgeEntry`） | camelCase（`getKnowledgeEntry`） | snake_case（`get_knowledge_entry`） | camelCase（`getKnowledgeEntry`） |
+| 可选 port 方法 | `Project` / `Compute` / `ListForkTimelineEvents` | `Project` / `Compute` / `ListForkTimelineEvents` | `project` / `compute` / `listForkTimelineEvents` | `project` / `compute` / `list_fork_timeline_events` | `project` / `compute` / `listForkTimelineEvents` |
 | 工具调用 | `InvokeTool(...)` | `InvokeTool(...)` | `invokeTool(...)` | `invoke_tool(...)` | `invokeTool(capabilityId:argumentsJson:)` |
 | 工具服务注册 | `RegisterToolHandler(...)` | `RegisterToolHandler(...)` | `registerToolHandler(...)` | `register_tool_handler(...)` | `registerToolHandler(capabilityId:handler:)` |
 | 工具处理器回调 | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` |
+| ports 回调 | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` | `PortsHandler` |
 | 响应方构造 | `SpokeConnectMethods.ConnectResponderFfi(...)` | `NewConnectResponderFfi(...)` | `connectResponderFfi(...)` | `connect_responder_ffi(...)` | `connectResponderFfi(...)` |
 | 响应方对象 | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` | `ConnectResponderFfi` |
 

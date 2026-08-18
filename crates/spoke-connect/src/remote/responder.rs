@@ -951,9 +951,10 @@ impl ConnectResponder {
             return Ok(());
         };
         // Dispatch gate — `dispatch_allowed`-level logic (frozen §3):
-        // `tools.*` ops require the op string itself; `port.*` ops require
-        // `spoke-baseline` via the product map. Both evaluate against
-        // `negotiated_capabilities` (never a raw requirements-map
+        // `tools.*` ops require the op string itself; baseline `port.*`
+        // ops require `spoke-baseline`; optional families route via the
+        // same product map to `l2-computable` / `l5-fork`. All evaluate
+        // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
             self.send_reverse_error_envelope(
@@ -1120,7 +1121,7 @@ impl ConnectResponder {
                 self.send_reverse_error_envelope(
                     doc,
                     "op_unsupported",
-                    &format!("no BaselinePorts configured for port op {op}"),
+                    &format!("no ports face configured for port op {op}"),
                     None,
                 )
                 .await?;
@@ -1622,7 +1623,8 @@ pub struct ConnectResponderOptions {
     pub peer_keys: HashMap<String, [u8; 32]>,
     /// Local async [`RemoteServePorts`] served on the remote side via the
     /// D4 catalogue. Absent `ports` still answers `port.*` invokes with the
-    /// dispatch-deny branch (documented behavior).
+    /// dispatch-deny branch (documented behavior). Baseline-only providers
+    /// migrate via `RemoteServePortsComposite::new(baseline, None, None)`.
     pub ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
     /// Bounded-wait deadline for each reverse-invoke waiter, ms
     /// (default [`DEFAULT_INVOKE_TIMEOUT_MS`]).

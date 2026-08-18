@@ -3125,7 +3125,7 @@ async fn responder_denies_port_invokes_with_dispatch_deny_when_ports_are_absent(
         SpokeResult::Ok(_) => panic!("absent-ports port invoke must deny"),
         SpokeResult::Reject(reject) => {
             assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
-            assert!(reject.message.contains("no BaselinePorts configured"));
+            assert!(reject.message.contains("no ports face configured"));
             assert_eq!(
                 reject
                     .details
@@ -4530,6 +4530,65 @@ async fn responder_denies_all_three_optional_ops_when_the_capability_is_declared
     match mira {
         SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "kb_tw_mira"),
         SpokeResult::Reject(reject) => panic!("baseline smoke must succeed: {reject:?}"),
+    }
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_serves_computable_and_probe_denies_fork_on_a_mixed_composite() {
+    // Mixed host: the composite carries the baseline + l2-computable faces
+    // without the l5-fork face — computable ops serve through the present
+    // face; the fork op probe-denies (the gate passes, so the missing face
+    // is host misconfiguration).
+    let adapter = Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let mixed = RemoteServePortsComposite::new(adapter.clone(), Some(adapter), None);
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions {
+        ports: Some(Arc::new(mixed)),
+        client_manifest: Some(optional_tool_manifest("test-client")),
+        responder_manifest: Some(optional_tool_manifest("test-responder")),
+        ..ResponderDialOptions::default()
+    })
+    .await;
+    // Computable op succeeds through the present face.
+    let project_request: ProjectRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "state": { "tide_level": 2.1, "cargo_tons": 40 },
+    }))
+    .expect("valid ProjectRequest");
+    let project_result = client.project(project_request).await;
+    match project_result {
+        SpokeResult::Ok(ProjectResponse::Variant0 { session_id, .. }) => {
+            assert_eq!(session_id.as_str(), "sess_tw_dawn_arrival");
+        }
+        SpokeResult::Ok(_) => panic!("project must return Variant0"),
+        SpokeResult::Reject(reject) => panic!("computable serve must succeed: {reject:?}"),
+    }
+    // Fork op probe-denies: the gate passed but the face is absent.
+    let fork_scope: Scope = serde_json::from_value(json!({
+        "scope_id": "pkt_tw_scope",
+        "fork_id": "fork_tw_storm_branch",
+    }))
+    .expect("valid Scope");
+    let fork_result = client.list_fork_timeline_events(&fork_scope).await;
+    match fork_result {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert!(reject
+                .message
+                .contains("requires optional port method list_fork_timeline_events"));
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("op_unsupported")
+            );
+        }
+        SpokeResult::Ok(_) => panic!("fork probe deny must reject"),
     }
     assert_eq!(responder.state(), RemoteAdapterState::Established);
     client.close();

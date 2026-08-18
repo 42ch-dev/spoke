@@ -523,7 +523,7 @@ describe("connectResponder port serving (D4 catalogue)", () => {
         expect(result).toEqual({
           ok: false,
           code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
-          message: expect.stringContaining("no BaselinePorts configured"),
+          message: expect.stringContaining("no ports face configured"),
           details: { wire_code: "op_unsupported" },
         });
         // The session stays usable.
@@ -824,6 +824,54 @@ describe("connectResponder optional-port serving (gate → probe → serve/deny)
         // Baseline serving is untouched by the optional probe.
         const mira = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
         expect(mira.ok).toBe(true);
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "serves computable ops and probe-denies fork ops on a mixed composite (computable face present, fork face absent)",
+    async () => {
+      // Mixed host: the injected ports compose the baseline + l2-computable
+      // faces without the l5-fork face — computable ops serve through the
+      // present face; the fork op probe-denies (the gate passes, so the
+      // missing face is host misconfiguration).
+      const full = ToyWorldAdapter.withCommittedFixtures();
+      const mixedComposite = {
+        ...asBaselineOnly(full),
+        project: (request: ProjectRequest) => full.project(request),
+        compute: (request: ComputeRequest) => full.compute(request),
+      };
+      const { responder, client } = await dialWithResponder({
+        ports: mixedComposite,
+        clientManifest: optionalManifest("test-client"),
+        responderManifest: optionalManifest("test-responder"),
+      });
+      try {
+        // Computable op succeeds through the present face.
+        const projectResult = await client.project({
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        });
+        expect(projectResult.ok).toBe(true);
+        // Fork op probe-denies: the gate passed but the face is absent.
+        const forkResult = await client.listForkTimelineEvents({
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        });
+        expect(forkResult).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining(
+            "requires optional port method listForkTimelineEvents",
+          ),
+          details: { wire_code: "op_unsupported" },
+        });
         expect(responder.state).toBe("Established");
       } finally {
         client.close();

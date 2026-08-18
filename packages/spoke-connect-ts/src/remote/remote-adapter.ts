@@ -220,7 +220,7 @@ const PORT_OPS = {
   putFindings: "port.finding.put",
   listRules: "port.rule.list",
   listPeerHostCapabilityManifests: "port.host.list_peer_manifests",
-  // Optional families (frozen contract §5.2 — reserved ops, capability-gated
+  // Shipped optional families (frozen contract §5.2 — capability-gated
   // remotely): project / compute (`l2-computable`) and fork timeline query
   // (`l5-fork`).
   project: "port.computable.project",

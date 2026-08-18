@@ -781,8 +781,9 @@ export class ConnectResponder {
     }
     try {
       // Dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3):
-      // `tools.*` ops require the op string itself; `port.*` ops require
-      // `spoke-baseline` via the product map. Both evaluate against
+      // `tools.*` ops require the op string itself; baseline `port.*` ops
+      // require `spoke-baseline`; optional families route via the same
+      // product map to `l2-computable` / `l5-fork`. All evaluate against
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
       if (!this.#gateAllows(doc.op, session)) {
@@ -883,7 +884,7 @@ export class ConnectResponder {
       // is no BaselinePorts to serve — answer the dispatch-deny branch.
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
-        message: `no BaselinePorts configured for port op ${doc.op}`,
+        message: `no ports face configured for port op ${doc.op}`,
         extensions: {},
       });
       return;

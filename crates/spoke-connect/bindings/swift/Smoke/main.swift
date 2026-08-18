@@ -21,6 +21,7 @@
 //     -o crates/spoke-connect/bindings/swift/Smoke/smoke \
 //     crates/spoke-connect/bindings/swift/Smoke/main.swift \
 //     crates/spoke-connect/bindings/swift/Smoke/tool_loopback_smoke.swift \
+//     crates/spoke-connect/bindings/swift/Smoke/ports_loopback_smoke.swift \
 //     crates/spoke-connect/bindings/swift/Smoke/loopback_transport.swift \
 //     crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
 //

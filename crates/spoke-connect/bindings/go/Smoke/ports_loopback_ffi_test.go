@@ -317,8 +317,6 @@ func jsonField(t *testing.T, raw string, path string) string {
 	return fmt.Sprint(current)
 }
 
-const projectRequestJSON = `{"session_id":"sess_ffi_ports","entry_id":"kb_ffi_ports_proj","state":{"tide_level":2.1,"cargo_tons":40}}`
-
 // portsManifestJSON — ports-carrying manifest: baseline + optional families,
 // so the negotiated set includes l2-computable / l5-fork. Mirror of the Rust
 // ports_manifest_json test helper.

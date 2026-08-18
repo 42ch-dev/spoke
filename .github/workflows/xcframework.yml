@@ -34,6 +34,7 @@ on:
       - tooling/connect/verify-xcframework-drift.sh
       - crates/spoke-connect/bindings/swift/generated/**
       - .github/workflows/xcframework.yml
+  workflow_dispatch:
 
 concurrency:
   group: xcframework-${{ github.ref }}

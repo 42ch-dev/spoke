@@ -16,6 +16,7 @@
  * Usage (from repo root):
  *   RELEASE_TAG=v0.10.0 node tooling/release/check-pypi-published.mjs
  *   RELEASE_TAG=v0.10.0 node tooling/release/check-pypi-published.mjs --verify
+ *   RELEASE_TAG=v0.10.0 node tooling/release/check-pypi-published.mjs --verify --verify-retry-seconds 120
  *
  * Default mode emits GitHub Actions step outputs `publish_needed`
  * (`true|false`) and `missing_files` (comma-joined) to stdout and
@@ -29,7 +30,13 @@
  *
  * `--verify` mode (the unconditional `Confirm published set` re-probe) exits 0
  * only when the FULL expected set is verified present; absent/partial or any
- * probe error exits non-zero.
+ * probe error exits non-zero. With `--verify-retry-seconds <n>` (default 0 =
+ * single-shot), absent/partial probes are retried with backoff (2s, 4s, 8s…,
+ * capped at 30s; base overridable via PYPI_VERIFY_RETRY_BASE_MS for tests)
+ * until the deadline, tolerating PyPI JSON API propagation delay after an
+ * upload; on deadline expiry it still fails loud with the missing-files
+ * message. Probe errors are never retried, and the pre-check path stays
+ * single-shot regardless of the flag.
  */
 
 import { appendFileSync, readFileSync } from "node:fs";
@@ -215,8 +222,71 @@ async function probePyPI({ packageName, version, baseUrl = PYPI_BASE_URL }) {
   return { outcome: "partial", missingFiles, unexpectedEntries };
 }
 
+/** Backoff cap for --verify retries (2s, 4s, 8s… capped here). */
+const VERIFY_RETRY_MAX_DELAY_MS = 30_000;
+
+/**
+ * Bounded retry for the `--verify` re-probe. PyPI's JSON API can lag behind
+ * an upload by seconds, so a single-shot 404 immediately after publish is a
+ * false red. Absent/partial probes are re-probed with exponential backoff
+ * until the deadline; on deadline expiry the last outcome is returned and the
+ * caller fails loud with the missing-files message. Probe errors (network,
+ * non-404 HTTP, malformed JSON) propagate on the first attempt, and the
+ * pre-check path is single-shot (retrySeconds = 0).
+ *
+ * @param {object} opts
+ * @param {string} opts.packageName
+ * @param {string} opts.version
+ * @param {boolean} opts.verify
+ * @param {number} opts.retrySeconds Retry deadline in seconds; 0 = single-shot.
+ * @param {number} opts.retryBaseMs Backoff base; tests override via
+ *   PYPI_VERIFY_RETRY_BASE_MS to keep sleeps short.
+ * @returns {Promise<object>} Final probe outcome — published, or
+ *   absent/partial once the deadline is exhausted.
+ */
+async function probeWithVerifyRetry({
+  packageName,
+  version,
+  verify,
+  retrySeconds,
+  retryBaseMs,
+}) {
+  const deadlineMs =
+    verify && retrySeconds > 0 ? Date.now() + retrySeconds * 1000 : 0;
+  for (let attempt = 0; ; attempt += 1) {
+    const outcome = await probePyPI({ packageName, version });
+    if (outcome.outcome === "published" || deadlineMs === 0) {
+      return outcome;
+    }
+    const delayMs = Math.min(
+      VERIFY_RETRY_MAX_DELAY_MS,
+      retryBaseMs * 2 ** attempt,
+      Math.max(0, deadlineMs - Date.now()),
+    );
+    if (delayMs <= 0) {
+      return outcome;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
 async function main() {
   const verify = process.argv.includes("--verify");
+  let verifyRetrySeconds = 0;
+  const retryFlagIdx = process.argv.indexOf("--verify-retry-seconds");
+  if (retryFlagIdx !== -1) {
+    const raw = process.argv[retryFlagIdx + 1];
+    verifyRetrySeconds = Number(raw);
+    if (!Number.isFinite(verifyRetrySeconds) || verifyRetrySeconds < 0) {
+      console.error(
+        `check-pypi-published: --verify-retry-seconds expects a non-negative number of seconds (got "${raw}")`,
+      );
+      process.exit(1);
+    }
+  }
+  const retryBaseRaw = Number(process.env.PYPI_VERIFY_RETRY_BASE_MS);
+  const retryBaseMs =
+    Number.isFinite(retryBaseRaw) && retryBaseRaw > 0 ? retryBaseRaw : 2000;
 
   const releaseTag = process.env.RELEASE_TAG?.trim();
   if (!releaseTag) {
@@ -272,7 +342,13 @@ async function main() {
 
   let outcome;
   try {
-    outcome = await probePyPI({ packageName, version });
+    outcome = await probeWithVerifyRetry({
+      packageName,
+      version,
+      verify,
+      retrySeconds: verifyRetrySeconds,
+      retryBaseMs,
+    });
   } catch (err) {
     console.error(`check-pypi-published: ${err.message}`);
     process.exit(1);

@@ -164,7 +164,9 @@ after(async () => {
 
 /**
  * Rewrite the `version = "…"` line in a temp fixture build.gradle.kts so the
- * lockstep cross-check matches the RELEASE_TAG under test.
+ * lockstep cross-check matches the RELEASE_TAG under test. Tolerates a no-op
+ * when the fixture already sits at the target version (line is asserted, not
+ * the replace result).
  *
  * @param {string} repoRoot
  * @param {string} version
@@ -175,12 +177,14 @@ function setFixtureGradleVersion(repoRoot, version) {
     "crates/spoke-connect/bindings/kotlin/build.gradle.kts",
   );
   const contents = readFileSync(gradlePath, "utf8");
-  const updated = contents.replace(
-    /^version\s*=\s*"[^"]+"/m,
-    `version = "${version}"`,
-  );
-  assert.notEqual(updated, contents, "fixture gradle version line not found");
-  writeFileSync(gradlePath, updated);
+  // Assert the version LINE exists (not that the replace changed something):
+  // when the repo already sits at the target version the rewrite is a no-op.
+  const versionLine = /^version\s*=\s*"[^"]+"/m;
+  assert.match(contents, versionLine, "fixture gradle version line not found");
+  const updated = contents.replace(versionLine, `version = "${version}"`);
+  if (updated !== contents) {
+    writeFileSync(gradlePath, updated);
+  }
 }
 
 /**

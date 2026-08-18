@@ -21,7 +21,7 @@ See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`]
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `generated/spoke_connect.cs` + packed natives | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Committed `generated/spoke_connect.cs` + packed natives | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair`, the tool faces, the optional-port dialer ops (`Project` / `Compute` / `ListForkTimelineEvents` on `RemoteAdapterFfi`), and the responder ports face (optional `ports:` + the `PortsHandler` callback) — **no** `startLoopbackSmokeHost` |
 | Local smoke cdylib + smoke C# bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section (`-p:SmokeHost=true`) |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -40,24 +40,33 @@ See [`PACKAGE.md`](../PACKAGE.md) and [`docs/how-to/connect-native-bindings.md`]
 || `../generated/spoke_connect.cs` | Generated binding (regenerate only when the FFI surface changes) |
 || `Smoke.csproj` | net8.0 console — `ProjectReference` to the packable project |
 || `Program.cs` / `tests/GoldenParity.cs` | Golden-parity checks across the exported surface |
-|| `tests/ToolLoopbackSmoke.cs` | Tool faces over the loopback pair (D15/D16) — runs in the default `dotnet run` on the committed production binding, no smoke host needed |
-|| `tests/LoopbackShared.cs` | Shared loopback harness (fixture load, callback transport, asserts) |
+||| `tests/ToolLoopbackSmoke.cs` | Tool faces over the loopback pair (D15/D16) — runs in the default `dotnet run` on the committed production binding, no smoke host needed |
+||| `tests/PortsLoopbackSmoke.cs` | Optional-port dialer ops + responder ports serving over the loopback pair (D16) — runs in the default `dotnet run` on the committed production binding, no smoke host needed |
+||| `tests/LoopbackShared.cs` | Shared loopback harness (fixture load, callback transport, asserts) |
 
-## Tool faces over the loopback pair (default)
+## Tool + ports faces over the loopback pair (default)
 
 The tool section drives both FFI faces over a loopback pair (D15/D16): dialer
 `invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
 deny, handler-thrown reject passthrough, and the error rows — an unknown
 reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault
-contained to `INTERNAL_ERROR` with the serve loop surviving. Every face is on
+contained to `INTERNAL_ERROR` with the serve loop surviving. The ports
+section drives the optional-port dialer ops (`Project` / `Compute` /
+`ListForkTimelineEvents` on `RemoteAdapterFfi`) and the responder ports face
+(D16): baseline + optional serving round-trips through a foreign
+`PortsHandler` (user lock), application-reject passthrough, the error rows —
+capability-gate deny, absent-ports fail-closed deny, foreign-fault
+containment with serve-loop survival — and malformed-JSON pre-validation.
+Every face is on
 the committed production binding, so the default Smoke run executes it:
 
 ```bash
 dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```
 
-Expected tail: `loopback tool faces: PASS`, then `GOLDEN PARITY: ALL PASS`.
+Expected tail: `loopback tool faces: PASS`, `loopback ports faces: PASS`, then
+`GOLDEN PARITY: ALL PASS`.
 
 ## RemoteAdapter loopback smoke (optional)
 
@@ -80,6 +89,7 @@ dotnet run -p:SmokeHost=true --project crates/spoke-connect/bindings/csharp/Smok
 ```
 
 Expected tail: `loopback RemoteAdapterFFI: PASS`, `loopback tool faces: PASS`,
+`loopback ports faces: PASS`,
 then `GOLDEN PARITY: ALL PASS`.
 Restore production `generated/spoke_connect.cs` (from `ffi,remote-adapter` only)
 before landing binding changes.
@@ -111,7 +121,8 @@ dotnet build crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 dotnet run --project crates/spoke-connect/bindings/csharp/Smoke/Smoke.csproj
 ```
 
-Expected output ends with `loopback tool faces: PASS`, then
+Expected output ends with `loopback tool faces: PASS`,
+`loopback ports faces: PASS`, then
 `GOLDEN PARITY: ALL PASS`.
 
 ## Generation mechanism

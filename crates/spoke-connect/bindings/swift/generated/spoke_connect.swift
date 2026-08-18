@@ -1912,6 +1912,13 @@ public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
     
     func close() 
     
+    /**
+     * Optional l2-computable face (D4 catalogue): apply / settle
+     * computable updates on the remote peer. Same boundary and deny
+     * mapping as `project`.
+     */
+    func compute(computeRequestJson: String) throws  -> String
+    
     func getHostCapabilityManifest() throws  -> String
     
     func getKnowledgeEntry(entryId: String) throws  -> String
@@ -1934,6 +1941,14 @@ public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
      */
     func invokeTool(capabilityId: String, argumentsJson: String) throws  -> String
     
+    /**
+     * Optional l5-fork face (D4 catalogue): query the remote peer's
+     * fork-branch timeline, scoped like `list_timeline_events` with the
+     * `fork_id` carried on the `Scope`. Same boundary and deny mapping
+     * as `project` / `compute`.
+     */
+    func listForkTimelineEvents(scopeJson: String) throws  -> String
+    
     func listKnowledgeEntries(scopeJson: String) throws  -> String
     
     func listPeerHostCapabilityManifests() throws  -> String
@@ -1941,6 +1956,19 @@ public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
     func listRules(ruleRefs: [String]) throws  -> String
     
     func listTimelineEvents(scopeJson: String) throws  -> String
+    
+    /**
+     * Optional l2-computable face (D4 catalogue): project the session's
+     * computable view on the remote peer. `project_request_json` in,
+     * JSON-string `ProjectResponse` out; malformed request JSON rejects
+     * `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+     * local pre-gate — a peer that did not negotiate `l2-computable`
+     * answers the responder's capability-gate deny, mapped through the
+     * D7 row to `CAPABILITY_PORT_MISSING` with
+     * `wire_code: "op_unsupported"` (same rows as the baseline port
+     * methods).
+     */
+    func project(projectRequestJson: String) throws  -> String
     
     func putFindings(findingsJson: String) throws  -> String
     
@@ -2034,6 +2062,21 @@ open func close()  {try! rustCall() {
 }
 }
     
+    /**
+     * Optional l2-computable face (D4 catalogue): apply / settle
+     * computable updates on the remote peer. Same boundary and deny
+     * mapping as `project`.
+     */
+open func compute(computeRequestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_compute(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(computeRequestJson),uniffiCallStatus
+    )
+})
+}
+    
 open func getHostCapabilityManifest()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
@@ -2088,6 +2131,22 @@ open func invokeTool(capabilityId: String, argumentsJson: String)throws  -> Stri
 })
 }
     
+    /**
+     * Optional l5-fork face (D4 catalogue): query the remote peer's
+     * fork-branch timeline, scoped like `list_timeline_events` with the
+     * `fork_id` carried on the `Scope`. Same boundary and deny mapping
+     * as `project` / `compute`.
+     */
+open func listForkTimelineEvents(scopeJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_list_fork_timeline_events(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(scopeJson),uniffiCallStatus
+    )
+})
+}
+    
 open func listKnowledgeEntries(scopeJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
@@ -2123,6 +2182,27 @@ open func listTimelineEvents(scopeJson: String)throws  -> String  {
     uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(scopeJson),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Optional l2-computable face (D4 catalogue): project the session's
+     * computable view on the remote peer. `project_request_json` in,
+     * JSON-string `ProjectResponse` out; malformed request JSON rejects
+     * `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+     * local pre-gate — a peer that did not negotiate `l2-computable`
+     * answers the responder's capability-gate deny, mapped through the
+     * D7 row to `CAPABILITY_PORT_MISSING` with
+     * `wire_code: "op_unsupported"` (same rows as the baseline port
+     * methods).
+     */
+open func project(projectRequestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_project(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(projectRequestJson),uniffiCallStatus
     )
 })
 }
@@ -2745,6 +2825,459 @@ public func FfiConverterTypeTransportError_lower(_ value: TransportError) -> Rus
 
 
 /**
+ * Foreign-callback responder ports face (D16): the native binding
+ * implements this synchronous D4 catalogue; [`into_remote_serve_ports`]
+ * bridges it into the async [`crate::remote::RemoteServePorts`] type
+ * the library responder serves through.
+ *
+ * `Ok(json)` → the port method's success value `T` as JSON (parsed
+ * inside the bridge; malformed JSON is contained). `Err(FfiError::Rejected{..})`
+ * → an application `SpokeReject` passes through verbatim — rejecting
+ * an op the binding does not serve is ordinary deny, not containment.
+ * Any other outcome (`Dial`, foreign exception, panic) is contained to
+ * `INTERNAL_ERROR` with `details: None`. `getHostCapabilityManifest`
+ * is NOT in the catalogue — it is a session-cache face, not a D4 serve
+ * op; the bridge answers an internal error if it is ever reached.
+ *
+ * Re-entrancy caveat: never call back into the FFI surface from inside
+ * a ports callback (the `ToolHandler` rule, D16 §8.5).
+ */
+public protocol PortsHandler: AnyObject, Sendable {
+    
+    func getKnowledgeEntry(entryId: String) throws  -> String
+    
+    func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func getRelation(relationId: String) throws  -> String
+    
+    func putRelation(relationJson: String, expectedBaseRevision: UInt64?) throws  -> String
+    
+    func listKnowledgeEntries(scopeJson: String) throws  -> String
+    
+    func listTimelineEvents(scopeJson: String) throws  -> String
+    
+    func putFindings(findingsJson: String) throws  -> String
+    
+    func listRules(ruleRefs: [String]) throws  -> String
+    
+    func listPeerHostCapabilityManifests() throws  -> String
+    
+    func project(projectRequestJson: String) throws  -> String
+    
+    func compute(computeRequestJson: String) throws  -> String
+    
+    func listForkTimelineEvents(scopeJson: String) throws  -> String
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfacePortsHandler {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfacePortsHandler = UniffiVTableCallbackInterfacePortsHandler(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterCallbackInterfacePortsHandler.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface PortsHandler: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterCallbackInterfacePortsHandler.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface PortsHandler: handle missing in uniffiClone")
+            }
+        },
+        getKnowledgeEntry: { (
+            uniffiHandle: UInt64,
+            entryId: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.getKnowledgeEntry(
+                     entryId: try FfiConverterString.lift(entryId)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        putKnowledgeEntry: { (
+            uniffiHandle: UInt64,
+            entryJson: RustBuffer,
+            expectedBaseRevision: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.putKnowledgeEntry(
+                     entryJson: try FfiConverterString.lift(entryJson),
+                     expectedBaseRevision: try FfiConverterOptionUInt64.lift(expectedBaseRevision)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        getRelation: { (
+            uniffiHandle: UInt64,
+            relationId: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.getRelation(
+                     relationId: try FfiConverterString.lift(relationId)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        putRelation: { (
+            uniffiHandle: UInt64,
+            relationJson: RustBuffer,
+            expectedBaseRevision: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.putRelation(
+                     relationJson: try FfiConverterString.lift(relationJson),
+                     expectedBaseRevision: try FfiConverterOptionUInt64.lift(expectedBaseRevision)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        listKnowledgeEntries: { (
+            uniffiHandle: UInt64,
+            scopeJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.listKnowledgeEntries(
+                     scopeJson: try FfiConverterString.lift(scopeJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        listTimelineEvents: { (
+            uniffiHandle: UInt64,
+            scopeJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.listTimelineEvents(
+                     scopeJson: try FfiConverterString.lift(scopeJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        putFindings: { (
+            uniffiHandle: UInt64,
+            findingsJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.putFindings(
+                     findingsJson: try FfiConverterString.lift(findingsJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        listRules: { (
+            uniffiHandle: UInt64,
+            ruleRefs: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.listRules(
+                     ruleRefs: try FfiConverterSequenceString.lift(ruleRefs)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        listPeerHostCapabilityManifests: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.listPeerHostCapabilityManifests(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        project: { (
+            uniffiHandle: UInt64,
+            projectRequestJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.project(
+                     projectRequestJson: try FfiConverterString.lift(projectRequestJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        compute: { (
+            uniffiHandle: UInt64,
+            computeRequestJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.compute(
+                     computeRequestJson: try FfiConverterString.lift(computeRequestJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        listForkTimelineEvents: { (
+            uniffiHandle: UInt64,
+            scopeJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.listForkTimelineEvents(
+                     scopeJson: try FfiConverterString.lift(scopeJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfacePortsHandler> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfacePortsHandler>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitPortsHandler() {
+    uniffi_spoke_connect_fn_init_callback_vtable_portshandler(UniffiCallbackInterfacePortsHandler.vtablePtr)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfacePortsHandler {
+    fileprivate static let handleMap = UniffiHandleMap<PortsHandler>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfacePortsHandler : FfiConverter {
+    typealias SwiftType = PortsHandler
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfacePortsHandler_lift(_ handle: UInt64) throws -> PortsHandler {
+    return try FfiConverterCallbackInterfacePortsHandler.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfacePortsHandler_lower(_ v: PortsHandler) -> UInt64 {
+    return FfiConverterCallbackInterfacePortsHandler.lower(v)
+}
+
+
+
+
+/**
  * Foreign-callback tool handler (D16): the native binding implements
  * this synchronous face; [`into_remote_handler`] bridges it into the
  * async [`crate::remote::ToolHandler`] the library serving path runs.
@@ -3144,6 +3677,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionCallbackInterfacePortsHandler: FfiConverterRustBuffer {
+    typealias SwiftType = PortsHandler?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterCallbackInterfacePortsHandler.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterCallbackInterfacePortsHandler.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -3323,8 +3880,15 @@ public func verifyHelloEd25519(publicKey: Data, expectedPeerId: String, helloJso
  * `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
  * deny, hello-verify deny) produce NO error row — they surface as
  * `state() → "Closed"` with `session_id() → None`.
+ *
+ * `ports` is an OPTIONAL foreign-callback ports face (D16): passing a
+ * [`PortsHandler`] serves `port.*` invokes (baseline + optional
+ * families) through the callback bridge; passing `None` preserves the
+ * documented absent-ports deny branch. The binding must not call back
+ * into the FFI surface from inside a ports callback (re-entrancy
+ * caveat, same rule as tool handlers).
  */
-public func connectResponderFfi(transport: Transport, seed: Data, manifestJson: String, allowlist: [String], peerKeys: [String: Data], invokeTimeoutMs: UInt64?)throws  -> ConnectResponderFfi  {
+public func connectResponderFfi(transport: Transport, seed: Data, manifestJson: String, allowlist: [String], peerKeys: [String: Data], ports: PortsHandler?, invokeTimeoutMs: UInt64?)throws  -> ConnectResponderFfi  {
     return try  FfiConverterTypeConnectResponderFFI_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
         uniffiCallStatus in
     uniffi_spoke_connect_fn_func_connect_responder_ffi(
@@ -3333,6 +3897,7 @@ public func connectResponderFfi(transport: Transport, seed: Data, manifestJson: 
         FfiConverterString.lower(manifestJson),
         FfiConverterSequenceString.lower(allowlist),
         FfiConverterDictionaryStringData.lower(peerKeys),
+        FfiConverterOptionCallbackInterfacePortsHandler.lower(ports),
         FfiConverterOptionUInt64.lower(invokeTimeoutMs),uniffiCallStatus
     )
 })
@@ -3407,7 +3972,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_func_verify_hello_ed25519() != 15847) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 7775) {
+    if (uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 24246) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
@@ -3509,6 +4074,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_compute() != 30870) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3521,6 +4089,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool() != 50002) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events() != 57279) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3531,6 +4102,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events() != 30715) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_project() != 41885) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings() != 8509) {
@@ -3566,6 +4140,42 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry() != 40017) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry() != 48406) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_get_relation() != 48343) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_put_relation() != 3125) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries() != 43680) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events() != 58726) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_put_findings() != 24895) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_rules() != 64974) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests() != 48604) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_project() != 15269) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_compute() != 8096) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() != 36942) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3579,6 +4189,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitPortsHandler()
     uniffiCallbackInitToolHandler()
     uniffiCallbackInitTransport()
     return InitializationResult.ok

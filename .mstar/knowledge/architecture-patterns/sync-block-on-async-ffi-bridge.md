@@ -14,7 +14,9 @@ applies_when:
   - "extending a sync FFI surface with a responder/accept side (host-owned listen/accept, factory with no error path)"
   - "serving host logic through a foreign callback (tool handler) over the same sync block-on-async bridge"
   - "running per-language binding smokes in each channel's default suite against committed artifacts"
-last_updated: 2026-08-17
+  - "exposing a full serve catalogue (not just a single handler) as a foreign callback interface over the FFI boundary"
+  - "deciding whether an FFI wrapper may carry a surface its library face deliberately omits"
+last_updated: 2026-08-18
 tags:
   - spoke-connect
   - ffi-boundary
@@ -216,6 +218,14 @@ Per-language feature smokes must run in the channel's default suite, against com
 #### 8.8 Positive control before the five-channel regen
 
 After changing the FFI surface, run `uniffi-bindgen generate --library` against the cdylib plus a parse/compile check for one first-party binding BEFORE dispatching the five-channel regeneration — a cheap signal that the surface shape is valid before it multiplies across channels. Vendored fork channels (C#/Go) need an additional per-feature check for new uniffi shapes the community generator may lag on; this round's instance was the fielded error enum (`FfiError`) as a callback throws type, cleared before regen.
+
+#### 8.9 A full serve catalogue crosses as one callback interface — the PortsHandler generalization
+
+The ToolHandler pattern (§8.3) scales from one method to a whole serve catalogue: `PortsHandler` exposes the twelve D4 serve ops (baseline nine + optional three; the manifest getter stays the non-port session face) as sync `Result<String, FfiError>` methods, bridged per-call via `spawn_blocking` with the identical outcome map (`Ok(json)` parsed in-bridge, `Rejected` passthrough with kind/wire_code re-hung, everything else `INTERNAL_ERROR` containment, malformed-JSON contained inside the blocking task). The FFI constructor's ports parameter is **optional** — omitting it preserves the absent-ports deny branch verbatim, so widening the surface adds a face without changing the default behavior. Pool sizing and the re-entrancy caveat are the tool-handler rules unchanged: one blocking-pool thread per in-flight callback, no FFI calls from inside a callback.
+
+#### 8.10 FFI mirrors the shipped library face — never the planned one
+
+When a plan says "FFI mirrors library faces 1:1", re-derive the wrapper surface from the **library face as shipped**, not from the plan's summary of it. A library can deliberately keep a surface narrow while the FFI draft assumes the wide reading: the multi-peer router ships optional-family capability **gate-table rows only** (inert rows so ops never fall through ungated) with no delegation methods, so a drafted `MultiPeerRouterFFI.project` had no library method to wrap and the FFI cannot invent one. Resolution rule: scope the FFI wrapper to the shipped face and route consumers through the existing composition (`listPeers` → the per-peer adapter face); adding library delegation is a separate, deliberate slice. An FFI surface that leads its library is a contract inversion — bindings freeze whatever they generate.
 
 ## Why This Matters
 

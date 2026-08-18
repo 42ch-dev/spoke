@@ -2,22 +2,27 @@
  * The third-party client story (plan T3): `runDemoClient` dials a connect
  * host over a real WebSocket with the REAL library client
  * (`connectRemoteAdapter` from `@42ch/spoke-connect/remote`), executes the
- * demo flow through the drop-in async `BaselinePorts` surface, and returns
- * the asserted results. The CLI (`node dist/main.js --url ws://…`) prints
- * each story step.
+ * demo flow through the drop-in async `BaselinePorts` surface plus the
+ * optional `l2-computable` / `l5-fork` port faces (`project` / `compute` /
+ * `listForkTimelineEvents`), and returns the asserted results. The CLI
+ * (`node dist/main.js --url ws://…`) prints each story step.
  *
  * The client NEVER touches session-core verification helpers — it only
- * implements `Transport` and calls `connectRemoteAdapter` + `BaselinePorts`
- * (spec D10 encapsulation).
+ * implements `Transport` and calls `connectRemoteAdapter` + the port
+ * surfaces (spec D10 encapsulation).
  */
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
+  ComputeResponse,
+  ComputableFieldMap,
   Finding,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectResponse,
+  TimelineEvent,
 } from "@42ch/spoke-schemas";
 import {
   connectRemoteAdapter,
@@ -47,7 +52,10 @@ import { WsTransport } from "./transport/ws-transport.js";
  * (docs/snippet byte-parity), the `toy_world` namespace is owned here, and
  * `validateManifestTools` (spoke-operations) passes on this manifest — the
  * host discovers these tools from the authenticated manifest and
- * reverse-invokes them mid-orchestration.
+ * reverse-invokes them mid-orchestration. The optional `l2-computable` /
+ * `l5-fork` families are declared too: the negotiated set is the
+ * intersection of both manifests, so this client can drive the server's
+ * optional port faces (and an undeclared server capability denies).
  */
 export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
@@ -57,6 +65,8 @@ export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
     "spoke-baseline",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
+    "l2-computable",
+    "l5-fork",
   ],
   namespaces: [DEMO_SCOPE_ID, "toy_world"],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
@@ -85,6 +95,30 @@ const SUBMITTED_FINDING: Finding = {
   target_entry_id: SUBMITTED_ENTRY.entry_id,
   extensions: {},
 };
+
+/**
+ * The seeded l5-fork branch the client queries. Client-local copy — the
+ * third-party client must not import the demo server package at runtime
+ * (dep-surface story); the e2e catches any drift against the server's
+ * seed corpus.
+ */
+export const DEMO_STORM_FORK_ID = "demo-harbor/fork/storm";
+
+/** The l2-computable session the demo drives (project → compute settle). */
+const COMPUTABLE_SESSION_ID = "demo-session/harbor-1";
+
+/** The seeded harbor entry the computable flow targets. */
+const COMPUTABLE_ENTRY_ID = "demo-harbor/location/harbor";
+
+/** Static state the client projects into the session's computable view. */
+const PROJECT_STATE: ComputableFieldMap = { ships_at_dock: 3 };
+
+/** The computable delta applied on compute; settle merges it into static state. */
+const COMPUTE_DELTA: ComputableFieldMap = { tide: "rising" };
+
+/** Success branch of the ProjectResponse / ComputeResponse wire unions. */
+type ProjectSuccess = Exclude<ProjectResponse, { error: unknown }>;
+type ComputeSuccess = Exclude<ComputeResponse, { error: unknown }>;
 
 /** Structural subset of `SpokeResult` — the client does not import operations. */
 type AnySpokeResult<T> =
@@ -123,6 +157,22 @@ export interface DemoClientRun {
   findings: Finding[];
   /** The host's peer manifest list (empty — the demo host knows no peers). */
   peerManifests: HostCapabilityManifest[];
+  /**
+   * l2-computable: the projected computable view (session materialized).
+   * Present when the dialed manifest declared the optional families (the
+   * default manifest does).
+   */
+  projected?: ProjectSuccess;
+  /**
+   * l2-computable: the settled computable view + derived static state.
+   * Present when the dialed manifest declared the optional families.
+   */
+  computed?: ComputeSuccess;
+  /**
+   * l5-fork: the storm-fork timeline events (round-tripped). Present when
+   * the dialed manifest declared the optional families.
+   */
+  forkEvents?: TimelineEvent[];
   /** Release the session + transport (idempotent). */
   close(): void;
 }
@@ -146,17 +196,20 @@ export interface RunDemoClientOptions {
  * Execute the full third-party flow over a real WebSocket: dial (registering
  * the toy-world tool handlers on the RemoteAdapter so the host can
  * reverse-invoke them), then manifest → put (OCC create) → put (CAS update)
- * → get → list → findings → peer manifests. Every port call must succeed —
- * a rejection throws.
+ * → get → list → findings → peer manifests → the optional families:
+ * l2-computable (project → compute settle → derived state) and l5-fork
+ * (listForkTimelineEvents over the seeded storm fork). Every port call must
+ * succeed — a rejection throws.
  */
 export async function runDemoClient(
   options: RunDemoClientOptions,
 ): Promise<DemoClientRun> {
   const transport = new WsTransport(options.url);
+  const dialManifest = options.manifest ?? DEMO_CLIENT_MANIFEST;
   const adapter = await connectRemoteAdapter({
     transport,
     localIdentity: { seed: DEMO_CLIENT_SEED },
-    localManifest: options.manifest ?? DEMO_CLIENT_MANIFEST,
+    localManifest: dialManifest,
     remotePubkey: DEMO_SERVER_PUBKEY,
     allowlist: [DEMO_SERVER_PEER_ID],
   });
@@ -208,6 +261,60 @@ export async function runDemoClient(
     await adapter.listPeerHostCapabilityManifests(),
   );
 
+  // Steps 6-7 — optional families: drive them only when THIS client's
+  // manifest declares them (the negotiated set is the intersection of both
+  // manifests, so a server that does not declare a family denies loudly
+  // through requireOk instead of skipping silently). The default manifest
+  // declares both, so the demo flow always runs them.
+  const drivesOptionalOps =
+    dialManifest.capabilities.includes("l2-computable") &&
+    dialManifest.capabilities.includes("l5-fork");
+
+  // Step 6 — l2-computable round-trip: project materializes the session's
+  // computable view from static state; compute applies the delta and
+  // settles it back into static state (the derived state).
+  let projected: ProjectSuccess | undefined;
+  let computed: ComputeSuccess | undefined;
+  let forkEvents: TimelineEvent[] | undefined;
+  if (drivesOptionalOps) {
+    const projectedResult = requireOk(
+      await adapter.project({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        state: { ...PROJECT_STATE },
+      }),
+    );
+    if ("error" in projectedResult) {
+      throw new Error(
+        `demo client: project answered an error branch (${projectedResult.error.code})`,
+      );
+    }
+    projected = projectedResult;
+
+    const computedResult = requireOk(
+      await adapter.compute({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        computable: { ...COMPUTE_DELTA },
+        settle: true,
+      }),
+    );
+    if ("error" in computedResult) {
+      throw new Error(
+        `demo client: compute answered an error branch (${computedResult.error.code})`,
+      );
+    }
+    computed = computedResult;
+
+    // Step 7 — l5-fork round-trip: the seeded storm-fork timeline.
+    forkEvents = requireOk(
+      await adapter.listForkTimelineEvents({
+        scope_id: DEMO_SCOPE_ID,
+        fork_id: DEMO_STORM_FORK_ID,
+      }),
+    );
+  }
+
   return {
     transport,
     adapter,
@@ -223,6 +330,9 @@ export async function runDemoClient(
     listed,
     findings,
     peerManifests,
+    projected,
+    computed,
+    forkEvents,
     close(): void {
       adapter.close();
       transport.close();
@@ -278,6 +388,21 @@ async function main(): Promise<void> {
       `  putFindings        → ${run.findings.length} finding(s) stored`,
     );
     console.log("  listPeerHostCapabilityManifests → []");
+    if (run.projected !== undefined && run.computed !== undefined) {
+      console.log(
+        `  project            ${run.projected.entry_id} → ${JSON.stringify(run.projected.computable)}`,
+      );
+      console.log(
+        `  compute (settle)   ${run.computed.entry_id} → ${JSON.stringify(run.computed.computable)} state ${JSON.stringify(run.computed.state)}`,
+      );
+    }
+    if (run.forkEvents !== undefined) {
+      console.log(
+        `  listForkTimelineEvents → ${run.forkEvents.length} event(s) (${run.forkEvents
+          .map((event) => event.timeline_event_id)
+          .join(", ")})`,
+      );
+    }
     console.log("  done.");
   } finally {
     run.close();

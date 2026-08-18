@@ -331,7 +331,9 @@ mod foreign_tool_handler {
 
     /// Containment reject (D16): `INTERNAL_ERROR` with `details: None`,
     /// mirroring the library `catch_unwind` at the future-poll boundary.
-    fn containment_reject(message: String) -> SpokeResult<Value> {
+    /// Generic over the result payload so the tool and ports bridges share
+    /// the row.
+    pub(super) fn containment_reject<T>(message: String) -> SpokeResult<T> {
         SpokeResult::Reject(SpokeReject {
             code: SpokeRejectCode::InternalError,
             message,
@@ -342,7 +344,7 @@ mod foreign_tool_handler {
     /// Re-hang `kind` / `wire_code` onto a `details` map — the inverse of
     /// `map_spoke_reject`'s extraction (D16 passthrough row). `None` when
     /// neither field is present.
-    fn rehang_details(
+    pub(super) fn rehang_details(
         kind: Option<String>,
         wire_code: Option<String>,
     ) -> Option<serde_json::Map<String, Value>> {
@@ -416,6 +418,322 @@ mod foreign_tool_handler {
 #[cfg(feature = "remote-adapter")]
 pub use foreign_tool_handler::ToolHandler;
 
+// ── Foreign-callback `PortsHandler` over the async ports seam (D16) ──────
+//
+// The library responder serves `port.*` through the async
+// `remote::RemoteServePorts` seam. Over FFI the binding implements a
+// *synchronous* callback `PortsHandler` — the exact D4 serve catalogue
+// (the nine baseline serve ops + the three optional families;
+// `getHostCapabilityManifest` is a session-cache face, not a D4 serve op,
+// and stays out) with `Result<String, FfiError>` boundaries.
+// [`into_remote_serve_ports`] bridges the two with the `ToolHandler`
+// threading + outcome model: every call runs through the shared runtime's
+// `spawn_blocking` pool (a blocking foreign call never monopolizes an async
+// worker), `Ok(json)` parses into the typed success value inside the same
+// blocking task (malformed → containment), `Err(Rejected{..})` passes
+// through as an application `SpokeReject` with `kind` / `wire_code`
+// re-hung onto `details`, and `Err(Dial{..})` / `JoinError` (foreign-crash
+// signal) map to the `INTERNAL_ERROR` containment row with `details: None`
+// — the serve loop survives. Capability gating stays in the library
+// responder (gate → probe → serve/deny), and a callback rejecting an op it
+// does not serve is ordinary deny, not containment.
+//
+// Re-entrancy caveat (the `ToolHandler` rule, D16 §8.5): a binding must
+// NOT call back into the FFI surface from inside a ports callback — the
+// callback runs on the blocking pool while the calling thread blocks on
+// the invoke. Ports callbacks behave like tool handlers: demand-driven,
+// one blocking-pool thread per in-flight callback.
+#[cfg(feature = "remote-adapter")]
+mod foreign_ports_handler {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use serde::de::DeserializeOwned;
+    use spoke_operations::{
+        ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
+        KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
+        SpokeRejectCode, SpokeResult,
+    };
+    use spoke_schemas::{
+        ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+        ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+    };
+
+    use crate::remote::RemoteServePorts;
+
+    use super::ffi_runtime;
+    use super::foreign_tool_handler::{containment_reject, rehang_details};
+    use super::remote_adapter_ffi::FfiError;
+
+    /// Foreign-callback responder ports face (D16): the native binding
+    /// implements this synchronous D4 catalogue; [`into_remote_serve_ports`]
+    /// bridges it into the async [`crate::remote::RemoteServePorts`] type
+    /// the library responder serves through.
+    ///
+    /// `Ok(json)` → the port method's success value `T` as JSON (parsed
+    /// inside the bridge; malformed JSON is contained). `Err(FfiError::Rejected{..})`
+    /// → an application `SpokeReject` passes through verbatim — rejecting
+    /// an op the binding does not serve is ordinary deny, not containment.
+    /// Any other outcome (`Dial`, foreign exception, panic) is contained to
+    /// `INTERNAL_ERROR` with `details: None`. `getHostCapabilityManifest`
+    /// is NOT in the catalogue — it is a session-cache face, not a D4 serve
+    /// op; the bridge answers an internal error if it is ever reached.
+    ///
+    /// Re-entrancy caveat: never call back into the FFI surface from inside
+    /// a ports callback (the `ToolHandler` rule, D16 §8.5).
+    #[uniffi::export(callback_interface)]
+    pub trait PortsHandler: Send + Sync {
+        fn get_knowledge_entry(&self, entry_id: String) -> Result<String, FfiError>;
+        fn put_knowledge_entry(
+            &self,
+            entry_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError>;
+        fn get_relation(&self, relation_id: String) -> Result<String, FfiError>;
+        fn put_relation(
+            &self,
+            relation_json: String,
+            expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError>;
+        fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError>;
+        fn list_timeline_events(&self, scope_json: String) -> Result<String, FfiError>;
+        fn put_findings(&self, findings_json: String) -> Result<String, FfiError>;
+        fn list_rules(&self, rule_refs: Vec<String>) -> Result<String, FfiError>;
+        fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError>;
+        fn project(&self, project_request_json: String) -> Result<String, FfiError>;
+        fn compute(&self, compute_request_json: String) -> Result<String, FfiError>;
+        fn list_fork_timeline_events(&self, scope_json: String) -> Result<String, FfiError>;
+    }
+
+    /// Map one callback outcome to the library `SpokeResult` (D16 strict
+    /// outcome map — the `into_remote_handler` rows mirrored for the ports
+    /// face; the typed `T` replaces the tool bridge's opaque `Value`).
+    fn map_handled<T: DeserializeOwned>(
+        what: &str,
+        handled: Result<Result<Result<T, serde_json::Error>, FfiError>, tokio::task::JoinError>,
+    ) -> SpokeResult<T> {
+        match handled {
+            Ok(Ok(Ok(value))) => SpokeResult::Ok(value),
+            Ok(Ok(Err(error))) => containment_reject(format!(
+                "foreign ports handler returned malformed JSON for {what}: {error}"
+            )),
+            Ok(Err(FfiError::Rejected {
+                code,
+                message,
+                kind,
+                wire_code,
+            })) => SpokeResult::Reject(SpokeReject {
+                // The foreign binding throws locked wire codes; an
+                // unknown code is foreign misuse and falls back to the
+                // containment code (the message is preserved).
+                code: SpokeRejectCode::try_from_str(&code)
+                    .unwrap_or(SpokeRejectCode::InternalError),
+                message,
+                details: rehang_details(kind, wire_code),
+            }),
+            Ok(Err(FfiError::Dial { kind, message })) => containment_reject(format!(
+                "foreign ports handler threw Dial({kind}) for {what}: {message}"
+            )),
+            Err(join) => containment_reject(format!(
+                "foreign ports handler task failed for {what}: {join}"
+            )),
+        }
+    }
+
+    /// Run one foreign callback call through the shared runtime's
+    /// `spawn_blocking` pool. The handler's returned JSON parses into `T`
+    /// inside the same blocking task — foreign-produced output never lands
+    /// on an async worker (the D16 threading principle).
+    async fn call_ports<T, F>(handler: Arc<dyn PortsHandler>, what: &str, f: F) -> SpokeResult<T>
+    where
+        T: DeserializeOwned + Send + 'static,
+        F: FnOnce(Arc<dyn PortsHandler>) -> Result<String, FfiError> + Send + 'static,
+    {
+        let handled = ffi_runtime()
+            .spawn_blocking(move || f(handler).map(|json| serde_json::from_str::<T>(&json)))
+            .await;
+        map_handled(what, handled)
+    }
+
+    /// Bridge a foreign-callback [`PortsHandler`] into the library
+    /// [`crate::remote::RemoteServePorts`] type (D16 threading model).
+    ///
+    /// The callback is long-held via `Arc::from(box)` and each call runs as
+    /// `ffi_runtime().spawn_blocking(...)` — a blocking foreign call never
+    /// monopolizes an async worker (the `ToolHandler` precedent). The
+    /// bridge always presents the computable / fork faces (the probes
+    /// return the bridge) — capability gating stays in the library
+    /// responder (gate → probe → serve/deny), and a callback rejecting an
+    /// op it does not serve is ordinary deny, not containment.
+    pub fn into_remote_serve_ports(
+        handler: Box<dyn PortsHandler>,
+    ) -> Arc<dyn RemoteServePorts + Send + Sync> {
+        Arc::new(RemoteServePortsBridge {
+            handler: Arc::from(handler),
+        })
+    }
+
+    /// The bridge face: one callback call per D4 serve op.
+    struct RemoteServePortsBridge {
+        handler: Arc<dyn PortsHandler>,
+    }
+
+    #[async_trait]
+    impl KnowledgeEntryPort for RemoteServePortsBridge {
+        async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+            let handler = Arc::clone(&self.handler);
+            let entry_id = entry_id.to_owned();
+            call_ports(handler, "get_knowledge_entry", move |handler| {
+                handler.get_knowledge_entry(entry_id)
+            })
+            .await
+        }
+
+        async fn put_knowledge_entry(
+            &self,
+            entry: KnowledgeEntry,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<KnowledgeEntry> {
+            let handler = Arc::clone(&self.handler);
+            let entry_json = serde_json::to_string(&entry).expect("knowledge entry serializes");
+            call_ports(handler, "put_knowledge_entry", move |handler| {
+                handler.put_knowledge_entry(entry_json, expected_base_revision)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl RelationPort for RemoteServePortsBridge {
+        async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+            let handler = Arc::clone(&self.handler);
+            let relation_id = relation_id.to_owned();
+            call_ports(handler, "get_relation", move |handler| {
+                handler.get_relation(relation_id)
+            })
+            .await
+        }
+
+        async fn put_relation(
+            &self,
+            relation: Relation,
+            expected_base_revision: Option<u64>,
+        ) -> SpokeResult<Relation> {
+            let handler = Arc::clone(&self.handler);
+            let relation_json = serde_json::to_string(&relation).expect("relation serializes");
+            call_ports(handler, "put_relation", move |handler| {
+                handler.put_relation(relation_json, expected_base_revision)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl ScopeQueryPort for RemoteServePortsBridge {
+        async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            call_ports(handler, "list_knowledge_entries", move |handler| {
+                handler.list_knowledge_entries(scope_json)
+            })
+            .await
+        }
+
+        async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            call_ports(handler, "list_timeline_events", move |handler| {
+                handler.list_timeline_events(scope_json)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl FindingPort for RemoteServePortsBridge {
+        async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+            let handler = Arc::clone(&self.handler);
+            let findings_json = serde_json::to_string(&findings).expect("findings serialize");
+            call_ports(handler, "put_findings", move |handler| {
+                handler.put_findings(findings_json)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl RuleQueryPort for RemoteServePortsBridge {
+        async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+            let handler = Arc::clone(&self.handler);
+            let rule_refs = rule_refs.to_vec();
+            call_ports(handler, "list_rules", move |handler| {
+                handler.list_rules(rule_refs)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl HostManifestPort for RemoteServePortsBridge {
+        async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+            // Not a D4 serve op (session-cache face — the responder never
+            // dispatches it through the ports catalogue); unreachable via
+            // serving, answered with the containment row if a future path
+            // ever calls it.
+            containment_reject(
+                "get_host_capability_manifest is not served through the foreign ports handler"
+                    .into(),
+            )
+        }
+
+        async fn list_peer_host_capability_manifests(
+            &self,
+        ) -> SpokeResult<Vec<HostCapabilityManifest>> {
+            let handler = Arc::clone(&self.handler);
+            call_ports(handler, "list_peer_host_capability_manifests", |handler| {
+                handler.list_peer_host_capability_manifests()
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl ComputablePort for RemoteServePortsBridge {
+        async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
+            let handler = Arc::clone(&self.handler);
+            let request_json = serde_json::to_string(&request).expect("project request serializes");
+            call_ports(handler, "project", move |handler| {
+                handler.project(request_json)
+            })
+            .await
+        }
+
+        async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
+            let handler = Arc::clone(&self.handler);
+            let request_json = serde_json::to_string(&request).expect("compute request serializes");
+            call_ports(handler, "compute", move |handler| {
+                handler.compute(request_json)
+            })
+            .await
+        }
+    }
+
+    #[async_trait]
+    impl ForkTimelineQueryPort for RemoteServePortsBridge {
+        async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+            let handler = Arc::clone(&self.handler);
+            let scope_json = serde_json::to_string(scope).expect("scope serializes");
+            call_ports(handler, "list_fork_timeline_events", move |handler| {
+                handler.list_fork_timeline_events(scope_json)
+            })
+            .await
+        }
+    }
+}
+
+#[cfg(feature = "remote-adapter")]
+pub use foreign_ports_handler::PortsHandler;
+
 // ── Sync `RemoteAdapterFFI` over the async adapter (AR-4 / AR-5 / AR-6) ───
 #[cfg(feature = "remote-adapter")]
 mod remote_adapter_ffi {
@@ -430,10 +748,14 @@ mod remote_adapter_ffi {
     use serde::Serialize;
     use serde_json::Value;
     use spoke_operations::{
-        parse_tool_capability_id, FindingPort, HostManifestPort, KnowledgeEntryPort,
-        RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeResult,
+        parse_tool_capability_id, ComputablePort, FindingPort, ForkTimelineQueryPort,
+        HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+        SpokeReject, SpokeResult,
     };
-    use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
+    use spoke_schemas::{
+        ComputeRequest, Finding, HostCapabilityManifest, KnowledgeEntry, ProjectRequest, Relation,
+        Scope,
+    };
 
     use crate::remote::{
         connect_remote_adapter, RemoteAdapter, RemoteAdapterError, RemoteAdapterOptions,
@@ -694,6 +1016,37 @@ mod remote_adapter_ffi {
             map_spoke_result(ffi_block_on(self.inner.list_peer_host_capability_manifests())?)
         }
 
+        /// Optional l2-computable face (D4 catalogue): project the session's
+        /// computable view on the remote peer. `project_request_json` in,
+        /// JSON-string `ProjectResponse` out; malformed request JSON rejects
+        /// `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+        /// local pre-gate — a peer that did not negotiate `l2-computable`
+        /// answers the responder's capability-gate deny, mapped through the
+        /// D7 row to `CAPABILITY_PORT_MISSING` with
+        /// `wire_code: "op_unsupported"` (same rows as the baseline port
+        /// methods).
+        pub fn project(&self, project_request_json: String) -> Result<String, FfiError> {
+            let request: ProjectRequest = parse_json_field(&project_request_json, "project request")?;
+            map_spoke_result(ffi_block_on(self.inner.project(request))?)
+        }
+
+        /// Optional l2-computable face (D4 catalogue): apply / settle
+        /// computable updates on the remote peer. Same boundary and deny
+        /// mapping as `project`.
+        pub fn compute(&self, compute_request_json: String) -> Result<String, FfiError> {
+            let request: ComputeRequest = parse_json_field(&compute_request_json, "compute request")?;
+            map_spoke_result(ffi_block_on(self.inner.compute(request))?)
+        }
+
+        /// Optional l5-fork face (D4 catalogue): query the remote peer's
+        /// fork-branch timeline, scoped like `list_timeline_events` with the
+        /// `fork_id` carried on the `Scope`. Same boundary and deny mapping
+        /// as `project` / `compute`.
+        pub fn list_fork_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
+            let scope: Scope = parse_json_field(&scope_json, "scope")?;
+            map_spoke_result(ffi_block_on(self.inner.list_fork_timeline_events(&scope))?)
+        }
+
         /// Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
         /// toward the remote peer and return the tool's `result` payload as
         /// a JSON string.
@@ -931,6 +1284,7 @@ mod connect_responder_ffi {
         connect_responder, ConnectResponder, ConnectResponderOptions, RemoteIdentity,
     };
 
+    use super::foreign_ports_handler::{into_remote_serve_ports, PortsHandler as FfiPortsHandler};
     use super::foreign_tool_handler::{into_remote_handler, ToolHandler as FfiToolHandler};
     use super::foreign_transport::ForeignCallbackTransport;
     use super::foreign_transport::Transport as FfiTransport;
@@ -1029,6 +1383,13 @@ mod connect_responder_ffi {
     /// `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
     /// deny, hello-verify deny) produce NO error row — they surface as
     /// `state() → "Closed"` with `session_id() → None`.
+    ///
+    /// `ports` is an OPTIONAL foreign-callback ports face (D16): passing a
+    /// [`PortsHandler`] serves `port.*` invokes (baseline + optional
+    /// families) through the callback bridge; passing `None` preserves the
+    /// documented absent-ports deny branch. The binding must not call back
+    /// into the FFI surface from inside a ports callback (re-entrancy
+    /// caveat, same rule as tool handlers).
     #[uniffi::export]
     pub fn connect_responder_ffi(
         transport: Box<dyn FfiTransport>,
@@ -1036,6 +1397,7 @@ mod connect_responder_ffi {
         manifest_json: String,
         allowlist: Vec<String>,
         peer_keys: HashMap<String, Vec<u8>>,
+        ports: Option<Box<dyn FfiPortsHandler>>,
         invoke_timeout_ms: Option<u64>,
     ) -> Result<Arc<ConnectResponderFFI>, FfiError> {
         let manifest: HostCapabilityManifest = serde_json::from_str(&manifest_json)
@@ -1061,7 +1423,7 @@ mod connect_responder_ffi {
             manifest,
             allowlist,
             peer_keys,
-            ports: None,
+            ports: ports.map(into_remote_serve_ports),
             invoke_timeout_ms,
         }))?;
         Ok(Arc::new(ConnectResponderFFI { inner: responder }))
@@ -1069,6 +1431,14 @@ mod connect_responder_ffi {
 }
 
 // ── Sync `MultiPeerRouterFFI` over the async router (AR-6 / D11) ─────────
+//
+// The router FFI mirrors the library `MultiPeerRouter` 1:1 (registry +
+// the fixed six-family surface + the tool invoke face). Optional port
+// families (`port.computable.*` / `port.fork.*`) ride the per-peer
+// adapter: a router consumer lists peers via `list_peers` and drives the
+// optional ops on the corresponding `RemoteAdapterFFI` — the router's
+// capability gate tables keep the optional ops capability-mapped and never
+// ungated.
 #[cfg(feature = "remote-adapter")]
 mod multi_peer_router_ffi {
     use std::sync::Arc;
@@ -1218,7 +1588,7 @@ mod multi_peer_router_ffi {
 mod loopback_smoke_host {
     use std::sync::Arc;
 
-    use spoke_operations::BaselinePorts;
+    use spoke_operations::FullPorts;
 
     use crate::core::derive_peer_id_from_ed25519_pubkey;
     use crate::test_support::loopback_oracle::{
@@ -1255,7 +1625,7 @@ mod loopback_smoke_host {
         server: Arc<LoopbackTransport>,
         host_seed: [u8; 32],
         host_manifest: spoke_schemas::HostCapabilityManifest,
-        adapter: Arc<dyn BaselinePorts + Send + Sync>,
+        adapter: Arc<dyn FullPorts + Send + Sync>,
     ) -> Result<Arc<LoopbackSmokeHost>, super::remote_adapter_ffi::FfiError> {
         let transport = Arc::new(server.clone_async_inner());
         let host = super::remote_adapter_ffi::ffi_block_on(start_loopback_host(LoopbackHostOptions {
@@ -4164,6 +4534,193 @@ mod remote_adapter_ffi_tests {
         ffi.close();
         responder.close();
     }
+
+    // ── Optional-port delegation over FFI (port.computable.* / port.fork.*) ──
+    // Parity mirror of the plan-1 library round-trips at the FFI boundary:
+    // JSON-string args in / JSON-string results out, `parse_json_field`
+    // pre-validation, and the responder-side capability-gate deny mapped
+    // through the D7 row (no local dialer pre-gate).
+
+    /// Host + client manifest declaring the optional families (happy path —
+    /// the negotiated set must include l2-computable / l5-fork).
+    fn optional_manifest(host_id: &str) -> spoke_schemas::HostCapabilityManifest {
+        manifest(host_id, &["spoke-baseline", "l2-computable", "l5-fork"])
+    }
+
+    /// Dial the FFI adapter against a loopback host whose hello manifests
+    /// (both ends) declare the optional families.
+    fn dial_ffi_with_optional_families() -> (Arc<RemoteAdapterFFI>, LoopbackHost) {
+        let optional = optional_manifest("test-host");
+        let (client, host) = ffi_runtime().block_on(async {
+            dial(
+                ToyWorldAdapter::with_committed_fixtures(),
+                DialOptions {
+                    host_manifest: Some(optional.clone()),
+                    client_manifest: Some(optional),
+                    ..Default::default()
+                },
+            )
+            .await
+        });
+        (RemoteAdapterFFI::from_adapter(client), host)
+    }
+
+    fn project_request_json() -> String {
+        json!({
+            "session_id": "sess_tw_dawn_arrival",
+            "entry_id": "kb_tw_harbor",
+            "state": { "tide_level": 2.1, "cargo_tons": 40 },
+        })
+        .to_string()
+    }
+
+    fn compute_request_json() -> String {
+        json!({
+            "session_id": "sess_tw_dawn_arrival",
+            "entry_id": "kb_tw_harbor",
+            "computable": { "tide_level": 2.5, "cargo_tons": 37 },
+            "settle": true,
+        })
+        .to_string()
+    }
+
+    fn fork_scope_json() -> String {
+        json!({
+            "scope_id": "pkt_tw_scope",
+            "fork_id": "fork_tw_storm_branch",
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn remote_adapter_ffi_round_trips_project_over_the_loopback() {
+        let (ffi, host) = dial_ffi_with_optional_families();
+        let result_json = ffi
+            .project(project_request_json())
+            .expect("project round-trip succeeds");
+        let result: Value = serde_json::from_str(&result_json).expect("result json");
+        assert_eq!(result["session_id"], "sess_tw_dawn_arrival");
+        assert_eq!(result["entry_id"], "kb_tw_harbor");
+        // The committed project fixture's computable view is echoed.
+        assert_eq!(
+            result["computable"],
+            json!({ "tide_level": 2.4, "cargo_tons": 38 })
+        );
+        let stats = host.stats();
+        assert_eq!(stats.invokes_dispatched, 1);
+        assert_eq!(stats.dispatch_denials, 0);
+        ffi.close();
+        host.close();
+    }
+
+    #[test]
+    fn remote_adapter_ffi_round_trips_compute_over_the_loopback() {
+        let (ffi, host) = dial_ffi_with_optional_families();
+        let result_json = ffi
+            .compute(compute_request_json())
+            .expect("compute round-trip succeeds");
+        let result: Value = serde_json::from_str(&result_json).expect("result json");
+        assert_eq!(result["session_id"], "sess_tw_dawn_arrival");
+        assert_eq!(result["entry_id"], "kb_tw_harbor");
+        // The request computable is echoed and the settle response carries
+        // the merged static state.
+        assert_eq!(
+            result["computable"],
+            json!({ "tide_level": 2.5, "cargo_tons": 37 })
+        );
+        assert_eq!(
+            result["state"],
+            json!({ "tide_level": 2.5, "cargo_tons": 37 })
+        );
+        let stats = host.stats();
+        assert_eq!(stats.invokes_dispatched, 1);
+        assert_eq!(stats.dispatch_denials, 0);
+        ffi.close();
+        host.close();
+    }
+
+    #[test]
+    fn remote_adapter_ffi_round_trips_list_fork_timeline_events_over_the_loopback() {
+        let (ffi, host) = dial_ffi_with_optional_families();
+        let events_json = ffi
+            .list_fork_timeline_events(fork_scope_json())
+            .expect("fork round-trip succeeds");
+        let events: Value = serde_json::from_str(&events_json).expect("events json");
+        // The committed fixtures carry exactly one fork-branch event —
+        // proves the payload carried the fork_id through the loopback.
+        assert_eq!(events.as_array().expect("array").len(), 1);
+        assert_eq!(events[0]["timeline_event_id"], "evt_tw_harbor_storm_delay");
+        assert_eq!(events[0]["fork_id"], "fork_tw_storm_branch");
+        let stats = host.stats();
+        assert_eq!(stats.invokes_dispatched, 1);
+        assert_eq!(stats.dispatch_denials, 0);
+        ffi.close();
+        host.close();
+    }
+
+    #[test]
+    fn remote_adapter_ffi_maps_the_capability_gate_deny_for_optional_ops() {
+        // Default manifests advertise spoke-baseline only ⇒ the negotiated
+        // set lacks l2-computable / l5-fork ⇒ the host's dispatch gate
+        // denies wire `op_unsupported` ⇒ the D7 row maps to
+        // CAPABILITY_PORT_MISSING with details.wire_code preserved (no
+        // local dialer pre-gate — the deny is responder-side).
+        let (ffi, host) = dial_ffi_with(DialOptions::default());
+        for invoke in [
+            |ffi: &RemoteAdapterFFI| ffi.project(project_request_json()),
+            |ffi: &RemoteAdapterFFI| ffi.compute(compute_request_json()),
+            |ffi: &RemoteAdapterFFI| ffi.list_fork_timeline_events(fork_scope_json()),
+        ] {
+            let err = invoke(&ffi).expect_err("capability-gate deny must reject");
+            assert!(
+                matches!(
+                    err,
+                    FfiError::Rejected {
+                        ref code,
+                        kind: None,
+                        ref wire_code,
+                        ..
+                    } if code == "CAPABILITY_PORT_MISSING"
+                        && wire_code.as_deref() == Some("op_unsupported")
+                ),
+                "expected capability-gate deny row, got {err:?}"
+            );
+        }
+        let stats = host.stats();
+        assert_eq!(stats.dispatch_denials, 3);
+        assert_eq!(stats.invokes_dispatched, 0);
+        ffi.close();
+        host.close();
+    }
+
+    #[test]
+    fn remote_adapter_ffi_optional_ops_reject_malformed_json_with_zero_wire_traffic() {
+        let (ffi, host) = dial_ffi_with_optional_families();
+        for invoke in [
+            |ffi: &RemoteAdapterFFI| ffi.project("{ not json".to_string()),
+            |ffi: &RemoteAdapterFFI| ffi.compute("{ not json".to_string()),
+            |ffi: &RemoteAdapterFFI| ffi.list_fork_timeline_events("{ not json".to_string()),
+        ] {
+            let err = invoke(&ffi).expect_err("malformed JSON must reject");
+            assert!(
+                matches!(
+                    err,
+                    FfiError::Rejected {
+                        ref code,
+                        kind: None,
+                        wire_code: None,
+                        ..
+                    } if code == "INVALID_INPUT"
+                ),
+                "expected INVALID_INPUT, got {err:?}"
+            );
+        }
+        let stats = host.stats();
+        assert_eq!(stats.invokes_dispatched, 0);
+        assert_eq!(stats.dispatch_denials, 0);
+        ffi.close();
+        host.close();
+    }
 }
 
 #[cfg(all(test, feature = "remote-adapter"))]
@@ -4181,6 +4738,7 @@ mod connect_responder_ffi_tests {
     };
 
     use super::connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
+    use super::foreign_ports_handler::PortsHandler;
     use super::foreign_transport::Transport as FfiTransport;
     use super::foreign_transport::TransportError;
     use super::foreign_tool_handler::ToolHandler as FfiToolHandler;
@@ -4356,6 +4914,8 @@ mod connect_responder_ffi_tests {
             tool_manifest_json("test-responder"),
             vec![peer_id_client.clone()],
             HashMap::from([(peer_id_client.clone(), pubkey_client().to_vec())]),
+            // ports: absent → the documented absent-ports deny branch.
+            None,
             None,
         )
         .expect("responder constructs");
@@ -4723,8 +5283,10 @@ mod connect_responder_ffi_tests {
     fn connect_responder_ffi_port_invoke_hits_the_absent_ports_deny_branch() {
         let (responder, dialer) = dial_responder_ffi();
         let _ = responder;
-        // `ports` is pinned `None` on the FFI responder (D16 non-goal), so
-        // a `port.*` op answers the documented absent-ports deny branch.
+        // The `ports` constructor parameter defaults to `None` (the
+        // optional-`ports` FFI face): a `port.*` op on a responder built
+        // without a `PortsHandler` still answers the documented absent-ports
+        // deny branch — passing nothing preserves pre-plan behavior.
         let err = dialer
             .get_knowledge_entry("kb_ffi_missing_entry".to_string())
             .expect_err("absent ports deny");
@@ -4762,6 +5324,7 @@ mod connect_responder_ffi_tests {
             vec![peer_id_client.clone()],
             peer_keys.clone(),
             None,
+            None,
         ) {
             Err(error) => error,
             Ok(_) => panic!("short seed must fail the constructor"),
@@ -4780,6 +5343,7 @@ mod connect_responder_ffi_tests {
             "{ not json".to_string(),
             vec![peer_id_client.clone()],
             peer_keys.clone(),
+            None,
             None,
         ) {
             Err(error) => error,
@@ -4800,6 +5364,7 @@ mod connect_responder_ffi_tests {
             tool_manifest_json("test-responder"),
             vec![peer_id_client],
             bad_keys,
+            None,
             None,
         ) {
             Err(error) => error,
@@ -4824,6 +5389,7 @@ mod connect_responder_ffi_tests {
             tool_manifest_json("test-responder"),
             vec![],
             HashMap::from([(peer_id_client, pubkey_client().to_vec())]),
+            None,
             None,
         )
         .expect("constructor has no error path for handshake failures");
@@ -4850,6 +5416,457 @@ mod connect_responder_ffi_tests {
             responder.state() == "Closed"
         });
         assert_eq!(responder.session_id(), None);
+    }
+
+    // ── Ports serving through a foreign `PortsHandler` (D16) ──────────────
+
+    /// Manifest (both ends) declaring the optional families — the
+    /// negotiated set must include l2-computable / l5-fork for the
+    /// responder's capability gate.
+    fn ports_manifest_json(host_id: &str) -> String {
+        serde_json::to_string(
+            &serde_json::from_value::<spoke_schemas::HostCapabilityManifest>(json!({
+                "schema_version": 1,
+                "host_id": host_id,
+                "roles": ["data-store", "l2-computable"],
+                "capabilities": ["spoke-baseline", "l2-computable", "l5-fork"],
+                "namespaces": ["toy_world"],
+                "extensions": {},
+            }))
+            .expect("valid ports manifest"),
+        )
+        .expect("manifest json")
+    }
+
+    /// Loopback pair through both FFI faces with an injected foreign
+    /// `PortsHandler` (D16): the responder serves `port.*` through the
+    /// callback; the dialer drives baseline + optional families.
+    fn dial_responder_ffi_with_ports(
+        ports: Option<Box<dyn PortsHandler>>,
+    ) -> (Arc<ConnectResponderFFI>, Arc<RemoteAdapterFFI>) {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+        let responder = connect_responder_ffi(
+            Box::new(LoopbackCallback { inner: pair.server }),
+            seed_host().to_vec(),
+            ports_manifest_json("test-responder"),
+            vec![peer_id_client.clone()],
+            HashMap::from([(peer_id_client.clone(), pubkey_client().to_vec())]),
+            ports,
+            None,
+        )
+        .expect("responder constructs");
+        // The constructor returns in `Handshaking` (D16: no library
+        // constructor error path — block-on covers only the factory future).
+        assert_eq!(responder.state(), "Handshaking");
+
+        let dialer = connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: pair.client }),
+            seed_client().to_vec(),
+            ports_manifest_json("test-client"),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        )
+        .expect("ffi dial");
+        assert_eq!(dialer.state(), "Established");
+        wait_for("responder handshake to establish", || {
+            responder.state() == "Established"
+        });
+        (responder, dialer)
+    }
+
+    /// Foreign `PortsHandler` impl (D16): an in-memory knowledge store plus
+    /// canned optional-family answers; records every call. Unknown entries
+    /// reject with an application `Rejected` (ordinary deny — not
+    /// containment); `kb_ffi_ports_boom` panics (the containment row).
+    struct TestPortsHandler {
+        entries: Arc<Mutex<HashMap<String, Value>>>,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    fn ports_handler() -> (
+        Box<TestPortsHandler>,
+        Arc<Mutex<HashMap<String, Value>>>,
+        Arc<Mutex<Vec<String>>>,
+    ) {
+        let entries = Arc::new(Mutex::new(HashMap::new()));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(TestPortsHandler {
+                entries: Arc::clone(&entries),
+                calls: Arc::clone(&calls),
+            }),
+            entries,
+            calls,
+        )
+    }
+
+    fn knowledge_entry_json(entry_id: &str, canonical_name: &str) -> String {
+        serde_json::to_string(&json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "entry_type": "knowledge",
+            "canonical_name": canonical_name,
+            "status": "active",
+            "body": { "summary": "served through the foreign ports callback" },
+            "extensions": {},
+        }))
+        .expect("entry json")
+    }
+
+    impl PortsHandler for TestPortsHandler {
+        fn get_knowledge_entry(&self, entry_id: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push(format!("get_knowledge_entry:{entry_id}"));
+            if entry_id == "kb_ffi_ports_boom" {
+                panic!("foreign ports handler panic (containment row)");
+            }
+            match self.entries.lock().expect("entries lock").get(&entry_id).cloned() {
+                Some(entry) => Ok(serde_json::to_string(&entry).expect("entry serializes")),
+                None => Err(FfiError::Rejected {
+                    code: "KNOWLEDGE_ENTRY_NOT_FOUND".into(),
+                    message: format!("entry {entry_id} not found"),
+                    kind: Some("store_miss".into()),
+                    wire_code: None,
+                }),
+            }
+        }
+
+        fn put_knowledge_entry(
+            &self,
+            entry_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("put_knowledge_entry".into());
+            let entry: Value =
+                serde_json::from_str(&entry_json).expect("test handler receives JSON");
+            let entry_id = entry["entry_id"].as_str().expect("entry id").to_string();
+            self.entries
+                .lock()
+                .expect("entries lock")
+                .insert(entry_id, entry.clone());
+            Ok(entry_json)
+        }
+
+        fn get_relation(&self, relation_id: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push(format!("get_relation:{relation_id}"));
+            Err(FfiError::Rejected {
+                code: "INVALID_INPUT".into(),
+                message: "relation serving not exercised by this test handler".into(),
+                kind: None,
+                wire_code: None,
+            })
+        }
+
+        fn put_relation(
+            &self,
+            _relation_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("put_relation".into());
+            Err(FfiError::Rejected {
+                code: "INVALID_INPUT".into(),
+                message: "relation serving not exercised by this test handler".into(),
+                kind: None,
+                wire_code: None,
+            })
+        }
+
+        fn list_knowledge_entries(&self, _scope_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("list_knowledge_entries".into());
+            let entries: Vec<Value> = self
+                .entries
+                .lock()
+                .expect("entries lock")
+                .values()
+                .cloned()
+                .collect();
+            Ok(serde_json::to_string(&entries).expect("entries serialize"))
+        }
+
+        fn list_timeline_events(&self, _scope_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("list_timeline_events".into());
+            Ok("[]".to_string())
+        }
+
+        fn put_findings(&self, _findings_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("put_findings".into());
+            Ok("[]".to_string())
+        }
+
+        fn list_rules(&self, _rule_refs: Vec<String>) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("list_rules".into());
+            Ok("[]".to_string())
+        }
+
+        fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("list_peer_host_capability_manifests".into());
+            Ok("[]".to_string())
+        }
+
+        fn project(&self, project_request_json: String) -> Result<String, FfiError> {
+            self.calls.lock().expect("calls lock").push("project".into());
+            let request: Value =
+                serde_json::from_str(&project_request_json).expect("test handler receives JSON");
+            Ok(serde_json::to_string(&json!({
+                "session_id": request["session_id"],
+                "entry_id": request["entry_id"],
+                "computable": { "tide_level": 2.4, "cargo_tons": 38 },
+            }))
+            .expect("project response serializes"))
+        }
+
+        fn compute(&self, compute_request_json: String) -> Result<String, FfiError> {
+            self.calls.lock().expect("calls lock").push("compute".into());
+            let request: Value =
+                serde_json::from_str(&compute_request_json).expect("test handler receives JSON");
+            Ok(serde_json::to_string(&json!({
+                "session_id": request["session_id"],
+                "entry_id": request["entry_id"],
+                "computable": request["computable"],
+                "state": request["computable"],
+            }))
+            .expect("compute response serializes"))
+        }
+
+        fn list_fork_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("list_fork_timeline_events".into());
+            let scope: Value =
+                serde_json::from_str(&scope_json).expect("test handler receives JSON");
+            let events = if scope["fork_id"] == "fork_tw_ffi_events" {
+                vec![json!({
+                    "schema_version": 1,
+                    "timeline_event_id": "evt_tw_ffi_storm",
+                    "canonical_name": "FFI Fork Storm",
+                    "fork_id": "fork_tw_ffi_events",
+                    "extensions": {},
+                })]
+            } else {
+                vec![]
+            };
+            Ok(serde_json::to_string(&events).expect("events serialize"))
+        }
+    }
+
+    #[test]
+    fn connect_responder_ffi_serves_baseline_ports_through_a_foreign_ports_handler() {
+        let (handler, _entries, responder_calls) = ports_handler();
+        let (responder, dialer) = dial_responder_ffi_with_ports(Some(handler));
+
+        // Put → the callback receives the entry JSON and stores it; the
+        // stored entry JSON comes back as the success payload (JSON
+        // round-trip through the callback).
+        let entry = knowledge_entry_json("kb_ffi_ports_put", "FFI Ports Put");
+        let put_json = dialer
+            .put_knowledge_entry(entry.clone(), None)
+            .expect("put through the foreign ports handler");
+        assert_eq!(put_json, entry);
+
+        // Get → the callback serves the stored entry.
+        let get_json = dialer
+            .get_knowledge_entry("kb_ffi_ports_put".to_string())
+            .expect("get through the foreign ports handler");
+        assert_eq!(
+            serde_json::from_str::<Value>(&get_json).expect("get json")["canonical_name"],
+            "FFI Ports Put"
+        );
+
+        // Application-reject passthrough: an unknown entry rejects with the
+        // callback's locked code + re-hung `kind` (the inverse of
+        // `map_spoke_reject`) — ordinary deny, NOT containment.
+        let err = dialer
+            .get_knowledge_entry("kb_ffi_ports_missing".to_string())
+            .expect_err("unknown entry must reject");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    ref kind,
+                    wire_code: None,
+                    ..
+                } if code == "KNOWLEDGE_ENTRY_NOT_FOUND"
+                    && kind.as_deref() == Some("store_miss")
+            ),
+            "expected application passthrough row, got {err:?}"
+        );
+
+        assert_eq!(
+            responder_calls.lock().expect("calls lock").len(),
+            3,
+            "the foreign ports handler served put / get / denied get"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_serves_optional_port_families_through_a_foreign_ports_handler() {
+        let (handler, _entries, responder_calls) = ports_handler();
+        let (responder, dialer) = dial_responder_ffi_with_ports(Some(handler));
+
+        // Project round-trip: the callback answers with the materialized
+        // computable view; the dialer parses the ProjectResponse JSON.
+        let project_json = dialer
+            .project(
+                json!({
+                    "session_id": "sess_ffi_ports",
+                    "entry_id": "kb_ffi_ports_proj",
+                    "state": { "tide_level": 2.1, "cargo_tons": 40 },
+                })
+                .to_string(),
+            )
+            .expect("project through the foreign ports handler");
+        let project: Value = serde_json::from_str(&project_json).expect("project json");
+        assert_eq!(project["session_id"], "sess_ffi_ports");
+        assert_eq!(project["entry_id"], "kb_ffi_ports_proj");
+        assert_eq!(
+            project["computable"],
+            json!({ "tide_level": 2.4, "cargo_tons": 38 })
+        );
+
+        // Compute round-trip: request computable echoed + merged state.
+        let compute_json = dialer
+            .compute(
+                json!({
+                    "session_id": "sess_ffi_ports",
+                    "entry_id": "kb_ffi_ports_cmp",
+                    "computable": { "tide_level": 2.5, "cargo_tons": 37 },
+                    "settle": true,
+                })
+                .to_string(),
+            )
+            .expect("compute through the foreign ports handler");
+        let compute: Value = serde_json::from_str(&compute_json).expect("compute json");
+        assert_eq!(
+            compute["computable"],
+            json!({ "tide_level": 2.5, "cargo_tons": 37 })
+        );
+        assert_eq!(
+            compute["state"],
+            json!({ "tide_level": 2.5, "cargo_tons": 37 })
+        );
+
+        // Fork round-trip: the callback's canned fork-branch event carries
+        // the fork_id through the loopback.
+        let events_json = dialer
+            .list_fork_timeline_events(
+                json!({
+                    "scope_id": "pkt_tw_scope",
+                    "fork_id": "fork_tw_ffi_events",
+                })
+                .to_string(),
+            )
+            .expect("fork round-trip through the foreign ports handler");
+        let events: Value = serde_json::from_str(&events_json).expect("events json");
+        assert_eq!(events.as_array().expect("array").len(), 1);
+        assert_eq!(events[0]["timeline_event_id"], "evt_tw_ffi_storm");
+        assert_eq!(events[0]["fork_id"], "fork_tw_ffi_events");
+
+        // Baseline serving stays green in the same session (user lock: the
+        // callback serves baseline + optional, not baseline-only).
+        let err = dialer
+            .get_knowledge_entry("kb_ffi_ports_missing_2".to_string())
+            .expect_err("absent entry rejects");
+        assert!(
+            matches!(err, FfiError::Rejected { ref code, .. } if code == "KNOWLEDGE_ENTRY_NOT_FOUND"),
+            "expected application passthrough row, got {err:?}"
+        );
+
+        let calls = responder_calls.lock().expect("calls lock");
+        assert_eq!(
+            calls.iter().filter(|call| call.as_str() == "project").count(),
+            1,
+            "the foreign ports handler served project"
+        );
+        assert_eq!(
+            calls.iter().filter(|call| call.as_str() == "compute").count(),
+            1,
+            "the foreign ports handler served compute"
+        );
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|call| call.as_str() == "list_fork_timeline_events")
+                .count(),
+            1,
+            "the foreign ports handler served list_fork_timeline_events"
+        );
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn connect_responder_ffi_contains_a_panicking_foreign_ports_handler_and_the_session_survives() {
+        let (handler, _entries, _calls) = ports_handler();
+        let (responder, dialer) = dial_responder_ffi_with_ports(Some(handler));
+
+        // Foreign panic inside the callback → the bridge's JoinError
+        // containment row → INTERNAL_ERROR with details: None (the serve
+        // loop's own catch_unwind stays the last line of defense).
+        let err = dialer
+            .get_knowledge_entry("kb_ffi_ports_boom".to_string())
+            .expect_err("panicking handler must be contained");
+        assert!(
+            matches!(
+                err,
+                FfiError::Rejected {
+                    ref code,
+                    kind: None,
+                    wire_code: None,
+                    ..
+                } if code == "INTERNAL_ERROR"
+            ),
+            "expected containment row, got {err:?}"
+        );
+
+        // The session survived: a healthy op still serves through the
+        // callback (post-containment healthy invoke).
+        let healthy = dialer
+            .put_knowledge_entry(
+                knowledge_entry_json("kb_ffi_ports_after", "After Containment"),
+                None,
+            )
+            .expect("post-containment put succeeds");
+        assert_eq!(
+            serde_json::from_str::<Value>(&healthy).expect("put json")["entry_id"].as_str(),
+            Some("kb_ffi_ports_after")
+        );
+
+        dialer.close();
+        responder.close();
     }
 }
 

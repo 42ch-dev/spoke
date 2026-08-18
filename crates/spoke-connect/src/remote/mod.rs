@@ -10,16 +10,17 @@
 //! [`RemoteAdapter::register_tool_handler`] / [`RemoteAdapter::invoke_tool`]
 //! — reverse invokes served per the frozen §4 pipeline),
 //! [`connect_remote_adapter`] (dial), [`connect_responder`] (the
-//! productized responder: handshake recipe + `port.*` serving + the
-//! reverse `invoke_tool` face), the [`Transport`] trait, the in-repo
-//! loopback transport pair for tests, and the multi-peer capability router
-//! ([`MultiPeerRouter`] + [`connect_multi_peer_router`] — capability-selected
-//! async `BaselinePorts` over N registered per-peer adapters, frozen
-//! multi-peer routing contract).
+//! productized responder: handshake recipe + `port.*` serving through the
+//! [`RemoteServePorts`] seam + the reverse `invoke_tool` face), the
+//! [`Transport`] trait, the in-repo loopback transport pair for tests, and
+//! the multi-peer capability router ([`MultiPeerRouter`] +
+//! [`connect_multi_peer_router`] — capability-selected async `BaselinePorts`
+//! over N registered per-peer adapters, frozen multi-peer routing contract).
 
 mod multi_peer_router;
 mod remote_adapter;
 mod responder;
+mod serve_ports;
 pub mod transport;
 
 pub use multi_peer_router::{
@@ -33,6 +34,7 @@ pub use remote_adapter::{
 pub use responder::{
     connect_responder, ConnectResponder, ConnectResponderOptions, ConnectResponderState,
 };
+pub use serve_ports::{RemoteServePorts, RemoteServePortsComposite};
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,
 };

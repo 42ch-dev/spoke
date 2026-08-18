@@ -78,5 +78,5 @@ self-contained and works without publishing anything.
 
 - Only the Go generation toolchain is forked. The `spoke-connect` uniffi
   0.32 pin, Swift/C# bindings, and the Rust suite are untouched.
-- No dual-pin: a single uniffi 0.32 cdylib serves every Path B language on
-  the pin.
+- No dual-pin: a single uniffi 0.32 cdylib serves every language-native
+  binding on the pin.

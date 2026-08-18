@@ -61,10 +61,11 @@ const DEFAULT_ROUTER_HOST_ID: &str = "multi-peer-router";
 /// required capability IS the op string itself (no registry, no umbrella
 /// flag). Orchestrated baseline families and the `port.*` baseline ops
 /// require `spoke-baseline`; the computable families require
-/// `l2-computable`. Product-defined ops are product-documented and have no
-/// row here; selection REJECTS ops outside this table (`no_capable_peer`) —
-/// an op with no gate must not fall through ungated (QC2 S-1). The router's
-/// fixed six-family surface only ever queries the `port.*` rows (mirrors the
+/// `l2-computable`; the fork timeline family requires `l5-fork`.
+/// Product-defined ops are product-documented and have no row here;
+/// selection REJECTS ops outside this table (`no_capable_peer`) — an op
+/// with no gate must not fall through ungated (QC2 S-1). The router's fixed
+/// six-family surface only ever queries the `port.*` rows (mirrors the
 /// RemoteAdapter `PORT_OPS` catalogue). The output lifetime is tied to `op`
 /// (`Option<&str>`); static rows coerce.
 fn required_capability(op: &str) -> Option<&str> {
@@ -84,8 +85,11 @@ fn required_capability(op: &str) -> Option<&str> {
         | "port.scope.list_timeline_events"
         | "port.finding.put"
         | "port.rule.list" => Some("spoke-baseline"),
-        // Optional l2-computable port ops (not delegated by the baseline surface).
+        // Optional l2-computable / l5-fork port ops (not delegated by the
+        // baseline surface — the rows exist so the ops are capability-mapped,
+        // never ungated; mirrors the inert computable rows).
         "port.computable.project" | "port.computable.compute" => Some("l2-computable"),
+        "port.fork.list_timeline_events" => Some("l5-fork"),
         _ => None,
     }
 }
@@ -1350,6 +1354,118 @@ mod tests {
         );
         assert!(closed.calls().is_empty());
         assert!(handshaking.calls().is_empty());
+    }
+
+    // ── Pure selection — fork gate row (port.fork.list_timeline_events) ──
+    // Parity mirror of the TS fork-row suite: the op is capability-mapped
+    // to l5-fork by the gate-table row (inert for the router's fixed
+    // six-family surface), never an unknown-op rejection.
+
+    #[tokio::test]
+    async fn selects_the_peer_whose_manifest_advertises_l5_fork() {
+        let fork_peer = SelectablePeer {
+            peer_id: "peer-fork".to_string(),
+            manifest: manifest("h-fork", &["l5-fork"]),
+        };
+        let baseline = SelectablePeer {
+            peer_id: "peer-baseline".to_string(),
+            manifest: manifest("h-baseline", &["spoke-baseline"]),
+        };
+
+        let selection = select_peer_for_op(
+            &[baseline, fork_peer],
+            "port.fork.list_timeline_events",
+            &json!({ "scope": { "scope_id": "s1" } }),
+        );
+
+        match selection {
+            SpokeResult::Ok(peer) => {
+                assert_eq!(peer.peer_id.as_str(), "peer-fork");
+            }
+            SpokeResult::Reject(reject) => panic!("fork selection must succeed: {reject:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_with_no_capable_peer_when_no_peer_advertises_l5_fork() {
+        let baseline = SelectablePeer {
+            peer_id: "peer-a".to_string(),
+            manifest: manifest("h-a", &["spoke-baseline"]),
+        };
+
+        let selection = select_peer_for_op(
+            &[baseline],
+            "port.fork.list_timeline_events",
+            &json!({ "scope": { "scope_id": "s1" } }),
+        );
+
+        match selection {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("kind"))
+                        .and_then(|kind| kind.as_str()),
+                    Some("no_capable_peer")
+                );
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("op"))
+                        .and_then(|op| op.as_str()),
+                    Some("port.fork.list_timeline_events")
+                );
+                // Capability-gate reason — proves the op resolved through
+                // the gate table (pre-fill it was rejected as an unknown op
+                // with no mapping).
+                assert!(
+                    reject
+                        .message
+                        .contains("no peer advertises capability \"l5-fork\"")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("no l5-fork peer must reject"),
+        }
+    }
+
+    #[tokio::test]
+    async fn keeps_the_no_capable_peer_regression_for_ops_outside_the_table() {
+        // Even a capable peer cannot rescue an op with no gate row — the
+        // unknown-op reject is terminal, never an ungated fall-through
+        // (QC2 S-1).
+        let fork_peer = SelectablePeer {
+            peer_id: "peer-a".to_string(),
+            manifest: manifest("h-a", &["l5-fork"]),
+        };
+
+        let selection = select_peer_for_op(
+            &[fork_peer],
+            "port.fork.list_timeline_events.missing",
+            &json!({}),
+        );
+
+        match selection {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("kind"))
+                        .and_then(|kind| kind.as_str()),
+                    Some("no_capable_peer")
+                );
+                assert!(
+                    reject
+                        .message
+                        .contains("no capability mapping for unknown op")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("unknown op must not select a peer"),
+        }
     }
 
     // ── Pure selection — unknown-op capability gate (QC2 S-1) ─────────────

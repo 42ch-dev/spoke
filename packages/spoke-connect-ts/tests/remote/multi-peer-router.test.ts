@@ -593,6 +593,69 @@ describe("selectPeerForOp unknown-op rejection (QC2 S-1)", () => {
   });
 });
 
+describe("selectPeerForOp fork gate row (port.fork.list_timeline_events → l5-fork)", () => {
+  it("selects the peer whose manifest advertises l5-fork (gate-table row, inert for the six-family surface)", () => {
+    const forkPeer: SelectablePeer = {
+      peerId: "peer-fork",
+      manifest: manifest({ host_id: "h-fork", capabilities: ["l5-fork"] }),
+    };
+    const baseline: SelectablePeer = {
+      peerId: "peer-baseline",
+      manifest: manifest({ host_id: "h-baseline" }),
+    };
+    const selection = selectPeerForOp(
+      [baseline, forkPeer],
+      "port.fork.list_timeline_events",
+      { scope: { scope_id: "s1" } },
+    );
+    expect(selection.ok).toBe(true);
+    if (selection.ok) {
+      expect(selection.value.peerId).toBe("peer-fork");
+    }
+  });
+
+  it("rejects with the locked no_capable_peer when no peer advertises l5-fork — capability-mapped, not unknown-op", () => {
+    const baseline: SelectablePeer = {
+      peerId: "peer-a",
+      manifest: manifest({ host_id: "h-a" }),
+    };
+    const selection = selectPeerForOp(
+      [baseline],
+      "port.fork.list_timeline_events",
+      { scope: { scope_id: "s1" } },
+    );
+    expect(selection.ok).toBe(false);
+    if (!selection.ok) {
+      expect(selection.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(selection.details?.kind).toBe("no_capable_peer");
+      expect(selection.details?.op).toBe("port.fork.list_timeline_events");
+      // Capability-gate reason — proves the op resolved through the gate
+      // table (pre-fill it was rejected as an unknown op with no mapping).
+      expect(selection.message).toContain(
+        'no peer advertises capability "l5-fork"',
+      );
+    }
+  });
+
+  it("keeps the no_capable_peer regression for ops outside the table (never falls through ungated)", () => {
+    const forkPeer: SelectablePeer = {
+      peerId: "peer-a",
+      manifest: manifest({ host_id: "h-a", capabilities: ["l5-fork"] }),
+    };
+    const selection = selectPeerForOp(
+      [forkPeer],
+      "port.fork.list_timeline_events.missing",
+      {},
+    );
+    expect(selection.ok).toBe(false);
+    if (!selection.ok) {
+      expect(selection.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(selection.details?.kind).toBe("no_capable_peer");
+      expect(selection.message).toContain("no capability mapping for unknown op");
+    }
+  });
+});
+
 describe("selectPeerForOp role preference (§3 step 5)", () => {
   const plain: SelectablePeer = {
     peerId: "peer-a",

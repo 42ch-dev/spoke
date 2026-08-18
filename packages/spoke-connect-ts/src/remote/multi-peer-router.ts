@@ -54,12 +54,12 @@ const DEFAULT_ROUTER_HOST_ID = "multi-peer-router";
 /**
  * Required capability per op family (contract §2 — locked). Orchestrated
  * baseline families and the `port.*` baseline ops require `spoke-baseline`;
- * the computable families require `l2-computable`. Product-defined ops are
- * product-documented and have no row here; selection REJECTS ops outside
- * this table (`no_capable_peer`) — an op with no gate must not fall through
- * ungated (QC2 S-1). The router's fixed six-family surface only ever
- * queries the `port.*` rows (mirrors the RemoteAdapter `PORT_OPS`
- * catalogue).
+ * the computable families require `l2-computable`; the fork timeline family
+ * requires `l5-fork`. Product-defined ops are product-documented and have
+ * no row here; selection REJECTS ops outside this table
+ * (`no_capable_peer`) — an op with no gate must not fall through ungated
+ * (QC2 S-1). The router's fixed six-family surface only ever queries the
+ * `port.*` rows (mirrors the RemoteAdapter `PORT_OPS` catalogue).
  */
 const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
   // Orchestrated op families.
@@ -79,9 +79,12 @@ const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
   "port.scope.list_timeline_events": "spoke-baseline",
   "port.finding.put": "spoke-baseline",
   "port.rule.list": "spoke-baseline",
-  // Optional l2-computable port ops (not delegated by the baseline surface).
+  // Optional l2-computable / l5-fork port ops (not delegated by the
+  // baseline surface — the rows exist so the ops are capability-mapped,
+  // never ungated; mirrors the inert computable rows).
   "port.computable.project": "l2-computable",
   "port.computable.compute": "l2-computable",
+  "port.fork.list_timeline_events": "l5-fork",
 };
 
 /**

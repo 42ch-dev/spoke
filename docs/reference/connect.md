@@ -172,6 +172,7 @@ Each operation maps to the capability it requires on the session's `negotiated_c
 |-----------|---------------------|
 | `upsert`, `promote`, `relate`, `check`, `assemble` (and the `port.*` baseline ops) | `spoke-baseline` |
 | `project`, `compute` (and `port.computable.*`) | `l2-computable` |
+| `listForkTimelineEvents` (and `port.fork.*`) | `l5-fork` |
 | Product-defined operations | The capability the product documents |
 
 A capability-token grant authorizes session membership for the ops its `capabilities[]` covers, but it does not replace `negotiated_capabilities` — both the token grant and the negotiated set must allow an op when the token gate is active.
@@ -191,9 +192,64 @@ The RemoteAdapter proxies each `BaselinePorts` method as a connect invoke with a
 | `putFindings` | `port.finding.put` | `{ "findings": Finding[] }` | `Finding[]` |
 | `listRules` | `port.rule.list` | `{ "rule_refs": string[] }` | `Rule[]` |
 | `listPeerHostCapabilityManifests` | `port.host.list_peer_manifests` | `{}` | `HostCapabilityManifest[]` |
+| `project` | `port.computable.project` | `{ "session_id": string, "entry_id": string, "state": ComputableFieldMap }` | `ProjectResponse` |
+| `compute` | `port.computable.compute` | `{ "session_id": string, "entry_id": string, "computable": ComputableFieldMap, "settle": boolean }` | `ComputeResponse` |
+| `listForkTimelineEvents` | `port.fork.list_timeline_events` | `{ "scope": { "scope_id": string, "fork_id": string } }` | `TimelineEvent[]` |
 | `getHostCapabilityManifest` | *(none — session cache)* | — | The remote hello `host`, cached at establish; no round-trip |
 
-Optional families reserve `port.computable.*` (`project` / `compute`, `l2-computable`) and `port.fork.*` (`listForkTimelineEvents`, `l5-fork`) for future products; the baseline adapter ships the table above.
+The optional `l2-computable` (`project` / `compute`) and `l5-fork` (`listForkTimelineEvents`) families ship in the same catalogue, capability-gated like the baseline rows — see [Optional port families](#optional-port-families) for the declare / serve / drive / deny contract across the library and the native bindings.
+
+## Optional port families
+
+Two optional families extend the port catalogue beyond `spoke-baseline`: `l2-computable` (`project` / `compute` sessions) and `l5-fork` (fork-branch timeline queries). They follow the same port pattern as the baseline rows — a manifest-declared capability, a responder-served provider face, and a RemoteAdapter proxy method — with one extra rule: **the family must be negotiated**. Both manifests must declare it in `capabilities[]`, so the session's `negotiated_capabilities` (the both-hello intersection) contains it; the responder's dispatch gate evaluates the negotiated set, and a family only one side declared is denied like an unknown op.
+
+### Declare
+
+| Family | Capability | Ops | Provider face |
+|--------|------------|-----|---------------|
+| Computable sessions | `l2-computable` | `project` / `compute` | `ComputablePort` |
+| Fork timelines | `l5-fork` | `listForkTimelineEvents` | `ForkTimelineQueryPort` |
+
+The provider faces are the operations-crate contracts (`@42ch/spoke-operations`); the composed `FullPorts` type is `BaselinePorts & ComputablePort & ForkTimelineQueryPort`.
+
+### Serve (responder)
+
+The responder serves a `port.*` invoke through its injected `ports` provider. Optional families ride the same seam with a structural probe before dispatch — gate → probe → serve/deny:
+
+| Face | Shape |
+|------|-------|
+| TypeScript — `connectResponder({ ports })` | A `ports` provider implementing `BaselinePorts` plus the optional methods (`project` / `compute` / `listForkTimelineEvents`); the composed `FullPorts` type covers all twelve serve methods |
+| Rust — `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>`: the blanket impl serves every family when the provider implements `BaselinePorts + ComputablePort + ForkTimelineQueryPort`; mixed hosts compose via `RemoteServePortsComposite::new(baseline, computable, fork)`, passing `None` for faces they do not provide |
+| FFI — `connect_responder_ffi` `ports` argument | Optional foreign-callback `PortsHandler` implementing all twelve methods (nine baseline + three optional); see the callback table below |
+
+| FFI `PortsHandler` method | Family | Serves op |
+|---------------------------|--------|-----------|
+| `get_knowledge_entry(entry_id)` | baseline | `port.knowledge.get` |
+| `put_knowledge_entry(entry_json, expected_base_revision)` | baseline | `port.knowledge.put` |
+| `get_relation(relation_id)` / `put_relation(relation_json, expected_base_revision)` | baseline | `port.relation.get` / `port.relation.put` |
+| `list_knowledge_entries(scope_json)` / `list_timeline_events(scope_json)` | baseline | `port.scope.list_knowledge_entries` / `port.scope.list_timeline_events` |
+| `put_findings(findings_json)` | baseline | `port.finding.put` |
+| `list_rules(rule_refs)` | baseline | `port.rule.list` |
+| `list_peer_host_capability_manifests()` | baseline | `port.host.list_peer_manifests` |
+| `project(project_request_json)` | `l2-computable` | `port.computable.project` |
+| `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
+| `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+
+Each `PortsHandler` method takes the request payload as a JSON string and returns the success payload as a JSON string. `get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method that does not serve an op raises `FfiError.Rejected`, which passes through to the invoker as an application reject; an absent `ports` handler (constructor `ports = None`) keeps the documented deny branch for every `port.*` invoke.
+
+### Drive (adapter)
+
+The RemoteAdapter proxies the three optional ops on the established session like any baseline method:
+
+| Face | Methods |
+|------|---------|
+| TypeScript `RemoteAdapter` | `project(request)` / `compute(request)` / `listForkTimelineEvents(scope)` — typed requests, `SpokeResult` settles |
+| Rust `RemoteAdapter` | `project(request)` / `compute(request)` / `list_fork_timeline_events(scope)` — the same contract |
+| FFI `RemoteAdapterFFI` | `project(project_request_json)` / `compute(compute_request_json)` / `list_fork_timeline_events(scope_json)` — JSON in / JSON out |
+
+### Deny mapping
+
+Optional-port denials surface through the same row as every other dispatch deny: the responder gate answers the wire code `op_unsupported` (family not negotiated — neither side declared it, or only one did) and the RemoteAdapter maps it to a `CAPABILITY_PORT_MISSING` reject with `details.wire_code = "op_unsupported"`; over FFI the same row is `FfiError.Rejected` with `code: "CAPABILITY_PORT_MISSING"` and the preserved `wire_code`. A host that declared a family but serves no provider face for it — absent `ports`, or a probe-missing method — answers the same deny branch, so the caller always observes the denial, never a silent success.
 
 ## Tools (reverse invokes)
 

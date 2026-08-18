@@ -438,13 +438,15 @@ listen/accept in its own network stack. The constructor resolves immediately
 (the responder returns in `Handshaking`); allowlist / hello-verify denies
 surface as `state() → "Closed"` with `session_id() → None` (no error row),
 while config-validation failures (seed length, manifest JSON, peer-key
-length) return `FfiError::Dial { kind: "config" }`. `ports` stays absent on
-the FFI responder — a `port.*` invoke is answered with the documented deny
-branch (`CAPABILITY_PORT_MISSING`, `wire_code: "op_unsupported"`).
+length) return `FfiError::Dial { kind: "config" }`. The optional `ports`
+parameter accepts a foreign `PortsHandler`: a passed handler serves
+`port.*` invokes (baseline + optional families) through the callback
+bridge, while an absent handler preserves the documented deny branch
+(`CAPABILITY_PORT_MISSING`, `wire_code: "op_unsupported"`).
 
 | Rust (FFI) | Swift | Behavior |
 |------------|-------|----------|
-| `connect_responder_ffi(transport, seed, manifest_json, allowlist, peer_keys, invoke_timeout_ms) -> Result<ConnectResponderFFI, FfiError>` | `connectResponderFfi(transport:seed:manifestJson:allowlist:peerKeys:invokeTimeoutMs:) throws -> ConnectResponderFfi` | Accept-side constructor over the callback `Transport`; returns a live responder handle |
+| `connect_responder_ffi(transport, seed, manifest_json, allowlist, peer_keys, ports, invoke_timeout_ms) -> Result<ConnectResponderFFI, FfiError>` | `connectResponderFfi(transport:seed:manifestJson:allowlist:peerKeys:ports:invokeTimeoutMs:) throws -> ConnectResponderFfi` | Accept-side constructor over the callback `Transport`; returns a live responder handle |
 
 | Rust (FFI) | Swift | Methods |
 |------------|-------|---------|

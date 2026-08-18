@@ -38,7 +38,7 @@ Root `Package.swift` exposes product `SpokeConnect` from package `spoke`. The `s
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed xcframework + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`invokeTool`, `registerToolHandler`, `ToolHandler`, `connectResponderFfi` / `ConnectResponderFfi`) — **no** `startLoopbackSmokeHost` |
+| Committed xcframework + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`invokeTool`, `registerToolHandler`, `ToolHandler`, `connectResponderFfi` / `ConnectResponderFfi`), the optional-port dialer ops (`project` / `compute` / `listForkTimelineEvents` on `RemoteAdapterFfi`), and the responder ports face (optional `ports:` on `connectResponderFfi` + the `PortsHandler` callback) — **no** `startLoopbackSmokeHost` |
 | Local smoke cdylib + smoke Swift bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -46,7 +46,7 @@ Full loopback smoke procedure: [`Smoke/README.md`](Smoke/README.md).
 
 ## RemoteAdapter FFI surface
 
-With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` protocol, the in-memory loopback helpers, and the tool faces — `invokeTool` on the adapter, router, and responder, `registerToolHandler` on the adapter and responder, the `ToolHandler` callback protocol, and `connectResponderFfi` / `ConnectResponderFfi` for the accept side.
+With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` protocol, the in-memory loopback helpers, and the tool faces — `invokeTool` on the adapter, router, and responder, `registerToolHandler` on the adapter and responder, the `ToolHandler` callback protocol, and `connectResponderFfi` / `ConnectResponderFfi` for the accept side. The optional-port dialer ops (`project` / `compute` / `listForkTimelineEvents` on `RemoteAdapterFfi`) and the responder ports face (`PortsHandler` + the optional `ports:` constructor parameter) ride the same session invoke path.
 
 ### Transport contract
 
@@ -68,8 +68,14 @@ The surface bounds messages at one envelope per call; byte-stream carriers apply
 
 - `invokeTool(capabilityId:argumentsJson:)` — invoke a tool on the peer (dialer → responder, responder → dialer, or router → capable peer); returns the tool's `result` as a JSON string. A non-`tools.` id or malformed arguments throws `FfiError.Rejected` with `code == "INVALID_INPUT"` and zero wire traffic; a dispatch deny throws `code == "CAPABILITY_PORT_MISSING"` with the peer's preserved `wireCode`.
 - `registerToolHandler(capabilityId:handler:)` — serve reverse invokes through a foreign `ToolHandler`; last-wins per id, never mutates the manifest. The callback's `handle(argumentsJson:)` returns the result JSON; a thrown `FfiError.Rejected` passes through verbatim as an application reject, any other outcome is contained to `INTERNAL_ERROR` and the session survives.
-- `connectResponderFfi(transport:seed:manifestJson:allowlist:peerKeys:invokeTimeoutMs:)` / `ConnectResponderFfi` — the accept side: wrap a connected (host-accepted) callback `Transport`. The constructor returns immediately in `Handshaking` — poll `state()` (bounded) to `Established` before invoking; a handshake failure surfaces as `state() == "Closed"` (never a thrown constructor error), config-validation failures throw `FfiError.Dial` with `kind == "config"`.
+- `connectResponderFfi(transport:seed:manifestJson:allowlist:peerKeys:ports:invokeTimeoutMs:)` / `ConnectResponderFfi` — the accept side: wrap a connected (host-accepted) callback `Transport`. The constructor returns immediately in `Handshaking` — poll `state()` (bounded) to `Established` before invoking; a handshake failure surfaces as `state() == "Closed"` (never a thrown constructor error), config-validation failures throw `FfiError.Dial` with `kind == "config"`.
 - Handlers run on the FFI blocking pool — do not synchronously call back into the FFI faces from `handle`; hand off asynchronously in the host instead.
+
+### Responder ports serving face (`PortsHandler`)
+
+The optional `ports:` constructor parameter (between `peerKeys` and `invokeTimeoutMs`) serves every declared `port.*` family through a foreign `PortsHandler` callback: the nine baseline serve ops (`getKnowledgeEntry` / `putKnowledgeEntry` / `getRelation` / `putRelation` / `listKnowledgeEntries` / `listTimelineEvents` / `putFindings` / `listRules` / `listPeerHostCapabilityManifests`) plus the three optional ops (`project` / `compute` / `listForkTimelineEvents`) — every method returns the op's result as a JSON string. Passing nothing keeps the documented absent-ports behavior: the constructor is still valid and every `port.*` op answers the default deny branch (`CAPABILITY_PORT_MISSING` with the peer's preserved `op_unsupported` wire code). Optional ops are capability-gated like the baseline rows: a session whose negotiated capabilities lack `l2-computable` / `l5-fork` denies at the responder's dispatch gate with the same deny row.
+
+Callback outcomes map strictly: `FfiError.Rejected` passes through verbatim as an application reject (kind re-hung onto details); a foreign exception, `Dial`, or panic is contained to `INTERNAL_ERROR` with `details: None` and the session survives. The ports callbacks behave like tool handlers — demand-driven, one blocking-pool thread per in-flight callback — so the same rules apply: never call back into the FFI surface from inside a ports callback (hand off asynchronously in the host instead), and size the host accordingly (one blocking-pool thread per transport end; ~256 full-duplex sessions at the tokio default cap). The dialer optional ops (`project` / `compute` / `listForkTimelineEvents` on `RemoteAdapterFfi`) reject malformed JSON locally with `INVALID_INPUT` and zero wire traffic.
 
 ## Layout
 

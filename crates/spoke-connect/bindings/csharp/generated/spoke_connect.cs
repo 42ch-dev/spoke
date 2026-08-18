@@ -690,6 +690,54 @@ static class _UniFFILib {
         ulong @callbackData,_UniFFILib.UniffiForeignFutureResultVoid @result
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod0(
+        ulong @uniffiHandle,RustBuffer @entryId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod1(
+        ulong @uniffiHandle,RustBuffer @entryJson,RustBuffer @expectedBaseRevision,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod2(
+        ulong @uniffiHandle,RustBuffer @relationId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod3(
+        ulong @uniffiHandle,RustBuffer @relationJson,RustBuffer @expectedBaseRevision,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod4(
+        ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod5(
+        ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod6(
+        ulong @uniffiHandle,RustBuffer @findingsJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod7(
+        ulong @uniffiHandle,RustBuffer @ruleRefs,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod8(
+        ulong @uniffiHandle,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod9(
+        ulong @uniffiHandle,RustBuffer @projectRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod10(
+        ulong @uniffiHandle,RustBuffer @computeRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod11(
+        ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfaceToolHandlerMethod0(
         ulong @uniffiHandle,RustBuffer @argumentsJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
@@ -705,6 +753,24 @@ static class _UniFFILib {
     public delegate void UniffiCallbackInterfaceTransportMethod2(
         ulong @uniffiHandle,IntPtr @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
+    [StructLayout(LayoutKind.Sequential)]
+    public struct UniffiVTableCallbackInterfacePortsHandler
+    {
+        public IntPtr @uniffiFree;
+        public IntPtr @uniffiClone;
+        public IntPtr @getKnowledgeEntry;
+        public IntPtr @putKnowledgeEntry;
+        public IntPtr @getRelation;
+        public IntPtr @putRelation;
+        public IntPtr @listKnowledgeEntries;
+        public IntPtr @listTimelineEvents;
+        public IntPtr @putFindings;
+        public IntPtr @listRules;
+        public IntPtr @listPeerHostCapabilityManifests;
+        public IntPtr @project;
+        public IntPtr @compute;
+        public IntPtr @listForkTimelineEvents;
+    }
     [StructLayout(LayoutKind.Sequential)]
     public struct UniffiVTableCallbackInterfaceToolHandler
     {
@@ -918,11 +984,31 @@ static class _UniFFILib {
     
     
     
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
     static _UniFFILib() {
         _UniFFILib.uniffiCheckContractApiVersion();
         _UniFFILib.uniffiCheckApiChecksums();
         
+        UniffiCallbackInterfacePortsHandler.Register();
         UniffiCallbackInterfaceToolHandler.Register();
         UniffiCallbackInterfaceTransport.Register();
         }
@@ -1474,6 +1560,17 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_compute(ulong @ptr,RustBuffer @computeRequestJson,ref UniffiRustCallStatus _uniffi_out_err
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest(ulong @ptr,ref UniffiRustCallStatus _uniffi_out_err
     );
 
@@ -1518,6 +1615,17 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_list_fork_timeline_events(ulong @ptr,RustBuffer @scopeJson,ref UniffiRustCallStatus _uniffi_out_err
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries(ulong @ptr,RustBuffer @scopeJson,ref UniffiRustCallStatus _uniffi_out_err
     );
 
@@ -1552,6 +1660,17 @@ static class _UniFFILib {
     public static extern
 #endif
      RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events(ulong @ptr,RustBuffer @scopeJson,ref UniffiRustCallStatus _uniffi_out_err
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_project(ulong @ptr,RustBuffer @projectRequestJson,ref UniffiRustCallStatus _uniffi_out_err
     );
 
     #if NET8_0_OR_GREATER
@@ -1640,6 +1759,17 @@ static class _UniFFILib {
     public static extern
 #endif
      RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_state(ulong @ptr,ref UniffiRustCallStatus _uniffi_out_err
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     void uniffi_spoke_connect_fn_init_callback_vtable_portshandler(IntPtr /*_UniFFILib.UniffiVTableCallbackInterfacePortsHandler*/ @vtable
     );
 
     #if NET8_0_OR_GREATER
@@ -1760,7 +1890,7 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
-     ulong uniffi_spoke_connect_fn_func_connect_responder_ffi(ulong @transport,RustBuffer @seed,RustBuffer @manifestJson,RustBuffer @allowlist,RustBuffer @peerKeys,RustBuffer @invokeTimeoutMs,ref UniffiRustCallStatus _uniffi_out_err
+     ulong uniffi_spoke_connect_fn_func_connect_responder_ffi(ulong @transport,RustBuffer @seed,RustBuffer @manifestJson,RustBuffer @allowlist,RustBuffer @peerKeys,RustBuffer @ports,RustBuffer @invokeTimeoutMs,ref UniffiRustCallStatus _uniffi_out_err
     );
 
     #if NET8_0_OR_GREATER
@@ -2838,6 +2968,17 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_compute(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest(
     );
 
@@ -2882,6 +3023,17 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries(
     );
 
@@ -2916,6 +3068,17 @@ static class _UniFFILib {
     public static extern
 #endif
      ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_project(
     );
 
     #if NET8_0_OR_GREATER
@@ -3047,6 +3210,138 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_get_relation(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_put_relation(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_put_findings(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_list_rules(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_project(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_compute(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      ushort uniffi_spoke_connect_checksum_method_toolhandler_handle(
     );
 
@@ -3153,8 +3448,8 @@ static class _UniFFILib {
         }
         {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_func_connect_responder_ffi();
-            if (checksum != 7775) {
-                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_func_connect_responder_ffi` checksum `7775`, library returned `{checksum}`");
+            if (checksum != 24246) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_func_connect_responder_ffi` checksum `24246`, library returned `{checksum}`");
             }
         }
         {
@@ -3356,6 +3651,12 @@ static class _UniFFILib {
             }
         }
         {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute();
+            if (checksum != 30870) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_compute` checksum `30870`, library returned `{checksum}`");
+            }
+        }
+        {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest();
             if (checksum != 41950) {
                 throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest` checksum `41950`, library returned `{checksum}`");
@@ -3380,6 +3681,12 @@ static class _UniFFILib {
             }
         }
         {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events();
+            if (checksum != 57279) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events` checksum `57279`, library returned `{checksum}`");
+            }
+        }
+        {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries();
             if (checksum != 8982) {
                 throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries` checksum `8982`, library returned `{checksum}`");
@@ -3401,6 +3708,12 @@ static class _UniFFILib {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events();
             if (checksum != 30715) {
                 throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events` checksum `30715`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_project();
+            if (checksum != 41885) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_project` checksum `41885`, library returned `{checksum}`");
             }
         }
         {
@@ -3467,6 +3780,78 @@ static class _UniFFILib {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new();
             if (checksum != 6716) {
                 throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_constructor_outboundsequence_new` checksum `6716`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry();
+            if (checksum != 40017) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry` checksum `40017`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry();
+            if (checksum != 48406) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry` checksum `48406`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_get_relation();
+            if (checksum != 48343) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_get_relation` checksum `48343`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_put_relation();
+            if (checksum != 3125) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_put_relation` checksum `3125`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries();
+            if (checksum != 43680) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries` checksum `43680`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events();
+            if (checksum != 58726) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events` checksum `58726`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_put_findings();
+            if (checksum != 24895) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_put_findings` checksum `24895`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_rules();
+            if (checksum != 64974) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_rules` checksum `64974`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests();
+            if (checksum != 48604) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests` checksum `48604`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_project();
+            if (checksum != 15269) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_project` checksum `15269`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_compute();
+            if (checksum != 8096) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_compute` checksum `8096`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events();
+            if (checksum != 36942) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events` checksum `36942`, library returned `{checksum}`");
             }
         }
         {
@@ -5032,6 +5417,13 @@ class FfiConverterTypeOutboundSequence: FfiConverter<OutboundSequence, ulong> {
 
 public interface IRemoteAdapterFfi {
     void Close();
+    /// <summary>
+    /// Optional l2-computable face (D4 catalogue): apply / settle
+    /// computable updates on the remote peer. Same boundary and deny
+    /// mapping as `project`.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string Compute(string @computeRequestJson);
     /// <exception cref="FfiException"></exception>
     string GetHostCapabilityManifest();
     /// <exception cref="FfiException"></exception>
@@ -5054,6 +5446,14 @@ public interface IRemoteAdapterFfi {
     /// </summary>
     /// <exception cref="FfiException"></exception>
     string InvokeTool(string @capabilityId, string @argumentsJson);
+    /// <summary>
+    /// Optional l5-fork face (D4 catalogue): query the remote peer's
+    /// fork-branch timeline, scoped like `list_timeline_events` with the
+    /// `fork_id` carried on the `Scope`. Same boundary and deny mapping
+    /// as `project` / `compute`.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string ListForkTimelineEvents(string @scopeJson);
     /// <exception cref="FfiException"></exception>
     string ListKnowledgeEntries(string @scopeJson);
     /// <exception cref="FfiException"></exception>
@@ -5062,6 +5462,19 @@ public interface IRemoteAdapterFfi {
     string ListRules(string[] @ruleRefs);
     /// <exception cref="FfiException"></exception>
     string ListTimelineEvents(string @scopeJson);
+    /// <summary>
+    /// Optional l2-computable face (D4 catalogue): project the session's
+    /// computable view on the remote peer. `project_request_json` in,
+    /// JSON-string `ProjectResponse` out; malformed request JSON rejects
+    /// `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+    /// local pre-gate — a peer that did not negotiate `l2-computable`
+    /// answers the responder's capability-gate deny, mapped through the
+    /// D7 row to `CAPABILITY_PORT_MISSING` with
+    /// `wire_code: "op_unsupported"` (same rows as the baseline port
+    /// methods).
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string Project(string @projectRequestJson);
     /// <exception cref="FfiException"></exception>
     string PutFindings(string @findingsJson);
     /// <exception cref="FfiException"></exception>
@@ -5187,6 +5600,20 @@ public class RemoteAdapterFfi : IRemoteAdapterFfi, IDisposable {
     
     
     
+    /// <summary>
+    /// Optional l2-computable face (D4 catalogue): apply / settle
+    /// computable updates on the remote peer. Same boundary and deny
+    /// mapping as `project`.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    public string Compute(string @computeRequestJson) {
+        return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
+    _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
+    _UniFFILib.uniffi_spoke_connect_fn_method_remoteadapterffi_compute(thisPtr, FfiConverterString.INSTANCE.Lower(@computeRequestJson), ref _status)
+)));
+    }
+    
+    
     /// <exception cref="FfiException"></exception>
     public string GetHostCapabilityManifest() {
         return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
@@ -5237,6 +5664,21 @@ public class RemoteAdapterFfi : IRemoteAdapterFfi, IDisposable {
     }
     
     
+    /// <summary>
+    /// Optional l5-fork face (D4 catalogue): query the remote peer's
+    /// fork-branch timeline, scoped like `list_timeline_events` with the
+    /// `fork_id` carried on the `Scope`. Same boundary and deny mapping
+    /// as `project` / `compute`.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    public string ListForkTimelineEvents(string @scopeJson) {
+        return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
+    _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
+    _UniFFILib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_fork_timeline_events(thisPtr, FfiConverterString.INSTANCE.Lower(@scopeJson), ref _status)
+)));
+    }
+    
+    
     /// <exception cref="FfiException"></exception>
     public string ListKnowledgeEntries(string @scopeJson) {
         return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
@@ -5269,6 +5711,26 @@ public class RemoteAdapterFfi : IRemoteAdapterFfi, IDisposable {
         return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
     _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
     _UniFFILib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events(thisPtr, FfiConverterString.INSTANCE.Lower(@scopeJson), ref _status)
+)));
+    }
+    
+    
+    /// <summary>
+    /// Optional l2-computable face (D4 catalogue): project the session's
+    /// computable view on the remote peer. `project_request_json` in,
+    /// JSON-string `ProjectResponse` out; malformed request JSON rejects
+    /// `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+    /// local pre-gate — a peer that did not negotiate `l2-computable`
+    /// answers the responder's capability-gate deny, mapped through the
+    /// D7 row to `CAPABILITY_PORT_MISSING` with
+    /// `wire_code: "op_unsupported"` (same rows as the baseline port
+    /// methods).
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    public string Project(string @projectRequestJson) {
+        return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
+    _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
+    _UniFFILib.uniffi_spoke_connect_fn_method_remoteadapterffi_project(thisPtr, FfiConverterString.INSTANCE.Lower(@projectRequestJson), ref _status)
 )));
     }
     
@@ -5977,6 +6439,574 @@ class FfiConverterTypeTransportError : FfiConverterRustBuffer<TransportException
 
 
 /// <summary>
+/// Foreign-callback responder ports face (D16): the native binding
+/// implements this synchronous D4 catalogue; [`into_remote_serve_ports`]
+/// bridges it into the async [`crate::remote::RemoteServePorts`] type
+/// the library responder serves through.
+///
+/// `Ok(json)` → the port method's success value `T` as JSON (parsed
+/// inside the bridge; malformed JSON is contained). `Err(FfiError::Rejected{..})`
+/// → an application `SpokeReject` passes through verbatim — rejecting
+/// an op the binding does not serve is ordinary deny, not containment.
+/// Any other outcome (`Dial`, foreign exception, panic) is contained to
+/// `INTERNAL_ERROR` with `details: None`. `getHostCapabilityManifest`
+/// is NOT in the catalogue — it is a session-cache face, not a D4 serve
+/// op; the bridge answers an internal error if it is ever reached.
+///
+/// Re-entrancy caveat: never call back into the FFI surface from inside
+/// a ports callback (the `ToolHandler` rule, D16 §8.5).
+/// </summary>
+public interface PortsHandler {
+    /// <exception cref="FfiException"></exception>
+    string GetKnowledgeEntry(string @entryId);
+    /// <exception cref="FfiException"></exception>
+    string PutKnowledgeEntry(string @entryJson, ulong? @expectedBaseRevision);
+    /// <exception cref="FfiException"></exception>
+    string GetRelation(string @relationId);
+    /// <exception cref="FfiException"></exception>
+    string PutRelation(string @relationJson, ulong? @expectedBaseRevision);
+    /// <exception cref="FfiException"></exception>
+    string ListKnowledgeEntries(string @scopeJson);
+    /// <exception cref="FfiException"></exception>
+    string ListTimelineEvents(string @scopeJson);
+    /// <exception cref="FfiException"></exception>
+    string PutFindings(string @findingsJson);
+    /// <exception cref="FfiException"></exception>
+    string ListRules(string[] @ruleRefs);
+    /// <exception cref="FfiException"></exception>
+    string ListPeerHostCapabilityManifests();
+    /// <exception cref="FfiException"></exception>
+    string Project(string @projectRequestJson);
+    /// <exception cref="FfiException"></exception>
+    string Compute(string @computeRequestJson);
+    /// <exception cref="FfiException"></exception>
+    string ListForkTimelineEvents(string @scopeJson);
+}
+
+class UniffiCallbackInterfacePortsHandler {
+    static void GetKnowledgeEntry(ulong @uniffiHandle,RustBuffer @entryId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.GetKnowledgeEntry(
+                FfiConverterString.INSTANCE.Lift(@entryId));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void PutKnowledgeEntry(ulong @uniffiHandle,RustBuffer @entryJson,RustBuffer @expectedBaseRevision,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.PutKnowledgeEntry(
+                FfiConverterString.INSTANCE.Lift(@entryJson), 
+                FfiConverterOptionalUInt64.INSTANCE.Lift(@expectedBaseRevision));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void GetRelation(ulong @uniffiHandle,RustBuffer @relationId,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.GetRelation(
+                FfiConverterString.INSTANCE.Lift(@relationId));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void PutRelation(ulong @uniffiHandle,RustBuffer @relationJson,RustBuffer @expectedBaseRevision,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.PutRelation(
+                FfiConverterString.INSTANCE.Lift(@relationJson), 
+                FfiConverterOptionalUInt64.INSTANCE.Lift(@expectedBaseRevision));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ListKnowledgeEntries(ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ListKnowledgeEntries(
+                FfiConverterString.INSTANCE.Lift(@scopeJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ListTimelineEvents(ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ListTimelineEvents(
+                FfiConverterString.INSTANCE.Lift(@scopeJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void PutFindings(ulong @uniffiHandle,RustBuffer @findingsJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.PutFindings(
+                FfiConverterString.INSTANCE.Lift(@findingsJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ListRules(ulong @uniffiHandle,RustBuffer @ruleRefs,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ListRules(
+                FfiConverterSequenceString.INSTANCE.Lift(@ruleRefs));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ListPeerHostCapabilityManifests(ulong @uniffiHandle,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ListPeerHostCapabilityManifests();
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void Project(ulong @uniffiHandle,RustBuffer @projectRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.Project(
+                FfiConverterString.INSTANCE.Lift(@projectRequestJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void Compute(ulong @uniffiHandle,RustBuffer @computeRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.Compute(
+                FfiConverterString.INSTANCE.Lift(@computeRequestJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+    static void ListForkTimelineEvents(ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.ListForkTimelineEvents(
+                FfiConverterString.INSTANCE.Lift(@scopeJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
+
+    static void UniffiFree(ulong @handle) {
+        FfiConverterTypePortsHandler.INSTANCE.handleMap.Remove(@handle);
+    }
+
+    static ulong UniffiClone(ulong @handle) {
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(@handle, out var obj)) {
+                throw new InternalException($"No callback in handlemap '{@handle}'");
+            }
+            return FfiConverterTypePortsHandler.INSTANCE.handleMap.Insert(obj);
+        } catch (System.Exception) {
+            return 0; // 0 is never a valid handle; ConcurrentHandleMap starts at 1
+        }
+    }
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod0 _m0 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod0(GetKnowledgeEntry);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod1 _m1 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod1(PutKnowledgeEntry);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod2 _m2 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod2(GetRelation);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod3 _m3 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod3(PutRelation);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod4 _m4 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod4(ListKnowledgeEntries);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod5 _m5 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod5(ListTimelineEvents);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod6 _m6 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod6(PutFindings);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod7 _m7 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod7(ListRules);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod8 _m8 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod8(ListPeerHostCapabilityManifests);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9 _m9 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9(Project);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10 _m10 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10(Compute);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11 _m11 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11(ListForkTimelineEvents);
+    static _UniFFILib.UniffiCallbackInterfaceFree _callback_interface_free = new _UniFFILib.UniffiCallbackInterfaceFree(UniffiFree);
+    static _UniFFILib.UniffiCallbackInterfaceClone _callback_interface_clone = new _UniFFILib.UniffiCallbackInterfaceClone(UniffiClone);
+
+    private static GCHandle? _vtablePin;
+
+    public static void Register() {
+        if (_vtablePin.HasValue) return;
+        _UniFFILib.UniffiVTableCallbackInterfacePortsHandler _vtable = new _UniFFILib.UniffiVTableCallbackInterfacePortsHandler {
+            @getKnowledgeEntry = Marshal.GetFunctionPointerForDelegate(_m0),
+            @putKnowledgeEntry = Marshal.GetFunctionPointerForDelegate(_m1),
+            @getRelation = Marshal.GetFunctionPointerForDelegate(_m2),
+            @putRelation = Marshal.GetFunctionPointerForDelegate(_m3),
+            @listKnowledgeEntries = Marshal.GetFunctionPointerForDelegate(_m4),
+            @listTimelineEvents = Marshal.GetFunctionPointerForDelegate(_m5),
+            @putFindings = Marshal.GetFunctionPointerForDelegate(_m6),
+            @listRules = Marshal.GetFunctionPointerForDelegate(_m7),
+            @listPeerHostCapabilityManifests = Marshal.GetFunctionPointerForDelegate(_m8),
+            @project = Marshal.GetFunctionPointerForDelegate(_m9),
+            @compute = Marshal.GetFunctionPointerForDelegate(_m10),
+            @listForkTimelineEvents = Marshal.GetFunctionPointerForDelegate(_m11),
+            @uniffiFree = Marshal.GetFunctionPointerForDelegate(_callback_interface_free),
+            @uniffiClone = Marshal.GetFunctionPointerForDelegate(_callback_interface_clone),
+        };
+
+        // Pin the vtable so the GC never moves it. The GCHandle is intentionally never freed —
+        // this pin must remain valid for the process lifetime.
+        _vtablePin = GCHandle.Alloc(_vtable, GCHandleType.Pinned);
+        _UniFFILib.uniffi_spoke_connect_fn_init_callback_vtable_portshandler(_vtablePin.Value.AddrOfPinnedObject());
+    }
+}
+
+
+
+class ConcurrentHandleMap<T> where T: notnull {
+    readonly ConcurrentDictionary<ulong, T> _map = new();
+
+    // Handles are odd numbers (1, 3, 5, ...) — the lowest bit must always be set.
+    // Rust uses (handle & 1) to distinguish foreign-language handles from Rust Arc
+    // pointers, which are always even due to memory alignment. See uniffi_core/src/ffi/handle.rs.
+    const long HANDLE_INITIAL = 1;
+    const long HANDLE_DELTA = 2;
+    long _currentHandle = HANDLE_INITIAL - HANDLE_DELTA;
+
+    public ulong Insert(T obj) {
+        var handle = (ulong)Interlocked.Add(ref _currentHandle, HANDLE_DELTA);
+        if (!_map.TryAdd(handle, obj)) {
+            throw new InternalException("ConcurrentHandleMap: Duplicate handle");
+        }
+        return handle;
+    }
+
+    public bool TryGet(ulong handle, [NotNullWhen(true)] out T? result) {
+        return _map.TryGetValue(handle, out result);
+    }
+
+    public T Get(ulong handle) {
+        if (_map.TryGetValue(handle, out var result)) {
+            return result;
+        } else {
+            throw new InternalException("ConcurrentHandleMap: Invalid handle");
+        }
+    }
+
+    public bool Remove(ulong handle) {
+        return _map.TryRemove(handle, out _);
+    }
+
+    public bool Remove(ulong handle, [NotNullWhen(true)] out T? result) {
+        return _map.TryRemove(handle, out result);
+    }
+}
+static class UniffiCallbackResponseStatus {
+    public static sbyte SUCCESS = 0;
+    public static sbyte ERROR = 1;
+    public static sbyte UNEXPECTED_ERROR = 2;
+}
+
+// The ffiConverter which transforms the Callbacks in to Handles to pass to Rust.
+class FfiConverterTypePortsHandler: FfiConverter<PortsHandler, ulong> {
+    public static FfiConverterTypePortsHandler INSTANCE = new FfiConverterTypePortsHandler();
+
+    public ConcurrentHandleMap<PortsHandler> handleMap = new ConcurrentHandleMap<PortsHandler>();
+
+    public override ulong Lower(PortsHandler value) {
+        return handleMap.Insert(value);
+    }
+
+    public override PortsHandler Lift(ulong value) {
+        if (handleMap.TryGet(value, out var uniffiCallback)) {
+            return uniffiCallback;
+        } else {
+            throw new InternalException($"No callback in handlemap '{value}'");
+        }
+    }
+
+    public override PortsHandler Read(BigEndianStream stream) {
+        return Lift(stream.ReadULong());
+    }
+
+    public override int AllocationSize(PortsHandler value) {
+        return 8;
+    }
+
+    public override void Write(PortsHandler value, BigEndianStream stream) {
+        stream.WriteULong(Lower(value));
+    }
+}
+
+
+
+/// <summary>
 /// Foreign-callback tool handler (D16): the native binding implements
 /// this synchronous face; [`into_remote_handler`] bridges it into the
 /// async [`crate::remote::ToolHandler`] the library serving path runs.
@@ -6063,49 +7093,6 @@ class UniffiCallbackInterfaceToolHandler {
 
 
 
-class ConcurrentHandleMap<T> where T: notnull {
-    readonly ConcurrentDictionary<ulong, T> _map = new();
-
-    // Handles are odd numbers (1, 3, 5, ...) — the lowest bit must always be set.
-    // Rust uses (handle & 1) to distinguish foreign-language handles from Rust Arc
-    // pointers, which are always even due to memory alignment. See uniffi_core/src/ffi/handle.rs.
-    const long HANDLE_INITIAL = 1;
-    const long HANDLE_DELTA = 2;
-    long _currentHandle = HANDLE_INITIAL - HANDLE_DELTA;
-
-    public ulong Insert(T obj) {
-        var handle = (ulong)Interlocked.Add(ref _currentHandle, HANDLE_DELTA);
-        if (!_map.TryAdd(handle, obj)) {
-            throw new InternalException("ConcurrentHandleMap: Duplicate handle");
-        }
-        return handle;
-    }
-
-    public bool TryGet(ulong handle, [NotNullWhen(true)] out T? result) {
-        return _map.TryGetValue(handle, out result);
-    }
-
-    public T Get(ulong handle) {
-        if (_map.TryGetValue(handle, out var result)) {
-            return result;
-        } else {
-            throw new InternalException("ConcurrentHandleMap: Invalid handle");
-        }
-    }
-
-    public bool Remove(ulong handle) {
-        return _map.TryRemove(handle, out _);
-    }
-
-    public bool Remove(ulong handle, [NotNullWhen(true)] out T? result) {
-        return _map.TryRemove(handle, out result);
-    }
-}
-static class UniffiCallbackResponseStatus {
-    public static sbyte SUCCESS = 0;
-    public static sbyte ERROR = 1;
-    public static sbyte UNEXPECTED_ERROR = 2;
-}
 
 // The ffiConverter which transforms the Callbacks in to Handles to pass to Rust.
 class FfiConverterTypeToolHandler: FfiConverter<ToolHandler, ulong> {
@@ -6394,6 +7381,37 @@ class FfiConverterOptionalString: FfiConverterRustBuffer<string?> {
 
 
 
+class FfiConverterOptionalTypePortsHandler: FfiConverterRustBuffer<PortsHandler?> {
+    public static FfiConverterOptionalTypePortsHandler INSTANCE = new FfiConverterOptionalTypePortsHandler();
+
+    public override PortsHandler? Read(BigEndianStream stream) {
+        if (stream.ReadByte() == 0) {
+            return null;
+        }
+        return FfiConverterTypePortsHandler.INSTANCE.Read(stream);
+    }
+
+    public override int AllocationSize(PortsHandler? value) {
+        if (value == null) {
+            return 1;
+        } else {
+            return 1 + FfiConverterTypePortsHandler.INSTANCE.AllocationSize((PortsHandler)value);
+        }
+    }
+
+    public override void Write(PortsHandler? value, BigEndianStream stream) {
+        if (value == null) {
+            stream.WriteByte(0);
+        } else {
+            stream.WriteByte(1);
+            FfiConverterTypePortsHandler.INSTANCE.Write((PortsHandler)value, stream);
+        }
+    }
+}
+
+
+
+
 class FfiConverterSequenceString: FfiConverterRustBuffer<string[]> {
     public static FfiConverterSequenceString INSTANCE = new FfiConverterSequenceString();
 
@@ -6617,12 +7635,19 @@ public static class SpokeConnectMethods {
     /// `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
     /// deny, hello-verify deny) produce NO error row — they surface as
     /// `state() → "Closed"` with `session_id() → None`.
+    ///
+    /// `ports` is an OPTIONAL foreign-callback ports face (D16): passing a
+    /// [`PortsHandler`] serves `port.*` invokes (baseline + optional
+    /// families) through the callback bridge; passing `None` preserves the
+    /// documented absent-ports deny branch. The binding must not call back
+    /// into the FFI surface from inside a ports callback (re-entrancy
+    /// caveat, same rule as tool handlers).
     /// </summary>
     /// <exception cref="FfiException"></exception>
-    public static ConnectResponderFfi ConnectResponderFfi(Transport @transport, byte[] @seed, string @manifestJson, string[] @allowlist, Dictionary<string, byte[]> @peerKeys, ulong? @invokeTimeoutMs) {
+    public static ConnectResponderFfi ConnectResponderFfi(Transport @transport, byte[] @seed, string @manifestJson, string[] @allowlist, Dictionary<string, byte[]> @peerKeys, PortsHandler? @ports, ulong? @invokeTimeoutMs) {
         return FfiConverterTypeConnectResponderFFI.INSTANCE.Lift(
     _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
-    _UniFFILib.uniffi_spoke_connect_fn_func_connect_responder_ffi(FfiConverterTypeTransport.INSTANCE.Lower(@transport), FfiConverterByteArray.INSTANCE.Lower(@seed), FfiConverterString.INSTANCE.Lower(@manifestJson), FfiConverterSequenceString.INSTANCE.Lower(@allowlist), FfiConverterDictionaryStringByteArray.INSTANCE.Lower(@peerKeys), FfiConverterOptionalUInt64.INSTANCE.Lower(@invokeTimeoutMs), ref _status)
+    _UniFFILib.uniffi_spoke_connect_fn_func_connect_responder_ffi(FfiConverterTypeTransport.INSTANCE.Lower(@transport), FfiConverterByteArray.INSTANCE.Lower(@seed), FfiConverterString.INSTANCE.Lower(@manifestJson), FfiConverterSequenceString.INSTANCE.Lower(@allowlist), FfiConverterDictionaryStringByteArray.INSTANCE.Lower(@peerKeys), FfiConverterOptionalTypePortsHandler.INSTANCE.Lower(@ports), FfiConverterOptionalUInt64.INSTANCE.Lower(@invokeTimeoutMs), ref _status)
 ));
     }
 

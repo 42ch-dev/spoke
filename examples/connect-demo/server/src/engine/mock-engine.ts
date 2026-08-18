@@ -76,7 +76,10 @@ export class MockEngine {
   private readonly events: TimelineEvent[] = [];
   private readonly userFindings: Finding[] = [];
   private derivedFindings: Finding[] = [];
-  /** l2-computable sessions, keyed by client-owned `session_id`. */
+  /**
+   * l2-computable sessions, keyed by client-owned `session_id`. Demo-only:
+   * retained unbounded (simplify: no eviction — production stores must expire).
+   */
   private readonly computableSessions = new Map<string, ComputableSession>();
   /** Number of derivations performed — the digest revision equals this. */
   private derivationCount = 0;

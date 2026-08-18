@@ -38,6 +38,7 @@ func TestToolLoopbackFfiPair(t *testing.T) {
 		[]string{fixture.PeerIDClient},
 		map[string][]byte{fixture.PeerIDClient: pubkeyClient},
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("connect responder ffi: %v", err)

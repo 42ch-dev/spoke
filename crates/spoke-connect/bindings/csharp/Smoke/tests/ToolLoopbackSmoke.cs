@@ -32,6 +32,7 @@ public static class ToolLoopbackSmoke
             ToolManifestJson("test-responder"),
             [fixture.peer_id_client],
             new Dictionary<string, byte[]> { [fixture.peer_id_client] = pubkeyClient },
+            null,
             null);
         var dialer = SpokeConnectMethods.ConnectRemoteAdapterFfi(
             new LoopbackCallbackTransport(pair.Client()),

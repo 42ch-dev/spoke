@@ -226,6 +226,7 @@ class ToolLoopbackFfiPairTests(unittest.TestCase):
             [peer_id_client],
             {peer_id_client: pubkey_client},
             None,
+            None,
         )
         dialer = spoke_connect.connect_remote_adapter_ffi(
             LoopbackCallbackTransport(pair.client()),

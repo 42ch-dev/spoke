@@ -76,6 +76,7 @@ class ToolLoopbackFfiPairTest {
                 manifestJson = toolManifestJson("test-responder"),
                 allowlist = listOf(peerIdClient),
                 peerKeys = mapOf(peerIdClient to pubkeyClient),
+                ports = null,
                 invokeTimeoutMs = null,
             )
         val dialer: RemoteAdapterFfi =

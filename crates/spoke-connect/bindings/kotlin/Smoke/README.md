@@ -13,6 +13,13 @@ implementation. The tool section drives both FFI faces over a loopback pair
 responder reverse invoke served by a dialer-side handler, unregistered-tool
 `op_unsupported` deny, handler-thrown reject passthrough, and the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving — every face is on
 the committed production binding, so it runs in the default `gradle test`.
+The ports section drives the optional-port dialer ops (`project` / `compute`
+/ `listForkTimelineEvents` on `RemoteAdapterFfi`) and the responder ports
+face (D16): baseline + optional serving round-trips through a foreign
+`PortsHandler` (user lock), application-reject passthrough, the error rows —
+capability-gate deny, absent-ports fail-closed deny, foreign-fault
+containment with serve-loop survival — and malformed-JSON pre-validation;
+also in the default `gradle test` (no smoke host needed).
 The smoke-host put/get round-trip additionally dials the reference smoke host
 (`startLoopbackSmokeHost`, `ffi-smoke-host` only) and asserts the golden host
 peer id and payload (parity with Swift `loopback_smoke.swift`).
@@ -26,7 +33,7 @@ peer id and payload (parity with Swift `loopback_smoke.swift`).
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `generated/` + `native/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair` — **no** `startLoopbackSmokeHost` |
+| Committed `generated/` + `native/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair`, the tool faces, the optional-port dialer ops (`project` / `compute` / `listForkTimelineEvents` on `RemoteAdapterFfi`), and the responder ports face (optional `ports:` + the `PortsHandler` callback) — **no** `startLoopbackSmokeHost` |
 | Local loopback smoke cdylib + bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -46,7 +53,8 @@ From `crates/spoke-connect/bindings/kotlin/` (requires host native under
 gradle test
 ```
 
-Expected: 6 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest`).
+Expected: 9 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest` +
+`PortsLoopbackFfiPairTest`).
 
 Override native path explicitly:
 
@@ -84,8 +92,8 @@ gradle test \
   -PnativeLib="$PWD/native/darwin-aarch64/libspoke_connect.dylib"
 ```
 
-Expected: 7 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest` +
-`RemoteAdapterLoopbackTest`).
+Expected: 10 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest` +
+`PortsLoopbackFfiPairTest` + `RemoteAdapterLoopbackTest`).
 
 ## Maintainer: regenerate committed production bindings
 

@@ -13,9 +13,16 @@ implementation. The tool section drives both FFI faces over a loopback pair
 responder reverse invoke served by a dialer-side handler, unregistered-tool
 `op_unsupported` deny, handler-thrown reject passthrough, and the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving — every face is on
 the committed production binding, so it runs in the default `unittest discover`
-suite. The smoke-host put/get round-trip additionally dials the reference
-smoke host (`start_loopback_smoke_host`, `ffi-smoke-host` only) and asserts
-the golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
+suite. The ports section drives the optional-port dialer ops (`project` /
+`compute` / `list_fork_timeline_events` on `RemoteAdapterFFI`) and the
+responder ports face (D16): baseline + optional serving round-trips through a
+foreign `PortsHandler` (user lock), application-reject passthrough, the error
+rows — capability-gate deny, absent-ports fail-closed deny, foreign-fault
+containment with serve-loop survival — and malformed-JSON pre-validation;
+also in the default `unittest discover` suite (no smoke host needed). The
+smoke-host put/get round-trip additionally dials the reference smoke host
+(`start_loopback_smoke_host`, `ffi-smoke-host` only) and asserts the golden
+host peer id and payload (parity with Swift `loopback_smoke.swift`).
 
 > Local env quirk: this machine's `~/.cargo/config.toml` carries
 > `-Zno-embed-metadata` under `[unstable] rustflags` (a nightly-only flag).
@@ -26,7 +33,7 @@ the golden host peer id and payload (parity with Swift `loopback_smoke.swift`).
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `spoke_connect/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopback_transport_pair` — **no** `start_loopback_smoke_host` |
+| Committed `spoke_connect/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopback_transport_pair`, the tool faces, the optional-port dialer ops (`project` / `compute` / `list_fork_timeline_events` on `RemoteAdapterFFI`), and the responder ports face (optional `ports:` + the `PortsHandler` callback) — **no** `start_loopback_smoke_host` |
 | Local loopback smoke cdylib + bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -46,8 +53,9 @@ PYTHONPATH=crates/spoke-connect/bindings/python \
   python3 -m unittest discover -s crates/spoke-connect/bindings/python/Smoke -v
 ```
 
-Expected: 6 tests PASS (`GoldenParityTests` + `ToolLoopbackFfiPairTests`, 0
-skips among them). `RemoteAdapterLoopbackTests` (smoke-host put/get) is skipped.
+Expected: 9 tests PASS (`GoldenParityTests` + `ToolLoopbackFfiPairTests` +
+`PortsLoopbackFfiPairTests`, 0 skips among them). `RemoteAdapterLoopbackTests`
+(smoke-host put/get) is skipped.
 
 ## Full smoke (golden parity + RemoteAdapter loopback)
 
@@ -74,8 +82,8 @@ PYTHONPATH=crates/spoke-connect/bindings/python \
   python3 -m unittest discover -s crates/spoke-connect/bindings/python/Smoke -v
 ```
 
-Expected: 7 tests PASS (`GoldenParityTests` + `ToolLoopbackFfiPairTests` +
-`RemoteAdapterLoopbackTests`), 0 skips.
+Expected: 10 tests PASS (`GoldenParityTests` + `ToolLoopbackFfiPairTests` +
+`PortsLoopbackFfiPairTests` + `RemoteAdapterLoopbackTests`), 0 skips.
 
 Restore committed production `spoke_connect/` (regenerate from `ffi,remote-adapter`
 only) before landing binding changes — see `bindings/python/README.md`.

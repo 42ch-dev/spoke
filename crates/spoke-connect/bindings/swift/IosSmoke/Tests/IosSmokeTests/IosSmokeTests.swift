@@ -253,6 +253,7 @@ final class IosSmokeTests: XCTestCase {
             manifestJson: toolManifestJson(hostId: "test-responder"),
             allowlist: [fixture.peerIdClient],
             peerKeys: [fixture.peerIdClient: fixture.pubkeyClient],
+            ports: nil,
             invokeTimeoutMs: nil
         )
         let dialer = try connectRemoteAdapterFfi(

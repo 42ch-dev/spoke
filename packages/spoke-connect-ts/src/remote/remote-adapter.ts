@@ -2,9 +2,11 @@
  * `RemoteAdapter` — drop-in async `BaselinePorts` over a connect session
  * (frozen contract: `.mstar/specs/spoke-remote-adapter.md`).
  *
- * PUBLIC surface: the async `BaselinePorts` (six families) + the
- * `connectRemoteAdapter` dial entrypoint + read-only session info
- * (`sessionId`, `remotePeerId`, `remoteManifest`, `state`) + `close`.
+ * PUBLIC surface: the async `BaselinePorts` (six families) + the optional
+ * `l2-computable` / `l5-fork` port methods (`project` / `compute` /
+ * `listForkTimelineEvents`) + the `connectRemoteAdapter` dial entrypoint +
+ * read-only session info (`sessionId`, `remotePeerId`, `remoteManifest`,
+ * `state`) + `close`.
  *
  * INTERNAL (encapsulated — consumers never touch these): hello sign/verify,
  * allowlist, nonce single-use, sequence allocate/advance, `request_id`
@@ -20,12 +22,17 @@
  */
 
 import type {
+  ComputeRequest,
+  ComputeResponse,
   ConnectInvokeRequest,
   ConnectInvokeResponse,
   ErrorEnvelope,
   Finding,
+  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
   Relation,
   Rule,
   Scope,
@@ -213,6 +220,12 @@ const PORT_OPS = {
   putFindings: "port.finding.put",
   listRules: "port.rule.list",
   listPeerHostCapabilityManifests: "port.host.list_peer_manifests",
+  // Optional families (frozen contract §5.2 — reserved ops, capability-gated
+  // remotely): project / compute (`l2-computable`) and fork timeline query
+  // (`l5-fork`).
+  project: "port.computable.project",
+  compute: "port.computable.compute",
+  listForkTimelineEvents: "port.fork.list_timeline_events",
 } as const;
 
 export type RemoteAdapterState =
@@ -418,6 +431,44 @@ export class RemoteAdapter implements BaselinePorts {
 
   async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
     return this.#invokeMapped<Rule[]>(PORT_OPS.listRules, { rule_refs: ruleRefs });
+  }
+
+  /**
+   * Optional l2-computable face (frozen contract §5.2): project the
+   * session's computable view on the remote peer. No local pre-gate —
+   * mirrors the baseline port methods: the responder's dispatch gate
+   * denies (wire `op_unsupported` / `capability_missing`) and the D7 row
+   * maps to `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved.
+   */
+  async project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>> {
+    return this.#invokeMapped<ProjectResponse>(PORT_OPS.project, {
+      ...request,
+    });
+  }
+
+  /**
+   * Optional l2-computable face (frozen contract §5.2): apply / settle
+   * computable updates on the remote peer. Same deny mapping as `project`.
+   */
+  async compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>> {
+    return this.#invokeMapped<ComputeResponse>(PORT_OPS.compute, {
+      ...request,
+    });
+  }
+
+  /**
+   * Optional l5-fork face (frozen contract §5.2): query the remote peer's
+   * fork-branch timeline, scoped like `listTimelineEvents` with the
+   * `fork_id` carried on the `Scope`. Same deny mapping as the baseline
+   * port methods (no local pre-gate).
+   */
+  async listForkTimelineEvents(
+    scope: Scope & { fork_id: ForkId },
+  ): Promise<SpokeResult<TimelineEvent[]>> {
+    return this.#invokeMapped<TimelineEvent[]>(
+      PORT_OPS.listForkTimelineEvents,
+      { scope },
+    );
   }
 
   /**

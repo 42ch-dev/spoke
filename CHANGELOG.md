@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.11.1] - 2026-08-18
+
+
+### Fixed
+
+- **release:** Post-v0.11.0 CI + publish follow-ups (#88)
+
 ## [0.11.0] - 2026-08-18
 
 

@@ -10,7 +10,13 @@ drives both FFI tool faces over the loopback pair (D15/D16): dialer
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
 deny, handler-thrown reject passthrough, the error rows (unknown reject code
 → `INTERNAL_ERROR` downgrade; foreign-fault containment with serve-loop
-survival), and post-close `Closed` state — every tool face is on the committed
+survival), and post-close `Closed` state — and then drives the optional-port
+dialer ops + responder ports face (D16): `project` / `compute` /
+`listForkTimelineEvents` round-trips through a foreign `PortsHandler`
+(baseline + optional), the application-reject passthrough, the error rows
+(capability-gate deny, absent-ports fail-closed deny, foreign-fault
+containment with serve-loop survival), and malformed-JSON pre-validation —
+every face is on the committed
 production binding, so the default gate runs them without a smoke host. The smoke-host sections (RemoteAdapter put/get
 round-trip against the reference smoke host, and the multi-peer router smoke)
 compile only with `-D SMOKE_HOST`.
@@ -29,7 +35,7 @@ compile only with `-D SMOKE_HOST`.
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed xcframework + `bindings/swift/generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`invokeTool`, `registerToolHandler`, `ToolHandler`, `connectResponderFfi` / `ConnectResponderFfi`) — **no** `startLoopbackSmokeHost` |
+| Committed xcframework + `bindings/swift/generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`invokeTool`, `registerToolHandler`, `ToolHandler`, `connectResponderFfi` / `ConnectResponderFfi`), the optional-port dialer ops (`project` / `compute` / `listForkTimelineEvents` on `RemoteAdapterFfi`), and the responder ports face (optional `ports:` on `connectResponderFfi` + the `PortsHandler` callback) — **no** `startLoopbackSmokeHost` |
 | Local smoke cdylib + smoke Swift bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -65,6 +71,7 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
   -o crates/spoke-connect/bindings/swift/Smoke/smoke \
   crates/spoke-connect/bindings/swift/Smoke/main.swift \
   crates/spoke-connect/bindings/swift/Smoke/tool_loopback_smoke.swift \
+  crates/spoke-connect/bindings/swift/Smoke/ports_loopback_smoke.swift \
   crates/spoke-connect/bindings/swift/Smoke/loopback_transport.swift \
   crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
 
@@ -72,10 +79,25 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
 ./crates/spoke-connect/bindings/swift/Smoke/smoke
 ```
 
-Expected: `44 checks passed` (golden parity + tool faces incl. the error
+Expected: `108 checks passed` (golden parity + tool faces incl. the error
 rows — unknown-code downgrade, foreign-fault containment, and
-post-containment serve-loop survival — and post-close `Closed` state),
+post-containment serve-loop survival — and post-close `Closed` state, plus
+the ports faces: baseline + optional serving round-trips through a foreign
+`PortsHandler`, application-reject passthrough, capability-gate deny,
+absent-ports fail-closed deny, foreign-fault containment with serve-loop
+survival, malformed-JSON pre-validation, and post-close `Closed` state),
 exit 0.
+
+> Native gate note: this smoke links the **committed** production cdylib
+> (byte-identical across the bindings trees; e.g.
+> `bindings/go/native/darwin_arm64/`). The ports faces reference FFI symbols
+> that only exist in a cdylib built from the current FFI surface — when the
+> committed native lags the generated bindings (e.g. between a bindings
+> regen and the artifact refresh), the compile fails with undefined
+> `uniffi_spoke_connect_checksum_method_portshandler_*` / 
+> `uniffi_spoke_connect_fn_method_remoteadapterffi_*` symbols. Rebuild and
+> commit the native artifacts first (see `bindings/go/README.md` /
+> `bindings/swift/README.md` maintainer flows), then re-run this gate.
 
 ## Full smoke (golden parity + RemoteAdapter loopback + multi-peer router)
 
@@ -106,6 +128,7 @@ swiftc -Xcc -fmodule-map-file="${SMOKE_GEN}/spoke_connectFFI.modulemap" \
   crates/spoke-connect/bindings/swift/Smoke/loopback_smoke.swift \
   crates/spoke-connect/bindings/swift/Smoke/multi_peer_router_smoke.swift \
   crates/spoke-connect/bindings/swift/Smoke/tool_loopback_smoke.swift \
+  crates/spoke-connect/bindings/swift/Smoke/ports_loopback_smoke.swift \
   crates/spoke-connect/bindings/swift/Smoke/loopback_transport.swift \
   "${SMOKE_GEN}/spoke_connect.swift"
 

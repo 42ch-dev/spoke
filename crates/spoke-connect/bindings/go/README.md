@@ -18,7 +18,7 @@ Packaging contract: [connect-binding-channels.md](https://github.com/42ch-dev/sp
 
 | Artifact | Cargo features | Notes |
 |----------|----------------|-------|
-| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`InvokeTool`, `RegisterToolHandler`, `ToolHandler`, `NewConnectResponderFfi` / `ConnectResponderFfi`) — **no** `startLoopbackSmokeHost` |
+| Committed `native/` + `generated/` | `ffi,remote-adapter` | Production surface: `RemoteAdapterFFI`, `MultiPeerRouterFFI`, `Transport`, `loopbackTransportPair`, the tool faces (`InvokeTool`, `RegisterToolHandler`, `ToolHandler`, `NewConnectResponderFfi` / `ConnectResponderFfi`), the optional-port dialer ops (`Project` / `Compute` / `ListForkTimelineEvents` on `RemoteAdapterFfi`), and the responder ports face (optional `ports:` on `NewConnectResponderFfi` + the `PortsHandler` callback) — **no** `startLoopbackSmokeHost` |
 | Local smoke cdylib + smoke Go bindings | `ffi,remote-adapter,ffi-smoke-host` | Adds loopback smoke host FFI for the RemoteAdapter loopback section |
 
 `ffi-smoke-host` is non-default and is **not** implied by `remote-adapter` or `ffi`.
@@ -30,7 +30,7 @@ requires `-tags smokehost`; full procedure below.
 
 ## RemoteAdapter FFI surface
 
-With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces — `InvokeTool` on the adapter, router, and responder, `RegisterToolHandler` on the adapter and responder, the `ToolHandler` callback, and `NewConnectResponderFfi` / `ConnectResponderFfi` for the accept side.
+With `remote-adapter` enabled, the binding ships the additive remote-adapter surface: `RemoteAdapterFFI` (single peer), `MultiPeerRouterFFI` (multi-peer routing), the callback `Transport` interface, the in-memory loopback helpers, and the tool faces — `InvokeTool` on the adapter, router, and responder, `RegisterToolHandler` on the adapter and responder, the `ToolHandler` callback, and `NewConnectResponderFfi` / `ConnectResponderFfi` for the accept side. The optional-port dialer ops (`Project` / `Compute` / `ListForkTimelineEvents` on `RemoteAdapterFfi`) and the responder ports face (`PortsHandler` + the optional `ports:` constructor parameter) ride the same session invoke path.
 
 ### Transport contract
 
@@ -54,6 +54,12 @@ The surface bounds messages at one envelope per call; byte-stream carriers apply
 - `RegisterToolHandler(capabilityId, handler)` — serve reverse invokes through a foreign `ToolHandler`; last-wins per id, never mutates the manifest. The callback's `Handle(argumentsJson)` returns the result JSON; a returned `FfiError.Rejected` passes through verbatim as an application reject, any other outcome is contained to `INTERNAL_ERROR` and the session survives.
 - `NewConnectResponderFfi(...)` / `ConnectResponderFfi` — the accept side: wrap a connected (host-accepted) callback `Transport`. The constructor returns immediately in `Handshaking` — poll `State()` (bounded) to `Established` before invoking; a handshake failure surfaces as `State() == "Closed"` (never a thrown constructor error), config-validation failures return `FfiErrorDial` with `Kind == "config"`.
 - Handlers run on the FFI blocking pool — do not synchronously call back into the FFI faces from `Handle`; hand off asynchronously in the host instead.
+
+### Responder ports serving face (`PortsHandler`)
+
+The optional `ports:` constructor parameter (between `peerKeys` and `invokeTimeoutMs`) serves every declared `port.*` family through a foreign `PortsHandler` callback: the nine baseline serve ops (`GetKnowledgeEntry` / `PutKnowledgeEntry` / `GetRelation` / `PutRelation` / `ListKnowledgeEntries` / `ListTimelineEvents` / `PutFindings` / `ListRules` / `ListPeerHostCapabilityManifests`) plus the three optional ops (`Project` / `Compute` / `ListForkTimelineEvents`) — every method returns the op's result as a JSON string. Passing nothing keeps the documented absent-ports behavior: the constructor is still valid and every `port.*` op answers the default deny branch (`CAPABILITY_PORT_MISSING` with the peer's preserved `op_unsupported` wire code). Optional ops are capability-gated like the baseline rows: a session whose negotiated capabilities lack `l2-computable` / `l5-fork` denies at the responder's dispatch gate with the same deny row.
+
+Callback outcomes map strictly: `FfiErrorRejected` passes through verbatim as an application reject (kind re-hung onto details); a foreign error, `FfiErrorDial`, or panic is contained to `INTERNAL_ERROR` with `details: None` and the session survives. The ports callbacks behave like tool handlers — demand-driven, one blocking-pool thread per in-flight callback — so the same rules apply: never call back into the FFI surface from inside a ports callback (hand off asynchronously in the host instead), and size the host accordingly (one blocking-pool thread per transport end; ~256 full-duplex sessions at the tokio default cap). The dialer optional ops (`Project` / `Compute` / `ListForkTimelineEvents` on `RemoteAdapterFfi`) reject malformed JSON locally with `INVALID_INPUT` and zero wire traffic.
 
 ## Layout
 
@@ -113,13 +119,13 @@ install_name_tool -id @rpath/libspoke_connect.dylib \
 CGO_ENABLED=1 go test -v ./crates/spoke-connect/bindings/go/Smoke/
 ```
 
-Expected: all six tests PASS — the five golden tests (`derive_peer_id`,
-hello signature, verify, tamper rejection, `protocol_version == 1`) plus
+Expected: all seven tests PASS — the five golden tests (`derive_peer_id`,
+hello signature, verify, tamper rejection, `protocol_version == 1`),
 `TestToolLoopbackFfiPair` (tool faces over the loopback pair, D15/D16: dialer
 `invoke_tool` served by a responder foreign `ToolHandler`, responder reverse
 invoke served by a dialer-side handler, unregistered-tool `op_unsupported`
-deny, handler-thrown reject passthrough, the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving — and post-close `Closed` state). The
-tool test runs on the **committed production binding + native** — every face
+deny, handler-thrown reject passthrough, the error rows — an unknown reject code downgraded to `INTERNAL_ERROR`, a foreign (non-Rejected) fault contained to `INTERNAL_ERROR` with the serve loop surviving — and post-close `Closed` state), and `TestPortsLoopbackFfiPair` (optional-port dialer ops + responder ports face over the loopback pair, D16: baseline + optional serving round-trips through a foreign `PortsHandler`, application-reject passthrough, the error rows — capability-gate deny, absent-ports fail-closed deny, foreign-fault containment with serve-loop survival — and malformed-JSON pre-validation). The
+tool and ports tests run on the **committed production binding + native** — every face
 is on `ffi,remote-adapter`; no `-tags smokehost`.
 
 ## Generation mechanism

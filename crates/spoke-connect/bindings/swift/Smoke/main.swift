@@ -221,6 +221,7 @@ func run() throws {
     try runMultiPeerRouterSmoke(r)
 #endif
     try runToolLoopbackSmoke(r)
+    try runPortsLoopbackSmoke(r)
 
     print("\(r.passed) checks passed")
 }

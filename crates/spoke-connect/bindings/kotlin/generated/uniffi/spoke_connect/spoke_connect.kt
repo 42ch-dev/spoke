@@ -650,6 +650,42 @@ internal open class UniffiForeignFutureResultVoid(
 internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
     fun callback(`callbackData`: Long,`result`: UniffiForeignFutureResultVoid.UniffiByValue,)
 }
+internal interface UniffiCallbackInterfacePortsHandlerMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`entryId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`entryJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod2 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`relationId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod3 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`relationJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod4 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod5 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod6 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`findingsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod7 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`ruleRefs`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod8 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod9 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`projectRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod10 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`computeRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfacePortsHandlerMethod11 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfaceToolHandlerMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`argumentsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
 }
@@ -661,6 +697,58 @@ internal interface UniffiCallbackInterfaceTransportMethod1 : com.sun.jna.Callbac
 }
 internal interface UniffiCallbackInterfaceTransportMethod2 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "getKnowledgeEntry", "putKnowledgeEntry", "getRelation", "putRelation", "listKnowledgeEntries", "listTimelineEvents", "putFindings", "listRules", "listPeerHostCapabilityManifests", "project", "compute", "listForkTimelineEvents")
+internal open class UniffiVTableCallbackInterfacePortsHandler(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `getKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod0? = null,
+    @JvmField internal var `putKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod1? = null,
+    @JvmField internal var `getRelation`: UniffiCallbackInterfacePortsHandlerMethod2? = null,
+    @JvmField internal var `putRelation`: UniffiCallbackInterfacePortsHandlerMethod3? = null,
+    @JvmField internal var `listKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod4? = null,
+    @JvmField internal var `listTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod5? = null,
+    @JvmField internal var `putFindings`: UniffiCallbackInterfacePortsHandlerMethod6? = null,
+    @JvmField internal var `listRules`: UniffiCallbackInterfacePortsHandlerMethod7? = null,
+    @JvmField internal var `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod8? = null,
+    @JvmField internal var `project`: UniffiCallbackInterfacePortsHandlerMethod9? = null,
+    @JvmField internal var `compute`: UniffiCallbackInterfacePortsHandlerMethod10? = null,
+    @JvmField internal var `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod11? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `getKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod0? = null,
+        `putKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod1? = null,
+        `getRelation`: UniffiCallbackInterfacePortsHandlerMethod2? = null,
+        `putRelation`: UniffiCallbackInterfacePortsHandlerMethod3? = null,
+        `listKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod4? = null,
+        `listTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod5? = null,
+        `putFindings`: UniffiCallbackInterfacePortsHandlerMethod6? = null,
+        `listRules`: UniffiCallbackInterfacePortsHandlerMethod7? = null,
+        `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod8? = null,
+        `project`: UniffiCallbackInterfacePortsHandlerMethod9? = null,
+        `compute`: UniffiCallbackInterfacePortsHandlerMethod10? = null,
+        `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod11? = null,
+    ): UniffiVTableCallbackInterfacePortsHandler(`uniffiFree`,`uniffiClone`,`getKnowledgeEntry`,`putKnowledgeEntry`,`getRelation`,`putRelation`,`listKnowledgeEntries`,`listTimelineEvents`,`putFindings`,`listRules`,`listPeerHostCapabilityManifests`,`project`,`compute`,`listForkTimelineEvents`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfacePortsHandler) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `getKnowledgeEntry` = other.`getKnowledgeEntry`
+        `putKnowledgeEntry` = other.`putKnowledgeEntry`
+        `getRelation` = other.`getRelation`
+        `putRelation` = other.`putRelation`
+        `listKnowledgeEntries` = other.`listKnowledgeEntries`
+        `listTimelineEvents` = other.`listTimelineEvents`
+        `putFindings` = other.`putFindings`
+        `listRules` = other.`listRules`
+        `listPeerHostCapabilityManifests` = other.`listPeerHostCapabilityManifests`
+        `project` = other.`project`
+        `compute` = other.`compute`
+        `listForkTimelineEvents` = other.`listForkTimelineEvents`
+    }
+
 }
 @Structure.FieldOrder("uniffiFree", "uniffiClone", "handle")
 internal open class UniffiVTableCallbackInterfaceToolHandler(
@@ -813,6 +901,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_close(
     ): Int
+    external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_compute(
+    ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry(
@@ -821,6 +911,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool(
     ): Int
+    external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events(
+    ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_peer_host_capability_manifests(
@@ -828,6 +920,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_rules(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_project(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings(
     ): Int
@@ -850,6 +944,30 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_spoke_connect_checksum_constructor_noncestore_new(
     ): Int
     external fun uniffi_spoke_connect_checksum_constructor_outboundsequence_new(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_get_relation(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_put_relation(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_put_findings(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_list_rules(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_project(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_compute(
+    ): Int
+    external fun uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events(
     ): Int
     external fun uniffi_spoke_connect_checksum_method_toolhandler_handle(
     ): Int
@@ -875,6 +993,7 @@ internal object UniffiLib {
 
     init {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "spoke_connect"))
+        uniffiCallbackInterfacePortsHandler.register(this)
         uniffiCallbackInterfaceToolHandler.register(this)
         uniffiCallbackInterfaceTransport.register(this)
         
@@ -977,6 +1096,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_close(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_spoke_connect_fn_method_remoteadapterffi_compute(`ptr`: Long,`computeRequestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_get_knowledge_entry(`ptr`: Long,`entryId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -985,6 +1106,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_invoke_tool(`ptr`: Long,`capabilityId`: RustBuffer.ByValue,`argumentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_fork_timeline_events(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_knowledge_entries(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_peer_host_capability_manifests(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -992,6 +1115,8 @@ internal object UniffiLib {
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_rules(`ptr`: Long,`ruleRefs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_list_timeline_events(`ptr`: Long,`scopeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_method_remoteadapterffi_project(`ptr`: Long,`projectRequestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_put_findings(`ptr`: Long,`findingsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1009,6 +1134,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_method_remoteadapterffi_state(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_spoke_connect_fn_init_callback_vtable_portshandler(`vtable`: UniffiVTableCallbackInterfacePortsHandler,
+    ): Unit
     external fun uniffi_spoke_connect_fn_init_callback_vtable_toolhandler(`vtable`: UniffiVTableCallbackInterfaceToolHandler,
     ): Unit
     external fun uniffi_spoke_connect_fn_init_callback_vtable_transport(`vtable`: UniffiVTableCallbackInterfaceTransport,
@@ -1029,7 +1156,7 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_spoke_connect_fn_func_verify_hello_ed25519(`publicKey`: RustBuffer.ByValue,`expectedPeerId`: RustBuffer.ByValue,`helloJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    external fun uniffi_spoke_connect_fn_func_connect_responder_ffi(`transport`: Long,`seed`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`allowlist`: RustBuffer.ByValue,`peerKeys`: RustBuffer.ByValue,`invokeTimeoutMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_spoke_connect_fn_func_connect_responder_ffi(`transport`: Long,`seed`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`allowlist`: RustBuffer.ByValue,`peerKeys`: RustBuffer.ByValue,`ports`: RustBuffer.ByValue,`invokeTimeoutMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_spoke_connect_fn_func_loopback_transport_pair(uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -1180,7 +1307,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_func_verify_hello_ed25519() != 15847) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 7775) {
+    if (lib.uniffi_spoke_connect_checksum_func_connect_responder_ffi() != 24246) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_func_loopback_transport_pair() != 40597) {
@@ -1282,6 +1409,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close() != 18719) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute() != 30870) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1294,6 +1424,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_invoke_tool() != 50002) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_fork_timeline_events() != 57279) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_knowledge_entries() != 8982) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1304,6 +1437,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_list_timeline_events() != 30715) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_project() != 41885) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_put_findings() != 8509) {
@@ -1337,6 +1473,42 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_constructor_outboundsequence_new() != 6716) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_get_knowledge_entry() != 40017) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_put_knowledge_entry() != 48406) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_get_relation() != 48343) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_put_relation() != 3125) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_knowledge_entries() != 43680) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_timeline_events() != 58726) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_put_findings() != 24895) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_rules() != 64974) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_peer_host_capability_manifests() != 48604) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_project() != 15269) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_compute() != 8096) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() != 36942) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {
@@ -4168,6 +4340,13 @@ public interface RemoteAdapterFfiInterface {
     
     fun close()
     
+    /**
+     * Optional l2-computable face (D4 catalogue): apply / settle
+     * computable updates on the remote peer. Same boundary and deny
+     * mapping as `project`.
+     */
+    fun `compute`(`computeRequestJson`: kotlin.String): kotlin.String
+    
     fun `getHostCapabilityManifest`(): kotlin.String
     
     fun `getKnowledgeEntry`(`entryId`: kotlin.String): kotlin.String
@@ -4190,6 +4369,14 @@ public interface RemoteAdapterFfiInterface {
      */
     fun `invokeTool`(`capabilityId`: kotlin.String, `argumentsJson`: kotlin.String): kotlin.String
     
+    /**
+     * Optional l5-fork face (D4 catalogue): query the remote peer's
+     * fork-branch timeline, scoped like `list_timeline_events` with the
+     * `fork_id` carried on the `Scope`. Same boundary and deny mapping
+     * as `project` / `compute`.
+     */
+    fun `listForkTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String
+    
     fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String
     
     fun `listPeerHostCapabilityManifests`(): kotlin.String
@@ -4197,6 +4384,19 @@ public interface RemoteAdapterFfiInterface {
     fun `listRules`(`ruleRefs`: List<kotlin.String>): kotlin.String
     
     fun `listTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String
+    
+    /**
+     * Optional l2-computable face (D4 catalogue): project the session's
+     * computable view on the remote peer. `project_request_json` in,
+     * JSON-string `ProjectResponse` out; malformed request JSON rejects
+     * `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+     * local pre-gate — a peer that did not negotiate `l2-computable`
+     * answers the responder's capability-gate deny, mapped through the
+     * D7 row to `CAPABILITY_PORT_MISSING` with
+     * `wire_code: "op_unsupported"` (same rows as the baseline port
+     * methods).
+     */
+    fun `project`(`projectRequestJson`: kotlin.String): kotlin.String
     
     fun `putFindings`(`findingsJson`: kotlin.String): kotlin.String
     
@@ -4342,6 +4542,26 @@ open class RemoteAdapterFfi: Disposable, AutoCloseable, RemoteAdapterFfiInterfac
     
 
     
+    /**
+     * Optional l2-computable face (D4 catalogue): apply / settle
+     * computable updates on the remote peer. Same boundary and deny
+     * mapping as `project`.
+     */
+    @Throws(FfiException::class)override fun `compute`(`computeRequestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_compute(
+        it,
+        
+        FfiConverterString.lower(`computeRequestJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(FfiException::class)override fun `getHostCapabilityManifest`(): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
@@ -4416,6 +4636,27 @@ open class RemoteAdapterFfi: Disposable, AutoCloseable, RemoteAdapterFfiInterfac
     
 
     
+    /**
+     * Optional l5-fork face (D4 catalogue): query the remote peer's
+     * fork-branch timeline, scoped like `list_timeline_events` with the
+     * `fork_id` carried on the `Scope`. Same boundary and deny mapping
+     * as `project` / `compute`.
+     */
+    @Throws(FfiException::class)override fun `listForkTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_list_fork_timeline_events(
+        it,
+        
+        FfiConverterString.lower(`scopeJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(FfiException::class)override fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
@@ -4468,6 +4709,32 @@ open class RemoteAdapterFfi: Disposable, AutoCloseable, RemoteAdapterFfiInterfac
         it,
         
         FfiConverterString.lower(`scopeJson`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Optional l2-computable face (D4 catalogue): project the session's
+     * computable view on the remote peer. `project_request_json` in,
+     * JSON-string `ProjectResponse` out; malformed request JSON rejects
+     * `INVALID_INPUT` with zero wire traffic (`parse_json_field`). No
+     * local pre-gate — a peer that did not negotiate `l2-computable`
+     * answers the responder's capability-gate deny, mapped through the
+     * D7 row to `CAPABILITY_PORT_MISSING` with
+     * `wire_code: "op_unsupported"` (same rows as the baseline port
+     * methods).
+     */
+    @Throws(FfiException::class)override fun `project`(`projectRequestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_project(
+        it,
+        
+        FfiConverterString.lower(`projectRequestJson`),_status)
 }
     }
     )
@@ -5194,6 +5461,310 @@ public object FfiConverterTypeTransportError : FfiConverterRustBuffer<TransportE
 
 
 /**
+ * Foreign-callback responder ports face (D16): the native binding
+ * implements this synchronous D4 catalogue; [`into_remote_serve_ports`]
+ * bridges it into the async [`crate::remote::RemoteServePorts`] type
+ * the library responder serves through.
+ *
+ * `Ok(json)` → the port method's success value `T` as JSON (parsed
+ * inside the bridge; malformed JSON is contained). `Err(FfiError::Rejected{..})`
+ * → an application `SpokeReject` passes through verbatim — rejecting
+ * an op the binding does not serve is ordinary deny, not containment.
+ * Any other outcome (`Dial`, foreign exception, panic) is contained to
+ * `INTERNAL_ERROR` with `details: None`. `getHostCapabilityManifest`
+ * is NOT in the catalogue — it is a session-cache face, not a D4 serve
+ * op; the bridge answers an internal error if it is ever reached.
+ *
+ * Re-entrancy caveat: never call back into the FFI surface from inside
+ * a ports callback (the `ToolHandler` rule, D16 §8.5).
+ */
+public interface PortsHandler {
+    
+    fun `getKnowledgeEntry`(`entryId`: kotlin.String): kotlin.String
+    
+    fun `putKnowledgeEntry`(`entryJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
+    
+    fun `getRelation`(`relationId`: kotlin.String): kotlin.String
+    
+    fun `putRelation`(`relationJson`: kotlin.String, `expectedBaseRevision`: kotlin.ULong?): kotlin.String
+    
+    fun `listKnowledgeEntries`(`scopeJson`: kotlin.String): kotlin.String
+    
+    fun `listTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String
+    
+    fun `putFindings`(`findingsJson`: kotlin.String): kotlin.String
+    
+    fun `listRules`(`ruleRefs`: List<kotlin.String>): kotlin.String
+    
+    fun `listPeerHostCapabilityManifests`(): kotlin.String
+    
+    fun `project`(`projectRequestJson`: kotlin.String): kotlin.String
+    
+    fun `compute`(`computeRequestJson`: kotlin.String): kotlin.String
+    
+    fun `listForkTimelineEvents`(`scopeJson`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfacePortsHandler {
+    internal object `getKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod0 {
+        override fun callback(`uniffiHandle`: Long,`entryId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`getKnowledgeEntry`(
+                    FfiConverterString.lift(`entryId`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `putKnowledgeEntry`: UniffiCallbackInterfacePortsHandlerMethod1 {
+        override fun callback(`uniffiHandle`: Long,`entryJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`putKnowledgeEntry`(
+                    FfiConverterString.lift(`entryJson`),
+                    FfiConverterOptionalULong.lift(`expectedBaseRevision`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `getRelation`: UniffiCallbackInterfacePortsHandlerMethod2 {
+        override fun callback(`uniffiHandle`: Long,`relationId`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`getRelation`(
+                    FfiConverterString.lift(`relationId`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `putRelation`: UniffiCallbackInterfacePortsHandlerMethod3 {
+        override fun callback(`uniffiHandle`: Long,`relationJson`: RustBuffer.ByValue,`expectedBaseRevision`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`putRelation`(
+                    FfiConverterString.lift(`relationJson`),
+                    FfiConverterOptionalULong.lift(`expectedBaseRevision`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `listKnowledgeEntries`: UniffiCallbackInterfacePortsHandlerMethod4 {
+        override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`listKnowledgeEntries`(
+                    FfiConverterString.lift(`scopeJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `listTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod5 {
+        override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`listTimelineEvents`(
+                    FfiConverterString.lift(`scopeJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `putFindings`: UniffiCallbackInterfacePortsHandlerMethod6 {
+        override fun callback(`uniffiHandle`: Long,`findingsJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`putFindings`(
+                    FfiConverterString.lift(`findingsJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `listRules`: UniffiCallbackInterfacePortsHandlerMethod7 {
+        override fun callback(`uniffiHandle`: Long,`ruleRefs`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`listRules`(
+                    FfiConverterSequenceString.lift(`ruleRefs`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `listPeerHostCapabilityManifests`: UniffiCallbackInterfacePortsHandlerMethod8 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`listPeerHostCapabilityManifests`(
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `project`: UniffiCallbackInterfacePortsHandlerMethod9 {
+        override fun callback(`uniffiHandle`: Long,`projectRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`project`(
+                    FfiConverterString.lift(`projectRequestJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `compute`: UniffiCallbackInterfacePortsHandlerMethod10 {
+        override fun callback(`uniffiHandle`: Long,`computeRequestJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`compute`(
+                    FfiConverterString.lift(`computeRequestJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+    internal object `listForkTimelineEvents`: UniffiCallbackInterfacePortsHandlerMethod11 {
+        override fun callback(`uniffiHandle`: Long,`scopeJson`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypePortsHandler.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`listForkTimelineEvents`(
+                    FfiConverterString.lift(`scopeJson`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCallWithError(
+                uniffiCallStatus,
+                makeCall,
+                writeReturn,
+                { e: FfiException -> FfiConverterTypeFfiError.lower(e) }
+            )
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypePortsHandler.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypePortsHandler.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfacePortsHandler.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `getKnowledgeEntry`,
+        `putKnowledgeEntry`,
+        `getRelation`,
+        `putRelation`,
+        `listKnowledgeEntries`,
+        `listTimelineEvents`,
+        `putFindings`,
+        `listRules`,
+        `listPeerHostCapabilityManifests`,
+        `project`,
+        `compute`,
+        `listForkTimelineEvents`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_spoke_connect_fn_init_callback_vtable_portshandler(vtable)
+    }
+}
+
+/**
+ * The ffiConverter which transforms the Callbacks in to handles to pass to Rust.
+ *
+ * @suppress
+ */
+public object FfiConverterTypePortsHandler: FfiConverterCallbackInterface<PortsHandler>()
+
+
+
+
+
+/**
  * Foreign-callback tool handler (D16): the native binding implements
  * this synchronous face; [`into_remote_handler`] bridges it into the
  * async [`crate::remote::ToolHandler`] the library serving path runs.
@@ -5457,6 +6028,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypePortsHandler: FfiConverterRustBuffer<PortsHandler?> {
+    override fun read(buf: ByteBuffer): PortsHandler? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePortsHandler.read(buf)
+    }
+
+    override fun allocationSize(value: PortsHandler?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePortsHandler.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PortsHandler?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePortsHandler.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -5677,8 +6280,15 @@ public object FfiConverterMapStringByteArray: FfiConverterRustBuffer<Map<kotlin.
          * `FfiError::Dial { kind: "config" }`. Handshake failures (allowlist
          * deny, hello-verify deny) produce NO error row — they surface as
          * `state() → "Closed"` with `session_id() → None`.
+         *
+         * `ports` is an OPTIONAL foreign-callback ports face (D16): passing a
+         * [`PortsHandler`] serves `port.*` invokes (baseline + optional
+         * families) through the callback bridge; passing `None` preserves the
+         * documented absent-ports deny branch. The binding must not call back
+         * into the FFI surface from inside a ports callback (re-entrancy
+         * caveat, same rule as tool handlers).
          */
-    @Throws(FfiException::class) fun `connectResponderFfi`(`transport`: Transport, `seed`: kotlin.ByteArray, `manifestJson`: kotlin.String, `allowlist`: List<kotlin.String>, `peerKeys`: Map<kotlin.String, kotlin.ByteArray>, `invokeTimeoutMs`: kotlin.ULong?): ConnectResponderFfi {
+    @Throws(FfiException::class) fun `connectResponderFfi`(`transport`: Transport, `seed`: kotlin.ByteArray, `manifestJson`: kotlin.String, `allowlist`: List<kotlin.String>, `peerKeys`: Map<kotlin.String, kotlin.ByteArray>, `ports`: PortsHandler?, `invokeTimeoutMs`: kotlin.ULong?): ConnectResponderFfi {
             return FfiConverterTypeConnectResponderFFI.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_spoke_connect_fn_func_connect_responder_ffi(
@@ -5689,6 +6299,7 @@ public object FfiConverterMapStringByteArray: FfiConverterRustBuffer<Map<kotlin.
         FfiConverterString.lower(`manifestJson`),
         FfiConverterSequenceString.lower(`allowlist`),
         FfiConverterMapStringByteArray.lower(`peerKeys`),
+        FfiConverterOptionalTypePortsHandler.lower(`ports`),
         FfiConverterOptionalULong.lower(`invokeTimeoutMs`),_status)
 }
     )

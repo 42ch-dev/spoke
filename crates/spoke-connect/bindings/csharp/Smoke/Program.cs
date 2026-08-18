@@ -49,6 +49,9 @@ try
     ToolLoopbackSmoke.Run();
     Console.WriteLine("loopback tool faces: PASS");
 
+    PortsLoopbackSmoke.Run();
+    Console.WriteLine("loopback ports faces: PASS");
+
     Console.WriteLine();
     Console.WriteLine("GOLDEN PARITY: ALL PASS");
     return 0;

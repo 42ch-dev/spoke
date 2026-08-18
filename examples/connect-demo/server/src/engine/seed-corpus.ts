@@ -5,10 +5,18 @@
  * engine's asserted outputs).
  */
 
-import type { KnowledgeEntry, Relation, Rule } from "@42ch/spoke-schemas";
+import type {
+  KnowledgeEntry,
+  Relation,
+  Rule,
+  TimelineEvent,
+} from "@42ch/spoke-schemas";
 
 /** The single demo scope: every seed entity and every demo manifest belongs here. */
 export const DEMO_SCOPE_ID = "demo-harbor";
+
+/** The seeded l5-fork branch: a storm timeline forking the harbor world. */
+export const DEMO_SEED_FORK_ID = "demo-harbor/fork/storm";
 
 /** Seed KnowledgeEntries — 2 entries in scope `demo-harbor`. */
 export const DEMO_SEED_ENTRIES: KnowledgeEntry[] = [
@@ -43,6 +51,54 @@ export const DEMO_SEED_RELATIONS: Relation[] = [
     from_id: "demo-harbor/character/mira",
     to_id: "demo-harbor/location/harbor",
     revision: 1,
+    extensions: {},
+  },
+];
+
+/**
+ * Seed TimelineEvents — 3 events on the storm fork (`demo-harbor/fork/storm`),
+ * the demo's l5-fork story. Deterministic literals: ids, labels, and
+ * ordering hints are frozen so `listForkTimelineEvents` is a stable
+ * function of the seed corpus.
+ */
+export const DEMO_SEED_TIMELINE_EVENTS: TimelineEvent[] = [
+  {
+    schema_version: 1,
+    timeline_event_id: "demo-harbor/event/storm-landfall",
+    canonical_name: "Storm makes landfall",
+    occurred_at: "day 3",
+    description: "The storm breaks over the harbor; waves top the sea wall.",
+    participant_entry_ids: [
+      "demo-harbor/character/mira",
+      "demo-harbor/location/harbor",
+    ],
+    sort_key: "storm-001",
+    fork_id: DEMO_SEED_FORK_ID,
+    extensions: {},
+  },
+  {
+    schema_version: 1,
+    timeline_event_id: "demo-harbor/event/harbor-evacuation",
+    canonical_name: "Harbor master orders evacuation",
+    occurred_at: "day 3",
+    description: "The harbor master closes the docks and moves the crew inland.",
+    participant_entry_ids: [
+      "demo-harbor/character/mira",
+      "demo-harbor/location/harbor",
+    ],
+    sort_key: "storm-002",
+    fork_id: DEMO_SEED_FORK_ID,
+    extensions: {},
+  },
+  {
+    schema_version: 1,
+    timeline_event_id: "demo-harbor/event/compass-secured",
+    canonical_name: "Mira secures the compass",
+    occurred_at: "day 4",
+    description: "Mira lashes the compass to her pack before the sea wall fails.",
+    participant_entry_ids: ["demo-harbor/character/mira"],
+    sort_key: "storm-003",
+    fork_id: DEMO_SEED_FORK_ID,
     extensions: {},
   },
 ];

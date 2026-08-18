@@ -13,6 +13,12 @@
  *   - the negative path: a client that does not negotiate the tool gets a
  *     capability deny (CAPABILITY_PORT_MISSING / op_unsupported) — the host
  *     does not succeed silently;
+ *   - the optional families over the same real WebSocket: l2-computable
+ *     (project → compute settle → derived state) and l5-fork
+ *     (listForkTimelineEvents over the seeded storm fork);
+ *   - the optional-capability deny negative: a server variant whose
+ *     manifest omits l2-computable denies compute client-side
+ *     (CAPABILITY_PORT_MISSING / details.wire_code op_unsupported);
  *   - the allowlist negative proof (stranger dial rejected server-side).
  */
 
@@ -23,6 +29,8 @@ import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 import {
   DICE_ROLL_ENTRY_ID,
   DEMO_SEED_ENTRIES,
+  DEMO_SEED_FORK_ID,
+  DEMO_SEED_TIMELINE_EVENTS,
   DEMO_SERVER_MANIFEST,
   DERIVED_WORLD_DIGEST_ENTRY_ID,
   serveConnectDemo,
@@ -31,9 +39,11 @@ import {
 
 import {
   DEMO_CLIENT_MANIFEST,
+  DEMO_STORM_FORK_ID,
   runDemoClient,
 } from "../src/main.js";
 import {
+  DEMO_CLIENT_SEED,
   DEMO_SERVER_PEER_ID,
   DEMO_SERVER_PUBKEY,
   DEMO_SCOPE_ID,
@@ -133,6 +143,37 @@ describe("connect demo over a real WebSocket", () => {
     // The demo host knows no peers — empty list is valid (spec D5).
     expect(run.peerManifests).toEqual([]);
 
+    // The optional l2-computable round-trip: project materializes the
+    // session's computable view from static state, compute applies the
+    // delta and settles it back into static state (the derived state).
+    // The default manifest declares the families, so the flow always runs.
+    // The client's fork constant matches the server's seed corpus (the
+    // client keeps its own copy — it must not import the server package).
+    expect(DEMO_STORM_FORK_ID).toBe(DEMO_SEED_FORK_ID);
+    expect(run.projected).toBeDefined();
+    expect(run.computed).toBeDefined();
+    expect(run.forkEvents).toBeDefined();
+    expect(run.projected?.computable).toEqual({ ships_at_dock: 3 });
+    expect(run.computed?.computable).toEqual({
+      ships_at_dock: 3,
+      tide: "rising",
+    });
+    expect(run.computed?.state).toEqual({ ships_at_dock: 3, tide: "rising" });
+
+    // The optional l5-fork round-trip: the seeded storm-fork timeline
+    // events come back verbatim over the real WebSocket.
+    expect(run.forkEvents).toEqual(DEMO_SEED_TIMELINE_EVENTS);
+
+    // An unknown fork id still round-trips — an empty timeline.
+    const unknownFork = await run.adapter.listForkTimelineEvents({
+      scope_id: DEMO_SCOPE_ID,
+      fork_id: "demo-harbor/fork/unknown",
+    });
+    expect(unknownFork.ok).toBe(true);
+    if (unknownFork.ok) {
+      expect(unknownFork.value).toEqual([]);
+    }
+
     run.close();
   });
 
@@ -195,6 +236,53 @@ describe("connect demo over a real WebSocket", () => {
     ).toBe(false);
 
     run.close();
+  });
+
+  it("denies the optional compute op when the server manifest omits l2-computable", async () => {
+    // Server variant whose manifest does NOT declare l2-computable: the
+    // negotiated capability set lacks the family, so the responder's
+    // dispatch gate denies port.computable.compute with wire
+    // op_unsupported and the client maps it to CAPABILITY_PORT_MISSING
+    // (the existing D7 row). The deny must not succeed silently — the
+    // assertion is the client-side mapped reject itself.
+    const denyServer = await serveConnectDemo({
+      port: 0,
+      manifest: {
+        ...DEMO_SERVER_MANIFEST,
+        // The schema types capabilities as a non-empty tuple; the variant
+        // keeps the same family shape minus l2-computable.
+        capabilities: DEMO_SERVER_MANIFEST.capabilities.filter(
+          (capability) => capability !== "l2-computable",
+        ) as HostCapabilityManifest["capabilities"],
+      },
+    });
+    try {
+      const transport = new WsTransport(denyServer.url);
+      transports.push(transport);
+      const adapter = await connectRemoteAdapter({
+        transport,
+        localIdentity: { seed: DEMO_CLIENT_SEED },
+        localManifest: DEMO_CLIENT_MANIFEST,
+        remotePubkey: DEMO_SERVER_PUBKEY,
+        allowlist: [DEMO_SERVER_PEER_ID],
+      });
+
+      const result = await adapter.compute({
+        session_id: "demo-session/deny-negative",
+        entry_id: "demo-harbor/location/harbor",
+        computable: { tide: "rising" },
+        settle: true,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("CAPABILITY_PORT_MISSING");
+        expect(result.details?.wire_code).toBe("op_unsupported");
+      }
+
+      adapter.close();
+    } finally {
+      denyServer.close();
+    }
   });
 
   it("rejects a dial from a non-allowlisted stranger identity", async () => {

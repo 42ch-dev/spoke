@@ -18,8 +18,13 @@
  */
 
 import type {
+  ComputeRequest,
+  ComputeResponse,
+  ComputableFieldMap,
   Finding,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
   Relation,
   Rule,
   TimelineEvent,
@@ -36,6 +41,7 @@ import {
   DEMO_SEED_ENTRIES,
   DEMO_SEED_RELATIONS,
   DEMO_SEED_RULES,
+  DEMO_SEED_TIMELINE_EVENTS,
 } from "./seed-corpus.js";
 
 /** Reserved id prefix for engine-derived artifacts (never user-writable). */
@@ -43,6 +49,17 @@ const DERIVED_ID_PREFIX = "derived/";
 
 /** entry_id of the derived world-digest KnowledgeEntry. */
 export const DERIVED_WORLD_DIGEST_ENTRY_ID = `${DERIVED_ID_PREFIX}world-digest`;
+
+/**
+ * One l2-computable session: the dynamic computable view plus the static
+ * state it settles into. Sessions are keyed by the opaque `session_id` the
+ * client owns (products own session stores; this mock keeps one in memory).
+ */
+interface ComputableSession {
+  entry_id: string;
+  computable: ComputableFieldMap;
+  state: ComputableFieldMap;
+}
 
 /** UTF-8 lexicographic compare (mirrors the repo's peer-manifest sort). */
 function compareUtf8(left: string, right: string): number {
@@ -59,6 +76,8 @@ export class MockEngine {
   private readonly events: TimelineEvent[] = [];
   private readonly userFindings: Finding[] = [];
   private derivedFindings: Finding[] = [];
+  /** l2-computable sessions, keyed by client-owned `session_id`. */
+  private readonly computableSessions = new Map<string, ComputableSession>();
   /** Number of derivations performed — the digest revision equals this. */
   private derivationCount = 0;
 
@@ -71,6 +90,9 @@ export class MockEngine {
     }
     for (const rule of DEMO_SEED_RULES) {
       this.rules.set(rule.rule_id, rule);
+    }
+    for (const event of DEMO_SEED_TIMELINE_EVENTS) {
+      this.events.push(event);
     }
     this.derive();
   }
@@ -220,6 +242,62 @@ export class MockEngine {
   /** Current `isolated_entry` derived findings (sorted by finding_id). */
   listDerivedFindings(): Finding[] {
     return [...this.derivedFindings];
+  }
+
+  /**
+   * l2-computable projection (ComputablePort.project): materialize the
+   * session's dynamic computable view from the request's static state.
+   * Deterministic — the view is a pure copy of the request state; the
+   * session is recorded so later computes settle against it.
+   */
+  projectComputable(request: ProjectRequest): SpokeResult<ProjectResponse> {
+    const view: ComputableFieldMap = { ...request.state };
+    this.computableSessions.set(request.session_id, {
+      entry_id: request.entry_id,
+      computable: view,
+      state: { ...request.state },
+    });
+    return spokeOk({
+      session_id: request.session_id,
+      entry_id: request.entry_id,
+      computable: view,
+    });
+  }
+
+  /**
+   * l2-computable apply/settle (ComputablePort.compute): merge the
+   * request's computable delta into the session view (starting from the
+   * delta when no session was projected), and when `settle` is true merge
+   * the view back into the session's static state. Deterministic — pure
+   * merges of request data, no wall-clock or random.
+   */
+  computeComputable(request: ComputeRequest): SpokeResult<ComputeResponse> {
+    const existing = this.computableSessions.get(request.session_id);
+    const view: ComputableFieldMap = {
+      ...(existing?.computable ?? {}),
+      ...request.computable,
+    };
+    const state: ComputableFieldMap = { ...(existing?.state ?? {}) };
+    if (request.settle === true) {
+      Object.assign(state, view);
+    }
+    this.computableSessions.set(request.session_id, {
+      entry_id: request.entry_id,
+      computable: view,
+      state,
+    });
+    return request.settle === true
+      ? spokeOk({
+          session_id: request.session_id,
+          entry_id: request.entry_id,
+          computable: view,
+          state,
+        })
+      : spokeOk({
+          session_id: request.session_id,
+          entry_id: request.entry_id,
+          computable: view,
+        });
   }
 
   private assertNotDerivedId(entryId: string): SpokeResult<void> {

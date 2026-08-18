@@ -10,8 +10,10 @@ export type { ServeConnectDemoHandle } from "./transport/ws-server.js";
 export { DEMO_SERVER_MANIFEST, MockAdapter } from "./adapter/mock-adapter.js";
 export {
   DEMO_SEED_ENTRIES,
+  DEMO_SEED_FORK_ID,
   DEMO_SEED_RELATIONS,
   DEMO_SEED_RULES,
+  DEMO_SEED_TIMELINE_EVENTS,
   DEMO_SCOPE_ID,
 } from "./engine/seed-corpus.js";
 export { DERIVED_WORLD_DIGEST_ENTRY_ID, MockEngine } from "./engine/mock-engine.js";

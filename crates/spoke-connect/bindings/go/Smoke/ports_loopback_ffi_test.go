@@ -272,13 +272,14 @@ func assertOptionalOpsDenied(t *testing.T, dialer *sc.RemoteAdapterFfi, what str
 	cases := []struct {
 		name string
 		call func(string) (string, error)
+		json string
 	}{
-		{"project", dialer.Project},
-		{"compute", dialer.Compute},
-		{"listForkTimelineEvents", dialer.ListForkTimelineEvents},
+		{"project", dialer.Project, `{"session_id":"sess_ffi_ports","entry_id":"kb_ffi_ports_proj","state":{"tide_level":2.1,"cargo_tons":40}}`},
+		{"compute", dialer.Compute, `{"session_id":"sess_ffi_ports","entry_id":"kb_ffi_ports_cmp","computable":{"tide_level":2.5,"cargo_tons":37},"settle":true}`},
+		{"listForkTimelineEvents", dialer.ListForkTimelineEvents, `{"scope_id":"pkt_tw_scope","fork_id":"fork_tw_ffi_events"}`},
 	}
 	for _, c := range cases {
-		_, err := c.call(projectRequestJSON)
+		_, err := c.call(c.json)
 		if err == nil {
 			t.Fatalf("%s: %s must deny", what, c.name)
 		}

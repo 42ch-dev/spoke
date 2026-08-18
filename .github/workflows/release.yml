@@ -649,9 +649,10 @@ jobs:
 
       - name: Confirm published set on PyPI
         # Unconditional re-probe: the job is green only on a verified full set,
-        # skip and publish paths alike.
+        # skip and publish paths alike. Retries absent/partial probes with
+        # backoff for up to 120s — PyPI's JSON API lags uploads by seconds.
         if: ${{ always() }}
-        run: node tooling/release/check-pypi-published.mjs --verify
+        run: node tooling/release/check-pypi-published.mjs --verify --verify-retry-seconds 120
 
   publish-maven:
     name: publish-maven

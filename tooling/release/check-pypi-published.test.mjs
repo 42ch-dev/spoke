@@ -29,6 +29,9 @@ const SCRIPT_PATH = fileURLToPath(
 let server;
 let baseUrl;
 
+// Per-version probe counts so a case can flip behavior mid-retry (transient 404).
+const probeCounts = new Map();
+
 const wheelUrls = (version) =>
   expectedWheelFilenames("spoke-connect", version).map((filename) => ({
     filename,
@@ -80,6 +83,14 @@ before(async () => {
           urls: [...wheelUrls("0.12.0"), { filename: "spoke_connect-0.12.0.tar.gz" }],
         });
         break;
+      case "0.13.0": // transient 404: absent for the first two probes, then full set
+        probeCounts.set(version, (probeCounts.get(version) ?? 0) + 1);
+        if (probeCounts.get(version) <= 2) {
+          json(404, { message: "not found" });
+        } else {
+          json(200, { urls: wheelUrls("0.13.0") });
+        }
+        break;
       default:
         json(404, { message: "not found" });
         break;
@@ -102,7 +113,9 @@ after(async () => {
 
 /**
  * Rewrite the `version = "…"` line in the `[project]` table of a temp fixture
- * pyproject.toml so the lockstep cross-check matches the RELEASE_TAG under test.
+ * pyproject.toml so the lockstep cross-check matches the RELEASE_TAG under
+ * test. Tolerates a no-op when the fixture already sits at the target version
+ * (line is asserted, not the replace result).
  *
  * @param {string} repoRoot
  * @param {string} version
@@ -113,12 +126,14 @@ function setFixturePyprojectVersion(repoRoot, version) {
     "crates/spoke-connect/bindings/python/pyproject.toml",
   );
   const contents = readFileSync(pyprojectPath, "utf8");
-  const updated = contents.replace(
-    /^version\s*=\s*"[^"]+"/m,
-    `version = "${version}"`,
-  );
-  assert.notEqual(updated, contents, "fixture pyproject version line not found");
-  writeFileSync(pyprojectPath, updated);
+  // Assert the version LINE exists (not that the replace changed something):
+  // when the repo already sits at the target version the rewrite is a no-op.
+  const versionLine = /^version\s*=\s*"[^"]+"/m;
+  assert.match(contents, versionLine, "fixture pyproject version line not found");
+  const updated = contents.replace(versionLine, `version = "${version}"`);
+  if (updated !== contents) {
+    writeFileSync(pyprojectPath, updated);
+  }
 }
 
 /**
@@ -128,9 +143,11 @@ function setFixturePyprojectVersion(repoRoot, version) {
  * @param {string} opts.tag RELEASE_TAG value (e.g. "v0.2.0").
  * @param {string[]} [opts.args] Extra CLI args (e.g. ["--verify"]).
  * @param {string} [opts.githubOutput] When set, point GITHUB_OUTPUT at this file.
+ * @param {Record<string, string>} [opts.extraEnv] Extra env vars for the child
+ *   (e.g. PYPI_VERIFY_RETRY_BASE_MS to keep retry sleeps short).
  * @returns {Promise<{ status: number | null; stdout: string; stderr: string }>}
  */
-async function runCheck({ tag, args = [], githubOutput }) {
+async function runCheck({ tag, args = [], githubOutput, extraEnv = {} }) {
   const repoRoot = createTempRepo();
   setFixturePyprojectVersion(repoRoot, tag.slice(1));
   const env = {
@@ -138,6 +155,7 @@ async function runCheck({ tag, args = [], githubOutput }) {
     SPOKE_REPO_ROOT: repoRoot,
     RELEASE_TAG: tag,
     PYPI_BASE_URL: baseUrl,
+    ...extraEnv,
   };
   delete env.GITHUB_OUTPUT;
   if (githubOutput) {
@@ -250,6 +268,37 @@ describe("check-pypi-published.mjs CLI", () => {
 
   it("--verify fails when the version is absent", async () => {
     const result = await runCheck({ tag: "v0.1.0", args: ["--verify"] });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing/);
+  });
+
+  it("--verify retries a transient 404 and succeeds within the deadline", async () => {
+    const result = await runCheck({
+      tag: "v0.13.0",
+      args: ["--verify", "--verify-retry-seconds", "1"],
+      extraEnv: { PYPI_VERIFY_RETRY_BASE_MS: "10" },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /confirmed full expected set/);
+    assert.ok(probeCounts.get("0.13.0") >= 3, "expected at least 3 probes");
+  });
+
+  it("--verify retries then fails loud when the deadline expires with files missing", async () => {
+    const result = await runCheck({
+      tag: "v0.3.0",
+      args: ["--verify", "--verify-retry-seconds", "0.2"],
+      extraEnv: { PYPI_VERIFY_RETRY_BASE_MS: "10" },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /missing/);
+    assert.match(result.stderr, /win_amd64/);
+  });
+
+  it("--verify-retry-seconds 0 keeps single-shot semantics", async () => {
+    const result = await runCheck({
+      tag: "v0.1.0",
+      args: ["--verify", "--verify-retry-seconds", "0"],
+    });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /missing/);
   });

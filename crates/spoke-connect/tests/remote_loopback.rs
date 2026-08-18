@@ -57,15 +57,18 @@ use spoke_connect::remote::{
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     orchestrate_check, orchestrate_upsert, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput,
-    FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeReject, SpokeRejectCode, SpokeResult,
+    ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
+    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
-use spoke_schemas::{CheckRequest, Finding, HostCapabilityManifest, KnowledgeEntry, Scope, UpsertRequest};
+use spoke_schemas::{
+    CheckRequest, ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+    ProjectRequest, ProjectResponse, Scope, TimelineEvent, UpsertRequest,
+};
 
 /// Compare two `SpokeResult`s structurally (generated types do not derive
 /// `PartialEq`).
@@ -3887,4 +3890,274 @@ async fn responder_answers_an_unknown_port_method_with_the_dispatch_deny_branch(
     );
     assert_eq!(response["signature"].as_str().expect("sig").len(), 86);
     responder.close();
+}
+
+// ── Optional-port delegation (port.computable.* / port.fork.*) ───────────
+// Parity mirror of the TS suite (T2): happy loopback round-trip per
+// optional op — host + client manifests declare the optional families —
+// and the capability-gate deny per op — default manifests advertise
+// spoke-baseline only ⇒ the negotiated set lacks l2-computable / l5-fork
+// ⇒ the host's dispatch gate denies wire `op_unsupported` ⇒ the D7 row
+// maps it to CAPABILITY_PORT_MISSING with `details.wire_code` preserved
+// (no local dialer pre-gate; the deny is responder-side, client-mapped).
+
+/// Host/client manifest declaring the optional families (happy path).
+fn optional_manifest(host_id: &str) -> HostCapabilityManifest {
+    manifest(host_id, &["spoke-baseline", "l2-computable", "l5-fork"])
+}
+
+#[tokio::test]
+async fn round_trips_project_over_the_loopback() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let optional = optional_manifest("test-host");
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            host_manifest: Some(optional.clone()),
+            client_manifest: Some(optional),
+            ..Default::default()
+        },
+    )
+    .await;
+    let request: ProjectRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "state": { "tide_level": 2.1, "cargo_tons": 40 },
+    }))
+    .expect("valid ProjectRequest");
+    let result = client.project(request).await;
+    match result {
+        SpokeResult::Ok(ProjectResponse::Variant0 {
+            session_id,
+            entry_id,
+            computable,
+            ..
+        }) => {
+            assert_eq!(session_id.as_str(), "sess_tw_dawn_arrival");
+            assert_eq!(entry_id.as_str(), "kb_tw_harbor");
+            // The committed project fixture's computable view is echoed.
+            assert_eq!(
+                Value::Object(computable),
+                json!({ "tide_level": 2.4, "cargo_tons": 38 })
+            );
+        }
+        SpokeResult::Ok(ProjectResponse::Variant1 { error, .. }) => {
+            panic!("project round-trip must succeed: {}", error.message)
+        }
+        SpokeResult::Reject(reject) => panic!("project round-trip must succeed: {reject:?}"),
+    }
+    // The host served the op (its dispatch_op would reject a wrong op /
+    // malformed payload) — one dispatch, zero denials.
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, 1);
+    assert_eq!(stats.dispatch_denials, 0);
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn round_trips_compute_over_the_loopback() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let optional = optional_manifest("test-host");
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            host_manifest: Some(optional.clone()),
+            client_manifest: Some(optional),
+            ..Default::default()
+        },
+    )
+    .await;
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": { "tide_level": 2.5, "cargo_tons": 37 },
+        "settle": true,
+    }))
+    .expect("valid ComputeRequest");
+    let result = client.compute(request).await;
+    match result {
+        SpokeResult::Ok(ComputeResponse::Variant0 {
+            computable,
+            state,
+            ..
+        }) => {
+            // The request computable is echoed and the settle response
+            // carries the merged static state.
+            assert_eq!(
+                Value::Object(computable),
+                json!({ "tide_level": 2.5, "cargo_tons": 37 })
+            );
+            assert_eq!(
+                Value::Object(state),
+                json!({ "tide_level": 2.5, "cargo_tons": 37 })
+            );
+        }
+        SpokeResult::Ok(ComputeResponse::Variant1 { error, .. }) => {
+            panic!("compute round-trip must succeed: {}", error.message)
+        }
+        SpokeResult::Reject(reject) => panic!("compute round-trip must succeed: {reject:?}"),
+    }
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, 1);
+    assert_eq!(stats.dispatch_denials, 0);
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn round_trips_list_fork_timeline_events_over_the_loopback() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let optional = optional_manifest("test-host");
+    let (client, host) = dial(
+        host_adapter,
+        DialOptions {
+            host_manifest: Some(optional.clone()),
+            client_manifest: Some(optional),
+            ..Default::default()
+        },
+    )
+    .await;
+    let scope: Scope = serde_json::from_value(json!({
+        "scope_id": "pkt_tw_scope",
+        "fork_id": "fork_tw_storm_branch",
+    }))
+    .expect("valid Scope");
+    let result = client.list_fork_timeline_events(&scope).await;
+    match result {
+        SpokeResult::Ok(events) => {
+            // The committed fixtures carry exactly one fork-branch event —
+            // proves the payload carried the fork_id through the loopback.
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0].timeline_event_id.as_str(),
+                "evt_tw_harbor_storm_delay"
+            );
+            assert_eq!(
+                events[0].fork_id.as_ref().map(|id| id.as_str()),
+                Some("fork_tw_storm_branch")
+            );
+        }
+        SpokeResult::Reject(reject) => panic!("fork round-trip must succeed: {reject:?}"),
+    }
+    // A fork id with no events still round-trips (empty array).
+    let unknown: Scope = serde_json::from_value(json!({
+        "scope_id": "pkt_tw_scope",
+        "fork_id": "fork_tw_unknown",
+    }))
+    .expect("valid Scope");
+    let empty = client.list_fork_timeline_events(&unknown).await;
+    match empty {
+        SpokeResult::Ok(events) => {
+            assert!(events.is_empty(), "unknown fork id must round-trip to []")
+        }
+        SpokeResult::Reject(reject) => panic!("unknown fork round-trip must succeed: {reject:?}"),
+    }
+    let stats = host.stats();
+    assert_eq!(stats.invokes_dispatched, 2);
+    assert_eq!(stats.dispatch_denials, 0);
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn maps_the_capability_gate_deny_for_project_when_the_peer_manifest_lacks_l2_computable() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    // Default manifests advertise spoke-baseline only ⇒ the negotiated set
+    // lacks l2-computable ⇒ the host's dispatch gate denies the op.
+    let (client, host) = dial(host_adapter, DialOptions::default()).await;
+    let request: ProjectRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "state": { "tide_level": 2.1, "cargo_tons": 40 },
+    }))
+    .expect("valid ProjectRequest");
+    let result = client.project(request).await;
+    match result {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(|code| code.as_str()),
+                Some("op_unsupported")
+            );
+            assert!(reject.message.contains("not authorized"));
+        }
+        SpokeResult::Ok(_) => panic!("capability-gate deny must reject"),
+    }
+    let stats = host.stats();
+    assert_eq!(stats.dispatch_denials, 1);
+    assert_eq!(stats.invokes_dispatched, 0);
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn maps_the_capability_gate_deny_for_compute_when_the_peer_manifest_lacks_l2_computable() {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let (client, host) = dial(host_adapter, DialOptions::default()).await;
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": { "tide_level": 2.5, "cargo_tons": 37 },
+        "settle": true,
+    }))
+    .expect("valid ComputeRequest");
+    let result = client.compute(request).await;
+    match result {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(|code| code.as_str()),
+                Some("op_unsupported")
+            );
+            assert!(reject.message.contains("not authorized"));
+        }
+        SpokeResult::Ok(_) => panic!("capability-gate deny must reject"),
+    }
+    let stats = host.stats();
+    assert_eq!(stats.dispatch_denials, 1);
+    assert_eq!(stats.invokes_dispatched, 0);
+    client.close();
+    host.close();
+}
+
+#[tokio::test]
+async fn maps_the_capability_gate_deny_for_list_fork_timeline_events_when_the_peer_manifest_lacks_l5_fork(
+) {
+    let host_adapter = ToyWorldAdapter::with_committed_fixtures();
+    let (client, host) = dial(host_adapter, DialOptions::default()).await;
+    let scope: Scope = serde_json::from_value(json!({
+        "scope_id": "pkt_tw_scope",
+        "fork_id": "fork_tw_storm_branch",
+    }))
+    .expect("valid Scope");
+    let result = client.list_fork_timeline_events(&scope).await;
+    match result {
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(|code| code.as_str()),
+                Some("op_unsupported")
+            );
+            assert!(reject.message.contains("not authorized"));
+        }
+        SpokeResult::Ok(_) => panic!("capability-gate deny must reject"),
+    }
+    let stats = host.stats();
+    assert_eq!(stats.dispatch_denials, 1);
+    assert_eq!(stats.invokes_dispatched, 0);
+    client.close();
+    host.close();
 }

@@ -25,8 +25,8 @@ use spoke_connect::remote::{
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
     orchestrate_check, orchestrate_upsert, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput,
-    FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
-    SpokeReject, SpokeRejectCode, SpokeResult,
+    FindingPort, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
+    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
@@ -34,7 +34,8 @@ use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
-    CheckRequest, Finding, HostCapabilityManifest, KnowledgeEntry, Scope, UpsertRequest,
+    CheckRequest, ComputeRequest, Finding, HostCapabilityManifest, KnowledgeEntry, ProjectRequest,
+    Scope, UpsertRequest,
 };
 
 /// Schema-conformant host manifest (mirror of TS `schemaConformantManifest`).
@@ -82,7 +83,9 @@ pub fn check_request(scope_id: &str) -> CheckRequest {
 
 /// Default product `op_capability_requirements` map for the loopback host
 /// (frozen contract §5.1): every baseline `port.*` op requires
-/// `spoke-baseline`.
+/// `spoke-baseline`; the optional families require `l2-computable` /
+/// `l5-fork` (the gate denies these unless the negotiated capabilities
+/// carry the family capability — mirror of the T4 responder map).
 const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: &[(&str, &str)] = &[
     ("port.knowledge.get", "spoke-baseline"),
     ("port.knowledge.put", "spoke-baseline"),
@@ -93,6 +96,11 @@ const DEFAULT_PORT_CAPABILITY_REQUIREMENTS: &[(&str, &str)] = &[
     ("port.finding.put", "spoke-baseline"),
     ("port.rule.list", "spoke-baseline"),
     ("port.host.list_peer_manifests", "spoke-baseline"),
+    // Optional families (product `op_capability_requirements`, frozen
+    // contract §5.1).
+    ("port.computable.project", "l2-computable"),
+    ("port.computable.compute", "l2-computable"),
+    ("port.fork.list_timeline_events", "l5-fork"),
 ];
 
 const SESSION_ID: &str = "test-session-loopback-0001";
@@ -145,7 +153,7 @@ pub struct HostInner {
     host_manifest: HostCapabilityManifest,
     host_peer_id: String,
     allowlist: Vec<String>,
-    pub adapter: Arc<dyn BaselinePorts + Send + Sync>,
+    pub adapter: Arc<dyn FullPorts + Send + Sync>,
     requirements: HashMap<String, String>,
     delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
     /// Test-only: when a request maps to `Some(envelope)`, that envelope is
@@ -707,6 +715,54 @@ impl HostInner {
             "port.host.list_peer_manifests" => {
                 Self::map_result(adapter.list_peer_host_capability_manifests().await)
             }
+            // Optional-port serving face: the capability gate above has
+            // already verified the negotiated set authorizes the op, and
+            // the loopback fixtures serve a FullAdapter (ToyWorldAdapter) —
+            // a baseline-only fixture never reaches these cases (mirror of
+            // the TS loopback host's gate → probe serving order).
+            "port.computable.project" => {
+                let request = match serde_json::from_value::<ProjectRequest>(payload.clone()) {
+                    Ok(request) => request,
+                    Err(_) => {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            "invalid port.computable.project payload",
+                            None,
+                        );
+                    }
+                };
+                let computable = adapter
+                    .as_computable()
+                    .expect("gate-authorized optional op served by a FullAdapter fixture");
+                Self::map_result(computable.project(request).await)
+            }
+            "port.computable.compute" => {
+                let request = match serde_json::from_value::<ComputeRequest>(payload.clone()) {
+                    Ok(request) => request,
+                    Err(_) => {
+                        return spoke_reject(
+                            SpokeRejectCode::InvalidInput,
+                            "invalid port.computable.compute payload",
+                            None,
+                        );
+                    }
+                };
+                let computable = adapter
+                    .as_computable()
+                    .expect("gate-authorized optional op served by a FullAdapter fixture");
+                Self::map_result(computable.compute(request).await)
+            }
+            "port.fork.list_timeline_events" => {
+                let scope =
+                    match Self::payload_field::<Scope>(payload, "scope", request.op.as_str()) {
+                        SpokeResult::Ok(value) => value,
+                        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                    };
+                let fork = adapter
+                    .as_fork_timeline()
+                    .expect("gate-authorized optional op served by a FullAdapter fixture");
+                Self::map_result(fork.list_fork_timeline_events(&scope).await)
+            }
             _ => SpokeResult::Reject(SpokeReject {
                 code: SpokeRejectCode::CapabilityPortMissing,
                 message: format!("unimplemented port op {}", request.op.as_str()),
@@ -900,7 +956,7 @@ pub struct LoopbackHostOptions {
     pub host_seed: [u8; 32],
     pub host_manifest: HostCapabilityManifest,
     pub allowlist: Vec<String>,
-    pub adapter: Arc<dyn BaselinePorts + Send + Sync>,
+    pub adapter: Arc<dyn FullPorts + Send + Sync>,
     pub delay: Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>,
     pub response_override: Option<Box<dyn Fn(&ConnectInvokeRequest) -> Option<Value> + Send + Sync>>,
     pub session_peer_ids: Option<(String, String)>,
@@ -950,6 +1006,8 @@ type HostDelay = Box<dyn Fn(&ConnectInvokeRequest) -> u64 + Send + Sync>;
 pub struct DialOptions {
     pub allowlist: Option<Vec<String>>,
     pub client_manifest: Option<HostCapabilityManifest>,
+    /// The host's advertised hello manifest (capability-gate fixtures).
+    pub host_manifest: Option<HostCapabilityManifest>,
     pub invoke_timeout_ms: Option<u64>,
     pub host_delay: Option<HostDelay>,
     pub host_allowlist: Option<Vec<String>>,
@@ -1148,7 +1206,9 @@ pub async fn dial(
     let host = start_loopback_host(LoopbackHostOptions {
         transport: Arc::new(pair.server),
         host_seed: seed_host(),
-        host_manifest: manifest("test-host", &["spoke-baseline"]),
+        host_manifest: options
+            .host_manifest
+            .unwrap_or_else(|| manifest("test-host", &["spoke-baseline"])),
         allowlist: options
             .host_allowlist
             .unwrap_or_else(|| vec![peer_id_client.clone()]),

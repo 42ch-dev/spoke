@@ -1,10 +1,12 @@
 //! `RemoteAdapter` — drop-in async `BaselinePorts` over a connect session
 //! (frozen contract: `.mstar/specs/spoke-remote-adapter.md`).
 //!
-//! PUBLIC surface: the async `BaselinePorts` (six families) + the
-//! [`connect_remote_adapter`] dial entrypoint + read-only session info
-//! ([`RemoteAdapter::state`], `session_id`, `remote_peer_id`,
-//! `remote_manifest`) + [`RemoteAdapter::close`].
+//! PUBLIC surface: the async `BaselinePorts` (six families) + the optional
+//! `l2-computable` / `l5-fork` port faces (`project` / `compute` /
+//! `list_fork_timeline_events`) + the [`connect_remote_adapter`] dial
+//! entrypoint + read-only session info ([`RemoteAdapter::state`],
+//! `session_id`, `remote_peer_id`, `remote_manifest`) +
+//! [`RemoteAdapter::close`].
 //!
 //! INTERNAL (encapsulated — consumers never touch these): hello sign/verify,
 //! allowlist, nonce single-use, sequence allocate/advance, `request_id`
@@ -29,8 +31,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
-    FindingPort, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
-    ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
+    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -40,7 +42,8 @@ use spoke_schemas::connect::connect_invoke_response::{
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
-    Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent,
+    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 use crate::core::{
@@ -1464,6 +1467,37 @@ impl FindingPort for RemoteAdapter {
 impl RuleQueryPort for RemoteAdapter {
     async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
         self.invoke_mapped("port.rule.list", json!({ "rule_refs": rule_refs }))
+            .await
+    }
+}
+
+#[async_trait]
+impl ComputablePort for RemoteAdapter {
+    /// Optional l2-computable face (frozen contract §5.2): project the
+    /// session's computable view on the remote peer. No local pre-gate —
+    /// mirrors the baseline port methods: the responder's dispatch gate
+    /// denies (wire `op_unsupported` / `capability_missing`) and the D7 row
+    /// maps to `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved.
+    async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
+        self.invoke_mapped("port.computable.project", json!(request)).await
+    }
+
+    /// Optional l2-computable face (frozen contract §5.2): apply / settle
+    /// computable updates on the remote peer. Same deny mapping as
+    /// `project`.
+    async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
+        self.invoke_mapped("port.computable.compute", json!(request)).await
+    }
+}
+
+#[async_trait]
+impl ForkTimelineQueryPort for RemoteAdapter {
+    /// Optional l5-fork face (frozen contract §5.2): query the remote peer's
+    /// fork-branch timeline, scoped like `list_timeline_events` with the
+    /// `fork_id` carried on the `Scope`. Same deny mapping as the baseline
+    /// port methods (no local pre-gate).
+    async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        self.invoke_mapped("port.fork.list_timeline_events", json!({ "scope": scope }))
             .await
     }
 }

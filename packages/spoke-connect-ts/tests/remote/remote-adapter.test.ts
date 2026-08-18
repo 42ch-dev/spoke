@@ -26,9 +26,16 @@ import { describe, expect, it } from "vitest";
 
 import type {
   CheckRequest,
+  ComputeRequest,
+  ComputeResponse,
   ConnectInvokeRequest,
+  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectRequest,
+  ProjectResponse,
+  Scope,
+  TimelineEvent,
   UpsertRequest,
 } from "@42ch/spoke-schemas";
 import {
@@ -96,6 +103,8 @@ async function dial(
     invokeTimeoutMs?: number;
     hostDelay?: (request: { sequence: number }) => number;
     hostAllowlist?: readonly string[];
+    /** The host's advertised hello manifest (capability-gate fixtures). */
+    hostManifest?: HostCapabilityManifest;
     /** Replace the host's response envelope for a request (malformed fixtures). */
     hostResponseOverride?: (request: ConnectInvokeRequest) => unknown;
     /** Issue a real capability token and attach it as `auth` on invokes. */
@@ -127,6 +136,7 @@ async function dial(
     clientPubkey: pubkeyClient,
     allowlist: options.hostAllowlist ?? [peerIdClient],
     adapter: hostAdapter,
+    hostManifest: options.hostManifest,
     delay: options.hostDelay,
     responseOverride: options.hostResponseOverride,
   });
@@ -1466,6 +1476,216 @@ describe("RemoteAdapter loopback interop", () => {
           }),
         ).rejects.toThrow(/missing a signature/);
       } finally {
+        host.close();
+      }
+    },
+    15000,
+  );
+});
+
+describe("RemoteAdapter optional-port delegation (port.computable.* / port.fork.*)", () => {
+  /** Host/client manifest declaring the optional families (happy path). */
+  function optionalManifest(hostId: string): HostCapabilityManifest {
+    return {
+      ...schemaConformantManifest(),
+      host_id: hostId,
+      capabilities: ["spoke-baseline", "l2-computable", "l5-fork"],
+    };
+  }
+
+  it(
+    "round-trips project over the loopback (port.computable.project, snake_case payload)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter, {
+        hostManifest: optionalManifest("test-host"),
+        clientManifest: optionalManifest("test-client"),
+      });
+      try {
+        const request: ProjectRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        };
+        const result = await client.project(request);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            session_id: "sess_tw_dawn_arrival",
+            entry_id: "kb_tw_harbor",
+            computable: { tide_level: 2.4, cargo_tons: 38 },
+          });
+        }
+        // The host served the op (its dispatchOp would reject a wrong op /
+        // malformed payload) — one dispatch, zero denials.
+        expect(host.stats.invokesDispatched).toBe(1);
+        expect(host.stats.dispatchDenials).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "round-trips compute over the loopback (port.computable.compute, settle response carries state)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter, {
+        hostManifest: optionalManifest("test-host"),
+        clientManifest: optionalManifest("test-client"),
+      });
+      try {
+        const request: ComputeRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5, cargo_tons: 37 },
+          settle: true,
+        };
+        const result = await client.compute(request);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            session_id: "sess_tw_dawn_arrival",
+            entry_id: "kb_tw_harbor",
+            computable: { tide_level: 2.5, cargo_tons: 37 },
+            state: { tide_level: 2.5, cargo_tons: 37 },
+          });
+        }
+        expect(host.stats.invokesDispatched).toBe(1);
+        expect(host.stats.dispatchDenials).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "round-trips listForkTimelineEvents over the loopback (port.fork.list_timeline_events, scope-scoped)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter, {
+        hostManifest: optionalManifest("test-host"),
+        clientManifest: optionalManifest("test-client"),
+      });
+      try {
+        const scope: Scope & { fork_id: ForkId } = {
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        };
+        const result = await client.listForkTimelineEvents(scope);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          // The committed fixtures carry exactly one fork-branch event —
+          // proves the payload carried the fork_id through the loopback.
+          expect(result.value).toHaveLength(1);
+          expect(result.value[0]).toMatchObject({
+            timeline_event_id: "evt_tw_harbor_storm_delay",
+            fork_id: "fork_tw_storm_branch",
+          });
+        }
+        // A fork id with no events still round-trips (empty array).
+        const empty = await client.listForkTimelineEvents({
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_unknown",
+        });
+        expect(empty.ok).toBe(true);
+        if (empty.ok) {
+          expect(empty.value).toEqual([]);
+        }
+        expect(host.stats.invokesDispatched).toBe(2);
+        expect(host.stats.dispatchDenials).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "maps the capability-gate deny for project when the peer manifest lacks l2-computable (D7: CAPABILITY_PORT_MISSING, wire_code op_unsupported)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      // Default manifests advertise spoke-baseline only ⇒ the negotiated
+      // set lacks l2-computable ⇒ the host's dispatch gate denies the op.
+      const { client, host } = await dial(hostAdapter);
+      try {
+        const request: ProjectRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        };
+        const result = await client.project(request);
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(host.stats.dispatchDenials).toBe(1);
+        expect(host.stats.invokesDispatched).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "maps the capability-gate deny for compute when the peer manifest lacks l2-computable (D7: CAPABILITY_PORT_MISSING, wire_code op_unsupported)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter);
+      try {
+        const request: ComputeRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5, cargo_tons: 37 },
+          settle: true,
+        };
+        const result = await client.compute(request);
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(host.stats.dispatchDenials).toBe(1);
+        expect(host.stats.invokesDispatched).toBe(0);
+      } finally {
+        client.close();
+        host.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "maps the capability-gate deny for listForkTimelineEvents when the peer manifest lacks l5-fork (D7: CAPABILITY_PORT_MISSING, wire_code op_unsupported)",
+    async () => {
+      const hostAdapter = ToyWorldAdapter.withCommittedFixtures();
+      const { client, host } = await dial(hostAdapter);
+      try {
+        const scope: Scope & { fork_id: ForkId } = {
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        };
+        const result = await client.listForkTimelineEvents(scope);
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(host.stats.dispatchDenials).toBe(1);
+        expect(host.stats.invokesDispatched).toBe(0);
+      } finally {
+        client.close();
         host.close();
       }
     },

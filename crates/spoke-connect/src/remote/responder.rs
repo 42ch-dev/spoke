@@ -25,12 +25,12 @@
 //!   advance; the async verify cannot interleave with a concurrent invoke)
 //!   followed by a concurrent dispatch phase: `tools.*` ops run the
 //!   registered tool handler (or deny `op_unsupported`), `port.*` ops run
-//!   the D4 catalogue against the injected async [`BaselinePorts`] (absent
-//!   `ports` still answers the dispatch-deny branch), and unknown ops are
-//!   denied. A failed envelope-auth verify produces no handler side effect
-//!   and no session-state mutation (auth-before-advance, spec §Verify
-//!   rules). An unparseable inbound frame closes the connection (carried
-//!   over from the demo).
+//!   the D4 catalogue against the injected async
+//!   [`RemoteServePorts`] (absent `ports` still answers the dispatch-deny
+//!   branch), and unknown ops are denied. A failed envelope-auth verify
+//!   produces no handler side effect and no session-state mutation
+//!   (auth-before-advance, spec §Verify rules). An unparseable inbound
+//!   frame closes the connection (carried over from the demo).
 //! - **invoke_tool**: the reverse face — outbound counter, request signing,
 //!   send-tail wire-order serialization, response correlation +
 //!   envelope-auth verify, per-waiter timeout, and the deferred-send
@@ -48,13 +48,16 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope, BaselinePorts,
-    SpokeReject, SpokeRejectCode, SpokeResult,
+    parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope, SpokeReject,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
 use spoke_schemas::connect::ConnectHello;
-use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Scope};
+use spoke_schemas::{
+    ComputeRequest, Finding, HostCapabilityManifest, KnowledgeEntry, ProjectRequest, Relation,
+    Scope,
+};
 
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
@@ -69,6 +72,7 @@ use crate::remote::remote_adapter::{
     wire_response_correlation, RemoteError as ResponderError, RemoteErrorKind as ResponderErrorKind,
     RemoteIdentity, ToolHandler,
 };
+use crate::remote::serve_ports::RemoteServePorts;
 use crate::remote::transport::Transport;
 use crate::runtime::generate_request_id;
 
@@ -85,9 +89,10 @@ const SESSION_ID_PREFIX: &str = "connect-responder-session-";
 pub type ConnectResponderState = crate::remote::RemoteAdapterState;
 
 /// Product `op_capability_requirements` map (D4): every baseline `port.*`
-/// op requires `spoke-baseline`. The core `required_capability` table
-/// returns `None` for `port.*`, so WITHOUT this map every port invoke would
-/// be denied `op_unsupported`.
+/// op requires `spoke-baseline`; the optional families require their
+/// negotiated family capability (`l2-computable` / `l5-fork`). The core
+/// `required_capability` table returns `None` for `port.*`, so WITHOUT this
+/// map every port invoke would be denied `op_unsupported`.
 fn port_op_requirement(op: &str) -> Option<&'static str> {
     match op {
         "port.knowledge.get" => Some("spoke-baseline"),
@@ -99,6 +104,35 @@ fn port_op_requirement(op: &str) -> Option<&'static str> {
         "port.finding.put" => Some("spoke-baseline"),
         "port.rule.list" => Some("spoke-baseline"),
         "port.host.list_peer_manifests" => Some("spoke-baseline"),
+        // Optional families (D4 catalogue): project / compute require the
+        // `l2-computable` family capability; the fork timeline query
+        // requires `l5-fork` — all evaluated against the negotiated
+        // capabilities (both-hello intersection) by `gate_allows`.
+        "port.computable.project" => Some("l2-computable"),
+        "port.computable.compute" => Some("l2-computable"),
+        "port.fork.list_timeline_events" => Some("l5-fork"),
+        _ => None,
+    }
+}
+
+/// Optional-family op → required face probe (D4 catalogue). Serving order
+/// is gate → probe → serve/deny: after the capability gate passes, the
+/// injected ports face is structurally probed via
+/// [`RemoteServePorts::as_computable`] / [`RemoteServePorts::as_fork_timeline`];
+/// a `None` probe (returned as the missing method name) means the host
+/// declared the family but does not provide it (host misconfiguration) —
+/// answer the same dispatch-deny branch as absent ports. Baseline ops are
+/// not probed: the `BaselinePorts` supertrait guarantees their methods.
+fn missing_optional_serve_face(
+    op: &str,
+    ports: &(dyn RemoteServePorts + Send + Sync),
+) -> Option<&'static str> {
+    match op {
+        "port.computable.project" if ports.as_computable().is_none() => Some("project"),
+        "port.computable.compute" if ports.as_computable().is_none() => Some("compute"),
+        "port.fork.list_timeline_events" if ports.as_fork_timeline().is_none() => {
+            Some("list_fork_timeline_events")
+        }
         _ => None,
     }
 }
@@ -123,14 +157,15 @@ fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str, op: &str) ->
     }
 }
 
-/// Map a `port.*` op + payload to the injected adapter method per the D4
-/// catalogue. The dispatch gate (capability check) has already run when this
-/// is called; unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net
-/// for host misconfiguration (the gate denies them first).
+/// Map a `port.*` op + payload to the injected ports face method per the D4
+/// catalogue. The dispatch gate (capability check) and the optional-face
+/// probe (gate → probe → serve/deny) have already run when this is called;
+/// unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
+/// misconfiguration (the gate denies them first).
 async fn dispatch_port_op(
     op: &str,
     payload: &Value,
-    ports: &(dyn BaselinePorts + Send + Sync),
+    ports: &(dyn RemoteServePorts + Send + Sync),
 ) -> SpokeResult<Value> {
     let field = |name: &str| payload_field::<Value>(payload, name, op);
     match op {
@@ -221,6 +256,69 @@ async fn dispatch_port_op(
         "port.host.list_peer_manifests" => {
             map_result(ports.list_peer_host_capability_manifests().await)
         }
+        // Optional families (D4 catalogue). The serving method
+        // (`dispatch_port_invoke`) structurally probed the injected ports
+        // face BEFORE dispatch (gate → probe → serve/deny), so these cases
+        // are reachable only when the face exists on the provider; the
+        // `None` arms are an unreachable safety net mirroring the default.
+        "port.computable.project" => {
+            let request = match serde_json::from_value::<ProjectRequest>(payload.clone()) {
+                Ok(request) => request,
+                Err(error) => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("invalid port.computable.project payload: {error}"),
+                        None,
+                    );
+                }
+            };
+            match ports.as_computable() {
+                Some(computable) => map_result(computable.project(request).await),
+                None => SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::CapabilityPortMissing,
+                    message: "port op port.computable.project requires optional port method project"
+                        .to_owned(),
+                    details: None,
+                }),
+            }
+        }
+        "port.computable.compute" => {
+            let request = match serde_json::from_value::<ComputeRequest>(payload.clone()) {
+                Ok(request) => request,
+                Err(error) => {
+                    return spoke_reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("invalid port.computable.compute payload: {error}"),
+                        None,
+                    );
+                }
+            };
+            match ports.as_computable() {
+                Some(computable) => map_result(computable.compute(request).await),
+                None => SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::CapabilityPortMissing,
+                    message: "port op port.computable.compute requires optional port method compute"
+                        .to_owned(),
+                    details: None,
+                }),
+            }
+        }
+        "port.fork.list_timeline_events" => {
+            let scope = match payload_field::<Scope>(payload, "scope", op) {
+                SpokeResult::Ok(value) => value,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            match ports.as_fork_timeline() {
+                Some(fork) => map_result(fork.list_fork_timeline_events(&scope).await),
+                None => SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::CapabilityPortMissing,
+                    message:
+                        "port op port.fork.list_timeline_events requires optional port method list_fork_timeline_events"
+                            .to_owned(),
+                    details: None,
+                }),
+            }
+        }
         _ => SpokeResult::Reject(SpokeReject {
             code: SpokeRejectCode::CapabilityPortMissing,
             message: format!("unimplemented port op {op}"),
@@ -297,10 +395,10 @@ pub struct ConnectResponder {
     /// trust config). A dialing peer on `allowlist` without a preconfigured
     /// key fails the handshake (fail-closed).
     peer_keys: HashMap<String, [u8; 32]>,
-    /// Local async `BaselinePorts` served on the remote side via the D4
-    /// catalogue. Absent `ports` still answers `port.*` invokes with the
+    /// Local async [`RemoteServePorts`] served on the remote side via the
+    /// D4 catalogue. Absent `ports` still answers `port.*` invokes with the
     /// dispatch-deny branch (documented behavior).
-    ports: Option<Arc<dyn BaselinePorts + Send + Sync>>,
+    ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
     /// Bounded-wait deadline for each reverse-invoke waiter, ms.
     invoke_timeout: Duration,
     /// Dialer hello nonce single-use record (handshake replay protection).
@@ -853,9 +951,10 @@ impl ConnectResponder {
             return Ok(());
         };
         // Dispatch gate — `dispatch_allowed`-level logic (frozen §3):
-        // `tools.*` ops require the op string itself; `port.*` ops require
-        // `spoke-baseline` via the product map. Both evaluate against
-        // `negotiated_capabilities` (never a raw requirements-map
+        // `tools.*` ops require the op string itself; baseline `port.*`
+        // ops require `spoke-baseline`; optional families route via the
+        // same product map to `l2-computable` / `l5-fork`. All evaluate
+        // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
             self.send_reverse_error_envelope(
@@ -1017,18 +1116,34 @@ impl ConnectResponder {
             Some(ports) => Arc::clone(ports),
             None => {
                 // Absent `ports` (documented): the capability gate passes but
-                // there is no BaselinePorts to serve — answer the
+                // there is no ports face to serve — answer the
                 // dispatch-deny branch.
                 self.send_reverse_error_envelope(
                     doc,
                     "op_unsupported",
-                    &format!("no BaselinePorts configured for port op {op}"),
+                    &format!("no ports face configured for port op {op}"),
                     None,
                 )
                 .await?;
                 return Ok(());
             }
         };
+        // Optional-family probe (gate → probe → serve/deny): the capability
+        // gate passed, so a missing optional face means the host declared a
+        // family it does not provide (misconfiguration) — answer the same
+        // dispatch-deny branch as absent ports.
+        if let Some(missing) = missing_optional_serve_face(op, ports.as_ref()) {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!(
+                    "port op {op} requires optional port method {missing}, which the configured ports do not implement"
+                ),
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
         let payload = doc
             .get("payload")
             .cloned()
@@ -1506,10 +1621,11 @@ pub struct ConnectResponderOptions {
     /// trusted identities statically. A dialing peer on `allowlist` without
     /// a preconfigured key fails the handshake (fail-closed).
     pub peer_keys: HashMap<String, [u8; 32]>,
-    /// Local async `BaselinePorts` served on the remote side via the D4
-    /// catalogue. Absent `ports` still answers `port.*` invokes with the
-    /// dispatch-deny branch (documented behavior).
-    pub ports: Option<Arc<dyn BaselinePorts + Send + Sync>>,
+    /// Local async [`RemoteServePorts`] served on the remote side via the
+    /// D4 catalogue. Absent `ports` still answers `port.*` invokes with the
+    /// dispatch-deny branch (documented behavior). Baseline-only providers
+    /// migrate via `RemoteServePortsComposite::new(baseline, None, None)`.
+    pub ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
     /// Bounded-wait deadline for each reverse-invoke waiter, ms
     /// (default [`DEFAULT_INVOKE_TIMEOUT_MS`]).
     pub invoke_timeout_ms: Option<u64>,

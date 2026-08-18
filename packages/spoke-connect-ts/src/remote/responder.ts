@@ -41,12 +41,15 @@
  */
 
 import type {
+  ComputeRequest,
   ConnectInvokeRequest,
   ConnectInvokeResponse,
   ErrorEnvelope,
   Finding,
+  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectRequest,
   Relation,
   Rule,
   Scope,
@@ -59,6 +62,8 @@ import {
   spokeReject,
   toErrorEnvelope,
   type BaselinePorts,
+  type ComputablePort,
+  type ForkTimelineQueryPort,
   type SpokeReject,
   type SpokeResult,
 } from "@42ch/spoke-operations";
@@ -160,9 +165,10 @@ function mapErrorEnvelope(error: ErrorEnvelope): SpokeReject {
 
 /**
  * Product `op_capability_requirements` map (D4): every baseline `port.*`
- * op requires `spoke-baseline`. The core `requiredCapability` table
- * returns `undefined` for `port.*`, so WITHOUT this map every port invoke
- * would be denied `op_unsupported`.
+ * op requires `spoke-baseline`; the optional families require their
+ * negotiated family capability (`l2-computable` / `l5-fork`). The core
+ * `requiredCapability` table returns `undefined` for `port.*`, so WITHOUT
+ * this map every port invoke would be denied `op_unsupported`.
  */
 const PORT_OP_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   "port.knowledge.get": "spoke-baseline",
@@ -174,13 +180,56 @@ const PORT_OP_CAPABILITY_REQUIREMENTS: Record<string, string> = {
   "port.finding.put": "spoke-baseline",
   "port.rule.list": "spoke-baseline",
   "port.host.list_peer_manifests": "spoke-baseline",
+  // Optional families (D4 catalogue): project / compute require the
+  // `l2-computable` family capability; the fork timeline query requires
+  // `l5-fork` — all evaluated against `negotiated_capabilities` (the
+  // both-hello intersection) by `#gateAllows`.
+  "port.computable.project": "l2-computable",
+  "port.computable.compute": "l2-computable",
+  "port.fork.list_timeline_events": "l5-fork",
 };
 
 /**
+ * Optional-family op → method on the injected `ports` object (D4
+ * catalogue). Serving order is gate → probe → serve/deny: after the
+ * capability gate passes, the responder structurally probes the injected
+ * ports object for these methods (the `requirePortMethod` pattern from
+ * `spoke-operations/src/adapter/orchestrate.ts`, re-implemented locally —
+ * module-private there). Baseline ops are not probed: the `BaselinePorts`
+ * type guarantees their methods.
+ */
+const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
+  "port.computable.project": "project",
+  "port.computable.compute": "compute",
+  "port.fork.list_timeline_events": "listForkTimelineEvents",
+};
+
+/**
+ * Structural probe (the `requirePortMethod` pattern): return the missing
+ * optional-port method name when the injected `ports` object lacks it, or
+ * null when present / the op is not an optional-family op. Called AFTER
+ * the capability gate.
+ */
+function probeOptionalPortMethod(
+  ports: BaselinePorts,
+  op: string,
+): string | null {
+  const method = OPTIONAL_PORT_METHODS[op];
+  if (method === undefined) {
+    return null; // baseline op — always present on BaselinePorts
+  }
+  return typeof (ports as unknown as Record<string, unknown>)[method] ===
+    "function"
+    ? null
+    : method;
+}
+
+/**
  * Map a `port.*` op + payload to the injected adapter method per the D4
- * catalogue. The dispatch gate (capability check) has already run when this
- * is called; unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net
- * for host misconfiguration (the gate denies them first).
+ * catalogue. The dispatch gate (capability check) and the optional-method
+ * probe (gate → probe → serve/deny) have already run when this is called;
+ * unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
+ * misconfiguration (the gate denies them first).
  */
 function dispatchPortOp(
   op: string,
@@ -212,6 +261,22 @@ function dispatchPortOp(
       return ports.listRules(payload.rule_refs as string[]);
     case "port.host.list_peer_manifests":
       return ports.listPeerHostCapabilityManifests();
+    // Optional families (D4 catalogue). The serving method
+    // (`#dispatchPortInvoke`) structurally probed the injected ports
+    // object BEFORE dispatch (gate → probe → serve/deny), so these cases
+    // are reachable only when the method exists on the provider.
+    case "port.computable.project":
+      return (ports as unknown as ComputablePort).project(
+        payload as unknown as ProjectRequest,
+      );
+    case "port.computable.compute":
+      return (ports as unknown as ComputablePort).compute(
+        payload as unknown as ComputeRequest,
+      );
+    case "port.fork.list_timeline_events":
+      return (ports as unknown as ForkTimelineQueryPort).listForkTimelineEvents(
+        payload.scope as unknown as Scope & { fork_id: ForkId },
+      );
     default:
       // Unreachable when the dispatch gate denies unknown ops first; kept
       // as a safety net for host misconfiguration (mirrors the demo).
@@ -716,8 +781,9 @@ export class ConnectResponder {
     }
     try {
       // Dispatch gate — `Session.dispatchAllowed`-level logic (frozen §3):
-      // `tools.*` ops require the op string itself; `port.*` ops require
-      // `spoke-baseline` via the product map. Both evaluate against
+      // `tools.*` ops require the op string itself; baseline `port.*` ops
+      // require `spoke-baseline`; optional families route via the same
+      // product map to `l2-computable` / `l5-fork`. All evaluate against
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
       if (!this.#gateAllows(doc.op, session)) {
@@ -818,7 +884,20 @@ export class ConnectResponder {
       // is no BaselinePorts to serve — answer the dispatch-deny branch.
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
-        message: `no BaselinePorts configured for port op ${doc.op}`,
+        message: `no ports face configured for port op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    // Optional-family probe (gate → probe → serve/deny serving order): the
+    // capability gate passed, so a missing optional method means the host
+    // declared a family it does not provide (misconfiguration) — answer
+    // the same dispatch-deny branch as absent ports.
+    const missingMethod = probeOptionalPortMethod(ports, doc.op);
+    if (missingMethod !== null) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `port op ${doc.op} requires optional port method ${missingMethod}, which the configured ports do not implement`,
         extensions: {},
       });
       return;

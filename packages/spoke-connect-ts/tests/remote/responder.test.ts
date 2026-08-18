@@ -25,10 +25,14 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  ComputeRequest,
   ConnectHello,
   ConnectInvokeRequest,
+  ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  ProjectRequest,
+  Scope,
   ToolDescriptor,
 } from "@42ch/spoke-schemas";
 import {
@@ -46,7 +50,10 @@ import {
   type EnvelopeBytes,
   type Transport,
 } from "@42ch/spoke-connect/remote";
-import { ToyWorldAdapter } from "@42ch/spoke-fixture-toy-world";
+import {
+  asBaselineOnly,
+  ToyWorldAdapter,
+} from "@42ch/spoke-fixture-toy-world";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import {
@@ -516,12 +523,356 @@ describe("connectResponder port serving (D4 catalogue)", () => {
         expect(result).toEqual({
           ok: false,
           code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
-          message: expect.stringContaining("no BaselinePorts configured"),
+          message: expect.stringContaining("no ports face configured"),
           details: { wire_code: "op_unsupported" },
         });
         // The session stays usable.
         expect(responder.state).toBe("Established");
         expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+});
+
+describe("connectResponder optional-port serving (gate → probe → serve/deny)", () => {
+  /**
+   * Manifest declaring the optional families on top of the tool-carrying
+   * baseline: `l2-computable` (project / compute) + `l5-fork`
+   * (listForkTimelineEvents). Both dial peers carry it so the negotiated
+   * intersection authorizes the optional ops on the responder's gate.
+   */
+  function optionalManifest(hostId: string): HostCapabilityManifest {
+    return {
+      ...toolManifest(hostId),
+      // The tool-carrying baseline capabilities stay; the optional family
+      // capability ids are appended.
+      capabilities: [
+        ...toolManifest(hostId).capabilities,
+        "l2-computable",
+        "l5-fork",
+      ],
+    };
+  }
+
+  /** Full optional-port provider: ToyWorldAdapter is a FullAdapter. */
+  const fullPorts = () => ToyWorldAdapter.withCommittedFixtures();
+
+  /** Both peers declare the optional families (happy-path fixtures). */
+  const optionalDial = () =>
+    dialWithResponder({
+      ports: fullPorts(),
+      clientManifest: optionalManifest("test-client"),
+      responderManifest: optionalManifest("test-responder"),
+    });
+
+  it(
+    "round-trips project through the responder (port.computable.project, snake_case payload) while baseline serving stays green",
+    async () => {
+      const { responder, client } = await optionalDial();
+      try {
+        // Baseline smoke in the SAME session: the catalogue extension must
+        // not disturb the baseline six (serving-order preservation).
+        const mira = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
+        expect(mira.ok).toBe(true);
+        if (mira.ok) {
+          expect(mira.value.entry_id).toBe(MIRA_ENTRY_ID);
+        }
+
+        const request: ProjectRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        };
+        const result = await client.project(request);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          // The adapter echoes request ids and serves the committed
+          // projection fixture — proves the payload carried the request
+          // through the loopback and the responder delegated it.
+          expect(result.value).toEqual({
+            session_id: "sess_tw_dawn_arrival",
+            entry_id: "kb_tw_harbor",
+            computable: { tide_level: 2.4, cargo_tons: 38 },
+          });
+        }
+        expect(responder.state).toBe("Established");
+        expect(client.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "round-trips compute through the responder (port.computable.compute, settle response carries state)",
+    async () => {
+      const { responder, client } = await optionalDial();
+      try {
+        const request: ComputeRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5, cargo_tons: 37 },
+          settle: true,
+        };
+        const result = await client.compute(request);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          expect(result.value).toEqual({
+            session_id: "sess_tw_dawn_arrival",
+            entry_id: "kb_tw_harbor",
+            computable: { tide_level: 2.5, cargo_tons: 37 },
+            state: { tide_level: 2.5, cargo_tons: 37 },
+          });
+        }
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "round-trips listForkTimelineEvents through the responder (port.fork.list_timeline_events, fork_id-scoped)",
+    async () => {
+      const { responder, client } = await optionalDial();
+      try {
+        const scope: Scope & { fork_id: ForkId } = {
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        };
+        const result = await client.listForkTimelineEvents(scope);
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+          // The committed fixtures carry exactly one fork-branch event —
+          // proves the fork_id survived the loopback into the provider.
+          expect(result.value).toHaveLength(1);
+          expect(result.value[0]).toMatchObject({
+            timeline_event_id: "evt_tw_harbor_storm_delay",
+            fork_id: "fork_tw_storm_branch",
+          });
+        }
+        // A fork id with no events still round-trips (empty array).
+        const empty = await client.listForkTimelineEvents({
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_unknown",
+        });
+        expect(empty.ok).toBe(true);
+        if (empty.ok) {
+          expect(empty.value).toEqual([]);
+        }
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "denies port.computable.project when l2-computable is not negotiated (gate deny → op_unsupported → CAPABILITY_PORT_MISSING + wire_code)",
+    async () => {
+      // Default manifests advertise spoke-baseline only ⇒ the negotiated
+      // set lacks l2-computable ⇒ the responder's dispatch gate denies the
+      // op even though the injected provider implements it (gate FIRST).
+      const { responder, client } = await dialWithResponder({
+        ports: fullPorts(),
+      });
+      try {
+        const request: ProjectRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        };
+        const result = await client.project(request);
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "denies port.computable.compute when l2-computable is not negotiated (gate deny → op_unsupported → CAPABILITY_PORT_MISSING + wire_code)",
+    async () => {
+      const { responder, client } = await dialWithResponder({
+        ports: fullPorts(),
+      });
+      try {
+        const request: ComputeRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5, cargo_tons: 37 },
+          settle: true,
+        };
+        const result = await client.compute(request);
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "denies port.fork.list_timeline_events when l5-fork is not negotiated (gate deny → op_unsupported → CAPABILITY_PORT_MISSING + wire_code)",
+    async () => {
+      const { responder, client } = await dialWithResponder({
+        ports: fullPorts(),
+      });
+      try {
+        const scope: Scope & { fork_id: ForkId } = {
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        };
+        const result = await client.listForkTimelineEvents(scope);
+        expect(result).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "denies all three optional ops when the capability is declared but the provider is baseline-only (probe deny → op_unsupported → CAPABILITY_PORT_MISSING + wire_code)",
+    async () => {
+      // Both peers declare the optional families (gate passes) but the
+      // injected ports object is a baseline-only view without the optional
+      // methods — the responder's structural probe (gate → probe → deny)
+      // answers the same dispatch-deny branch as absent ports.
+      const { responder, client } = await dialWithResponder({
+        ports: asBaselineOnly(ToyWorldAdapter.withCommittedFixtures()),
+        clientManifest: optionalManifest("test-client"),
+        responderManifest: optionalManifest("test-responder"),
+      });
+      try {
+        const projectResult = await client.project({
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        });
+        // Probe deny (not the gate deny): the capability gate passed and
+        // the responder's structural probe reports the missing method.
+        expect(projectResult).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining(
+            "requires optional port method project",
+          ),
+          details: { wire_code: "op_unsupported" },
+        });
+
+        const computeResult = await client.compute({
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5, cargo_tons: 37 },
+          settle: true,
+        });
+        expect(computeResult).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining(
+            "requires optional port method compute",
+          ),
+          details: { wire_code: "op_unsupported" },
+        });
+
+        const forkResult = await client.listForkTimelineEvents({
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        });
+        expect(forkResult).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining(
+            "requires optional port method listForkTimelineEvents",
+          ),
+          details: { wire_code: "op_unsupported" },
+        });
+
+        // Baseline serving is untouched by the optional probe.
+        const mira = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
+        expect(mira.ok).toBe(true);
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "serves computable ops and probe-denies fork ops on a mixed composite (computable face present, fork face absent)",
+    async () => {
+      // Mixed host: the injected ports compose the baseline + l2-computable
+      // faces without the l5-fork face — computable ops serve through the
+      // present face; the fork op probe-denies (the gate passes, so the
+      // missing face is host misconfiguration).
+      const full = ToyWorldAdapter.withCommittedFixtures();
+      const mixedComposite = {
+        ...asBaselineOnly(full),
+        project: (request: ProjectRequest) => full.project(request),
+        compute: (request: ComputeRequest) => full.compute(request),
+      };
+      const { responder, client } = await dialWithResponder({
+        ports: mixedComposite,
+        clientManifest: optionalManifest("test-client"),
+        responderManifest: optionalManifest("test-responder"),
+      });
+      try {
+        // Computable op succeeds through the present face.
+        const projectResult = await client.project({
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          state: { tide_level: 2.1, cargo_tons: 40 },
+        });
+        expect(projectResult.ok).toBe(true);
+        // Fork op probe-denies: the gate passed but the face is absent.
+        const forkResult = await client.listForkTimelineEvents({
+          scope_id: "pkt_tw_scope",
+          fork_id: "fork_tw_storm_branch",
+        });
+        expect(forkResult).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining(
+            "requires optional port method listForkTimelineEvents",
+          ),
+          details: { wire_code: "op_unsupported" },
+        });
+        expect(responder.state).toBe("Established");
       } finally {
         client.close();
         responder.close();

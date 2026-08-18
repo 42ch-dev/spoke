@@ -11,10 +11,14 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    spoke_ok, spoke_reject, FindingPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeRejectCode, SpokeResult,
+    spoke_ok, spoke_reject, ComputablePort, FindingPort, ForkTimelineQueryPort,
+    HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+    SpokeRejectCode, SpokeResult,
 };
-use spoke_schemas::{Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent};
+use spoke_schemas::{
+    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
+    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+};
 
 #[derive(Debug, Default)]
 struct SmokeStore {
@@ -286,6 +290,42 @@ impl HostManifestPort for SmokeBaselineAdapter {
     }
 
     async fn list_peer_host_capability_manifests(&self) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        spoke_ok(Vec::new())
+    }
+}
+
+// Optional families (D4 catalogue): the smoke host adapter carries the
+// full ports face so `LoopbackHostOptions.adapter` (widened to `FullPorts`
+// by plan 1) accepts it. Empty-store semantics mirror the baseline rows:
+// project / compute echo the request's computable state, and the fork
+// timeline answers an empty list (the store's baseline events are not
+// fork-branch events).
+#[async_trait]
+impl ComputablePort for SmokeBaselineAdapter {
+    async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
+        spoke_ok(ProjectResponse::Variant0 {
+            session_id: request.session_id,
+            entry_id: request.entry_id,
+            computable: request.state,
+            extensions: Default::default(),
+        })
+    }
+
+    async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
+        let state = request.computable.clone();
+        spoke_ok(ComputeResponse::Variant0 {
+            session_id: request.session_id,
+            entry_id: request.entry_id,
+            computable: request.computable,
+            state,
+            extensions: Default::default(),
+        })
+    }
+}
+
+#[async_trait]
+impl ForkTimelineQueryPort for SmokeBaselineAdapter {
+    async fn list_fork_timeline_events(&self, _scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
         spoke_ok(Vec::new())
     }
 }

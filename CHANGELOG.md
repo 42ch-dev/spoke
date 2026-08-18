@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.11.0] - 2026-08-18
+
+
+### Added
+
+- **connect:** Tool FFI surfaces — reverse invoke + responder/tool-serving across five native bindings (#83)
+
+- **connect:** ToolPort full-surface reconciliation + release/CI hardening round (#85)
+
+- **connect:** Optional-port remote capability full-stack (library + FFI + five bindings + demo + docs) (#86)
+
+
+### Internal
+
+- Update gitignore
+
+- Update
+
 ## [0.10.0] - 2026-08-14
 
 

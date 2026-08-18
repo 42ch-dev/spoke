@@ -79,14 +79,18 @@ swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generate
 ./crates/spoke-connect/bindings/swift/Smoke/smoke
 ```
 
-Expected: `108 checks passed` (golden parity + tool faces incl. the error
+Expected: `84 checks passed` (golden parity + tool faces incl. the error
 rows — unknown-code downgrade, foreign-fault containment, and
 post-containment serve-loop survival — and post-close `Closed` state, plus
 the ports faces: baseline + optional serving round-trips through a foreign
 `PortsHandler`, application-reject passthrough, capability-gate deny,
 absent-ports fail-closed deny, foreign-fault containment with serve-loop
 survival, malformed-JSON pre-validation, and post-close `Closed` state),
-exit 0.
+exit 0. Count verified 2026-08-18 against the rebuilt committed native:
+109 `check(` call sites across the default-compiled sources (36 `main.swift`
++ 31 `tool_loopback_smoke.swift` + 42 `ports_loopback_smoke.swift`), minus
+25 checks gated behind `-D SMOKE_HOST` (15 in `runLoopbackRemoteAdapterSmoke`,
+10 in `runMultiPeerRouterSmoke`) = 84.
 
 > Native gate note: this smoke links the **committed** production cdylib
 > (byte-identical across the bindings trees; e.g.

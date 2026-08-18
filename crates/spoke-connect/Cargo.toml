@@ -13,11 +13,11 @@ description = "SPOKE Connect reference spike — libp2p transport, noise-peerid 
 exclude = ["bindings/**", "examples/**"]
 
 [dependencies]
-spoke-schemas = { version = "0.11.0", path = "../spoke-schemas" }
+spoke-schemas = { version = "0.11.1", path = "../spoke-schemas" }
 # RemoteAdapter (the `remote-adapter` feature) implements the operations
 # BaselinePorts + SpokeResult types; optional so default connect builds stay
 # lean (TS equivalent: the `./remote` subpath export).
-spoke-operations = { version = "0.11.0", path = "../spoke-operations", optional = true }
+spoke-operations = { version = "0.11.1", path = "../spoke-operations", optional = true }
 # Loopback smoke host (RemoteAdapter FFI binding smokes; `ffi-smoke-host` only).
 libp2p.workspace = true
 serde.workspace = true

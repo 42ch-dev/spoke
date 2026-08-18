@@ -15,20 +15,29 @@ demo 由 `examples/connect-demo/` 下的两个软件包组成：
 - `server/`（`@42ch/spoke-demo-server`）—— 一个确定性的**模拟推理主机（mock inference host）**：由纯规则引擎支撑的 `BaselinePorts` adapter，经 `ws` WebSocketServer 由符合规范的 connect 响应方提供服务。
 - `client/`（`@42ch/spoke-demo-client`）—— **第三方视角**：它自己在 `ws` 之上实现 `Transport`，然后由真实库客户端（来自 `@42ch/spoke-connect/remote` 的 `connectRemoteAdapter`）拨号主机，并调用即插即用的异步 `BaselinePorts` 面。
 
-主机的身份与能力来自它的 manifest。demo 服务器以 `demo-inference-host` 自报身份，携带 baseline 能力与唯一命名空间 `demo-harbor`（`examples/connect-demo/server/src/adapter/mock-adapter.ts`）：
+主机的身份与能力来自它的 manifest。demo 服务器以 `demo-inference-host` 自报身份，携带 baseline 能力、两个 toy-world 工具能力 id（这样客户端的工具会在会话上被协商）与可选的 `l2-computable` / `l5-fork` 族；其命名空间为 `demo-harbor` 与 `toy_world`（`examples/connect-demo/server/src/adapter/mock-adapter.ts`）：
 
 ```ts
 export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-inference-host",
   roles: ["checker", "assembler"],
-  capabilities: ["spoke-baseline"],
-  namespaces: [DEMO_SCOPE_ID],
+  capabilities: [
+    "spoke-baseline",
+    TOY_WORLD_ROLL_DICE_ID,
+    TOY_WORLD_LORE_LOOKUP_ID,
+    "l2-computable",
+    "l5-fork",
+  ],
+  namespaces: [DEMO_SCOPE_ID, TOY_WORLD_NAMESPACE],
+  tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
   extensions: {},
 };
 ```
 
-`DEMO_SCOPE_ID` 是 demo 命名空间 `"demo-harbor"` —— 每个种子实体与每条 demo manifest 都归属其中。manifest 背后是 `MockEngine`，一个确定性的推理引擎：它从固定种子语料出发（两条 KnowledgeEntry（知识条目）—— 码头工人 Mira 与 Harbor 街区 —— 外加一条 relation 与一条 rule），接受带乐观并发（optimistic concurrency，OCC）的条件 put，并在每次被接受的变更之后重新推导自己的产物。推导是存储历史的纯函数：没有墙钟，没有随机性。
+`TOY_WORLD_*` 与 `ROLL_DICE_*` / `LORE_LOOKUP_*` 常量是 `tools/toy-world-tools.ts` 中冻结的工具 id 与描述符 —— 工具方向见[暴露并调用远程工具](/zh/how-to/connect-remote-tools)；本教程跟随 port 方向。
+
+`DEMO_SCOPE_ID` 是 demo 命名空间 `"demo-harbor"` —— 每个种子实体与每条 demo manifest 都归属其中。manifest 背后是 `MockEngine`，一个确定性的推理引擎：它从固定种子语料出发（两条 KnowledgeEntry（知识条目）—— 码头工人 Mira 与 Harbor 街区 —— 外加一条 relation、一条 rule，以及一条含三个事件的种子风暴分支时间线），接受带乐观并发（optimistic concurrency，OCC）的条件 put，并在每次被接受的变更之后重新推导自己的产物。推导是存储历史的纯函数：没有墙钟，没有随机性。引擎还拥有可选族的状态：`l2-computable` 会话（`project` 从请求的静态状态物化可计算视图；`compute` 合并增量并把结果结算回状态）与基于种子分支的 `l5-fork` 时间线查询。
 
 主机对谁能拨号采取 fail-closed：它的 allowlist 恰好包含一个 `peer_id`（对等节点标识）—— demo 客户端的。客户端侧则只需要主机的公钥与主机的 `peer_id` 就能信任这条连接。
 
@@ -65,6 +74,8 @@ SPOKE connect demo — mock inference host
   peer_id:   12D3KooWNm5t4HypYRmiC5v9CD2TnPKrJh2J8TcfJ2gPhA7L8TiZ
   allowlist: 12D3KooWM82bDYYgzgXaayHDdVciFe3bGvJ69qHnbSztNUJ933VQ
   listening: ws://127.0.0.1:8787
+  tools:     discovers dialer tools from the authenticated manifest;
+             reverse-invokes tools.toy_world.roll_dice mid-orchestration
   (Ctrl+C to stop)
 ```
 
@@ -213,15 +224,22 @@ export async function runDemoClient(options: {
 
 - `transport` —— 你的 `Transport` 实现；adapter 经它收发信封。
 - `localIdentity.seed` —— 你的 32 字节 Ed25519 种子；adapter 用它签署你的握手。
-- `localManifest` —— 你的 `HostCapabilityManifest`（主机能力清单），在签名握手中通告。demo 客户端是同一 `demo-harbor` 命名空间中的 `input-source` 应用：
+- `localManifest` —— 你的 `HostCapabilityManifest`（主机能力清单），在签名握手中通告。demo 客户端是 `demo-harbor` 与 `toy_world` 命名空间中的 `input-source` 应用；其清单声明 baseline 能力、它服务的两个工具 id，以及可选的 `l2-computable` / `l5-fork` 族（一个族只有在双方 manifest 都声明时才会被协商）：
 
 ```ts
 export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-third-party-app",
   roles: ["input-source"],
-  capabilities: ["spoke-baseline"],
-  namespaces: [DEMO_SCOPE_ID],
+  capabilities: [
+    "spoke-baseline",
+    TOY_WORLD_ROLL_DICE_ID,
+    TOY_WORLD_LORE_LOOKUP_ID,
+    "l2-computable",
+    "l5-fork",
+  ],
+  namespaces: [DEMO_SCOPE_ID, "toy_world"],
+  tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
   extensions: {},
 };
 ```
@@ -254,8 +272,8 @@ node examples/connect-demo/client/dist/main.js --url ws://127.0.0.1:8787
 SPOKE connect demo — third-party client
   dialing ws://127.0.0.1:8787 as 12D3KooWM82bDYYgzgXaayHDdVciFe3bGvJ69qHnbSztNUJ933VQ
   remote peer: 12D3KooWNm5t4HypYRmiC5v9CD2TnPKrJh2J8TcfJ2gPhA7L8TiZ (demo-inference-host)
-    capabilities: spoke-baseline
-    namespaces:   demo-harbor
+    capabilities: spoke-baseline, tools.toy_world.roll_dice, tools.toy_world.lore_lookup, l2-computable, l5-fork
+    namespaces:   demo-harbor, toy_world
 ```
 
 远端 peer id 与主机打印的 `peer_id` 一致，manifest 就是你在第 1 节认识的服务器 manifest —— adapter 以 `adapter.remoteManifest` 暴露它，在会话建立时缓存。
@@ -336,10 +354,10 @@ function requireOk<T>(result: AnySpokeResult<T>): T {
 主机的引擎监视存储，并在每次被接受的变更之后推导自己的产物。看 CLI 在运行结束时打印的列表输出：
 
 ```text
-  listKnowledgeEntries → 4 entries (demo-harbor/character/mira, demo-harbor/location/harbor, derived/world-digest, demo-harbor/item/compass)
+  listKnowledgeEntries → 5 entries (demo-harbor/character/mira, demo-harbor/location/harbor, derived/world-digest, demo-harbor/item/compass, demo-harbor/artifact/dice-roll)
 ```
 
-前两个条目是种子语料；`demo-harbor/item/compass` 是你 put 的条目；`derived/world-digest` 是引擎的。每次被接受的 put 都会重跑推导，构建一个保留 id 的 KnowledgeEntry（`examples/connect-demo/server/src/engine/mock-engine.ts`）：
+前两个条目是种子语料；`demo-harbor/item/compass` 是你 put 的条目；`derived/world-digest` 是引擎的；`demo-harbor/artifact/dice-roll` 是编排的掷骰回填（见[暴露并调用远程工具](/zh/how-to/connect-remote-tools)）。每次被接受的 put 都会重跑推导，构建一个保留 id 的 KnowledgeEntry（`examples/connect-demo/server/src/engine/mock-engine.ts`）：
 
 ```ts
     const digest: KnowledgeEntry = {
@@ -370,21 +388,23 @@ demo 流程之后，摘要读取为：
   "canonical_name": "World Digest",
   "status": "confirmed",
   "body": {
-    "summary": "Digest of 3 knowledge entries in demo-harbor.",
+    "summary": "Digest of 4 knowledge entries in demo-harbor.",
     "computable": {
       "entry_type_counts": {
         "character": 1,
         "location": 1,
-        "item": 1
+        "item": 1,
+        "artifact": 1
       },
       "entry_ids_sorted": [
+        "demo-harbor/artifact/dice-roll",
         "demo-harbor/character/mira",
         "demo-harbor/item/compass",
         "demo-harbor/location/harbor"
       ]
     }
   },
-  "revision": 3,
+  "revision": 4,
   "extensions": {}
 }
 ```
@@ -425,6 +445,106 @@ demo 流程之后，摘要读取为：
 
 这就是完整的错误面：拨号在 adapter 存在之前拒绝，port 调用在之后拒绝 —— 两类失败，各经一个通道呈现。
 
+## 8. 驱动可选 port 族
+
+demo 的会话在 `spoke-baseline` 之外还携带两个可选族 —— `l2-computable`（`project` / `compute` 会话）与 `l5-fork`（分支时间线查询）。双方 manifest 都声明了它们（第 1 节与第 4 节），因此双方协商了它们，响应方的 dispatch gate 放行 `port.computable.*` / `port.fork.*` op。
+
+### 服务 —— 主机侧
+
+服务器经与基线相同的 `ports` 接缝服务这些族：`DemoOrchestrator` 实现组合 `FullPorts` 契约，`MockEngine` 拥有确定性状态。`project` 从请求的静态状态物化会话的可计算视图并记录该会话；`compute` 把请求的增量合并进会话视图，并且当 `settle` 为 true 时把视图合并回会话的静态状态；`listForkTimelineEvents` 返回种子风暴分支时间线（`demo-harbor/fork/storm`，三个事件），与任何 scope 查询一样按作用域查询。协议层没有任何东西被重实现 —— 响应方对 provider 做族方法的结构性探测并分派目录行。
+
+### 驱动 —— 客户端侧
+
+`runDemoClient` 仅当它自己的 manifest 声明了这些族时才驱动可选步骤 —— 协商集是交集，因此未声明某族的服务器会响亮地拒绝，而不是被静默跳过（`examples/connect-demo/client/src/main.ts`）：
+
+```ts
+  // Steps 6-7 — optional families: drive them only when THIS client's
+  // manifest declares them (the negotiated set is the intersection of both
+  // manifests, so a server that does not declare a family denies loudly
+  // through requireOk instead of skipping silently). The default manifest
+  // declares both, so the demo flow always runs them.
+  const drivesOptionalOps =
+    dialManifest.capabilities.includes("l2-computable") &&
+    dialManifest.capabilities.includes("l5-fork");
+
+  // Step 6 — l2-computable round-trip: project materializes the session's
+  // computable view from static state; compute applies the delta and
+  // settles it back into static state (the derived state).
+  let projected: ProjectSuccess | undefined;
+  let computed: ComputeSuccess | undefined;
+  let forkEvents: TimelineEvent[] | undefined;
+  if (drivesOptionalOps) {
+    const projectedResult = requireOk(
+      await adapter.project({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        state: { ...PROJECT_STATE },
+      }),
+    );
+    if ("error" in projectedResult) {
+      throw new Error(
+        `demo client: project answered an error branch (${projectedResult.error.code})`,
+      );
+    }
+    projected = projectedResult;
+
+    const computedResult = requireOk(
+      await adapter.compute({
+        session_id: COMPUTABLE_SESSION_ID,
+        entry_id: COMPUTABLE_ENTRY_ID,
+        computable: { ...COMPUTE_DELTA },
+        settle: true,
+      }),
+    );
+    if ("error" in computedResult) {
+      throw new Error(
+        `demo client: compute answered an error branch (${computedResult.error.code})`,
+      );
+    }
+    computed = computedResult;
+
+    // Step 7 — l5-fork round-trip: the seeded storm-fork timeline.
+    forkEvents = requireOk(
+      await adapter.listForkTimelineEvents({
+        scope_id: DEMO_SCOPE_ID,
+        fork_id: DEMO_STORM_FORK_ID,
+      }),
+    );
+  }
+```
+
+CLI 在基线步骤之后立即打印可选步骤：
+
+```text
+  project            demo-harbor/location/harbor → {"ships_at_dock":3}
+  compute (settle)   demo-harbor/location/harbor → {"ships_at_dock":3,"tide":"rising"} state {"ships_at_dock":3,"tide":"rising"}
+  listForkTimelineEvents → 3 event(s) (demo-harbor/event/storm-landfall, demo-harbor/event/harbor-evacuation, demo-harbor/event/compass-secured)
+```
+
+`project` 返回物化视图（`{ ships_at_dock: 3 }`）；`compute` 应用增量 `{ tide: "rising" }` 并结算 —— 结算后的视图与派生的静态状态都读作 `{ ships_at_dock: 3, tide: "rising" }`；分支时间线逐字来自种子语料。
+
+### 拒绝 —— 未声明的能力
+
+拒绝路径与任何分派拒绝同一条 fail-closed 行：只有一侧声明的族不在协商集中，于是响应方的 gate 以线上码 `op_unsupported` 应答，客户端把它映射为带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝。e2e 用一个 manifest 省略 `l2-computable` 的服务器变体证明它 —— 断言本身即客户端侧的映射拒绝（`examples/connect-demo/client/tests/e2e.test.ts`）：
+
+```ts
+      const result = await adapter.compute({
+        session_id: "demo-session/deny-negative",
+        entry_id: "demo-harbor/location/harbor",
+        computable: { tide: "rising" },
+        settle: true,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("CAPABILITY_PORT_MISSING");
+        expect(result.details?.wire_code).toBe("op_unsupported");
+      }
+```
+
+拒绝绝不静默成功：调用方观察到拒绝，引擎中也没有任何回填。
+
+同样的可选面也存在于原生绑定上 —— `RemoteAdapterFFI.project` / `.compute` / `.list_fork_timeline_events`，以及响应方可选的带外回调 `PortsHandler` —— 见[从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding)。完整目录与服务契约见[可选 port 族](/zh/reference/connect#可选-port-族)。
+
 ## 你现在掌握了
 
 - 从外部看 connect 主机是什么样：签名握手响应方背后的 `BaselinePorts` adapter，在 manifest 中通告能力与命名空间。
@@ -433,9 +553,11 @@ demo 流程之后，摘要读取为：
 - `BaselinePorts` 调用模式：带乐观并发（OCC）的条件 put、`SpokeResult` 返回，以及由会话缓存提供的 `getHostCapabilityManifest`。
 - 主机侧推理出现在哪里：带保留 id 的派生产物出现在普通列表中。
 - 失败如何呈现：adapter 存在之前的拨号拒绝，以及之后带 `details.kind` 的 `SpokeResult` 拒绝。
+- 可选族如何端到端流转：在双方 manifest 中声明它们，经响应方 `ports` provider 服务它们，用 `project` / `compute` / `listForkTimelineEvents` 驱动它们，并在某族未协商时观察 fail-closed 拒绝（`CAPABILITY_PORT_MISSING`，`wire_code: "op_unsupported"`）。
 
 ## 下一步
 
 - [通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter) —— 面向任务的对偶页面：完整选项表、并发规则与错误映射。
 - [跨多个对等节点路由](/zh/how-to/multi-peer-routing) —— 在同一个 `BaselinePorts` 面之后组合多个已建立的 adapter。
 - [connect 线上参考](/zh/reference/connect) —— 信封字段表、信封认证与 port-method ops 目录。
+- [从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— 相同的 adapter 生命周期、可选 port 面与 FFI 上的 `PortsHandler`。

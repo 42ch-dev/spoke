@@ -196,6 +196,8 @@ void connectResponder({
 
 The server's manifest declares the same tool ids the client serves, so both directions negotiate on the same session.
 
+The same `ports` seam also serves the optional `l2-computable` / `l5-fork` families: the demo orchestrator implements the composed `FullPorts` contract, and the responder probes the provider for the family methods after the capability gate. See [Optional port families](/reference/connect#optional-port-families) for the declare / serve / drive / deny contract.
+
 ## 5. Run the demo
 
 The demo runs over a real WebSocket in two terminals (build set in [the demo README](https://github.com/42ch-dev/spoke/blob/main/examples/connect-demo/README.md)):
@@ -208,7 +210,7 @@ node examples/connect-demo/server/dist/main.js --port 8787
 node examples/connect-demo/client/dist/main.js --url ws://127.0.0.1:8787
 ```
 
-The client prints each story step — dial, registered tools, the put during which the host reverse-invokes `roll_dice`, the resulting entries including `demo-harbor/artifact/dice-roll`, and the findings round-trip. The e2e gate boots the host on an ephemeral port and asserts the whole path, including the deterministic roll value and the capability-deny path:
+The client prints each story step — dial, registered tools, the put during which the host reverse-invokes `roll_dice`, the resulting entries including `demo-harbor/artifact/dice-roll`, the findings round-trip, and the optional `l2-computable` / `l5-fork` round-trips (project → compute settle → fork timeline). The e2e gate boots the host on an ephemeral port and asserts the whole path, including the deterministic roll value, the capability-deny path, and the undeclared-capability deny for the optional families:
 
 ```bash
 pnpm -F @42ch/spoke-demo-client test

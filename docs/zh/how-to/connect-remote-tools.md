@@ -196,6 +196,8 @@ void connectResponder({
 
 服务器的清单声明与客户端所服务的相同的工具 id，因此两个方向在同一会话上协商。
 
+同一条 `ports` 接缝也服务可选的 `l2-computable` / `l5-fork` 族：demo 编排器实现组合 `FullPorts` 契约，响应方在能力门禁之后对 provider 做族方法的结构性探测。声明 / 服务 / 驱动 / 拒绝契约见[可选 port 族](/zh/reference/connect#可选-port-族)。
+
 ## 5. 运行 demo
 
 demo 在两个终端中通过真实 WebSocket 运行（构建集见[demo README](https://github.com/42ch-dev/spoke/blob/main/examples/connect-demo/README.md)）：
@@ -208,7 +210,7 @@ node examples/connect-demo/server/dist/main.js --port 8787
 node examples/connect-demo/client/dist/main.js --url ws://127.0.0.1:8787
 ```
 
-客户端打印每个故事步骤 —— 拨号、已注册工具、主机反向调用 `roll_dice` 期间发生的 put、包含 `demo-harbor/artifact/dice-roll` 的条目列表，以及 findings 往返。e2e 门禁在临时端口上启动主机，并断言整条路径，包括确定性掷骰值与能力拒绝路径：
+客户端打印每个故事步骤 —— 拨号、已注册工具、主机反向调用 `roll_dice` 期间发生的 put、包含 `demo-harbor/artifact/dice-roll` 的条目列表、findings 往返，以及可选 `l2-computable` / `l5-fork` 往返（project → compute 结算 → 分支时间线）。e2e 门禁在临时端口上启动主机，并断言整条路径，包括确定性掷骰值、能力拒绝路径，以及可选族的未声明能力拒绝：
 
 ```bash
 pnpm -F @42ch/spoke-demo-client test

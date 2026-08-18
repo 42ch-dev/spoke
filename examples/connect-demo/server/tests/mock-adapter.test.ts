@@ -435,7 +435,9 @@ describe("optional families (l2-computable / l5-fork)", () => {
         ships_at_dock: 3,
         tide: "falling",
       });
-      expect(value.state).toBeUndefined();
+      // A non-settling compute carries no `state` key at all — assert the
+      // key's absence, not an explicit-undefined value.
+      expect("state" in value).toBe(false);
     }
   });
 

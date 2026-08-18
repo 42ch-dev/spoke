@@ -174,6 +174,17 @@ describe("connect demo over a real WebSocket", () => {
       expect(unknownFork.value).toEqual([]);
     }
 
+    // The seeded storm-fork timeline appears in the baseline listing too:
+    // fork events live in the shared event store, and the fork-scoped query
+    // is only their refinement — pin the full baseline set over the wire.
+    const baselineTimeline = await run.adapter.listTimelineEvents({
+      scope_id: DEMO_SCOPE_ID,
+    });
+    expect(baselineTimeline.ok).toBe(true);
+    if (baselineTimeline.ok) {
+      expect(baselineTimeline.value).toEqual(DEMO_SEED_TIMELINE_EVENTS);
+    }
+
     run.close();
   });
 

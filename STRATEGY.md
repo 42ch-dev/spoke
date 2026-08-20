@@ -27,7 +27,7 @@ It defines JSON Schema wire contracts for narrative KnowledgeEntry **data** and 
 
 ## Architecture (three columns)
 
-SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations library** — see [`.mstar/roadmap.md`](.mstar/roadmap.md) and [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md).
+SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations library** — see [`.mstar/specs/spoke-protocol.md`](.mstar/specs/spoke-protocol.md).
 
 | Column | Responsibility | Artifact |
 |--------|----------------|----------|

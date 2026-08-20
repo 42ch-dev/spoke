@@ -911,7 +911,6 @@ Product adapter implementations satisfy the ports defined here; they ship in con
 | [`spoke-ops.md`](spoke-ops.md) | Ops **wire** request/response (column 2) |
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8 map; Check≠Assemble boundary framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data objects helpers operate on |
-| [`.mstar/roadmap.md`](../roadmap.md) | Thrust A column 3 mandate |
 | `packages/spoke-operations/` | TypeScript operations library (pure helpers + adapter ports/orchestration) |
 | `crates/spoke-operations/` | Rust operations library — behavioral parity with `@42ch/spoke-operations` at lockstep SemVer |
 | `crates/spoke-schemas/` | Generated Rust wire types |

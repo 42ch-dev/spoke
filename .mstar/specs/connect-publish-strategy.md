@@ -204,8 +204,6 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | **Go modules** | Root `go.mod` + module path + `vX.Y.Z` tags; `go get …@vX.Y.Z` docs + golden-parity smoke | **Done** — Go modules resolve at lockstep tag |
 | **Python PyPI** | `publish-pypi` on `release.yml` via Trusted Publishing OIDC matching the registered publisher; `pip install` docs | Feasibility gate + packable project + registered publisher | Binding maintainers |
 
-Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next** / **Done**.
-
 ---
 
 ## 12. Links
@@ -217,7 +215,6 @@ Mirror row: [`.mstar/roadmap.md`](../roadmap.md) **Up next** / **Done**.
 | [`.mstar/specs/spoke-version-release.md`](spoke-version-release.md) | Lockstep SemVer + Trusted Publishing |
 | [`.mstar/specs/connect-csharp-binding.md`](connect-csharp-binding.md) | C# uniffi binding decision record |
 | [`.mstar/specs/connect-binding-channels.md`](connect-binding-channels.md) | Binding channel packaging contract (ADR) |
-| [`.mstar/roadmap.md`](../roadmap.md) | Durable project roadmap |
 | [`packages/spoke-connect-ts/`](../../packages/spoke-connect-ts/) | TS connect client package |
 | [`crates/spoke-connect/`](../../crates/spoke-connect/) | Rust connect crate |
 | [`crates/spoke-connect/bindings/csharp/`](../../crates/spoke-connect/bindings/csharp/) | C# binding + NuGet project |

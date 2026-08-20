@@ -1,7 +1,7 @@
 # Beat-assist moment sequence (dual KE + precedes)
 
 > **Category:** architecture-patterns  
-> **Source:** compound 2026-07-28 (beat-assist protocol slice); promoted from iteration guide  
+> **Source:** compound 2026-07-28 (beat-assist protocol slice)  
 > **Packages:** `@42ch/spoke-operations` / `spoke-operations`; fixtures under `fixtures/toy-world/`
 
 ## Problem

@@ -212,6 +212,5 @@ A package SemVer bump does **not** require a wire `schema_version` bump, and vic
 |-----|------|
 | [`spoke-protocol.md`](spoke-protocol.md) | Protocol umbrella |
 | [`STRATEGY.md`](../../STRATEGY.md) | Registry publish on tagged stable releases |
-| [`.mstar/roadmap.md`](../roadmap.md) | Product scheduling |
 | Root `README.md` / `README_CN.md` | Version badge and consumer pinning |
 | [`CONTRIBUTING.md`](../../CONTRIBUTING.md) | Maintainer local development, CI, and release how-to |

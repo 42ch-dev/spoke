@@ -12,7 +12,7 @@ Story-AI products each invent local shapes for knowledge units, checker I/O, and
 
 ## Three columns (Thrust A)
 
-SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library** — see [`.mstar/roadmap.md`](../roadmap.md).
+SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operations behavior library**.
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|

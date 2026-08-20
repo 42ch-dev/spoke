@@ -171,7 +171,6 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + Scope + error envelope |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — session ordering, auth model, discovery boundary (opt-in `spoke-connect`) |
-| [`.mstar/roadmap.md`](../roadmap.md) | Thrust B — nine layers on the wire |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule, HostCapabilityManifest vocabulary |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping handbook |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` (capability-flagged) |

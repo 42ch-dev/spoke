@@ -1,9 +1,10 @@
 # SPOKE — Harness Directory (`.mstar/`)
 
 > Project identity & tech stack: root [`AGENTS.md`](../AGENTS.md).  
-> Runtime lifecycle: upstream Morning Star `mstar-*` skills (not duplicated here).
+> Runtime lifecycle: upstream Morning Star `mstar-*` skills (not duplicated here).  
+> Machine-readable path config: repo-root `.mstarc` `[config]` (gitignored).
 
-This file is the **harness-layer SSOT** for path layout, git visibility, and write boundaries in SPOKE.
+This file is the **harness-layer SSOT** for git visibility and write boundaries in SPOKE.
 
 ## Conflict resolution
 
@@ -28,21 +29,21 @@ On conflicts (unless the user overrides):
 | Path (under `.mstar/`) | Class | Purpose |
 |------------------------|-------|---------|
 | `AGENTS.md` | Result | This harness contract |
-| `roadmap.md` | Result | Durable product roadmap (dual surfaces + nine layers) |
 | `specs/` | Result | Frozen normative protocol specs / ADRs |
 | `knowledge/` | Result | Compounded cross-iteration knowledge |
 | `plans/` | Process | Main plans, checkboxes, gate summaries |
 | `iterations/` | Process | Compass, grill locks, iteration packages |
 | `sdd/` | Process | SDD scratch + QC/QA raw review bundles |
 | `archived/` | Process | Local / archived process snapshots |
-| `status.json` | Process | Plan/residual coordination state |
-| `notes.json` | Process | Local narrative timeline |
+| `status.json` | Process | Active lifecycle register (v2) |
+| `workflows/` | Process | Per-lifecycle `snapshot.json` + `notes.jsonl` |
+| `projects/` | Process | Project layer (`roadmap.md`, `residuals.json`, `research/`) — local only |
 
 **Rules:**
 
 - Agents **may** read/write process paths locally for orchestration.
-- **Git-shared results** (`specs/`, `knowledge/`, `roadmap.md`, root `AGENTS.md`, etc.) MUST NOT contain Morning Star iteration ids (e.g. the `v0-iterNNN` family) — use capability or date naming; iteration ids stay in gitignored process paths only. Commit messages and PR titles/bodies follow the same ban (orchestration branch names may keep harness prefixes).
-- **Facts only in results (HARD):** `{SPECS_DIR}`, `{KNOWLEDGE_DIR}`, `roadmap.md`, and root `CONCEPTS.md` deposit **current protocol facts** — not deprecated names, rename archaeology, or iteration delivery narrative. Full rule: root [`AGENTS.md`](../AGENTS.md) § Long-term precipitation. `CONCEPTS.md` stays protocol-vocabulary only (no named external product binding tables).
+- **Git-shared results** (`specs/`, `knowledge/`, root `AGENTS.md`, etc.) MUST NOT contain Morning Star iteration ids (e.g. the `v0-iterNNN` family) — use capability or date naming; iteration ids stay in gitignored process paths only. Commit messages and PR titles/bodies follow the same ban (orchestration branch names may keep harness prefixes).
+- **Facts only in results (HARD):** `{SPECS_DIR}`, `{KNOWLEDGE_DIR}`, and root `CONCEPTS.md` deposit **current protocol facts** — not deprecated names, rename archaeology, or iteration delivery narrative. Full rule: root [`AGENTS.md`](../AGENTS.md) § Long-term precipitation. `CONCEPTS.md` stays protocol-vocabulary only (no named external product binding tables).
 - Do **not** `git add -f` ignored paths unless the user explicitly overrides for a one-off handoff.
 - Root [`.gitignore`](../.gitignore) encodes the ignore list — keep it in sync with this table.
 - Fresh clone: recreate process files from `mstar-plan-conventions` / `mstar-plan-artifacts` templates as needed. Process paths are **not** clone-shared SSOT.
@@ -51,14 +52,18 @@ Wire/schema **code** SSOT remains repo-root `schemas/` (outside `.mstar/`). Lang
 
 ## Path symbols
 
-| Symbol | Resolves to (this repo) | Git |
-|--------|-------------------------|-----|
-| `{HARNESS_DIR}` | `.mstar/` | mixed — see table above |
-| `{SPECS_DIR}` | `.mstar/specs/` | tracked |
-| `{KNOWLEDGE_DIR}` | `.mstar/knowledge/` | tracked |
-| `{PLAN_DIR}` | `.mstar/plans/` | ignored |
-| `{ITERATION_DIR}` | `.mstar/iterations/` | ignored |
-| `{SDD_DIR}` | `.mstar/sdd/<plan-id>/` | ignored |
+Directory locations are declared in local `.mstarc` `[config]` (engine SSOT, gitignored). This table is git class only.
+
+| Symbol | `.mstarc` key | Git |
+|--------|---------------|-----|
+| `{HARNESS_DIR}` | `harness_dir` | mixed — see table above |
+| `{SPECS_DIR}` | `specs_dir` | tracked |
+| `{KNOWLEDGE_DIR}` | `knowledge_dir` | tracked |
+| `{WORKFLOW_DIR}` | `workflow_dir` | ignored |
+| `{PROJECT_DIR}` | `project_dir` | ignored |
+| `{PLAN_DIR}` | `plan_dir` | ignored |
+| `{ITERATION_DIR}` | `iteration_dir` | ignored |
+| `{SDD_DIR}` | `sdd_dir` | ignored |
 
 Plan `metadata.primary_spec` / `spec_refs` should point at paths under `{SPECS_DIR}` (e.g. `.mstar/specs/spoke-protocol.md`).
 
@@ -78,7 +83,7 @@ Plan `metadata.primary_spec` / `spec_refs` should point at paths under `{SPECS_D
 
 ## Anti-patterns
 
-- Committing `status.json`, `notes.json`, `plans/`, `iterations/`, or `sdd/`
+- Committing `.mstarc`, `status.json`, `workflows/`, `plans/`, `iterations/`, `sdd/`, or `projects/`
 - Using `{KNOWLEDGE_DIR}` as a dumping ground for unfinished specs
 - Duplicating wire contracts under `{SPECS_DIR}` that belong in root `schemas/`
 - Force-adding ignored harness paths “for convenience”

@@ -120,6 +120,11 @@ export type {
   ComputableAdapter,
   ForkAdapter,
   FullAdapter,
+  ExtractionPort,
+  ExtractRunInput,
+  ExtractionResult,
+  RunExtractor,
+  OpaqueJson,
 } from "./adapter/ports.js";
 
 export {
@@ -132,5 +137,6 @@ export {
   orchestrateCompute,
   orchestrateForkCheck,
   orchestrateForkAssemble,
+  orchestrateExtract,
   type CheckRunInput,
 } from "./adapter/orchestrate.js";

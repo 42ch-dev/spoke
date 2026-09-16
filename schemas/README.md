@@ -37,7 +37,9 @@ schemas/
     ├── project-request.schema.json       # l2-computable — init / projection
     ├── project-response.schema.json
     ├── compute-request.schema.json       # l2-computable — apply / settle
-    └── compute-response.schema.json
+    ├── compute-response.schema.json
+    ├── extract-request.schema.json       # ke-extraction — referenced-source input
+    └── extract-response.schema.json      # ke-extraction — provisional candidates + run
 ```
 
 Plus the opt-in **connect** family (`spoke-connect` flag):
@@ -52,7 +54,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **32** hand-authored schema files (2 common + 10 data + 14 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **34** hand-authored schema files (2 common + 10 data + 16 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -133,5 +135,7 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 30 | `connect/connect-auth-challenge.schema.json` | done |
 | 31 | `connect/connect-auth-response.schema.json` | done |
 | 32 | `data/tool-descriptor.schema.json` | done |
+| 33 | `ops/extract-request.schema.json` | done |
+| 34 | `ops/extract-response.schema.json` | done |
 
-**Total:** 32 schema files (mind-state + connect envelope families + tool-descriptor landed).
+**Total:** 34 schema files (mind-state + connect envelope families + tool-descriptor + ke-extraction `extract` landed).

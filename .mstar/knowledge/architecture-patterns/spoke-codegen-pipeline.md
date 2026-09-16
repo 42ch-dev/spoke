@@ -1,7 +1,7 @@
 # SPOKE codegen pipeline (v0.1)
 
 **Category:** architecture-patterns  
-**Source:** compound 2026-07-23 (bootstrap); inventory + Rust dup strategy 2026-07-25  
+**Source:** compound 2026-07-23 (bootstrap); inventory + Rust dup strategy 2026-07-25; ke-axes count + opaque-ref normalization 2026-09-17  
 **Status:** durable
 
 ## Problem
@@ -12,10 +12,11 @@ Hand-authored JSON Schema must produce both TypeScript (`@42ch/spoke-schemas`) a
 
 1. **SSOT** — only `schemas/**/*.schema.json` are hand-authored; generated trees are committed.
 2. **Orchestrator** — `tooling/codegen` walks schemas, localizes `$ref`s for typify, emits mirrored `generated/{common,data,ops}/` in both packages.
-3. **Verify** — `pnpm run verify-codegen` = regenerate → `node tooling/codegen/assert-schema-count.mjs` (`EXPECTED_SCHEMA_COUNT = 32`) → `git diff --exit-code` on generated dirs. Bump the constant when adding/removing `schemas/**/*.schema.json` (same commit as schema + generated output).
-4. **Rust fail-fast** — `rust-gen` returns non-zero on per-schema failure and asserts exactly **32** output files (keep in sync with the TS assert constant when the schema inventory changes).
+3. **Verify** — `pnpm run verify-codegen` = regenerate → `node tooling/codegen/assert-schema-count.mjs` (`EXPECTED_SCHEMA_COUNT = 34`; 32 until the `ke-extraction` axis added the two extract schemas — see point 6b) → `git diff --exit-code` on generated dirs. Bump the constant when adding/removing `schemas/**/*.schema.json` (same commit as schema + generated output).
+4. **Rust fail-fast** — `rust-gen` returns non-zero on per-schema failure and asserts exactly **34** output files (keep in sync with the TS assert constant when the schema inventory changes).
 5. **Closed ops responses** — mutually exclusive success/error shapes use draft-07 `oneOf` (see `assemble-response.schema.json`).
-6. **Opaque JSON** — `#/definitions/OpaqueJson` must be an **empty schema object `{}`** (optional `description` alone is insufficient for jstt — it still emits `{ [k: string]: unknown }` object-index maps). Consuming properties `$ref` that definition (e.g. `ComputableLogChange.previous` / `.next`). Generators then emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust).
+6. **Opaque JSON** — `#/definitions/OpaqueJson` must be an **empty schema object `{}`**. Consuming properties `$ref` that definition (e.g. `ComputableLogChange.previous` / `.next`, `ExtractionRunMetadata.coverage_hint`). Generators emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust).
+6b. **Annotated `$ref` normalization (2026-09-17)** — a bare `$ref` to the untyped `{}` target emits `unknown`, but a `$ref` carrying a sibling `description` made jstt emit an object-index map (`{ [k: string]: unknown | undefined }`) — silently narrowing any-JSON to object-shape. The orchestrator now normalizes annotation-bearing opaque refs to the `allOf` form before generation (jstt emits `unknown`/named types for those), and `verify-codegen` runs `tooling/codegen/assert-opaque-json-types.mjs` — a focused generated-type check with a negative control that names the regressed field. Root-cause precedent: connect `payload` / `auth` / `proof` carried the same latent defect; adapting those consumers is a type-level mechanical change (object-map → `unknown` narrowing) but must preserve runtime semantics — see the v0-iter041 fix rounds before touching payload dispatch behavior.
 7. **Duplicate generated types (strategy A)** — document typify nominal duplication as known generator behavior; integrators use canonical `common/` imports (see below). No orchestrator dedupe.
 8. **Release tooling tests** — `pnpm run test:release` runs pure unit tests for lockstep assert/bump scripts (temp fixtures; optional `SPOKE_REPO_ROOT` for harness isolation). Wired into the CI `typescript` job.
 
@@ -54,3 +55,7 @@ Raw struct literals (`Scope { scope_id: ..., ... }`) are **field-exhaustive by t
 
 - Specs: `.mstar/specs/spoke-protocol.md`
 - Workflow: `.github/workflows/ci.yml` (`verify-codegen` job)
+
+---
+
+**Update 2026-09-17 (ke axes):** count 32→34 (extract-request/extract-response, `ke-extraction`); OpaqueJson annotated-`$ref` normalization + generated-type assertion added to the verify gate; connect payload/auth/proof consumers adapted at type level.

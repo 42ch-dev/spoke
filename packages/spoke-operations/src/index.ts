@@ -41,6 +41,11 @@ export {
 } from "./knowledge-entry/uniqueness.js";
 
 export {
+  getKnowledgeEntryOwner,
+  knowledgeEntryVisibleToViewpoint,
+} from "./knowledge-entry/ownership.js";
+
+export {
   knowledgeEntryMatchesScope,
   filterKnowledgeEntriesByScope,
   timelineEventMatchesScope,

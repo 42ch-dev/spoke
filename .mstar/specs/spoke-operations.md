@@ -580,7 +580,7 @@ The operations packages define the **implementation protocol** for storage and q
 
 ### Port policy
 
-Port methods are asynchronous on the normative surface. TypeScript port methods return `Promise<SpokeResult<T>>`; Rust port traits are `#[async_trait] async fn …(&self, …) -> SpokeResult<T>` with `Send` futures (normative ports use the default `#[async_trait]`, not `#[async_trait(?Send)]`). All ten `orchestrate*` entrypoints are `async` — `export async function orchestrateX(…): Promise<SpokeResult<R>>` in TypeScript, `pub async fn orchestrate_x(…) -> SpokeResult<R>` in Rust — and await every injected port call. The library itself stays I/O-free: `await` appears only on injected port method calls, and pure helpers remain synchronous. Checker callbacks stay synchronous: `orchestrateCheck` / `orchestrateForkCheck` accept `(input: CheckRunInput) => SpokeResult<Finding[]>` (TypeScript) / `F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>` (Rust) — pure product logic, not ports. Rust port traits use the `async-trait` crate, which keeps the dyn availability probes (`as_computable`, `as_fork_timeline`) object-safe. The async form is the only surface: methods never return `T | Promise<T>` unions, and no sync variants or compatibility shims exist.
+Port methods are asynchronous on the normative surface. TypeScript port methods return `Promise<SpokeResult<T>>`; Rust port traits are `#[async_trait] async fn …(&self, …) -> SpokeResult<T>` with `Send` futures (normative ports use the default `#[async_trait]`, not `#[async_trait(?Send)]`). All eleven `orchestrate*` entrypoints are `async` — `export async function orchestrateX(…): Promise<SpokeResult<R>>` in TypeScript, `pub async fn orchestrate_x(…) -> SpokeResult<R>` in Rust — and await every injected port call. The library itself stays I/O-free: `await` appears only on injected port method calls, and pure helpers remain synchronous. Checker callbacks stay synchronous: `orchestrateCheck` / `orchestrateForkCheck` accept `(input: CheckRunInput) => SpokeResult<Finding[]>` (TypeScript) / `F: FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>` (Rust) — pure product logic, not ports. Rust port traits use the `async-trait` crate, which keeps the dyn availability probes (`as_computable`, `as_fork_timeline`) object-safe. The async form is the only surface: methods never return `T | Promise<T>` unions, and no sync variants or compatibility shims exist.
 
 All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter-level failures map to stable `SpokeRejectCode` values; expected absence uses the relevant `*_NOT_FOUND` code. Ports do not throw for expected adapter outcomes.
 
@@ -593,6 +593,7 @@ All port methods resolve to `SpokeResult<T>` as the application outcome. Adapter
 | `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, **`HostManifestPort`** | `orchestrateUpsert`, `orchestratePromote`, `orchestrateRelate`, `orchestrateCheck`, `orchestrateAssemble` |
 | `l2-computable` | `ComputablePort` (plus baseline) | `orchestrateProject`, `orchestrateCompute` |
 | `l5-fork` | `ForkTimelineQueryPort` (plus baseline) | `orchestrateForkCheck`, `orchestrateForkAssemble` |
+| `ke-extraction` | `ExtractionPort` (standalone — not composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`; no baseline requirement) | `orchestrateExtract` |
 | `tools.<ns>.<tool_id>` (per-tool; no umbrella flag) | `ToolInvokePort` | `orchestrateInvokeTool` |
 
 Unclaimed capabilities need no ports; their orchestrators are not callable for that product. Tool capabilities are **per-tool strings**: a host claiming `tools.<ns>.<tool_id>` in `capabilities[]` implements `ToolInvokePort`, and `orchestrateInvokeTool` is callable for each declared tool capability string — the family has no umbrella capability flag.
@@ -625,12 +626,12 @@ Wire shape: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifes
 | `roles[]` value | Typical port families / orchestrators | Write authority |
 |-----------------|--------------------------------------|-----------------|
 | `data-store` | `KnowledgeEntryPort`; `orchestrateUpsert`, `orchestratePromote` | **Yes** — single OCC authority per `entry_id` in collaboration context |
-| `input-source` | Product ingest surface (no new port family) | No — proposes intent |
+| `input-source` | Product ingest surface (no baseline port family); optional `ExtractionPort` + `orchestrateExtract` when `ke-extraction` ∈ `capabilities` | No — proposes intent |
 | `checker` | `RuleQueryPort`, `FindingPort`; `orchestrateCheck` | No — emits `Finding[]` only |
 | `assembler` | `ScopeQueryPort`; `orchestrateAssemble` | No — emits `AssemblePacket` only |
 | `computable-engine` | `ComputablePort` when `l2-computable` ∈ `capabilities` | No — Session I/O; settled state via data-store |
 
-`assembler` is closed-loop core vocabulary. `computable-engine` is optional and MUST pair with `l2-computable` in `capabilities`.
+`assembler` is closed-loop core vocabulary. `computable-engine` is optional and MUST pair with `l2-computable` in `capabilities`. An `input-source` host that offers extraction declares `ke-extraction` in `capabilities`; the role's write authority stays `No`.
 
 #### Namespace exclusivity
 
@@ -659,9 +660,28 @@ Optional manifest `authority.scope_key` binds the data-store role to an opaque c
 |---|---|---|---|---|
 | `l2-computable` | Computable session | `ComputablePort` | `ComputablePort` | `project(request: ProjectRequest): Promise<SpokeResult<ProjectResponse>>` / `async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse>`; `compute(request: ComputeRequest): Promise<SpokeResult<ComputeResponse>>` / `async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse>` |
 | `l5-fork` | Fork-aware timeline query | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` | `listForkTimelineEvents(scope: Scope & { fork_id: ForkId }): Promise<SpokeResult<TimelineEvent[]>>` / `async fn list_fork_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>>` |
+| `ke-extraction` | Extraction source input | `ExtractionPort` | `ExtractionPort` | `loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>` / `async fn load_extraction_input(&self, request: &ExtractRequest) -> SpokeResult<serde_json::Value>` |
 | per-tool (`tools.<ns>.<tool_id>`) | Tool invoke | `ToolInvokePort` | `ToolInvokePort` | `invokeTool(request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>>` / `async fn invoke_tool(&self, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse>` |
 
 `ForkTimelineQueryPort` is a capability-specific refinement of `ScopeQueryPort`; one object MAY satisfy both.
+
+**`ExtractionPort` (standalone optional family).** Port shape and injected callback types, verbatim from the frozen extraction contract SSOT:
+
+| Language | Port shape |
+|----------|------------|
+| TypeScript | `interface ExtractionPort { loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>> }` |
+| Rust | `#[async_trait] pub trait ExtractionPort { async fn load_extraction_input(&self, request: &ExtractRequest) -> SpokeResult<serde_json::Value> }` (Send futures; no runtime dependency) |
+
+**`ExtractRunInput` / `ExtractionResult` (hand-written types):**
+
+| Type (TS) | Type (Rust) | Fields |
+|-----------|-------------|--------|
+| `ExtractRunInput` | `ExtractRunInput` | `request: ExtractRequest`; `input: OpaqueJson` / `serde_json::Value` |
+| `ExtractionResult` | `ExtractionResult` | `candidates: KnowledgeEntry[]` / `Vec<KnowledgeEntry>`; `method?: string` / `Option<String>`; `coverage_hint?: OpaqueJson` / `Option<serde_json::Value>` |
+
+`RunExtractor` is the injected callback type: `(input: ExtractRunInput) => Promise<SpokeResult<ExtractionResult>>` in TypeScript, and a generic `F: FnOnce(ExtractRunInput) -> Fut` with `Fut: Future<Output = SpokeResult<ExtractionResult>> + Send` in Rust. It is deliberately asynchronous — see §Extraction orchestration injectee.
+
+**Standalone family:** like `ToolInvokePort`, `ExtractionPort` is **not** composed into `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`, and no adapter alias joins the alias table — capability gating is the `ke-extraction` flag, and the port is passed to `orchestrateExtract` directly.
 
 **`ToolInvokePort` (standalone optional family).** Port shape, verbatim from the frozen tool contracts SSOT:
 
@@ -755,6 +775,26 @@ type CheckRunInput = {
 
 Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The callback type is `(input: CheckRunInput) => SpokeResult<Finding[]>` in TypeScript and `Fn(CheckRunInput) -> SpokeResult<Vec<Finding>>` (or equivalent trait object) in Rust.
 
+### Extraction orchestration injectee
+
+Extraction paths embed neither a source parser nor an extraction engine. The host's loader reads the referenced material through the injected port, and the caller supplies the extraction callback.
+
+```typescript
+type ExtractRunInput = { request: ExtractRequest; input: OpaqueJson };
+type ExtractionResult = {
+  candidates: KnowledgeEntry[];
+  method?: string;
+  coverage_hint?: OpaqueJson;
+};
+type RunExtractor = (input: ExtractRunInput) => Promise<SpokeResult<ExtractionResult>>;
+```
+
+Rust exports the equivalent `ExtractRunInput` / `ExtractionResult` structs (snake_case fields, `serde_json::Value` for `OpaqueJson`) and takes the callback as a generic `F: FnOnce(ExtractRunInput) -> Fut`, `Fut: Future<Output = SpokeResult<ExtractionResult>> + Send`.
+
+The extraction callback is deliberately **asynchronous** — an extraction service can perform asynchronous work — so there is no `T | Promise<T>` union, no sync shim, and no hidden blocking runtime, unlike the synchronous checker callbacks above. `orchestrateExtract` awaits injected work only and performs deterministic validation and assembly. The loaded in-process value may carry source content; it is **not** a wire object and never appears on `ExtractRequest` / `ExtractResponse`.
+
+`coverage_hint` is advisory and opaque: omission and JSON null both mean no hint, and every other JSON value is retained verbatim. TypeScript passes a null hint through as `null`; the generated Rust `Option<serde_json::Value>` renders null as an absent key. Both are the documented "no hint" reading, core performs no comparison, and neither is a byte-level contract.
+
 | Operation | TypeScript entrypoint | Rust entrypoint | Required ports | Required sequence |
 |---|---|---|---|---|
 | upsert | `export async function orchestrateUpsert(ports: BaselinePorts, request: UpsertRequest): Promise<SpokeResult<UpsertResponse>>` | `pub async fn orchestrate_upsert(ports: &impl BaselinePorts, request: UpsertRequest) -> SpokeResult<UpsertResponse>` | `KnowledgeEntryPort` | Load update context; call `validateUpsertKnowledgeEntry`; call status/uniqueness helpers when applicable; call `putKnowledgeEntry(entry, expectedBaseRevision)` where `expectedBaseRevision` is `null`/`None` on create and the stored revision on update |
@@ -767,6 +807,7 @@ Rust exports an equivalent `CheckRunInput` struct with snake_case fields. The ca
 | fork check | `export async function orchestrateForkCheck(ports: ForkPorts, request: CheckRequest, runChecker: (input: CheckRunInput) => SpokeResult<Finding[]>): Promise<SpokeResult<CheckResponse>>` | `pub async fn orchestrate_fork_check(ports: &impl ForkPorts, request: CheckRequest, run_checker: impl FnOnce(CheckRunInput) -> SpokeResult<Vec<Finding>>) -> SpokeResult<CheckResponse>` | `ForkTimelineQueryPort` plus baseline check ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; resolve rules; apply scope helpers; invoke `runChecker`; call `putFindings` |
 | fork assemble | `export async function orchestrateForkAssemble(ports: ForkPorts, request: AssembleRequest): Promise<SpokeResult<AssembleResponse>>` | `pub async fn orchestrate_fork_assemble(ports: &impl ForkPorts, request: AssembleRequest) -> SpokeResult<AssembleResponse>` | `ForkTimelineQueryPort` plus baseline assemble ports | Validate `scope.fork_id`; load knowledge entries via `ScopeQueryPort.listKnowledgeEntries`; load timeline events via `ForkTimelineQueryPort.listForkTimelineEvents`; apply scope helpers; call `buildAssemblePacket` |
 | invoke tool | `export async function orchestrateInvokeTool(port: ToolInvokePort, request: ToolInvokeRequest): Promise<SpokeResult<ToolInvokeResponse>>` | `pub async fn orchestrate_invoke_tool(port: &dyn ToolInvokePort, request: ToolInvokeRequest) -> SpokeResult<ToolInvokeResponse>` | `ToolInvokePort` | Call `parseToolCapabilityId(request.capability_id)` — grammar reject `INVALID_INPUT`; TS runtime guard `typeof port.invokeTool === "function"` else `CAPABILITY_PORT_MISSING` with `details.capability = request.capability_id` (Rust: `&dyn ToolInvokePort` cannot be absent at the type level — the negative test uses a `MissingToolInvokePort` double whose `invoke_tool` returns the same reject, demonstrating code parity); call `port.invokeTool(request)` and return as-is |
+| extract | `export async function orchestrateExtract(ports: ExtractionPort, request: ExtractRequest, runExtractor: RunExtractor): Promise<SpokeResult<ExtractResponse>>` | `pub async fn orchestrate_extract<F, Fut>(ports: &dyn ExtractionPort, request: ExtractRequest, run_extractor: F) -> SpokeResult<ExtractResponse> where F: FnOnce(ExtractRunInput) -> Fut, Fut: Future<Output = SpokeResult<ExtractionResult>> + Send` | `ExtractionPort` | Reject an empty or non-string `run_id` and an empty or missing `sources` list at the library boundary (`INVALID_INPUT`) before any port call; guard the injected loading method at dynamic boundaries (`CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`); `loadExtractionInput(request)` rejection returned unchanged with the extractor not invoked; `runExtractor({ request, input })` awaited exactly once, rejection returned unchanged; check the candidate set before returning success — `merged` / `deleted` → `CANDIDATE_TERMINAL_STATUS`, any other non-`provisional` status → `CANDIDATE_NOT_PROVISIONAL` (whole-set rejection, no partial success, no status rewrite); return `candidates` plus `run` echoing the caller's exact `run_id` with optional `method` / `coverage_hint`. No persistence, no promote call, no revision bump, no manifest auto-fetch |
 
 Orchestrators compose pure helpers and port I/O only. Checker engines, compute engines, ranking, retrieval, transactions, and retries remain adapter- or product-owned. The adapter controls transaction boundaries.
 
@@ -788,6 +829,11 @@ TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and 
 | `ComputablePort` | `ComputablePort` |
 | `ForkTimelineQueryPort` | `ForkTimelineQueryPort` |
 | `HostManifestPort` | `HostManifestPort` |
+| `ExtractionPort` | `ExtractionPort` |
+| `ExtractRunInput` | `ExtractRunInput` |
+| `ExtractionResult` | `ExtractionResult` |
+| `RunExtractor` | no nominal twin — the callback is the generic `F: FnOnce(ExtractRunInput) -> Fut` |
+| `OpaqueJson` | `serde_json::Value` |
 | `BaselineAdapter` | `BaselineAdapter` (marker trait; TS: `type BaselineAdapter = BaselinePorts`) |
 | `ComputableAdapter` | `ComputableAdapter` (marker trait; TS: `type ComputableAdapter = ComputablePorts`) |
 | `ForkAdapter` | `ForkAdapter` (marker trait; TS: `type ForkAdapter = ForkPorts`) |
@@ -802,6 +848,7 @@ TypeScript places ports in `packages/spoke-operations/src/adapter/ports.ts` and 
 | `orchestrateCompute` | `orchestrate_compute` |
 | `orchestrateForkCheck` | `orchestrate_fork_check` |
 | `orchestrateForkAssemble` | `orchestrate_fork_assemble` |
+| `orchestrateExtract` | `orchestrate_extract` |
 | `ToolInvokePort` | `ToolInvokePort` |
 | `orchestrateInvokeTool` | `orchestrate_invoke_tool` |
 
@@ -880,10 +927,10 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 
 ### Adapter interfaces + injection orchestration
 
-- [x] Capability → interface family → methods matrix complete for `spoke-baseline` (six families incl. `HostManifestPort`), `l2-computable`, and `l5-fork` (no TBD cells)
+- [x] Capability → interface family → methods matrix complete for `spoke-baseline` (six families incl. `HostManifestPort`), `l2-computable`, `l5-fork`, and `ke-extraction` (no TBD cells)
 - [x] `HostManifestPort` exported + required on `BaselinePorts` / `BaselineAdapter` (TS + Rust)
 - [x] Host collaboration section documents roles↔ports map, namespace exclusivity, peer-list semantics, and `HostManifestPort` contract
-- [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, and fork-aware paths (no TBD cells)
+- [x] Injection orchestration sequences documented for baseline five ops, `project`/`compute`, fork-aware paths, and the optional extraction path (no TBD cells)
 - [x] Port interfaces and orchestration entrypoints exported from TS `src/index.ts` and Rust `src/lib.rs` per the parity table
 - [x] Orchestrators call pure helpers and perform I/O only through injected ports
 - [x] Missing optional port returns `CAPABILITY_PORT_MISSING` (not TypeError / panic)
@@ -901,6 +948,7 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 - Storage fetch inside the library
 - HTTP/MCP status code tables
 - Compute engine execution, WASM, Session store I/O
+- Source access and extraction production — the injected product `ExtractionPort` / `RunExtractor` boundary
 
 Product adapter implementations satisfy the ports defined here; they ship in consumer repos when scheduled. Reference `ToyWorldAdapter` examples live under `fixtures/toy-world/` (TS `src/adapter/`; Rust `spoke-fixture-toy-world` in `rust/`).
 

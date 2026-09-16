@@ -404,7 +404,9 @@ type GateResult =
   function dispatchOp(
     doc: ConnectInvokeRequest,
   ): Promise<SpokeResult<unknown>> {
-    const payload = doc.payload;
+    // Unchecked cast is deliberate: `payload` is any-JSON on the wire, so a
+    // null / malformed value keeps the pre-existing property-access outcome.
+    const payload = doc.payload as Record<string, unknown>;
     // Optional-port serving face: the loopback fixtures serve a
     // `FullAdapter` (ToyWorldAdapter), and the capability gate above has
     // already verified the negotiated set authorizes the op — a

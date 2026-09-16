@@ -66,14 +66,14 @@ Schema: `schemas/data/host-capability-manifest.schema.json`.
 | Role | Purpose | Typical ports / ops |
 |------|---------|---------------------|
 | `data-store` | Single OCC authority per `entry_id`; settled state via `putKnowledgeEntry` | `KnowledgeEntryPort`; `orchestrateUpsert`, `orchestratePromote` |
-| `input-source` | Ingest or propose entries/intent | Product-defined ingest surface (no new port family) |
+| `input-source` | Ingest or propose entries/intent | Product-defined ingest surface; standalone `ExtractionPort` + `orchestrateExtract` when `ke-extraction` declared |
 | `checker` | Emit `Finding[]`; no settled `body.state` write-back | `RuleQueryPort`, `FindingPort`; `orchestrateCheck` |
 | `assembler` | Closed-loop context aggregation | `ScopeQueryPort`; `orchestrateAssemble` |
 | `computable-engine` | Optional L2 session/compute | `ComputablePort` when `l2-computable` declared |
 
 Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, and computable-engine emit intent or derived artifacts — write-back flows through the data-store authority.
 
-`assembler` is closed-loop core vocabulary (not an optional role label). `computable-engine` is optional and pairs with the `l2-computable` capability flag.
+`assembler` is closed-loop core vocabulary (not an optional role label). `computable-engine` is optional and pairs with the `l2-computable` capability flag. `input-source` stays core vocabulary and its ingest surface needs no extra port; the `ExtractionPort` family is optional and activates only under the `ke-extraction` flag, never as a baseline requirement.
 
 ### Host capabilities (open vocabulary)
 
@@ -85,6 +85,7 @@ Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, an
 | `l2-computable` | MUST appear when `computable-engine` ∈ `roles` |
 | `l5-fork` | SHOULD appear when fork-aware timeline query is advertised |
 | `ke-ownership` | MUST appear when the host exchanges `KnowledgeEntry.owner` / `disclosure` or honors `Scope.viewpoint` semantics — see §Ownership governance (`ke-ownership` optional) |
+| `ke-extraction` | MUST appear when the host declares the optional `extract` operation: pairs the unchanged `input-source` role with the standalone `ExtractionPort` + `orchestrateExtract` family (not part of `BaselinePorts` / `FullPorts`). Candidates stay provisional; settled writes remain with `data-store`. Design contract: [`ke-extraction-adr.md`](ke-extraction-adr.md) |
 
 ### Authority (optional)
 

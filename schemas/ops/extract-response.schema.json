@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/extract-response.schema.json",
+  "title": "ExtractResponse",
+  "description": "Provisional extraction candidates with run metadata, or wire error. Use candidates + run OR error — not both.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["candidates", "run"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/knowledge-entry.schema.json"
+          },
+          "description": "Success: provisional candidate KnowledgeEntries. An empty array is a successful zero-result run; every returned candidate carries status \"provisional\" (operation invariant, not schema-enforced)."
+        },
+        "run": {
+          "$ref": "#/definitions/ExtractionRunMetadata",
+          "description": "Success: batch run metadata; run_id echoes the request."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope. A failed run carries no candidate list and no second run record."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "definitions": {
+    "ExtractionRunMetadata": {
+      "type": "object",
+      "required": ["run_id"],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact echo of the request run_id. Batch id and correlation id are one field, not two identities."
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional non-empty open string naming the product's extraction method. No core method enum."
+        },
+        "coverage_hint": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+          "description": "Optional advisory opaque coverage hint. Omission and JSON null both mean no hint; other JSON values (scalars, arrays, objects) are retained verbatim and never compared or reconciled by core."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

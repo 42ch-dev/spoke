@@ -312,7 +312,8 @@ async function signInvokeRequest(
     sequence: number;
     request_id: string;
     op: string;
-    payload: Record<string, unknown>;
+    /** Wire any-JSON payload (`OpaqueJson`), including JSON null. */
+    payload: unknown;
   },
 ): Promise<ConnectInvokeRequest> {
   return authenticateInvokeRequest(seed, request);
@@ -1206,6 +1207,48 @@ describe("connectResponder forward tool serving", () => {
         expect(responder.state).toBe("Established");
       } finally {
         client.close();
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "keeps the error path for a tools.* invoke whose any-JSON payload is null",
+    async () => {
+      // Regression guard (pre-fix semantics restored): the wire `payload` is
+      // any-JSON, so a null payload reaches the tool-argument read with no
+      // structural gate on the serving side. It must fail into the serving
+      // error branch — never be defaulted to `{}` and handed to the handler.
+      const responderCalls: { args: Record<string, unknown> }[] = [];
+      const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+        await startRawResponder();
+      try {
+        responder.registerToolHandler("tools.math.add", addHandler(responderCalls));
+        const { session_id: sessionId } = await rawHandshake(clientEnd, {
+          seed: seedClient,
+          manifest: toolManifest("test-client"),
+          pubkeyResponder,
+          peerIdResponder,
+        });
+        const nullPayload = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 0,
+          request_id: "null-payload-tool-invoke",
+          op: "tools.math.add",
+          payload: null,
+        });
+        await clientEnd.send(encodeEnvelope(nullPayload));
+        const response = decodeEnvelope(await clientEnd.recv()) as {
+          error: { code: string; message: string };
+          payload?: unknown;
+        };
+        expect(response.error.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(response.error.message).toContain("invoke failed");
+        expect(response).not.toHaveProperty("payload");
+        expect(responderCalls).toEqual([]);
+        expect(responder.state).toBe("Established");
+      } finally {
         responder.close();
       }
     },

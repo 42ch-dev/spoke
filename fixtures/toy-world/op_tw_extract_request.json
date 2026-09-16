@@ -1,0 +1,22 @@
+{
+  "run_id": "run_tw_extract_0001",
+  "sources": [
+    {
+      "schema_version": 1,
+      "source_id": "manuscript:tw-ch1",
+      "span": { "start": 48, "end": 312 },
+      "label": "Harbor arrival scene",
+      "mime_type": "text/plain",
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "source_id": "manuscript:tw-ch1",
+      "extensions": {}
+    }
+  ],
+  "entry_types": ["info_point"],
+  "extensions": {
+    "toy_world": { "extraction_profile": "harbor-arrival" }
+  }
+}

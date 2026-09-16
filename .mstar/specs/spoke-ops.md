@@ -24,7 +24,7 @@ Define transport-agnostic **request/response** wire shapes for core KnowledgeEnt
 
 ## Core operations (v0.1)
 
-Five baseline ops, ten schema files under `schemas/ops/` (request + response each). Two **optional** ops under `l2-computable` add four more schema files — see §Optional ops.
+Five baseline ops, ten schema files under `schemas/ops/` (request + response each). Optional capability families add six more schema files — `project` / `compute` under `l2-computable` (four) and `extract` under `ke-extraction` (two) — see §Optional ops (`l2-computable`) and §Optional op (`ke-extraction`). Sixteen op schema files in total.
 
 | Operation | Intent | Request schema | Response schema |
 |-----------|--------|----------------|-----------------|
@@ -34,16 +34,16 @@ Five baseline ops, ten schema files under `schemas/ops/` (request + response eac
 | **check** | Run checker(s); return Finding(s) | `check-request.schema.json` | `check-response.schema.json` |
 | **assemble** | Return `AssemblePacket` shape | `assemble-request.schema.json` | `assemble-response.schema.json` |
 
-File basename `promote-*` is the schema id for **extract→promote** (shorter than `extract-promote-*`).
+File basename `promote-*` is the schema id for **extract→promote** (shorter than `extract-promote-*`). The optional referenced-content `extract-*` family is a different surface — see §Optional op (`ke-extraction`).
 
 ### Research canvas coverage (operations)
 
-Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five baseline ops below are **canvas-covered** — integrators need not infer missing wire from the canvas.
+Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five baseline ops below are **canvas-covered** — integrators need not infer missing wire from the canvas. The canvas `extract` row spans two protocol surfaces: baseline **admission** (`promote-*`) and the optional referenced-content op (`extract-*`, `ke-extraction`); `promote-*` alone is not full extraction coverage.
 
 | Canvas op | Decision | Integrator note |
 |-----------|----------|-----------------|
 | `upsert` | **Covered** | Baseline wire + ops |
-| `extract` → `promote` | **Covered** | `promote-*` schema family |
+| `extract` → `promote` | **Covered** (admission) / **Optional** (`ke-extraction`) | `promote-*` covers candidate admission only; the referenced-content request/result half is the optional `extract-*` family — see §Optional op (`ke-extraction`) |
 | `relate` | **Covered** | Baseline wire + ops |
 | `check` | **Covered** | Baseline wire + ops |
 | `assemble` | **Covered** | Baseline wire + ops |
@@ -186,6 +186,33 @@ Two optional op families for Session-scoped computable I/O. **Not** baseline —
 
 ---
 
+## Optional op (`ke-extraction`)
+
+One optional op family for referenced-content extraction. **Not** baseline — Creader-class integrators MAY omit entirely. Capability flag **`ke-extraction`** uses the existing `input-source` host role: no new role, no `extraction.*` sub-capability registry, and no sixth baseline op. Normative decision: [`ke-extraction-adr.md`](ke-extraction-adr.md).
+
+| Operation | Intent | Request schema | Response schema |
+|-----------|--------|----------------|-----------------|
+| **`extract`** | Propose provisional `KnowledgeEntry` candidates from referenced source material | `extract-request.schema.json` | `extract-response.schema.json` |
+
+### `extract` — referenced content in, provisional candidates out
+
+| Direction | Core payload |
+|-----------|--------------|
+| Request | `run_id: string` (required, non-empty opaque correlation identity, echoed verbatim on success); `sources: SourceAnchor[]` (required, non-empty — full `$ref` to the data schema, so each anchor keeps `schema_version` / `source_id` / `extensions` plus optional `span` / `label` / `mime_type`); optional `entry_types: string[]` (advisory open vocabulary, not a post-filter); optional `extensions` |
+| Response (success) | `candidates: KnowledgeEntry[]` (provisional candidates; an empty array is a valid zero-result run); `run: ExtractionRunMetadata` — a local definition in `extract-response.schema.json`, not a third schema file and not a durable run record: required `run_id` (exact request echo; batch id and correlation id are one field), optional non-empty open `method`, optional opaque `coverage_hint` (`$ref` `OpaqueJson`); optional `extensions` |
+| Response (failure) | `error: ErrorEnvelope`; optional `extensions` |
+
+**Product rules:**
+
+1. **Reference-only input.** Extraction range is the source list plus each anchor's optional span; an absent span means the referenced artifact as a whole. There is no inline-text field even for small fragments, no competing range object, no required span, and no `Scope` standing in for a KE collection.
+2. **Source loading is host-local.** The injected port reads the referenced material inside the host; the wire carries references only, so no document parser or source registry enters the library.
+3. **One correlation identity.** `run.run_id` echoes the request `run_id` exactly. There is no second batch id and no run lookup, resume, or idempotency contract.
+4. **Advisory metadata only.** Omission and JSON null of `coverage_hint` both mean no hint; every other JSON value (scalar, array, or object) is retained verbatim. Core never compares, scores, or reconciles it, and no core operation may require it.
+5. **Failed runs stay failed.** The error branch carries no partial candidate list and no second run record.
+6. **Provisional status is an operations invariant**, not schema-enforced: the library rejects a whole candidate set containing a `merged` / `deleted` (`CANDIDATE_TERMINAL_STATUS`) or otherwise non-`provisional` (`CANDIDATE_NOT_PROVISIONAL`) entry without rewriting statuses or returning partial success. See [`spoke-operations.md`](spoke-operations.md) §Extraction orchestration injectee.
+
+---
+
 ## `assemble` wire-only boundary (normative)
 
 v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product performs context assembly. The protocol does **not** specify how packets are produced.
@@ -257,6 +284,7 @@ All ops response schemas MUST use the same discriminated union:
 | `assemble` | `packet` | v0.1 reference implementation |
 | `project` | `session_id`, `entry_id`, `computable` | Optional (`l2-computable`) |
 | `compute` | `session_id`, `entry_id`, `computable` | Optional (`l2-computable`); `state` when request `settle: true` |
+| `extract` | `candidates`, `run` | Optional (`ke-extraction`); empty `candidates` array is valid success |
 
 **Invariant:** `error` and success payload fields MUST NOT co-exist on the same response object.
 
@@ -274,8 +302,8 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 ## Acceptance (ops layer)
 
 - [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
-- [x] Optional `project` / `compute` ops documented when `l2-computable` ships (4 optional ops schemas; protocol inventory **32** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
-- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 2 optional)
+- [x] Optional `project` / `compute` (`l2-computable`) and `extract` (`ke-extraction`) ops documented (6 optional op schema files; protocol inventory **34** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
+- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 3 optional: `project`, `compute`, `extract`)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)
 - [ ] `check-request` / `assemble-request` `$ref` shared `Scope` from `common.schema.json`
@@ -287,6 +315,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 - HTTP/gRPC/MCP transport bindings
 - Server or daemon implementation
 - Checker execution engine
+- Extraction engines and source access — the injected product [`ExtractionPort`](spoke-operations.md#extraction-orchestration-injectee) / `runExtractor` boundary
 - Assemble ranking / retrieval algorithms
 - Conformance fixtures or golden round-trips
 - Product adapter route mapping (ports live in the operations library)
@@ -299,5 +328,5 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `HostCapabilityManifest`, `Rule`, `TimelineEvent`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
-| [`schemas/README.md`](../../schemas/README.md) | Fourteen op schema files under `schemas/ops/` (ten baseline + four optional) |
+| [`schemas/README.md`](../../schemas/README.md) | Sixteen op schema files under `schemas/ops/` (ten baseline + four `l2-computable` + two `ke-extraction`) |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

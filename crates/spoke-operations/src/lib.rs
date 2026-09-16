@@ -77,6 +77,8 @@ pub use adapter::{
     FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
     ScopeQueryPort,
 };
+pub use adapter::orchestrate::orchestrate_extract;
+pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

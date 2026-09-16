@@ -21,12 +21,7 @@ export type ConnectInvokeResponse =
        * Echo of request request_id.
        */
       request_id: string;
-      /**
-       * Ops response success envelope (or product-defined success body for non-core op).
-       */
-      payload: {
-        [k: string]: unknown | undefined;
-      };
+      payload: unknown;
       /**
        * base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-response-jcs-v1).
        */

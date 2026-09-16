@@ -840,8 +840,11 @@ export class ConnectResponder {
     // The request payload carries the tool arguments as
     // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object
     // arguments field is a malformed provider request — serve `{}`
-    // (the structural argument gate is caller-side).
-    const argumentsField = doc.payload.arguments;
+    // (the structural argument gate is caller-side). The unchecked cast is
+    // deliberate: `payload` is any-JSON on the wire, so a null / malformed
+    // value keeps its pre-existing property-access outcome (serving error path).
+    const payload = doc.payload as { arguments?: unknown };
+    const argumentsField = payload.arguments;
     const handlerArgs: Record<string, unknown> =
       typeof argumentsField === "object" &&
       argumentsField !== null &&

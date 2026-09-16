@@ -1,0 +1,11 @@
+{
+  "error": {
+    "code": "CANDIDATE_NOT_PROVISIONAL",
+    "message": "Candidate KnowledgeEntry status must be provisional (got confirmed)",
+    "details": {
+      "entry_id": "kb_tw_extract_2",
+      "status": "confirmed"
+    },
+    "extensions": {}
+  }
+}

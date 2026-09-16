@@ -24,18 +24,8 @@ export interface ConnectInvokeRequest {
    * Open vocabulary. Core (documented, not enforced): upsert, promote, relate, check, assemble, project, compute.
    */
   op: string;
-  /**
-   * Opaque JSON — MUST be a full existing ops request envelope for the named op when targeting SPOKE ops.
-   */
-  payload: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * Optional mid-session proof blob; primary auth is hello. Shape method-specific when used.
-   */
-  auth?: {
-    [k: string]: unknown | undefined;
-  };
+  payload: unknown;
+  auth?: unknown;
   /**
    * base64url (no padding) of the 64-byte Ed25519 signature over the RFC 8785 JCS canonicalized signed object (spoke-connect-invoke-request-jcs-v1).
    */

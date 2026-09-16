@@ -1,7 +1,8 @@
 //! Injection orchestration entrypoints — compose pure helpers with port I/O.
 
 use crate::adapter::ports::{
-    BaselinePorts, ComputablePorts, ForkPorts, KnowledgeEntryPort, RelationPort,
+    BaselinePorts, ComputablePorts, ExtractRunInput, ExtractionPort, ExtractionResult, ForkPorts,
+    KnowledgeEntryPort, RelationPort,
 };
 use crate::assemble::{build_assemble_packet, BuildAssemblePacketInput, KnowledgeEntryForAssemble};
 use crate::computable::{validate_compute_request, validate_project_request};
@@ -21,10 +22,11 @@ const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 use serde_json::{json, Map, Value};
 use spoke_schemas::{
     AssembleRequest, AssembleResponse, CheckRequest, CheckResponse, ComputeRequest, ComputeResponse,
-    Finding, KnowledgeEntry, ProjectRequest, ProjectResponse, PromoteRequest, PromoteResponse,
-    RelateRequest, RelateResponse, Relation, Rule, Scope, TimelineEvent, UpsertRequest,
-    UpsertResponse,
+    ExtractRequest, ExtractResponse, Finding, KnowledgeEntry, ProjectRequest, ProjectResponse,
+    PromoteRequest, PromoteResponse, RelateRequest, RelateResponse, Relation, Rule, Scope,
+    TimelineEvent, UpsertRequest, UpsertResponse,
 };
+use std::future::Future;
 
 /// Checker callback input after ports load scoped data and rules.
 #[derive(Debug, Clone)]
@@ -670,6 +672,119 @@ pub async fn orchestrate_fork_assemble(
         .collect();
 
     assemble_packet_response(&scope, &entries, &request)
+}
+
+/// Library-boundary gate: non-empty correlation id and non-empty source list.
+///
+/// Only the source list is checkable here — the generated
+/// `ExtractRequestRunId` already rejects an empty `run_id` at every entry
+/// point (`FromStr` / `Deserialize`), so no runtime re-check can fail. Both
+/// invariants reject with `INVALID_INPUT` before any port or callback call.
+fn assert_extract_request_boundaries(request: &ExtractRequest) -> SpokeResult<()> {
+    if request.sources.is_empty() {
+        let mut details = Map::new();
+        details.insert("field".into(), Value::String("sources".into()));
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "ExtractRequest sources must be a non-empty SourceAnchor list",
+            Some(details),
+        );
+    }
+
+    spoke_ok_unit()
+}
+
+/// Operation invariant: every returned candidate is an ordinary provisional
+/// entry. No partial success, no status rewriting, no dropped candidates.
+fn assert_extraction_candidates_provisional(candidates: &[KnowledgeEntry]) -> SpokeResult<()> {
+    for candidate in candidates {
+        if TERMINAL_KNOWLEDGE_ENTRY_STATUSES.contains(&candidate.status.as_str()) {
+            let mut details = Map::new();
+            details.insert("entry_id".into(), Value::String(candidate.entry_id.clone()));
+            details.insert("status".into(), Value::String(candidate.status.clone()));
+            return spoke_reject(
+                SpokeRejectCode::CandidateTerminalStatus,
+                format!(
+                    "Candidate KnowledgeEntry has terminal status: {}",
+                    candidate.status
+                ),
+                Some(details),
+            );
+        }
+
+        if candidate.status != "provisional" {
+            let mut details = Map::new();
+            details.insert("entry_id".into(), Value::String(candidate.entry_id.clone()));
+            details.insert("status".into(), Value::String(candidate.status.clone()));
+            return spoke_reject(
+                SpokeRejectCode::CandidateNotProvisional,
+                format!(
+                    "Candidate KnowledgeEntry status must be provisional (got {})",
+                    candidate.status
+                ),
+                Some(details),
+            );
+        }
+    }
+
+    spoke_ok_unit()
+}
+
+/// Extraction: gate request boundaries, load product-defined input through the
+/// injected port, await the injected extraction callback exactly once, gate
+/// candidate statuses, then assemble the success response with the caller's
+/// exact run id and the supplied advisory metadata. No manifest lookup,
+/// persistence, status upgrade, or promote.
+pub async fn orchestrate_extract<F, Fut>(
+    ports: &dyn ExtractionPort,
+    request: ExtractRequest,
+    run_extractor: F,
+) -> SpokeResult<ExtractResponse>
+where
+    F: FnOnce(ExtractRunInput) -> Fut,
+    Fut: Future<Output = SpokeResult<ExtractionResult>> + Send,
+{
+    if let SpokeResult::Reject(reject) = assert_extract_request_boundaries(&request) {
+        return SpokeResult::Reject(reject);
+    }
+
+    // Read before `request` moves into the extractor input; the response echoes
+    // the request run id exactly.
+    let run_id = request.run_id.as_str().to_owned();
+
+    let input = match ports.load_extraction_input(&request).await {
+        SpokeResult::Ok(input) => input,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    let extracted = match run_extractor(ExtractRunInput { request, input }).await {
+        SpokeResult::Ok(extracted) => extracted,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    if let SpokeResult::Reject(reject) =
+        assert_extraction_candidates_provisional(&extracted.candidates)
+    {
+        return SpokeResult::Reject(reject);
+    }
+
+    let mut run = Map::new();
+    run.insert("run_id".into(), Value::String(run_id));
+    if let Some(method) = extracted.method {
+        run.insert("method".into(), Value::String(method));
+    }
+    // An omitted hint and a JSON null hint are the same "no hint"; any other
+    // JSON value is retained verbatim.
+    if let Some(coverage_hint) = extracted.coverage_hint {
+        if !coverage_hint.is_null() {
+            run.insert("coverage_hint".into(), coverage_hint);
+        }
+    }
+
+    success_response(json!({
+        "candidates": extracted.candidates,
+        "run": Value::Object(run),
+    }))
 }
 
 #[cfg(test)]

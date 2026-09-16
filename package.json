@@ -12,7 +12,7 @@
   "//": "Cold-clone gate is `ci:typescript` (inlined superset of the ci.yml `typescript` job: `build:operations` precedes every typecheck that resolves @42ch/spoke-operations from dist/, then the demo typechecks + `test:demo`). The composite `typecheck` script is a warm-tree helper only.",
   "scripts": {
     "codegen": "pnpm -F @42ch/spoke-codegen codegen",
-    "verify-codegen": "pnpm run codegen && node tooling/codegen/assert-schema-count.mjs && git diff --exit-code -- packages/spoke-schemas/src/generated crates/spoke-schemas/src/generated",
+    "verify-codegen":"pnpm run codegen && node tooling/codegen/assert-schema-count.mjs && node tooling/codegen/assert-opaque-json-types.mjs && git diff --exit-code -- packages/spoke-schemas/src/generated crates/spoke-schemas/src/generated",
     "typecheck": "pnpm -F @42ch/spoke-schemas typecheck && pnpm -F @42ch/spoke-operations typecheck && pnpm -F @42ch/spoke-connect typecheck && pnpm -F @42ch/spoke-demo-server typecheck && pnpm -F @42ch/spoke-demo-client typecheck",
     "build:schema": "pnpm -F @42ch/spoke-schemas build",
     "build:operations": "pnpm -F @42ch/spoke-operations build",

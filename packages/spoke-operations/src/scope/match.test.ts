@@ -111,6 +111,102 @@ describe("knowledgeEntryMatchesScope", () => {
       }),
     ).toBe(false);
   });
+
+  it("leaves an entry without disclosure visible to a viewpoint", () => {
+    expect(
+      knowledgeEntryMatchesScope(knowledgeEntry, {
+        ...baseScope,
+        viewpoint: "kb_other",
+      }),
+    ).toBe(true);
+  });
+
+  it("matches an owner-private entry against its own scope viewpoint", () => {
+    const privateEntry = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      owner: "kb_mira",
+      disclosure: "owner-private",
+    });
+
+    expect(
+      knowledgeEntryMatchesScope(privateEntry, {
+        ...baseScope,
+        viewpoint: "kb_mira",
+      }),
+    ).toBe(true);
+  });
+
+  it("excludes an owner-private entry from a scope without a viewpoint", () => {
+    const privateEntry = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      owner: "kb_mira",
+      disclosure: "owner-private",
+    });
+
+    expect(knowledgeEntryMatchesScope(privateEntry, baseScope)).toBe(false);
+  });
+
+  it("excludes an owner-private entry from a foreign scope viewpoint", () => {
+    const privateEntry = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      owner: "kb_mira",
+      disclosure: "owner-private",
+    });
+
+    expect(
+      knowledgeEntryMatchesScope(privateEntry, {
+        ...baseScope,
+        viewpoint: "kb_other",
+      }),
+    ).toBe(false);
+  });
+
+  it("composes the disclosure predicate with entry refinements (AND)", () => {
+    const privateEntry = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      owner: "kb_mira",
+      disclosure: "owner-private",
+    });
+
+    expect(
+      knowledgeEntryMatchesScope(privateEntry, {
+        ...baseScope,
+        entry_ids: ["kb_1"],
+        viewpoint: "kb_mira",
+      }),
+    ).toBe(true);
+    // entry_ids would admit the entry; the disclosure predicate still excludes it.
+    expect(
+      knowledgeEntryMatchesScope(privateEntry, {
+        ...baseScope,
+        entry_ids: ["kb_1"],
+        viewpoint: "kb_other",
+      }),
+    ).toBe(false);
+    // viewpoint would admit the entry; the entry refinement still excludes it.
+    expect(
+      knowledgeEntryMatchesScope(privateEntry, {
+        ...baseScope,
+        entry_ids: ["kb_missing"],
+        viewpoint: "kb_mira",
+      }),
+    ).toBe(false);
+  });
+
+  it("excludes an unknown disclosure value under any scope viewpoint", () => {
+    const groupEntry = makeKnowledgeEntry({
+      entry_id: "kb_1",
+      owner: "kb_mira",
+      disclosure: "group-private",
+    });
+
+    expect(
+      knowledgeEntryMatchesScope(groupEntry, {
+        ...baseScope,
+        viewpoint: "kb_mira",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("filterKnowledgeEntriesByScope", () => {
@@ -127,6 +223,52 @@ describe("filterKnowledgeEntriesByScope", () => {
 
     expect(filtered).toHaveLength(1);
     expect(filtered[0]?.entry_id).toBe("kb_1");
+  });
+
+  it("keeps shared entries and the viewpoint's own private entries", () => {
+    const knowledgeEntries = [
+      makeKnowledgeEntry({ entry_id: "kb_shared" }),
+      makeKnowledgeEntry({
+        entry_id: "kb_mine",
+        owner: "kb_mira",
+        disclosure: "owner-private",
+      }),
+      makeKnowledgeEntry({
+        entry_id: "kb_theirs",
+        owner: "kb_rival",
+        disclosure: "owner-private",
+      }),
+      makeKnowledgeEntry({
+        entry_id: "kb_group",
+        owner: "kb_mira",
+        disclosure: "group-private",
+      }),
+    ];
+
+    const filtered = filterKnowledgeEntriesByScope(knowledgeEntries, {
+      ...baseScope,
+      viewpoint: "kb_mira",
+    });
+
+    expect(filtered.map((entry) => entry.entry_id)).toEqual([
+      "kb_shared",
+      "kb_mine",
+    ]);
+  });
+
+  it("keeps only shared entries when the scope has no viewpoint", () => {
+    const knowledgeEntries = [
+      makeKnowledgeEntry({ entry_id: "kb_shared" }),
+      makeKnowledgeEntry({
+        entry_id: "kb_mine",
+        owner: "kb_mira",
+        disclosure: "owner-private",
+      }),
+    ];
+
+    const filtered = filterKnowledgeEntriesByScope(knowledgeEntries, baseScope);
+
+    expect(filtered.map((entry) => entry.entry_id)).toEqual(["kb_shared"]);
   });
 });
 

@@ -1,7 +1,10 @@
 import type { KnowledgeEntry, Scope, TimelineEvent } from "@42ch/spoke-schemas";
 
+import { knowledgeEntryVisibleToViewpoint } from "../knowledge-entry/ownership.js";
+
 /**
- * KnowledgeEntry passes optional Scope refinements (AND when present).
+ * KnowledgeEntry passes optional Scope refinements (AND when present), including the
+ * core disclosure predicate applied to `scope.viewpoint`.
  */
 export function knowledgeEntryMatchesScope(
   knowledgeEntry: KnowledgeEntry,
@@ -22,6 +25,10 @@ export function knowledgeEntryMatchesScope(
     scope.source_id !== undefined &&
     knowledgeEntry.source_anchor?.source_id !== scope.source_id
   ) {
+    return false;
+  }
+
+  if (!knowledgeEntryVisibleToViewpoint(knowledgeEntry, scope.viewpoint)) {
     return false;
   }
 

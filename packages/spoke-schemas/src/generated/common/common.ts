@@ -120,6 +120,10 @@ export interface Scope {
    * Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork).
    */
   fork_id?: string;
+  /**
+   * Optional reader context: non-empty holder-KE entry_id consumed by ownership-aware operations. Capability-flagged (ke-ownership); opt-in. Check and assemble share this Scope carrier; scope_id stays opaque and is never parsed for viewpoint. A missing viewpoint names no subject and grants no private visibility; entry, entry_type, and source refinements compose with the disclosure predicate by AND.
+   */
+  viewpoint?: string;
   extensions?: ExtensionMap1;
 }
 /**

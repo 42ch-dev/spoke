@@ -64,7 +64,7 @@ Normative mirror of the Spoke Protocol Research canvas `OP_ROWS`. All five basel
 
 ### Scope (shared — `check` + `assemble`)
 
-Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def. `TimelineScale` and `ForkId` are defined alongside `Scope` in `common.schema.json`.
+Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-request` and `assemble-request` require top-level `scope` referencing this def. `TimelineScale` and `ForkId` are defined alongside `Scope` in `common.schema.json`. Optional `Scope.viewpoint` is the `ke-ownership` reader-context selector on this shared def — absent names no subject and grants no private visibility; normative decision: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md).
 
 | Field | Required | Type | Semantics |
 |-------|----------|------|-----------|
@@ -75,6 +75,7 @@ Definition: `schemas/common/common.schema.json#/definitions/Scope`. Both `check-
 | `source_id` | no | string | Provenance / manuscript locator scope |
 | `timeline_scale` | no | `TimelineScale` | L5 tier filter (`brief` / `narrative` / `moment`) |
 | `fork_id` | no | `ForkId` | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`); events without `fork_id` do not match |
+| `viewpoint` | no | string | Reader context (`ke-ownership`), not an authorization credential: non-empty holder KnowledgeEntry `entry_id`. The core disclosure predicate admits an `owner-private` KnowledgeEntry only when `viewpoint` exactly equals its `owner`; absent `viewpoint` names no subject and grants no private visibility, and an entry without `disclosure` stays visible regardless of viewpoint. Comparison is exact (no normalization, no holder lookup); `TimelineEvent` matching ignores it. Normative decision: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md); behavior table: [`spoke-data-model.md`](spoke-data-model.md) §Ownership governance (`ke-ownership` optional). |
 | `extensions` | no | `ExtensionMap` | Product-scoped scope/query metadata (e.g. product filters such as branch/search limits). Protocol matchers ignore it; adapters round-trip unknown namespaces verbatim. Product data lives under `extensions.<product>`; functional dialects belong in `modules.*` on KnowledgeEntry / AssemblePacket — see [`spoke-extension-modules.md`](spoke-extension-modules.md). Optional on `Scope` (unlike required `extensions` on durable data objects such as `KnowledgeEntry`). |
 
 **Mapping rule:** when a product needs `world_id`, `book_id`, or similar, it MUST use one of:

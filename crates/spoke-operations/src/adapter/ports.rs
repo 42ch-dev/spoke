@@ -8,9 +8,10 @@
 
 use async_trait::async_trait;
 use crate::result::SpokeResult;
+use serde_json::Value;
 use spoke_schemas::{
-    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
-    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+    ComputeRequest, ComputeResponse, ExtractRequest, Finding, HostCapabilityManifest,
+    KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 /// Knowledge entry persistence — get / put by entry id.
@@ -179,6 +180,40 @@ impl<T: ForkPorts> ForkAdapter for T {}
 pub trait FullAdapter: FullPorts {}
 
 impl<T: FullPorts> FullAdapter for T {}
+
+/// Optional `ke-extraction` family — the injected product boundary for
+/// referenced-content extraction.
+///
+/// Standalone like [`ToolInvokePort`](crate::ToolInvokePort): `ExtractionPort`
+/// is NOT part of [`BaselinePorts`] / [`FullPorts`] or the adapter aliases. The
+/// library contains no source I/O and no extraction engine; it only awaits the
+/// injected port and callback, then validates and assembles.
+#[async_trait]
+pub trait ExtractionPort {
+    /// Injected product source loader. The in-process value it returns may
+    /// carry source content; it is not a wire object and never appears on
+    /// `ExtractRequest` / `ExtractResponse`.
+    async fn load_extraction_input(&self, request: &ExtractRequest) -> SpokeResult<Value>;
+}
+
+/// Extraction callback input — the request plus the loaded product input.
+#[derive(Debug, Clone)]
+pub struct ExtractRunInput {
+    pub request: ExtractRequest,
+    pub input: Value,
+}
+
+/// Product extraction output — candidate entries plus advisory run metadata.
+#[derive(Debug, Clone)]
+pub struct ExtractionResult {
+    pub candidates: Vec<KnowledgeEntry>,
+    /// Optional non-empty open string naming the product's extraction method.
+    pub method: Option<String>,
+    /// Optional advisory opaque coverage hint. `None` and
+    /// [`serde_json::Value::Null`] both mean "no hint"; any other JSON value is
+    /// retained verbatim.
+    pub coverage_hint: Option<Value>,
+}
 
 #[cfg(test)]
 mod tests {

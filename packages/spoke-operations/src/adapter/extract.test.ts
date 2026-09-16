@@ -274,4 +274,46 @@ describe("orchestrateExtract", () => {
     });
     expect(response.run.coverage_hint).toBe(coverageHint);
   });
+
+  it("emits no method key when the extractor returns an empty method", async () => {
+    const request = makeRequest({ run_id: "run_method_empty" });
+    const port = createExtractionPort(async () => spokeOk({ chapter: "text" }));
+
+    const result = await orchestrateExtract(port, request, async () =>
+      spokeOk({ candidates: [], method: "" }),
+    );
+
+    const response = expectSuccess(result);
+    expect("method" in response.run).toBe(false);
+    expect(response.run).toStrictEqual({ run_id: "run_method_empty" });
+  });
+
+  it("retains the shortest non-empty method verbatim", async () => {
+    const port = createExtractionPort(async () => spokeOk({ chapter: "text" }));
+
+    const result = await orchestrateExtract(port, makeRequest(), async () =>
+      spokeOk({ candidates: [], method: "x" }),
+    );
+
+    const response = expectSuccess(result);
+    expect(response.run).toStrictEqual({ run_id: "run_001", method: "x" });
+  });
+
+  it("treats an absent and a null coverage hint alike as no hint", async () => {
+    const port = createExtractionPort(async () => spokeOk({ chapter: "text" }));
+
+    const nothingFound = expectSuccess(
+      await orchestrateExtract(port, makeRequest(), async () =>
+        spokeOk({ candidates: [] }),
+      ),
+    );
+    const nullHint = expectSuccess(
+      await orchestrateExtract(port, makeRequest(), async () =>
+        spokeOk({ candidates: [], coverage_hint: null }),
+      ),
+    );
+
+    expect("coverage_hint" in nothingFound.run).toBe(false);
+    expect(nullHint.run.coverage_hint).toBeNull();
+  });
 });

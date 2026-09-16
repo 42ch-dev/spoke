@@ -414,6 +414,56 @@ fn echoes_the_caller_run_id_and_retains_opaque_advisory_metadata_verbatim() {
 }
 
 #[test]
+fn emits_no_method_key_when_the_extractor_returns_an_empty_method() {
+    let port = RecordingPort::new(spoke_ok(json!({ "chapter": "text" })));
+
+    let result = pollster::block_on(orchestrate_extract(
+        &port,
+        request_with("run_method_empty"),
+        move |_input: ExtractRunInput| {
+            ready(spoke_ok(ExtractionResult {
+                candidates: Vec::new(),
+                method: Some(String::new()),
+                coverage_hint: None,
+            }))
+        },
+    ));
+
+    match result {
+        SpokeResult::Ok(response) => assert_eq!(
+            serde_json::to_value(&response).expect("wire response"),
+            json!({ "candidates": [], "run": { "run_id": "run_method_empty" } })
+        ),
+        other => panic!("expected an extraction success response, got: {other:?}"),
+    }
+}
+
+#[test]
+fn retains_the_shortest_non_empty_method_verbatim() {
+    let port = RecordingPort::new(spoke_ok(json!({ "chapter": "text" })));
+
+    let result = pollster::block_on(orchestrate_extract(
+        &port,
+        make_request(),
+        move |_input: ExtractRunInput| {
+            ready(spoke_ok(ExtractionResult {
+                candidates: Vec::new(),
+                method: Some("x".to_owned()),
+                coverage_hint: None,
+            }))
+        },
+    ));
+
+    match result {
+        SpokeResult::Ok(response) => assert_eq!(
+            serde_json::to_value(&response).expect("wire response"),
+            json!({ "candidates": [], "run": { "run_id": "run_001", "method": "x" } })
+        ),
+        other => panic!("expected an extraction success response, got: {other:?}"),
+    }
+}
+
+#[test]
 fn treats_a_null_coverage_hint_as_no_hint() {
     let expected = json!({ "candidates": [], "run": { "run_id": "run_null" } });
 

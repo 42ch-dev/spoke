@@ -698,7 +698,12 @@ export async function orchestrateExtract(
     candidates,
     run: {
       run_id: request.run_id,
-      ...(method !== undefined ? { method } : {}),
+      // ExtractionRunMetadata requires a non-empty `method` (minLength 1), but
+      // the port boundary is dynamic and `ExtractionResult` cannot enforce it:
+      // only a non-empty string is emitted, and every other value is treated as
+      // absent instead of producing a schema-invalid response. Mirrors the Rust
+      // orchestrator, where `Option<String>` carries the same reachable states.
+      ...(typeof method === "string" && method.length > 0 ? { method } : {}),
       ...(coverageHint !== undefined ? { coverage_hint: coverageHint } : {}),
     },
   });

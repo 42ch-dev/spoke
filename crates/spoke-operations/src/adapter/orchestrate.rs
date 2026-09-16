@@ -770,8 +770,13 @@ where
 
     let mut run = Map::new();
     run.insert("run_id".into(), Value::String(run_id));
+    // ExtractionRunMetadata requires a non-empty `method` (minLength 1); an
+    // empty string is treated as absent instead of producing a schema-invalid
+    // response. Mirrors the TS orchestrator.
     if let Some(method) = extracted.method {
-        run.insert("method".into(), Value::String(method));
+        if !method.is_empty() {
+            run.insert("method".into(), Value::String(method));
+        }
     }
     // An omitted hint and a JSON null hint are the same "no hint"; any other
     // JSON value is retained verbatim.

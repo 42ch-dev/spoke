@@ -16,12 +16,7 @@ export interface ConnectAuthResponse {
    * MUST match challenge method. Core (documented, not enforced): noise-peerid, capability-token. Reserved name: did.
    */
   method: string;
-  /**
-   * Method-specific proof. For capability-token: object { v, claims, sig } (sig over JCS(claims) only).
-   */
-  proof: {
-    [k: string]: unknown | undefined;
-  };
+  proof: unknown;
   extensions: ExtensionMap;
 }
 /**

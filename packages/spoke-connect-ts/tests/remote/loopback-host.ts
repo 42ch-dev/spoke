@@ -404,7 +404,9 @@ type GateResult =
   function dispatchOp(
     doc: ConnectInvokeRequest,
   ): Promise<SpokeResult<unknown>> {
-    const payload = doc.payload;
+    const payload = (
+      typeof doc.payload === "object" && doc.payload !== null ? doc.payload : {}
+    ) as Record<string, unknown>;
     // Optional-port serving face: the loopback fixtures serve a
     // `FullAdapter` (ToyWorldAdapter), and the capability gate above has
     // already verified the negotiated set authorizes the op — a

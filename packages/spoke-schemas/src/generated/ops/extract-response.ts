@@ -157,12 +157,7 @@ export interface ExtractionRunMetadata {
    * Optional non-empty open string naming the product's extraction method. No core method enum.
    */
   method?: string;
-  /**
-   * Optional advisory opaque coverage hint. Omission and JSON null both mean no hint; other JSON values (scalars, arrays, objects) are retained verbatim and never compared or reconciled by core.
-   */
-  coverage_hint?: {
-    [k: string]: unknown | undefined;
-  };
+  coverage_hint?: unknown;
 }
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.

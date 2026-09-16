@@ -291,7 +291,11 @@ describe("two-node local WebSocket interop", () => {
           sequence: doc.sequence,
           request_id: doc.request_id,
         };
-        if (doc.payload?.fail === true) {
+        const invokePayload: Record<string, unknown> =
+          typeof doc.payload === "object" && doc.payload !== null
+            ? (doc.payload as Record<string, unknown>)
+            : {};
+        if (invokePayload.fail === true) {
           sendJsonMessage(
             socket,
             await authenticateInvokeResponse(seedA, {

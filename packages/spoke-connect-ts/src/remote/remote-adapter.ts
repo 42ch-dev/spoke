@@ -900,7 +900,11 @@ export class RemoteAdapter implements BaselinePorts {
       // `{ "arguments": <opaque JSON> }` (frozen §4). A non-object
       // arguments field is a malformed provider request — serve `{}`
       // (the structural argument gate is caller-side).
-      const argumentsField = doc.payload.arguments;
+      const payload: Record<string, unknown> =
+        typeof doc.payload === "object" && doc.payload !== null && !Array.isArray(doc.payload)
+          ? (doc.payload as Record<string, unknown>)
+          : {};
+      const argumentsField = payload.arguments;
       const handlerArgs: Record<string, unknown> =
         typeof argumentsField === "object" &&
         argumentsField !== null &&

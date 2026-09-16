@@ -79,6 +79,16 @@
     "modules": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ModuleMap",
       "description": "Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries per-entry functional dialects (e.g. modules.activation). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim."
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional governance: opaque entry_id of the holder KnowledgeEntry in the product's collaboration context. Capability-flagged (ke-ownership); opt-in. Absence means unspecified ownership — not a reserved world owner, public truth, or world consensus. Non-empty; holder resolution stays product-owned and the wire need not embed the referenced holder."
+    },
+    "disclosure": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional governance: open disclosure vocabulary. Capability-flagged (ke-ownership); opt-in. Core vocabulary (documented, not enforced): owner-private — requires a non-empty owner and is visible only when owner equals the consuming viewpoint. Absence means shared within the already selected KB context, not public access and not a truth claim. Unknown non-empty values round-trip; core helpers never reinterpret them as shared."
     }
   },
   "additionalProperties": false,

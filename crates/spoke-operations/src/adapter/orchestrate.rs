@@ -2520,6 +2520,183 @@ mod tests {
         }
     }
 
+    /// Shared entry plus one holder-private entry per holder.
+    fn viewpoint_entries() -> Vec<KnowledgeEntry> {
+        vec![
+            ke(json!({
+                "schema_version": 1,
+                "entry_id": "kb_shared",
+                "entry_type": "character",
+                "canonical_name": "Shared Note",
+                "status": "confirmed",
+                "body": { "summary": "Shared" },
+                "extensions": {}
+            })),
+            ke(json!({
+                "schema_version": 1,
+                "entry_id": "kb_mine",
+                "entry_type": "character",
+                "canonical_name": "Mira Note",
+                "status": "confirmed",
+                "body": { "summary": "Mira private" },
+                "owner": "kb_mira",
+                "disclosure": "owner-private",
+                "extensions": {}
+            })),
+            ke(json!({
+                "schema_version": 1,
+                "entry_id": "kb_theirs",
+                "entry_type": "character",
+                "canonical_name": "Rival Note",
+                "status": "confirmed",
+                "body": { "summary": "Rival private" },
+                "owner": "kb_rival",
+                "disclosure": "owner-private",
+                "extensions": {}
+            })),
+        ]
+    }
+
+    fn store_with_entries(entries: Vec<KnowledgeEntry>) -> MemoryStore {
+        let mut store = MemoryStore::default();
+        for entry in entries {
+            store.entries.insert(entry.entry_id.clone(), entry);
+        }
+        store
+    }
+
+    /// Port reads return an unordered map; sort so assertions observe the visibility
+    /// boundary rather than HashMap iteration order.
+    fn sorted_entry_ids(entries: &[KnowledgeEntry]) -> Vec<String> {
+        let mut entry_ids: Vec<String> =
+            entries.iter().map(|entry| entry.entry_id.clone()).collect();
+        entry_ids.sort();
+        entry_ids
+    }
+
+    #[test]
+    fn ownership_viewpoint_check_supplies_shared_and_own_private_entries() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira" }
+        }));
+        let mut supplied: Vec<String> = Vec::new();
+
+        let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+            supplied = sorted_entry_ids(&input.entries);
+            spoke_ok(Vec::new())
+        }));
+
+        assert!(result.is_ok());
+        assert_eq!(supplied, ["kb_mine", "kb_shared"]);
+    }
+
+    #[test]
+    fn ownership_viewpoint_check_withholds_owner_private_entries_without_viewpoint() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1" }
+        }));
+        let mut supplied: Vec<String> = Vec::new();
+
+        let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+            supplied = sorted_entry_ids(&input.entries);
+            spoke_ok(Vec::new())
+        }));
+
+        assert!(result.is_ok());
+        assert_eq!(supplied, ["kb_shared"]);
+    }
+
+    #[test]
+    fn ownership_viewpoint_assemble_packs_only_entries_visible_to_scope_viewpoint() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira" }
+        }));
+
+        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
+            let mut entry_ids: Vec<String> = packet
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.clone())
+                .collect();
+            entry_ids.sort();
+            assert_eq!(entry_ids, ["kb_mine", "kb_shared"]);
+        } else {
+            panic!("expected assemble success");
+        }
+    }
+
+    #[test]
+    fn ownership_viewpoint_assemble_swaps_private_entry_for_foreign_viewpoint() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_rival" }
+        }));
+
+        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
+            let mut entry_ids: Vec<String> = packet
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.clone())
+                .collect();
+            entry_ids.sort();
+            assert_eq!(entry_ids, ["kb_shared", "kb_theirs"]);
+        } else {
+            panic!("expected assemble success");
+        }
+    }
+
+    #[test]
+    fn ownership_viewpoint_fork_check_filters_scoped_entries() {
+        let ports = MemoryForkPorts::new(MemoryBaselinePorts::new(store_with_entries(
+            viewpoint_entries(),
+        )));
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira", "fork_id": "fork_a" }
+        }));
+        let mut supplied: Vec<String> = Vec::new();
+
+        let result = pollster::block_on(orchestrate_fork_check(&ports, request, |input| {
+            supplied = sorted_entry_ids(&input.entries);
+            spoke_ok(Vec::new())
+        }));
+
+        assert!(result.is_ok());
+        assert_eq!(supplied, ["kb_mine", "kb_shared"]);
+        assert_eq!(ports.fork_list_calls.lock().expect("fork list lock").len(), 1);
+    }
+
+    #[test]
+    fn ownership_viewpoint_fork_assemble_packs_only_visible_entries() {
+        let ports = MemoryForkPorts::new(MemoryBaselinePorts::new(store_with_entries(
+            viewpoint_entries(),
+        )));
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira", "fork_id": "fork_a" }
+        }));
+
+        let result = pollster::block_on(orchestrate_fork_assemble(&ports, request));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
+            let mut entry_ids: Vec<String> = packet
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.clone())
+                .collect();
+            entry_ids.sort();
+            assert_eq!(entry_ids, ["kb_mine", "kb_shared"]);
+        } else {
+            panic!("expected assemble success");
+        }
+        assert_eq!(ports.fork_list_calls.lock().expect("fork list lock").len(), 1);
+    }
+
     trait ExpectOkEntry {
         fn expect_ok_entry(self, context: &str) -> KnowledgeEntry;
     }

@@ -1,4 +1,4 @@
-//! KnowledgeEntry status transition and active-uniqueness helpers.
+//! KnowledgeEntry status transition, active-uniqueness, and ownership helpers.
 
 use crate::result::{spoke_ok, spoke_ok_unit, spoke_reject, SpokeRejectCode, SpokeResult};
 use serde_json::{json, Map, Value};
@@ -183,11 +183,55 @@ pub fn assert_unique_active_knowledge_entry(
     spoke_ok_unit()
 }
 
+/// Sole core disclosure value: the entry is visible only to its own holder.
+///
+/// Additional disclosure strings are Domain Profile vocabulary and stay open.
+const OWNER_PRIVATE_DISCLOSURE: &str = "owner-private";
+
+/// Read the holder entry id governing a KnowledgeEntry.
+///
+/// `None` means ownership is unspecified — not a reserved world owner and not world
+/// consensus. The identifier is borrowed from the entry; no lookup or normalization occurs.
+#[must_use]
+pub fn get_knowledge_entry_owner(knowledge_entry: &KnowledgeEntry) -> Option<&str> {
+    knowledge_entry.owner.as_deref().map(String::as_str)
+}
+
+/// Core disclosure predicate for a reader viewpoint.
+///
+/// Absent disclosure is shared within the caller's already pre-scoped KB; `owner-private`
+/// is visible only to a viewpoint that exactly equals the owner; unknown open-vocabulary
+/// values and a private entry without an owner are excluded. Comparison is exact —
+/// identifiers are not normalized, and no holder lookup or audience expansion occurs.
+#[must_use]
+pub fn knowledge_entry_visible_to_viewpoint(
+    knowledge_entry: &KnowledgeEntry,
+    viewpoint: Option<&str>,
+) -> bool {
+    let Some(disclosure) = knowledge_entry.disclosure.as_deref() else {
+        return true;
+    };
+
+    if disclosure.as_str() != OWNER_PRIVATE_DISCLOSURE {
+        return false;
+    }
+
+    let (Some(owner), Some(viewpoint)) = (get_knowledge_entry_owner(knowledge_entry), viewpoint)
+    else {
+        return false;
+    };
+
+    owner == viewpoint
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::result::SpokeResult;
-    use spoke_schemas::knowledge_entry::{KnowledgeEntryBody, KnowledgeEntryCanonicalName};
+    use spoke_schemas::knowledge_entry::{
+        KnowledgeEntryBody, KnowledgeEntryCanonicalName, KnowledgeEntryDisclosure,
+        KnowledgeEntryOwner,
+    };
     use std::collections::HashMap;
     use std::num::NonZeroU64;
 
@@ -500,5 +544,137 @@ mod tests {
         if let SpokeResult::Reject(reject) = name_mismatch {
             assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
         }
+    }
+
+    fn owner(id: &str) -> KnowledgeEntryOwner {
+        KnowledgeEntryOwner::try_from(id).expect("non-empty owner entry id")
+    }
+
+    fn disclosure(value: &str) -> KnowledgeEntryDisclosure {
+        KnowledgeEntryDisclosure::try_from(value).expect("non-empty disclosure value")
+    }
+
+    #[test]
+    fn ownership_returns_holder_entry_id_when_present() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+        });
+
+        assert_eq!(get_knowledge_entry_owner(&knowledge_entry), Some("kb_mira"));
+    }
+
+    #[test]
+    fn ownership_returns_none_when_unspecified() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |_| {});
+
+        assert_eq!(get_knowledge_entry_owner(&knowledge_entry), None);
+    }
+
+    #[test]
+    fn ownership_includes_entry_without_disclosure_for_any_viewpoint() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |_| {});
+
+        assert!(knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_mira")
+        ));
+        assert!(knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_other")
+        ));
+        assert!(knowledge_entry_visible_to_viewpoint(&knowledge_entry, None));
+    }
+
+    #[test]
+    fn ownership_includes_entry_with_owner_but_no_disclosure() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+        });
+
+        assert!(knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_other")
+        ));
+        assert!(knowledge_entry_visible_to_viewpoint(&knowledge_entry, None));
+    }
+
+    #[test]
+    fn ownership_includes_owner_private_entry_for_its_own_viewpoint() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+            entry.disclosure = Some(disclosure("owner-private"));
+        });
+
+        assert!(knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_mira")
+        ));
+    }
+
+    #[test]
+    fn ownership_excludes_owner_private_entry_for_foreign_viewpoint() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+            entry.disclosure = Some(disclosure("owner-private"));
+        });
+
+        assert!(!knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_other")
+        ));
+    }
+
+    #[test]
+    fn ownership_excludes_owner_private_entry_without_viewpoint() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+            entry.disclosure = Some(disclosure("owner-private"));
+        });
+
+        assert!(!knowledge_entry_visible_to_viewpoint(&knowledge_entry, None));
+    }
+
+    #[test]
+    fn ownership_excludes_owner_private_entry_without_owner() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.disclosure = Some(disclosure("owner-private"));
+        });
+
+        assert!(!knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_mira")
+        ));
+        assert!(!knowledge_entry_visible_to_viewpoint(&knowledge_entry, None));
+    }
+
+    #[test]
+    fn ownership_excludes_unknown_disclosure_value_even_for_matching_owner() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+            entry.disclosure = Some(disclosure("group-private"));
+        });
+
+        assert!(!knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("kb_mira")
+        ));
+        assert!(!knowledge_entry_visible_to_viewpoint(&knowledge_entry, None));
+    }
+
+    #[test]
+    fn ownership_compares_identifiers_exactly() {
+        let knowledge_entry = make_knowledge_entry("confirmed", |entry| {
+            entry.owner = Some(owner("kb_mira"));
+            entry.disclosure = Some(disclosure("owner-private"));
+        });
+
+        assert!(!knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some(" kb_mira")
+        ));
+        assert!(!knowledge_entry_visible_to_viewpoint(
+            &knowledge_entry,
+            Some("KB_MIRA")
+        ));
     }
 }

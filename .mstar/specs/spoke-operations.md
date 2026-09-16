@@ -334,6 +334,7 @@ Deepen families (§5–§11), computable validators (§12), and body attribute r
 | `entry_ids` | `knowledgeEntry.entry_id` ∈ array |
 | `entry_types` | `knowledgeEntry.entry_type` ∈ array |
 | `source_id` | `knowledgeEntry.source_anchor?.source_id === scope.source_id` |
+| `viewpoint` | `knowledgeEntryVisibleToViewpoint(knowledgeEntry, scope.viewpoint)` — `ke-ownership` disclosure predicate; an entry without `disclosure` always passes, `owner-private` requires an exact owner match and fails without a viewpoint (or a malformed private entry), and unknown disclosure values fail for every viewpoint |
 
 Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 
@@ -345,9 +346,9 @@ Ignored on KnowledgeEntry: `timeline_event_ids`, `timeline_scale`.
 | `timeline_scale` | `timelineEvent.timeline_scale === scope.timeline_scale` |
 | `fork_id` | `timelineEvent.fork_id === scope.fork_id` (events without `fork_id` do not match) |
 
-Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`, `parent_fork_id`.
+Ignored on TimelineEvent: `entry_ids`, `entry_types`, `source_id`, `parent_fork_id`, `viewpoint`.
 
-**Tests must cover:** each refinement on its carrier type, empty refinement pass-through, combined AND.
+**Tests must cover:** each refinement on its carrier type (including the `ke-ownership` `viewpoint` disclosure predicate on KnowledgeEntry: shared, own private, foreign private, absent viewpoint, unknown disclosure, and AND with another refinement), empty refinement pass-through, combined AND.
 
 ---
 
@@ -571,6 +572,39 @@ Tool capability helpers over `ToolDescriptor` and `HostCapabilityManifest.tools[
 Hosts call `validateToolArguments` before `orchestrateInvokeTool`; the orchestrator itself does not take a descriptor (its signature has only port + request) and validates only request grammar.
 
 **Tests must cover:** compose / parse round-trip + bad grammar rejects; descriptor `op !== capability_id` reject; manifest cross-field rejects (`capabilities[]` membership, `namespaces[]` membership, duplicate capability ids) with structured `details`; arguments non-object reject; missing required keys reject; `input: {}` passes any object.
+
+---
+
+### 16. Ownership visibility (`ke-ownership`) — `knowledge-entry/ownership`
+
+Pure reads over caller-supplied `KnowledgeEntry` values for the optional `ke-ownership` governance fields (wire shape: [`spoke-data-model.md`](spoke-data-model.md) §Ownership governance (`ke-ownership` optional); shared reader selector: [`spoke-ops.md`](spoke-ops.md#scope-shared--check--assemble); normative decision: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md)). TypeScript module: `packages/spoke-operations/src/knowledge-entry/ownership.ts`; Rust: `crates/spoke-operations/src/knowledge_entry.rs`. **Purity unchanged (HARD):** no I/O, holder lookup, manifest fetch, capability boolean, audience expansion, ranking, or schema validation; both helpers are synchronous and the Rust predicate borrows the identifier (`Option<&str>`) without cloning.
+
+| Export (TypeScript) | Export (Rust) | Purpose | Purity |
+|---------------------|---------------|---------|--------|
+| `getKnowledgeEntryOwner(entry)` | `get_knowledge_entry_owner(knowledge_entry)` | Return the holder `entry_id` from `owner`, or absent | Pure (borrowed read) |
+| `knowledgeEntryVisibleToViewpoint(entry, viewpoint?)` | `knowledge_entry_visible_to_viewpoint(knowledge_entry, viewpoint)` | Core disclosure predicate for a reader viewpoint | Pure |
+
+**Visibility truth table (normative):**
+
+| Disclosure | Owner / viewpoint | Result |
+|------------|-------------------|--------|
+| Absent | Any, including unspecified | Include — shared within the caller's already selected KB context |
+| `owner-private` | Both present and exactly equal | Include |
+| `owner-private` | Missing owner, missing viewpoint, or unequal | Exclude |
+| Unknown non-empty value | Any | Exclude — a product applies its explicitly understood profile outside the core predicate |
+
+**Rules (normative):**
+
+- Absent `owner` is **unspecified ownership**: the owner read is absent and no world owner or world consensus is ever fabricated.
+- Absent `disclosure` keeps the entry shared: the predicate admits it for any viewpoint, including an absent one.
+- Comparison is exact string equality; identifiers are not normalized, and no holder lookup, type inference, belief evaluation, or audience expansion occurs.
+- The predicate **fails closed**: an `owner-private` entry with an empty or missing `owner` is excluded, and unknown non-empty disclosure values are excluded rather than reinterpreted as shared.
+- Calling this surface is the caller's opt-in; consumers holding field-absent data keep baseline behavior.
+- Composition lives in §8 Scope match: `knowledgeEntryMatchesScope` / `knowledge_entry_matches_scope` (and the wire-aware Rust variant `knowledge_entry_matches_scope_view`) call the predicate with `scope.viewpoint`, so check, assemble, and the fork variants observe the same result. No parallel ownership-filter family exists.
+
+**Out of scope:** identity registries, audience sets, view composition, authentication / authorization, storage lifecycle and concurrency, and product visibility policy.
+
+**Tests must cover:** owner read on a field-absent entry; absent disclosure for own, foreign, and absent viewpoint; own private included; foreign private excluded; private entry without viewpoint excluded; malformed private entry (no owner) excluded; unknown disclosure excluded for every viewpoint; and the predicate composed with another `Scope` refinement.
 
 ---
 
@@ -877,6 +911,13 @@ Public entry: `src/lib.rs` flat re-exports (snake_case function names) covering 
 - [x] `filterTimelineEventsByMomentScale`, `orderTimelineEventsByIds`, `orderTimelineEventsByPrecedes` exported from `@42ch/spoke-operations` `src/index.ts`
 - [x] `filter_timeline_events_by_moment_scale`, `order_timeline_events_by_ids`, `order_timeline_events_by_precedes` re-exported from `spoke-operations` `src/lib.rs`
 - [x] §14 documents filter/order semantics, dual KE link rule, cycle reject, stable sort
+
+### Ownership viewpoint (`ke-ownership`)
+
+- [x] `getKnowledgeEntryOwner` / `knowledgeEntryVisibleToViewpoint` exported from `@42ch/spoke-operations` `src/index.ts`
+- [x] `get_knowledge_entry_owner` / `knowledge_entry_visible_to_viewpoint` re-exported from `spoke-operations` `src/lib.rs`
+- [x] §16 documents the visibility truth table, fail-closed rules, and out-of-scope product policy
+- [x] §8 applies the predicate through `Scope.viewpoint` in the existing matcher and list filter (no parallel ownership-filter family)
 
 ### Adapter interfaces + injection orchestration
 

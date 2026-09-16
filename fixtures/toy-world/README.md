@@ -89,6 +89,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `kb_tw_harbor_market_square_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_market_square_event` |
 | `kb_tw_harbor_customs_gate_beat.json` | KnowledgeEntry (profile `entry_type: "beat"`, `structural_role`) | `kb_tw_harbor_customs_gate_beat` |
 | `kb_tw_harbor_berth_confirm_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_berth_confirm_event` |
+| `kb_tw_owner_private.json` | KnowledgeEntry (`ke-ownership` `owner` / `disclosure: "owner-private"`) | `kb_tw_mira_private_shoal` |
 | `anchor_tw_manuscript.json` | SourceAnchor | (provenance example) |
 | `rel_tw_mira_harbor.json` | Relation | `rel_tw_mira_harbor` |
 | `rel_tw_harbor_precedes_dawn_to_market.json` | Relation (`precedes` on KE ids) | `rel_tw_harbor_precedes_dawn_to_market` |
@@ -105,6 +106,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `rule_tw_consistency.json` | Rule | `rule_tw_consistency` |
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |
 | `pkt_tw_scope.json` | AssemblePacket | `pkt_tw_scope` |
+| `op_tw_ownership_check_request.json` | CheckRequest (shared `Scope.viewpoint` reader selector) | `toy-scope-ownership` / `kb_tw_mira` |
 | `op_tw_project_request.json` | ProjectRequest (optional `l2-computable` op) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_project_response.json` | ProjectResponse (success branch) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_request.json` | ComputeRequest (mid-Session apply) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |

@@ -220,13 +220,19 @@ impl SpokeConnectForeignError {
 /// populated buffer (non-NULL data and non-zero length) is released — a zero
 /// buffer is empty and needs no release. The buffer is zeroed afterwards, so
 /// a second read is empty and releases nothing.
+///
+/// The host owns this span, so the same `isize::MAX` precondition applies
+/// before it becomes a slice: a length past it carries no bytes this side can
+/// address, and the release still runs exactly once because the host marked
+/// the buffer populated.
 pub(crate) unsafe fn take_foreign_bytes(buffer: &mut SpokeConnectForeignBuffer) -> Vec<u8> {
-    let bytes = if buffer.data.is_null() || buffer.len == 0 {
-        Vec::new()
-    } else {
+    let populated = !buffer.data.is_null() && buffer.len > 0;
+    let bytes = if populated && buffer.len <= isize::MAX as usize {
         unsafe { std::slice::from_raw_parts(buffer.data, buffer.len) }.to_vec()
+    } else {
+        Vec::new()
     };
-    if !buffer.data.is_null() && buffer.len > 0 {
+    if populated {
         if let Some(release) = buffer.release {
             unsafe { release(buffer.release_context, buffer.data, buffer.len) };
         }
@@ -454,17 +460,50 @@ pub(crate) unsafe fn release_handle<T>(handle: *mut T) {
     contain_release(|| unsafe { drop(Box::from_raw(handle)) });
 }
 
+/// The byte length a caller-supplied span of `count` `T`s occupies, or the
+/// failure that makes it unusable as a Rust slice.
+///
+/// This is where the count/length precondition is enforced for every
+/// caller-supplied pointer + count pair in the carrier: the multiplication is
+/// checked (an oversized count must not wrap) and the result must not exceed
+/// `isize::MAX`. Everything else about the pointer is the caller contract in
+/// the crate docs — a non-NULL forged, dangling or misaligned pointer is not
+/// recoverable here.
+pub(crate) fn span_bytes<T>(count: usize, what: &str) -> Result<usize, AbiFailure> {
+    let bytes = count
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or_else(|| AbiFailure::invalid(format!("{what}: count {count} overflows")))?;
+    if bytes > isize::MAX as usize {
+        return Err(AbiFailure::invalid(format!(
+            "{what}: count {count} exceeds isize::MAX"
+        )));
+    }
+    Ok(bytes)
+}
+
+/// Borrows a caller-supplied pointer + count span of `T` as `&[T]`.
+pub(crate) unsafe fn borrowed_array<'a, T>(
+    values: *const T,
+    count: usize,
+    what: &str,
+) -> Result<&'a [T], AbiFailure> {
+    if count == 0 {
+        return Ok(&[]);
+    }
+    if values.is_null() {
+        return Err(AbiFailure::invalid(format!(
+            "{what}: NULL pointer with non-zero count {count}"
+        )));
+    }
+    span_bytes::<T>(count, what)?;
+    Ok(unsafe { std::slice::from_raw_parts(values, count) })
+}
+
 /// Borrows a [`SpokeConnectSlice`] as bytes.
 pub(crate) unsafe fn borrowed_bytes<'a>(
     value: SpokeConnectSlice,
     what: &str,
 ) -> Result<&'a [u8], AbiFailure> {
-    if value.len > isize::MAX as usize {
-        return Err(AbiFailure::invalid(format!(
-            "{what}: length {} exceeds isize::MAX",
-            value.len
-        )));
-    }
     if value.data.is_null() {
         if value.len == 0 {
             return Ok(&[]);
@@ -474,6 +513,7 @@ pub(crate) unsafe fn borrowed_bytes<'a>(
             value.len
         )));
     }
+    span_bytes::<u8>(value.len, what)?;
     Ok(unsafe { std::slice::from_raw_parts(value.data, value.len) })
 }
 
@@ -493,23 +533,7 @@ pub(crate) unsafe fn borrowed_slices<'a>(
     count: usize,
     what: &str,
 ) -> Result<&'a [SpokeConnectSlice], AbiFailure> {
-    if count == 0 {
-        return Ok(&[]);
-    }
-    if values.is_null() {
-        return Err(AbiFailure::invalid(format!(
-            "{what}: NULL pointer with non-zero count {count}"
-        )));
-    }
-    let bytes = count
-        .checked_mul(std::mem::size_of::<SpokeConnectSlice>())
-        .ok_or_else(|| AbiFailure::invalid(format!("{what}: count {count} overflows")))?;
-    if bytes > isize::MAX as usize {
-        return Err(AbiFailure::invalid(format!(
-            "{what}: count {count} exceeds isize::MAX"
-        )));
-    }
-    Ok(unsafe { std::slice::from_raw_parts(values, count) })
+    unsafe { borrowed_array(values, count, what) }
 }
 
 /// Borrows a pointer + count array of slices and validates each entry as
@@ -590,4 +614,40 @@ pub unsafe extern "C" fn spoke_connect_error_free(error: *mut SpokeConnectError)
         error.expected = 0;
         error.actual = 0;
     });
+}
+
+#[cfg(test)]
+mod span_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static RELEASES: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn count_release(_context: *mut c_void, _data: *const u8, _len: usize) {
+        RELEASES.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A host length past `isize::MAX` cannot address a Rust slice, so the
+    /// buffer carries no bytes this side can copy — and it is still released
+    /// exactly once, because the host marked it populated.
+    #[test]
+    fn oversized_foreign_span_is_not_sliced_and_still_releases() {
+        RELEASES.store(0, Ordering::SeqCst);
+        let data = [0u8; 4];
+        let mut buffer = SpokeConnectForeignBuffer {
+            data: data.as_ptr(),
+            len: isize::MAX as usize + 1,
+            release_context: ptr::null_mut(),
+            release: Some(count_release),
+        };
+
+        let bytes = unsafe { take_foreign_bytes(&mut buffer) };
+
+        assert!(bytes.is_empty(), "an unaddressable span carries no bytes");
+        assert_eq!(RELEASES.load(Ordering::SeqCst), 1, "released exactly once");
+        assert!(
+            buffer.data.is_null() && buffer.len == 0 && buffer.release.is_none(),
+            "the buffer is zeroed after the read"
+        );
+    }
 }

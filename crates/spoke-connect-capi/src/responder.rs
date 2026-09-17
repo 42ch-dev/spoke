@@ -44,8 +44,8 @@ use crate::bridge::{
     SpokeConnectTransport, transport_handle, write_json, write_optional_text, write_text,
 };
 use crate::{
-    borrowed_bytes, borrowed_strings, borrowed_text, contain_release, export, optional_u64,
-    release_handle, require_out, AbiFailure, SpokeConnectBuffer, SpokeConnectError,
+    borrowed_array, borrowed_bytes, borrowed_strings, borrowed_text, contain_release, export,
+    optional_u64, release_handle, require_out, AbiFailure, SpokeConnectBuffer, SpokeConnectError,
     SpokeConnectForeignBuffer, SpokeConnectForeignError, SpokeConnectOptionalBuffer,
     SpokeConnectOptionalU64, SpokeConnectSlice,
 };
@@ -525,7 +525,7 @@ unsafe fn peer_key_map(
     if entries.is_null() {
         return Err(AbiFailure::invalid("peer_keys is NULL"));
     }
-    let entries = unsafe { std::slice::from_raw_parts(entries, count) };
+    let entries = unsafe { borrowed_array(entries, count, "peer_keys") }?;
     for entry in entries {
         let peer_id = unsafe { borrowed_text(entry.peer_id, "peer_keys.peer_id") }?.to_owned();
         let public_key = unsafe { borrowed_bytes(entry.public_key, "peer_keys.public_key") }?.to_vec();
@@ -2129,6 +2129,45 @@ mod tests {
         assert!(responder.is_null());
         let fields = unsafe { error_fields(&mut error) };
         assert!(fields.message.contains("duplicate peer key"), "{}", fields.message);
+
+        // A count whose span cannot be a Rust slice is rejected before any
+        // span is constructed — `count * size_of::<SpokeConnectPeerKey>()`
+        // either overflows or passes `isize::MAX`, and neither may reach
+        // `from_raw_parts`.
+        for (count, expected) in [
+            (usize::MAX, "overflows"),
+            (
+                (isize::MAX as usize / std::mem::size_of::<SpokeConnectPeerKey>()) + 1,
+                "exceeds isize::MAX",
+            ),
+        ] {
+            assert_eq!(
+                unsafe {
+                    spoke_connect_responder_new(
+                        transport,
+                        slice_of(&host.seed),
+                        slice_of(&host.manifest_json.as_bytes()),
+                        allowlist.as_ptr(),
+                        allowlist.len(),
+                        peer_keys.as_ptr(),
+                        count,
+                        ptr::null(),
+                        optional_scalar(None),
+                        &mut responder,
+                        &mut error,
+                    )
+                },
+                SPOKE_CONNECT_INVALID_ARGUMENT,
+                "peer_key_count {count} must be rejected, not sliced"
+            );
+            assert!(responder.is_null());
+            let fields = unsafe { error_fields(&mut error) };
+            assert!(
+                fields.message.contains("peer_keys") && fields.message.contains(expected),
+                "peer_key_count {count}: {}",
+                fields.message
+            );
+        }
 
         unsafe { crate::remote_adapter::spoke_connect_transport_free(transport) };
         drop(unsafe { Arc::from_raw(context as *const HostState) });

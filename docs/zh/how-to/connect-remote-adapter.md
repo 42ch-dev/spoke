@@ -188,11 +188,42 @@ const got = await adapter.getKnowledgeEntry(entry.entry_id);
 
 片段中展开的 `PROJECT_STATE` 与 `COMPUTE_DELTA` 常量定义在 demo 客户端源码中（`examples/connect-demo/client/src/main.ts`）：即会话投影的静态状态与 `compute` 合并的增量。
 
-该族必须**已协商**：双方 manifest 都在 `capabilities[]` 中声明它，于是会话的 `negotiated_capabilities` 包含它。demo 以自身 manifest 的声明来门控可选步骤 —— 协商集是交集，因此未声明该族的服务器会响亮地拒绝，而不是被静默跳过。拒绝经共享的分派拒绝行映射：线上码 `op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝（见下节 5）。
+该族必须**已协商**：双方 manifest 都在 `capabilities[]` 中声明它，于是会话的 `negotiated_capabilities` 包含它。demo 以自身 manifest 的声明来门控可选步骤 —— 协商集是交集，因此未声明该族的服务器会响亮地拒绝，而不是被静默跳过。拒绝经共享的分派拒绝行映射：线上码 `op_unsupported` / `capability_missing` → 带 `details.wire_code` 的 `CAPABILITY_PORT_MISSING` 拒绝（见下节 6）。
 
 Rust adapter 以 `project` / `compute` / `list_fork_timeline_events` 暴露同样的面；FFI 上同样的方法位于 `RemoteAdapterFFI`（各语言的命名风格见[符号对照表](/zh/how-to/remote-adapter-native-binding#各绑定符号对照表)）。在响应方侧服务这些族 —— 库的 `ports` 选项、Rust `RemoteServePorts` 接缝、以及带外回调 `PortsHandler` —— 见[可选 port 族](/zh/reference/connect#可选-port-族)。
 
-## 5. 并发与错误
+## 5. 远程抽取与归属门禁
+
+另有两个面搭载在同一已建立会话上，各自处于自己的能力标志之后：`extract` 核心 op 把整个抽取委派给对等节点；归属门禁则把 Scope 承载操作附加在读者视角之上。请在**双方**对等节点的 `HostCapabilityManifest.capabilities[]` 中声明每个标志 —— `negotiated_capabilities` 是双方握手的交集，因此双方都声明的标志即进入协商集并得到服务，仅一侧声明的标志则由响应方应答其拒绝分支。
+
+### 远程抽取（`ke-extraction`）
+
+`extract` 是一个整体操作服务面：adapter 委派整个抽取，并解码对等节点的线上 `ExtractResponse`。请求携带源引用，服务方主机拥有源加载与抽取，loader 值保留在其主机本地：
+
+```ts
+const result = await adapter.extract(request); // request: ExtractRequest
+```
+
+`request` 为 `{ run_id, sources, entry_types?, extensions? }`：非空关联 id，加上非空 `SourceAnchor`（溯源指针）列表，每个锚点的可选 span 收窄所引用的制品。成功分支为 `{ candidates, run }` —— `candidates` 为空数组是成功的零结果运行，每个返回的候选都携带 `status: "provisional"`，且 `run.run_id` 原样回显请求。Rust 参考实现以 `adapter.extract(request).await` 驱动同一 op；FFI 上的方法是 `RemoteAdapterFFI.extract(extract_request_json)`。
+
+服务抽取是一个 connect 拥有的服务面：TypeScript `ports` provider 增加 `RemoteExtractService.extract(request)`；Rust 参考实现注入 `RemoteExtractService`（混合主机经 `RemoteServePortsComposite::with_extract` 组合）；FFI 响应方经 `PortsHandler.extract(extract_request_json)` 服务它。manifest 独立声明能力与角色：提供抽取的主机把 `input-source` 角色通告为描述该主机的元数据，而门禁该 op 分派的是 `ke-extraction` 能力标志。
+
+### 归属门禁（`ke-ownership`）
+
+三个 Scope 承载 port 操作 —— `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events` 与 `port.fork.list_timeline_events` —— 在请求的 Scope 携带非空 `viewpoint` 字符串时，额外要求 `ke-ownership`。门禁按原样读取 `payload.scope.viewpoint`，并把任何非空字符串视为承载归属，因此 `viewpoint` 为空或未设置的 Scope 仍仅按该 op 的行能力放行。方法调用不变 —— 既有的作用域查询承载该门禁。Rust 参考实现以 `adapter.list_knowledge_entries(&scope).await` 驱动同一见证；FFI 上则是 `RemoteAdapterFFI.list_knowledge_entries(scope_json)`：
+
+```ts
+const listed = await adapter.listKnowledgeEntries({
+  scope_id: DEMO_SCOPE_ID,
+  viewpoint: holderId,
+});
+```
+
+两个标志彼此独立：主机可以只服务抽取、只服务归属门禁、两者都服务，或都不服务，且各自在握手交换中由双方声明。拒绝都留在既有错误词汇内 —— 分派拒绝、服务面缺失、服务方回调自身的拒绝，以及路由器的终结拒绝，均见[拒绝面](/zh/reference/connect#拒绝面-refusal-surfaces)。
+
+demo 在 `examples/connect-demo/client/src/main.ts` 端到端驱动这两个面，对手方主机在 `examples/connect-demo/server/src/adapter/mock-adapter.ts` 中声明两个标志。
+
+## 6. 并发与错误
 
 同一已建立会话上的并发 port 调用被允许：出站 `sequence` 在发送时分配，响应按 `request_id` 解复用，完成可能乱序到达。每个挂起 invoke 携带 adapter 拥有的超时；超时只让该调用失败，会话保持可用。
 
@@ -211,7 +242,7 @@ port 调用结算为 `SpokeResult`；invoke 路径的失败以拒绝呈现：
 
 拨号 / 握手 / allowlist / nonce 失败发生在 adapter 存在之前：`connectRemoteAdapter` 拒绝（TypeScript），或返回带 `Config` / `Handshake` / `ProtocolVersionMismatch` / `Timeout` 变体的 `Err(RemoteAdapterError)`（Rust）。
 
-## 6. 信封认证
+## 7. 信封认证
 
 adapter 在每条 post-hello 信封上内部强制 **protocol version 2** 逐信封认证，无需任何配置：
 
@@ -221,7 +252,7 @@ adapter 在每条 post-hello 信封上内部强制 **protocol version 2** 逐信
 
 信封真实性是传输层之上的协议级属性 —— 不依赖 TLS 或 Noise。见 [Connect 架构](/zh/explanation/connect#信封认证)中的信封认证，以及[线上参考](/zh/reference/connect#信封认证-protocol-version-2)中的已签名字段集。
 
-## 7. 回环冒烟测试
+## 8. 回环冒烟测试
 
 仓库内回环对让你无需网络即可跑通完整流程：服务端由仓库的测试回环主机提供服务（[`tests/remote/loopback-host.ts`](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-connect-ts/tests/remote/loopback-host.ts) —— 仅测试用），客户端由 `connectRemoteAdapter` 拨号：
 

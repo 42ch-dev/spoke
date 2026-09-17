@@ -2,33 +2,51 @@
  * MockAdapter / MockEngine unit tests.
  *
  * Covers the brief's Step 2 acceptance surface:
- * - engine seed corpus loads (2 entries + 1 relation + 1 rule);
+ * - engine seed corpus loads (world pair + governance fixtures + 1 relation +
+ *   1 rule);
  * - put→get round-trip honors OCC (stale `expectedBaseRevision` → reject per
  *   operations conventions);
  * - derivation is deterministic (same history → same derived artifact
  *   ids/bodies);
+ * - the scope query applies the ownership predicate (shared / own-private /
+ *   foreign-private fixtures);
+ * - the `ke-extraction` service answers provisional candidates from the
+ *   referenced sources and keeps the loaded value host-local;
  * - `getHostCapabilityManifest` returns the server manifest.
  */
 
 import { describe, expect, it } from "vitest";
 
 import type {
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   KnowledgeEntry,
   Relation,
   Rule,
   Scope,
+  SourceAnchor,
 } from "@42ch/spoke-schemas";
 import { SpokeRejectCode, validateManifestTools, type SpokeResult } from "@42ch/spoke-operations";
 
-import { DEMO_SERVER_MANIFEST, MockAdapter } from "../src/adapter/mock-adapter.js";
+import {
+  DEMO_EXTRACTION_CANARY,
+  DEMO_EXTRACTION_METHOD,
+  DEMO_SERVER_MANIFEST,
+  MockAdapter,
+  demoExtractCandidateEntryId,
+} from "../src/adapter/mock-adapter.js";
 import { MockEngine } from "../src/engine/mock-engine.js";
 import {
+  DEMO_FOREIGN_PRIVATE_ENTRY_ID,
+  DEMO_HOLDER_ENTRY_ID,
+  DEMO_OWN_PRIVATE_ENTRY_ID,
   DEMO_SEED_ENTRIES,
   DEMO_SEED_FORK_ID,
   DEMO_SEED_RELATIONS,
   DEMO_SEED_RULES,
   DEMO_SEED_TIMELINE_EVENTS,
+  DEMO_SHARED_ENTRY_ID,
   DEMO_SCOPE_ID,
 } from "../src/engine/seed-corpus.js";
 
@@ -93,7 +111,7 @@ const WARNING_FINDING: Finding = {
 };
 
 describe("engine seed corpus", () => {
-  it("loads 2 entries + 1 relation + 1 rule in scope demo-harbor", async () => {
+  it("loads the seeded entries + 1 relation + 1 rule in scope demo-harbor", async () => {
     const adapter = new MockAdapter();
 
     for (const seed of DEMO_SEED_ENTRIES) {
@@ -126,10 +144,14 @@ describe("engine seed corpus", () => {
     expect(listed.ok).toBe(true);
     if (listed.ok) {
       const ids = listed.value.map((entry) => entry.entry_id).sort();
-      expect(ids).toEqual([
-        ...DEMO_SEED_ENTRIES.map((entry) => entry.entry_id).sort(),
-        "derived/world-digest",
-      ]);
+      // A viewpoint-less query lists the shared seeds only: the two
+      // owner-private fixtures are withheld by the core disclosure predicate.
+      const sharedSeedIds = DEMO_SEED_ENTRIES.filter(
+        (entry) => entry.disclosure === undefined,
+      ).map((entry) => entry.entry_id);
+      expect(ids).toEqual([...sharedSeedIds, "derived/world-digest"].sort());
+      expect(ids).not.toContain(DEMO_OWN_PRIVATE_ENTRY_ID);
+      expect(ids).not.toContain(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
     }
   });
 
@@ -272,10 +294,13 @@ describe("deterministic derivation", () => {
     expect(digest.ok).toBe(true);
     if (digest.ok) {
       expect(digest.value.body.computable).toEqual({
-        entry_type_counts: { character: 1, location: 1 },
+        entry_type_counts: { character: 1, location: 1, note: 3 },
         entry_ids_sorted: [
           "demo-harbor/character/mira",
           "demo-harbor/location/harbor",
+          "demo-harbor/note/harbor-log",
+          "demo-harbor/note/mira-private-log",
+          "demo-harbor/note/rival-private-log",
         ],
       });
       expect(digest.value.revision).toBe(1);
@@ -293,29 +318,44 @@ describe("deterministic derivation", () => {
     expect(digest.ok).toBe(true);
     if (digest.ok) {
       expect(digest.value.body.computable).toEqual({
-        entry_type_counts: { character: 1, item: 1, location: 1 },
+        entry_type_counts: { character: 1, item: 1, location: 1, note: 3 },
         entry_ids_sorted: [
           "demo-harbor/character/mira",
           "demo-harbor/item/compass",
           "demo-harbor/location/harbor",
+          "demo-harbor/note/harbor-log",
+          "demo-harbor/note/mira-private-log",
+          "demo-harbor/note/rival-private-log",
         ],
       });
       expect(digest.value.revision).toBe(2);
     }
 
-    // The unconnected compass entry is isolated → derived finding appears.
+    // The unconnected compass entry joins the isolated governance fixtures.
     const findings = engine.listDerivedFindings();
     expect(findings.map((finding) => finding.finding_id)).toEqual([
       "derived/isolated-entry/demo-harbor/item/compass",
+      "derived/isolated-entry/demo-harbor/note/harbor-log",
+      "derived/isolated-entry/demo-harbor/note/mira-private-log",
+      "derived/isolated-entry/demo-harbor/note/rival-private-log",
     ]);
-    expect(findings[0].target_entry_id).toBe(COMPASS_ENTRY.entry_id);
-    expect(findings[0].severity).toBe("warning");
-    expect(findings[0].status).toBe("open");
+    const compassFinding = findings.find(
+      (finding) => finding.target_entry_id === COMPASS_ENTRY.entry_id,
+    );
+    expect(compassFinding).toBeDefined();
+    expect(compassFinding?.severity).toBe("warning");
+    expect(compassFinding?.status).toBe("open");
 
-    // Connecting the entry removes the derived finding and advances the digest.
+    // Connecting the entry removes its derived finding and advances the digest.
     const rel = await adapter.putRelation(COMPASS_RELATION, null);
     expect(rel.ok).toBe(true);
-    expect(engine.listDerivedFindings()).toEqual([]);
+    expect(
+      engine.listDerivedFindings().map((finding) => finding.target_entry_id),
+    ).toEqual([
+      DEMO_SHARED_ENTRY_ID,
+      DEMO_OWN_PRIVATE_ENTRY_ID,
+      DEMO_FOREIGN_PRIVATE_ENTRY_ID,
+    ]);
 
     const digest2 = await adapter.getKnowledgeEntry("derived/world-digest");
     expect(digest2.ok).toBe(true);
@@ -479,6 +519,13 @@ describe("optional families (l2-computable / l5-fork)", () => {
       expect.arrayContaining(["l2-computable", "l5-fork"]),
     );
   });
+
+  it("declares the KE lifecycle capabilities and the extraction offering role", async () => {
+    expect(DEMO_SERVER_MANIFEST.capabilities).toEqual(
+      expect.arrayContaining(["ke-extraction", "ke-ownership"]),
+    );
+    expect(DEMO_SERVER_MANIFEST.roles).toContain("input-source");
+  });
 });
 
 describe("scope filtering", () => {
@@ -512,5 +559,149 @@ describe("scope filtering", () => {
       expect(byIds.value).toHaveLength(1);
       expect(byIds.value[0].entry_id).toBe("demo-harbor/location/harbor");
     }
+  });
+});
+
+describe("ownership-aware scope query", () => {
+  it("returns shared and the viewpoint's own private entry, withholding a foreign holder's", async () => {
+    const adapter = new MockAdapter();
+    const listed = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      viewpoint: DEMO_HOLDER_ENTRY_ID,
+    });
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) {
+      return;
+    }
+
+    const ids = listed.value.map((entry) => entry.entry_id);
+    expect(ids).toContain(DEMO_SHARED_ENTRY_ID);
+    expect(ids).toContain(DEMO_OWN_PRIVATE_ENTRY_ID);
+    expect(ids).not.toContain(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
+
+    // Governance travels with the entry: the scope query hands back the
+    // owner, the disclosure value, and unknown extension namespaces verbatim.
+    const ownPrivate = listed.value.find(
+      (entry) => entry.entry_id === DEMO_OWN_PRIVATE_ENTRY_ID,
+    );
+    expect(ownPrivate?.owner).toBe(DEMO_HOLDER_ENTRY_ID);
+    expect(ownPrivate?.disclosure).toBe("owner-private");
+    expect(ownPrivate?.extensions).toEqual({
+      "demo-harbor": { retention_probe: "unknown-governance-field" },
+    });
+  });
+
+  it("withholds both private fixtures from a foreign viewpoint", async () => {
+    const adapter = new MockAdapter();
+    const listed = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      viewpoint: "demo-harbor/character/stranger",
+    });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      const ids = listed.value.map((entry) => entry.entry_id);
+      expect(ids).toContain(DEMO_SHARED_ENTRY_ID);
+      expect(ids).not.toContain(DEMO_OWN_PRIVATE_ENTRY_ID);
+      expect(ids).not.toContain(DEMO_FOREIGN_PRIVATE_ENTRY_ID);
+    }
+  });
+});
+
+describe("ke-extraction service", () => {
+  const RUN_ID = "demo-run/unit-1";
+  const SOURCES: [SourceAnchor, ...SourceAnchor[]] = [
+    {
+      schema_version: 1,
+      source_id: "demo-harbor/manuscript/harbor-chapter-1",
+      label: "Harbor chapter 1",
+      extensions: {},
+    },
+    {
+      schema_version: 1,
+      source_id: "demo-harbor/manuscript/harbor-chapter-2",
+      extensions: {},
+    },
+  ];
+
+  /** Narrow the closed success branch (the error branch is a wire union member). */
+  function expectExtractSuccess(
+    response: ExtractResponse,
+  ): Extract<ExtractResponse, { candidates: KnowledgeEntry[] }> {
+    expect("error" in response).toBe(false);
+    return response as Extract<ExtractResponse, { candidates: KnowledgeEntry[] }>;
+  }
+
+  it("answers every referenced source with a provisional candidate and echoes run_id", async () => {
+    const adapter = new MockAdapter();
+    const result = await adapter.extract({ run_id: RUN_ID, sources: SOURCES });
+    expect(result.ok, result.ok ? undefined : result.message).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    const response = expectExtractSuccess(result.value);
+    expect(response.run.run_id).toBe(RUN_ID);
+    expect(response.run.method).toBe(DEMO_EXTRACTION_METHOD);
+    expect(response.candidates.map((candidate) => candidate.entry_id)).toEqual(
+      [0, 1].map((index) => demoExtractCandidateEntryId(RUN_ID, index)),
+    );
+    for (const candidate of response.candidates) {
+      expect(candidate.status).toBe("provisional");
+    }
+
+    // A candidate points back at its source anchor — it never carries source
+    // content, and the anchor's label is reused as the human name.
+    expect(response.candidates[0].source_anchor).toEqual(SOURCES[0]);
+    expect(response.candidates[0].canonical_name).toBe("Harbor chapter 1");
+    expect(response.candidates[1].canonical_name).toBe(
+      "demo-harbor/manuscript/harbor-chapter-2",
+    );
+  });
+
+  it("keeps the loaded value host-local (the loader canary never reaches the response)", async () => {
+    const adapter = new MockAdapter();
+    const result = await adapter.extract({ run_id: RUN_ID, sources: SOURCES });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const serialized = JSON.stringify(result.value);
+      expect(serialized).not.toContain(DEMO_EXTRACTION_CANARY);
+      // Guard against a vacuous scan: the response does serialize its own data.
+      expect(serialized).toContain(RUN_ID);
+    }
+  });
+
+  it("rejects an empty run_id or source list with INVALID_INPUT and stores nothing", async () => {
+    const adapter = new MockAdapter();
+    expectRejected(
+      await adapter.extract({ run_id: "", sources: SOURCES }),
+      SpokeRejectCode.INVALID_INPUT,
+    );
+    // The generated `sources` type is a non-empty tuple, so an empty list is
+    // only reachable from an untyped caller — the boundary under test.
+    expectRejected(
+      await adapter.extract({
+        run_id: RUN_ID,
+        sources: [] as unknown as ExtractRequest["sources"],
+      }),
+      SpokeRejectCode.INVALID_INPUT,
+    );
+
+    const listed = await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      viewpoint: DEMO_HOLDER_ENTRY_ID,
+    });
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(
+        listed.value.some((entry) => entry.entry_id.includes("extracted")),
+      ).toBe(false);
+    }
+  });
+
+  it("is deterministic: the same request yields an identical response", async () => {
+    const request = { run_id: RUN_ID, sources: SOURCES };
+    const first = await new MockAdapter().extract(request);
+    const second = await new MockAdapter().extract(request);
+    expect(first).toEqual(second);
   });
 });

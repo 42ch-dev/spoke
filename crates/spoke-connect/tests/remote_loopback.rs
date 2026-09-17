@@ -5638,3 +5638,86 @@ async fn ke_remote_scope_validation_precedes_the_optional_face_probe() {
     );
     responder.close();
 }
+
+#[tokio::test]
+async fn ke_remote_extract_decodes_the_request_after_the_provider_probe() {
+    // Frozen F3 serving order: gate → provider probe → decode/validate →
+    // call the service once. With the service present a malformed payload is
+    // an input failure and nothing is loaded; with the service absent the
+    // declared-but-absent provider row (probe deny) answers first, whatever
+    // the payload says.
+    let host = CanonicalExtractHost::new(ExtractBehavior::Batch);
+    let serving: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_extract(Arc::new(host.clone())),
+    );
+    let (responder, pair, seed) = start_raw_ke_responder(serving, &["ke-extraction"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["ke-extraction"]),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-extract-malformed",
+        "extract",
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "a malformed ExtractRequest is an input failure, got {malformed}"
+    );
+    assert_eq!(
+        host.calls(),
+        (0, 0),
+        "a malformed request must never reach the service or its loader"
+    );
+    responder.close();
+
+    let unserved: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        ),
+    );
+    let (responder, pair, seed) = start_raw_ke_responder(unserved, &["ke-extraction"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["ke-extraction"]),
+    )
+    .await;
+    let absent = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-extract-absent-malformed",
+        "extract",
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        absent["error"]["code"], "op_unsupported",
+        "the probe deny precedes request decoding, got {absent}"
+    );
+    assert!(
+        absent["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no extract service configured"),
+        "the probe deny must name the missing service: {absent}"
+    );
+    responder.close();
+}

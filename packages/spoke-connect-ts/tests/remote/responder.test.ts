@@ -2047,6 +2047,11 @@ describe("ke remote", () => {
         run_id: "run-1",
         sources: [{ schema_version: 1, source_id: "s" }],
       },
+      {
+        run_id: "run-1",
+        sources: [{ schema_version: 1, source_id: "s", extensions: {} }],
+        reuqest_id: "x",
+      },
     ];
     for (const payload of malformedPayloads) {
       const reject = validateExtractRequestPayload(payload);
@@ -2056,6 +2061,55 @@ describe("ke remote", () => {
     expect(
       validateExtractRequestPayload(sampleExtractRequest("run-valid")),
     ).toBeNull();
+  });
+
+  it("distinguishes missing scope from present-but-non-object scope in reject messages", () => {
+    const op = "port.scope.list_knowledge_entries";
+    const missing = validateScopeOpPayload(op, {});
+    expect(missing).not.toBeNull();
+    expect(missing?.message).toContain("missing scope");
+
+    const nonObject = validateScopeOpPayload(op, { scope: "s1" });
+    expect(nonObject).not.toBeNull();
+    expect(nonObject?.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    expect(nonObject?.message).toContain("scope must be an object");
+    expect(nonObject?.message).not.toContain("missing scope");
+  });
+
+  it("rejects extract payloads with unknown top-level keys before the provider", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.extract = async () => {
+      called = true;
+      return spokeOk({ candidates: [], run: { run_id: "x" } });
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-junk-key", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-junk-key", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const badRequest = {
+        run_id: "run-1",
+        sources: [{ schema_version: 1, source_id: "s", extensions: {} }],
+        reuqest_id: "x",
+      } as unknown as ExtractRequest;
+      const result = await client.extract(badRequest);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.message).toContain("unknown property");
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
   });
 
   it("rejects malformed extract request with INVALID_INPUT before provider call", async () => {

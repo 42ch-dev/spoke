@@ -45,7 +45,10 @@ import {
 } from "@42ch/spoke-operations";
 
 import type { RemoteAdapterState } from "./remote-adapter.js";
-import { scopeOpRequiresOwnershipCapability } from "./responder.js";
+import {
+  CAPABILITY_KE_OWNERSHIP,
+  scopeOpRequiresOwnershipCapability,
+} from "./responder.js";
 
 /** The router's own identity when the consumer configures none (contract §8). */
 const DEFAULT_ROUTER_HOST_ID = "multi-peer-router";
@@ -292,12 +295,12 @@ export function selectPeerForOp(
 
   if (scopeOpRequiresOwnershipCapability(op, payload)) {
     survivors = survivors.filter((candidate) =>
-      candidate.manifest.capabilities.includes("ke-ownership"),
+      candidate.manifest.capabilities.includes(CAPABILITY_KE_OWNERSHIP),
     );
     if (survivors.length === 0) {
       return noCapablePeer(
         op,
-        'no peer advertises capability "ke-ownership"',
+        `no peer advertises capability "${CAPABILITY_KE_OWNERSHIP}"`,
       );
     }
   }

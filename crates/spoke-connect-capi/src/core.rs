@@ -85,12 +85,9 @@ impl From<ffi::CoreInvokeError> for AbiFailure {
             }
         };
         match error {
-            ffi::CoreInvokeError::InboundSequenceMismatch { expected, actual } => AbiFailure {
-                status,
-                message,
-                expected,
-                actual,
-            },
+            ffi::CoreInvokeError::InboundSequenceMismatch { expected, actual } => {
+                AbiFailure::sequence(status, message, expected, actual)
+            }
             _ => AbiFailure::at(status, message),
         }
     }

@@ -20,7 +20,6 @@ crate-type = ["rlib", "cdylib"]
 # Wraps the public Rust facade: `ffi` exports it, `remote-adapter` supplies the
 # adapter/router/responder surface the C boundary also covers.
 spoke-connect = { path = "../spoke-connect", features = ["ffi", "remote-adapter"] }
-
-[dev-dependencies]
-# Test-only: loads the shared cross-language golden hello vector.
+# List-shaped outputs cross as owned JSON buffers (A2 ownership table), so the
+# carrier emits the router's peer list with the same serializer as the facade.
 serde_json.workspace = true

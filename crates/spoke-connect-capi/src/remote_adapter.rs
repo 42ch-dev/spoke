@@ -138,6 +138,25 @@ unsafe fn transport_error(status: i32, error: &mut SpokeConnectForeignError) -> 
     }
 }
 
+/// Turns one callback return into the transport vocabulary and drains its
+/// error record on **every** path: a host may populate any of the four
+/// buffers on any status, and `A2` §C requires each populated buffer to
+/// transfer to Rust and be released exactly once on success as well as on
+/// error. The status mapping is unchanged — only the release happens here.
+unsafe fn callback_result(
+    status: i32,
+    error: &mut SpokeConnectForeignError,
+) -> Result<(), ffi::TransportError> {
+    if status != SPOKE_CONNECT_OK {
+        return Err(unsafe { transport_error(status, error) });
+    }
+    // `take_foreign_error` is the single drain for the record's four fields;
+    // on a success return the values are unused and only their release
+    // matters.
+    let _ = unsafe { take_foreign_error(error) };
+    Ok(())
+}
+
 impl ForeignTransport {
     fn new(table: SpokeConnectTransportTable, user_data: *mut c_void) -> Self {
         Self {
@@ -171,10 +190,7 @@ impl ffi::Transport for ForeignTransport {
         };
         let mut error = SpokeConnectForeignError::empty();
         let status = unsafe { send(self.user_data, Self::span(&envelope), &mut error) };
-        if status == SPOKE_CONNECT_OK {
-            return Ok(());
-        }
-        Err(unsafe { transport_error(status, &mut error) })
+        unsafe { callback_result(status, &mut error) }
     }
 
     fn recv(&self) -> Result<Vec<u8>, ffi::TransportError> {
@@ -190,12 +206,10 @@ impl ffi::Transport for ForeignTransport {
         let mut error = SpokeConnectForeignError::empty();
         let status = unsafe { recv(self.user_data, &mut buffer, &mut error) };
         let bytes = unsafe { take_foreign_bytes(&mut buffer) };
-        if status == SPOKE_CONNECT_OK {
-            return Ok(bytes);
-        }
         // A populated buffer on an error status is released by
         // `take_foreign_bytes`; the bytes themselves are discarded.
-        Err(unsafe { transport_error(status, &mut error) })
+        unsafe { callback_result(status, &mut error) }?;
+        Ok(bytes)
     }
 
     fn close(&self) -> Result<(), ffi::TransportError> {
@@ -211,11 +225,7 @@ impl ffi::Transport for ForeignTransport {
             Some(close) => {
                 let mut error = SpokeConnectForeignError::empty();
                 let status = unsafe { close(self.user_data, &mut error) };
-                if status == SPOKE_CONNECT_OK {
-                    Ok(())
-                } else {
-                    Err(unsafe { transport_error(status, &mut error) })
-                }
+                unsafe { callback_result(status, &mut error) }
             }
             None => Err(ffi::TransportError::Io(
                 "foreign transport table has no close callback".to_owned(),
@@ -1713,6 +1723,90 @@ mod tests {
         }
     }
 
+    /// A host that reports success while still populating the callback error
+    /// record. `A2` §C transfers every populated callback buffer to Rust on
+    /// success as well as on error, so each of these must be released.
+    static OK_DIAGNOSTIC: &[u8] = b"diagnostic attached to an OK callback";
+
+    struct DiagnosticsTransport {
+        log: Arc<CallbackLog>,
+    }
+
+    /// Writes all four diagnostic fields as populated buffers over static
+    /// storage with a counted no-op release — the "static storage supplies a
+    /// no-op release" case, made observable.
+    unsafe fn write_ok_diagnostics(
+        log: &Arc<CallbackLog>,
+        out_error: *mut SpokeConnectForeignError,
+    ) {
+        if out_error.is_null() {
+            return;
+        }
+        let field = || SpokeConnectForeignBuffer {
+            data: OK_DIAGNOSTIC.as_ptr(),
+            len: OK_DIAGNOSTIC.len(),
+            release_context: Arc::as_ptr(log) as *mut c_void,
+            release: Some(host_static_release),
+        };
+        unsafe {
+            out_error.write(SpokeConnectForeignError {
+                message: field(),
+                code: field(),
+                kind: field(),
+                wire_code: field(),
+            })
+        };
+    }
+
+    unsafe extern "C" fn diagnostics_send(
+        user_data: *mut c_void,
+        _envelope: SpokeConnectSlice,
+        out_error: *mut SpokeConnectForeignError,
+    ) -> i32 {
+        let host = unsafe { &*(user_data as *const DiagnosticsTransport) };
+        host.log.send.fetch_add(1, Ordering::SeqCst);
+        unsafe { write_ok_diagnostics(&host.log, out_error) };
+        SPOKE_CONNECT_OK
+    }
+
+    unsafe extern "C" fn diagnostics_recv(
+        user_data: *mut c_void,
+        out_envelope: *mut SpokeConnectForeignBuffer,
+        out_error: *mut SpokeConnectForeignError,
+    ) -> i32 {
+        let host = unsafe { &*(user_data as *const DiagnosticsTransport) };
+        host.log.recv_started.fetch_add(1, Ordering::SeqCst);
+        if !out_envelope.is_null() {
+            unsafe { out_envelope.write(SpokeConnectForeignBuffer::empty()) };
+        }
+        unsafe { write_ok_diagnostics(&host.log, out_error) };
+        SPOKE_CONNECT_OK
+    }
+
+    unsafe extern "C" fn diagnostics_close(
+        user_data: *mut c_void,
+        out_error: *mut SpokeConnectForeignError,
+    ) -> i32 {
+        let host = unsafe { &*(user_data as *const DiagnosticsTransport) };
+        host.log.close.fetch_add(1, Ordering::SeqCst);
+        unsafe { write_ok_diagnostics(&host.log, out_error) };
+        SPOKE_CONNECT_OK
+    }
+
+    unsafe extern "C" fn diagnostics_destroy(user_data: *mut c_void) {
+        let host = unsafe { Arc::from_raw(user_data as *const DiagnosticsTransport) };
+        host.log.destroy.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn diagnostics_table() -> SpokeConnectTransportTable {
+        SpokeConnectTransportTable {
+            send: Some(diagnostics_send),
+            recv: Some(diagnostics_recv),
+            close: Some(diagnostics_close),
+            destroy: Some(diagnostics_destroy),
+        }
+    }
+
     /// The peer end of the same queues, driven through the facade's blocking
     /// [`ffi::Transport`] seam (what a serving host runs).
     struct PeerTransport {
@@ -2471,6 +2565,74 @@ mod tests {
             ),
             "destroy runs after the parked recv returns"
         );
+    }
+
+    #[test]
+    fn ok_callback_error_buffers_are_released_on_every_return_path() {
+        use spoke_connect::ffi::Transport as _;
+
+        let log = Arc::new(CallbackLog::default());
+        let host = Arc::new(DiagnosticsTransport {
+            log: Arc::clone(&log),
+        });
+        let mut transport: *mut SpokeConnectTransport = ptr::null_mut();
+        let mut error = empty_record();
+        let status = unsafe {
+            spoke_connect_transport_new(
+                &diagnostics_table(),
+                Arc::into_raw(host) as *mut c_void,
+                &mut transport,
+                &mut error,
+            )
+        };
+        assert_eq!(
+            status,
+            SPOKE_CONNECT_OK,
+            "transport handle: {}",
+            unsafe { error_fields(&mut error) }.message
+        );
+        let shared = unsafe { Arc::clone(&*(transport as *const Arc<ForeignTransport>)) };
+
+        // A compliant host may attach diagnostics to a success return: the
+        // populated buffers still transfer to Rust and are released exactly
+        // once, on `send`, on a successful `recv` and on a successful
+        // `close` alike.
+        assert!(
+            shared.send(vec![1, 2, 3]).is_ok(),
+            "an OK send stays a success"
+        );
+        assert_eq!(
+            log.release.load(Ordering::SeqCst),
+            4,
+            "send released the four diagnostic buffers its OK return carried"
+        );
+
+        assert_eq!(
+            shared.recv().expect("an OK recv succeeds"),
+            Vec::<u8>::new()
+        );
+        assert_eq!(
+            log.release.load(Ordering::SeqCst),
+            8,
+            "recv released the four diagnostic buffers its OK return carried"
+        );
+
+        assert!(shared.close().is_ok(), "an OK close stays a success");
+        assert_eq!(
+            log.release.load(Ordering::SeqCst),
+            12,
+            "close released the four diagnostic buffers its OK return carried"
+        );
+
+        // The cached close result reuses the drained record: no second
+        // foreign close and no second release.
+        assert!(shared.close().is_ok());
+        assert_eq!(log.close.load(Ordering::SeqCst), 1);
+        assert_eq!(log.release.load(Ordering::SeqCst), 12);
+
+        drop(shared);
+        unsafe { spoke_connect_transport_free(transport) };
+        assert_eq!(log.destroy.load(Ordering::SeqCst), 1);
     }
 
     #[test]

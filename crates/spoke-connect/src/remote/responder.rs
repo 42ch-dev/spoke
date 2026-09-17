@@ -33,7 +33,12 @@
 //!   takes the same dispatch-deny branch), and unknown ops are denied. A
 //!   Scope-bearing `port.*` request additionally passes the supplementary
 //!   `ke-ownership` gate and Scope validation before the provider is probed.
-//!   A failed envelope-auth verify
+//!   Every served `port.*` provider call and the whole `extract` service
+//!   call are bounded by the responder's local serve-wait budget
+//!   (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
+//!   `INTERNAL_ERROR` with `details.kind = "timeout"` and leaves the session
+//!   Established (bounded wait, not forced host-work termination). A failed
+//!   envelope-auth verify
 //!   produces no handler side effect and no session-state mutation
 //!   (auth-before-advance, spec §Verify rules). An unparseable inbound
 //!   frame closes the connection (carried over from the demo).
@@ -84,7 +89,8 @@ use crate::remote::transport::Transport;
 use crate::remote::{requires_ownership_capability, validate_scope_declaration};
 use crate::runtime::generate_request_id;
 
-/// Default bounded-wait deadline for each reverse-invoke waiter, ms (parity
+/// Default bounded-wait deadline for each reverse-invoke waiter AND the
+/// default local serve-wait budget for served provider calls, ms (parity
 /// with TS `DEFAULT_INVOKE_TIMEOUT_MS`).
 const DEFAULT_INVOKE_TIMEOUT_MS: u64 = 5000;
 
@@ -174,6 +180,25 @@ fn missing_declared_scope(op: &str) -> SpokeResult<Value> {
         format!("invalid {op} payload: missing scope"),
         None,
     )
+}
+
+/// Signed serve-wait expiry (D7/D14): the existing `INTERNAL_ERROR`
+/// application-reject map with the existing `details.kind = "timeout"`
+/// vocabulary — the same projection the reverse-invoke waiter timeout uses.
+/// The boundary is a bounded wait only: it neither terminates host work nor
+/// touches the session (no counter rollback, no capability mutation, no
+/// forced close), so the caller can keep using the session.
+fn serve_timeout_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::InternalError,
+        message: format!(
+            "serve wait exceeded the local budget of {}ms",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
 }
 
 /// Map a `port.*` op + payload to the injected ports face method per the D4
@@ -420,7 +445,9 @@ pub struct ConnectResponder {
     /// D4 catalogue. Absent `ports` still answers `port.*` invokes with the
     /// dispatch-deny branch (documented behavior).
     ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
-    /// Bounded-wait deadline for each reverse-invoke waiter, ms.
+    /// Bounded-wait deadline for each reverse-invoke waiter AND for every
+    /// served provider call (`port.*` dispatch + the whole `extract`
+    /// service), ms — the local serve-wait budget of D14 Serving.
     invoke_timeout: Duration,
     /// Dialer hello nonce single-use record (handshake replay protection).
     nonce_store: Mutex<NonceStore>,
@@ -1183,7 +1210,30 @@ impl ConnectResponder {
                 return Ok(());
             }
         };
-        let response = match service.extract(request).await {
+        // B1/B2 serve bound: the complete extraction service (loader +
+        // extractor) shares ONE local budget — the wait starts at provider
+        // invocation, not per stage. A zero budget answers the signed
+        // timeout without starting the service; expiry drops the timed-out
+        // future (no late response is possible).
+        let bounded = if self.invoke_timeout.is_zero() {
+            None
+        } else {
+            tokio::time::timeout(self.invoke_timeout, service.extract(request))
+                .await
+                .ok()
+        };
+        let Some(result) = bounded else {
+            let reject = serve_timeout_reject(self.invoke_timeout);
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
+        let response = match result {
             SpokeResult::Ok(response) => response,
             SpokeResult::Reject(reject) => {
                 self.send_reverse_error_envelope(
@@ -1320,7 +1370,24 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         }
-        let result = dispatch_port_op(op, payload, declared_scope.as_ref(), ports.as_ref()).await;
+        // B1/B2 serve bound: the local budget starts immediately before the
+        // provider is dispatched and covers the whole wait. A zero budget
+        // answers the signed timeout without ever constructing the provider
+        // future (zero provider calls); expiry drops the timed-out provider
+        // future — a bounded wait, never forced termination or rollback.
+        let result = if self.invoke_timeout.is_zero() {
+            SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
+        } else {
+            match tokio::time::timeout(
+                self.invoke_timeout,
+                dispatch_port_op(op, payload, declared_scope.as_ref(), ports.as_ref()),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
+            }
+        };
         if let SpokeResult::Ok(value) = result {
             // Success payload carries the raw success value `T` (D4), NOT the
             // `{ result }` tool shape — the dialer's `invoke_mapped`
@@ -1798,8 +1865,13 @@ pub struct ConnectResponderOptions {
     /// dispatch-deny branch (documented behavior). Baseline-only providers
     /// migrate via `RemoteServePortsComposite::new(baseline, None, None)`.
     pub ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
-    /// Bounded-wait deadline for each reverse-invoke waiter, ms
-    /// (default [`DEFAULT_INVOKE_TIMEOUT_MS`]).
+    /// Bounded-wait deadline for each reverse-invoke waiter AND the local
+    /// serve-wait budget bounding every served `port.*` provider call and
+    /// the whole `extract` service call, ms (default
+    /// [`DEFAULT_INVOKE_TIMEOUT_MS`]). Zero means immediate serve timeout
+    /// with zero provider calls. The value is local: it does not inherit the
+    /// dialer's budget and does not promise the reply beats the dialer's
+    /// timeout.
     pub invoke_timeout_ms: Option<u64>,
 }
 

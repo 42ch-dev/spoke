@@ -29,8 +29,13 @@
  *   `ports` still answers the dispatch-deny branch), and unknown ops are
  *   denied. A failed envelope-auth verify produces no handler side effect
  *   and no session-state mutation (auth-before-advance, spec §Verify
- *   rules). An unparseable inbound frame closes the connection (carried
- *   over from the demo).
+ *   rules). Every served `port.*` provider call and the whole `extract`
+ *   service call are bounded by the responder's local serve-wait budget
+ *   (`invokeTimeoutMs`, default 5000): expiry answers exactly one signed
+ *   `INTERNAL_ERROR` with `details.kind = "timeout"` and leaves the session
+ *   Established (bounded wait, not forced host-work termination). An
+ *   unparseable inbound frame closes the connection (carried over from the
+ *   demo).
  *
  *   invokeTool(): the reverse face — outbound counter, request signing,
  *   send-tail wire-order serialization, response correlation +
@@ -139,6 +144,12 @@ class ResponderError extends Error {
 function internalError(kind: ResponderErrorKind, message: string): SpokeReject {
   return spokeReject(SpokeRejectCode.INTERNAL_ERROR, message, { kind });
 }
+
+/**
+ * Sentinel rejection marking local serve-budget expiry, so the timed-await
+ * helper can tell the budget from a provider failure.
+ */
+const SERVE_BUDGET_EXPIRED = Symbol("serve-budget-expired");
 
 /**
  * Dispatch-deny wire codes (D7): the peer answered that the op or its
@@ -636,7 +647,14 @@ export interface ConnectResponderOptions {
    * dispatch-deny branch (documented behavior).
    */
   ports?: BaselinePorts & Partial<RemoteExtractService>;
-  /** Bounded-wait deadline for each reverse-invoke waiter, ms (default 5000). */
+  /**
+   * Bounded-wait deadline for each reverse-invoke waiter AND the local
+   * serve-wait budget bounding every served `port.*` provider call and the
+   * whole `extract` service call, ms (default 5000). Zero means immediate
+   * serve timeout with zero provider calls. The value is local: it does not
+   * inherit the dialer's budget and does not promise the reply beats the
+   * dialer's timeout.
+   */
   invokeTimeoutMs?: number;
 }
 
@@ -1205,10 +1223,72 @@ export class ConnectResponder {
     }
   }
 
+  // ── serve-wait bound (B1/B2) ─────────────────────────────────────────────
+
+  /**
+   * Await one serve-side provider call under the responder's local
+   * bounded-wait budget: the configured `invokeTimeoutMs` (default 5000),
+   * which is also the reverse-invoke waiter deadline. The budget is local —
+   * it does not inherit the dialer's budget and does not promise the reply
+   * beats the dialer's timeout.
+   *
+   * Expiry answers one signed `INTERNAL_ERROR` with the existing
+   * `details.kind = "timeout"` vocabulary (the same projection the
+   * reverse-invoke waiter timeout uses) and touches nothing else: no counter
+   * rollback, no capability mutation, no forced close.
+   *
+   * A zero budget answers that timeout without invoking the provider at all.
+   * Otherwise the provider thunk is invoked asynchronously; on expiry the
+   * responder stops awaiting it and consumes the late settlement (no unhandled
+   * rejection and no late second response). Provider invocation, synchronous
+   * throws and asynchronous rejections flow back to the caller unchanged (the
+   * existing containment path). No timed branch starts a second provider call.
+   */
+  async #withServeBudget<T>(work: () => Promise<T>): Promise<T | SpokeReject> {
+    const budgetMs = this.#invokeTimeoutMs;
+    const expiryReject = spokeReject(
+      SpokeRejectCode.INTERNAL_ERROR,
+      `serve wait exceeded the local budget of ${budgetMs}ms`,
+      { kind: "timeout" },
+    );
+    if (budgetMs === 0) {
+      return expiryReject;
+    }
+    // Asynchronously invoked thunk: a synchronous provider throw is captured
+    // as a rejection instead of escaping the timer setup.
+    const pending = Promise.resolve().then(() => work());
+    // Executor form: the project's TS lib target predates
+    // `Promise.withResolvers` (ES2024).
+    const expired = new Promise<never>((_resolve, reject) => {
+      const timer = setTimeout(() => reject(SERVE_BUDGET_EXPIRED), budgetMs);
+      // Timer cleanup on the provider's own settle (success or rejection).
+      // Expiry needs none — a fired timer is already gone.
+      void pending.then(
+        () => clearTimeout(timer),
+        () => clearTimeout(timer),
+      );
+    });
+    try {
+      return await Promise.race([pending, expired]);
+    } catch (error) {
+      if (error !== SERVE_BUDGET_EXPIRED) {
+        throw error;
+      }
+      // Observation-only cancellation: consume the late settlement so it
+      // cannot surface as an unhandled rejection or a late second response.
+      void pending.then(
+        () => undefined,
+        () => undefined,
+      );
+      return expiryReject;
+    }
+  }
+
   /** Serve the `extract` core op through the optional extract service (F3). */
   async #dispatchExtractInvoke(doc: ConnectInvokeRequest): Promise<void> {
     const ports = this.#ports;
-    if (ports === undefined || typeof ports.extract !== "function") {
+    const extract = ports?.extract;
+    if (ports === undefined || typeof extract !== "function") {
       await this.#sendReverseErrorEnvelope(doc, {
         code: "op_unsupported",
         message: `no extract service configured for op ${doc.op}`,
@@ -1224,7 +1304,11 @@ export class ConnectResponder {
     const request = doc.payload as ExtractRequest;
     let result: SpokeResult<ExtractResponse>;
     try {
-      result = await ports.extract.call(ports, request);
+      // B1/B2 serve bound: the complete extraction service (loader +
+      // extractor) shares ONE local budget — the wait starts at provider
+      // invocation, not per stage. A zero budget answers the signed timeout
+      // without starting the service; expiry stops awaiting it.
+      result = await this.#withServeBudget(() => extract.call(ports, request));
     } catch (error) {
       result = spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,
@@ -1298,10 +1382,13 @@ export class ConnectResponder {
       });
       return;
     }
-    const result = await dispatchPortOp(
-      doc.op,
-      doc.payload as Record<string, unknown>,
-      ports,
+    // B1/B2 serve bound: the local budget starts immediately before the
+    // provider is dispatched and covers the whole wait. A zero budget answers
+    // the signed timeout without ever invoking the provider (zero provider
+    // calls); expiry stops awaiting it — a bounded wait, never forced
+    // termination or rollback of host work.
+    const result = await this.#withServeBudget(() =>
+      dispatchPortOp(doc.op, doc.payload as Record<string, unknown>, ports),
     );
     if (result.ok) {
       // Success payload carries the raw success value `T` (D4), NOT the

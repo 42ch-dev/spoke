@@ -35,7 +35,7 @@ or plugin module adds it to its dependency list:
 PublicDependencyModuleNames.AddRange(new string[] { "SpokeConnect" });
 ```
 
-The module contributes include paths and link/staging wiring only. The consuming
+The module contributes include paths and link/staging wiring. The consuming
 module calls the C ABI functions it needs, owns the transport implementation and
 decides which engine thread consumes callback results.
 
@@ -46,11 +46,11 @@ decides which engine thread consumes callback results.
 | `Win64` (x86_64) | `native/win-x64/spoke_connect_capi.dll.lib` through `PublicAdditionalLibraries` | `RuntimeDependencies.Add("$(TargetOutputDir)/spoke_connect_capi.dll", …)` copies the DLL next to the executable |
 | `Mac` (arm64) | `native/osx-arm64/libspoke_connect_capi.dylib` through `PublicAdditionalLibraries` | `RuntimeDependencies.Add(…, StagedFileType.NonUFS)` keeps the dylib loose beside the executable |
 
-Any other platform, and any architecture other than the committed `x86_64`
-(Windows) or `arm64` (macOS), is rejected at build time with a `BuildException`
-naming the accepted carrier. The architecture read uses the `UnrealArch` API
-(`Target.Architecture`), which UE exposes from 5.2 onward; on an earlier engine,
-express the same check through that version's architecture type.
+The module accepts the two committed targets: `Win64` with `x86_64` and `Mac`
+with `arm64`. `SpokeConnect.Build.cs` reads the target architecture through the
+`UnrealArch` API (`Target.Architecture`), which UE exposes from 5.2 onward; on an
+earlier engine, express the same acceptance check through that version's
+architecture type.
 
 The Epic Games guide [Integrating Third-Party Libraries into Unreal
 Engine](https://dev.epicgames.com/documentation/en-us/unreal-engine/integrating-third-party-libraries-into-unreal-engine)

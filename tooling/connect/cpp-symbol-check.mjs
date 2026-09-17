@@ -199,14 +199,25 @@ function exportedSymbols(libraryPath) {
     if (headerRow < 0) {
       fail(`'dumpbin /exports' output has no export table header for ${display(libraryPath)}`);
     }
-    const symbols = new Set();
+    let sawExportRow = false;
     for (const line of lines.slice(headerRow + 1)) {
-      if (!line.trim()) break;
+      const trimmed = line.trim();
+      if (!trimmed) {
+        // dumpbin may leave a blank separator between the table header and
+        // its first row. Once rows begin, the blank line terminates the table
+        // before the Summary section.
+        if (sawExportRow) break;
+        continue;
+      }
       const match = /^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)/.exec(line);
       if (!match) {
-        fail(`unparsed 'dumpbin /exports' row: '${line.trim()}'`);
+        fail(`unparsed 'dumpbin /exports' row: '${trimmed}'`);
       }
+      sawExportRow = true;
       if (match[1].startsWith(SYMBOL_NAMESPACE)) symbols.add(match[1]);
+    }
+    if (!sawExportRow) {
+      fail(`'dumpbin /exports' output has no export rows for ${display(libraryPath)}`);
     }
     return symbols;
   }

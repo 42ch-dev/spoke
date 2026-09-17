@@ -137,19 +137,47 @@ function setFixturePyprojectVersion(repoRoot, version) {
 }
 
 /**
+ * Rewrite the `name = "…"` line in the `[project]` table of a temp fixture
+ * pyproject.toml, so a case can drive the probe with a specific package name.
+ *
+ * @param {string} repoRoot
+ * @param {string} name
+ */
+function setFixturePyprojectName(repoRoot, name) {
+  const pyprojectPath = join(
+    repoRoot,
+    "crates/spoke-connect/bindings/python/pyproject.toml",
+  );
+  const contents = readFileSync(pyprojectPath, "utf8");
+  const nameLine = /^name\s*=\s*"[^"]+"/m;
+  assert.match(contents, nameLine, "fixture pyproject name line not found");
+  writeFileSync(pyprojectPath, contents.replace(nameLine, `name = "${name}"`));
+}
+
+/**
  * Spawn the CLI against the fake PyPI API from a temp lockstep fixture repo.
  *
  * @param {object} opts
  * @param {string} opts.tag RELEASE_TAG value (e.g. "v0.2.0").
  * @param {string[]} [opts.args] Extra CLI args (e.g. ["--verify"]).
  * @param {string} [opts.githubOutput] When set, point GITHUB_OUTPUT at this file.
+ * @param {string} [opts.packageName] Fixture `[project] name` override.
  * @param {Record<string, string>} [opts.extraEnv] Extra env vars for the child
  *   (e.g. PYPI_VERIFY_RETRY_BASE_MS to keep retry sleeps short).
  * @returns {Promise<{ status: number | null; stdout: string; stderr: string }>}
  */
-async function runCheck({ tag, args = [], githubOutput, extraEnv = {} }) {
+async function runCheck({
+  tag,
+  args = [],
+  githubOutput,
+  packageName,
+  extraEnv = {},
+}) {
   const repoRoot = createTempRepo();
   setFixturePyprojectVersion(repoRoot, tag.slice(1));
+  if (packageName) {
+    setFixturePyprojectName(repoRoot, packageName);
+  }
   const env = {
     ...process.env,
     SPOKE_REPO_ROOT: repoRoot,
@@ -252,6 +280,24 @@ describe("check-pypi-published.mjs CLI", () => {
     const result = await runCheck({ tag: "0.2.0" });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /RELEASE_TAG/);
+  });
+
+  it("rejects a malformed package name before probing PyPI", async () => {
+    // Closed loopback port: a probe that did run would fail with the fetch
+    // error ("cannot reach PyPI JSON API") instead of the name rejection, so
+    // the stderr assertions below pin the rejection to the URL guard.
+    const result = await runCheck({
+      tag: "v0.2.0",
+      packageName: "../evil",
+      extraEnv: { PYPI_BASE_URL: "http://127.0.0.1:1" },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /package name "\.\.\/evil" is not a valid registry name — refusing to probe PyPI/,
+    );
+    assert.doesNotMatch(result.stderr, /cannot reach PyPI JSON API/);
+    assert.equal(result.stdout, "", "no step outputs on the rejection path");
   });
 
   it("--verify passes when the full set is present", async () => {

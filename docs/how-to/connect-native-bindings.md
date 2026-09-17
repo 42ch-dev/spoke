@@ -4,7 +4,7 @@ title: Connect from native bindings
 
 # Connect from native bindings
 
-**Native bindings** embed the shared connect **session core** into host languages through FFI: the pure session rules — `peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate — live in one core, while transport stays in each host language. The bindings are generated from the Rust reference crate's `spoke-connect` core and ship on **four channel types** across five languages, all lockstep with SPOKE git tags `vX.Y.Z`:
+**Native bindings** embed the shared connect **session core** into host languages through FFI: the pure session rules — `peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate — live in one core, while transport stays in each host language. The bindings ship on **four registry channel types** across five generated languages, all lockstep with SPOKE git tags `vX.Y.Z`, and the C and C++ binding links the same core through a hand-written C ABI resolved from those tags:
 
 | Language | Channel | Package |
 |----------|---------|---------|
@@ -13,6 +13,7 @@ title: Connect from native bindings
 | Swift | Swift Package Manager (git + tags) | Product `SpokeConnect` |
 | Go | Go modules (git + tags) | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
+| C / C++ | git (committed header + platform natives) | [`spoke_connect.h` + `native/<rid>/`](/how-to/connect-cpp-binding) |
 
 NuGet and Maven both use the GitHub Packages registry family. Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side. Every native library is built from the production feature pair `ffi,remote-adapter` — regenerated bindings reference `remote-adapter` symbols (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) at load time, so the release build always carries both features.
 
@@ -132,7 +133,7 @@ Binding README: [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/
 
 ## The shared session core
 
-All five bindings expose the same synchronous core surface: `peer_id` derivation, hello sign/verify, allowlist, nonce store, sequence allocation, response correlation, dispatch gate, and protocol version. Keys cross the FFI boundary as raw bytes (validated to exactly 32 bytes), peer ids as strings, and manifests / hello envelopes as JSON strings — transport adapters stay in the host language against the wire contract.
+Every binding exposes the same synchronous core surface: `peer_id` derivation, hello sign/verify, allowlist, nonce store, sequence allocation, response correlation, dispatch gate, and protocol version. Keys cross the FFI boundary as raw bytes (validated to exactly 32 bytes), peer ids as strings, and manifests / hello envelopes as JSON strings — transport adapters stay in the host language against the wire contract.
 
 The TypeScript **language-native client** ([Connect from the TypeScript client](/how-to/connect-ts-client)) implements the same session-core rules directly in TypeScript — it is the sibling path, not a binding row. The **Rust reference** (`spoke-connect` on crates.io) is the session-core reference and the binding source; see the [connect wire reference](/reference/connect) for the shared contract. The RemoteAdapter contract ships over the same FFI surface as synchronous objects (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) — see [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding). The same surface carries the tool contract: `invoke_tool` on the adapter, router, and responder; `register_tool_handler` on the adapter and responder, with the foreign `ToolHandler` callback for tool serving; and the accept-side `ConnectResponderFFI` / `connect_responder_ffi`. The same surface carries the optional port families: `RemoteAdapterFFI` exposes `project` / `compute` / `list_fork_timeline_events` (JSON in / JSON out), and the responder's `ports` argument accepts an optional foreign `PortsHandler` serving the baseline and optional `port.*` families — see [RemoteAdapter from native bindings](/how-to/remote-adapter-native-binding) and [Optional port families](/reference/connect#optional-port-families).
 
@@ -141,4 +142,5 @@ The TypeScript **language-native client** ([Connect from the TypeScript client](
 - [Open your first connect session](/tutorials/first-connect-session) — the handshake flow every binding implements.
 - [Use RemoteAdapter from a native binding](/how-to/remote-adapter-native-binding) — dial a `Transport`, call port methods, and route across peers over FFI.
 - [Expose and invoke remote tools](/how-to/connect-remote-tools) — advertise, discover, and reverse-invoke tools from a native host.
+- [Connect from C and C++](/how-to/connect-cpp-binding) — compile against the hand-written C header and link the committed carrier.
 - [Connect wire reference](/reference/connect) — envelope field tables and identity binding.

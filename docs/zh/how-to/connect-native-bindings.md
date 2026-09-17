@@ -4,7 +4,7 @@ title: 从原生绑定连接
 
 # 从原生绑定连接（Connect from native bindings）
 
-**原生绑定（native bindings）**通过 FFI 把共享的 connect **会话核心**嵌入宿主语言：纯会话规则 —— `peer_id` 推导、握手签名/校验、allowlist、nonce 单次使用、sequence 分配、关联校验、dispatch gate —— 集中在一个核心中，传输则留在各宿主语言。绑定由 Rust 参考 crate `spoke-connect` 的核心生成，经**四种渠道类型**覆盖五种语言，全部与 SPOKE git tag `vX.Y.Z` 锁步：
+**原生绑定（native bindings）**通过 FFI 把共享的 connect **会话核心**嵌入宿主语言：纯会话规则 —— `peer_id` 推导、握手签名/校验、allowlist、nonce 单次使用、sequence 分配、关联校验、dispatch gate —— 集中在一个核心中，传输则留在各宿主语言。绑定经**四种注册表渠道类型**覆盖五种生成语言，全部与 SPOKE git tag `vX.Y.Z` 锁步；C 与 C++ 绑定通过手写 C ABI 链接同一核心，并从相同 tag 解析：
 
 | 语言 | 渠道 | 软件包 |
 |------|------|--------|
@@ -13,6 +13,7 @@ title: 从原生绑定连接
 | Swift | Swift Package Manager（git + tags） | 产品 `SpokeConnect` |
 | Go | Go modules（git + tags） | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
+| C / C++ | git（提交的头文件 + 平台原生库） | [`spoke_connect.h` + `native/<rid>/`](/zh/how-to/connect-cpp-binding) |
 
 NuGet 与 Maven 共用 GitHub Packages 注册表族。每个绑定暴露相同的同步核心面；golden-parity smoke 从各宿主侧断言字节级一致的行为。每个绑定原生库都由生产构建特性对 `ffi,remote-adapter` 构建 —— 重新生成的绑定在加载时需要 `remote-adapter` 符号（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`），因此发布构建始终同时携带这两个特性。
 
@@ -132,7 +133,7 @@ version = spoke_connect.protocol_version()  # 1
 
 ## 共享会话核心
 
-五种绑定暴露同一套同步核心面：`peer_id` 推导、握手签名/校验、allowlist、nonce store、sequence 分配、响应关联、dispatch gate 与协议版本。密钥以原始字节跨 FFI 边界（校验为恰好 32 字节），peer id 以字符串，manifest / 握手信封以 JSON 字符串 —— 传输 adapter 留在宿主语言，按线上契约实现。
+每种绑定暴露同一套同步核心面：`peer_id` 推导、握手签名/校验、allowlist、nonce store、sequence 分配、响应关联、dispatch gate 与协议版本。密钥以原始字节跨 FFI 边界（校验为恰好 32 字节），peer id 以字符串，manifest / 握手信封以 JSON 字符串 —— 传输 adapter 留在宿主语言，按线上契约实现。
 
 TypeScript **语言原生客户端**（[从 TypeScript 客户端连接](/zh/how-to/connect-ts-client)）直接用 TypeScript 实现同一套会话核心规则 —— 它是并行的姊妹路径，不是绑定行。**Rust 参考实现**（crates.io 上的 `spoke-connect`）是会话核心参考与绑定来源；共享契约见[connect 线上参考](/zh/reference/connect)。RemoteAdapter 契约经同一 FFI 面以同步对象形式交付（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`）—— 见[从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding)。同一面还携带工具契约：adapter、路由器与响应方上的 `invoke_tool`；adapter 与响应方上用于工具服务的 `register_tool_handler` 与带外 `ToolHandler`（工具处理器）回调；以及接受侧 `ConnectResponderFFI` / `connect_responder_ffi`。同一面还携带可选 port 族：`RemoteAdapterFFI` 暴露 `project` / `compute` / `list_fork_timeline_events`（JSON 进 / JSON 出），响应方的 `ports` 参数接受一个可选的带外 `PortsHandler`，服务基线及可选的 `port.*` 族 —— 见[从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding)与[可选 port 族](/zh/reference/connect#可选-port-族)。
 
@@ -141,4 +142,5 @@ TypeScript **语言原生客户端**（[从 TypeScript 客户端连接](/zh/how-
 - [开启你的首个 connect 会话](/zh/tutorials/first-connect-session) —— 每个绑定都实现的握手流程。
 - [从原生绑定使用 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— 拨号 `Transport`、调用 port 方法并在 FFI 上跨多个对等节点路由。
 - [暴露并调用远程工具](/zh/how-to/connect-remote-tools) —— 从原生宿主通告、发现并反向调用工具。
+- [从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding) —— 以手写 C 头文件编译，并链接提交的原生载体。
 - [connect 线上参考](/zh/reference/connect) —— 信封字段表与身份绑定。

@@ -47,7 +47,7 @@ cargo add spoke-connect@X.Y.Z
 
 - **`spoke-connect`** — Rust reference crate (libp2p transport + uniffi binding surface).
 
-Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) embed the shared session core via FFI — see [Native bindings](/how-to/connect-native-bindings).
+Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) and for C and C++ (hand-written C ABI, git) embed the shared session core via FFI — see [Native bindings](/how-to/connect-native-bindings) and [Connect from C and C++](/how-to/connect-cpp-binding).
 
 ## Integrator path
 

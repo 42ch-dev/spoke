@@ -230,6 +230,113 @@ export function scopeOpRequiresOwnershipCapability(
   return typeof viewpoint === "string" && viewpoint.length > 0;
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function scopePayloadReject(op: string, detail: string): SpokeReject {
+  return spokeReject(
+    SpokeRejectCode.INVALID_INPUT,
+    `invalid ${op} payload: ${detail}`,
+    { op },
+  );
+}
+
+const SCOPE_WIRE_KEYS = new Set([
+  "scope_id",
+  "entry_ids",
+  "entry_types",
+  "timeline_event_ids",
+  "source_id",
+  "timeline_scale",
+  "fork_id",
+  "viewpoint",
+  "extensions",
+]);
+
+const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
+
+function isValidExtensionMap(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  for (const [key, namespaceValue] of Object.entries(value)) {
+    if (!EXTENSION_MAP_KEY_PATTERN.test(key)) {
+      return false;
+    }
+    if (!isJsonObject(namespaceValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** Structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`). */
+function validateDeclaredScope(scope: Record<string, unknown>): string | null {
+  for (const key of Object.keys(scope)) {
+    if (!SCOPE_WIRE_KEYS.has(key)) {
+      return `unknown property \`${key}\` at scope`;
+    }
+  }
+  if (typeof scope.scope_id !== "string") {
+    return "missing field `scope_id`";
+  }
+  if (
+    "entry_ids" in scope &&
+    scope.entry_ids !== undefined &&
+    !isStringArray(scope.entry_ids)
+  ) {
+    return "invalid type for scope.entry_ids, expected an array of strings";
+  }
+  if (
+    "entry_types" in scope &&
+    scope.entry_types !== undefined &&
+    !isStringArray(scope.entry_types)
+  ) {
+    return "invalid type for scope.entry_types, expected an array of strings";
+  }
+  if (
+    "timeline_event_ids" in scope &&
+    scope.timeline_event_ids !== undefined &&
+    !isStringArray(scope.timeline_event_ids)
+  ) {
+    return "invalid type for scope.timeline_event_ids, expected an array of strings";
+  }
+  if (
+    "source_id" in scope &&
+    scope.source_id !== undefined &&
+    typeof scope.source_id !== "string"
+  ) {
+    return "invalid type for scope.source_id, expected a string";
+  }
+  if (
+    "timeline_scale" in scope &&
+    scope.timeline_scale !== undefined &&
+    typeof scope.timeline_scale !== "string"
+  ) {
+    return "invalid type for scope.timeline_scale, expected a string";
+  }
+  if (
+    "fork_id" in scope &&
+    scope.fork_id !== undefined &&
+    (typeof scope.fork_id !== "string" || scope.fork_id.length === 0)
+  ) {
+    return "invalid type for scope.fork_id, expected a non-empty string";
+  }
+  if (
+    "extensions" in scope &&
+    scope.extensions !== undefined &&
+    !isValidExtensionMap(scope.extensions)
+  ) {
+    return "invalid type for scope.extensions, expected an ExtensionMap object";
+  }
+  return null;
+}
+
 /** Scope validation for the three remote catalogue ops (F2 malformed rows). */
 export function validateScopeOpPayload(
   op: string,
@@ -238,30 +345,27 @@ export function validateScopeOpPayload(
   if (!SCOPE_OWNERSHIP_OPS.has(op)) {
     return null;
   }
+  if (!("scope" in payload)) {
+    return scopePayloadReject(op, "missing scope");
+  }
   const scope = payload.scope;
-  if (typeof scope !== "object" || scope === null || Array.isArray(scope)) {
-    return spokeReject(
-      SpokeRejectCode.INVALID_INPUT,
-      `port op ${op} requires a JSON object scope payload`,
-      { op },
-    );
+  if (!isJsonObject(scope)) {
+    return scopePayloadReject(op, "missing scope");
   }
-  const scopeRecord = scope as Record<string, unknown>;
-  if (!("viewpoint" in scopeRecord)) {
-    return null;
+  if ("viewpoint" in scope) {
+    const viewpoint = scope.viewpoint;
+    if (!(typeof viewpoint === "string" && viewpoint.length > 0)) {
+      return scopePayloadReject(
+        op,
+        "scope.viewpoint must be a non-empty string",
+      );
+    }
   }
-  const viewpoint = scopeRecord.viewpoint;
-  if (typeof viewpoint === "string" && viewpoint.length > 0) {
-    return null;
+  const scopeError = validateDeclaredScope(scope);
+  if (scopeError !== null) {
+    return scopePayloadReject(op, scopeError);
   }
-  return spokeReject(
-    SpokeRejectCode.INVALID_INPUT,
-    "scope.viewpoint must be a non-empty string when present",
-    { op },
-  );
-}
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return null;
 }
 
 function isValidSourceSpan(value: unknown): boolean {

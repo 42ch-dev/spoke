@@ -5499,3 +5499,142 @@ async fn ke_remote_scope_malformed_declaration_rejects_invalid_input_before_the_
 
     responder.close();
 }
+
+/// Send one signed raw invoke and return the decoded response envelope (the
+/// typed adapter cannot express a malformed declared Scope).
+async fn raw_invoke(
+    client: &LoopbackTransport,
+    seed: [u8; 32],
+    session_id: &str,
+    sequence: i64,
+    request_id: &str,
+    op: &str,
+    payload: Value,
+) -> Value {
+    let request = sign_invoke_request(seed, session_id, sequence, request_id, op, payload);
+    client
+        .send(&serde_json::to_vec(&request).expect("request bytes"))
+        .await
+        .expect("request send");
+    serde_json::from_slice(&client.recv().await.expect("response recv")).expect("response decode")
+}
+
+#[tokio::test]
+async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_ownership_capability()
+{
+    // The requirement predicate is false for a malformed viewpoint, so a
+    // malformed declared Scope answers an input failure even when
+    // `ke-ownership` was never negotiated — never a capability deny.
+    let recording = Arc::new(RecordingScopePorts::new());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = recording.clone();
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &[]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &[]),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-malformed-unnegotiated",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": null } }),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "a malformed viewpoint is an input failure, got {malformed}"
+    );
+
+    // Control on the same session: a valid viewpoint takes the capability
+    // deny — the malformed row is validation, not a blanket op refusal.
+    let valid = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        1,
+        "ke-valid-unnegotiated",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira" } }),
+    )
+    .await;
+    assert_eq!(
+        valid["error"]["code"], "op_unsupported",
+        "a valid viewpoint without the negotiated capability must deny, got {valid}"
+    );
+
+    assert!(
+        recording.scopes().is_empty(),
+        "neither request may reach the provider"
+    );
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_scope_validation_precedes_the_optional_face_probe() {
+    // Fork op with `l5-fork` + `ke-ownership` negotiated and NO fork face on
+    // the provider: a malformed declared Scope still answers INVALID_INPUT
+    // (validation runs before the probe), while a valid viewpoint takes the
+    // probe deny that names the missing face.
+    let recording = Arc::new(RecordingScopePorts::new());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = recording.clone();
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let capabilities = ["l5-fork", "ke-ownership"];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-fork-malformed",
+        "port.fork.list_timeline_events",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": null } }),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "declared-Scope validation must precede the optional-face probe, got {malformed}"
+    );
+
+    let valid = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        1,
+        "ke-fork-valid",
+        "port.fork.list_timeline_events",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira" } }),
+    )
+    .await;
+    assert_eq!(
+        valid["error"]["code"], "op_unsupported",
+        "a valid viewpoint with no fork face must take the probe deny, got {valid}"
+    );
+    assert!(
+        valid["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("list_fork_timeline_events"),
+        "the probe deny must name the missing face: {valid}"
+    );
+
+    assert!(
+        recording.scopes().is_empty(),
+        "neither request may reach the provider"
+    );
+    responder.close();
+}

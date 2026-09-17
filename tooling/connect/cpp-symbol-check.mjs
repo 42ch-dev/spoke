@@ -33,6 +33,16 @@
  *      carrier does not report, and a reported record or member the header
  *      does not declare, both fail — so the record and callback-table block
  *      cannot drift from the mirrors that interpret it.
+ *   6. Callback signature parity — the same carrier run reports every callback
+ *      typedef and every callback-table member as the Rust type it actually
+ *      has, and this gate renders that type into the C signature the header
+ *      must declare. Size and offset checks cannot see a callback whose
+ *      parameters, return type or calling convention changed, because a
+ *      function pointer keeps its size and the table keeps its offsets; a
+ *      typed comparison can. Both directions are covered (a typedef or member
+ *      on one side only fails), and a member written inline in the header
+ *      (the foreign buffer's `release`) is compared the same way as a named
+ *      typedef.
  *
  * The compared namespace is `spoke_connect_` only: the carrier links the
  * `spoke-connect` crate, whose UniFFI scaffolding (`uniffi_spoke_connect_*`,
@@ -48,9 +58,10 @@
  * nightly-only) is honored automatically; see `cargoCommand`.
  *
  * `--self-test` additionally proves fail-closed behavior: temporary header
- * copies with (a) a real declaration removed and (b) an invented declaration
- * added must both fail the symbol comparison. Temporary files are removed on
- * success and on failure.
+ * copies with (a) a real declaration removed, (b) an invented declaration
+ * added and (c) a callback argument retyped to a same-size record — which no
+ * layout or offset check can see — must all fail their comparison. Temporary
+ * files are removed on success and on failure.
  */
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -72,6 +83,12 @@ const INVENTED_SYMBOL = "spoke_connect_drift_probe";
  * (`typedef struct <Name> <Name>;`) has no layout and is not one.
  */
 const LAYOUT_PREFIX = "SPOKE_CONNECT_ABI_LAYOUT";
+/**
+ * The carrier's callback signature report lines (`abi_layout.rs`), in the two
+ * shapes `SPOKE_CONNECT_ABI_CALLBACK typedef <name> <rust type>` and
+ * `SPOKE_CONNECT_ABI_CALLBACK member <record>.<field> <rust type>`.
+ */
+const CALLBACK_PREFIX = "SPOKE_CONNECT_ABI_CALLBACK";
 const LAYOUT_TEST = "abi_layout";
 const RECORD_PATTERN =
   /typedef\s+struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{([^{}]*)\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/g;
@@ -79,6 +96,30 @@ const RECORD_PATTERN =
 const OPAQUE_PATTERN =
   /typedef\s+struct\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/g;
 const STRUCT_START_PATTERN = /typedef\s+struct\b/g;
+
+/**
+ * One callback typedef: `typedef <ret> (SPOKE_CONNECT_CALL *<name>)(<params>)`.
+ * The calling-convention macro is part of the grammar, so a typedef that drops
+ * it fails the parse instead of passing as a plain function pointer.
+ */
+const CALLBACK_TYPEDEF_PATTERN = new RegExp(
+  "^typedef\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*SPOKE_CONNECT_CALL\\s*\\*\\s*" +
+    "([A-Za-z_][A-Za-z0-9_]*)\\s*\\)\\s*\\(([^()]*)\\)$",
+);
+
+/** A callback map member declared inline instead of through a typedef. */
+const INLINE_CALLBACK_PATTERN = new RegExp(
+  "^(.+?)\\s*\\(\\s*SPOKE_CONNECT_CALL\\s*\\*\\s*" +
+    "([A-Za-z_][A-Za-z0-9_]*)\\s*\\)\\s*\\(([^()]*)\\)$",
+);
+
+/** The Rust type spellings this ABI's callbacks cross with, as C spellings. */
+const RUST_TYPES = new Map([
+  ["core::ffi::c_void", "void"],
+  ["u8", "uint8_t"],
+  ["i32", "int32_t"],
+  ["usize", "size_t"],
+]);
 
 /**
  * One prototype: `SPOKE_CONNECT_API <int32_t|void> SPOKE_CONNECT_CALL
@@ -226,7 +267,10 @@ function parseRecords(headerText, headerPath) {
         ? pointer[1]
         : (/([A-Za-z_][A-Za-z0-9_]*)$/.exec(member) ?? [])[1];
       if (!name) fail(`${display(headerPath)}: unparsed '${tag}' member: '${member}'`);
-      fields.push(name);
+      // The declaration minus the declarator name: the member's type, which is
+      // a callback typedef when it names one (an inline callback declarator is
+      // read from `text` instead, since its type is split around the name).
+      fields.push({ name, type: member.slice(0, member.lastIndexOf(name)).trim(), text: member });
     }
     if (fields.length === 0) {
       fail(`${display(headerPath)}: record '${tag}' declares no member`);
@@ -266,11 +310,13 @@ function parseRecords(headerText, headerPath) {
 }
 
 /**
- * Runs the carrier's layout report (`crates/spoke-connect-capi/src/
- * abi_layout.rs`) and parses it into `name → {size, align, fields}`. An empty
- * report fails: without it the layout comparison would pass vacuously.
+ * Runs the carrier's report (`crates/spoke-connect-capi/src/abi_layout.rs`) and
+ * parses it into the record layouts (`name → {size, align, fields}`), the
+ * callback typedefs (name → Rust type) and the callback members (label → Rust
+ * type). An empty report of either kind fails: without it that comparison
+ * would pass vacuously.
  */
-function layoutReport() {
+function carrierReport() {
   const [command, ...prefix] = cargoCommand();
   const args = [
     ...prefix,
@@ -295,7 +341,19 @@ function layoutReport() {
   }
 
   const records = new Map();
+  const typedefs = new Map();
+  const members = new Map();
   for (const line of `${result.stdout ?? ""}\n${result.stderr ?? ""}`.split("\n")) {
+    if (line.startsWith(`${CALLBACK_PREFIX} `)) {
+      const row = /^(\S+) (\S+) (.+)$/.exec(line.slice(CALLBACK_PREFIX.length + 1).trim());
+      if (!row) fail(`unparsed '${CALLBACK_PREFIX}' row: '${line.trim()}'`);
+      const [, kind, label, rustType] = row;
+      const target = { typedef: typedefs, member: members }[kind];
+      if (!target) fail(`unknown '${CALLBACK_PREFIX}' kind '${kind}' in '${line.trim()}'`);
+      if (target.has(label)) fail(`duplicate '${CALLBACK_PREFIX}' ${kind} '${label}'`);
+      target.set(label, rustType);
+      continue;
+    }
     if (!line.startsWith(`${LAYOUT_PREFIX} `)) continue;
     const [name, ...pairs] = line.slice(LAYOUT_PREFIX.length + 1).trim().split(/\s+/);
     const record = { size: null, align: null, fields: new Map() };
@@ -321,7 +379,199 @@ function layoutReport() {
         "(is the carrier test surface built?)",
     );
   }
-  return records;
+  if (typedefs.size === 0 || members.size === 0) {
+    fail(
+      `the carrier reported no '${CALLBACK_PREFIX}' rows ` +
+        "(is the carrier test surface built?)",
+    );
+  }
+  return { records, typedefs, members };
+}
+
+/** Splits a comma-separated signature list at the top level. */
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const character of text) {
+    if (character === "<") depth += 1;
+    else if (character === ">") depth -= 1;
+    if (character === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  parts.push(current);
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
+const TYPE_TOKENS = /[A-Za-z_][A-Za-z0-9_]*|\*|[(),[\]]/g;
+
+/** A C type spelled canonically: its tokens joined by single spaces. */
+function canonicalType(text) {
+  return (text.match(TYPE_TOKENS) ?? []).join(" ");
+}
+
+/**
+ * A parameter type spelled canonically. A parameter name is not part of the
+ * type, so a trailing identifier (when the parameter is more than just its
+ * type) is dropped — `const uint8_t *data` and `const uint8_t *` agree.
+ */
+function canonicalParameter(text) {
+  const tokens = text.match(TYPE_TOKENS) ?? [];
+  if (tokens.length > 1 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+  return tokens.join(" ");
+}
+
+/** The one canonical spelling both sides of the comparison are reduced to. */
+function canonicalSignature(returnType, params) {
+  return `(${params.map(canonicalParameter).join(", ")}) -> ${canonicalType(returnType)}`;
+}
+
+/** Renders one Rust type as the C type it must cross as. */
+function renderRustType(rustType) {
+  const text = rustType.trim();
+  if (text === "()") return "void";
+  const pointer = /^\*(mut|const) ([\s\S]+)$/.exec(text);
+  if (pointer) {
+    const inner = renderRustType(pointer[2]);
+    return pointer[1] === "const" ? `const ${inner} *` : `${inner} *`;
+  }
+  const known = RUST_TYPES.get(text);
+  if (known) return known;
+  // A named type crosses by name; the module path it lives in is Rust-side.
+  if (/^[A-Za-z_][A-Za-z0-9_:]*$/.test(text)) return text.split("::").pop();
+  fail(`unparsed Rust type '${rustType}' in a carrier callback signature`);
+}
+
+/**
+ * Renders one carrier-reported callback type as its C signature. The carrier
+ * reports the type it actually has, so this compares that type against the
+ * header rather than a second, hand-written copy of it.
+ */
+function renderCarrierSignature(rustType) {
+  let text = rustType.trim();
+  const option = /^core::option::Option<([\s\S]*)>$/.exec(text);
+  if (option) text = option[1].trim();
+  const callback = /^unsafe extern "C" fn\(([\s\S]*)\)(?: -> ([\s\S]+))?$/.exec(text);
+  if (!callback) fail(`unparsed carrier callback type: '${rustType}'`);
+  const params = splitTopLevel(callback[1]).map(renderRustType);
+  const returnType = callback[2] ? renderRustType(callback[2]) : "void";
+  return canonicalSignature(returnType, params);
+}
+
+/**
+ * Parses the header's callback typedefs into `name → canonical C signature`.
+ * Only `typedef struct` declarations are left to `parseRecords`: every other
+ * `typedef` must be a callback typedef, so a declaration this gate cannot read
+ * fails instead of going unverified.
+ */
+function parseCallbackTypedefs(headerText, headerPath) {
+  const typedefs = new Map();
+  for (const chunk of stripComments(headerText).split(";")) {
+    const candidate = chunk.replace(/\s+/g, " ").trim();
+    if (!candidate.startsWith("typedef ")) continue;
+    if (/^typedef struct\b/.test(candidate)) continue;
+    const match = CALLBACK_TYPEDEF_PATTERN.exec(candidate);
+    if (!match) {
+      fail(
+        `${display(headerPath)}: unparsed typedef '${candidate.slice(0, 160)}' ` +
+          "(a callback typedef is 'typedef <ret> (SPOKE_CONNECT_CALL *<Name>)(<params>)')",
+      );
+    }
+    const [, returnType, name, params] = match;
+    if (typedefs.has(name)) fail(`${display(headerPath)}: duplicate typedef '${name}'`);
+    typedefs.set(name, canonicalSignature(returnType, splitTopLevel(params)));
+  }
+  if (typedefs.size === 0) fail(`${display(headerPath)}: no callback typedefs found`);
+  return typedefs;
+}
+
+/** The callback signature a header record member declares, or `null`. */
+function memberCallbackSignature(member, typedefs) {
+  const inline = INLINE_CALLBACK_PATTERN.exec(member.text);
+  if (inline) return canonicalSignature(inline[1], splitTopLevel(inline[3]));
+  if (typedefs.has(member.type)) return typedefs.get(member.type);
+  return null;
+}
+
+/**
+ * Compares the header's callback typedefs and callback-table members against
+ * the carrier's report and returns the mismatches. Size and offset comparisons
+ * cannot see a callback whose parameters, return type or calling convention
+ * changed — the pointer keeps its size and the table keeps its offsets — so
+ * the signature itself is what is compared here, in both coverage directions.
+ */
+function compareCallbacks(headerText, headerPath, records, carrier) {
+  const typedefs = parseCallbackTypedefs(headerText, headerPath);
+  const mismatches = [];
+
+  for (const [name, signature] of typedefs) {
+    if (!carrier.typedefs.has(name)) {
+      mismatches.push(`typedef ${name}: declared in the header, not reported by the carrier`);
+      continue;
+    }
+    const reported = renderCarrierSignature(carrier.typedefs.get(name));
+    if (reported !== signature) {
+      mismatches.push(`typedef ${name}: header ${signature}, carrier ${reported}`);
+    }
+  }
+  for (const name of carrier.typedefs.keys()) {
+    if (!typedefs.has(name)) {
+      mismatches.push(`typedef ${name}: reported by the carrier, not declared in the header`);
+    }
+  }
+
+  const declared = new Map();
+  for (const record of records) {
+    for (const member of record.fields) {
+      const signature = memberCallbackSignature(member, typedefs);
+      if (signature) declared.set(`${record.name}.${member.name}`, signature);
+    }
+  }
+  const reported = new Map();
+  for (const [label, rustType] of carrier.members) {
+    reported.set(label, renderCarrierSignature(rustType));
+  }
+  for (const [label, signature] of declared) {
+    if (!reported.has(label)) {
+      mismatches.push(`member ${label}: declared in the header, not reported by the carrier`);
+      continue;
+    }
+    if (reported.get(label) !== signature) {
+      mismatches.push(`member ${label}: header ${signature}, carrier ${reported.get(label)}`);
+    }
+  }
+  for (const label of reported.keys()) {
+    if (!declared.has(label)) {
+      mismatches.push(`member ${label}: reported by the carrier, not declared in the header`);
+    }
+  }
+
+  return { mismatches, typedefs, members: declared };
+}
+
+/** The callback comparison, reported the way the other checks report. */
+function runCallbackCheck(headerText, headerPath, records, carrier) {
+  const { mismatches, typedefs, members } = compareCallbacks(
+    headerText,
+    headerPath,
+    records,
+    carrier,
+  );
+  if (mismatches.length > 0) {
+    console.error("Callback signatures: FAIL");
+    for (const entry of mismatches) console.error(`  ${entry}`);
+    process.exit(1);
+  }
+  console.log(
+    `Callback signatures: PASS (${typedefs.size} typedefs, ${members.size} members ` +
+      "match the carrier)",
+  );
 }
 
 /** Compiles one probe translation unit; a non-zero exit is a gate failure. */
@@ -368,14 +618,14 @@ function runLayoutCheck(records, layouts, headerPath, tempDir) {
         `"${record.name}: alignment");`,
     );
     for (const field of record.fields) {
-      const offset = layout.fields.get(field);
+      const offset = layout.fields.get(field.name);
       if (offset === undefined) {
-        unreported.push(`${record.name}.${field}`);
+        unreported.push(`${record.name}.${field.name}`);
         continue;
       }
       lines.push(
-        `_Static_assert(offsetof(${record.name}, ${field}) == ${offset}, ` +
-          `"${record.name}.${field}: offset");`,
+        `_Static_assert(offsetof(${record.name}, ${field.name}) == ${offset}, ` +
+          `"${record.name}.${field.name}: offset");`,
       );
     }
   }
@@ -395,7 +645,9 @@ function runLayoutCheck(records, layouts, headerPath, tempDir) {
       continue;
     }
     for (const field of layout.fields.keys()) {
-      if (!record.fields.includes(field)) undeclared.push(`${name}.${field}`);
+      if (!record.fields.some((candidate) => candidate.name === field)) {
+        undeclared.push(`${name}.${field}`);
+      }
     }
   }
   if (undeclared.length > 0) {
@@ -689,7 +941,7 @@ function compare(headerPath, libraryPath) {
   return { declarations, result: diff(declarations, exports) };
 }
 
-function selfTest(headerPath, libraryPath, tempDir) {
+function selfTest(headerPath, libraryPath, tempDir, carrier) {
   const headerText = readFileSync(headerPath, "utf8");
   const mutations = [
     {
@@ -741,6 +993,29 @@ function selfTest(headerPath, libraryPath, tempDir) {
         `(${mutation.expected}: ${mutation.expectedSymbol})`,
     );
   }
+
+  // A callback signature mutation: the borrowed `SpokeConnectSlice` argument
+  // becomes an owned `SpokeConnectBuffer` of the same size, which keeps every
+  // pointer size, every member offset and every declared symbol, so only the
+  // signature comparison can fail on it.
+  const mutatedText = headerText.replaceAll(
+    "SpokeConnectSlice input_json,",
+    "SpokeConnectBuffer input_json,",
+  );
+  const mutated = join(tempDir, "spoke_connect_callback_signature_header.h");
+  writeFileSync(mutated, mutatedText);
+  const { mismatches } = compareCallbacks(
+    mutatedText,
+    mutated,
+    parseRecords(mutatedText, mutated),
+    carrier,
+  );
+  if (mismatches.length === 0) {
+    fail("self-test: the callback signature mutation did not fail as expected");
+  }
+  console.log(
+    `negative mutation (callback signature): FAILED as expected (${mismatches[0]})`,
+  );
 }
 
 function main() {
@@ -758,13 +1033,12 @@ function main() {
   const tempDir = mkdtempSync(join(tmpdir(), "spoke-connect-symbol-check-"));
   try {
     runProbes(declarations, args.header, args.library, tempDir);
-    runLayoutCheck(
-      parseRecords(readFileSync(args.header, "utf8"), args.header),
-      layoutReport(),
-      args.header,
-      tempDir,
-    );
-    if (args.selfTest) selfTest(args.header, args.library, tempDir);
+    const headerText = readFileSync(args.header, "utf8");
+    const records = parseRecords(headerText, args.header);
+    const carrier = carrierReport();
+    runLayoutCheck(records, carrier.records, args.header, tempDir);
+    runCallbackCheck(headerText, args.header, records, carrier);
+    if (args.selfTest) selfTest(args.header, args.library, tempDir, carrier);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

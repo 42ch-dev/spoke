@@ -127,8 +127,19 @@ function capture(command, args) {
   return (result.stdout ?? "").trim();
 }
 
+/**
+ * The SHA-256 of the file's bytes, read once. There is no `existsSync` in
+ * front of it: the bytes hashed are the bytes on disk at the hash, and a
+ * missing file fails with the same message the presence check used to give.
+ */
 function sha256(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    fail(`could not read ${relative(REPO_ROOT, path)}: ${error.message}`);
+  }
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function assertBuildSourcesCommitted() {
@@ -202,11 +213,37 @@ export function applyRustFlags(env, target, extraRustFlags) {
   return extraRustFlags;
 }
 
+/**
+ * The existing provenance at `path`, or a fresh one when the file is not there.
+ * The read *is* the presence check — an `existsSync` + `readFileSync` /
+ * `writeFileSync` pair leaves a window in which another writer can create or
+ * replace the file, and the merged result must be based on the bytes that were
+ * actually read.
+ */
+export function readProvenance(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      fail(`could not read ${relative(REPO_ROOT, path)}: ${error.message}`);
+    }
+    return { schemaVersion: 1, nativeArtifacts: {} };
+  }
+  let provenance;
+  try {
+    provenance = JSON.parse(text);
+  } catch (error) {
+    fail(`could not parse ${relative(REPO_ROOT, path)}: ${error.message}`);
+  }
+  if (!provenance.nativeArtifacts) provenance.nativeArtifacts = {};
+  return provenance;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const spec = TARGETS[args.target];
 
-  if (!existsSync(HEADER)) fail(`missing header at ${relative(REPO_ROOT, HEADER)}`);
   assertBuildSourcesCommitted();
 
   const cargoArgs = ["build", "--locked", "-p", CARRIER_PACKAGE, "--release", "--target", args.target, "--target-dir", TARGET_DIR_FLAG];
@@ -255,15 +292,7 @@ function main() {
     artifacts,
   };
 
-  let provenance = { schemaVersion: 1, nativeArtifacts: {} };
-  if (existsSync(PROVENANCE)) {
-    try {
-      provenance = JSON.parse(readFileSync(PROVENANCE, "utf8"));
-    } catch (error) {
-      fail(`could not parse ${relative(REPO_ROOT, PROVENANCE)}: ${error.message}`);
-    }
-    if (!provenance.nativeArtifacts) provenance.nativeArtifacts = {};
-  }
+  const provenance = readProvenance(PROVENANCE);
   provenance.nativeArtifacts[spec.rid] = entry;
   // Stable key order keeps refresh diffs readable.
   provenance.nativeArtifacts = Object.fromEntries(

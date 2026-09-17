@@ -103,6 +103,11 @@ jobs:
       - name: Show native provenance
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
+      - name: Diagnose dumpbin exports
+        shell: pwsh
+        run: |
+          dumpbin /nologo /exports crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll
+
 
       - name: Check C ABI symbols
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll

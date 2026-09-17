@@ -112,7 +112,7 @@ Validation status: the executed evidence is the standalone C++17 smoke for `osx-
 
 ## 6. Keep the header and the exports in step
 
-`tooling/connect/cpp-symbol-check.mjs` is the executable drift gate: it parses the header's declaration block, compares it against the carrier's exported `spoke_connect_*` symbols in both directions, compiles a C99 probe holding a typed function pointer to every declaration, and compiles a C++17 inclusion check with `-fno-exceptions -fno-rtti`.
+`tooling/connect/cpp-symbol-check.mjs` is the executable drift gate: it parses the header's declaration block, compares it against the carrier's exported `spoke_connect_*` symbols in both directions, checks the header's `typedef struct` block against the carrier's reported record layouts, compiles a C99 probe holding a typed function pointer to every declaration, and compiles a C++17 inclusion check with `-fno-exceptions -fno-rtti`.
 
 ```sh
 node tooling/connect/cpp-symbol-check.mjs \
@@ -122,6 +122,7 @@ node tooling/connect/cpp-symbol-check.mjs \
 
 ```text
 C ABI symbols: PASS (83 declarations, 83 exports, 0 missing, 0 extra)
+Record layout: 11 records, 66 assertions (sizeof/_Alignof/offsetof) match the carrier mirrors
 C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
 C++17 inclusion (-fno-exceptions -fno-rtti): PASS
 ```

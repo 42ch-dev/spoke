@@ -152,6 +152,12 @@ function internalError(kind: ResponderErrorKind, message: string): SpokeReject {
 const SERVE_BUDGET_EXPIRED = Symbol("serve-budget-expired");
 
 /**
+ * Sentinel rejection marking close-driven serve-budget cancellation, so
+ * `#withServeBudget` can settle its race without answering the invoke.
+ */
+const SERVE_BUDGET_CLOSED = Symbol("serve-budget-closed");
+
+/**
  * Dispatch-deny wire codes (D7): the peer answered that the op or its
  * required capability is not available → `CAPABILITY_PORT_MISSING`.
  */
@@ -712,6 +718,8 @@ export class ConnectResponder {
    * for. An entry removes itself when it fires or when its provider settles.
    */
   #serveDisarms = new Set<() => void>();
+  /** In-flight `#withServeBudget` waits (test observable via export below). */
+  #activeServeBudgetWaits = 0;
   /**
    * Tool-handler registry for `tools.*` invokes (frozen contract §6):
    * `registerToolHandler` fills it; the serving path looks it up by exact
@@ -840,6 +848,13 @@ export class ConnectResponder {
     }
   }
 
+  /**
+   * @internal Responder.test.ts only — in-flight `#withServeBudget` waits.
+   */
+  activeServeBudgetWaitsForTest(): number {
+    return this.#activeServeBudgetWaits;
+  }
+
   /** Release the session and transport. Idempotent. */
   close(): void {
     this.#close("local shutdown");
@@ -878,13 +893,15 @@ export class ConnectResponder {
     this.#failAllPending(
       new ResponderError("session_closed", `connect session closed: ${reason}`),
     );
-    // Serve waits owned by this session: cancel their armed budgets so no
-    // serve timer outlives the close. A pending provider completion that
+    // Serve waits owned by this session: cancel their armed budgets and
+    // settle the `Promise.race` so fire-and-forget dispatches do not hang
+    // when the provider never settles. A pending provider completion that
     // arrives afterwards is discarded by the closed-state check in the serve
     // dispatch (no late success, no late second error).
     for (const disarm of this.#serveDisarms) {
       disarm();
     }
+    this.#serveDisarms.clear();
   }
 
   #failAllPending(error: ResponderError): void {
@@ -1274,39 +1291,69 @@ export class ConnectResponder {
     if (budgetMs === 0) {
       return expiryReject;
     }
-    // Asynchronously invoked thunk: a synchronous provider throw is captured
-    // as a rejection instead of escaping the timer setup.
-    const pending = Promise.resolve().then(() => work());
-    // Executor form: the project's TS lib target predates
-    // `Promise.withResolvers` (ES2024).
-    const expired = new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#serveDisarms.delete(disarm);
-        reject(SERVE_BUDGET_EXPIRED);
-      }, budgetMs);
-      // Timer cleanup on the provider's own settle (success or rejection) and
-      // on `#close`, which runs every tracked disarm. Expiry needs no
-      // `clearTimeout` — a fired timer is already gone.
-      const disarm = (): void => {
-        this.#serveDisarms.delete(disarm);
-        clearTimeout(timer);
-      };
-      this.#serveDisarms.add(disarm);
-      void pending.then(disarm, disarm);
-    });
+    this.#activeServeBudgetWaits += 1;
     try {
-      return await Promise.race([pending, expired]);
-    } catch (error) {
-      if (error !== SERVE_BUDGET_EXPIRED) {
-        throw error;
+      // Asynchronously invoked thunk: a synchronous provider throw is captured
+      // as a rejection instead of escaping the timer setup.
+      const pending = Promise.resolve().then(() => work());
+      // Executor form: the project's TS lib target predates
+      // `Promise.withResolvers` (ES2024).
+      let rejectExpired: ((reason: unknown) => void) | undefined;
+      const expired = new Promise<never>((_resolve, reject) => {
+        rejectExpired = reject;
+        const timer = setTimeout(() => {
+          this.#serveDisarms.delete(cancel);
+          reject(SERVE_BUDGET_EXPIRED);
+          rejectExpired = undefined;
+        }, budgetMs);
+        const disarmTimer = (): void => {
+          clearTimeout(timer);
+        };
+        const cancel = (): void => {
+          this.#serveDisarms.delete(cancel);
+          disarmTimer();
+          rejectExpired?.(SERVE_BUDGET_CLOSED);
+          rejectExpired = undefined;
+        };
+        this.#serveDisarms.add(cancel);
+        void pending.then(
+          () => {
+            this.#serveDisarms.delete(cancel);
+            disarmTimer();
+            rejectExpired = undefined;
+          },
+          () => {
+            this.#serveDisarms.delete(cancel);
+            disarmTimer();
+            rejectExpired = undefined;
+          },
+        );
+      });
+      try {
+        return await Promise.race([pending, expired]);
+      } catch (error) {
+        if (error === SERVE_BUDGET_CLOSED) {
+          // Close settled the race: consume the late provider settlement so
+          // it cannot surface as an unhandled rejection or a late response.
+          void pending.then(
+            () => undefined,
+            () => undefined,
+          );
+          return expiryReject;
+        }
+        if (error !== SERVE_BUDGET_EXPIRED) {
+          throw error;
+        }
+        // Observation-only cancellation: consume the late settlement so it
+        // cannot surface as an unhandled rejection or a late second response.
+        void pending.then(
+          () => undefined,
+          () => undefined,
+        );
+        return expiryReject;
       }
-      // Observation-only cancellation: consume the late settlement so it
-      // cannot surface as an unhandled rejection or a late second response.
-      void pending.then(
-        () => undefined,
-        () => undefined,
-      );
-      return expiryReject;
+    } finally {
+      this.#activeServeBudgetWaits -= 1;
     }
   }
 
@@ -1696,4 +1743,13 @@ export async function connectResponder(
   options: ConnectResponderOptions,
 ): Promise<ConnectResponder> {
   return ConnectResponder.connect(options);
+}
+
+/**
+ * @internal Responder.test.ts only — count of in-flight `#withServeBudget`
+ * waits. Lets close witnesses prove the budget race settled instead of only
+ * clearing its timer.
+ */
+export function testActiveServeBudgetWaits(responder: ConnectResponder): number {
+  return responder.activeServeBudgetWaitsForTest();
 }

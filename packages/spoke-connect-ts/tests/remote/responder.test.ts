@@ -253,6 +253,8 @@ function decodeEnvelope(bytes: EnvelopeBytes): unknown {
 async function startRawResponder(options: {
   ports?: BaselinePorts;
   manifest?: HostCapabilityManifest;
+  /** Responder serve budget + reverse-invoke waiter deadline, ms. */
+  invokeTimeoutMs?: number;
 } = {}): Promise<{
   responder: ConnectResponder;
   clientEnd: Transport;
@@ -275,6 +277,7 @@ async function startRawResponder(options: {
     allowlist: [peerIdClient],
     peerKeys: { [peerIdClient]: pubkeyClient },
     ports: options.ports ?? ToyWorldAdapter.withCommittedFixtures(),
+    invokeTimeoutMs: options.invokeTimeoutMs,
   });
   return {
     responder,
@@ -2637,6 +2640,66 @@ describe("serve timeout (local serve budget)", () => {
         responder.close();
         pair.client.close();
         pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "zero budget answers the signed serve timeout for a malformed baseline port payload",
+    async () => {
+      // Face split (QC W-001): the Rust face decodes the D4 payload before
+      // the serve bound, so a malformed `port.*` payload keeps its
+      // `INVALID_INPUT` reject at any budget. The TS face has no D4 payload
+      // decode at all (`dispatchPortOp` is cast-based) and the helper's
+      // zero-budget early return precedes the provider thunk, so the same
+      // malformed input is answered by the signed serve timeout with zero
+      // provider calls. This witness pins the TS projection only; it does
+      // not claim TS baseline payload validation.
+      const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
+      const calls: string[] = [];
+      const ports: BaselinePorts = {
+        ...baseline,
+        getKnowledgeEntry: async (entryId: string) => {
+          calls.push(`getKnowledgeEntry:${String(entryId)}`);
+          return baseline.getKnowledgeEntry(entryId);
+        },
+      };
+      const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+        await startRawResponder({ ports, invokeTimeoutMs: 0 });
+      try {
+        const { session_id: sessionId } = await rawHandshake(clientEnd, {
+          seed: seedClient,
+          manifest: toolManifest("test-client"),
+          pubkeyResponder,
+          peerIdResponder,
+        });
+        // A non-string `entry_id` is malformed for the D4 row the Rust face
+        // decodes before its bound.
+        const malformed = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 0,
+          request_id: "serve-timeout-malformed-baseline",
+          op: "port.knowledge.get",
+          payload: { entry_id: 7 },
+        });
+        await clientEnd.send(encodeEnvelope(malformed));
+        const response = decodeEnvelope(await clientEnd.recv()) as {
+          error?: {
+            code?: string;
+            message?: string;
+            details?: Record<string, unknown>;
+          };
+        };
+        expect(response.error?.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(response.error?.details?.kind).toBe("timeout");
+        expect(response.error?.message).toContain(
+          "serve wait exceeded the local budget of 0ms",
+        );
+        expect(calls).toEqual([]);
+        expect(responder.state).toBe("Established");
+      } finally {
+        responder.close();
       }
     },
     15000,

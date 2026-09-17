@@ -650,10 +650,13 @@ export interface ConnectResponderOptions {
   /**
    * Bounded-wait deadline for each reverse-invoke waiter AND the local
    * serve-wait budget bounding every served `port.*` provider call and the
-   * whole `extract` service call, ms (default 5000). Zero means immediate
-   * serve timeout with zero provider calls. The value is local: it does not
-   * inherit the dialer's budget and does not promise the reply beats the
-   * dialer's timeout.
+   * whole `extract` service call, ms (default 5000). One value, two uses —
+   * a host setting zero for immediate serve-timeout semantics also collapses
+   * the reverse-invoke waiter deadline: zero answers the serve timeout with
+   * zero provider calls AND expires every reverse-invoke waiter
+   * immediately, so it is not a serve-only switch. The value is local: it
+   * does not inherit the dialer's budget and does not promise the reply
+   * beats the dialer's timeout.
    */
   invokeTimeoutMs?: number;
 }

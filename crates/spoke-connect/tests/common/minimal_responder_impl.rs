@@ -155,20 +155,28 @@ pub struct MinimalResponder {
 
 impl MinimalResponder {
     /// Register a tool handler served for forward invokes.
-    pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
-        // Grammar gate parity with the production surface (D13): a
-        // non-`tools.` capability id is a test-harness programming error —
-        // panic instead of registering a handler that could never be
-        // dispatched (mirror of the production `register_tool_handler`).
+    ///
+    /// Registration-result parity with the production responder face (D13/T4
+    /// `ConnectResponder::register_tool_handler`): the grammar reject is
+    /// returned verbatim and `SpokeResult::Ok(())` is answered only after the
+    /// insertion. (The dialer-side `RemoteAdapter::register_tool_handler`
+    /// still panics; this double serves as the responder, so it carries the
+    /// responder-side contract.)
+    pub fn register_tool_handler(
+        &self,
+        capability_id: &str,
+        handler: ToolHandler,
+    ) -> SpokeResult<()> {
         match parse_tool_capability_id(capability_id) {
             SpokeResult::Ok(_) => {}
-            SpokeResult::Reject(reject) => panic!("{}", reject.message),
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         }
         self.inner
             .tool_handlers
             .lock()
             .expect("tool handlers lock")
             .insert(capability_id.to_owned(), handler);
+        SpokeResult::Ok(())
     }
 
     /// Issue a reverse invoke toward the dialer. `sequence` is `None` for

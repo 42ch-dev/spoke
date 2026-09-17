@@ -538,6 +538,20 @@ static void call_UniffiCallbackInterfacePortsHandlerMethod11(
 
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD12
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD12
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod12)(uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+
+// Making function static workaround:
+// https://github.com/golang/go/issues/11263
+static void call_UniffiCallbackInterfacePortsHandlerMethod12(
+				UniffiCallbackInterfacePortsHandlerMethod12 cb, uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus )
+{
+	return cb(uniffi_handle, extract_request_json, uniffi_out_return, callStatus );
+}
+
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_TOOL_HANDLER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_TOOL_HANDLER_METHOD0
 typedef void (*UniffiCallbackInterfaceToolHandlerMethod0)(uint64_t uniffi_handle, RustBuffer arguments_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
@@ -611,6 +625,7 @@ typedef struct UniffiVTableCallbackInterfacePortsHandler {
     UniffiCallbackInterfacePortsHandlerMethod9 project;
     UniffiCallbackInterfacePortsHandlerMethod10 compute;
     UniffiCallbackInterfacePortsHandlerMethod11 listForkTimelineEvents;
+    UniffiCallbackInterfacePortsHandlerMethod12 extract;
 } UniffiVTableCallbackInterfacePortsHandler;
 
 #endif
@@ -885,6 +900,11 @@ void uniffi_spoke_connect_fn_method_remoteadapterffi_close(uint64_t ptr, RustCal
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_COMPUTE
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_COMPUTE
 RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_compute(uint64_t ptr, RustBuffer compute_request_json, RustCallStatus *out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_EXTRACT
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_EXTRACT
+RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_extract(uint64_t ptr, RustBuffer extract_request_json, RustCallStatus *out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_GET_HOST_CAPABILITY_MANIFEST
@@ -1573,6 +1593,12 @@ uint16_t uniffi_spoke_connect_checksum_method_remoteadapterffi_compute(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_EXTRACT
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_EXTRACT
+uint16_t uniffi_spoke_connect_checksum_method_remoteadapterffi_extract(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_GET_HOST_CAPABILITY_MANIFEST
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_GET_HOST_CAPABILITY_MANIFEST
 uint16_t uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest(void
@@ -1771,6 +1797,12 @@ uint16_t uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_ev
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_EXTRACT
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_EXTRACT
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_extract(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_TOOLHANDLER_HANDLE
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_TOOLHANDLER_HANDLE
 uint16_t uniffi_spoke_connect_checksum_method_toolhandler_handle(void
@@ -1814,6 +1846,7 @@ uint32_t ffi_spoke_connect_uniffi_contract_version(void
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod9(uint64_t uniffi_handle, RustBuffer project_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod10(uint64_t uniffi_handle, RustBuffer compute_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod11(uint64_t uniffi_handle, RustBuffer scope_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
+ void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod12(uint64_t uniffi_handle, RustBuffer extract_request_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );
  void spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerFree(uint64_t handle);
 uint64_t spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerClone(uint64_t handle);
  void spoke_connect_ffi_foreign_tool_handler_cgo_dispatchCallbackInterfaceToolHandlerMethod0(uint64_t uniffi_handle, RustBuffer arguments_json, RustBuffer* uniffi_out_return, RustCallStatus* callStatus );

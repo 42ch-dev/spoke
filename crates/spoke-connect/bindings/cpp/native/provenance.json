@@ -6,17 +6,20 @@
       "sourceRevision": "7c5b044f0360639b46fb3d3db716bed29fc1488c",
       "rustcVersion": "rustc 1.100.0-nightly (215a8af4b 2026-09-15)\nbinary: rustc\ncommit-hash: 215a8af4bb4c106cccf6d6535f84eaae91818265\ncommit-date: 2026-09-15\nhost: aarch64-apple-darwin\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1",
       "compilerVersion": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
-      "buildFlags": [
-        "build",
-        "--locked",
-        "-p",
-        "spoke-connect-capi",
-        "--release",
-        "--target",
-        "aarch64-apple-darwin",
-        "--target-dir",
-        "target/cpp"
-      ],
+      "buildFlags": {
+        "cargoArgs": [
+          "build",
+          "--locked",
+          "-p",
+          "spoke-connect-capi",
+          "--release",
+          "--target",
+          "aarch64-apple-darwin",
+          "--target-dir",
+          "target/cpp"
+        ],
+        "rustFlags": []
+      },
       "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
       "artifacts": [
         {

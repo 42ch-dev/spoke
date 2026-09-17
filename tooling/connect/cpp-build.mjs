@@ -6,7 +6,8 @@
  * stages only the carrier's own consumer artifacts into the committed
  * `bindings/cpp/native/<rid>/` directory, and refreshes that RID's entry in
  * `bindings/cpp/native/provenance.json` (source revision, target, `rustc -Vv`,
- * compiler version, build flags, header SHA-256, native SHA-256).
+ * compiler version, build flags — the exact cargo argv plus the Rust flags this
+ * recipe injects — header SHA-256, native SHA-256).
  *
  * Targets (closed set — the C++ channel ships osx-arm64 + win-x64 only):
  *
@@ -17,10 +18,13 @@
  * macOS sets the `@rpath` install name with `install_name_tool -id` before
  * hashing, so the recorded SHA-256 describes the shipped file. Windows builds
  * against the dynamic Rust CRT (`-C target-feature=-crt-static`), matching the
- * C++ `/MD` release CRT of the consumers; that flag is passed through the
+ * C++ `/MD` release CRT of the consumers; that flag is appended to the
  * target-scoped `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` variable instead of
- * `RUSTFLAGS`, because `RUSTFLAGS` would replace the local toolchain's
- * configured rustflags for every target.
+ * `RUSTFLAGS`: `RUSTFLAGS` would replace the local toolchain's configured
+ * rustflags for every target, while the target-scoped variable only touches
+ * this target — and appending keeps the flags that variable already carries,
+ * since it is cargo's `target.<triple>.rustflags` and outranks
+ * `build.rustflags`.
  *
  * Build sources (the carrier crate, the linked implementation, the workspace
  * manifests) must be committed before staging: the recorded source revision
@@ -37,7 +41,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -183,6 +187,21 @@ function compilerVersion(target) {
   return line;
 }
 
+/**
+ * Adds the target's required Rust flags to `env`, appended to whatever
+ * `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` already carries so no pre-existing target
+ * rust setting is dropped, and returns the flags this recipe injected (recorded
+ * in provenance). Targets without extra flags leave `env` untouched.
+ */
+export function applyRustFlags(env, target, extraRustFlags) {
+  if (extraRustFlags.length === 0) return [];
+  const variable = `CARGO_TARGET_${target.toUpperCase().replace(/-/g, "_")}_RUSTFLAGS`;
+  const added = extraRustFlags.join(" ");
+  const configured = env[variable] ?? "";
+  env[variable] = configured ? `${configured} ${added}` : added;
+  return extraRustFlags;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const spec = TARGETS[args.target];
@@ -192,10 +211,7 @@ function main() {
 
   const cargoArgs = ["build", "--locked", "-p", CARRIER_PACKAGE, "--release", "--target", args.target, "--target-dir", TARGET_DIR_FLAG];
   const env = { ...process.env };
-  if (spec.extraRustFlags.length > 0) {
-    const variable = `CARGO_TARGET_${args.target.toUpperCase().replace(/-/g, "_")}_RUSTFLAGS`;
-    env[variable] = spec.extraRustFlags.join(" ");
-  }
+  const rustFlags = applyRustFlags(env, args.target, spec.extraRustFlags);
 
   const cargo = args.toolchain ? `cargo +${args.toolchain}` : "cargo";
   console.log(`cpp-build: ${cargo} ${cargoArgs.join(" ")}`);
@@ -234,7 +250,7 @@ function main() {
     sourceRevision: buildSourceRevision(),
     rustcVersion: capture("rustc", args.toolchain ? [`+${args.toolchain}`, "-Vv"] : ["-Vv"]),
     compilerVersion: compilerVersion(args.target),
-    buildFlags: cargoArgs,
+    buildFlags: { cargoArgs, rustFlags },
     headerSha256: sha256(HEADER),
     artifacts,
   };
@@ -266,4 +282,6 @@ function main() {
   console.log(`  provenance: ${relative(REPO_ROOT, PROVENANCE)}`);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

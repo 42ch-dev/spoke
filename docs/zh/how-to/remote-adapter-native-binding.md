@@ -96,11 +96,11 @@ adapter 还以相同的 JSON 进 / JSON 出形状暴露可选 port 面：`projec
 
 ## 4. 远程抽取与归属门禁
 
-另有两个受能力门控的面，与 port 方法搭载在同一已建立会话上。请在**双方**对等节点的 `HostCapabilityManifest` 中声明每个标志 —— 会话的协商集是双方握手的交集，因此只有一侧声明的标志并未协商。
+另有两个受能力门控的面，与 port 方法搭载在同一已建立会话上。请在**双方**对等节点的 `HostCapabilityManifest` 中声明每个标志 —— 会话的协商集是双方握手的交集，因此双方都声明的标志即进入协商集并得到服务。
 
 ### 远程抽取（`ke-extraction`）
 
-`extract` 是核心 op，由主机本地的抽取服务提供，而不是 `port.*` port 方法。载荷就是 JSON 形式的 `ExtractRequest` 本身 —— 仅含引用、无包装 —— 服务方主机通过自己的机制完成源加载与抽取，因此没有 loader 值作为参数或线上字段：
+`extract` 是核心 op，由主机本地的抽取服务在与 port 方法相同的 ports 对象上提供。载荷就是 JSON 形式的 `ExtractRequest` 本身，仅含引用，服务方主机通过自己的机制完成源加载与抽取，loader 值保留在主机本地：
 
 ```python
 extract_json = adapter.extract(
@@ -119,11 +119,11 @@ extract_json = adapter.extract(
 )
 ```
 
-返回的 JSON 是 `ExtractResponse` 成功分支：`candidates`（每个都是 `provisional`）加上已关联的 `run`，其 `run_id` 回显请求。各绑定以自己的命名风格暴露该方法 —— C# 与 Go 为 `Extract`，Kotlin、Swift 与 Python 为 `extract`（见[符号对照表](#各绑定符号对照表)）。提供抽取的主机声明 `input-source` 角色；角色不是能力，所以仅凭角色既不授予也不门禁该 op。在 FFI 上服务该 op 的是 `PortsHandler.extract(extract_request_json)` 回调，它执行完整的宿主本地抽取并应答线上 `ExtractResponse` JSON。
+返回的 JSON 是 `ExtractResponse` 成功分支：`candidates`（每个都是 `provisional`）加上已关联的 `run`，其 `run_id` 回显请求。各绑定以自己的命名风格暴露该方法 —— C# 与 Go 为 `Extract`，Kotlin、Swift 与 Python 为 `extract`（见[符号对照表](#各绑定符号对照表)）。manifest 独立声明能力与角色：提供抽取的主机把 `input-source` 角色通告为描述该主机的元数据，而门禁该 op 分派的是 `ke-extraction` 能力标志。在 FFI 上服务该 op 的是 `PortsHandler.extract(extract_request_json)` 回调，它执行完整的宿主本地抽取并应答线上 `ExtractResponse` JSON。
 
 ### 归属门禁（`ke-ownership`）
 
-Scope 承载 port 操作在 scope 携带非空 `viewpoint` 字符串时，除其行能力外还要求 `ke-ownership` —— 只读取 `payload.scope.viewpoint` 这一位置，不做规范化或递归扫描。FFI 上的见证是既有的 `RemoteAdapterFFI.list_knowledge_entries(scope_json)` 调用，保持不变：
+Scope 承载 port 操作在 scope 携带非空 `viewpoint` 字符串时，除其行能力外还要求 `ke-ownership` —— 门禁按原样读取 `payload.scope.viewpoint`，并把任何非空字符串视为承载归属。FFI 上的见证是既有的 `RemoteAdapterFFI.list_knowledge_entries(scope_json)` 调用，保持不变：
 
 ```python
 listed_json = adapter.list_knowledge_entries(
@@ -131,19 +131,19 @@ listed_json = adapter.list_knowledge_entries(
 )
 ```
 
-各绑定以自己的命名风格拼写该方法 —— C# 与 Go 为 `ListKnowledgeEntries`，Kotlin 与 Swift 为 `listKnowledgeEntries`，Python 为 `list_knowledge_entries`（见[符号对照表](#各绑定符号对照表)）。请在双方 manifest 中为视角承载查询声明 `ke-ownership`；不含视角的 Scope 仍仅按行能力放行。
+各绑定以自己的命名风格拼写该方法 —— C# 与 Go 为 `ListKnowledgeEntries`，Kotlin 与 Swift 为 `listKnowledgeEntries`，Python 为 `list_knowledge_entries`（见[符号对照表](#各绑定符号对照表)）。请在双方 manifest 中为视角承载查询声明 `ke-ownership`；`viewpoint` 为空或未设置的 Scope 仍仅按行能力放行。
 
 ### 抽取与归属的拒绝面
 
-两个面都经既有 `FfiError` 行结算 —— 不引入抽取专属或归属专属的错误类：
+两个面都经既有 `FfiError` 行结算，该行承载全部拒绝词汇：
 
 | 拒绝来源 | `FfiError` 行 |
 |----------|----------------|
-| 协商集缺少所需能力，或主机未提供抽取服务 | `Rejected`，`code: "CAPABILITY_PORT_MISSING"`，并保留 `wire_code: "op_unsupported"` |
-| 带外抽取回调自行拒绝该请求 | `Rejected`，保留回调自身的 `code` —— 拒绝抽取时为不带 `wire_code` 的 `CAPABILITY_PORT_MISSING`，因此被拒绝的抽取与缺失的能力可区分 |
-| 畸形的 `extract_request_json`，或不符合契约的回调输出 | `Rejected`，`code: "INVALID_INPUT"`（零线上流量）/ `code: "INTERNAL_ERROR"`（遏制，会话继续存活） |
+| 所需能力位于协商集之外，或主机不服务抽取 | `Rejected`，`code: "CAPABILITY_PORT_MISSING"`，并保留 `wire_code: "op_unsupported"` |
+| 带外抽取回调自行拒绝该请求 | `Rejected`，保留回调自身的 `code` —— 拒绝抽取时该 `code` 为 `CAPABILITY_PORT_MISSING`，`wire_code` 保持未设置，因此被拒绝的抽取与缺失的能力可区分 |
+| 畸形的 `extract_request_json`，或偏离契约载荷的回调输出 | `Rejected`，`code: "INVALID_INPUT"`（零线上流量）/ `code: "INTERNAL_ERROR"`（遏制，会话继续存活） |
 
-任一握手省略某个标志，它就不在协商交集中，且响应方会在带外回调运行之前拒绝 —— 缺失的能力绝不会表现为空成功。
+任一握手省略某个标志，它就不在协商交集中，且响应方会在带外回调运行之前拒绝 —— 缺失的能力以该拒绝呈现。
 
 ## 5. 读取会话信息
 

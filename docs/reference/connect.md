@@ -256,11 +256,11 @@ Optional-port denials surface through the same row as every other dispatch deny:
 
 ## Knowledge extraction and ownership (RemoteAdapter)
 
-Two capabilities extend the adapter beyond the port catalogue: `ke-extraction` for the `extract` core op, and `ke-ownership` for the Scope-bearing ops that carry a reader viewpoint. Both are ordinary capability strings declared in **both** peers' `HostCapabilityManifest.capabilities[]`, so the session's `negotiated_capabilities` (the both-hello intersection) must contain the flag before the op is served. Roles are not capabilities: the offering extract host declares the `input-source` role, which is descriptive metadata and never a selection or dispatch input.
+Two capabilities extend the adapter beyond the port catalogue: `ke-extraction` for the `extract` core op, and `ke-ownership` for the Scope-bearing ops that carry a reader viewpoint. Both are ordinary capability strings declared in **both** peers' `HostCapabilityManifest.capabilities[]`, so the session's `negotiated_capabilities` (the both-hello intersection) must contain the flag before the op is served. The manifest declares capabilities and roles independently: the offering extract host announces the `input-source` role, which is descriptive metadata about that host, while `ke-extraction` and `ke-ownership` are the capability flags that gate dispatch.
 
 ### Remote extraction (`ke-extraction`)
 
-`extract` is a core op, not a `port.*` method — the adapter delegates the whole extraction and decodes the peer's wire `ExtractResponse`:
+`extract` is a core op served as a whole-operation service face — the adapter delegates the whole extraction and decodes the peer's wire `ExtractResponse`:
 
 | Face | Method |
 |------|--------|
@@ -271,28 +271,28 @@ Two capabilities extend the adapter beyond the port catalogue: `ke-extraction` f
 | Wire position | Shape |
 |---------------|-------|
 | `op` | `extract` |
-| Request `payload` | The `ExtractRequest` itself — `{ run_id, sources, entry_types?, extensions? }`, no wrapper. `run_id` is a non-empty correlation id, `sources` a non-empty `SourceAnchor` list whose per-anchor optional span narrows the referenced artifact, and no inline source content is carried |
+| Request `payload` | The `ExtractRequest` itself — `{ run_id, sources, entry_types?, extensions? }` verbatim. `run_id` is a non-empty correlation id, `sources` a non-empty `SourceAnchor` list whose per-anchor optional span narrows the referenced artifact, and the payload carries those references with source content staying host-local |
 | Success `payload` | The `ExtractResponse` success branch — `{ candidates, run }`. An empty `candidates` array is a successful zero-result run; every returned candidate carries `status: "provisional"`; `run.run_id` echoes the request verbatim, and `run.method` / `run.coverage_hint` are the product's advisory run metadata |
 | Error | The `ExtractResponse` error branch reuses the shared `ErrorEnvelope` and travels the application reject path |
 
-The serving host owns source loading and extraction: no loader value is a request parameter or a wire field, and the requester needs only the negotiated flag. Serving is a connect-owned service face — TypeScript `RemoteExtractService.extract(request)` composed into the responder's `ports` (`BaselinePorts & Partial<RemoteExtractService>`, structurally probed as a function-valued `ports.extract`), Rust `RemoteExtractService` probed with `RemoteServePorts::as_extract` and opted into a mixed host through `RemoteServePortsComposite::with_extract`, and over FFI the `PortsHandler.extract(extract_request_json)` callback bridged by `into_remote_serve_ports`. Serving order is gate → probe → serve/deny, so a host that declares `ke-extraction` while providing no extract service answers the same deny branch as an absent `ports` face.
+The serving host owns source loading and extraction: the loader value stays host-local in its port, and the requester needs only the negotiated flag. Serving is a connect-owned service face — TypeScript `RemoteExtractService.extract(request)` composed into the responder's `ports` (`BaselinePorts & Partial<RemoteExtractService>`, structurally probed as a function-valued `ports.extract`), Rust `RemoteExtractService` probed with `RemoteServePorts::as_extract` and opted into a mixed host through `RemoteServePortsComposite::with_extract`, and over FFI the `PortsHandler.extract(extract_request_json)` callback bridged by `into_remote_serve_ports`. Serving order is gate → probe → serve/deny, so a host that declares `ke-extraction` and serves no extract service answers the same deny branch as a host that serves no `ports` face.
 
 ### The ownership gate (`ke-ownership`)
 
-The three Scope-bearing ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` — require `ke-ownership` **in addition to** their row capability when `payload.scope.viewpoint` is a non-empty string. The predicate reads exactly that declared location: no trimming, normalization, holder lookup, owner comparison or recursive scan, and no audience expansion, so every other Scope shape keeps the op on its row capability alone. A malformed Scope stays the existing `INVALID_INPUT` reject. `viewpoint` is a reader context, never a credential, and the entries and governance values the query returns are unchanged.
+The three Scope-bearing ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` — require `ke-ownership` **in addition to** their row capability when `payload.scope.viewpoint` is a non-empty string. The gate reads `payload.scope.viewpoint` as supplied and treats any non-empty string as ownership-bearing, so every other Scope shape keeps the op on its row capability alone. A malformed Scope stays the existing `INVALID_INPUT` reject. `viewpoint` is a reader context supplied in the request payload, and the entries and governance values the query returns are unchanged.
 
-The requirement is a capability rather than an op — it has no dispatch-table row, and it is evaluated at the remote dispatch boundary from the request payload. The responder applies it as a supplementary gate after the row-capability gate and before probing or calling a provider; the router applies it as a hard capability filter during peer selection, so peer advertisement alone is not authorization and a selected peer can still refuse. The dialing adapter sends the request without a local pre-gate and surfaces the peer's denial.
+The requirement is a capability: it is evaluated at the remote dispatch boundary from the request payload, and the dispatch table applies it to the three Scope-bearing rows above. The responder applies it as a supplementary gate after the row-capability gate and before probing or calling a provider; the router applies it as a hard capability filter during peer selection, so peer advertisement supplies the filter's input and a selected peer applies its own gate and can still refuse. The dialing adapter sends the request straight to the peer and surfaces the peer's denial.
 
 ### Refusal surfaces
 
-Every refusal stays on the existing error vocabulary — no extraction-specific or ownership-specific error class is added:
+Every refusal settles through the existing error vocabulary:
 
 | Refusal origin | Observed reject |
 |----------------|-----------------|
-| The negotiated set lacks the required capability (`ke-extraction`, or `ke-ownership` on a viewpoint-bearing Scope) | The dispatch deny: wire `op_unsupported` mapped to `CAPABILITY_PORT_MISSING` with `details.wire_code = "op_unsupported"` |
-| The flag is negotiated but the host provides no service face for the op (an `extract` request with no extract service, or an optional family with no provider method) | The same dispatch-deny branch |
-| A serving callback declines the invoke itself | The callback's application reject passes through verbatim — `CAPABILITY_PORT_MISSING` with no `wire_code` when the callback declines extraction, so a refused extraction stays distinguishable from a missing capability |
-| The router finds no peer advertising the required capability — a viewpoint-bearing Scope request with no `ke-ownership` peer | The existing local terminal reject: `CAPABILITY_PORT_MISSING` with `wire_code` = `kind` = `no_capable_peer` |
+| The required capability sits outside the negotiated set (`ke-extraction`, or `ke-ownership` on a viewpoint-bearing Scope) | The dispatch deny: wire `op_unsupported` mapped to `CAPABILITY_PORT_MISSING` with `details.wire_code = "op_unsupported"` |
+| The flag is negotiated and the host serves no service face for the op (an `extract` request against a host that serves no extract service, or an optional family whose provider method is unset) | The same dispatch-deny branch |
+| A serving callback declines the invoke itself | The callback's application reject passes through verbatim — when the callback declines extraction that `code` is `CAPABILITY_PORT_MISSING` and `wire_code` stays unset, so a refused extraction stays distinguishable from a missing capability |
+| The router finds the required capability unadvertised across its peer set — a viewpoint-bearing Scope request | The existing local terminal reject: `CAPABILITY_PORT_MISSING` with `wire_code` = `kind` = `no_capable_peer` |
 
 ## Tools (reverse invokes)
 

@@ -96,11 +96,11 @@ Concurrent calls on one adapter are allowed; responses demultiplex on `request_i
 
 ## 4. Remote extraction and the ownership gate
 
-Two more capability-gated surfaces ride the same established session as the port methods. Declare each flag in **both** peers' `HostCapabilityManifest` — the session's negotiated set is the both-hello intersection, so a flag only one side declared is not negotiated.
+Two more capability-gated surfaces ride the same established session as the port methods. Declare each flag in **both** peers' `HostCapabilityManifest` — the session's negotiated set is the both-hello intersection, so a flag both sides declared is negotiated and served.
 
 ### Remote extraction (`ke-extraction`)
 
-`extract` is a core op served by a host-local extract service, not a `port.*` port method. The payload is the `ExtractRequest` itself as JSON — reference-only, no wrapper — and the serving host runs source loading and extraction through its own machinery, so no loader value is an argument here or a field on the wire:
+`extract` is a core op served by a host-local extract service on the same ports object as the port methods. The payload is the `ExtractRequest` itself as JSON, reference-only, and the serving host runs source loading and extraction through its own machinery, so the loader value stays host-local:
 
 ```python
 extract_json = adapter.extract(
@@ -119,11 +119,11 @@ extract_json = adapter.extract(
 )
 ```
 
-The returned JSON is the `ExtractResponse` success branch: `candidates` (each `provisional`) plus the correlated `run`, whose `run_id` echoes the request. Each binding exposes the method under its own casing — `Extract` in C# and Go, `extract` in Kotlin, Swift, and Python (see the [symbol map](#symbol-map-across-the-bindings)). The offering extract host declares the `input-source` role; roles are not capabilities, so the role alone neither grants nor gates the op. Serving the op over FFI is the `PortsHandler.extract(extract_request_json)` callback, which runs the whole host-local extraction and answers the wire `ExtractResponse` JSON.
+The returned JSON is the `ExtractResponse` success branch: `candidates` (each `provisional`) plus the correlated `run`, whose `run_id` echoes the request. Each binding exposes the method under its own casing — `Extract` in C# and Go, `extract` in Kotlin, Swift, and Python (see the [symbol map](#symbol-map-across-the-bindings)). The manifest declares capabilities and roles independently: the offering extract host announces the `input-source` role as descriptive metadata about that host, while `ke-extraction` is the capability flag that gates dispatch of the op. Serving the op over FFI is the `PortsHandler.extract(extract_request_json)` callback, which runs the whole host-local extraction and answers the wire `ExtractResponse` JSON.
 
 ### The ownership gate (`ke-ownership`)
 
-A Scope-bearing port op requires `ke-ownership` in addition to its row capability when the scope carries a non-empty `viewpoint` string — read exactly at `payload.scope.viewpoint`, with no normalization or recursive scan. Over FFI the witness is the existing `RemoteAdapterFFI.list_knowledge_entries(scope_json)` call, unchanged:
+A Scope-bearing port op requires `ke-ownership` in addition to its row capability when the scope carries a non-empty `viewpoint` string — the gate reads `payload.scope.viewpoint` as supplied and treats any non-empty string as ownership-bearing. Over FFI the witness is the existing `RemoteAdapterFFI.list_knowledge_entries(scope_json)` call, unchanged:
 
 ```python
 listed_json = adapter.list_knowledge_entries(
@@ -131,19 +131,19 @@ listed_json = adapter.list_knowledge_entries(
 )
 ```
 
-Each binding spells that method in its own casing — `ListKnowledgeEntries` in C# and Go, `listKnowledgeEntries` in Kotlin and Swift, `list_knowledge_entries` in Python (see the [symbol map](#symbol-map-across-the-bindings)). Declare `ke-ownership` in both manifests for a viewpoint-bearing query; a viewpoint-free Scope keeps serving under the row capability alone.
+Each binding spells that method in its own casing — `ListKnowledgeEntries` in C# and Go, `listKnowledgeEntries` in Kotlin and Swift, `list_knowledge_entries` in Python (see the [symbol map](#symbol-map-across-the-bindings)). Declare `ke-ownership` in both manifests for a viewpoint-bearing query; a Scope whose `viewpoint` is empty or unset keeps serving under the row capability alone.
 
 ### Extraction and ownership refusals
 
-Both surfaces settle through the existing `FfiError` rows — no extraction-specific or ownership-specific error class is added:
+Both surfaces settle through the existing `FfiError` rows, which carry the whole refusal vocabulary:
 
 | Refusal origin | `FfiError` row |
 |----------------|----------------|
-| The negotiated set lacks the required capability, or the host provides no extract service | `Rejected` with `code: "CAPABILITY_PORT_MISSING"` and the preserved `wire_code: "op_unsupported"` |
-| The foreign extract callback declines the request itself | `Rejected` with the callback's own `code` preserved — `CAPABILITY_PORT_MISSING` with no `wire_code` when it declines extraction, so a refused extraction stays distinguishable from a missing capability |
-| Malformed `extract_request_json`, or callback output that is not a contract payload | `Rejected` with `code: "INVALID_INPUT"` (zero wire traffic) / `code: "INTERNAL_ERROR"` (containment, the session survives) |
+| The required capability sits outside the negotiated set, or the host serves no extract service | `Rejected` with `code: "CAPABILITY_PORT_MISSING"` and the preserved `wire_code: "op_unsupported"` |
+| The foreign extract callback declines the request itself | `Rejected` with the callback's own `code` preserved — when it declines extraction that `code` is `CAPABILITY_PORT_MISSING` and `wire_code` stays unset, so a refused extraction stays distinguishable from a missing capability |
+| Malformed `extract_request_json`, or callback output that departs from the contract payload | `Rejected` with `code: "INVALID_INPUT"` (zero wire traffic) / `code: "INTERNAL_ERROR"` (containment, the session survives) |
 
-Either hello omitting a flag leaves it out of the negotiated intersection, and the responder refuses before the foreign callback runs — a missing capability is never an empty success.
+Either hello omitting a flag leaves it out of the negotiated intersection, and the responder refuses before the foreign callback runs — a missing capability surfaces as that refusal.
 
 ## 5. Read session info
 

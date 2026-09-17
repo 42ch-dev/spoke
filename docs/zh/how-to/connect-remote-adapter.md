@@ -194,11 +194,11 @@ Rust adapter 以 `project` / `compute` / `list_fork_timeline_events` 暴露同�
 
 ## 5. 远程抽取与归属门禁
 
-另有两个面搭载在同一已建立会话上，各自处于自己的能力标志之后：`extract` 核心 op 把整个抽取委派给对等节点；归属门禁则把 Scope 承载操作附加在读者视角之上。请在**双方**对等节点的 `HostCapabilityManifest.capabilities[]` 中声明每个标志 —— `negotiated_capabilities` 是双方握手的交集，因此只有一侧声明的标志并未协商，响应方会拒绝该调用，而不是把对等节点静默跳过。
+另有两个面搭载在同一已建立会话上，各自处于自己的能力标志之后：`extract` 核心 op 把整个抽取委派给对等节点；归属门禁则把 Scope 承载操作附加在读者视角之上。请在**双方**对等节点的 `HostCapabilityManifest.capabilities[]` 中声明每个标志 —— `negotiated_capabilities` 是双方握手的交集，因此双方都声明的标志即进入协商集并得到服务，仅一侧声明的标志则由响应方应答其拒绝分支。
 
 ### 远程抽取（`ke-extraction`）
 
-`extract` 是核心 op，不是 `port.*` port 方法：adapter 委派整个抽取，并解码对等节点的线上 `ExtractResponse`。请求只携带源引用 —— 服务方主机拥有源加载与抽取，因此没有 loader 值作为参数或线上字段：
+`extract` 是一个整体操作服务面：adapter 委派整个抽取，并解码对等节点的线上 `ExtractResponse`。请求携带源引用，服务方主机拥有源加载与抽取，loader 值保留在其主机本地：
 
 ```ts
 const result = await adapter.extract(request); // request: ExtractRequest
@@ -206,11 +206,11 @@ const result = await adapter.extract(request); // request: ExtractRequest
 
 `request` 为 `{ run_id, sources, entry_types?, extensions? }`：非空关联 id，加上非空 `SourceAnchor`（溯源指针）列表，每个锚点的可选 span 收窄所引用的制品。成功分支为 `{ candidates, run }` —— `candidates` 为空数组是成功的零结果运行，每个返回的候选都携带 `status: "provisional"`，且 `run.run_id` 原样回显请求。Rust 参考实现以 `adapter.extract(request).await` 驱动同一 op；FFI 上的方法是 `RemoteAdapterFFI.extract(extract_request_json)`。
 
-服务抽取是一个 connect 拥有的服务面：TypeScript `ports` provider 增加 `RemoteExtractService.extract(request)`；Rust 参考实现注入 `RemoteExtractService`（混合主机经 `RemoteServePortsComposite::with_extract` 组合）；FFI 响应方经 `PortsHandler.extract(extract_request_json)` 服务它。提供抽取的主机声明 `input-source` 角色 —— 角色不是能力，所以仅凭角色既不授予也不门禁该 op。
+服务抽取是一个 connect 拥有的服务面：TypeScript `ports` provider 增加 `RemoteExtractService.extract(request)`；Rust 参考实现注入 `RemoteExtractService`（混合主机经 `RemoteServePortsComposite::with_extract` 组合）；FFI 响应方经 `PortsHandler.extract(extract_request_json)` 服务它。manifest 独立声明能力与角色：提供抽取的主机把 `input-source` 角色通告为描述该主机的元数据，而门禁该 op 分派的是 `ke-extraction` 能力标志。
 
 ### 归属门禁（`ke-ownership`）
 
-三个 Scope 承载 port 操作 —— `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events` 与 `port.fork.list_timeline_events` —— 在请求的 Scope 携带非空 `viewpoint` 字符串时，额外要求 `ke-ownership`。谓词只读取这一声明位置：不做去空白、规范化、持有者查找或递归扫描，因此不含视角的 Scope 仍仅按该 op 的行能力放行。方法调用不变 —— 既有的作用域查询承载该门禁。Rust 参考实现以 `adapter.list_knowledge_entries(&scope).await` 驱动同一见证；FFI 上则是 `RemoteAdapterFFI.list_knowledge_entries(scope_json)`：
+三个 Scope 承载 port 操作 —— `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events` 与 `port.fork.list_timeline_events` —— 在请求的 Scope 携带非空 `viewpoint` 字符串时，额外要求 `ke-ownership`。门禁按原样读取 `payload.scope.viewpoint`，并把任何非空字符串视为承载归属，因此 `viewpoint` 为空或未设置的 Scope 仍仅按该 op 的行能力放行。方法调用不变 —— 既有的作用域查询承载该门禁。Rust 参考实现以 `adapter.list_knowledge_entries(&scope).await` 驱动同一见证；FFI 上则是 `RemoteAdapterFFI.list_knowledge_entries(scope_json)`：
 
 ```ts
 const listed = await adapter.listKnowledgeEntries({

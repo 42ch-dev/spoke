@@ -195,11 +195,11 @@ The Rust adapter exposes the same faces as `project` / `compute` / `list_fork_ti
 
 ## 5. Remote extraction and the ownership gate
 
-Two further surfaces ride the same established session, each behind its own capability flag: the `extract` core op delegates a whole extraction to the peer, and the ownership gate conditions the Scope-bearing ops on a reader viewpoint. Declare each flag in **both** peers' `HostCapabilityManifest.capabilities[]` — `negotiated_capabilities` is the both-hello intersection, so a flag only one side declared is not negotiated and the responder denies the invoke instead of the peer being skipped.
+Two further surfaces ride the same established session, each behind its own capability flag: the `extract` core op delegates a whole extraction to the peer, and the ownership gate conditions the Scope-bearing ops on a reader viewpoint. Declare each flag in **both** peers' `HostCapabilityManifest.capabilities[]` — `negotiated_capabilities` is the both-hello intersection, so a flag both sides declared is negotiated and the invoke is served, and a flag present on one side only answers the responder's deny branch.
 
 ### Remote extraction (`ke-extraction`)
 
-`extract` is a core op rather than a `port.*` port method: the adapter delegates the whole extraction and decodes the peer's wire `ExtractResponse`. The request carries source references only — the serving host owns source loading and extraction, so no loader value is an argument here or a field on the wire:
+`extract` is a core op served as a whole-operation service face: the adapter delegates the whole extraction and decodes the peer's wire `ExtractResponse`. The request carries source references, the serving host owns source loading and extraction, and the loader value stays host-local inside its own machinery:
 
 ```ts
 const result = await adapter.extract(request); // request: ExtractRequest
@@ -207,11 +207,11 @@ const result = await adapter.extract(request); // request: ExtractRequest
 
 `request` is `{ run_id, sources, entry_types?, extensions? }`: a non-empty correlation id plus a non-empty `SourceAnchor` list, each anchor's optional span narrowing the referenced artifact. The success branch is `{ candidates, run }` — an empty `candidates` array is a successful zero-result run, every returned candidate carries `status: "provisional"`, and `run.run_id` echoes the request verbatim. The Rust reference drives the same op with `adapter.extract(request).await`, and over FFI the method is `RemoteAdapterFFI.extract(extract_request_json)`.
 
-Serving extraction is a connect-owned service face: the TypeScript `ports` provider adds `RemoteExtractService.extract(request)`, the Rust reference injects a `RemoteExtractService` (composing a mixed host with `RemoteServePortsComposite::with_extract`), and the FFI responder serves it through `PortsHandler.extract(extract_request_json)`. The offering extract host declares the `input-source` role — roles are not capabilities, so the role alone neither grants nor gates the op.
+Serving extraction is a connect-owned service face: the TypeScript `ports` provider adds `RemoteExtractService.extract(request)`, the Rust reference injects a `RemoteExtractService` (composing a mixed host with `RemoteServePortsComposite::with_extract`), and the FFI responder serves it through `PortsHandler.extract(extract_request_json)`. The manifest declares capabilities and roles independently: the offering extract host announces the `input-source` role as descriptive metadata about that host, while `ke-extraction` is the capability flag that gates dispatch of the op.
 
 ### The ownership gate (`ke-ownership`)
 
-The three Scope-bearing port ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, and `port.fork.list_timeline_events` — additionally require `ke-ownership` when the request's Scope carries a non-empty `viewpoint` string. The predicate reads exactly that declared location: no trimming, normalization, holder lookup or recursive scan, so a viewpoint-free Scope keeps serving under the op's row capability alone. The method call is unchanged — the existing scope query carries the gate. The Rust reference drives the same witness as `adapter.list_knowledge_entries(&scope).await`, and over FFI it is `RemoteAdapterFFI.list_knowledge_entries(scope_json)`:
+The three Scope-bearing port ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, and `port.fork.list_timeline_events` — additionally require `ke-ownership` when the request's Scope carries a non-empty `viewpoint` string. The gate reads `payload.scope.viewpoint` as supplied and treats any non-empty string as ownership-bearing, so a Scope whose `viewpoint` is empty or unset keeps serving under the op's row capability alone. The method call is unchanged — the existing scope query carries the gate. The Rust reference drives the same witness as `adapter.list_knowledge_entries(&scope).await`, and over FFI it is `RemoteAdapterFFI.list_knowledge_entries(scope_json)`:
 
 ```ts
 const listed = await adapter.listKnowledgeEntries({

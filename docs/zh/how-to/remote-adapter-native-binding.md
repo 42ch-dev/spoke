@@ -94,7 +94,58 @@ adapter 还以相同的 JSON 进 / JSON 出形状暴露可选 port 面：`projec
 
 同一 adapter 上的并发调用被允许；响应按 `request_id` 解复用，可能乱序到达。
 
-## 4. 读取会话信息
+## 4. 远程抽取与归属门禁
+
+另有两个受能力门控的面，与 port 方法搭载在同一已建立会话上。请在**双方**对等节点的 `HostCapabilityManifest` 中声明每个标志 —— 会话的协商集是双方握手的交集，因此双方都声明的标志即进入协商集并得到服务。
+
+### 远程抽取（`ke-extraction`）
+
+`extract` 是核心 op，由主机本地的抽取服务在与 port 方法相同的 ports 对象上提供。载荷就是 JSON 形式的 `ExtractRequest` 本身，仅含引用，服务方主机通过自己的机制完成源加载与抽取，loader 值保留在主机本地：
+
+```python
+extract_json = adapter.extract(
+    json.dumps(
+        {
+            "run_id": "run-harbor-1",
+            "sources": [
+                {
+                    "schema_version": 1,
+                    "source_id": "harbor/source/log",
+                    "extensions": {},
+                }
+            ],
+        }
+    )
+)
+```
+
+返回的 JSON 是 `ExtractResponse` 成功分支：`candidates`（每个都是 `provisional`）加上已关联的 `run`，其 `run_id` 回显请求。各绑定以自己的命名风格暴露该方法 —— C# 与 Go 为 `Extract`，Kotlin、Swift 与 Python 为 `extract`（见[符号对照表](#各绑定符号对照表)）。manifest 独立声明能力与角色：提供抽取的主机把 `input-source` 角色通告为描述该主机的元数据，而门禁该 op 分派的是 `ke-extraction` 能力标志。在 FFI 上服务该 op 的是 `PortsHandler.extract(extract_request_json)` 回调，它执行完整的宿主本地抽取并应答线上 `ExtractResponse` JSON。
+
+### 归属门禁（`ke-ownership`）
+
+Scope 承载 port 操作在 scope 携带非空 `viewpoint` 字符串时，除其行能力外还要求 `ke-ownership` —— 门禁按原样读取 `payload.scope.viewpoint`，并把任何非空字符串视为承载归属。FFI 上的见证是既有的 `RemoteAdapterFFI.list_knowledge_entries(scope_json)` 调用，保持不变：
+
+```python
+listed_json = adapter.list_knowledge_entries(
+    json.dumps({"scope_id": "toy-scope-001", "viewpoint": "kb_tw_mira"})
+)
+```
+
+各绑定以自己的命名风格拼写该方法 —— C# 与 Go 为 `ListKnowledgeEntries`，Kotlin 与 Swift 为 `listKnowledgeEntries`，Python 为 `list_knowledge_entries`（见[符号对照表](#各绑定符号对照表)）。请在双方 manifest 中为视角承载查询声明 `ke-ownership`；`viewpoint` 为空或未设置的 Scope 仍仅按行能力放行。
+
+### 抽取与归属的拒绝面
+
+两个面都经既有 `FfiError` 行结算，该行承载全部拒绝词汇：
+
+| 拒绝来源 | `FfiError` 行 |
+|----------|----------------|
+| 所需能力位于协商集之外，或主机不服务抽取 | `Rejected`，`code: "CAPABILITY_PORT_MISSING"`，并保留 `wire_code: "op_unsupported"` |
+| 带外抽取回调自行拒绝该请求 | `Rejected`，保留回调自身的 `code` —— 拒绝抽取时该 `code` 为 `CAPABILITY_PORT_MISSING`，`wire_code` 保持未设置，因此被拒绝的抽取与缺失的能力可区分 |
+| 畸形的 `extract_request_json`，或偏离契约载荷的回调输出 | `Rejected`，`code: "INVALID_INPUT"`（零线上流量）/ `code: "INTERNAL_ERROR"`（遏制，会话继续存活） |
+
+任一握手省略某个标志，它就不在协商交集中，且响应方会在带外回调运行之前拒绝 —— 缺失的能力以该拒绝呈现。
+
+## 5. 读取会话信息
 
 adapter 暴露只读的会话元数据：
 
@@ -107,7 +158,7 @@ adapter.remote_manifest()  # 远端对等节点的 HostCapabilityManifest，JSON
 
 `session_id` / `remote_peer_id` / `remote_manifest` 在会话建立后填充；会话信息来自已认证握手与会话核心，在建立时捕获。
 
-## 5. 用 `MultiPeerRouterFFI` 跨多个对等节点路由
+## 6. 用 `MultiPeerRouterFFI` 跨多个对等节点路由
 
 `new_multi_peer_router_ffi()` 返回一个空路由器。拨号每个对等节点的 `RemoteAdapterFFI`（第 2 步），注册已建立的句柄，之后每次 port 调用都会路由到恰好一个有能力的对等节点：
 
@@ -125,7 +176,7 @@ result_json = router.get_knowledge_entry(entry_id)  # 路由到有能力的对�
 
 选择过程读取每个已注册对等节点缓存的 `HostCapabilityManifest` —— 对操作必需能力与精确命名空间的硬门禁、软角色偏好，以及确定性的最小 `peer_id` 决胜规则。当没有已注册对等节点通过硬门禁时，调用以 `CAPABILITY_PORT_MISSING` 与 `wire_code = "no_capable_peer"` 拒绝；注册一个满足条件的对等节点，然后用新的 `request_id` 重新调用。路由器还暴露合成视图与逐对等节点视图的 `HostManifestPort`（`get_host_capability_manifest` 与 `list_peer_host_capability_manifests`）。完整选择契约见[跨多个对等节点路由](/zh/how-to/multi-peer-routing)。
 
-## 6. 在 FFI 上服务并调用工具
+## 7. 在 FFI 上服务并调用工具
 
 FFI 面在两个方向携带工具契约：拨号方调用响应方经带外 `ToolHandler`（工具处理器）回调服务的工具；响应方反向调用拨号方经 `register_tool_handler` 注册的处理器服务的工具。`invoke_tool` 存在于 `RemoteAdapterFFI`、`MultiPeerRouterFFI` 与 `ConnectResponderFFI` 上；`register_tool_handler` 存在于 `RemoteAdapterFFI` 与 `ConnectResponderFFI` 上。
 
@@ -193,11 +244,11 @@ while responder.state() != "Established":
     time.sleep(0.01)
 ```
 
-构造函数的 `Result` 槽只携带配置校验失败 —— manifest JSON、种子长度或对等节点密钥长度 → `Dial { kind: "config" }`。`ports` 是一个**可选**的带外回调 ports 面：传入 `PortsHandler` 以经回调桥服务 `port.*` 调用（基线 + 可选族），或传 `None` 保留文档化的缺席 ports 拒绝分支 —— 此时每条 `port.*` 调用都以 `CAPABILITY_PORT_MISSING`（`wire_code: "op_unsupported"`）应答（与不带 `ports` 的库响应方相同的 fail-closed 行）。见下文[`PortsHandler` 回调](#portshandler-回调)。
+构造函数的 `Result` 槽只携带配置校验失败 —— manifest JSON、种子长度或对等节点密钥长度 → `Dial { kind: "config" }`。`ports` 是一个**可选**的带外回调 ports 面：传入 `PortsHandler` 以经回调桥服务 `port.*` 调用（基线 + 可选族）与 `extract` 核心 op，或传 `None` 保留文档化的缺席 ports 拒绝分支 —— 此时每条 `port.*` 调用与每条 `extract` 调用都以 `CAPABILITY_PORT_MISSING`（`wire_code: "op_unsupported"`）应答（与不带 `ports` 的库响应方相同的 fail-closed 行）。见下文[`PortsHandler` 回调](#portshandler-回调)。
 
 ### `PortsHandler` 回调
 
-`PortsHandler` 是响应方的带外回调 ports 面：每个方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷 —— 与库响应方经其 `ports` 选项服务的目录相同。接口有十二个方法（九个基线 + 三个可选）：
+`PortsHandler` 是响应方的带外回调 ports 面：每个方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷 —— 与库响应方经其 `ports` 选项服务的目录相同，外加 `extract` 服务面。接口有十三个方法（九个基线 + 三个可选 + `extract`）：
 
 | 方法 | 族 | 服务的 op |
 |------|----|-----------|
@@ -211,8 +262,9 @@ while responder.state() != "Established":
 | `project(project_request_json)` | `l2-computable` | `port.computable.project` |
 | `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+| `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
-`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。方法可以抛出 `FfiError.Rejected` 拒绝它不服务的 op；该拒绝原样穿透给调用方作为应用拒绝。可选族仅在双方协商了该族（双方 manifest 都声明）时才被服务 —— 能力门禁先于回调运行，声明了某族却不提供其方法的主机应答与缺席 `ports` 相同的拒绝分支。
+`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。方法可以抛出 `FfiError.Rejected` 拒绝它不服务的 op；该拒绝原样穿透给调用方作为应用拒绝 —— 抽取回调正是以此拒绝抽取。可选族仅在双方协商了该族（双方 manifest 都声明）时才被服务 —— 能力门禁先于回调运行，声明了某族却不提供其方法的主机应答与缺席 `ports` 相同的拒绝分支。
 
 参考形状随 Python 回环 smoke 交付（`bindings/python/Smoke/test_ports_loopback.py`）；可选方法展示 JSON 契约：
 
@@ -332,7 +384,7 @@ except spoke_connect.FfiError.Rejected as passed:
 
 每个已建立的 FFI 会话在每个传输端固定占用一个阻塞线程池线程（接收循环阻塞在带外 `recv` 上）。按 tokio 默认的 512 个阻塞线程计，宿主进程在新增回调工作排队前大约可支撑 256 个全双工会话 —— 请据此为长期连接的规模设限。
 
-## 7. 错误
+## 8. 错误
 
 每个 FFI 调用都经 `FfiError` 面结算 —— adapter 存在之前的拨号失败、invoke 路径的 `SpokeResult` 拒绝，以及回调 transport 自身的失败：
 
@@ -353,7 +405,7 @@ except spoke_connect.FfiError.Rejected as passed:
 
 | 行 | 形状 |
 |----|------|
-| 应用拒绝 | `code` 原样保留（例如 `KNOWLEDGE_ENTRY_NOT_FOUND`） |
+| 应用拒绝 | `code` / `message` 原样保留（例如 `KNOWLEDGE_ENTRY_NOT_FOUND`），`kind` / `wire_code` 仅在映射定义的场景存在 |
 | 载荷 JSON 解析失败 | `INVALID_INPUT`，无 `kind` / `wire_code` |
 | `INTERNAL_ERROR` 行 | `kind` ∈ {`transport`、`session_closed`、`timeout`、`panic`、`correlation_mismatch`、`sequence_exhausted`、`envelope_auth_missing`、`envelope_auth_invalid`、`envelope_auth_session_unbound`} |
 | 分派拒绝 | `CAPABILITY_PORT_MISSING`，`wire_code` = `op_unsupported` / `capability_missing` |
@@ -379,6 +431,8 @@ except spoke_connect.FfiError.Rejected as passed:
 | 路由器对象 | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
 | port 方法 | PascalCase（`GetKnowledgeEntry`） | PascalCase（`GetKnowledgeEntry`） | camelCase（`getKnowledgeEntry`） | snake_case（`get_knowledge_entry`） | camelCase（`getKnowledgeEntry`） |
 | 可选 port 方法 | `Project` / `Compute` / `ListForkTimelineEvents` | `Project` / `Compute` / `ListForkTimelineEvents` | `project` / `compute` / `listForkTimelineEvents` | `project` / `compute` / `list_fork_timeline_events` | `project` / `compute` / `listForkTimelineEvents` |
+| 远程抽取（`ke-extraction`） | `Extract(extractRequestJson)` | `Extract(extractRequestJson)` | `extract(extractRequestJson)` | `extract(extract_request_json)` | `extract(extractRequestJson:)` |
+| 归属作用域查询（`ke-ownership`） | `ListKnowledgeEntries(scopeJson)` | `ListKnowledgeEntries(scopeJson)` | `listKnowledgeEntries(scopeJson)` | `list_knowledge_entries(scope_json)` | `listKnowledgeEntries(scopeJson:)` |
 | 工具调用 | `InvokeTool(...)` | `InvokeTool(...)` | `invokeTool(...)` | `invoke_tool(...)` | `invokeTool(capabilityId:argumentsJson:)` |
 | 工具服务注册 | `RegisterToolHandler(...)` | `RegisterToolHandler(...)` | `registerToolHandler(...)` | `register_tool_handler(...)` | `registerToolHandler(capabilityId:handler:)` |
 | 工具处理器回调 | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` |

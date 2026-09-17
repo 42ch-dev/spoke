@@ -327,6 +327,13 @@ typedef void (*UniffiCallbackInterfacePortsHandlerMethod11)(uint64_t, RustBuffer
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD12
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PORTS_HANDLER_METHOD12
+typedef void (*UniffiCallbackInterfacePortsHandlerMethod12)(uint64_t, RustBuffer, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_TOOL_HANDLER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_TOOL_HANDLER_METHOD0
 typedef void (*UniffiCallbackInterfaceToolHandlerMethod0)(uint64_t, RustBuffer, RustBuffer* _Nonnull, 
@@ -372,6 +379,7 @@ typedef struct UniffiVTableCallbackInterfacePortsHandler {
     UniffiCallbackInterfacePortsHandlerMethod9 _Nonnull project;
     UniffiCallbackInterfacePortsHandlerMethod10 _Nonnull compute;
     UniffiCallbackInterfacePortsHandlerMethod11 _Nonnull listForkTimelineEvents;
+    UniffiCallbackInterfacePortsHandlerMethod12 _Nonnull extract;
 } UniffiVTableCallbackInterfacePortsHandler;
 
 #endif
@@ -646,6 +654,11 @@ void uniffi_spoke_connect_fn_method_remoteadapterffi_close(uint64_t ptr, RustCal
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_COMPUTE
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_COMPUTE
 RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_compute(uint64_t ptr, RustBuffer compute_request_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_EXTRACT
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_EXTRACT
+RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_extract(uint64_t ptr, RustBuffer extract_request_json, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_FN_METHOD_REMOTEADAPTERFFI_GET_HOST_CAPABILITY_MANIFEST
@@ -1334,6 +1347,12 @@ uint16_t uniffi_spoke_connect_checksum_method_remoteadapterffi_compute(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_EXTRACT
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_EXTRACT
+uint16_t uniffi_spoke_connect_checksum_method_remoteadapterffi_extract(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_GET_HOST_CAPABILITY_MANIFEST
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_REMOTEADAPTERFFI_GET_HOST_CAPABILITY_MANIFEST
 uint16_t uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest(void
@@ -1529,6 +1548,12 @@ uint16_t uniffi_spoke_connect_checksum_method_portshandler_compute(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_LIST_FORK_TIMELINE_EVENTS
 #define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_LIST_FORK_TIMELINE_EVENTS
 uint16_t uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_EXTRACT
+#define UNIFFI_FFIDEF_UNIFFI_SPOKE_CONNECT_CHECKSUM_METHOD_PORTSHANDLER_EXTRACT
+uint16_t uniffi_spoke_connect_checksum_method_portshandler_extract(void
     
 );
 #endif

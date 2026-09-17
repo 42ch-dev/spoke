@@ -8,11 +8,18 @@
  * (listForkTimelineEvents over the seeded storm fork) families. Port shapes
  * mirror the toy-world reference adapter; the engine owns all storage and
  * derivation.
+ *
+ * The adapter also serves the whole-operation `ke-extraction` face: `extract`
+ * runs the library `orchestrateExtract` over a host-local deterministic
+ * loader and extractor. It is a service on the injected ports object, not a
+ * `port.*` catalogue method.
  */
 
 import type {
   ComputeRequest,
   ComputeResponse,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   ForkId,
   HostCapabilityManifest,
@@ -27,8 +34,11 @@ import type {
 import {
   filterKnowledgeEntriesByScope,
   filterTimelineEventsByScope,
+  orchestrateExtract,
   spokeOk,
+  type ExtractionPort,
   type FullPorts,
+  type RunExtractor,
   type SpokeResult,
 } from "@42ch/spoke-operations";
 
@@ -43,6 +53,74 @@ import {
 } from "../tools/toy-world-tools.js";
 
 /**
+ * Loader-only sentinel: a value that exists solely inside the host-local
+ * loaded input. It never crosses the wire, and the integration suite scans
+ * the captured request/response frames for it.
+ */
+export const DEMO_EXTRACTION_CANARY = "demo-loader-only-canary";
+
+/** Advisory extraction method name carried in `run.method` (open vocabulary). */
+export const DEMO_EXTRACTION_METHOD = "demo.rule-based";
+
+/** Host-local loaded value — never a request/response wire object. */
+interface DemoLoadedExtractionInput {
+  canary: string;
+  resolved_source_ids: string[];
+}
+
+/**
+ * Deterministic candidate id: a pure function of the request (`run_id` plus
+ * the source index), so a repeated request yields identical candidates and
+ * nothing depends on wall-clock or random state.
+ */
+export function demoExtractCandidateEntryId(
+  runId: string,
+  index: number,
+): string {
+  return `demo-harbor/extracted/${runId}/${index + 1}`;
+}
+
+/**
+ * Demo source loader. The demo holds no external source store, so resolving
+ * the referenced sources is the deterministic mapping of the request anchors
+ * onto their `source_id`s; a product loader fetches the referenced material
+ * here. The returned value stays host-local to the `ExtractionPort`.
+ */
+const DEMO_EXTRACTION_PORT: ExtractionPort = {
+  async loadExtractionInput(request) {
+    const loaded: DemoLoadedExtractionInput = {
+      canary: DEMO_EXTRACTION_CANARY,
+      resolved_source_ids: request.sources.map((anchor) => anchor.source_id),
+    };
+    return spokeOk(loaded);
+  },
+};
+
+/**
+ * Demo extractor: one provisional candidate per referenced source, derived
+ * from the loaded reference list plus the request's `run_id`. Client-supplied
+ * content is never echoed — a candidate carries the request anchor as a
+ * pointer and the loaded canary never enters a candidate.
+ */
+const runDemoExtractor: RunExtractor = async ({ request, input }) => {
+  const loaded = input as DemoLoadedExtractionInput;
+  const candidates: KnowledgeEntry[] = request.sources.map((anchor, index) => ({
+    schema_version: 1,
+    entry_id: demoExtractCandidateEntryId(request.run_id, index),
+    entry_type: "note",
+    canonical_name: anchor.label ?? anchor.source_id,
+    status: "provisional",
+    body: {
+      summary: `Candidate ${index + 1} resolved from ${loaded.resolved_source_ids[index]} (run ${request.run_id}).`,
+    },
+    source_anchor: anchor,
+    extensions: {},
+  }));
+
+  return spokeOk({ candidates, method: DEMO_EXTRACTION_METHOD });
+};
+
+/**
  * Server self-manifest (verbatim per plan) — served by
  * getHostCapabilityManifest. The tool capability ids are listed so the
  * client's reverse-invoked tools are negotiated (the negotiated set is the
@@ -50,18 +128,24 @@ import {
  * descriptors the client serves, and `validateManifestTools` passes on this
  * manifest. The optional `l2-computable` / `l5-fork` families are declared
  * because the provider serves them through the ports face (the e2e's
- * undeclared-capability deny uses a variant of this manifest).
+ * undeclared-capability deny uses a variant of this manifest). `ke-extraction`
+ * and `ke-ownership` are declared because the host serves the extract service
+ * and honors viewpoint-bearing Scope requests; `input-source` records the
+ * offering role for extraction. Roles are not capabilities — the two flags are
+ * independent of them.
  */
 export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "demo-inference-host",
-  roles: ["checker", "assembler"],
+  roles: ["checker", "assembler", "input-source"],
   capabilities: [
     "spoke-baseline",
     TOY_WORLD_ROLL_DICE_ID,
     TOY_WORLD_LORE_LOOKUP_ID,
     "l2-computable",
     "l5-fork",
+    "ke-extraction",
+    "ke-ownership",
   ],
   namespaces: [DEMO_SCOPE_ID, TOY_WORLD_NAMESPACE],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
@@ -158,6 +242,21 @@ export class MockAdapter implements FullPorts {
 
   async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
     return this.engine.listRules(ruleRefs);
+  }
+
+  // ── ke-extraction (whole-operation service, not a `port.*` method) ─────
+
+  /**
+   * Host-local extraction service: the library `orchestrateExtract` gates the
+   * request, loads the referenced sources through the host-local port, runs
+   * the deterministic extractor once, and assembles the response. The loaded
+   * value stays here — neither the loader nor the extractor is reachable from
+   * a peer.
+   */
+  async extract(
+    request: ExtractRequest,
+  ): Promise<SpokeResult<ExtractResponse>> {
+    return orchestrateExtract(DEMO_EXTRACTION_PORT, request, runDemoExtractor);
   }
 
   async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {

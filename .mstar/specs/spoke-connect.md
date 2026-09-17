@@ -45,7 +45,7 @@ Both paths MUST produce the same signed hello bytes, the same `peer_id` derivati
 
 ### RemoteAdapter layer (above session-core)
 
-A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session. It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. The RemoteAdapter runs at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope: signed `ConnectInvokeRequest` emission, and `ConnectSession` / `ConnectInvokeResponse` verification on receipt (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); enforcement details: [spoke-remote-adapter.md](spoke-remote-adapter.md) D10). All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
+A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op invoke over an established connect session, and exposes the `extract` core op as a whole-operation delegation on the same session ([`spoke-remote-adapter.md`](spoke-remote-adapter.md) D4). It is an opt-in surface in both connect packages — the `./remote` subpath in `@42ch/spoke-connect`, the `remote-adapter` cargo feature in `spoke-connect` — and reuses session-core (hello, allowlist, nonce, sequence, correlation, dispatch awareness, capability-token) without widening the TS↔Rust session-core parity table. The RemoteAdapter runs at `protocol_version: 2` and enforces envelope authentication on every post-hello envelope: signed `ConnectInvokeRequest` emission, and `ConnectSession` / `ConnectInvokeResponse` verification on receipt (see [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); enforcement details: [spoke-remote-adapter.md](spoke-remote-adapter.md) D10). All connect verification is encapsulated; consumers pass the adapter straight to the baseline orchestrators. Message-oriented `Transport` seam, port-method catalogue, error mapping, and concurrency rules: [spoke-remote-adapter.md](spoke-remote-adapter.md).
 
 ## User value
 
@@ -359,7 +359,7 @@ The inbound-invoke guard is **direction-generic**: a reverse invoke — a `Conne
 
 ## `op` core vocabulary
 
-Open string (documented, not JSON Schema enum). Schema `description` on `ConnectInvokeRequest.op`: core values `upsert`, `promote`, `relate`, `check`, `assemble`, `project`, `compute`.
+Open string (documented, not JSON Schema enum). Schema `description` on `ConnectInvokeRequest.op`: core values `upsert`, `promote`, `relate`, `check`, `assemble`, `project`, `compute`, `extract`.
 
 | Core `op` | Maps to ops family | Notes |
 |-----------|-------------------|-------|
@@ -370,8 +370,11 @@ Open string (documented, not JSON Schema enum). Schema `description` on `Connect
 | `assemble` | assemble-* | Baseline |
 | `project` | project-* | Optional; meaningful when remote declares `l2-computable` |
 | `compute` | compute-* | Optional; same |
+| `extract` | extract-request / extract-response | Optional; meaningful when remote declares `ke-extraction` |
 
-Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the seven core values and stays unchanged. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls — the baseline six families plus the optional `project` / `compute` / `listForkTimelineEvents` methods ([`spoke-remote-adapter.md`](spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)).
+`extract` is a **whole-operation** core op: `payload` carries the existing extraction request envelope itself and the success `payload` carries the existing extraction response envelope (`{ candidates, run, extensions? }`) — no `{ request }` / `{ result }` wrapper. The serving host performs the extraction orchestration, including source loading through its own in-process loader port, so the loaded input value is host-local and is never a request or response field. Its requester-side surface is the `extract` method on the remote adapter ([`spoke-remote-adapter.md`](spoke-remote-adapter.md) D4).
+
+Reserved product prefixes are open strings documented in specs only — the connect schema `description` on `ConnectInvokeRequest.op` lists the eight core values and stays closed to product prefixes. `port.*` is the reserved product prefix for proxied `BaselinePorts` method calls — the baseline six families plus the optional `project` / `compute` / `listForkTimelineEvents` methods ([`spoke-remote-adapter.md`](spoke-remote-adapter.md)); `tools.<ns>.<tool_id>` is the reserved product prefix for self-describing tool invokes declared in `HostCapabilityManifest.tools[]` (see [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest and §[Op dispatch gate](#op-dispatch-gate)).
 
 Unknown `op` values are valid on the wire; receivers return `ErrorEnvelope` with an appropriate `code` (e.g. `op_unsupported`) when they cannot handle them. Connect does not close the vocabulary. The core vocabulary above MUST stay in sync with the schema `description` fields under `schemas/connect/` and the corresponding ops schema text under `schemas/ops/`.
 
@@ -385,9 +388,16 @@ Required capabilities (core table):
 |------|---------------------|
 | `upsert`, `promote`, `relate`, `check`, `assemble` | `spoke-baseline` (or a deployment-documented synonym that both peers list and intersect into `negotiated_capabilities`) |
 | `project`, `compute` | `l2-computable` |
+| `extract` | `ke-extraction` |
 | `tools.<ns>.<tool_id>` (reserved product prefix) | the op string itself |
 
 `tools.*` is a **core gate rule**: `tools.<ns>.<tool_id>` ops are self-describing, so the required capability is the op string itself — no registry, no umbrella flag. This is the core-table counterpart of `port.*` being product-map territory: a `tools.*` op never consults a product capability map. A tool id enters `negotiated_capabilities` only when both hellos list that exact string (the agreed-subset rule of §[Session-core state machine](#session-core-state-machine)); the gate then evaluates that exact string as for every op.
+
+**Conditional capability requirement — declared Scope viewpoint (`ke-ownership`).** The Scope-bearing remote ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` — carry one payload-dependent conjunct on top of their row capability: when the request payload declares `scope.viewpoint` as a non-empty string, `negotiated_capabilities` MUST also contain `ke-ownership`. The predicate reads that declared location only — no trimming, normalization, holder lookup, owner comparison, or recursive scan of arbitrary JSON — so `owner` / `disclosure` in a knowledge entry, a top-level `viewpoint`, `extensions.*`, tool `arguments.scope`, source anchors, and opaque metadata never trigger it. Identifiers are opaque: a whitespace-only viewpoint is non-empty and triggers the conjunct. `extract` and the `tools.*` family carry no Scope and never require `ke-ownership`.
+
+The conjunct is **additional, never a replacement**: a viewpoint-bearing Scope op still requires its own row capability (`spoke-baseline`, or `l5-fork` for the fork timeline op) plus `ke-ownership`. Because the requirement is payload-dependent it is evaluated at the remote/product dispatch boundary rather than in the core table: `required_capability(op)` keeps its op-only signature and no `ke-ownership` op exists. A host that cannot satisfy the conjunct answers the existing dispatch-deny branch (`op_unsupported`) before any host side effect — the same wire code as a missing row capability, with no new wire code introduced. A peer-selection layer that filters on cached advertised manifests applies the same predicate as a **hard capability filter**, never a soft preference; advertisement is not authorization, so the selected peer's responder still evaluates the conjunct against its negotiated set.
+
+A payload that declares the Scope location with a `viewpoint` of any other value type (JSON `null`, number, array, object, or `""`), or that omits / misdeclares the Scope for a Scope-bearing op, is malformed: the receiving host answers `INVALID_INPUT` before any host call — validation, not a capability verdict, and never a baseline success.
 
 Product-defined `op` values MUST document their required capability name(s). The gate is evaluated against **`negotiated_capabilities`**, not against the remote manifest alone and not against unsigned hello `extensions`.
 
@@ -402,7 +412,7 @@ The gate applies **identically in both directions**: a reverse `ConnectInvokeReq
 3. **Sequence peek** (non-mutating): a `sequence` not equal to `next_expected_inbound` answers the error branch with `invalid_sequence`; the inbound counter is NOT advanced.
 4. **Envelope-auth verify**: verify per [§Envelope authentication (protocol_version 2)](#envelope-authentication-protocol_version-2); failure answers `auth_failed` and does NOT advance session state (auth-before-advance — that section's Verify rules).
 5. **Advance** the inbound counter.
-6. **Dispatch gate**: the required capability for `op` MUST be present in `negotiated_capabilities` (this table). The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)).
+6. **Dispatch gate**: the required capability for `op` MUST be present in `negotiated_capabilities` (this table), together with the conditional `ke-ownership` conjunct when the declared Scope carries a viewpoint. The optional capability-token gate, when policy requires one, runs within this step (per [§Method — capability-token](#method--capability-token)).
 7. **Handler or deny**, then a signed `ConnectInvokeResponse` echoing `session_id` / `sequence` / `request_id`.
 
 Steps 3–5 MUST be serialized per session — they read and mutate the same inbound counter, so a concurrent request must not observe a pre-advance counter; dispatch (steps 6–7) may interleave.
@@ -412,6 +422,7 @@ Steps 3–5 MUST be serialized per session — they read and mutate the same inb
 | Condition | Wire error code | Notes |
 |-----------|-----------------|-------|
 | Gate fail: `tools.*` op ∉ `negotiated_capabilities` | `op_unsupported` | No handler side effect |
+| Gate fail: `ke-ownership` required by a declared Scope viewpoint ∉ `negotiated_capabilities` | `op_unsupported` | No host side effect; a malformed Scope answers `INVALID_INPUT` instead |
 | Gate pass but no registered handler for that `capability_id` | `op_unsupported` | Fail-closed — a peer that serves no handlers still answers `op_unsupported` |
 | Unknown non-`tools` op (no core-table row, no product-defined mapping) | `op_unsupported` | Existing behavior |
 | Signature missing / invalid / session-unbound | `auth_failed` | Existing envelope-auth branch |
@@ -429,6 +440,10 @@ A new or modified ops family that is intended to be remotely invokable over conn
 4. Rely on opaque `payload` wrapping of existing ops request/response envelopes — **MUST NOT** require connect envelope shape changes for new ops fields.
 
 **Tools family:** `tools.<ns>.<tool_id>` invokes are self-describing — each tool's ABI is declared by a `ToolDescriptor` in `HostCapabilityManifest.tools[]` rather than ops schema files under `schemas/ops/`, and request/response payloads stay opaque JSON on the wire (no connect envelope change, item 4). The required capability is the op string itself (§[Op dispatch gate](#op-dispatch-gate)); each tool's `capability_id` MUST appear in the declaring manifest's `capabilities[]`. Field-level rules: [`spoke-data-model.md`](spoke-data-model.md) §HostCapabilityManifest.
+
+**`extract` (core op):** the remote extraction op registers through items 1–4 — a core vocabulary row (§[`op` core vocabulary](#op-core-vocabulary)), the `ke-extraction` capability hosts advertise in `HostCapabilityManifest.capabilities` (both peers list the exact string for it to enter `negotiated_capabilities`), and an opaque `payload` carrying the existing extraction request envelope with the existing extraction response envelope as the success `payload`. No connect envelope field changes, and the loaded input value stays host-local.
+
+**`ke-ownership` (conditional conjunct, not an op):** the ownership capability is advertised in `HostCapabilityManifest.capabilities` like any other capability, but it maps to **no** `op` row. It is the payload-dependent conjunct of §[Op dispatch gate](#op-dispatch-gate) over the Scope-bearing ops: a request that declares a non-empty `scope.viewpoint` requires it **in addition to** the row capability. Registration therefore declares the capability name only — the predicate over the declared Scope stays at the dispatch boundary, not in the core table.
 
 Connect schemas and the six envelope shapes stay closed; extensibility is vocabulary + capabilities + opaque payload, not new connect fields.
 
@@ -529,6 +544,8 @@ Issuance MUST bind the issuer key to `claims.iss`: the Ed25519 public key used t
 For an invoke, let `required = required_capability(op)` from the core table in §[Op dispatch gate](#op-dispatch-gate) (or product-documented `op` → capability mapping).
 
 The token authorizes the op iff **`required` ∈ `claims.capabilities`** (membership / subset-of-grant). Extra capabilities on the token are ignored when unused. Matching is **not** exact-list equality between `claims.capabilities` and `negotiated_capabilities`.
+
+The membership check covers the op's required capability (the host supplies either the core-table row or its product-configured mapping). The payload-dependent `ke-ownership` conjunct of §[Op dispatch gate](#op-dispatch-gate) is evaluated separately against `negotiated_capabilities` at the remote dispatch boundary — it is not part of `required_capability(op)`.
 
 The token does **not** replace `negotiated_capabilities`. Dispatch order when the method is in use:
 

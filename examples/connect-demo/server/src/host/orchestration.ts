@@ -27,6 +27,8 @@
 import type {
   ComputeRequest,
   ComputeResponse,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   ForkId,
   HostCapabilityManifest,
@@ -110,7 +112,8 @@ function diceRollEntry(roll: RollResult): KnowledgeEntry {
  * which runs the orchestration after the client's compass submission lands.
  * The optional `l2-computable` / `l5-fork` families delegate too — the
  * injected ports object serves them through the responder's structural
- * probe (gate → probe → serve/deny).
+ * probe (gate → probe → serve/deny) — and `extract` forwards the
+ * whole-operation `ke-extraction` service through the same object.
  */
 export class DemoOrchestrator implements FullPorts {
   readonly #adapter: MockAdapter;
@@ -190,6 +193,18 @@ export class DemoOrchestrator implements FullPorts {
 
   async listRules(ruleRefs: string[]): Promise<SpokeResult<Rule[]>> {
     return this.#adapter.listRules(ruleRefs);
+  }
+
+  /**
+   * ke-extraction service — the library responder probes the injected ports
+   * object for a function-valued `extract`, so the host-local loader and
+   * extractor stay behind the wrapped adapter (the orchestrator forwards
+   * rather than owning a second extraction path).
+   */
+  async extract(
+    request: ExtractRequest,
+  ): Promise<SpokeResult<ExtractResponse>> {
+    return this.#adapter.extract(request);
   }
 
   async getHostCapabilityManifest(): Promise<SpokeResult<HostCapabilityManifest>> {

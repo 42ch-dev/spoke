@@ -30,6 +30,18 @@ The check family already proved "cognition as an injected service, I/O on the wi
 
 Any future "product engine as a service" op (extraction was the first). Reuse the standalone-port + injected-callback + baseline-gate-unchanged shape; add a connect routing row only when a consumer demands it (out of scope for this axis).
 
+## Remote and FFI exposure (connect)
+
+Exposing `extract` over connect follows the **service-shaped op** rule, not the port-method rule:
+
+- `extract` is a core operation, not a `port.*` method: the wire carries the existing `ExtractRequest` in and the `ExtractResponse` success branch out, and the peer runs the whole local orchestration (`loadExtractionInput` → `runExtractor`) itself. The loaded value and the extractor are never transport parameters — a loader-only canary asserted absent from captured envelopes in both directions is the proof, and a wire-visible positive control keeps the assertion non-vacuous.
+- The responder probes the injected ports structural face (TS `typeof ports.extract === "function"`; Rust `RemoteServePorts::as_extract()`) **after** the capability gate. Compose that face **explicitly** (Rust `RemoteServePortsComposite::with_extract(...)`) — a default/blanket `as_extract() -> None` silently masks a service that is actually provided, which reads as an unreachable feature rather than a misconfiguration.
+- Three unavailability paths must stay distinguishable in every channel: unnegotiated capability deny and absent-provider probe deny both carry `wire_code = op_unsupported`, while an application refusal from a present callback carries `wire_code = None` with exactly one call. Collapsing them makes "misconfigured host" indistinguishable from "caller not authorized".
+
+**Proving TS/Rust agreement.** Build a paired-observation matrix over the frozen scenarios and compare *conclusions* — reject code, presence/absence of `details.wire_code`, and provider call counts — never table shapes or snapshot names. That is what surfaces real divergence: an identical-looking pair of dispatch tables still disagreed on a schema-invalid-but-viewpoint-bearing `Scope` (Rust rejected it before the provider, TypeScript forwarded it), and on the closed key set of the extract request (Rust's generated `deny_unknown_fields` refused unknown top-level keys, TypeScript accepted them until it mirrored the closure).
+
+**Host-side integration constraint.** `orchestrate_extract` takes `&dyn ExtractionPort` without a `Send` bound, so its future is `!Send`, while a connect-owned service trait that the responder drives under `tokio::spawn` must be `Send + Sync`. A Rust host therefore cannot `await` the orchestrator directly inside its service implementation; it bridges (for example a blocking worker). Treat this as a documented host recipe constraint, not a wire-contract defect.
+
 ## Examples
 
 - `.mstar/specs/ke-extraction-adr.md`; `packages/spoke-operations/src/adapter/ports.ts` + `orchestrate.ts`; `crates/spoke-operations/src/adapter/{ports,orchestrate}.rs`.

@@ -125,3 +125,16 @@ describe("tools.* prefix rule (parity golden vector, frozen §3)", () => {
     expect(tokenAuthorizesOp(requiredCapability(TOOL_OP), [])).toBe(false);
   });
 });
+
+import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
+
+describe("ke remote", () => {
+  it("tokenAuthorizesOp authorizes extract when ke-extraction is granted", () => {
+    expect(
+      tokenAuthorizesOp(requiredCapability("extract"), ["ke-extraction"]),
+    ).toBe(true);
+    expect(
+      tokenAuthorizesOp(requiredCapability("extract"), [CAPABILITY_SPOKE_BASELINE]),
+    ).toBe(false);
+  });
+});

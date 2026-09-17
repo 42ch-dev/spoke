@@ -5,7 +5,10 @@
 //! `BaselinePorts` supertrait) plus the optional l2-computable / l5-fork
 //! faces, probed with [`RemoteServePorts::as_computable`] /
 //! [`RemoteServePorts::as_fork_timeline`] — the operations-crate
-//! dyn-availability probe convention (`ComputablePorts` / `ForkPorts`).
+//! dyn-availability probe convention (`ComputablePorts` / `ForkPorts`). The
+//! core `extract` op is served through the separate optional
+//! [`RemoteExtractService`] face, probed with
+//! [`RemoteServePorts::as_extract`]; it is a service, not a port method.
 //! Serving order is gate → probe → serve/deny: after the capability gate
 //! passes, the responder probes the injected face; a `None` probe means the
 //! host declared a family it does not provide (host misconfiguration) and
@@ -14,7 +17,8 @@
 //! Composition: full providers (`BaselinePorts + ComputablePort +
 //! ForkTimelineQueryPort`) are covered by the blanket impl; baseline-only
 //! and mixed hosts compose via [`RemoteServePortsComposite::new`] without
-//! manual trait impls.
+//! manual trait impls, opting into extraction with
+//! [`RemoteServePortsComposite::with_extract`].
 
 use std::sync::Arc;
 
@@ -24,8 +28,26 @@ use spoke_operations::{
     KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeResult,
 };
 use spoke_schemas::{
-    Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent,
+    ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest, KnowledgeEntry, Relation,
+    Rule, Scope, TimelineEvent,
 };
+
+/// Connect-owned service face for the core `extract` op: the serving host
+/// runs its own extraction — local loader, local extractor, local
+/// provisional-candidate validation — and returns the wire
+/// [`ExtractResponse`]. The loaded input value is host-local and never a
+/// transport parameter.
+///
+/// This is deliberately **not** `spoke_operations::ExtractionPort`: the port
+/// is an in-process loader boundary, while this trait is the connect
+/// responder's service seam. A host implements it by calling
+/// `orchestrate_extract(local_extraction_port, request, run_extractor)`.
+#[async_trait]
+pub trait RemoteExtractService: Send + Sync {
+    /// Serve one extract request. A rejection (or an `ExtractResponse` error
+    /// branch) travels the existing application reject mapping.
+    async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse>;
+}
 
 /// Responder ports face (D4 catalogue): baseline six + optional families,
 /// capability-gated. `Option` probes mirror the operations-crate
@@ -36,10 +58,18 @@ pub trait RemoteServePorts: BaselinePorts {
 
     /// Optional l5-fork timeline face, when provided.
     fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort>;
+
+    /// Optional `extract` service face, when provided. `None` is genuine
+    /// optional absence (a host that does not serve extraction), not a stub
+    /// service — the responder answers the dispatch-deny branch.
+    fn as_extract(&self) -> Option<&dyn RemoteExtractService>;
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
 /// serves every family through the responder (the probes return the faces).
+/// The full-optional surface does **not** imply extraction: a provider opts
+/// into the `extract` service explicitly through
+/// [`RemoteServePortsComposite::with_extract`].
 impl<T> RemoteServePorts for T
 where
     T: BaselinePorts + ComputablePort + ForkTimelineQueryPort,
@@ -51,23 +81,30 @@ where
     fn as_fork_timeline(&self) -> Option<&dyn ForkTimelineQueryPort> {
         Some(self)
     }
+
+    fn as_extract(&self) -> Option<&dyn RemoteExtractService> {
+        None
+    }
 }
 
 /// Composite responder ports face: a baseline provider plus optional
-/// computable / fork faces (each may be absent). Baseline-only and mixed
-/// hosts compose via [`RemoteServePortsComposite::new`] without manual
-/// trait impls.
+/// computable / fork / extract faces (each may be absent). Baseline-only and
+/// mixed hosts compose via [`RemoteServePortsComposite::new`] without manual
+/// trait impls; extraction is added with the consuming
+/// [`RemoteServePortsComposite::with_extract`].
 pub struct RemoteServePortsComposite {
     baseline: Arc<dyn BaselinePorts + Send + Sync>,
     computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
+    extract: Option<Arc<dyn RemoteExtractService>>,
 }
 
 impl RemoteServePortsComposite {
     /// Compose a responder ports face from a baseline provider plus
     /// optional computable / fork faces. Baseline-only hosts pass `None`
     /// for both optional faces (the composite still serves the baseline
-    /// six); mixed hosts pass the faces they provide.
+    /// six); mixed hosts pass the faces they provide. Extraction is absent
+    /// — opt in with [`RemoteServePortsComposite::with_extract`].
     pub fn new(
         baseline: Arc<dyn BaselinePorts + Send + Sync>,
         computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
@@ -77,7 +114,15 @@ impl RemoteServePortsComposite {
             baseline,
             computable,
             fork,
+            extract: None,
         }
+    }
+
+    /// Attach the optional `extract` service face (consuming builder).
+    #[must_use]
+    pub fn with_extract(mut self, extract: Arc<dyn RemoteExtractService>) -> Self {
+        self.extract = Some(extract);
+        self
     }
 }
 
@@ -164,5 +209,11 @@ impl RemoteServePorts for RemoteServePortsComposite {
         self.fork
             .as_ref()
             .map(|fork| fork.as_ref() as &dyn ForkTimelineQueryPort)
+    }
+
+    fn as_extract(&self) -> Option<&dyn RemoteExtractService> {
+        self.extract
+            .as_ref()
+            .map(|extract| extract.as_ref() as &dyn RemoteExtractService)
     }
 }

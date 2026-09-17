@@ -25,6 +25,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  ExtractRequest,
   ComputeRequest,
   ConnectHello,
   ConnectInvokeRequest,
@@ -36,10 +37,13 @@ import type {
   ToolDescriptor,
 } from "@42ch/spoke-schemas";
 import {
+  orchestrateExtract,
   SpokeRejectCode,
   spokeOk,
+  spokeReject,
   validateManifestTools,
   type BaselinePorts,
+  type ExtractionPort,
   type SpokeResult,
 } from "@42ch/spoke-operations";
 import {
@@ -54,6 +58,12 @@ import {
   asBaselineOnly,
   ToyWorldAdapter,
 } from "@42ch/spoke-fixture-toy-world";
+import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
+import {
+  CAPABILITY_KE_OWNERSHIP,
+  validateExtractRequestPayload,
+  validateScopeOpPayload,
+} from "../../src/remote/responder.js";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import {
@@ -70,6 +80,7 @@ import {
   connectResponder,
   type ConnectResponder,
   type ConnectResponderState,
+  type RemoteExtractService,
 } from "@42ch/spoke-connect/remote";
 
 /** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
@@ -133,7 +144,7 @@ function addHandler(calls: { args: Record<string, unknown> }[]): {
 interface DialResponderOptions {
   clientManifest?: HostCapabilityManifest;
   responderManifest?: HostCapabilityManifest;
-  ports?: BaselinePorts;
+  ports?: BaselinePorts & Partial<RemoteExtractService>;
   /** Bounded wait for the RESPONDER's reverse-invoke waiters, ms. */
   responderTimeoutMs?: number;
   /** Bounded wait for the CLIENT's dial + invoke waiters, ms. */
@@ -1515,4 +1526,650 @@ describe("connectResponder per-invoke gate (peek → verify → advance)", () =>
     },
     15000,
   );
+});
+
+const LOADER_CANARY = "LOADER_ONLY_CANARY_ke_remote_ts";
+
+function manifestWithCaps(
+  hostId: string,
+  capabilities: readonly string[],
+): HostCapabilityManifest {
+  const base = schemaConformantManifest();
+  const caps = [...new Set([...base.capabilities, ...capabilities])] as [
+    string,
+    ...string[],
+  ];
+  return { ...base, host_id: hostId, capabilities: caps };
+}
+
+function sampleExtractRequest(runId = "run-ke-remote-1"): ExtractRequest {
+  return {
+    run_id: runId,
+    sources: [
+      {
+        schema_version: 1,
+        source_id: "src-ke-remote",
+        extensions: {},
+      },
+    ],
+  };
+}
+
+function extractionPortsWithCanary(): ExtractionPort {
+  return {
+    loadExtractionInput: async () => spokeOk({ secret: LOADER_CANARY }),
+  };
+}
+
+function toyBaselinePorts(): BaselinePorts & Partial<RemoteExtractService> {
+  return asBaselineOnly(new ToyWorldAdapter()) as BaselinePorts &
+    Partial<RemoteExtractService>;
+}
+
+describe("ke remote", () => {
+  it(
+    "extract round-trip echoes run_id, keeps candidates provisional, and omits loader canary from wire",
+    async () => {
+      const wireRequests: string[] = [];
+      const wireResponses: string[] = [];
+      const ports = toyBaselinePorts();
+      const extract = (request: ExtractRequest) =>
+        orchestrateExtract(extractionPortsWithCanary(), request, async () =>
+          spokeOk({
+            candidates: [
+              {
+                schema_version: 1,
+                entry_id: "cand-1",
+                entry_type: "character",
+                canonical_name: "Cand",
+                status: "provisional",
+                body: { summary: "x" },
+                extensions: {},
+              },
+            ],
+          }),
+        );
+      ports.extract = extract;
+      const { client, responder, pair } = await dialWithResponder({
+        clientManifest: manifestWithCaps("client-extract", [
+          CAPABILITY_KE_EXTRACTION,
+        ]),
+        responderManifest: manifestWithCaps("responder-extract", [
+          CAPABILITY_KE_EXTRACTION,
+          "input-source",
+        ]),
+        ports,
+        clientTransport: (transport) => ({
+          send: async (bytes) => {
+            wireRequests.push(new TextDecoder().decode(bytes));
+            return transport.send(bytes);
+          },
+          recv: async () => {
+            const bytes = await transport.recv();
+            wireResponses.push(new TextDecoder().decode(bytes));
+            return bytes;
+          },
+          close: () => {
+            transport.close?.();
+          },
+        }),
+      });
+      try {
+        const result = await client.extract(sampleExtractRequest());
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        if (!("run" in result.value)) {
+          throw new Error("expected extract success branch");
+        }
+        expect(result.value.run.run_id).toBe("run-ke-remote-1");
+        expect(result.value.candidates).toHaveLength(1);
+        expect(result.value.candidates[0]?.status).toBe("provisional");
+        const joined = wireRequests.join("\n");
+        expect(joined).not.toContain(LOADER_CANARY);
+        expect(joined).toContain("run-ke-remote-1");
+        // Both wire directions: the response bytes must carry the assembled
+        // batch (positive control) and no loader value (F1: no content
+        // channel; the request direction alone would leave the response
+        // unproven).
+        const joinedResponses = wireResponses.join("\n");
+        expect(joinedResponses).toContain("run-ke-remote-1");
+        expect(joinedResponses).not.toContain(LOADER_CANARY);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it("denies extract when ke-extraction is missing from negotiated capabilities", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = async () =>
+      spokeOk({ candidates: [], run: { run_id: "x" } });
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-no-extract", []),
+      responderManifest: manifestWithCaps("responder-extract-ad", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("probe-denies extract when capability is negotiated but extract service is absent", async () => {
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-probe", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-probe", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("probe-denies malformed extract payload when extract service is absent", async () => {
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-probe-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-probe-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const result = await client.extract({} as unknown as ExtractRequest);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("maps service application reject separately from probe-deny", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = async () =>
+      spokeReject(SpokeRejectCode.CAPABILITY_PORT_MISSING, "declined", {
+        capability: "ke-extraction",
+      });
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-app", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-app", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBeUndefined();
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("normalizes an injected ExtractResponse error branch through the application reject path", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = async () =>
+      spokeOk({
+        error: {
+          code: SpokeRejectCode.INVALID_INPUT,
+          message: "bad request",
+          extensions: {},
+        },
+      });
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-err", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-err", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("allows listKnowledgeEntries without viewpoint when only baseline is negotiated", async () => {
+    const scope: Scope = { scope_id: "s1" };
+    const calls: Scope[] = [];
+    const ports = toyBaselinePorts();
+    const original = ports.listKnowledgeEntries.bind(ports);
+    ports.listKnowledgeEntries = async (s) => {
+      calls.push(s);
+      return original(s);
+    };
+    const { client, responder, pair } = await dialWithResponder({ ports });
+    try {
+      const result = await client.listKnowledgeEntries(scope);
+      expect(result.ok).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual(scope);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("requires ke-ownership for non-empty viewpoint and preserves scope fields", async () => {
+    const scope: Scope = {
+      scope_id: "s-own",
+      viewpoint: "holder-a",
+      extensions: { x: { flag: true } },
+    };
+    const calls: Scope[] = [];
+    const ports = toyBaselinePorts();
+    const original = ports.listKnowledgeEntries.bind(ports);
+    ports.listKnowledgeEntries = async (s) => {
+      calls.push(s);
+      return original(s);
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-own", [CAPABILITY_KE_OWNERSHIP]),
+      responderManifest: manifestWithCaps("responder-own", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.listKnowledgeEntries(scope);
+      expect(result.ok).toBe(true);
+      expect(calls[0]?.viewpoint).toBe("holder-a");
+      expect(calls[0]?.extensions).toEqual({ x: { flag: true } });
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("denies viewpoint-bearing list when ke-ownership is not negotiated", async () => {
+    const scope: Scope = {
+      scope_id: "s-deny",
+      viewpoint: "holder-a",
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const result = await client.listKnowledgeEntries(scope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("serves a successful empty candidate batch", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = (request: ExtractRequest) =>
+      orchestrateExtract(extractionPortsWithCanary(), request, async () =>
+        spokeOk({ candidates: [] }),
+      );
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-empty", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-empty", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest("run-empty"));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      if (!("run" in result.value)) {
+        throw new Error("expected extract success branch");
+      }
+      expect(result.value.run.run_id).toBe("run-empty");
+      expect(result.value.candidates).toEqual([]);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed declared scope payloads before the provider", () => {
+    const op = "port.scope.list_knowledge_entries";
+    const malformedPayloads: Record<string, unknown>[] = [
+      { scope: { scope_id: "s1", viewpoint: "" } },
+      { scope: { scope_id: "s1", viewpoint: null } },
+      { scope: { scope_id: "s1", viewpoint: 3 } },
+      { scope: { scope_id: "s1", viewpoint: [] } },
+      { scope: { scope_id: "s1", viewpoint: {} } },
+      { scope: { viewpoint: "holder-a" } },
+      { scope: { scope_id: "s1", viewpoint: "holder-a", unknown_field: 1 } },
+      {
+        scope: {
+          scope_id: "s1",
+          viewpoint: "holder-a",
+          entry_ids: "not-an-array",
+        },
+      },
+      {},
+      { scope: "not-an-object" },
+    ];
+    for (const payload of malformedPayloads) {
+      const reject = validateScopeOpPayload(op, payload);
+      expect(reject).not.toBeNull();
+      expect(reject?.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+    expect(
+      validateScopeOpPayload(op, { scope: { scope_id: "s1" } }),
+    ).toBeNull();
+    expect(
+      validateScopeOpPayload(op, {
+        scope: { scope_id: "s1", viewpoint: "holder-a" },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects schema-invalid declared scope with valid viewpoint before provider call", async () => {
+    let called = 0;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called += 1;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-scope-schema", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      responderManifest: manifestWithCaps("responder-scope-schema", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports,
+    });
+    try {
+      const malformedScopes = [
+        { viewpoint: "holder-a" },
+        { scope_id: "s1", viewpoint: "holder-a", unknown_field: 1 },
+        {
+          scope_id: "s1",
+          viewpoint: "holder-a",
+          entry_ids: "not-an-array",
+        },
+      ] as unknown as Scope[];
+      for (const badScope of malformedScopes) {
+        const result = await client.listKnowledgeEntries(badScope);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      }
+      expect(called).toBe(0);
+
+      const validScope: Scope = {
+        scope_id: "s1",
+        viewpoint: "holder-a",
+      };
+      const okResult = await client.listKnowledgeEntries(validScope);
+      expect(okResult.ok).toBe(true);
+      expect(called).toBe(1);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed viewpoint with INVALID_INPUT before provider call", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called = true;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-malformed", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      responderManifest: manifestWithCaps("responder-malformed", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports,
+    });
+    try {
+      const badScope = {
+        scope_id: "bad",
+        viewpoint: "",
+      } as Scope;
+      const result = await client.listKnowledgeEntries(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+
+  it("rejects malformed declared scope with INVALID_INPUT when ke-ownership is not negotiated", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called = true;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({ ports });
+    try {
+      const badScope = {
+        scope_id: "bad",
+        viewpoint: null,
+      } as unknown as Scope;
+      const result = await client.listKnowledgeEntries(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.wire_code).toBeUndefined();
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed extract request payloads before the provider", () => {
+    const malformedPayloads: unknown[] = [
+      null,
+      { run_id: "", sources: [{ schema_version: 1, source_id: "s", extensions: {} }] },
+      { run_id: "run-1", sources: [] },
+      {
+        run_id: "run-1",
+        sources: [{ schema_version: 0, source_id: "s", extensions: {} }],
+      },
+      {
+        run_id: "run-1",
+        sources: [{ schema_version: 1, source_id: "s" }],
+      },
+      {
+        run_id: "run-1",
+        sources: [{ schema_version: 1, source_id: "s", extensions: {} }],
+        reuqest_id: "x",
+      },
+    ];
+    for (const payload of malformedPayloads) {
+      const reject = validateExtractRequestPayload(payload);
+      expect(reject).not.toBeNull();
+      expect(reject?.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+    expect(
+      validateExtractRequestPayload(sampleExtractRequest("run-valid")),
+    ).toBeNull();
+  });
+
+  it("distinguishes missing scope from present-but-non-object scope in reject messages", () => {
+    const op = "port.scope.list_knowledge_entries";
+    const missing = validateScopeOpPayload(op, {});
+    expect(missing).not.toBeNull();
+    expect(missing?.message).toContain("missing scope");
+
+    const nonObject = validateScopeOpPayload(op, { scope: "s1" });
+    expect(nonObject).not.toBeNull();
+    expect(nonObject?.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    expect(nonObject?.message).toContain("scope must be an object");
+    expect(nonObject?.message).not.toContain("missing scope");
+  });
+
+  it("rejects extract payloads with unknown top-level keys before the provider", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.extract = async () => {
+      called = true;
+      return spokeOk({ candidates: [], run: { run_id: "x" } });
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-junk-key", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-junk-key", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const badRequest = {
+        run_id: "run-1",
+        sources: [{ schema_version: 1, source_id: "s", extensions: {} }],
+        reuqest_id: "x",
+      } as unknown as ExtractRequest;
+      const result = await client.extract(badRequest);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.message).toContain("unknown property");
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed extract request with INVALID_INPUT before provider call", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.extract = async () => {
+      called = true;
+      return spokeOk({ candidates: [], run: { run_id: "x" } });
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const badRequest = {
+        run_id: "",
+        sources: [],
+      } as unknown as ExtractRequest;
+      const result = await client.extract(badRequest);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed fork scope with INVALID_INPUT before the missing fork-face probe", async () => {
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-fork-malformed", ["l5-fork"]),
+      responderManifest: manifestWithCaps("responder-fork-malformed", [
+        "l5-fork",
+      ]),
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const badScope = {
+        scope_id: "pkt-scope",
+        fork_id: "fork-1",
+        viewpoint: null,
+      } as unknown as Scope & { fork_id: ForkId };
+      const result = await client.listForkTimelineEvents(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.wire_code).toBeUndefined();
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
 });

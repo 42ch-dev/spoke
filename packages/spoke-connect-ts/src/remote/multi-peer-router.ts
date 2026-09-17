@@ -45,6 +45,10 @@ import {
 } from "@42ch/spoke-operations";
 
 import type { RemoteAdapterState } from "./remote-adapter.js";
+import {
+  CAPABILITY_KE_OWNERSHIP,
+  scopeOpRequiresOwnershipCapability,
+} from "./responder.js";
 
 /** The router's own identity when the consumer configures none (contract §8). */
 const DEFAULT_ROUTER_HOST_ID = "multi-peer-router";
@@ -70,6 +74,7 @@ const REQUIRED_CAPABILITY: Readonly<Record<string, string>> = {
   assemble: "spoke-baseline",
   project: "l2-computable",
   compute: "l2-computable",
+  extract: "ke-extraction",
   // port.* baseline ops.
   "port.knowledge.get": "spoke-baseline",
   "port.knowledge.put": "spoke-baseline",
@@ -286,6 +291,18 @@ export function selectPeerForOp(
       op,
       `no peer advertises capability "${required}"`,
     );
+  }
+
+  if (scopeOpRequiresOwnershipCapability(op, payload)) {
+    survivors = survivors.filter((candidate) =>
+      candidate.manifest.capabilities.includes(CAPABILITY_KE_OWNERSHIP),
+    );
+    if (survivors.length === 0) {
+      return noCapablePeer(
+        op,
+        `no peer advertises capability "${CAPABILITY_KE_OWNERSHIP}"`,
+      );
+    }
   }
 
   const namespace = requestNamespace(payload);

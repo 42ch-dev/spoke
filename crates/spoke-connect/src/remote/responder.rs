@@ -27,7 +27,13 @@
 //!   registered tool handler (or deny `op_unsupported`), `port.*` ops run
 //!   the D4 catalogue against the injected async
 //!   [`RemoteServePorts`] (absent `ports` still answers the dispatch-deny
-//!   branch), and unknown ops are denied. A failed envelope-auth verify
+//!   branch), the core `extract` op runs the optional injected
+//!   [`RemoteExtractService`](crate::remote::RemoteExtractService)
+//!   (a host that declares `ke-extraction` without providing the service
+//!   takes the same dispatch-deny branch), and unknown ops are denied. A
+//!   Scope-bearing `port.*` request additionally passes the supplementary
+//!   `ke-ownership` gate and Scope validation before the provider is probed.
+//!   A failed envelope-auth verify
 //!   produces no handler side effect and no session-state mutation
 //!   (auth-before-advance, spec §Verify rules). An unparseable inbound
 //!   frame closes the connection (carried over from the demo).
@@ -48,15 +54,15 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use spoke_operations::{
-    parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope, SpokeReject,
-    SpokeRejectCode, SpokeResult,
+    from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
+    SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_response::ConnectInvokeResponse;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::{
-    ComputeRequest, Finding, HostCapabilityManifest, KnowledgeEntry, ProjectRequest, Relation,
-    Scope,
+    ComputeRequest, ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest,
+    KnowledgeEntry, ProjectRequest, Relation, Scope,
 };
 
 use crate::core::{
@@ -65,6 +71,7 @@ use crate::core::{
     is_allowlisted, sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth,
     verify_invoke_response_auth, Correlation, EnvelopeAuthError, InboundSequence,
     InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence, SessionSignInput,
+    CAPABILITY_KE_OWNERSHIP,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -74,6 +81,7 @@ use crate::remote::remote_adapter::{
 };
 use crate::remote::serve_ports::RemoteServePorts;
 use crate::remote::transport::Transport;
+use crate::remote::{requires_ownership_capability, validate_scope_declaration};
 use crate::runtime::generate_request_id;
 
 /// Default bounded-wait deadline for each reverse-invoke waiter, ms (parity
@@ -157,14 +165,30 @@ fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str, op: &str) ->
     }
 }
 
+/// Safety net for a `SCOPE_BEARING_OPS` arm reached without the `Scope` the
+/// responder gate decodes: the gate rejects a missing or malformed declared
+/// Scope before dispatch, so this only fires for a caller that bypassed it.
+fn missing_declared_scope(op: &str) -> SpokeResult<Value> {
+    spoke_reject(
+        SpokeRejectCode::InvalidInput,
+        format!("invalid {op} payload: missing scope"),
+        None,
+    )
+}
+
 /// Map a `port.*` op + payload to the injected ports face method per the D4
 /// catalogue. The dispatch gate (capability check) and the optional-face
 /// probe (gate → probe → serve/deny) have already run when this is called;
 /// unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
 /// misconfiguration (the gate denies them first).
+///
+/// `declared_scope` is the declared Scope the responder gate already decoded
+/// and validated for the three Scope-bearing ops — those arms serve that
+/// value instead of decoding the same JSON again.
 async fn dispatch_port_op(
     op: &str,
     payload: &Value,
+    declared_scope: Option<&Scope>,
     ports: &(dyn RemoteServePorts + Send + Sync),
 ) -> SpokeResult<Value> {
     let field = |name: &str| payload_field::<Value>(payload, name, op);
@@ -226,18 +250,16 @@ async fn dispatch_port_op(
             map_result(ports.put_relation(relation, expected).await)
         }
         "port.scope.list_knowledge_entries" => {
-            let scope = match payload_field::<Scope>(payload, "scope", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            let Some(scope) = declared_scope else {
+                return missing_declared_scope(op);
             };
-            map_result(ports.list_knowledge_entries(&scope).await)
+            map_result(ports.list_knowledge_entries(scope).await)
         }
         "port.scope.list_timeline_events" => {
-            let scope = match payload_field::<Scope>(payload, "scope", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            let Some(scope) = declared_scope else {
+                return missing_declared_scope(op);
             };
-            map_result(ports.list_timeline_events(&scope).await)
+            map_result(ports.list_timeline_events(scope).await)
         }
         "port.finding.put" => {
             let findings = match payload_field::<Vec<Finding>>(payload, "findings", op) {
@@ -304,12 +326,11 @@ async fn dispatch_port_op(
             }
         }
         "port.fork.list_timeline_events" => {
-            let scope = match payload_field::<Scope>(payload, "scope", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            let Some(scope) = declared_scope else {
+                return missing_declared_scope(op);
             };
             match ports.as_fork_timeline() {
-                Some(fork) => map_result(fork.list_fork_timeline_events(&scope).await),
+                Some(fork) => map_result(fork.list_fork_timeline_events(scope).await),
                 None => SpokeResult::Reject(SpokeReject {
                     code: SpokeRejectCode::CapabilityPortMissing,
                     message:
@@ -970,7 +991,13 @@ impl ConnectResponder {
             self.dispatch_tool_invoke(doc).await?;
             return Ok(());
         }
-        self.dispatch_port_invoke(doc).await?;
+        // `extract` is a core op served by an optional injected service
+        // (F1/F3) — it is not a `port.*` method and carries no port-map row.
+        if op == "extract" {
+            self.dispatch_extract_invoke(doc).await?;
+            return Ok(());
+        }
+        self.dispatch_port_invoke(doc, &negotiated).await?;
         Ok(())
     }
 
@@ -1107,11 +1134,160 @@ impl ConnectResponder {
         }
     }
 
-    /// Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny).
-    async fn dispatch_port_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
+    /// Serve a core `extract` invoke through the injected
+    /// [`RemoteExtractService`](crate::remote::RemoteExtractService)
+    /// (F1/F3). The static capability gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`]; the rest of the order is
+    /// probe → decode/validate → call the service once → signed response.
+    ///
+    /// The service owns the host-local extraction port, the loaded input
+    /// value and the extractor — neither is a transport parameter, and this
+    /// end never encodes one. An injected service that answers with the
+    /// `ExtractResponse` error branch is normalized through the existing
+    /// error-envelope map to the same application reject path.
+    async fn dispatch_extract_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
         let Some(op) = doc.get("op").and_then(Value::as_str) else {
             return Ok(());
         };
+        // Provider probe (gate → probe → serve/deny): an absent ports face
+        // and a ports face without the `extract` service are the same
+        // documented dispatch-deny branch — the host declared the capability
+        // without providing the service.
+        let Some(service) = self
+            .ports
+            .as_ref()
+            .and_then(|ports| ports.as_extract())
+        else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no extract service configured for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // Decode/validate before the service runs: the invoke payload IS the
+        // `ExtractRequest` (F1), not a wrapper object.
+        let payload = doc.get("payload").cloned().unwrap_or_else(|| json!({}));
+        let request = match serde_json::from_value::<ExtractRequest>(payload) {
+            Ok(request) => request,
+            Err(error) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    SpokeRejectCode::InvalidInput.as_str(),
+                    &format!("invalid {op} payload: {error}"),
+                    None,
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+        let response = match service.extract(request).await {
+            SpokeResult::Ok(response) => response,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+        if let ExtractResponse::Variant1 { error, .. } = &response {
+            let reject = serde_json::to_value(error)
+                .ok()
+                .and_then(|value| serde_json::from_value::<spoke_schemas::ErrorEnvelope>(value).ok())
+                .map_or_else(
+                    || SpokeReject {
+                        code: SpokeRejectCode::InternalError,
+                        message: format!("{op} service returned an unmappable error branch"),
+                        details: None,
+                    },
+                    |error| from_error_envelope(&error),
+                );
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        }
+        // Success payload is the existing `ExtractResponse` success branch
+        // itself (F1) — no `{ result }` wrapper.
+        match serde_json::to_value(&response) {
+            Ok(payload) => {
+                self.send_ok_response(doc, payload).await?;
+            }
+            Err(error) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    SpokeRejectCode::InternalError.as_str(),
+                    &format!("{op} response serialize failed: {error}"),
+                    None,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny).
+    ///
+    /// `negotiated` is the session's negotiated capability set (the caller
+    /// already read it for the static gate) — the supplementary F2 ownership
+    /// conjunct is evaluated against the same set.
+    async fn dispatch_port_invoke(
+        &self,
+        doc: &Value,
+        negotiated: &[String],
+    ) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        // Borrowed, not cloned: every reader below takes `&Value`, and the
+        // absent-payload case reads as an empty object exactly as the previous
+        // `json!({})` fallback did.
+        let empty_payload = json!({});
+        let payload = doc.get("payload").unwrap_or(&empty_payload);
+        // F2 supplementary product-boundary gate (frozen): the declared
+        // Scope validation and the conditional ownership requirement both
+        // run after the static capability gate and before the provider is
+        // probed or called. The dialer never pre-gates, so this is the first
+        // place the payload-dependent rule is applied.
+        let declared_scope = match validate_scope_declaration(op, payload) {
+            Ok(scope) => scope,
+            Err(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+        if requires_ownership_capability(op, payload)
+            && !negotiated
+                .iter()
+                .any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
+        {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!(
+                    "op {op} requires capability {CAPABILITY_KE_OWNERSHIP} for its declared viewpoint"
+                ),
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
         let ports = match self.ports.as_ref() {
             Some(ports) => Arc::clone(ports),
             None => {
@@ -1144,11 +1320,7 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         }
-        let payload = doc
-            .get("payload")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let result = dispatch_port_op(op, &payload, ports.as_ref()).await;
+        let result = dispatch_port_op(op, payload, declared_scope.as_ref(), ports.as_ref()).await;
         if let SpokeResult::Ok(value) = result {
             // Success payload carries the raw success value `T` (D4), NOT the
             // `{ result }` tool shape — the dialer's `invoke_mapped`

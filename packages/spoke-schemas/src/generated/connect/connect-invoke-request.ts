@@ -21,7 +21,7 @@ export interface ConnectInvokeRequest {
    */
   request_id: string;
   /**
-   * Open vocabulary. Core (documented, not enforced): upsert, promote, relate, check, assemble, project, compute.
+   * Open vocabulary. Core (documented, not enforced): upsert, promote, relate, check, assemble, project, compute, extract.
    */
   op: string;
   payload: unknown;

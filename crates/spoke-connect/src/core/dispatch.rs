@@ -14,6 +14,15 @@
 pub const CAPABILITY_SPOKE_BASELINE: &str = "spoke-baseline";
 /// Optional capability: required by the compute-family core ops.
 pub const CAPABILITY_L2_COMPUTABLE: &str = "l2-computable";
+/// Optional capability: required by the `extract` core op. The serving host
+/// owns the extraction port, the loaded input value and the extractor; the
+/// requester only needs the negotiated flag.
+pub const CAPABILITY_KE_EXTRACTION: &str = "ke-extraction";
+/// Optional capability: required by a Scope-bearing remote request whose
+/// declared `scope.viewpoint` carries a reader context. It is a capability,
+/// **not** an op — the payload-dependent requirement lives at the remote
+/// dispatch boundary, so this table has no `ke-ownership` op row.
+pub const CAPABILITY_KE_OWNERSHIP: &str = "ke-ownership";
 
 /// The minimum capability required to dispatch `op`, per the protocol v1
 /// core-op table. Product-defined `op` values return `None` — their required
@@ -35,6 +44,7 @@ pub fn required_capability(op: &str) -> Option<&str> {
     match op {
         "upsert" | "promote" | "relate" | "check" | "assemble" => Some(CAPABILITY_SPOKE_BASELINE),
         "project" | "compute" => Some(CAPABILITY_L2_COMPUTABLE),
+        "extract" => Some(CAPABILITY_KE_EXTRACTION),
         _ => None,
     }
 }
@@ -106,6 +116,42 @@ mod tests {
                 "baseline alone must not authorize compute ops"
             );
         }
+    }
+
+    #[test]
+    fn ke_remote_extract_requires_ke_extraction() {
+        assert_eq!(
+            required_capability("extract"),
+            Some(CAPABILITY_KE_EXTRACTION)
+        );
+        assert!(dispatch_allowed("extract", &caps(&["ke-extraction"])));
+        assert!(dispatch_allowed(
+            "extract",
+            &caps(&["spoke-baseline", "ke-extraction"])
+        ));
+        // Neither the baseline nor the ownership capability authorizes the
+        // extract op on its own.
+        assert!(!dispatch_allowed("extract", &caps(&["spoke-baseline"])));
+        assert!(!dispatch_allowed("extract", &caps(&[CAPABILITY_KE_OWNERSHIP])));
+        assert!(!dispatch_allowed("extract", &caps(&[])));
+    }
+
+    #[test]
+    fn ke_remote_extract_token_grant_membership() {
+        assert!(token_authorizes_op(
+            required_capability("extract"),
+            &caps(&["ke-extraction"])
+        ));
+        // Subset-of-grant: extra granted capabilities are ignored.
+        assert!(token_authorizes_op(
+            required_capability("extract"),
+            &caps(&["ke-extraction", "ke-ownership", "unused-extra"])
+        ));
+        assert!(!token_authorizes_op(
+            required_capability("extract"),
+            &caps(&["spoke-baseline", "l2-computable"])
+        ));
+        assert!(!token_authorizes_op(required_capability("extract"), &caps(&[])));
     }
 
     #[test]

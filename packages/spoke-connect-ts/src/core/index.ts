@@ -29,6 +29,7 @@ export {
 } from "./correlate.js";
 export type { Correlation } from "./correlate.js";
 export {
+  CAPABILITY_KE_EXTRACTION,
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
   dispatchAllowed,

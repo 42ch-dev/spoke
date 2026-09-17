@@ -1237,3 +1237,64 @@ function addHandler(calls: { args: Record<string, unknown> }[]): TestToolHandler
     return spokeOk({ sum: (args.a as number) + (args.b as number) });
   };
 }
+
+describe("ke remote", () => {
+  it("selectPeerForOp hard-filters ke-ownership for viewpoint-bearing scope ops", () => {
+    const payload = {
+      scope: {
+        scope_id: "router-own",
+        viewpoint: "holder-a",
+      },
+    };
+    const withOwnership: SelectablePeer = {
+      peerId: "peer-a",
+      manifest: {
+        ...schemaConformantManifest(),
+        host_id: "peer-a",
+        capabilities: ["spoke-baseline", "ke-ownership"],
+      },
+    };
+    const withoutOwnership: SelectablePeer = {
+      peerId: "peer-b",
+      manifest: {
+        ...schemaConformantManifest(),
+        host_id: "peer-b",
+        capabilities: ["spoke-baseline"],
+      },
+    };
+    const selected = selectPeerForOp(
+      [withoutOwnership, withOwnership],
+      "port.scope.list_knowledge_entries",
+      payload,
+    );
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    expect(selected.value.peerId).toBe("peer-a");
+
+    const exhausted = selectPeerForOp(
+      [withoutOwnership],
+      "port.scope.list_knowledge_entries",
+      payload,
+    );
+    expect(exhausted.ok).toBe(false);
+    if (exhausted.ok) return;
+    expect(exhausted.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+    expect(exhausted.details?.wire_code).toBe("no_capable_peer");
+  });
+
+  it("includes extract in the hard capability map without a preferred role", async () => {
+    const payload = { run_id: "r1", sources: [{ schema_version: 1, source_id: "s", extensions: {} }] };
+    const capable: SelectablePeer = {
+      peerId: "peer-extract",
+      manifest: {
+        ...schemaConformantManifest(),
+        host_id: "peer-extract",
+        capabilities: ["ke-extraction"],
+      },
+    };
+    const selected = selectPeerForOp([capable], "extract", payload);
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    expect(selected.value.peerId).toBe("peer-extract");
+  });
+});

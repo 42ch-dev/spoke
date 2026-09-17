@@ -33,7 +33,7 @@
     "op": {
       "type": "string",
       "minLength": 1,
-      "description": "Open vocabulary. Core (documented, not enforced): upsert, promote, relate, check, assemble, project, compute."
+      "description": "Open vocabulary. Core (documented, not enforced): upsert, promote, relate, check, assemble, project, compute, extract."
     },
     "payload": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",

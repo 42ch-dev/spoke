@@ -51,13 +51,15 @@ use spoke_connect::remote::{
     connect_multi_peer_router, connect_remote_adapter, connect_responder, loopback_transport_pair,
     reset_accepted_server_hellos_for_test, ConnectResponder, ConnectResponderOptions,
     LoopbackTransport, LoopbackTransportPair, MultiPeerRouterOptions, RemoteAdapter,
-    RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteIdentity,
-    RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport, TransportError,
+    RemoteAdapterError, RemoteAdapterOptions, RemoteAdapterState, RemoteExtractService,
+    RemoteIdentity, RemoteServePorts, RemoteServePortsComposite, ToolHandler, Transport,
+    TransportError,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
-    orchestrate_check, orchestrate_upsert, spoke_ok, spoke_reject, BaselinePorts, CheckRunInput,
-    ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
+    orchestrate_check, orchestrate_extract, orchestrate_upsert, spoke_ok, spoke_reject,
+    BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
+    ExtractionResult, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
     RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
@@ -66,8 +68,9 @@ use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
-    CheckRequest, ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
-    ProjectRequest, ProjectResponse, Scope, TimelineEvent, UpsertRequest,
+    CheckRequest, ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
+    HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
+    TimelineEvent, UpsertRequest,
 };
 
 /// Compare two `SpokeResult`s structurally (generated types do not derive
@@ -4592,5 +4595,1160 @@ async fn responder_serves_computable_and_probe_denies_fork_on_a_mixed_composite(
     }
     assert_eq!(responder.state(), RemoteAdapterState::Established);
     client.close();
+    responder.close();
+}
+
+// ── KE remote: `extract` service face (F1/F3) + ownership gate (F2) ───────
+
+/// Loader-only canary. It exists only inside the host's loaded input value
+/// and must never appear in any wire envelope in either direction.
+const LOADER_CANARY: &str = "spoke-ke-remote-loader-canary-7f3a91";
+
+/// How the test host's extraction behaves.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExtractBehavior {
+    /// One provisional candidate per source anchor.
+    Batch,
+    /// A successful zero-result run.
+    EmptyBatch,
+    /// An application reject raised inside the host orchestration.
+    Reject,
+    /// The `ExtractResponse` error branch returned as a service success.
+    ErrorBranch,
+}
+
+#[derive(Default)]
+struct ExtractHostState {
+    loads: AtomicUsize,
+    runs: AtomicUsize,
+    canary_consumed: AtomicBool,
+}
+
+/// Host-side `extract` service double: a real host-local loader, a real
+/// in-process extractor, and the operations crate's `orchestrate_extract`
+/// doing the boundary / provisional / assembly work. The loaded value is a
+/// host-local in-process value — never a wire parameter.
+#[derive(Clone)]
+struct CanonicalExtractHost {
+    state: Arc<ExtractHostState>,
+    behavior: ExtractBehavior,
+}
+
+impl CanonicalExtractHost {
+    fn new(behavior: ExtractBehavior) -> Self {
+        Self {
+            state: Arc::new(ExtractHostState::default()),
+            behavior,
+        }
+    }
+
+    /// `(loader calls, service calls)`.
+    fn calls(&self) -> (usize, usize) {
+        (
+            self.state.loads.load(Ordering::SeqCst),
+            self.state.runs.load(Ordering::SeqCst),
+        )
+    }
+
+    fn canary_consumed(&self) -> bool {
+        self.state.canary_consumed.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl ExtractionPort for CanonicalExtractHost {
+    async fn load_extraction_input(&self, _request: &ExtractRequest) -> SpokeResult<Value> {
+        self.state.loads.fetch_add(1, Ordering::SeqCst);
+        spoke_ok(json!({
+            "canary": LOADER_CANARY,
+            "manuscript": "host-local source content that must never reach the wire",
+        }))
+    }
+}
+
+#[async_trait]
+impl RemoteExtractService for CanonicalExtractHost {
+    async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
+        self.state.runs.fetch_add(1, Ordering::SeqCst);
+        if self.behavior == ExtractBehavior::ErrorBranch {
+            return spoke_ok(extract_error_branch());
+        }
+        let host = self.clone();
+        let behavior = self.behavior;
+        let state = Arc::clone(&self.state);
+        // `orchestrate_extract` takes `&dyn ExtractionPort` (a plain trait
+        // object), so its returned future is `!Send`; the connect service
+        // face is `Send`. The host drives the real orchestration on a
+        // blocking worker — the same place a host's loader callback belongs.
+        let joined = tokio::task::spawn_blocking(move || {
+            futures::executor::block_on(orchestrate_extract(
+                &host,
+                request,
+                move |input: ExtractRunInput| async move {
+                    state.canary_consumed.store(
+                        input.input.get("canary").and_then(Value::as_str) == Some(LOADER_CANARY),
+                        Ordering::SeqCst,
+                    );
+                    if behavior == ExtractBehavior::Reject {
+                        return spoke_reject(
+                            SpokeRejectCode::CandidateNotProvisional,
+                            "the extractor declined every candidate",
+                            None,
+                        );
+                    }
+                    let candidates = if behavior == ExtractBehavior::EmptyBatch {
+                        Vec::new()
+                    } else {
+                        input
+                            .request
+                            .sources
+                            .iter()
+                            .enumerate()
+                            .map(|(index, _)| {
+                                provisional_candidate(input.request.run_id.as_str(), index)
+                            })
+                            .collect()
+                    };
+                    spoke_ok(ExtractionResult {
+                        candidates,
+                        method: Some("canonical".to_owned()),
+                        coverage_hint: None,
+                    })
+                },
+            ))
+        })
+        .await;
+        match joined {
+            Ok(result) => result,
+            Err(error) => spoke_reject(
+                SpokeRejectCode::InternalError,
+                format!("extract host task failed: {error}"),
+                None,
+            ),
+        }
+    }
+}
+
+/// One provisional candidate — the operation invariant the orchestrator
+/// enforces on every returned entry.
+fn provisional_candidate(run_id: &str, index: usize) -> KnowledgeEntry {
+    serde_json::from_value(json!({
+        "schema_version": 1,
+        "entry_id": format!("ke-remote-{run_id}-{index}"),
+        "entry_type": "note",
+        "canonical_name": format!("Extracted note {index}"),
+        "status": "provisional",
+        "body": { "summary": format!("provisional candidate {index}") },
+        "extensions": {},
+    }))
+    .expect("valid provisional KnowledgeEntry")
+}
+
+/// The `ExtractResponse` error branch an injected service can return as a
+/// SUCCESS value — the shape the responder must normalize to the reject path.
+fn extract_error_branch() -> ExtractResponse {
+    serde_json::from_value(json!({
+        "error": {
+            "code": "KNOWLEDGE_ENTRY_NOT_FOUND",
+            "message": "the extractor's referenced source is gone",
+            "extensions": {},
+        },
+    }))
+    .expect("valid ExtractResponse error branch")
+}
+
+/// KE remote hello manifests: the tool fixture plus the capabilities the
+/// scenario negotiates (both hellos must declare a capability for it to be
+/// negotiated).
+fn ke_remote_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
+    let mut manifest = tool_manifest(host_id);
+    manifest
+        .capabilities
+        .extend(capabilities.iter().map(|capability| (*capability).to_owned()));
+    manifest
+}
+
+/// Baseline provider that records every `Scope` it is asked to list, so the
+/// tests can assert what actually reached the provider.
+struct RecordingScopePorts {
+    inner: ToyWorldAdapter,
+    scopes: Mutex<Vec<Value>>,
+}
+
+impl RecordingScopePorts {
+    fn new() -> Self {
+        Self {
+            inner: ToyWorldAdapter::with_committed_fixtures(),
+            scopes: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn record(&self, scope: &Scope) {
+        self.scopes
+            .lock()
+            .expect("scopes lock")
+            .push(serde_json::to_value(scope).expect("scope serializes"));
+    }
+
+    fn scopes(&self) -> Vec<Value> {
+        self.scopes.lock().expect("scopes lock").clone()
+    }
+}
+
+#[async_trait]
+impl KnowledgeEntryPort for RecordingScopePorts {
+    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+        self.inner.get_knowledge_entry(entry_id).await
+    }
+
+    async fn put_knowledge_entry(
+        &self,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.inner
+            .put_knowledge_entry(entry, expected_base_revision)
+            .await
+    }
+}
+
+#[async_trait]
+impl RelationPort for RecordingScopePorts {
+    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        self.inner.get_relation(relation_id).await
+    }
+
+    async fn put_relation(
+        &self,
+        relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        self.inner
+            .put_relation(relation, expected_base_revision)
+            .await
+    }
+}
+
+#[async_trait]
+impl ScopeQueryPort for RecordingScopePorts {
+    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.record(scope);
+        self.inner.list_knowledge_entries(scope).await
+    }
+
+    async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        self.record(scope);
+        self.inner.list_timeline_events(scope).await
+    }
+}
+
+#[async_trait]
+impl FindingPort for RecordingScopePorts {
+    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+        self.inner.put_findings(findings).await
+    }
+}
+
+#[async_trait]
+impl RuleQueryPort for RecordingScopePorts {
+    async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+        self.inner.list_rules(rule_refs).await
+    }
+}
+
+#[async_trait]
+impl HostManifestPort for RecordingScopePorts {
+    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        self.inner.get_host_capability_manifest().await
+    }
+
+    async fn list_peer_host_capability_manifests(
+        &self,
+    ) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        self.inner.list_peer_host_capability_manifests().await
+    }
+}
+
+/// Both-directions wire capture: the whole session view of an on-path
+/// observer. Backs the F1 "no loader value on the wire" assertion.
+struct CapturingTransport {
+    inner: Arc<dyn Transport>,
+    sent: Arc<Mutex<Vec<Vec<u8>>>>,
+    received: Arc<Mutex<Vec<Vec<u8>>>>,
+}
+
+#[async_trait]
+impl Transport for CapturingTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        self.sent.lock().expect("sent lock").push(envelope.to_vec());
+        self.inner.send(envelope).await
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        let bytes = self.inner.recv().await?;
+        self.received
+            .lock()
+            .expect("received lock")
+            .push(bytes.clone());
+        Ok(bytes)
+    }
+
+    async fn close(&self) -> Result<(), TransportError> {
+        self.inner.close().await
+    }
+}
+
+type CapturedWire = Arc<Mutex<Vec<Vec<u8>>>>;
+
+fn captured_contains(envelopes: &CapturedWire, needle: &str) -> bool {
+    envelopes
+        .lock()
+        .expect("capture lock")
+        .iter()
+        .any(|bytes| String::from_utf8_lossy(bytes).contains(needle))
+}
+
+/// The payload of the single captured outbound envelope carrying `op`.
+fn captured_request_payload(envelopes: &CapturedWire, op: &str) -> Value {
+    for bytes in envelopes.lock().expect("capture lock").iter() {
+        let Ok(doc) = serde_json::from_slice::<Value>(bytes) else {
+            continue;
+        };
+        if doc.get("op").and_then(Value::as_str) == Some(op) {
+            return doc.get("payload").cloned().unwrap_or(Value::Null);
+        }
+    }
+    panic!("no captured outbound request for op {op}");
+}
+
+fn captured_request_ops(envelopes: &CapturedWire) -> Vec<String> {
+    envelopes
+        .lock()
+        .expect("capture lock")
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        .filter_map(|doc| {
+            doc.get("op")
+                .and_then(Value::as_str)
+                .map(|op| op.to_owned())
+        })
+        .collect()
+}
+
+/// KE remote scenario dial options.
+#[derive(Default)]
+struct KeRemoteDial {
+    client_capabilities: Vec<&'static str>,
+    responder_capabilities: Vec<&'static str>,
+    extract: Option<CanonicalExtractHost>,
+    baseline: Option<Arc<RecordingScopePorts>>,
+}
+
+/// Loopback pair for the KE remote scenarios: the productized responder
+/// serving `extract` through the injected service and the Scope ops through
+/// the (optionally recording) baseline provider, with both wire directions
+/// captured on the client end.
+async fn ke_remote_dial(
+    options: KeRemoteDial,
+) -> (
+    Arc<ConnectResponder>,
+    Arc<RemoteAdapter>,
+    CapturedWire,
+    CapturedWire,
+) {
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = match options.baseline {
+        Some(recording) => recording,
+        None => Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+    };
+    let mut ports = RemoteServePortsComposite::new(baseline, None, None);
+    if let Some(extract) = options.extract {
+        ports = ports.with_extract(Arc::new(extract));
+    }
+    let sent: CapturedWire = Arc::new(Mutex::new(Vec::new()));
+    let received: CapturedWire = Arc::new(Mutex::new(Vec::new()));
+    let sent_wrap = Arc::clone(&sent);
+    let received_wrap = Arc::clone(&received);
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions {
+        client_manifest: Some(ke_remote_manifest(
+            "test-client",
+            &options.client_capabilities,
+        )),
+        responder_manifest: Some(ke_remote_manifest(
+            "test-responder",
+            &options.responder_capabilities,
+        )),
+        ports: Some(Arc::new(ports)),
+        client_transport: Some(Box::new(move |inner| {
+            Arc::new(CapturingTransport {
+                inner,
+                sent: Arc::clone(&sent_wrap),
+                received: Arc::clone(&received_wrap),
+            })
+        })),
+        ..ResponderDialOptions::default()
+    })
+    .await;
+    (responder, client, sent, received)
+}
+
+/// A responder without a dialing client, so a test can put a signed request
+/// on the wire that the typed adapter cannot express (a malformed declared
+/// Scope).
+async fn start_raw_ke_responder(
+    ports: Arc<dyn RemoteServePorts + Send + Sync>,
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity {
+            seed: seed_host(),
+        },
+        manifest: ke_remote_manifest("test-responder", capabilities),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: Some(ports),
+        invoke_timeout_ms: None,
+    })
+    .await;
+    (responder, pair, seed_client())
+}
+
+/// A Scope carrying a reader viewpoint plus opaque extension values the
+/// provider must receive unchanged.
+fn viewpoint_scope() -> Scope {
+    serde_json::from_value(json!({
+        "scope_id": "toy-scope-001",
+        "viewpoint": "kb_tw_mira",
+        "entry_types": ["note"],
+        "extensions": { "product": { "viewpoint": "decoy", "owner": "someone" } },
+    }))
+    .expect("valid Scope")
+}
+
+#[tokio::test]
+async fn ke_remote_extract_round_trips_a_provisional_batch_without_the_loader_value() {
+    let host = CanonicalExtractHost::new(ExtractBehavior::Batch);
+    let (responder, client, sent, received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-extraction"],
+        responder_capabilities: vec!["ke-extraction"],
+        extract: Some(host.clone()),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-ke-remote-1",
+        "sources": [
+            { "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} },
+            { "schema_version": 1, "source_id": "manuscript/ch2", "extensions": {} },
+        ],
+    }))
+    .expect("valid ExtractRequest");
+
+    let result = client.extract(request).await;
+    match result {
+        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
+            // Correlation: the batch id is echoed verbatim.
+            assert_eq!(run.run_id.as_str(), "run-ke-remote-1");
+            assert_eq!(candidates.len(), 2);
+            // Operation invariant: every returned candidate is provisional.
+            for candidate in &candidates {
+                assert_eq!(candidate.status.as_str(), "provisional");
+            }
+        }
+        SpokeResult::Ok(ExtractResponse::Variant1 { error, .. }) => {
+            panic!("extract round-trip must succeed: {}", error.message)
+        }
+        SpokeResult::Reject(reject) => panic!("extract round-trip must succeed: {reject:?}"),
+    }
+
+    // The host-local load and the in-process extractor both ran exactly once,
+    // and the extractor consumed the loaded value.
+    assert_eq!(host.calls(), (1, 1));
+    assert!(
+        host.canary_consumed(),
+        "the extractor must consume the loaded value on the serving host"
+    );
+
+    // The invoke payload IS the `ExtractRequest` — no wrapper object.
+    let payload = captured_request_payload(&sent, "extract");
+    assert_eq!(payload["run_id"], json!("run-ke-remote-1"));
+    assert_eq!(
+        payload["sources"].as_array().expect("sources").len(),
+        2,
+        "the request carries the source references, not their content"
+    );
+    assert!(payload.get("request").is_none());
+    assert!(payload.get("arguments").is_none());
+
+    // No content on the wire: the loader-only canary appears in no captured
+    // envelope in either direction.
+    assert!(
+        !captured_contains(&sent, LOADER_CANARY),
+        "the extract request must not carry the loader value"
+    );
+    assert!(
+        !captured_contains(&received, LOADER_CANARY),
+        "the extract response must not carry the loader value"
+    );
+
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_extract_serves_a_successful_empty_candidate_batch() {
+    let host = CanonicalExtractHost::new(ExtractBehavior::EmptyBatch);
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-extraction"],
+        responder_capabilities: vec!["ke-extraction"],
+        extract: Some(host.clone()),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-ke-remote-empty",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    match client.extract(request).await {
+        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
+            assert!(candidates.is_empty(), "zero results is a success, not a deny");
+            assert_eq!(run.run_id.as_str(), "run-ke-remote-empty");
+        }
+        SpokeResult::Ok(ExtractResponse::Variant1 { error, .. }) => {
+            panic!("empty batch must succeed: {}", error.message)
+        }
+        SpokeResult::Reject(reject) => panic!("empty batch must succeed: {reject:?}"),
+    }
+    assert_eq!(host.calls(), (1, 1));
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_extract_denies_when_ke_extraction_is_not_negotiated() {
+    let host = CanonicalExtractHost::new(ExtractBehavior::Batch);
+    // Both hellos omit `ke-extraction`, so the negotiated intersection does
+    // not contain it: the responder's static gate must deny before the
+    // service is probed or called.
+    let (responder, client, sent, _received) = ke_remote_dial(KeRemoteDial {
+        extract: Some(host.clone()),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-ke-remote-denied",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    match client.extract(request).await {
+        SpokeResult::Ok(_) => panic!("an unnegotiated extract must deny"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("op_unsupported")
+            );
+        }
+    }
+    // The dialer never pre-gates: the request reached the wire, and the host
+    // neither probed the service nor loaded anything.
+    assert!(
+        captured_request_ops(&sent).iter().any(|op| op == "extract"),
+        "the dialer must invoke the peer rather than pre-gate locally"
+    );
+    assert_eq!(host.calls(), (0, 0));
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_extract_probe_denies_when_the_capability_is_declared_but_the_service_is_absent() {
+    // `ke-extraction` is negotiated but the composed ports face carries no
+    // extract service: the existing not-serving dispatch-deny branch, which
+    // is distinct from the negotiated-capability deny above.
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-extraction"],
+        responder_capabilities: vec!["ke-extraction"],
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-ke-remote-absent",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    match client.extract(request).await {
+        SpokeResult::Ok(_) => panic!("an absent extract service must deny"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert!(
+                reject.message.contains("no extract service configured"),
+                "probe deny must name the missing service: {}",
+                reject.message
+            );
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code"))
+                    .and_then(Value::as_str),
+                Some("op_unsupported")
+            );
+        }
+    }
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_extract_maps_a_service_application_reject() {
+    // A served request whose extraction legitimately fails keeps its own
+    // reject code — it is NOT recast as an unavailable capability.
+    let host = CanonicalExtractHost::new(ExtractBehavior::Reject);
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-extraction"],
+        responder_capabilities: vec!["ke-extraction"],
+        extract: Some(host.clone()),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-ke-remote-reject",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    match client.extract(request).await {
+        SpokeResult::Ok(_) => panic!("a rejected extraction must not answer success"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CandidateNotProvisional);
+            assert_eq!(
+                reject
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("wire_code")),
+                None,
+                "an application reject is not a dispatch deny"
+            );
+        }
+    }
+    assert_eq!(host.calls(), (1, 1), "the host ran once before rejecting");
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_extract_normalizes_the_response_error_branch_to_the_reject_path() {
+    // A service that returns the `ExtractResponse` error branch as a SUCCESS
+    // value must be normalized through the existing envelope map — never
+    // relayed as a nested success carrying an error.
+    let host = CanonicalExtractHost::new(ExtractBehavior::ErrorBranch);
+    let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-extraction"],
+        responder_capabilities: vec!["ke-extraction"],
+        extract: Some(host.clone()),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-ke-remote-error-branch",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    match client.extract(request).await {
+        SpokeResult::Ok(response) => panic!("the error branch must not answer success: {response:?}"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::KnowledgeEntryNotFound);
+            assert!(reject.message.contains("referenced source is gone"));
+        }
+    }
+    // The wire answered the error branch (not a success payload).
+    let response_error = received
+        .lock()
+        .expect("capture lock")
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        .find_map(|doc| doc.get("error").cloned());
+    assert_eq!(
+        response_error
+            .as_ref()
+            .and_then(|error| error.get("code"))
+            .and_then(Value::as_str),
+        Some("KNOWLEDGE_ENTRY_NOT_FOUND")
+    );
+    assert_eq!(host.calls(), (0, 1), "the error branch never loads a source");
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_scope_viewpoint_with_ownership_negotiated_reaches_the_provider_unchanged() {
+    let recording = Arc::new(RecordingScopePorts::new());
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-ownership"],
+        responder_capabilities: vec!["ke-ownership"],
+        baseline: Some(Arc::clone(&recording)),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let result = client.list_knowledge_entries(&viewpoint_scope()).await;
+    if let SpokeResult::Reject(reject) = &result {
+        assert_ne!(
+            reject.code,
+            SpokeRejectCode::CapabilityPortMissing,
+            "a negotiated viewpoint request must not be capability-denied: {reject:?}"
+        );
+    }
+    // The provider received the declared Scope unchanged: the viewpoint and
+    // the opaque extension values are not stripped to make the request
+    // succeed.
+    let received = recording.scopes();
+    assert_eq!(received.len(), 1, "the provider must be reached exactly once");
+    assert_eq!(received[0]["viewpoint"], json!("kb_tw_mira"));
+    assert_eq!(received[0]["entry_types"], json!(["note"]));
+    assert_eq!(
+        received[0]["extensions"]["product"]["viewpoint"],
+        json!("decoy"),
+        "an extension value that merely resembles the gate carrier is preserved"
+    );
+    assert_eq!(received[0]["extensions"]["product"]["owner"], json!("someone"));
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_scope_viewpoint_without_a_negotiated_ownership_capability_is_refused() {
+    // Either hello omitting `ke-ownership` leaves it out of the negotiated
+    // intersection — the request must fail loudly instead of silently
+    // returning an unfiltered success.
+    for (client_capabilities, responder_capabilities) in [
+        (vec!["ke-ownership"], Vec::new()),
+        (Vec::new(), vec!["ke-ownership"]),
+    ] {
+        let recording = Arc::new(RecordingScopePorts::new());
+        let (responder, client, sent, _received) = ke_remote_dial(KeRemoteDial {
+            client_capabilities,
+            responder_capabilities,
+            baseline: Some(Arc::clone(&recording)),
+            ..KeRemoteDial::default()
+        })
+        .await;
+
+        match client.list_knowledge_entries(&viewpoint_scope()).await {
+            SpokeResult::Ok(_) => {
+                panic!("a viewpoint request without a negotiated `ke-ownership` must refuse")
+            }
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert!(
+                    reject.message.contains("ke-ownership"),
+                    "the deny must name the missing capability: {}",
+                    reject.message
+                );
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("wire_code"))
+                        .and_then(Value::as_str),
+                    Some("op_unsupported")
+                );
+            }
+        }
+        // Refused before any host work, and never pre-gated by the dialer.
+        assert!(
+            recording.scopes().is_empty(),
+            "the provider must not be reached on a refused viewpoint request"
+        );
+        assert!(
+            captured_request_ops(&sent)
+                .iter()
+                .any(|op| op == "port.scope.list_knowledge_entries"),
+            "the dialer must invoke the peer rather than pre-gate locally"
+        );
+
+        client.close();
+        responder.close();
+    }
+}
+
+#[tokio::test]
+async fn ke_remote_scope_viewpoint_absent_keeps_baseline_serving() {
+    let recording = Arc::new(RecordingScopePorts::new());
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        baseline: Some(Arc::clone(&recording)),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "toy-scope-001" })).expect("valid Scope");
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert!(
+            entries
+                .iter()
+                .any(|entry| entry.entry_id.as_str() == "kb_tw_mira")
+        ),
+        SpokeResult::Reject(reject) => panic!("baseline serving must stay green: {reject:?}"),
+    }
+    assert_eq!(recording.scopes().len(), 1);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_scope_malformed_declaration_rejects_invalid_input_before_the_provider() {
+    let recording = Arc::new(RecordingScopePorts::new());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = recording.clone();
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &["ke-ownership"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["ke-ownership"]),
+    )
+    .await;
+
+    // Every malformed declared Scope: a present `viewpoint` that is not a
+    // non-empty string (note that a present JSON null would otherwise decode
+    // as an absent viewpoint), a missing Scope, and a non-object Scope.
+    let malformed_payloads = [
+        json!({ "scope": { "scope_id": "s1", "viewpoint": "" } }),
+        json!({ "scope": { "scope_id": "s1", "viewpoint": null } }),
+        json!({ "scope": { "scope_id": "s1", "viewpoint": 3 } }),
+        json!({ "scope": { "scope_id": "s1", "viewpoint": [] } }),
+        json!({ "scope": { "scope_id": "s1", "viewpoint": {} } }),
+        json!({}),
+        json!({ "scope": "not-an-object" }),
+    ];
+    for (sequence, payload) in malformed_payloads.iter().enumerate() {
+        let request = sign_invoke_request(
+            seed,
+            &session_id,
+            sequence as i64,
+            &format!("ke-malformed-{sequence}"),
+            "port.scope.list_knowledge_entries",
+            payload.clone(),
+        );
+        pair.client
+            .send(&serde_json::to_vec(&request).expect("bytes"))
+            .await
+            .expect("send");
+        let response: Value = serde_json::from_slice(&pair.client.recv().await.expect("recv"))
+            .expect("response decode");
+        assert_eq!(
+            response["error"]["code"], "INVALID_INPUT",
+            "payload {payload} must be an input failure, got {response}"
+        );
+    }
+    assert!(
+        recording.scopes().is_empty(),
+        "a malformed declared Scope must never reach the provider"
+    );
+
+    // Control: a valid non-empty viewpoint on the next sequence serves
+    // normally — the validation is not a blanket refusal.
+    let valid = sign_invoke_request(
+        seed,
+        &session_id,
+        malformed_payloads.len() as i64,
+        "ke-valid-viewpoint",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "toy-scope-001", "viewpoint": "kb_tw_mira" } }),
+    );
+    pair.client
+        .send(&serde_json::to_vec(&valid).expect("bytes"))
+        .await
+        .expect("send");
+    let response: Value = serde_json::from_slice(&pair.client.recv().await.expect("recv"))
+        .expect("response decode");
+    assert!(
+        response.get("error").is_none(),
+        "the valid viewpoint must serve, got {response}"
+    );
+    let scopes = recording.scopes();
+    assert_eq!(scopes.len(), 1);
+    assert_eq!(scopes[0]["viewpoint"], json!("kb_tw_mira"));
+
+    responder.close();
+}
+
+/// Send one signed raw invoke and return the decoded response envelope (the
+/// typed adapter cannot express a malformed declared Scope).
+async fn raw_invoke(
+    client: &LoopbackTransport,
+    seed: [u8; 32],
+    session_id: &str,
+    sequence: i64,
+    request_id: &str,
+    op: &str,
+    payload: Value,
+) -> Value {
+    let request = sign_invoke_request(seed, session_id, sequence, request_id, op, payload);
+    client
+        .send(&serde_json::to_vec(&request).expect("request bytes"))
+        .await
+        .expect("request send");
+    serde_json::from_slice(&client.recv().await.expect("response recv")).expect("response decode")
+}
+
+#[tokio::test]
+async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_ownership_capability()
+{
+    // The requirement predicate is false for a malformed viewpoint, so a
+    // malformed declared Scope answers an input failure even when
+    // `ke-ownership` was never negotiated — never a capability deny.
+    let recording = Arc::new(RecordingScopePorts::new());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = recording.clone();
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &[]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &[]),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-malformed-unnegotiated",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": null } }),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "a malformed viewpoint is an input failure, got {malformed}"
+    );
+
+    // Structurally malformed declared Scopes (closed key set / field types)
+    // that still carry a request-qualifying viewpoint: the predicate is true,
+    // so an input failure winning over the capability deny pins the declared
+    // Scope decode to the responder gate.
+    let structurally_malformed = [
+        (
+            "ke-malformed-unknown-key-unnegotiated",
+            json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira", "bogus": 1 } }),
+        ),
+        (
+            "ke-malformed-scope-id-type-unnegotiated",
+            json!({ "scope": { "scope_id": 3, "viewpoint": "kb_tw_mira" } }),
+        ),
+    ];
+    for (offset, (request_id, payload)) in structurally_malformed.iter().enumerate() {
+        let response = raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            offset as i64 + 1,
+            request_id,
+            "port.scope.list_knowledge_entries",
+            payload.clone(),
+        )
+        .await;
+        assert_eq!(
+            response["error"]["code"], "INVALID_INPUT",
+            "payload {payload} must be an input failure, got {response}"
+        );
+    }
+
+    // Control on the same session: a valid viewpoint takes the capability
+    // deny — the malformed rows are validation, not a blanket op refusal.
+    let valid = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        structurally_malformed.len() as i64 + 1,
+        "ke-valid-unnegotiated",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira" } }),
+    )
+    .await;
+    assert_eq!(
+        valid["error"]["code"], "op_unsupported",
+        "a valid viewpoint without the negotiated capability must deny, got {valid}"
+    );
+
+    assert!(
+        recording.scopes().is_empty(),
+        "no request may reach the provider"
+    );
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_scope_validation_precedes_the_optional_face_probe() {
+    // Fork op with `l5-fork` + `ke-ownership` negotiated and NO fork face on
+    // the provider: a malformed declared Scope still answers INVALID_INPUT
+    // (validation runs before the probe), while a valid viewpoint takes the
+    // probe deny that names the missing face.
+    let recording = Arc::new(RecordingScopePorts::new());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> = recording.clone();
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> =
+        Arc::new(RemoteServePortsComposite::new(baseline, None, None));
+    let capabilities = ["l5-fork", "ke-ownership"];
+    let (responder, pair, seed) = start_raw_ke_responder(ports, &capabilities).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &capabilities),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-fork-malformed",
+        "port.fork.list_timeline_events",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": null } }),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "declared-Scope validation must precede the optional-face probe, got {malformed}"
+    );
+
+    let valid = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        1,
+        "ke-fork-valid",
+        "port.fork.list_timeline_events",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira" } }),
+    )
+    .await;
+    assert_eq!(
+        valid["error"]["code"], "op_unsupported",
+        "a valid viewpoint with no fork face must take the probe deny, got {valid}"
+    );
+    assert!(
+        valid["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("list_fork_timeline_events"),
+        "the probe deny must name the missing face: {valid}"
+    );
+
+    assert!(
+        recording.scopes().is_empty(),
+        "neither request may reach the provider"
+    );
+    responder.close();
+}
+
+#[tokio::test]
+async fn ke_remote_extract_decodes_the_request_after_the_provider_probe() {
+    // Frozen F3 serving order: gate → provider probe → decode/validate →
+    // call the service once. With the service present a malformed payload is
+    // an input failure and nothing is loaded; with the service absent the
+    // declared-but-absent provider row (probe deny) answers first, whatever
+    // the payload says.
+    let host = CanonicalExtractHost::new(ExtractBehavior::Batch);
+    let serving: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        )
+        .with_extract(Arc::new(host.clone())),
+    );
+    let (responder, pair, seed) = start_raw_ke_responder(serving, &["ke-extraction"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["ke-extraction"]),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-extract-malformed",
+        "extract",
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "a malformed ExtractRequest is an input failure, got {malformed}"
+    );
+    assert_eq!(
+        host.calls(),
+        (0, 0),
+        "a malformed request must never reach the service or its loader"
+    );
+    responder.close();
+
+    let unserved: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(
+        RemoteServePortsComposite::new(
+            Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            None,
+            None,
+        ),
+    );
+    let (responder, pair, seed) = start_raw_ke_responder(unserved, &["ke-extraction"]).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &["ke-extraction"]),
+    )
+    .await;
+    let absent = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "ke-extract-absent-malformed",
+        "extract",
+        json!({}),
+    )
+    .await;
+    assert_eq!(
+        absent["error"]["code"], "op_unsupported",
+        "the probe deny precedes request decoding, got {absent}"
+    );
+    assert!(
+        absent["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no extract service configured"),
+        "the probe deny must name the missing service: {absent}"
+    );
     responder.close();
 }

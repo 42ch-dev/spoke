@@ -19,6 +19,9 @@ export const CAPABILITY_SPOKE_BASELINE = "spoke-baseline";
 /** Optional capability: required by the compute-family core ops. */
 export const CAPABILITY_L2_COMPUTABLE = "l2-computable";
 
+/** Optional capability: required by the remote `extract` core op. */
+export const CAPABILITY_KE_EXTRACTION = "ke-extraction";
+
 /**
  * The minimum capability required to dispatch `op`, per the protocol v1
  * core-op table. Product-defined `op` values return `undefined` — their
@@ -45,6 +48,8 @@ export function requiredCapability(op: string): string | undefined {
     case "project":
     case "compute":
       return CAPABILITY_L2_COMPUTABLE;
+    case "extract":
+      return CAPABILITY_KE_EXTRACTION;
     default:
       return undefined;
   }

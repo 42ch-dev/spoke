@@ -49,6 +49,8 @@ use spoke_schemas::{
 };
 
 use super::remote_adapter::{RemoteAdapter, RemoteAdapterState};
+use super::requires_ownership_capability;
+use crate::core::{CAPABILITY_KE_EXTRACTION, CAPABILITY_KE_OWNERSHIP};
 
 /// The router's own identity when the consumer configures none (contract §8).
 const DEFAULT_ROUTER_HOST_ID: &str = "multi-peer-router";
@@ -61,7 +63,10 @@ const DEFAULT_ROUTER_HOST_ID: &str = "multi-peer-router";
 /// required capability IS the op string itself (no registry, no umbrella
 /// flag). Orchestrated baseline families and the `port.*` baseline ops
 /// require `spoke-baseline`; the computable families require
-/// `l2-computable`; the fork timeline family requires `l5-fork`.
+/// `l2-computable`; the fork timeline family requires `l5-fork`; the core
+/// `extract` op requires `ke-extraction` (an optional row with **no**
+/// preferred role and no public router method — consumers call `extract` on
+/// their per-peer adapter).
 /// Product-defined ops are product-documented and have no row here;
 /// selection REJECTS ops outside this table (`no_capable_peer`) — an op
 /// with no gate must not fall through ungated (QC2 S-1). The router's fixed
@@ -76,6 +81,8 @@ fn required_capability(op: &str) -> Option<&str> {
         // Orchestrated op families.
         "upsert" | "promote" | "relate" | "check" | "assemble" => Some("spoke-baseline"),
         "project" | "compute" => Some("l2-computable"),
+        // Remote extract — a whole-operation delegation, never ownership-gated.
+        "extract" => Some(CAPABILITY_KE_EXTRACTION),
         // port.* baseline ops.
         "port.knowledge.get"
         | "port.knowledge.put"
@@ -96,8 +103,10 @@ fn required_capability(op: &str) -> Option<&str> {
 
 /// Preferred role per op (contract §3 — locked, SOFT preference only: it
 /// reorders candidates, never rejects a capable peer for lacking the role).
-/// `upsert` / `promote` / `relate` and `port.*` baseline ops carry no role
-/// preference — capability + namespace are the discriminators.
+/// `upsert` / `promote` / `relate` / `extract` and `port.*` baseline ops
+/// carry no role preference — capability + namespace are the discriminators.
+/// In particular the extract row is inert for the fixed public surface and
+/// `input-source` is descriptive, not a selection input.
 fn preferred_role(op: &str) -> Option<&'static str> {
     match op {
         "check" => Some("checker"),
@@ -192,16 +201,22 @@ pub struct SelectablePeer {
 ///    required capability for the op (§2 mapping table). Ops outside the
 ///    mapping table are rejected outright — no gate to run, never an
 ///    ungated fall-through (QC2 S-1).
-/// 2. Namespace filter (hard): when the request payload carries a namespace,
+/// 2. Ownership filter (hard, conditional — F2): when the request declares a
+///    non-empty `payload.scope.viewpoint` on a Scope-bearing op, the peer's
+///    `capabilities` MUST ALSO include `ke-ownership`. This is the same
+///    predicate the responder evaluates against its negotiated set:
+///    advertisement alone is not authorization, so the selected peer can
+///    still refuse.
+/// 3. Namespace filter (hard): when the request payload carries a namespace,
 ///    the peer's `namespaces` MUST include it (exact match; skipped when the
 ///    request carries none; no wildcard).
-/// 3. Authority filter (hard when both sides declare): a peer whose
+/// 4. Authority filter (hard when both sides declare): a peer whose
 ///    `authority.scope_key` is present AND mismatches the request's scope key
 ///    is excluded; when only one side (or neither) declares, the filter is
 ///    skipped for that peer.
-/// 4. Role preference (soft): peers with the op's preferred role in `roles[]`
+/// 5. Role preference (soft): peers with the op's preferred role in `roles[]`
 ///    are preferred over peers without it; never rejects for lacking it.
-/// 5. Deterministic tie-break: lowest `peer_id` in lexicographic UTF-8 byte
+/// 6. Deterministic tie-break: lowest `peer_id` in lexicographic UTF-8 byte
 ///    order (§4) — no clock, no random, no health score. Rust `String`
 ///    ordering IS UTF-8 byte order, so a plain sort is the faithful sort.
 ///
@@ -245,6 +260,25 @@ pub fn select_peer_for_op(
             op,
             format!("no peer advertises capability \"{required_capability}\""),
         ));
+    }
+
+    // Ownership requirement (F2): a viewpoint-bearing Scope request needs a
+    // peer that advertises `ke-ownership` in addition to the op capability —
+    // a hard filter, never a soft preference.
+    if requires_ownership_capability(op, payload) {
+        survivors.retain(|candidate| {
+            candidate
+                .manifest
+                .capabilities
+                .iter()
+                .any(|c| c == CAPABILITY_KE_OWNERSHIP)
+        });
+        if survivors.is_empty() {
+            return SpokeResult::Reject(no_capable_peer(
+                op,
+                format!("no peer advertises capability \"{CAPABILITY_KE_OWNERSHIP}\""),
+            ));
+        }
     }
 
     let namespace = request_namespace(payload);
@@ -1983,6 +2017,131 @@ mod tests {
         match selection {
             SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-match"), // tie-break
             SpokeResult::Reject(reject) => panic!("must select peer-match: {reject:?}"),
+        }
+    }
+
+    // ── Pure selection — F2 ownership filter + extract row ─────────────────
+
+    #[tokio::test]
+    async fn ke_remote_router_hard_filters_a_viewpoint_request_on_ke_ownership() {
+        // Both peers serve the Scope op; only `peer-omega` advertises
+        // `ke-ownership`. A viewpoint-bearing request must exclude the
+        // ownership-less peer (a hard filter, not a soft preference).
+        let plain = SelectablePeer {
+            peer_id: "peer-alpha".to_string(),
+            manifest: manifest("h-alpha", &["spoke-baseline"]),
+        };
+        let owned = SelectablePeer {
+            peer_id: "peer-omega".to_string(),
+            manifest: manifest("h-omega", &["spoke-baseline", "ke-ownership"]),
+        };
+        let scope_op = "port.scope.list_knowledge_entries";
+
+        let viewpoint = select_peer_for_op(
+            &[plain.clone(), owned.clone()],
+            scope_op,
+            &json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_holder_1" } }),
+        );
+        match viewpoint {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-omega"),
+            SpokeResult::Reject(reject) => panic!("must select peer-omega: {reject:?}"),
+        }
+
+        // Without a viewpoint the filter is inert: the lexicographically
+        // first peer wins even though it cannot serve a viewpoint — ownership
+        // is an additional conjunct, never a replacement capability.
+        let baseline_only = select_peer_for_op(
+            &[plain, owned],
+            scope_op,
+            &json!({ "scope": { "scope_id": "s1" } }),
+        );
+        match baseline_only {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-alpha"),
+            SpokeResult::Reject(reject) => panic!("must select peer-alpha: {reject:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ke_remote_router_rejects_no_capable_peer_for_a_viewpoint_without_an_ownership_peer() {
+        // The peer serves the op capability but not `ke-ownership`: a
+        // viewpoint-bearing request has no capable peer.
+        let plain = SelectablePeer {
+            peer_id: "peer-alpha".to_string(),
+            manifest: manifest("h-alpha", &["spoke-baseline", "l5-fork"]),
+        };
+
+        let selection = select_peer_for_op(
+            &[plain],
+            "port.fork.list_timeline_events",
+            &json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_holder_1" } }),
+        );
+
+        match selection {
+            SpokeResult::Ok(selected) => panic!("must reject, selected {}", selected.peer_id),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("wire_code"))
+                        .and_then(|code| code.as_str()),
+                    Some("no_capable_peer")
+                );
+                assert!(
+                    reject.message.contains("ke-ownership"),
+                    "the terminal sink must name the missing capability: {}",
+                    reject.message
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn ke_remote_router_selects_the_extract_row_by_capability_only() {
+        // The extract row is a hard capability row with no preferred role and
+        // no public router method: an `input-source`-roled peer without the
+        // capability is not selected, and a capable peer without that role is.
+        let role_only = SelectablePeer {
+            peer_id: "peer-input-source".to_string(),
+            manifest: manifest_with(
+                "h-input-source",
+                &["spoke-baseline"],
+                &["input-source"],
+                &["toy_world"],
+            ),
+        };
+        let capable = SelectablePeer {
+            peer_id: "peer-capable".to_string(),
+            manifest: manifest_with(
+                "h-capable",
+                &["spoke-baseline", "ke-extraction"],
+                &["data-store"],
+                &["toy_world"],
+            ),
+        };
+
+        let selection = select_peer_for_op(&[role_only, capable], "extract", &json!({}));
+        match selection {
+            SpokeResult::Ok(selected) => assert_eq!(selected.peer_id, "peer-capable"),
+            SpokeResult::Reject(reject) => panic!("must select peer-capable: {reject:?}"),
+        }
+
+        // No peer advertises `ke-extraction` — terminal no_capable_peer.
+        let empty = SelectablePeer {
+            peer_id: "peer-baseline".to_string(),
+            manifest: manifest("h-baseline", &["spoke-baseline"]),
+        };
+        match select_peer_for_op(&[empty], "extract", &json!({})) {
+            SpokeResult::Ok(selected) => panic!("must reject, selected {}", selected.peer_id),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+                assert!(
+                    reject.message.contains("ke-extraction"),
+                    "the terminal sink must name the missing capability: {}",
+                    reject.message
+                );
+            }
         }
     }
 

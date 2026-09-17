@@ -45,6 +45,8 @@ import type {
   ConnectInvokeRequest,
   ConnectInvokeResponse,
   ErrorEnvelope,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   ForkId,
   HostCapabilityManifest,
@@ -198,6 +200,301 @@ const PORT_OP_CAPABILITY_REQUIREMENTS: Record<string, string> = {
  * module-private there). Baseline ops are not probed: the `BaselinePorts`
  * type guarantees their methods.
  */
+
+/** Capability required when a Scope-bearing remote op carries viewpoint. */
+export const CAPABILITY_KE_OWNERSHIP = "ke-ownership";
+
+const SCOPE_OWNERSHIP_OPS = new Set([
+  "port.scope.list_knowledge_entries",
+  "port.scope.list_timeline_events",
+  "port.fork.list_timeline_events",
+]);
+
+/**
+ * Whether `op` + `payload` require `ke-ownership` in the negotiated set (F2).
+ * Malformed Scope payloads return false here — `validateScopeOpPayload` rejects
+ * them with `INVALID_INPUT` before provider calls.
+ */
+export function scopeOpRequiresOwnershipCapability(
+  op: string,
+  payload: Record<string, unknown>,
+): boolean {
+  if (!SCOPE_OWNERSHIP_OPS.has(op)) {
+    return false;
+  }
+  const scope = payload.scope;
+  if (typeof scope !== "object" || scope === null || Array.isArray(scope)) {
+    return false;
+  }
+  const viewpoint = (scope as Record<string, unknown>).viewpoint;
+  return typeof viewpoint === "string" && viewpoint.length > 0;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function scopePayloadReject(op: string, detail: string): SpokeReject {
+  return spokeReject(
+    SpokeRejectCode.INVALID_INPUT,
+    `invalid ${op} payload: ${detail}`,
+    { op },
+  );
+}
+
+const SCOPE_WIRE_KEYS = new Set([
+  "scope_id",
+  "entry_ids",
+  "entry_types",
+  "timeline_event_ids",
+  "source_id",
+  "timeline_scale",
+  "fork_id",
+  "viewpoint",
+  "extensions",
+]);
+
+const EXTRACT_REQUEST_WIRE_KEYS = new Set([
+  "run_id",
+  "sources",
+  "entry_types",
+  "extensions",
+]);
+
+const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
+
+function isValidExtensionMap(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  for (const [key, namespaceValue] of Object.entries(value)) {
+    if (!EXTENSION_MAP_KEY_PATTERN.test(key)) {
+      return false;
+    }
+    if (!isJsonObject(namespaceValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** Structural decode/validate for a declared Scope (mirrors Rust `Scope::deserialize`). */
+function validateDeclaredScope(scope: Record<string, unknown>): string | null {
+  for (const key of Object.keys(scope)) {
+    if (!SCOPE_WIRE_KEYS.has(key)) {
+      return `unknown property \`${key}\` at scope`;
+    }
+  }
+  if (typeof scope.scope_id !== "string") {
+    return "missing field `scope_id`";
+  }
+  if (
+    "entry_ids" in scope &&
+    scope.entry_ids !== undefined &&
+    !isStringArray(scope.entry_ids)
+  ) {
+    return "invalid type for scope.entry_ids, expected an array of strings";
+  }
+  if (
+    "entry_types" in scope &&
+    scope.entry_types !== undefined &&
+    !isStringArray(scope.entry_types)
+  ) {
+    return "invalid type for scope.entry_types, expected an array of strings";
+  }
+  if (
+    "timeline_event_ids" in scope &&
+    scope.timeline_event_ids !== undefined &&
+    !isStringArray(scope.timeline_event_ids)
+  ) {
+    return "invalid type for scope.timeline_event_ids, expected an array of strings";
+  }
+  if (
+    "source_id" in scope &&
+    scope.source_id !== undefined &&
+    typeof scope.source_id !== "string"
+  ) {
+    return "invalid type for scope.source_id, expected a string";
+  }
+  if (
+    "timeline_scale" in scope &&
+    scope.timeline_scale !== undefined &&
+    typeof scope.timeline_scale !== "string"
+  ) {
+    return "invalid type for scope.timeline_scale, expected a string";
+  }
+  if (
+    "fork_id" in scope &&
+    scope.fork_id !== undefined &&
+    (typeof scope.fork_id !== "string" || scope.fork_id.length === 0)
+  ) {
+    return "invalid type for scope.fork_id, expected a non-empty string";
+  }
+  if (
+    "extensions" in scope &&
+    scope.extensions !== undefined &&
+    !isValidExtensionMap(scope.extensions)
+  ) {
+    return "invalid type for scope.extensions, expected an ExtensionMap object";
+  }
+  return null;
+}
+
+/** Scope validation for the three remote catalogue ops (F2 malformed rows). */
+export function validateScopeOpPayload(
+  op: string,
+  payload: Record<string, unknown>,
+): SpokeReject | null {
+  if (!SCOPE_OWNERSHIP_OPS.has(op)) {
+    return null;
+  }
+  if (!("scope" in payload)) {
+    return scopePayloadReject(op, "missing scope");
+  }
+  const scope = payload.scope;
+  if (!isJsonObject(scope)) {
+    return scopePayloadReject(op, "scope must be an object");
+  }
+  if ("viewpoint" in scope) {
+    const viewpoint = scope.viewpoint;
+    if (!(typeof viewpoint === "string" && viewpoint.length > 0)) {
+      return scopePayloadReject(
+        op,
+        "scope.viewpoint must be a non-empty string",
+      );
+    }
+  }
+  const scopeError = validateDeclaredScope(scope);
+  if (scopeError !== null) {
+    return scopePayloadReject(op, scopeError);
+  }
+  return null;
+}
+
+function isValidSourceSpan(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  return (
+    typeof value.start === "number" &&
+    Number.isFinite(value.start) &&
+    typeof value.end === "number" &&
+    Number.isFinite(value.end)
+  );
+}
+
+function isValidSourceAnchor(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  const schemaVersion = value.schema_version;
+  if (
+    typeof schemaVersion !== "number" ||
+    !Number.isInteger(schemaVersion) ||
+    schemaVersion < 1
+  ) {
+    return false;
+  }
+  if (typeof value.source_id !== "string") {
+    return false;
+  }
+  if (!isJsonObject(value.extensions)) {
+    return false;
+  }
+  if ("span" in value && value.span !== undefined && !isValidSourceSpan(value.span)) {
+    return false;
+  }
+  if ("label" in value && value.label !== undefined && typeof value.label !== "string") {
+    return false;
+  }
+  if (
+    "mime_type" in value &&
+    value.mime_type !== undefined &&
+    typeof value.mime_type !== "string"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Runtime decode/validate for the `extract` invoke payload (F1/F3 serving order). */
+export function validateExtractRequestPayload(
+  payload: unknown,
+): SpokeReject | null {
+  if (!isJsonObject(payload)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "invalid extract payload: expected a JSON object",
+      { op: "extract" },
+    );
+  }
+  for (const key of Object.keys(payload)) {
+    if (!EXTRACT_REQUEST_WIRE_KEYS.has(key)) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        `invalid extract payload: unknown property \`${key}\``,
+        { op: "extract" },
+      );
+    }
+  }
+  if (typeof payload.run_id !== "string" || payload.run_id.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest run_id must be a non-empty string",
+      { field: "run_id", op: "extract" },
+    );
+  }
+  const sources = payload.sources;
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest sources must be a non-empty SourceAnchor list",
+      { field: "sources", op: "extract" },
+    );
+  }
+  if (!sources.every(isValidSourceAnchor)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest sources must be a non-empty SourceAnchor list",
+      { field: "sources", op: "extract" },
+    );
+  }
+  if (
+    "entry_types" in payload &&
+    payload.entry_types !== undefined &&
+    (!Array.isArray(payload.entry_types) ||
+      payload.entry_types.some((entryType) => typeof entryType !== "string"))
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest entry_types must be an array of strings when present",
+      { field: "entry_types", op: "extract" },
+    );
+  }
+  if (
+    "extensions" in payload &&
+    payload.extensions !== undefined &&
+    !isJsonObject(payload.extensions)
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest extensions must be an object when present",
+      { field: "extensions", op: "extract" },
+    );
+  }
+  return null;
+}
+
+
+/** Remote-only extract service seam (F3). */
+export interface RemoteExtractService {
+  extract(request: ExtractRequest): Promise<SpokeResult<ExtractResponse>>;
+}
+
 const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
   "port.computable.project": "project",
   "port.computable.compute": "compute",
@@ -317,7 +614,7 @@ export interface ConnectResponderOptions {
    * catalogue. Absent `ports` still answers `port.*` invokes with the
    * dispatch-deny branch (documented behavior).
    */
-  ports?: BaselinePorts;
+  ports?: BaselinePorts & Partial<RemoteExtractService>;
   /** Bounded-wait deadline for each reverse-invoke waiter, ms (default 5000). */
   invokeTimeoutMs?: number;
 }
@@ -352,7 +649,7 @@ export class ConnectResponder {
   readonly #manifest: HostCapabilityManifest;
   readonly #allowlist: readonly string[];
   readonly #peerKeys: Readonly<Record<string, Uint8Array>>;
-  readonly #ports: BaselinePorts | undefined;
+  readonly #ports: (BaselinePorts & Partial<RemoteExtractService>) | undefined;
   readonly #invokeTimeoutMs: number;
   readonly #nonceStore = new NonceStore();
 
@@ -786,12 +1083,17 @@ export class ConnectResponder {
       // product map to `l2-computable` / `l5-fork`. All evaluate against
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
-      if (!this.#gateAllows(doc.op, session)) {
+      const payload = doc.payload as Record<string, unknown>;
+      if (!this.#gateAllows(doc.op, session, payload)) {
         await this.#sendReverseErrorEnvelope(doc, {
           code: "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
         });
+        return;
+      }
+      if (doc.op === "extract") {
+        await this.#dispatchExtractInvoke(doc);
         return;
       }
       if (doc.op.startsWith("tools.")) {
@@ -816,12 +1118,24 @@ export class ConnectResponder {
   }
 
   /** Dispatch gate: core table (incl. `tools.*`) then the port product map. */
-  #gateAllows(op: string, session: Session): boolean {
+  #gateAllows(
+    op: string,
+    session: Session,
+    payload: Record<string, unknown>,
+  ): boolean {
+    const negotiated = session.negotiated_capabilities;
+    const needsOwnership = scopeOpRequiresOwnershipCapability(op, payload);
+
     if (session.dispatchAllowed(op)) {
-      return true;
+      return (
+        !needsOwnership || negotiated.includes(CAPABILITY_KE_OWNERSHIP)
+      );
     }
     const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
-    return required !== undefined && session.negotiated_capabilities.includes(required);
+    if (required === undefined || !negotiated.includes(required)) {
+      return false;
+    }
+    return !needsOwnership || negotiated.includes(CAPABILITY_KE_OWNERSHIP);
   }
 
   /** Serve a `tools.*` invoke through the registered handler (or deny). */
@@ -879,8 +1193,59 @@ export class ConnectResponder {
     }
   }
 
+  /** Serve the `extract` core op through the optional extract service (F3). */
+  async #dispatchExtractInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const ports = this.#ports;
+    if (ports === undefined || typeof ports.extract !== "function") {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no extract service configured for op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    const extractReject = validateExtractRequestPayload(doc.payload);
+    if (extractReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(extractReject));
+      return;
+    }
+    const request = doc.payload as ExtractRequest;
+    let result: SpokeResult<ExtractResponse>;
+    try {
+      result = await ports.extract.call(ports, request);
+    } catch (error) {
+      result = spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    if (!result.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      return;
+    }
+    const response = result.value;
+    if (
+      typeof response === "object" &&
+      response !== null &&
+      "error" in response
+    ) {
+      await this.#sendReverseErrorEnvelope(
+        doc,
+        toErrorEnvelope(fromErrorEnvelope(response.error)),
+      );
+      return;
+    }
+    await this.#sendOkResponse(doc, response);
+  }
+
   /** Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */
   async #dispatchPortInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const payload = doc.payload as Record<string, unknown>;
+    const scopeReject = validateScopeOpPayload(doc.op, payload);
+    if (scopeReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(scopeReject));
+      return;
+    }
     const ports = this.#ports;
     if (ports === undefined) {
       // Absent `ports` (documented): the capability gate passes but there

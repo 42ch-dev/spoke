@@ -25,6 +25,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  ExtractRequest,
   CheckRequest,
   ComputeRequest,
   ComputeResponse,
@@ -42,11 +43,13 @@ import {
   orchestrateCheck,
   orchestrateUpsert,
   SpokeRejectCode,
+  spokeOk,
   type BaselinePorts,
 } from "@42ch/spoke-operations";
-import { ToyWorldAdapter } from "@42ch/spoke-fixture-toy-world";
+import { asBaselineOnly, ToyWorldAdapter } from "@42ch/spoke-fixture-toy-world";
 import {
   connectRemoteAdapter,
+  connectResponder,
   loopbackTransportPair,
   RemoteAdapter,
   type EnvelopeBytes,
@@ -60,6 +63,7 @@ import { issueCapabilityToken } from "../../src/core/capability-token.js";
 // transport (test-only import; the adapter surface stays clean).
 import { signHelloEd25519 } from "../../src/core/hello.js";
 import { schemaConformantManifest } from "../../src/golden.js";
+import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import { MAX_SEQUENCE } from "../../src/core/sequence.js";
 import { decodeJsonMessage, encodeJsonMessage } from "../../src/framing.js";
 import { derivePeerIdFromEd25519Pubkey } from "../../src/identity.js";
@@ -1691,4 +1695,73 @@ describe("RemoteAdapter optional-port delegation (port.computable.* / port.fork.
     },
     15000,
   );
+});
+
+function sampleExtractRequestAdapter(runId = "run-adapter-ke"): ExtractRequest {
+  return {
+    run_id: runId,
+    sources: [
+      {
+        schema_version: 1,
+        source_id: "src-adapter",
+        extensions: {},
+      },
+    ],
+  };
+}
+
+function manifestWithExtract(hostId: string): HostCapabilityManifest {
+  const base = schemaConformantManifest();
+  const caps = [...new Set([...base.capabilities, CAPABILITY_KE_EXTRACTION])] as [
+    string,
+    ...string[],
+  ];
+  return { ...base, host_id: hostId, capabilities: caps };
+}
+
+describe("ke remote", () => {
+  it("rejects malformed extract success payloads with INTERNAL_ERROR transport kind", async () => {
+    const seedResponder = seed(0xb0);
+    const seedClient = seed(0x20);
+    const pubkeyResponder = getPublicKeyEd25519(seedResponder);
+    const pubkeyClient = getPublicKeyEd25519(seedClient);
+    const peerIdResponder = derivePeerIdFromEd25519Pubkey(pubkeyResponder);
+    const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
+    const pair = loopbackTransportPair();
+    const ports = {
+      ...asBaselineOnly(new ToyWorldAdapter()),
+      extract: async () =>
+        spokeOk({ not_extract: true } as unknown as {
+          candidates: never[];
+          run: { run_id: string };
+        }),
+    };
+    const responder = await connectResponder({
+      transport: pair.server,
+      identity: { seed: seedResponder },
+      manifest: manifestWithExtract("responder-malformed"),
+      allowlist: [peerIdClient],
+      peerKeys: { [peerIdClient]: pubkeyClient },
+      ports,
+    });
+    const client = await connectRemoteAdapter({
+      transport: pair.client,
+      localIdentity: { seed: seedClient },
+      localManifest: manifestWithExtract("client-malformed"),
+      remotePubkey: pubkeyResponder,
+      allowlist: [peerIdResponder],
+    });
+    try {
+      const result = await client.extract(sampleExtractRequestAdapter());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+      expect(result.details?.kind).toBe("transport");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
 });

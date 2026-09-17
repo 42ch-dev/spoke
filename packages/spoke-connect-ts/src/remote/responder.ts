@@ -704,6 +704,12 @@ export class ConnectResponder {
   #serveLoopRunning = false;
   #pending = new Map<string, PendingReverseInvoke>();
   /**
+   * Armed serve-budget disarms. Tracked so `#close` cancels every serve wait
+   * it still owns: no serve wait's timer outlives the session it was armed
+   * for. An entry removes itself when it fires or when its provider settles.
+   */
+  #serveDisarms = new Set<() => void>();
+  /**
    * Tool-handler registry for `tools.*` invokes (frozen contract §6):
    * `registerToolHandler` fills it; the serving path looks it up by exact
    * capability id. The local manifest's `tools[]` (carried through hello)
@@ -869,6 +875,13 @@ export class ConnectResponder {
     this.#failAllPending(
       new ResponderError("session_closed", `connect session closed: ${reason}`),
     );
+    // Serve waits owned by this session: cancel their armed budgets so no
+    // serve timer outlives the close. A pending provider completion that
+    // arrives afterwards is discarded by the closed-state check in the serve
+    // dispatch (no late success, no late second error).
+    for (const disarm of this.#serveDisarms) {
+      disarm();
+    }
   }
 
   #failAllPending(error: ResponderError): void {
@@ -1243,6 +1256,10 @@ export class ConnectResponder {
    * rejection and no late second response). Provider invocation, synchronous
    * throws and asynchronous rejections flow back to the caller unchanged (the
    * existing containment path). No timed branch starts a second provider call.
+   *
+   * The armed budget is tracked so `#close` disarms it (no serve timer
+   * outlives the session), and a serve dispatch that resumes after a close
+   * answers nothing.
    */
   async #withServeBudget<T>(work: () => Promise<T>): Promise<T | SpokeReject> {
     const budgetMs = this.#invokeTimeoutMs;
@@ -1260,13 +1277,19 @@ export class ConnectResponder {
     // Executor form: the project's TS lib target predates
     // `Promise.withResolvers` (ES2024).
     const expired = new Promise<never>((_resolve, reject) => {
-      const timer = setTimeout(() => reject(SERVE_BUDGET_EXPIRED), budgetMs);
-      // Timer cleanup on the provider's own settle (success or rejection).
-      // Expiry needs none — a fired timer is already gone.
-      void pending.then(
-        () => clearTimeout(timer),
-        () => clearTimeout(timer),
-      );
+      const timer = setTimeout(() => {
+        this.#serveDisarms.delete(disarm);
+        reject(SERVE_BUDGET_EXPIRED);
+      }, budgetMs);
+      // Timer cleanup on the provider's own settle (success or rejection) and
+      // on `#close`, which runs every tracked disarm. Expiry needs no
+      // `clearTimeout` — a fired timer is already gone.
+      const disarm = (): void => {
+        this.#serveDisarms.delete(disarm);
+        clearTimeout(timer);
+      };
+      this.#serveDisarms.add(disarm);
+      void pending.then(disarm, disarm);
     });
     try {
       return await Promise.race([pending, expired]);
@@ -1314,6 +1337,12 @@ export class ConnectResponder {
         SpokeRejectCode.INTERNAL_ERROR,
         error instanceof Error ? error.message : String(error),
       );
+    }
+    // The bounded wait is the only thing the close can interrupt: once the
+    // session is Closed, neither a late service success nor a late (or
+    // second) error may be answered.
+    if (this.#stateInternal === "Closed") {
+      return;
     }
     if (!result.ok) {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
@@ -1390,6 +1419,12 @@ export class ConnectResponder {
     const result = await this.#withServeBudget(() =>
       dispatchPortOp(doc.op, doc.payload as Record<string, unknown>, ports),
     );
+    // The bounded wait is the only thing the close can interrupt: once the
+    // session is Closed, neither a late provider success nor a late (or
+    // second) error may be answered.
+    if (this.#stateInternal === "Closed") {
+      return;
+    }
     if (result.ok) {
       // Success payload carries the raw success value `T` (D4), NOT the
       // `{ result }` tool shape — the dialer's `#invokeMapped` validates it.

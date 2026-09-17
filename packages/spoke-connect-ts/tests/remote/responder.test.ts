@@ -2322,6 +2322,43 @@ function framesWith(
   return frames.filter((frame) => frame[field] !== undefined);
 }
 
+/**
+ * Outbound capture for the close-invalidation witnesses: every frame the
+ * RESPONDER attempts to send, decoded. The attempt is the observable — the
+ * loopback transport rejects a send once the connection is closed, so a
+ * delivered frame can no longer be captured on the other end.
+ */
+function sentCapture(
+  frames: Record<string, unknown>[],
+): (transport: Transport) => Transport {
+  return (transport) => ({
+    send: (bytes) => {
+      frames.push(decodeWire(bytes));
+      return transport.send(bytes);
+    },
+    recv: () => transport.recv(),
+    close: () => {
+      transport.close?.();
+    },
+  });
+}
+
+/** Bounded poll until the parked provider has recorded `method` entry. */
+async function untilParked(
+  parked: ParkedProvider,
+  method: string,
+): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!parked.calls.includes(method)) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${method} never reached the parked provider (calls ${parked.calls.join(",")})`,
+      );
+    }
+    await delay(5);
+  }
+}
+
 /** Assert the served timeout projection on a captured wire response. */
 function expectServedTimeout(
   frame: Record<string, unknown>,
@@ -2623,6 +2660,85 @@ describe("serve timeout (local serve budget)", () => {
           result.value.some((entry) => entry.entry_id === MIRA_ENTRY_ID),
         ).toBe(true);
         expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "answers nothing when the provider settles after the responder closed",
+    async () => {
+      // A close releases the session, so a provider that settles afterwards
+      // must not answer a late success or a late error. The wide 200ms budget
+      // keeps the parked provider's release well inside the wait, so this
+      // witness covers the closed-state check rather than the timer.
+      const parked = parkedProvider();
+      const sent: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 200,
+        clientTimeoutMs: 2000,
+        responderTransport: sentCapture(sent),
+      });
+      try {
+        const scope: Scope = { scope_id: "serve-close-settle" };
+        // The close fails the dialer's waiter (the session is gone); the
+        // witness asserts the responder's own send attempts instead.
+        void client.listKnowledgeEntries(scope).catch(() => undefined);
+        await untilParked(parked, "listKnowledgeEntries");
+        expect(parked.calls).toEqual(["listKnowledgeEntries"]);
+
+        responder.close();
+        const attemptedAtClose = sent.length;
+        parked.release();
+        await delay(50);
+
+        expect(responder.state).toBe("Closed");
+        expect(sent).toHaveLength(attemptedAtClose);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "disarms the serve budget when the responder closes mid-wait",
+    async () => {
+      // The armed serve timer must not outlive the close: past the 25ms
+      // budget a surviving timer would have answered the signed timeout, so
+      // the absence of any send attempt after the budget elapsed is the
+      // disarm witness. A provider settling later is discarded too.
+      const parked = parkedProvider();
+      const sent: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+        responderTransport: sentCapture(sent),
+      });
+      try {
+        const scope: Scope = { scope_id: "serve-close-disarm" };
+        void client.listKnowledgeEntries(scope).catch(() => undefined);
+        await untilParked(parked, "listKnowledgeEntries");
+
+        responder.close();
+        const attemptedAtClose = sent.length;
+        await delay(60);
+        expect(sent).toHaveLength(attemptedAtClose);
+
+        parked.release();
+        await delay(50);
+        expect(responder.state).toBe("Closed");
+        expect(sent).toHaveLength(attemptedAtClose);
       } finally {
         client.close();
         responder.close();

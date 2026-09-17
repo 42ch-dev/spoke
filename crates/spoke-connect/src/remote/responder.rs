@@ -37,8 +37,10 @@
 //!   call are bounded by the responder's local serve-wait budget
 //!   (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
 //!   `INTERNAL_ERROR` with `details.kind = "timeout"` and leaves the session
-//!   Established (bounded wait, not forced host-work termination). A failed
-//!   envelope-auth verify
+//!   Established (bounded wait, not forced host-work termination). The bound
+//!   starts after the payload validation, and a close aborts the in-flight
+//!   serve dispatches so no serve wait or its timer outlives the session. A
+//!   failed envelope-auth verify
 //!   produces no handler side effect and no session-state mutation
 //!   (auth-before-advance, spec §Verify rules). An unparseable inbound
 //!   frame closes the connection (carried over from the demo).
@@ -174,12 +176,12 @@ fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str, op: &str) ->
 /// Safety net for a `SCOPE_BEARING_OPS` arm reached without the `Scope` the
 /// responder gate decodes: the gate rejects a missing or malformed declared
 /// Scope before dispatch, so this only fires for a caller that bypassed it.
-fn missing_declared_scope(op: &str) -> SpokeResult<Value> {
-    spoke_reject(
-        SpokeRejectCode::InvalidInput,
-        format!("invalid {op} payload: missing scope"),
-        None,
-    )
+fn missing_declared_scope(op: &str) -> SpokeReject {
+    SpokeReject {
+        code: SpokeRejectCode::InvalidInput,
+        message: format!("invalid {op} payload: missing scope"),
+        details: None,
+    }
 }
 
 /// Signed serve-wait expiry (D7/D14): the existing `INTERNAL_ERROR`
@@ -201,175 +203,184 @@ fn serve_timeout_reject(budget: Duration) -> SpokeReject {
     }
 }
 
-/// Map a `port.*` op + payload to the injected ports face method per the D4
-/// catalogue. The dispatch gate (capability check) and the optional-face
-/// probe (gate → probe → serve/deny) have already run when this is called;
+/// One decoded `port.*` dispatch: the catalogue arm's validated arguments,
+/// produced by [`decode_port_call`] before the serve bound starts (B1 — a
+/// malformed payload keeps its `INVALID_INPUT` reject even at a zero budget).
+enum PortCall<'a> {
+    GetKnowledgeEntry(String),
+    PutKnowledgeEntry(KnowledgeEntry, Option<u64>),
+    GetRelation(String),
+    PutRelation(Relation, Option<u64>),
+    ListKnowledgeEntries(&'a Scope),
+    ListTimelineEvents(&'a Scope),
+    PutFindings(Vec<Finding>),
+    ListRules(Vec<String>),
+    ListPeerManifests,
+    Project(ProjectRequest),
+    Compute(ComputeRequest),
+    ForkTimelineEvents(&'a Scope),
+}
+
+/// Decode and validate a `port.*` payload per the D4 catalogue — the
+/// validation the serve bound must start AFTER (B1). The dispatch gate
+/// (capability check), the optional-face probe (gate → probe → serve/deny)
+/// and the payload-dependent gates have already run when this is called;
 /// unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
 /// misconfiguration (the gate denies them first).
 ///
 /// `declared_scope` is the declared Scope the responder gate already decoded
-/// and validated for the three Scope-bearing ops — those arms serve that
+/// and validated for the three Scope-bearing ops — those arms carry that
 /// value instead of decoding the same JSON again.
-async fn dispatch_port_op(
+fn decode_port_call<'a>(
     op: &str,
     payload: &Value,
-    declared_scope: Option<&Scope>,
-    ports: &(dyn RemoteServePorts + Send + Sync),
-) -> SpokeResult<Value> {
+    declared_scope: Option<&'a Scope>,
+) -> SpokeResult<PortCall<'a>> {
     let field = |name: &str| payload_field::<Value>(payload, name, op);
     match op {
-        "port.knowledge.get" => {
-            let entry_id = match field("entry_id") {
-                SpokeResult::Ok(Value::String(id)) => id,
-                _ => {
-                    return spoke_reject(
-                        SpokeRejectCode::InvalidInput,
-                        "invalid port.knowledge.get payload",
-                        None,
-                    );
-                }
-            };
-            map_result(ports.get_knowledge_entry(&entry_id).await)
-        }
+        "port.knowledge.get" => match field("entry_id") {
+            SpokeResult::Ok(Value::String(id)) => spoke_ok(PortCall::GetKnowledgeEntry(id)),
+            _ => spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "invalid port.knowledge.get payload",
+                None,
+            ),
+        },
         "port.knowledge.put" => {
             let entry = match payload_field::<KnowledgeEntry>(payload, "entry", op) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            let expected = match payload_field::<Option<u64>>(
-                payload,
-                "expected_base_revision",
-                op,
-            ) {
+            let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
+            {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            map_result(ports.put_knowledge_entry(entry, expected).await)
+            spoke_ok(PortCall::PutKnowledgeEntry(entry, expected))
         }
-        "port.relation.get" => {
-            let relation_id = match field("relation_id") {
-                SpokeResult::Ok(Value::String(id)) => id,
-                _ => {
-                    return spoke_reject(
-                        SpokeRejectCode::InvalidInput,
-                        "invalid port.relation.get payload",
-                        None,
-                    );
-                }
-            };
-            map_result(ports.get_relation(&relation_id).await)
-        }
+        "port.relation.get" => match field("relation_id") {
+            SpokeResult::Ok(Value::String(id)) => spoke_ok(PortCall::GetRelation(id)),
+            _ => spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                "invalid port.relation.get payload",
+                None,
+            ),
+        },
         "port.relation.put" => {
             let relation = match payload_field::<Relation>(payload, "relation", op) {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            let expected = match payload_field::<Option<u64>>(
-                payload,
-                "expected_base_revision",
-                op,
-            ) {
+            let expected = match payload_field::<Option<u64>>(payload, "expected_base_revision", op)
+            {
                 SpokeResult::Ok(value) => value,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
             };
-            map_result(ports.put_relation(relation, expected).await)
+            spoke_ok(PortCall::PutRelation(relation, expected))
         }
-        "port.scope.list_knowledge_entries" => {
-            let Some(scope) = declared_scope else {
-                return missing_declared_scope(op);
-            };
-            map_result(ports.list_knowledge_entries(scope).await)
-        }
-        "port.scope.list_timeline_events" => {
-            let Some(scope) = declared_scope else {
-                return missing_declared_scope(op);
-            };
-            map_result(ports.list_timeline_events(scope).await)
-        }
-        "port.finding.put" => {
-            let findings = match payload_field::<Vec<Finding>>(payload, "findings", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-            };
-            map_result(ports.put_findings(findings).await)
-        }
-        "port.rule.list" => {
-            let rule_refs = match payload_field::<Vec<String>>(payload, "rule_refs", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-            };
-            map_result(ports.list_rules(&rule_refs).await)
-        }
-        "port.host.list_peer_manifests" => {
-            map_result(ports.list_peer_host_capability_manifests().await)
-        }
-        // Optional families (D4 catalogue). The serving method
-        // (`dispatch_port_invoke`) structurally probed the injected ports
-        // face BEFORE dispatch (gate → probe → serve/deny), so these cases
-        // are reachable only when the face exists on the provider; the
-        // `None` arms are an unreachable safety net mirroring the default.
+        "port.scope.list_knowledge_entries" => match declared_scope {
+            Some(scope) => spoke_ok(PortCall::ListKnowledgeEntries(scope)),
+            None => SpokeResult::Reject(missing_declared_scope(op)),
+        },
+        "port.scope.list_timeline_events" => match declared_scope {
+            Some(scope) => spoke_ok(PortCall::ListTimelineEvents(scope)),
+            None => SpokeResult::Reject(missing_declared_scope(op)),
+        },
+        "port.finding.put" => match payload_field::<Vec<Finding>>(payload, "findings", op) {
+            SpokeResult::Ok(findings) => spoke_ok(PortCall::PutFindings(findings)),
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        },
+        "port.rule.list" => match payload_field::<Vec<String>>(payload, "rule_refs", op) {
+            SpokeResult::Ok(rule_refs) => spoke_ok(PortCall::ListRules(rule_refs)),
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        },
+        "port.host.list_peer_manifests" => spoke_ok(PortCall::ListPeerManifests),
         "port.computable.project" => {
-            let request = match serde_json::from_value::<ProjectRequest>(payload.clone()) {
-                Ok(request) => request,
-                Err(error) => {
-                    return spoke_reject(
-                        SpokeRejectCode::InvalidInput,
-                        format!("invalid port.computable.project payload: {error}"),
-                        None,
-                    );
-                }
-            };
-            match ports.as_computable() {
-                Some(computable) => map_result(computable.project(request).await),
-                None => SpokeResult::Reject(SpokeReject {
-                    code: SpokeRejectCode::CapabilityPortMissing,
-                    message: "port op port.computable.project requires optional port method project"
-                        .to_owned(),
-                    details: None,
-                }),
+            match serde_json::from_value::<ProjectRequest>(payload.clone()) {
+                Ok(request) => spoke_ok(PortCall::Project(request)),
+                Err(error) => spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid port.computable.project payload: {error}"),
+                    None,
+                ),
             }
         }
         "port.computable.compute" => {
-            let request = match serde_json::from_value::<ComputeRequest>(payload.clone()) {
-                Ok(request) => request,
-                Err(error) => {
-                    return spoke_reject(
-                        SpokeRejectCode::InvalidInput,
-                        format!("invalid port.computable.compute payload: {error}"),
-                        None,
-                    );
-                }
-            };
-            match ports.as_computable() {
-                Some(computable) => map_result(computable.compute(request).await),
-                None => SpokeResult::Reject(SpokeReject {
-                    code: SpokeRejectCode::CapabilityPortMissing,
-                    message: "port op port.computable.compute requires optional port method compute"
-                        .to_owned(),
-                    details: None,
-                }),
+            match serde_json::from_value::<ComputeRequest>(payload.clone()) {
+                Ok(request) => spoke_ok(PortCall::Compute(request)),
+                Err(error) => spoke_reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("invalid port.computable.compute payload: {error}"),
+                    None,
+                ),
             }
         }
-        "port.fork.list_timeline_events" => {
-            let Some(scope) = declared_scope else {
-                return missing_declared_scope(op);
-            };
-            match ports.as_fork_timeline() {
-                Some(fork) => map_result(fork.list_fork_timeline_events(scope).await),
-                None => SpokeResult::Reject(SpokeReject {
-                    code: SpokeRejectCode::CapabilityPortMissing,
-                    message:
-                        "port op port.fork.list_timeline_events requires optional port method list_fork_timeline_events"
-                            .to_owned(),
-                    details: None,
-                }),
-            }
-        }
+        "port.fork.list_timeline_events" => match declared_scope {
+            Some(scope) => spoke_ok(PortCall::ForkTimelineEvents(scope)),
+            None => SpokeResult::Reject(missing_declared_scope(op)),
+        },
         _ => SpokeResult::Reject(SpokeReject {
             code: SpokeRejectCode::CapabilityPortMissing,
             message: format!("unimplemented port op {op}"),
             details: None,
         }),
+    }
+}
+
+/// Dispatch one decoded [`PortCall`] to the injected ports face — the
+/// provider work the serve bound covers, because the bound starts here, after
+/// validation and probing (B1). The optional-family lookups are the
+/// unreachable safety net for a probe that did not run.
+async fn call_port_op(
+    call: PortCall<'_>,
+    ports: &(dyn RemoteServePorts + Send + Sync),
+) -> SpokeResult<Value> {
+    match call {
+        PortCall::GetKnowledgeEntry(entry_id) => {
+            map_result(ports.get_knowledge_entry(&entry_id).await)
+        }
+        PortCall::PutKnowledgeEntry(entry, expected) => {
+            map_result(ports.put_knowledge_entry(entry, expected).await)
+        }
+        PortCall::GetRelation(relation_id) => map_result(ports.get_relation(&relation_id).await),
+        PortCall::PutRelation(relation, expected) => {
+            map_result(ports.put_relation(relation, expected).await)
+        }
+        PortCall::ListKnowledgeEntries(scope) => {
+            map_result(ports.list_knowledge_entries(scope).await)
+        }
+        PortCall::ListTimelineEvents(scope) => map_result(ports.list_timeline_events(scope).await),
+        PortCall::PutFindings(findings) => map_result(ports.put_findings(findings).await),
+        PortCall::ListRules(rule_refs) => map_result(ports.list_rules(&rule_refs).await),
+        PortCall::ListPeerManifests => map_result(ports.list_peer_host_capability_manifests().await),
+        PortCall::Project(request) => match ports.as_computable() {
+            Some(computable) => map_result(computable.project(request).await),
+            None => SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message: "port op port.computable.project requires optional port method project"
+                    .to_owned(),
+                details: None,
+            }),
+        },
+        PortCall::Compute(request) => match ports.as_computable() {
+            Some(computable) => map_result(computable.compute(request).await),
+            None => SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message: "port op port.computable.compute requires optional port method compute"
+                    .to_owned(),
+                details: None,
+            }),
+        },
+        PortCall::ForkTimelineEvents(scope) => match ports.as_fork_timeline() {
+            Some(fork) => map_result(fork.list_fork_timeline_events(scope).await),
+            None => SpokeResult::Reject(SpokeReject {
+                code: SpokeRejectCode::CapabilityPortMissing,
+                message:
+                    "port op port.fork.list_timeline_events requires optional port method list_fork_timeline_events"
+                        .to_owned(),
+                details: None,
+            }),
+        },
     }
 }
 
@@ -466,6 +477,10 @@ pub struct ConnectResponder {
     tool_handlers: Mutex<HashMap<String, ToolHandler>>,
     pending: Arc<Mutex<HashMap<String, PendingReverseInvoke>>>,
     serve_loop_running: AtomicBool,
+    /// In-flight serve dispatch tasks (one per gated invoke), tracked so
+    /// `close_session` aborts them: neither a serve wait nor its local
+    /// budget timer outlives the session it was dispatched for.
+    serve_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// Outbound send serialization tail. Sequences are allocated
     /// synchronously in call order, but the send of invoke N must not start
     /// until the send of invoke N−1 finished (the dialer's strict inbound
@@ -498,6 +513,7 @@ impl ConnectResponder {
             tool_handlers: Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
             serve_loop_running: AtomicBool::new(false),
+            serve_tasks: Mutex::new(Vec::new()),
             send_tail: tokio::sync::Mutex::new(()),
         }
     }
@@ -614,8 +630,10 @@ impl ConnectResponder {
     // ── Session lifecycle (hard-private — only `connect_responder` starts) ──
 
     /// All failure paths that make the session unusable: mark `Closed`, fail
-    /// every pending reverse-invoke waiter with `session_closed`, and
-    /// release the transport (fire-and-forget).
+    /// every pending reverse-invoke waiter with `session_closed`, abort every
+    /// in-flight serve dispatch (so neither the serve wait nor its local
+    /// budget timer outlives the session), and release the transport
+    /// (fire-and-forget).
     fn close_session(&self, reason: &str) {
         {
             let mut state = self.state.lock().expect("state lock");
@@ -638,6 +656,16 @@ impl ConnectResponder {
                 ResponderErrorKind::SessionClosed,
                 format!("connect session closed: {reason}"),
             )));
+        }
+
+        let serve_tasks: Vec<tokio::task::JoinHandle<()>> = self
+            .serve_tasks
+            .lock()
+            .expect("serve task lock")
+            .drain(..)
+            .collect();
+        for task in serve_tasks {
+            task.abort();
         }
 
         let transport = Arc::clone(&self.transport);
@@ -857,9 +885,16 @@ impl ConnectResponder {
             ServeGateResult::Ok => {
                 let doc = doc.clone();
                 let responder = Arc::clone(self);
-                tokio::spawn(async move {
+                let task = tokio::spawn(async move {
                     responder.dispatch_invoke(doc).await;
                 });
+                // Track the serve dispatch so `close_session` can abort it:
+                // no serve wait or its local budget timer outlives the
+                // session. Finished handles are pruned on the way through, so
+                // the list holds in-flight dispatches only.
+                let mut tasks = self.serve_tasks.lock().expect("serve task lock");
+                tasks.retain(|handle| !handle.is_finished());
+                tasks.push(task);
                 Ok(())
             }
         }
@@ -1222,6 +1257,11 @@ impl ConnectResponder {
                 .await
                 .ok()
         };
+        // A close during the bounded wait released the session: this dispatch
+        // answers nothing afterwards — no late success, no late second error.
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
         let Some(result) = bounded else {
             let reject = serve_timeout_reject(self.invoke_timeout);
             self.send_reverse_error_envelope(
@@ -1370,24 +1410,41 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         }
-        // B1/B2 serve bound: the local budget starts immediately before the
-        // provider is dispatched and covers the whole wait. A zero budget
-        // answers the signed timeout without ever constructing the provider
-        // future (zero provider calls); expiry drops the timed-out provider
-        // future — a bounded wait, never forced termination or rollback.
+        // B1 serve bound: the payload decode + validation above ran BEFORE
+        // the bound, so a malformed payload keeps its existing
+        // `INVALID_INPUT` reject even at a zero budget and the bound covers
+        // provider dispatch only. A zero budget answers the signed timeout
+        // without ever constructing the provider future (zero provider
+        // calls); expiry drops the timed-out provider future — a bounded
+        // wait, never forced termination or rollback.
+        let call = match decode_port_call(op, payload, declared_scope.as_ref()) {
+            SpokeResult::Ok(call) => call,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(());
+            }
+        };
         let result = if self.invoke_timeout.is_zero() {
             SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout))
         } else {
-            match tokio::time::timeout(
-                self.invoke_timeout,
-                dispatch_port_op(op, payload, declared_scope.as_ref(), ports.as_ref()),
-            )
-            .await
+            match tokio::time::timeout(self.invoke_timeout, call_port_op(call, ports.as_ref()))
+                .await
             {
                 Ok(result) => result,
                 Err(_) => SpokeResult::Reject(serve_timeout_reject(self.invoke_timeout)),
             }
         };
+        // A close during the bounded wait released the session: this dispatch
+        // answers nothing afterwards — no late success, no late second error.
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
         if let SpokeResult::Ok(value) = result {
             // Success payload carries the raw success value `T` (D4), NOT the
             // `{ result }` tool shape — the dialer's `invoke_mapped`

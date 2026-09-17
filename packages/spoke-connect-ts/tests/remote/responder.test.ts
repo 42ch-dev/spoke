@@ -59,7 +59,10 @@ import {
   ToyWorldAdapter,
 } from "@42ch/spoke-fixture-toy-world";
 import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
-import { CAPABILITY_KE_OWNERSHIP } from "../../src/remote/responder.js";
+import {
+  CAPABILITY_KE_OWNERSHIP,
+  validateScopeOpPayload,
+} from "../../src/remote/responder.js";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import {
@@ -1816,6 +1819,64 @@ describe("ke remote", () => {
     }
   });
 
+  it("serves a successful empty candidate batch", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = (request: ExtractRequest) =>
+      orchestrateExtract(extractionPortsWithCanary(), request, async () =>
+        spokeOk({ candidates: [] }),
+      );
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-empty", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-empty", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest("run-empty"));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      if (!("run" in result.value)) {
+        throw new Error("expected extract success branch");
+      }
+      expect(result.value.run.run_id).toBe("run-empty");
+      expect(result.value.candidates).toEqual([]);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed declared scope payloads before the provider", () => {
+    const op = "port.scope.list_knowledge_entries";
+    const malformedPayloads: Record<string, unknown>[] = [
+      { scope: { scope_id: "s1", viewpoint: "" } },
+      { scope: { scope_id: "s1", viewpoint: null } },
+      { scope: { scope_id: "s1", viewpoint: 3 } },
+      { scope: { scope_id: "s1", viewpoint: [] } },
+      { scope: { scope_id: "s1", viewpoint: {} } },
+      {},
+      { scope: "not-an-object" },
+    ];
+    for (const payload of malformedPayloads) {
+      const reject = validateScopeOpPayload(op, payload);
+      expect(reject).not.toBeNull();
+      expect(reject?.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+    expect(
+      validateScopeOpPayload(op, { scope: { scope_id: "s1" } }),
+    ).toBeNull();
+    expect(
+      validateScopeOpPayload(op, {
+        scope: { scope_id: "s1", viewpoint: "holder-a" },
+      }),
+    ).toBeNull();
+  });
+
   it("rejects malformed viewpoint with INVALID_INPUT before provider call", async () => {
     let called = false;
     const ports = toyBaselinePorts();
@@ -1842,6 +1903,37 @@ describe("ke remote", () => {
       if (result.ok) return;
       expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
       expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed fork scope with INVALID_INPUT before the missing fork-face probe", async () => {
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-fork-malformed", [
+        "l5-fork",
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      responderManifest: manifestWithCaps("responder-fork-malformed", [
+        "l5-fork",
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const badScope = {
+        scope_id: "pkt-scope",
+        fork_id: "fork-1",
+        viewpoint: null,
+      } as unknown as Scope & { fork_id: ForkId };
+      const result = await client.listForkTimelineEvents(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.wire_code).toBeUndefined();
     } finally {
       client.close();
       responder.close();

@@ -5552,13 +5552,44 @@ async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_o
         "a malformed viewpoint is an input failure, got {malformed}"
     );
 
+    // Structurally malformed declared Scopes (closed key set / field types)
+    // that still carry a request-qualifying viewpoint: the predicate is true,
+    // so an input failure winning over the capability deny pins the declared
+    // Scope decode to the responder gate.
+    let structurally_malformed = [
+        (
+            "ke-malformed-unknown-key-unnegotiated",
+            json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira", "bogus": 1 } }),
+        ),
+        (
+            "ke-malformed-scope-id-type-unnegotiated",
+            json!({ "scope": { "scope_id": 3, "viewpoint": "kb_tw_mira" } }),
+        ),
+    ];
+    for (offset, (request_id, payload)) in structurally_malformed.iter().enumerate() {
+        let response = raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            offset as i64 + 1,
+            request_id,
+            "port.scope.list_knowledge_entries",
+            payload.clone(),
+        )
+        .await;
+        assert_eq!(
+            response["error"]["code"], "INVALID_INPUT",
+            "payload {payload} must be an input failure, got {response}"
+        );
+    }
+
     // Control on the same session: a valid viewpoint takes the capability
-    // deny — the malformed row is validation, not a blanket op refusal.
+    // deny — the malformed rows are validation, not a blanket op refusal.
     let valid = raw_invoke(
         &pair.client,
         seed,
         &session_id,
-        1,
+        structurally_malformed.len() as i64 + 1,
         "ke-valid-unnegotiated",
         "port.scope.list_knowledge_entries",
         json!({ "scope": { "scope_id": "s1", "viewpoint": "kb_tw_mira" } }),
@@ -5571,7 +5602,7 @@ async fn ke_remote_scope_malformed_declaration_is_an_input_failure_without_the_o
 
     assert!(
         recording.scopes().is_empty(),
-        "neither request may reach the provider"
+        "no request may reach the provider"
     );
     responder.close();
 }

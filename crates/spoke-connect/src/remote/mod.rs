@@ -93,9 +93,16 @@ pub(crate) fn requires_ownership_capability(op: &str, payload: &Value) -> bool {
 /// Runs at the responder before the provider probe and any host call, so a
 /// malformed Scope is an input failure rather than a silent baseline
 /// success. Non-Scope-bearing ops are untouched.
-pub(crate) fn validate_scope_declaration(op: &str, payload: &Value) -> Result<(), SpokeReject> {
+///
+/// Returns the decoded `Scope` for the ops that carry one, so the dispatch
+/// catalogue serves that value instead of decoding the same JSON a second
+/// time.
+pub(crate) fn validate_scope_declaration(
+    op: &str,
+    payload: &Value,
+) -> Result<Option<Scope>, SpokeReject> {
     if !SCOPE_BEARING_OPS.contains(&op) {
-        return Ok(());
+        return Ok(None);
     }
     let invalid = |detail: String| SpokeReject {
         code: SpokeRejectCode::InvalidInput,
@@ -113,6 +120,6 @@ pub(crate) fn validate_scope_declaration(op: &str, payload: &Value) -> Result<()
         }
     }
     Scope::deserialize(scope)
-        .map(|_| ())
+        .map(Some)
         .map_err(|error| invalid(error.to_string()))
 }

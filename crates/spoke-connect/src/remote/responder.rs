@@ -165,14 +165,30 @@ fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str, op: &str) ->
     }
 }
 
+/// Safety net for a `SCOPE_BEARING_OPS` arm reached without the `Scope` the
+/// responder gate decodes: the gate rejects a missing or malformed declared
+/// Scope before dispatch, so this only fires for a caller that bypassed it.
+fn missing_declared_scope(op: &str) -> SpokeResult<Value> {
+    spoke_reject(
+        SpokeRejectCode::InvalidInput,
+        format!("invalid {op} payload: missing scope"),
+        None,
+    )
+}
+
 /// Map a `port.*` op + payload to the injected ports face method per the D4
 /// catalogue. The dispatch gate (capability check) and the optional-face
 /// probe (gate → probe → serve/deny) have already run when this is called;
 /// unknown ops reject `CAPABILITY_PORT_MISSING` as a safety net for host
 /// misconfiguration (the gate denies them first).
+///
+/// `declared_scope` is the declared Scope the responder gate already decoded
+/// and validated for the three Scope-bearing ops — those arms serve that
+/// value instead of decoding the same JSON again.
 async fn dispatch_port_op(
     op: &str,
     payload: &Value,
+    declared_scope: Option<&Scope>,
     ports: &(dyn RemoteServePorts + Send + Sync),
 ) -> SpokeResult<Value> {
     let field = |name: &str| payload_field::<Value>(payload, name, op);
@@ -234,18 +250,16 @@ async fn dispatch_port_op(
             map_result(ports.put_relation(relation, expected).await)
         }
         "port.scope.list_knowledge_entries" => {
-            let scope = match payload_field::<Scope>(payload, "scope", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            let Some(scope) = declared_scope else {
+                return missing_declared_scope(op);
             };
-            map_result(ports.list_knowledge_entries(&scope).await)
+            map_result(ports.list_knowledge_entries(scope).await)
         }
         "port.scope.list_timeline_events" => {
-            let scope = match payload_field::<Scope>(payload, "scope", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            let Some(scope) = declared_scope else {
+                return missing_declared_scope(op);
             };
-            map_result(ports.list_timeline_events(&scope).await)
+            map_result(ports.list_timeline_events(scope).await)
         }
         "port.finding.put" => {
             let findings = match payload_field::<Vec<Finding>>(payload, "findings", op) {
@@ -312,12 +326,11 @@ async fn dispatch_port_op(
             }
         }
         "port.fork.list_timeline_events" => {
-            let scope = match payload_field::<Scope>(payload, "scope", op) {
-                SpokeResult::Ok(value) => value,
-                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            let Some(scope) = declared_scope else {
+                return missing_declared_scope(op);
             };
             match ports.as_fork_timeline() {
-                Some(fork) => map_result(fork.list_fork_timeline_events(&scope).await),
+                Some(fork) => map_result(fork.list_fork_timeline_events(scope).await),
                 None => SpokeResult::Reject(SpokeReject {
                     code: SpokeRejectCode::CapabilityPortMissing,
                     message:
@@ -1236,23 +1249,30 @@ impl ConnectResponder {
         let Some(op) = doc.get("op").and_then(Value::as_str) else {
             return Ok(());
         };
-        let payload = doc.get("payload").cloned().unwrap_or_else(|| json!({}));
+        // Borrowed, not cloned: every reader below takes `&Value`, and the
+        // absent-payload case reads as an empty object exactly as the previous
+        // `json!({})` fallback did.
+        let empty_payload = json!({});
+        let payload = doc.get("payload").unwrap_or(&empty_payload);
         // F2 supplementary product-boundary gate (frozen): the declared
         // Scope validation and the conditional ownership requirement both
         // run after the static capability gate and before the provider is
         // probed or called. The dialer never pre-gates, so this is the first
         // place the payload-dependent rule is applied.
-        if let Err(reject) = validate_scope_declaration(op, &payload) {
-            self.send_reverse_error_envelope(
-                doc,
-                reject.code.as_str(),
-                &reject.message,
-                reject.details.as_ref(),
-            )
-            .await?;
-            return Ok(());
-        }
-        if requires_ownership_capability(op, &payload)
+        let declared_scope = match validate_scope_declaration(op, payload) {
+            Ok(scope) => scope,
+            Err(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+        if requires_ownership_capability(op, payload)
             && !negotiated
                 .iter()
                 .any(|cap| cap == CAPABILITY_KE_OWNERSHIP)
@@ -1300,7 +1320,7 @@ impl ConnectResponder {
             .await?;
             return Ok(());
         }
-        let result = dispatch_port_op(op, &payload, ports.as_ref()).await;
+        let result = dispatch_port_op(op, payload, declared_scope.as_ref(), ports.as_ref()).await;
         if let SpokeResult::Ok(value) = result {
             // Success payload carries the raw success value `T` (D4), NOT the
             // `{ result }` tool shape — the dialer's `invoke_mapped`

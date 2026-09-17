@@ -126,6 +126,8 @@ C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
 C++17 inclusion (-fno-exceptions -fno-rtti): PASS
 ```
 
+`C++17 inclusion` 行用精确的编译旗标等价重述了该漂移门的检查标签。
+
 ## 下一步
 
 - [把原生绑定接到 RemoteAdapter](/zh/how-to/remote-adapter-native-binding) —— C ABI 所携带的 adapter、路由器、响应方、ports 与工具面。

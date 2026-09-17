@@ -126,6 +126,8 @@ C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
 C++17 inclusion (-fno-exceptions -fno-rtti): PASS
 ```
 
+The `C++17 inclusion` line is an equivalent restatement of the gate's check label using the exact compilation flags.
+
 ## Next steps
 
 - [Bridge a native binding to RemoteAdapter](/how-to/remote-adapter-native-binding) — the adapter, router, responder, ports and tool surface the C ABI carries.

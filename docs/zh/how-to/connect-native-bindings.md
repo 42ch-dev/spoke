@@ -4,7 +4,7 @@ title: 从原生绑定连接
 
 # 从原生绑定连接（Connect from native bindings）
 
-**原生绑定（native bindings）**通过 FFI 把共享的 connect **会话核心**嵌入宿主语言：纯会话规则 —— `peer_id` 推导、握手签名/校验、allowlist、nonce 单次使用、sequence 分配、关联校验、dispatch gate —— 集中在一个核心中，传输则留在各宿主语言。绑定经**四种注册表渠道类型**覆盖五种生成语言，全部与 SPOKE git tag `vX.Y.Z` 锁步；C 与 C++ 绑定通过手写 C ABI 链接同一核心，并从相同 tag 解析：
+**原生绑定（native bindings）**通过 FFI 把共享的 connect **会话核心**嵌入宿主语言：纯会话规则 —— `peer_id` 推导、握手签名/校验、allowlist、nonce 单次使用、sequence 分配、关联校验、dispatch gate —— 集中在一个核心中，传输则留在各宿主语言。绑定经**五种渠道类型 —— 三种注册表承载（GitHub Packages NuGet、GitHub Packages Maven、PyPI）、两种基于 git（Swift Package Manager、Go modules）—— 覆盖五种生成语言**，全部与 SPOKE git tag `vX.Y.Z` 锁步；C 与 C++ 绑定是额外的基于 git 渠道，通过手写 C ABI 链接同一核心，并从相同 tag 解析：
 
 | 语言 | 渠道 | 软件包 |
 |------|------|--------|

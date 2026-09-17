@@ -4,7 +4,7 @@ title: Connect from native bindings
 
 # Connect from native bindings
 
-**Native bindings** embed the shared connect **session core** into host languages through FFI: the pure session rules — `peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate — live in one core, while transport stays in each host language. The bindings ship on **four registry channel types** across five generated languages, all lockstep with SPOKE git tags `vX.Y.Z`, and the C and C++ binding links the same core through a hand-written C ABI resolved from those tags:
+**Native bindings** embed the shared connect **session core** into host languages through FFI: the pure session rules — `peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate — live in one core, while transport stays in each host language. The bindings ship on **five channel types — three registry-backed (GitHub Packages NuGet, GitHub Packages Maven, PyPI) and two git-based (Swift Package Manager, Go modules)** — across five generated languages, all lockstep with SPOKE git tags `vX.Y.Z`; the C and C++ binding is the additional git-based channel, linking the same core through a hand-written C ABI resolved from those tags:
 
 | Language | Channel | Package |
 |----------|---------|---------|

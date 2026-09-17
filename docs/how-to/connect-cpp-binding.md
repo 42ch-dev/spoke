@@ -4,7 +4,7 @@ title: Connect from C and C++
 
 # Connect from C and C++
 
-The C and C++ channel consumes the shared connect **session core** through a hand-written C ABI: one header, `spoke_connect.h`, plus a committed dynamic library per platform. A C++17 host compiles against the header and links the carrier, with exceptions and RTTI disabled. The boundary reports ABI revision `1` through `spoke_connect_abi_version`.
+The C and C++ channel consumes the shared connect **session core** through a hand-written C ABI: one header, `spoke_connect.h`, plus a committed dynamic library per platform. A C++17 host compiles against the header with `-fno-exceptions -fno-rtti` (MSVC `/EHs-c-` `/GR-`) and links the carrier. The boundary reports ABI revision `1` through `spoke_connect_abi_version`.
 
 The carrier wraps the same public Rust facade the generated **native bindings** expose — the session core (`peer_id` derivation, hello sign/verify, allowlist, nonce store, sequence counters, response correlation, dispatch gate), `RemoteAdapter`, `MultiPeerRouter` and `ConnectResponder` with the `PortsHandler` and `ToolHandler` callbacks, and the in-memory loopback helpers. The parity table [`bindings/cpp/parity.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/cpp/parity.md) maps every production facade member, callback and error variant to its C declaration.
 
@@ -21,7 +21,7 @@ The header and the platform natives live in the repository and resolve together 
 | `crates/spoke-connect/bindings/cpp/native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, header and artifact hashes |
 | `crates/spoke-connect/bindings/cpp/README.md` | The binding README with the full calling contract |
 
-The header has a C99 language floor (fixed-width integers from `<stdint.h>`, lengths from `<stddef.h>`) and uses `extern "C"` inclusion for C++. Windows functions and callback pointers use `__cdecl`; other platforms use the default C calling convention. Every public symbol is prefixed `spoke_connect_`.
+The header compiles as C99 (fixed-width integers from `<stdint.h>`, lengths from `<stddef.h>`) and uses `extern "C"` inclusion for C++. Windows functions and callback pointers use `__cdecl`; macOS uses the platform default C calling convention. Every public symbol is prefixed `spoke_connect_`.
 
 ## 2. Compile and link
 
@@ -44,17 +44,17 @@ copy /Y <absolute path to native\win-x64\spoke_connect_capi.dll> .
 host.exe
 ```
 
-The validated Windows pairing is `/MD`; the carrier is built with the Rust dynamic CRT, and `/MDd` or `/MT` would pair a different runtime with it.
+The validated Windows pairing is `/MD`: the release C++ CRT matches the carrier's Rust dynamic CRT.
 
 ## 3. Call the ABI
 
 | Concern | Contract |
 |---------|----------|
-| Status | Every call returns `int32_t`: `SPOKE_CONNECT_OK` (0) on success, or a `SPOKE_CONNECT_*` value with the detail in the caller's error record. A failed call leaves no result with the caller. |
+| Status | Every call returns `int32_t`: `SPOKE_CONNECT_OK` (0) on success, or a `SPOKE_CONNECT_*` value with the detail in the caller's error record. Failed calls preserve caller ownership of the out values. |
 | Out parameters | Zero-initialize each out value and the `SpokeConnectError` record before the call; the library fills the fields the result carries. |
 | Owned results | Release `SpokeConnectBuffer` with `spoke_connect_buffer_free`, `SpokeConnectOptionalBuffer` with `spoke_connect_optional_buffer_free`, and `SpokeConnectError` with `spoke_connect_error_free`. |
 | Borrowed inputs | `SpokeConnectSlice` borrows bytes for the duration of the call; the length is authoritative, text is validated UTF-8, and keys are 32 raw bytes. |
-| Handles | Each handle owns one carrier object and releases with `<object>_free` (a NULL handle is a no-op); `close` ends a session and is distinct from `free`. Constructors and the router borrow the handles they are given. |
+| Handles | Each handle owns one carrier object and releases with `<object>_free` (releasing a null handle is idempotent); `close` ends a session and leaves the release to `<object>_free`. Constructors and the router borrow the handles they are given. |
 | Callback tables | `spoke_connect_transport_new`, `spoke_connect_ports_handler_new` and `spoke_connect_tool_handler_new` copy the table and take ownership of `user_data` on success, running its `destroy` once after the last reference and in-flight callback. |
 | Returned buffers | A callback hands ownership of a populated `SpokeConnectForeignBuffer` to the carrier, which copies the bytes and calls the buffer's `release` exactly once. |
 | Threading | Calls block the calling host thread; callbacks run on the carrier's blocking pool and may run concurrently, so host contexts are thread-safe. |
@@ -91,7 +91,7 @@ rejection/ownership: PASS
 C++ smoke: PASS
 ```
 
-Each banner follows the assertions of its group, and the run exits non-zero at the first failed check. The Windows lane [`.github/workflows/cpp-connect.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/cpp-connect.yml) compiles, links and runs the same smoke with MSVC on every pull request and main push that touches the carrier, its header, the smoke or the build/check/smoke scripts.
+Each banner follows the assertions of its group; the run stops at the first failed check and exits with a non-zero status. The Windows lane [`.github/workflows/cpp-connect.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/cpp-connect.yml) compiles, links and runs the same smoke with MSVC on every pull request and main push that touches the carrier, its header, the smoke or the build/check/smoke scripts.
 
 ## 5. Consume the carrier from Unreal Engine
 
@@ -112,7 +112,7 @@ Validation status: the executed evidence is the standalone C++17 smoke for `osx-
 
 ## 6. Keep the header and the exports in step
 
-`tooling/connect/cpp-symbol-check.mjs` is the executable drift gate: it parses the header's declaration block, compares it against the carrier's exported `spoke_connect_*` symbols in both directions, compiles a C99 probe holding a typed function pointer to every declaration, and compiles a C++17 inclusion check with exceptions and RTTI disabled.
+`tooling/connect/cpp-symbol-check.mjs` is the executable drift gate: it parses the header's declaration block, compares it against the carrier's exported `spoke_connect_*` symbols in both directions, compiles a C99 probe holding a typed function pointer to every declaration, and compiles a C++17 inclusion check with `-fno-exceptions -fno-rtti`.
 
 ```sh
 node tooling/connect/cpp-symbol-check.mjs \
@@ -123,7 +123,7 @@ node tooling/connect/cpp-symbol-check.mjs \
 ```text
 C ABI symbols: PASS (83 declarations, 83 exports, 0 missing, 0 extra)
 C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
-C++17 inclusion (no exceptions, no RTTI): PASS
+C++17 inclusion (-fno-exceptions -fno-rtti): PASS
 ```
 
 ## Next steps

@@ -4,7 +4,7 @@ title: 从 C 与 C++ 连接
 
 # 从 C 与 C++ 连接
 
-C 与 C++ 渠道通过手写 C ABI 消费共享的 connect **会话核心**：一个手写头文件 `spoke_connect.h`，加上每个平台提交的动态库。C++17 宿主以该头文件编译并链接载体，关闭异常与 RTTI。该边界通过 `spoke_connect_abi_version` 报告 ABI 修订号 `1`。
+C 与 C++ 渠道通过手写 C ABI 消费共享的 connect **会话核心**：一个手写头文件 `spoke_connect.h`，加上每个平台提交的动态库。C++17 宿主以 `-fno-exceptions -fno-rtti`（MSVC 为 `/EHs-c-` `/GR-`）编译该头文件并链接载体。该边界通过 `spoke_connect_abi_version` 报告 ABI 修订号 `1`。
 
 载体包装的是生成式**原生绑定**所暴露的同一套 Rust 公共 facade —— 会话核心（`peer_id` 推导、握手签名/校验、allowlist、nonce store、sequence 计数器、响应关联、dispatch gate）、`RemoteAdapter`、`MultiPeerRouter` 与 `ConnectResponder`（含 `PortsHandler` 与 `ToolHandler` 回调），以及内存回环辅助函数。对照表 [`bindings/cpp/parity.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/cpp/parity.md) 逐项记录每个生产 facade 成员、回调与错误变体对应的 C 声明。
 
@@ -21,7 +21,7 @@ C 与 C++ 渠道通过手写 C ABI 消费共享的 connect **会话核心**：�
 | `crates/spoke-connect/bindings/cpp/native/provenance.json` | 每个 RID：源码修订、target、`rustc -Vv`、编译器版本、构建标志、头文件与产物哈希 |
 | `crates/spoke-connect/bindings/cpp/README.md` | 绑定 README（完整调用契约） |
 
-头文件的语言下限为 C99（`<stdint.h>` 的定宽整数、`<stddef.h>` 的长度类型），C++ 通过 `extern "C"` 包含。Windows 上的函数与回调指针使用 `__cdecl`，其他平台使用默认 C 调用约定。所有公开符号都以 `spoke_connect_` 为前缀。
+头文件以 C99 编译（`<stdint.h>` 的定宽整数、`<stddef.h>` 的长度类型），C++ 通过 `extern "C"` 包含。Windows 上的函数与回调指针使用 `__cdecl`，macOS 使用平台默认 C 调用约定。所有公开符号都以 `spoke_connect_` 为前缀。
 
 ## 2. 编译与链接
 
@@ -44,17 +44,17 @@ copy /Y <native\win-x64\spoke_connect_capi.dll 的绝对路径> .
 host.exe
 ```
 
-已验证的 Windows 组合是 `/MD`：载体以 Rust 动态 CRT 构建，`/MDd` 或 `/MT` 会为它配上不同的运行时。
+已验证的 Windows 组合是 `/MD`：release C++ CRT 与载体的 Rust 动态 CRT 相匹配。
 
 ## 3. 调用 ABI
 
 | 关注点 | 契约 |
 |--------|------|
-| 状态 | 每次调用返回 `int32_t`：成功为 `SPOKE_CONNECT_OK`（0），否则为某个 `SPOKE_CONNECT_*` 值，细节写在调用方的错误记录中。失败的调用不会给调用方留下任何结果所有权。 |
+| 状态 | 每次调用返回 `int32_t`：成功为 `SPOKE_CONNECT_OK`（0），否则为某个 `SPOKE_CONNECT_*` 值，细节写在调用方的错误记录中。失败的调用保留调用方对其出参的所有权。 |
 | 出参 | 调用前将每个出参与 `SpokeConnectError` 记录清零；库只填充该结果携带的字段。 |
 | 所有权结果 | `SpokeConnectBuffer` 用 `spoke_connect_buffer_free` 释放，`SpokeConnectOptionalBuffer` 用 `spoke_connect_optional_buffer_free`，`SpokeConnectError` 用 `spoke_connect_error_free`。 |
 | 借用输入 | `SpokeConnectSlice` 在调用期间借用字节；长度是权威，文本按 UTF-8 校验，密钥为 32 原始字节。 |
-| 句柄 | 每个句柄拥有一个载体对象，用 `<object>_free` 释放（NULL 句柄为空操作）；`close` 结束会话，与 `free` 不同。构造函数与路由器借用传入的句柄。 |
+| 句柄 | 每个句柄拥有一个载体对象，用 `<object>_free` 释放（释放空句柄是幂等的）；`close` 结束会话，释放仍由 `<object>_free` 完成。构造函数与路由器借用传入的句柄。 |
 | 回调表 | `spoke_connect_transport_new`、`spoke_connect_ports_handler_new` 与 `spoke_connect_tool_handler_new` 复制表，并在成功时接管 `user_data` 的所有权：其 `destroy` 在最后一个引用与在途回调之后恰好执行一次。 |
 | 回传缓冲区 | 回调把已填充的 `SpokeConnectForeignBuffer` 所有权交给载体，载体复制字节并恰好调用一次其 `release`。 |
 | 线程 | 调用会阻塞调用方宿主线程；回调在载体的 blocking pool 上运行并可能并发，因此宿主上下文需线程安全。 |
@@ -91,7 +91,7 @@ rejection/ownership: PASS
 C++ smoke: PASS
 ```
 
-每行横幅位于其断言组之后；首个失败检查会让运行以非零退出。Windows 车道 [`.github/workflows/cpp-connect.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/cpp-connect.yml) 会在任何触及载体、其头文件、smoke 或构建/校验/冒烟脚本的 pull request 与 main push 上，用 MSVC 编译、链接并运行同一个 smoke。
+每行横幅位于其断言组之后；运行在首个失败检查处停止，并以非零状态退出。Windows 车道 [`.github/workflows/cpp-connect.yml`](https://github.com/42ch-dev/spoke/blob/main/.github/workflows/cpp-connect.yml) 会在任何触及载体、其头文件、smoke 或构建/校验/冒烟脚本的 pull request 与 main push 上，用 MSVC 编译、链接并运行同一个 smoke。
 
 ## 5. 在 Unreal Engine 中消费该载体
 
@@ -112,7 +112,7 @@ PublicDependencyModuleNames.AddRange(new string[] { "SpokeConnect" });
 
 ## 6. 让头文件与导出保持同步
 
-`tooling/connect/cpp-symbol-check.mjs` 是可执行的漂移门：解析头文件的声明块，与载体导出的 `spoke_connect_*` 符号双向比对，编译一个对每条声明都持有类型化函数指针的 C99 探针，并编译一个关闭异常与 RTTI 的 C++17 包含检查。
+`tooling/connect/cpp-symbol-check.mjs` 是可执行的漂移门：解析头文件的声明块，与载体导出的 `spoke_connect_*` 符号双向比对，编译一个对每条声明都持有类型化函数指针的 C99 探针，并编译一个使用 `-fno-exceptions -fno-rtti` 的 C++17 包含检查。
 
 ```sh
 node tooling/connect/cpp-symbol-check.mjs \
@@ -123,7 +123,7 @@ node tooling/connect/cpp-symbol-check.mjs \
 ```text
 C ABI symbols: PASS (83 declarations, 83 exports, 0 missing, 0 extra)
 C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
-C++17 inclusion (no exceptions, no RTTI): PASS
+C++17 inclusion (-fno-exceptions -fno-rtti): PASS
 ```
 
 ## 下一步

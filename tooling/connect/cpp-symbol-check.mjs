@@ -199,6 +199,7 @@ function exportedSymbols(libraryPath) {
     if (headerRow < 0) {
       fail(`'dumpbin /exports' output has no export table header for ${display(libraryPath)}`);
     }
+    const symbols = new Set();
     let sawExportRow = false;
     for (const line of lines.slice(headerRow + 1)) {
       const trimmed = line.trim();

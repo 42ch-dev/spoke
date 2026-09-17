@@ -1,10 +1,10 @@
 //! Adapter / router / transport surface: the `spoke_connect_*` exports that
 //! wrap the client side of [`spoke_connect::ffi`] — the dialing
 //! `RemoteAdapter` (session info, the baseline port families, the optional
-//! port families, the `extract` op and the tool-invoke face), the
-//! `MultiPeerRouter` (registry, the same port families and the two manifest
-//! aggregation views) and the transports a host supplies or consumes (the
-//! foreign-callback vtable plus the in-memory loopback pair).
+//! port families, the `extract` op, the tool-invoke face and the tool-serving
+//! registration), the `MultiPeerRouter` (registry, the same port families and
+//! the two manifest aggregation views) and the transports a host supplies or
+//! consumes (the foreign-callback vtable plus the in-memory loopback pair).
 //!
 //! The rules live in `spoke-connect`: this module converts values, owns
 //! handles and projects errors onto the C boundary (see the crate docs for
@@ -32,6 +32,7 @@ use std::sync::{Arc, Mutex};
 
 use spoke_connect::ffi;
 
+use crate::responder::{tool_handler_handle, SharedForeignToolHandler, SpokeConnectToolHandler};
 use crate::{
     borrowed_bytes, borrowed_strings, borrowed_text, contain_release, export, optional_u64,
     owned_buffer, release_handle, require_out, take_foreign_bytes, take_foreign_error, AbiFailure,
@@ -964,6 +965,32 @@ pub unsafe extern "C" fn spoke_connect_remote_adapter_invoke_tool(
     }
 }
 
+/// Dialer-side tool-serving registration (D16): serves `tools.*` reverse
+/// invokes from the remote peer with a foreign-callback handler. The handler
+/// handle is borrowed: the adapter keeps its own reference and does not
+/// consume the caller's handle. A non-`tools.` id rejects as invalid input
+/// with zero side effect; a valid id is last-wins.
+#[no_mangle]
+pub unsafe extern "C" fn spoke_connect_remote_adapter_register_tool_handler(
+    adapter: *const SpokeConnectRemoteAdapter,
+    capability_id: SpokeConnectSlice,
+    handler: *const SpokeConnectToolHandler,
+    out_error: *mut SpokeConnectError,
+) -> i32 {
+    unsafe {
+        export(out_error, || {
+            let capability_id = borrowed_text(capability_id, "capability_id")?.to_owned();
+            let handler = tool_handler_handle(handler)?;
+            remote_adapter(adapter)?
+                .register_tool_handler(
+                    capability_id,
+                    Box::new(SharedForeignToolHandler::new(Arc::clone(handler))),
+                )
+                .map_err(AbiFailure::from)
+        })
+    }
+}
+
 /// Closes the adapter's session and its transport. Distinct from
 /// [`spoke_connect_remote_adapter_free`]: close the session first, then
 /// release the handle.
@@ -1342,6 +1369,10 @@ mod tests {
     use crate::{
         spoke_connect_buffer_free, spoke_connect_error_free, spoke_connect_optional_buffer_free,
         SPOKE_CONNECT_FFI_DIAL, SPOKE_CONNECT_FFI_REJECTED, SPOKE_CONNECT_INVALID_ARGUMENT,
+    };
+    use crate::responder::{
+        spoke_connect_tool_handler_free, spoke_connect_tool_handler_new,
+        SpokeConnectToolHandlerTable,
     };
 
     // ── Shared fixtures (loaded, never re-derived) ───────────────────────
@@ -2084,6 +2115,108 @@ mod tests {
         );
         assert!(!transport.is_null());
         (transport, log)
+    }
+
+    // ── C tool-handler harness (D16) ─────────────────────────────────────
+
+    /// The state a pure-C tool-handler context shares with the assertions.
+    #[derive(Default)]
+    struct AdapterToolState {
+        arguments: Mutex<Vec<String>>,
+        destroy: AtomicUsize,
+    }
+
+    /// The host tool callback context behind the A2 tool table.
+    struct AdapterTool {
+        payload: String,
+        state: Arc<AdapterToolState>,
+    }
+
+    /// Releases the owned JSON a tool callback handed to Rust.
+    unsafe extern "C" fn adapter_tool_release(_context: *mut c_void, data: *const u8, len: usize) {
+        if data.is_null() || len == 0 {
+            return;
+        }
+        unsafe { drop(Box::from_raw(ptr::slice_from_raw_parts_mut(data as *mut u8, len))) };
+    }
+
+    /// Serves the configured result payload, recording the arguments JSON it
+    /// received.
+    unsafe extern "C" fn adapter_tool_handle(
+        user_data: *mut c_void,
+        arguments_json: SpokeConnectSlice,
+        out_json: *mut SpokeConnectForeignBuffer,
+        _out_error: *mut SpokeConnectForeignError,
+    ) -> i32 {
+        let tool = unsafe { &*(user_data as *const AdapterTool) };
+        let arguments = if arguments_json.data.is_null() || arguments_json.len == 0 {
+            String::new()
+        } else {
+            String::from_utf8(
+                unsafe { std::slice::from_raw_parts(arguments_json.data, arguments_json.len) }
+                    .to_vec(),
+            )
+            .expect("tool arguments cross as UTF-8")
+        };
+        lock(&tool.state.arguments).push(arguments);
+        if out_json.is_null() {
+            return SPOKE_CONNECT_OK;
+        }
+        let mut owned = tool.payload.clone().into_bytes().into_boxed_slice();
+        let data = owned.as_mut_ptr();
+        let len = owned.len();
+        std::mem::forget(owned);
+        unsafe {
+            out_json.write(SpokeConnectForeignBuffer {
+                data,
+                len,
+                release_context: ptr::null_mut(),
+                release: Some(adapter_tool_release),
+            })
+        };
+        SPOKE_CONNECT_OK
+    }
+
+    unsafe extern "C" fn adapter_tool_destroy(user_data: *mut c_void) {
+        let tool = unsafe { Arc::from_raw(user_data as *const AdapterTool) };
+        tool.state.destroy.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn adapter_tool_table() -> SpokeConnectToolHandlerTable {
+        SpokeConnectToolHandlerTable {
+            handle: Some(adapter_tool_handle),
+            destroy: Some(adapter_tool_destroy),
+        }
+    }
+
+    /// Creates a tool-handler handle answering `payload` through the C ABI,
+    /// and returns the shared state the assertions read.
+    unsafe fn new_adapter_tool(
+        payload: &str,
+    ) -> (*mut SpokeConnectToolHandler, Arc<AdapterToolState>) {
+        let tool = Arc::new(AdapterTool {
+            payload: payload.to_owned(),
+            state: Arc::new(AdapterToolState::default()),
+        });
+        let state = Arc::clone(&tool.state);
+        let mut handler: *mut SpokeConnectToolHandler = ptr::null_mut();
+        let mut error = empty_record();
+        let status = unsafe {
+            spoke_connect_tool_handler_new(
+                &adapter_tool_table(),
+                Arc::into_raw(tool) as *mut c_void,
+                &mut handler,
+                &mut error,
+            )
+        };
+        assert_eq!(
+            status,
+            SPOKE_CONNECT_OK,
+            "tool handle: {}",
+            unsafe { error_fields(&mut error) }.message
+        );
+        assert!(!handler.is_null());
+        (handler, state)
     }
 
     /// Dials through the C ABI over `transport`. The transport handle is
@@ -2872,6 +3005,158 @@ mod tests {
         );
 
         setup.shutdown();
+    }
+
+    /// A pure-C dialer serves a reverse invoke: the adapter handle, the tool
+    /// handler handle and the registration all cross the C ABI, and the peer
+    /// on the far end issues the invoke the dialer's foreign callback
+    /// answers.
+    #[test]
+    fn adapter_tool_registration_serves_a_reverse_invoke_from_the_c_dialer() {
+        let dialer = client_identity();
+        let peer = host_baseline();
+        let client_manifest = with_tool_capability(&dialer.manifest_json);
+        let peer_manifest = with_tool_capability(&peer.manifest_json);
+        let setup = setup(
+            &dialer,
+            &client_manifest,
+            &peer,
+            &peer_manifest,
+            "rule-host",
+            None,
+        );
+        let mut error = empty_record();
+
+        // The serving handle is created through the C ABI and registered
+        // through the adapter's own C registration face.
+        let (tool, tool_state) = unsafe { new_adapter_tool(r#"{"served":"dialer"}"#) };
+        assert_eq!(
+            unsafe {
+                spoke_connect_remote_adapter_register_tool_handler(
+                    setup.adapter,
+                    slice_of(PICKED_TOOL_ID.as_bytes()),
+                    tool,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK,
+            "register: {}",
+            unsafe { error_fields(&mut error) }.message
+        );
+
+        // The peer's reverse invoke is answered by the C callback, which
+        // observed the arguments object the invoke carried.
+        let result = setup
+            .responder
+            .invoke_tool(PICKED_TOOL_ID.to_owned(), r#"{"a":1}"#.to_owned())
+            .expect("the peer's reverse invoke reaches the dialer's tool");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result).expect("tool result JSON"),
+            serde_json::json!({ "served": "dialer" })
+        );
+        assert_eq!(
+            lock(&tool_state.arguments).clone(),
+            vec![r#"{"a":1}"#.to_owned()],
+            "the C callback received the arguments the peer sent"
+        );
+
+        // A non-`tools.` id rejects through the facade's own projection, with
+        // zero side effect: the registered handler keeps serving.
+        assert_eq!(
+            unsafe {
+                spoke_connect_remote_adapter_register_tool_handler(
+                    setup.adapter,
+                    slice_of(b"port.x"),
+                    tool,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_FFI_REJECTED
+        );
+        let fields = unsafe { error_fields(&mut error) };
+        assert_eq!(fields.code, "INVALID_INPUT");
+        assert!(fields.kind.is_empty(), "a grammar reject carries no kind");
+        assert!(
+            fields.wire_code.is_empty(),
+            "a grammar reject carries no wire code"
+        );
+        assert!(
+            fields.message.contains("port.x"),
+            "the reject names the offending id: {}",
+            fields.message
+        );
+        let result = setup
+            .responder
+            .invoke_tool(PICKED_TOOL_ID.to_owned(), r#"{"a":2}"#.to_owned())
+            .expect("the rejected registration left the registry unchanged");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result).expect("tool result JSON"),
+            serde_json::json!({ "served": "dialer" })
+        );
+
+        // The handle is borrowed: releasing the caller's handle leaves the
+        // adapter's own reference serving.
+        unsafe { spoke_connect_tool_handler_free(tool) };
+        assert_eq!(
+            tool_state.destroy.load(Ordering::SeqCst),
+            0,
+            "the adapter still owns the registered reference"
+        );
+        let result = setup
+            .responder
+            .invoke_tool(PICKED_TOOL_ID.to_owned(), r#"{"a":3}"#.to_owned())
+            .expect("the borrowed handle is not consumed");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result).expect("tool result JSON"),
+            serde_json::json!({ "served": "dialer" })
+        );
+
+        // Registration is last-wins: the same id serves the replacement, and
+        // the replaced context is released once its last reference drops.
+        let (replacement, replacement_state) =
+            unsafe { new_adapter_tool(r#"{"served":"replacement"}"#) };
+        assert_eq!(
+            unsafe {
+                spoke_connect_remote_adapter_register_tool_handler(
+                    setup.adapter,
+                    slice_of(PICKED_TOOL_ID.as_bytes()),
+                    replacement,
+                    &mut error,
+                )
+            },
+            SPOKE_CONNECT_OK
+        );
+        let result = setup
+            .responder
+            .invoke_tool(PICKED_TOOL_ID.to_owned(), r#"{"a":4}"#.to_owned())
+            .expect("the replacement serves the same id");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result).expect("tool result JSON"),
+            serde_json::json!({ "served": "replacement" })
+        );
+        assert!(
+            wait_for(
+                || tool_state.destroy.load(Ordering::SeqCst) == 1,
+                Duration::from_secs(5)
+            ),
+            "the replaced handler's context is destroyed once"
+        );
+        unsafe { spoke_connect_tool_handler_free(replacement) };
+        assert_eq!(
+            replacement_state.destroy.load(Ordering::SeqCst),
+            0,
+            "the adapter still owns the replacement reference"
+        );
+
+        setup.shutdown();
+        assert!(
+            wait_for(
+                || replacement_state.destroy.load(Ordering::SeqCst) == 1,
+                Duration::from_secs(5)
+            ),
+            "the registered context is destroyed once the adapter is gone"
+        );
+        assert_eq!(replacement_state.destroy.load(Ordering::SeqCst), 1);
     }
 
     #[test]

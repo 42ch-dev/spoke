@@ -602,6 +602,13 @@ impl ffi::ToolHandler for ForeignToolHandler {
 /// registered it.
 pub(crate) struct SharedForeignToolHandler(Arc<ForeignToolHandler>);
 
+impl SharedForeignToolHandler {
+    /// A borrowed view over a tool-handler handle's callback context.
+    pub(crate) fn new(handler: Arc<ForeignToolHandler>) -> Self {
+        Self(handler)
+    }
+}
+
 impl ffi::ToolHandler for SharedForeignToolHandler {
     fn handle(&self, arguments_json: String) -> Result<String, ffi::FfiError> {
         self.0.handle(arguments_json)
@@ -631,7 +638,7 @@ unsafe fn ports_handler_handle<'a>(
 }
 
 /// Borrows a tool-handler handle.
-unsafe fn tool_handler_handle<'a>(
+pub(crate) unsafe fn tool_handler_handle<'a>(
     handle: *const SpokeConnectToolHandler,
 ) -> Result<&'a Arc<ForeignToolHandler>, AbiFailure> {
     if handle.is_null() {
@@ -914,7 +921,7 @@ pub unsafe extern "C" fn spoke_connect_responder_register_tool_handler(
             responder_handle(responder)?
                 .register_tool_handler(
                     capability_id,
-                    Box::new(SharedForeignToolHandler(Arc::clone(handler))),
+                    Box::new(SharedForeignToolHandler::new(Arc::clone(handler))),
                 )
                 .map_err(AbiFailure::from)
         })

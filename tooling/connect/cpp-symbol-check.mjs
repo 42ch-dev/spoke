@@ -253,6 +253,11 @@ function reportFailure(result) {
 /** Writes and compiles the declaration probes; returns nothing on success. */
 function runProbes(declarations, headerPath, libraryPath, tempDir) {
   const includeDir = dirname(headerPath);
+  const probeLibrary =
+    process.platform === "win32" ? libraryPath.replace(/\.dll$/i, ".dll.lib") : libraryPath;
+  if (process.platform === "win32" && !existsSync(probeLibrary)) {
+    fail(`missing import library: ${display(probeLibrary)}`);
+  }
   const lines = ["#include <stddef.h>", "#include <stdint.h>", '#include "spoke_connect.h"', ""];
   declarations.forEach((declaration, index) => {
     const params = declaration.params.replace(/\s+/g, " ").trim();
@@ -307,9 +312,10 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
         "/MD",
         "/W4",
         "/WX",
+        "/wd4232",
         `/I${includeDir}`,
         probeSource,
-        libraryPath,
+        probeLibrary,
         `/Fe:${join(tempDir, "spoke_connect_probe.exe")}`,
       ],
     });

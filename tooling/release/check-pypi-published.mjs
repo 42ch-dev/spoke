@@ -165,6 +165,33 @@ export function parsePyprojectName(contents) {
 }
 
 /**
+ * npm package-name grammar: optional `@scope/` prefix, then lowercase
+ * letters/digits and `-`, `_`, `.`, `~`; no leading `.` or `_`.
+ */
+const PACKAGE_NAME_PATTERN =
+  /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+
+/** npm's package-name length limit (scoped names included). */
+const PACKAGE_NAME_MAX_LENGTH = 214;
+
+/**
+ * Guard the value that gets interpolated into the PyPI JSON API request URL.
+ * The name is read from `pyproject.toml` (a file in the checked-out repo), so
+ * it is validated against the npm name grammar before it can reach the URL —
+ * a malformed value must never steer the probe off the fixed base URL.
+ *
+ * @param {unknown} name
+ * @returns {boolean}
+ */
+function isValidPackageName(name) {
+  return (
+    typeof name === "string" &&
+    name.length <= PACKAGE_NAME_MAX_LENGTH &&
+    PACKAGE_NAME_PATTERN.test(name)
+  );
+}
+
+/**
  * Probe the PyPI JSON API for the version.
  *
  * @param {object} opts
@@ -175,10 +202,15 @@ export function parsePyprojectName(contents) {
  *   `unexpectedEntries` lists `urls[]` filenames outside the expected set
  *   (observability only — subset semantics, the verdict never depends on it).
  *   `urls[]` entries with `yanked: true` (PEP 592) count as absent.
- * @throws {Error} Fail-loud conditions (network, non-200/404, malformed JSON,
- *   unexpected payload shape).
+ * @throws {Error} Fail-loud conditions (invalid package name, network,
+ *   non-200/404, malformed JSON, unexpected payload shape).
  */
 async function probePyPI({ packageName, version, baseUrl = PYPI_BASE_URL }) {
+  if (!isValidPackageName(packageName)) {
+    throw new Error(
+      `package name ${JSON.stringify(packageName)} is not a valid registry name — refusing to probe PyPI`,
+    );
+  }
   const url = `${baseUrl.replace(/\/+$/, "")}/pypi/${packageName}/${version}/json`;
   const expected = expectedWheelFilenames(packageName, version);
 

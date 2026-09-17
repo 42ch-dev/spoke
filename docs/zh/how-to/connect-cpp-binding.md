@@ -112,7 +112,7 @@ PublicDependencyModuleNames.AddRange(new string[] { "SpokeConnect" });
 
 ## 6. 让头文件与导出保持同步
 
-`tooling/connect/cpp-symbol-check.mjs` 是可执行的漂移门：解析头文件的声明块，与载体导出的 `spoke_connect_*` 符号双向比对，编译一个对每条声明都持有类型化函数指针的 C99 探针，并编译一个使用 `-fno-exceptions -fno-rtti` 的 C++17 包含检查。
+`tooling/connect/cpp-symbol-check.mjs` 是可执行的漂移门：解析头文件的声明块，与载体导出的 `spoke_connect_*` 符号双向比对，把头文件的 `typedef struct` 块与载体报告的记录布局对照，编译一个对每条声明都持有类型化函数指针的 C99 探针，并编译一个使用 `-fno-exceptions -fno-rtti` 的 C++17 包含检查。
 
 ```sh
 node tooling/connect/cpp-symbol-check.mjs \
@@ -122,6 +122,7 @@ node tooling/connect/cpp-symbol-check.mjs \
 
 ```text
 C ABI symbols: PASS (83 declarations, 83 exports, 0 missing, 0 extra)
+Record layout: 11 records, 66 assertions (sizeof/_Alignof/offsetof) match the carrier mirrors
 C probe (clang -std=c99 -Wall -Wextra -Werror): PASS
 C++17 inclusion (-fno-exceptions -fno-rtti): PASS
 ```

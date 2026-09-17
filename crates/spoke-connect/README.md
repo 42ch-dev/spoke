@@ -498,7 +498,9 @@ under `bindings/cpp/native/osx-arm64/` and `bindings/cpp/native/win-x64/`.
 [`bindings/cpp/parity.md`](bindings/cpp/parity.md) maps every facade member,
 callback and error variant to its C declaration, and
 `tooling/connect/cpp-symbol-check.mjs` fails when the header and the carrier's
-exported symbols drift apart. Consumer build, link and run instructions:
+exported symbols drift apart, and pins the record and callback-table layout with
+`sizeof` / `_Alignof` / `offsetof` assertions against the carrier's `#[repr(C)]`
+mirrors. Consumer build, link and run instructions:
 [`bindings/cpp/README.md`](bindings/cpp/README.md); the Unreal Engine module
 reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
 

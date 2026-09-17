@@ -38,16 +38,16 @@ use std::sync::Arc;
 
 use spoke_connect::ffi;
 
-use crate::remote_adapter::{
-    transport_handle, write_json, write_optional_text, write_text, SharedForeignTransport,
-    SpokeConnectTransport,
+use crate::bridge::{
+    callback_json, missing_callback, text_span, tool_handler_handle, ForeignToolHandler,
+    SharedForeignToolHandler, SharedForeignTransport, SpokeConnectToolHandler,
+    SpokeConnectTransport, transport_handle, write_json, write_optional_text, write_text,
 };
 use crate::{
     borrowed_bytes, borrowed_strings, borrowed_text, contain_release, export, optional_u64,
-    release_handle, require_out, take_foreign_error, take_foreign_text, AbiFailure,
-    SpokeConnectBuffer, SpokeConnectError, SpokeConnectForeignBuffer, SpokeConnectForeignError,
-    SpokeConnectOptionalBuffer, SpokeConnectOptionalU64, SpokeConnectSlice,
-    SPOKE_CONNECT_FFI_REJECTED, SPOKE_CONNECT_OK,
+    release_handle, require_out, AbiFailure, SpokeConnectBuffer, SpokeConnectError,
+    SpokeConnectForeignBuffer, SpokeConnectForeignError, SpokeConnectOptionalBuffer,
+    SpokeConnectOptionalU64, SpokeConnectSlice,
 };
 
 /// Destroys a callback context. Runs exactly once, after the last Rust
@@ -154,12 +154,6 @@ pub struct SpokeConnectPortsHandler {
     _private: [u8; 0],
 }
 
-/// Opaque foreign tool-handler handle.
-#[repr(C)]
-pub struct SpokeConnectToolHandler {
-    _private: [u8; 0],
-}
-
 /// One peer key entry: the peer id it belongs to plus its 32-byte Ed25519
 /// public key. Duplicate peer ids reject as invalid input rather than
 /// silently choosing one key (`A2` §Ownership table).
@@ -168,19 +162,6 @@ pub struct SpokeConnectToolHandler {
 pub struct SpokeConnectPeerKey {
     pub peer_id: SpokeConnectSlice,
     pub public_key: SpokeConnectSlice,
-}
-
-/// Borrows text as a callback argument span. Empty text crosses as a
-/// NULL/zero span (`A2` §Calling and representation).
-fn text_span(text: &str) -> SpokeConnectSlice {
-    SpokeConnectSlice {
-        data: if text.is_empty() {
-            ptr::null()
-        } else {
-            text.as_ptr()
-        },
-        len: text.len(),
-    }
 }
 
 /// The reverse of [`optional_u64`]: an absent option crosses as
@@ -195,59 +176,6 @@ fn to_optional_u64(value: Option<u64>) -> SpokeConnectOptionalU64 {
             present: 0,
             value: 0,
         },
-    }
-}
-
-/// A missing callback pointer on an already-constructed handle. Construction
-/// requires every pointer, so this is unreachable through this ABI; it is
-/// projected as a `Dial` so the facade's containment row answers it rather
-/// than panicking inside a callback.
-fn missing_callback(what: &str, method: &str) -> ffi::FfiError {
-    ffi::FfiError::Dial {
-        kind: "callback".to_owned(),
-        message: format!("foreign {what} table has no {method} callback"),
-    }
-}
-
-/// Reads one ports/tool callback return and drains both of its buffers on
-/// **every** path.
-///
-/// Status `0` answers the callback's JSON text, the application reject status
-/// answers the four-field error record, and any other status is projected as a
-/// `Dial` so the facade contains it into `INTERNAL_ERROR` (`A2` §Status and
-/// error projection — ports and tool callbacks accept `0` / `301`).
-///
-/// A callback may populate the result buffer on a failure status, or the error
-/// record on success; each populated buffer transfers to Rust and is released
-/// exactly once, so both are drained here whatever the status.
-unsafe fn callback_json(
-    status: i32,
-    what: &str,
-    out_json: &mut SpokeConnectForeignBuffer,
-    error: &mut SpokeConnectForeignError,
-) -> Result<String, ffi::FfiError> {
-    // Presence must be captured before the record is drained: a NULL field
-    // means absent, while a present empty string has non-NULL data with zero
-    // length.
-    let kind_present = !error.kind.data.is_null();
-    let wire_code_present = !error.wire_code.data.is_null();
-    let json = unsafe { take_foreign_text(out_json) };
-    let (message, code, kind, wire_code) = unsafe { take_foreign_error(error) };
-    match status {
-        SPOKE_CONNECT_OK => Ok(json),
-        SPOKE_CONNECT_FFI_REJECTED => Err(ffi::FfiError::Rejected {
-            code,
-            message,
-            kind: kind_present.then_some(kind),
-            wire_code: wire_code_present.then_some(wire_code),
-        }),
-        other => {
-            let detail = if message.is_empty() { kind } else { message };
-            Err(ffi::FfiError::Dial {
-                kind: "callback".to_owned(),
-                message: format!("unsupported {what} callback status {other}: {detail}"),
-            })
-        }
     }
 }
 
@@ -556,65 +484,6 @@ impl ffi::PortsHandler for SharedForeignPortsHandler {
     }
 }
 
-// ── Foreign-callback `ToolHandler` (D16 serving face) ────────────────────
-
-/// The carrier's [`ffi::ToolHandler`] implementation over a host vtable.
-pub(crate) struct ForeignToolHandler {
-    table: SpokeConnectToolHandlerTable,
-    user_data: *mut c_void,
-}
-
-// SAFETY: the A2 callback contract requires the host context, its callbacks
-// and `destroy` to be thread-safe and free of thread affinity.
-unsafe impl Send for ForeignToolHandler {}
-unsafe impl Sync for ForeignToolHandler {}
-
-impl Drop for ForeignToolHandler {
-    fn drop(&mut self) {
-        if let Some(destroy) = self.table.destroy {
-            contain_release(|| unsafe { destroy(self.user_data) });
-        }
-    }
-}
-
-impl ffi::ToolHandler for ForeignToolHandler {
-    fn handle(&self, arguments_json: String) -> Result<String, ffi::FfiError> {
-        let Some(callback) = self.table.handle else {
-            return Err(missing_callback("tool handler", "handle"));
-        };
-        let mut out_json = SpokeConnectForeignBuffer::empty();
-        let mut error = SpokeConnectForeignError::empty();
-        let status = unsafe {
-            callback(
-                self.user_data,
-                text_span(&arguments_json),
-                &mut out_json,
-                &mut error,
-            )
-        };
-        unsafe { callback_json(status, "tool handler", &mut out_json, &mut error) }
-    }
-}
-
-/// Borrowed-handle view of a tool handler: shares the handle's
-/// [`ForeignToolHandler`], so the caller's [`SpokeConnectToolHandler`] keeps
-/// owning the callback context (and its single `destroy`) after a responder
-/// registered it.
-pub(crate) struct SharedForeignToolHandler(Arc<ForeignToolHandler>);
-
-impl SharedForeignToolHandler {
-    /// A borrowed view over a tool-handler handle's callback context.
-    pub(crate) fn new(handler: Arc<ForeignToolHandler>) -> Self {
-        Self(handler)
-    }
-}
-
-impl ffi::ToolHandler for SharedForeignToolHandler {
-    fn handle(&self, arguments_json: String) -> Result<String, ffi::FfiError> {
-        self.0.handle(arguments_json)
-    }
-}
-
 // ── Handle borrows and releases ──────────────────────────────────────────
 
 /// Borrows a responder handle.
@@ -635,16 +504,6 @@ unsafe fn ports_handler_handle<'a>(
         return Err(AbiFailure::invalid("ports_handler is NULL"));
     }
     Ok(unsafe { &*(handle as *const Arc<ForeignPortsHandler>) })
-}
-
-/// Borrows a tool-handler handle.
-pub(crate) unsafe fn tool_handler_handle<'a>(
-    handle: *const SpokeConnectToolHandler,
-) -> Result<&'a Arc<ForeignToolHandler>, AbiFailure> {
-    if handle.is_null() {
-        return Err(AbiFailure::invalid("tool_handler is NULL"));
-    }
-    Ok(unsafe { &*(handle as *const Arc<ForeignToolHandler>) })
 }
 
 /// Builds the peer-key map from the C array. A duplicate peer id rejects as
@@ -753,7 +612,7 @@ pub unsafe extern "C" fn spoke_connect_tool_handler_new(
                     "tool handler table must carry handle and destroy",
                 ));
             }
-            let handler = Arc::new(ForeignToolHandler { table, user_data });
+            let handler = Arc::new(ForeignToolHandler::new(table, user_data));
             out_handler.write(Box::into_raw(Box::new(handler)) as *mut SpokeConnectToolHandler);
             Ok(())
         })

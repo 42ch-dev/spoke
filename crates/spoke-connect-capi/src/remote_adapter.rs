@@ -27,18 +27,20 @@
 
 use std::ffi::c_void;
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use spoke_connect::ffi;
 
-use crate::responder::{tool_handler_handle, SharedForeignToolHandler, SpokeConnectToolHandler};
+use crate::bridge::{
+    tool_handler_handle, ForeignTransport, SharedForeignToolHandler, SharedForeignTransport,
+    SpokeConnectToolHandler, SpokeConnectTransport, transport_handle, write_json,
+    write_optional_text, write_text,
+};
 use crate::{
-    borrowed_bytes, borrowed_strings, borrowed_text, contain_release, export, optional_u64,
-    owned_buffer, release_handle, require_out, take_foreign_bytes, take_foreign_error, AbiFailure,
-    SpokeConnectBuffer, SpokeConnectError, SpokeConnectForeignBuffer, SpokeConnectForeignError,
-    SpokeConnectOptionalBuffer, SpokeConnectOptionalU64, SpokeConnectSlice, SPOKE_CONNECT_OK,
-    SPOKE_CONNECT_TRANSPORT_CLOSED, SPOKE_CONNECT_TRANSPORT_IO,
+    borrowed_bytes, borrowed_strings, borrowed_text, export, optional_u64, owned_buffer,
+    release_handle, require_out, AbiFailure, SpokeConnectBuffer, SpokeConnectError,
+    SpokeConnectForeignBuffer, SpokeConnectForeignError, SpokeConnectOptionalBuffer,
+    SpokeConnectOptionalU64, SpokeConnectSlice,
 };
 
 // ── Foreign-callback transport vtable (A2) ───────────────────────────────
@@ -84,194 +86,6 @@ pub struct SpokeConnectTransportTable {
     pub recv: Option<SpokeConnectTransportRecvFn>,
     pub close: Option<SpokeConnectTransportCloseFn>,
     pub destroy: Option<SpokeConnectTransportDestroyFn>,
-}
-
-/// Opaque foreign-callback `Transport` handle.
-#[repr(C)]
-pub struct SpokeConnectTransport {
-    _private: [u8; 0],
-}
-
-/// The carrier's [`ffi::Transport`] implementation over a host vtable.
-pub(crate) struct ForeignTransport {
-    table: SpokeConnectTransportTable,
-    user_data: *mut c_void,
-    /// Set by the first `close`, so a `recv` entered afterwards fails fast
-    /// without touching the host (a `recv` already waiting is unblocked by
-    /// the host's own close callback).
-    closed: AtomicBool,
-    /// The first `close` outcome, reused by every later or concurrent
-    /// caller: the host close runs once and concurrent closes never
-    /// serialize behind a pending `recv`.
-    close_result: Mutex<Option<Result<(), ffi::TransportError>>>,
-}
-
-// SAFETY: the A2 callback contract requires the host context, its callbacks
-// and `destroy` to be thread-safe and free of thread affinity.
-unsafe impl Send for ForeignTransport {}
-unsafe impl Sync for ForeignTransport {}
-
-impl Drop for ForeignTransport {
-    fn drop(&mut self) {
-        if let Some(destroy) = self.table.destroy {
-            contain_release(|| unsafe { destroy(self.user_data) });
-        }
-    }
-}
-
-/// Maps a non-zero callback status onto the transport error vocabulary. The
-/// record is read and released either way, so a host that populates buffers
-/// on a failure status does not leak them. An unknown status is contained as
-/// a transport I/O failure rather than propagated.
-unsafe fn transport_error(status: i32, error: &mut SpokeConnectForeignError) -> ffi::TransportError {
-    let (message, _code, kind, _wire_code) = unsafe { take_foreign_error(error) };
-    let detail = if message.is_empty() { kind } else { message };
-    match status {
-        SPOKE_CONNECT_TRANSPORT_CLOSED => ffi::TransportError::Closed,
-        SPOKE_CONNECT_TRANSPORT_IO => ffi::TransportError::Io(if detail.is_empty() {
-            "transport I/O failure".to_owned()
-        } else {
-            detail
-        }),
-        other => ffi::TransportError::Io(format!(
-            "unsupported transport callback status {other}: {detail}"
-        )),
-    }
-}
-
-/// Turns one callback return into the transport vocabulary and drains its
-/// error record on **every** path: a host may populate any of the four
-/// buffers on any status, and `A2` §C requires each populated buffer to
-/// transfer to Rust and be released exactly once on success as well as on
-/// error. The status mapping is unchanged — only the release happens here.
-unsafe fn callback_result(
-    status: i32,
-    error: &mut SpokeConnectForeignError,
-) -> Result<(), ffi::TransportError> {
-    if status != SPOKE_CONNECT_OK {
-        return Err(unsafe { transport_error(status, error) });
-    }
-    // `take_foreign_error` is the single drain for the record's four fields;
-    // on a success return the values are unused and only their release
-    // matters.
-    let _ = unsafe { take_foreign_error(error) };
-    Ok(())
-}
-
-impl ForeignTransport {
-    fn new(table: SpokeConnectTransportTable, user_data: *mut c_void) -> Self {
-        Self {
-            table,
-            user_data,
-            closed: AtomicBool::new(false),
-            close_result: Mutex::new(None),
-        }
-    }
-
-    /// Borrows an envelope as the callback input span; an empty envelope
-    /// crosses as a NULL/zero span.
-    fn span(envelope: &[u8]) -> SpokeConnectSlice {
-        SpokeConnectSlice {
-            data: if envelope.is_empty() {
-                ptr::null()
-            } else {
-                envelope.as_ptr()
-            },
-            len: envelope.len(),
-        }
-    }
-}
-
-impl ffi::Transport for ForeignTransport {
-    fn send(&self, envelope: Vec<u8>) -> Result<(), ffi::TransportError> {
-        let Some(send) = self.table.send else {
-            return Err(ffi::TransportError::Io(
-                "foreign transport table has no send callback".to_owned(),
-            ));
-        };
-        let mut error = SpokeConnectForeignError::empty();
-        let status = unsafe { send(self.user_data, Self::span(&envelope), &mut error) };
-        unsafe { callback_result(status, &mut error) }
-    }
-
-    fn recv(&self) -> Result<Vec<u8>, ffi::TransportError> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(ffi::TransportError::Closed);
-        }
-        let Some(recv) = self.table.recv else {
-            return Err(ffi::TransportError::Io(
-                "foreign transport table has no recv callback".to_owned(),
-            ));
-        };
-        let mut buffer = SpokeConnectForeignBuffer::empty();
-        let mut error = SpokeConnectForeignError::empty();
-        let status = unsafe { recv(self.user_data, &mut buffer, &mut error) };
-        let bytes = unsafe { take_foreign_bytes(&mut buffer) };
-        // A populated buffer on an error status is released by
-        // `take_foreign_bytes`; the bytes themselves are discarded.
-        unsafe { callback_result(status, &mut error) }?;
-        Ok(bytes)
-    }
-
-    fn close(&self) -> Result<(), ffi::TransportError> {
-        self.closed.store(true, Ordering::SeqCst);
-        let mut slot = self
-            .close_result
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if let Some(result) = slot.as_ref() {
-            return result.clone();
-        }
-        let result = match self.table.close {
-            Some(close) => {
-                let mut error = SpokeConnectForeignError::empty();
-                let status = unsafe { close(self.user_data, &mut error) };
-                unsafe { callback_result(status, &mut error) }
-            }
-            None => Err(ffi::TransportError::Io(
-                "foreign transport table has no close callback".to_owned(),
-            )),
-        };
-        *slot = Some(result.clone());
-        result
-    }
-}
-
-/// Borrowed-handle view of a transport: shares the handle's
-/// [`ForeignTransport`], so the caller's [`SpokeConnectTransport`] keeps
-/// owning the callback context (and its single `destroy`) after an adapter
-/// dialed over it takes its own reference.
-pub(crate) struct SharedForeignTransport(Arc<ForeignTransport>);
-
-impl SharedForeignTransport {
-    /// A borrowed view over a transport handle's callback context.
-    pub(crate) fn new(transport: Arc<ForeignTransport>) -> Self {
-        Self(transport)
-    }
-}
-
-impl ffi::Transport for SharedForeignTransport {
-    fn send(&self, envelope: Vec<u8>) -> Result<(), ffi::TransportError> {
-        self.0.send(envelope)
-    }
-
-    fn recv(&self) -> Result<Vec<u8>, ffi::TransportError> {
-        self.0.recv()
-    }
-
-    fn close(&self) -> Result<(), ffi::TransportError> {
-        self.0.close()
-    }
-}
-
-/// Borrows a transport handle.
-pub(crate) unsafe fn transport_handle<'a>(
-    handle: *const SpokeConnectTransport,
-) -> Result<&'a Arc<ForeignTransport>, AbiFailure> {
-    if handle.is_null() {
-        return Err(AbiFailure::invalid("transport is NULL"));
-    }
-    Ok(unsafe { &*(handle as *const Arc<ForeignTransport>) })
 }
 
 /// Creates a transport handle from a callback table. On success ownership of
@@ -498,44 +312,6 @@ unsafe fn remote_adapter<'a>(
     Ok(unsafe { &*(handle as *const Arc<ffi::RemoteAdapterFFI>) })
 }
 
-/// Writes the owned JSON a `Result<String, FfiError>` call produced, or
-/// projects its failure. The caller has already required and zeroed
-/// `out_json`.
-pub(crate) unsafe fn write_json(
-    out_json: *mut SpokeConnectBuffer,
-    result: Result<String, ffi::FfiError>,
-) -> Result<(), AbiFailure> {
-    let json = result.map_err(AbiFailure::from)?;
-    unsafe { out_json.write(owned_buffer(json.as_bytes())) };
-    Ok(())
-}
-
-/// Writes the owned text a `String` result produced.
-pub(crate) unsafe fn write_text(
-    out_text: *mut SpokeConnectBuffer,
-    text: String,
-) -> Result<(), AbiFailure> {
-    unsafe { out_text.write(owned_buffer(text.as_bytes())) };
-    Ok(())
-}
-
-/// Writes an optional text: absent means `present = 0`; a present empty
-/// string keeps non-NULL data with zero length.
-pub(crate) unsafe fn write_optional_text(
-    out_text: *mut SpokeConnectOptionalBuffer,
-    text: Option<String>,
-) -> Result<(), AbiFailure> {
-    let optional = match text {
-        Some(text) => SpokeConnectOptionalBuffer {
-            present: 1,
-            value: owned_buffer(text.as_bytes()),
-        },
-        None => SpokeConnectOptionalBuffer::empty(),
-    };
-    unsafe { out_text.write(optional) };
-    Ok(())
-}
-
 /// Dials a remote peer over `transport` and returns an established adapter.
 /// The transport handle is borrowed: the caller keeps ownership of it (and
 /// of its callback context) and must close/release the adapter and then the
@@ -563,7 +339,7 @@ pub unsafe extern "C" fn spoke_connect_remote_adapter_new(
             let allowlist = borrowed_strings(allowlist, allowlist_count, "allowlist")?;
             let invoke_timeout_ms = optional_u64(invoke_timeout_ms, "invoke_timeout_ms")?;
             let adapter = ffi::connect_remote_adapter_ffi(
-                Box::new(SharedForeignTransport(Arc::clone(transport))),
+                Box::new(SharedForeignTransport::new(Arc::clone(transport))),
                 local_seed.to_vec(),
                 local_manifest_json.to_owned(),
                 remote_pubkey.to_vec(),
@@ -1362,13 +1138,15 @@ mod tests {
     use super::*;
 
     use std::collections::{HashMap, VecDeque};
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Condvar;
+    use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
     use crate::{
         spoke_connect_buffer_free, spoke_connect_error_free, spoke_connect_optional_buffer_free,
         SPOKE_CONNECT_FFI_DIAL, SPOKE_CONNECT_FFI_REJECTED, SPOKE_CONNECT_INVALID_ARGUMENT,
+        SPOKE_CONNECT_OK, SPOKE_CONNECT_TRANSPORT_CLOSED,
     };
     use crate::responder::{
         spoke_connect_tool_handler_free, spoke_connect_tool_handler_new,

@@ -106,6 +106,12 @@ compiles a C99 probe holding a typed function pointer to every declaration and a
 C++17 inclusion check with exceptions and RTTI disabled, so a header edit and its
 export land together.
 
+It also pins the record and callback-table representation: the header's
+`typedef struct` block is checked against the carrier's `#[repr(C)]` mirrors, and
+one `_Static_assert` per `sizeof` / `_Alignof` / `offsetof` is compiled, so a
+field reorder or resize fails the gate. The check needs `cargo` on `PATH`, since
+the report it compiles against is produced by the carrier's own test target.
+
 ## Reference
 
 - Decision record: [`.mstar/specs/connect-cpp-binding.md`](../../../../.mstar/specs/connect-cpp-binding.md)

@@ -35,7 +35,7 @@ use minimal_responder::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -4609,6 +4609,10 @@ async fn responder_serves_computable_and_probe_denies_fork_on_a_mixed_composite(
 /// and must never appear in any wire envelope in either direction.
 const LOADER_CANARY: &str = "spoke-ke-remote-loader-canary-7f3a91";
 
+/// How long each host-local async stage parks on a Tokio timer (B5: the
+/// bridge witness must use a real timer, not an immediately-ready future).
+const HOST_STAGE_SLEEP: Duration = Duration::from_millis(5);
+
 /// How the test host's extraction behaves.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ExtractBehavior {
@@ -4620,6 +4624,12 @@ enum ExtractBehavior {
     Reject,
     /// The `ExtractResponse` error branch returned as a service success.
     ErrorBranch,
+    /// [`Batch`](Self::Batch) whose loader and extractor each do real
+    /// Tokio-aware async work (yield + timer) inside the blocking worker.
+    AsyncStages,
+    /// The host's loader panics inside the blocking worker, so the bridge
+    /// sees a `JoinError`.
+    WorkerPanic,
 }
 
 #[derive(Default)]
@@ -4627,6 +4637,10 @@ struct ExtractHostState {
     loads: AtomicUsize,
     runs: AtomicUsize,
     canary_consumed: AtomicBool,
+    /// Async stages whose Tokio timer actually elapsed.
+    timed_stages: AtomicUsize,
+    /// Threads that ran the async stages, in arrival order.
+    stage_threads: Mutex<Vec<std::thread::ThreadId>>,
 }
 
 /// Host-side `extract` service double: a real host-local loader, a real
@@ -4658,12 +4672,55 @@ impl CanonicalExtractHost {
     fn canary_consumed(&self) -> bool {
         self.state.canary_consumed.load(Ordering::SeqCst)
     }
+
+    /// Async stages whose Tokio timer actually elapsed.
+    fn timed_stages(&self) -> usize {
+        self.state.timed_stages.load(Ordering::SeqCst)
+    }
+
+    /// Threads that ran the async stages, in arrival order.
+    fn stage_threads(&self) -> Vec<std::thread::ThreadId> {
+        self.state
+            .stage_threads
+            .lock()
+            .expect("stage thread lock")
+            .clone()
+    }
+}
+
+/// One host-local async stage: a yield, a Tokio timer that must actually
+/// elapse, and a reach for the runtime handle. Both stages of one extraction
+/// run here, inside the bridge's blocking worker.
+async fn host_async_stage(state: &ExtractHostState) {
+    // `Handle::current()` panics outside a runtime context, so reaching the
+    // next line is itself part of the proof: the worker drives the
+    // orchestration under the active runtime, not on a bare executor.
+    let _handle = tokio::runtime::Handle::current();
+    state
+        .stage_threads
+        .lock()
+        .expect("stage thread lock")
+        .push(std::thread::current().id());
+    tokio::task::yield_now().await;
+    let started = Instant::now();
+    tokio::time::sleep(HOST_STAGE_SLEEP).await;
+    assert!(
+        started.elapsed() >= HOST_STAGE_SLEEP,
+        "the host stage's Tokio timer must actually elapse"
+    );
+    state.timed_stages.fetch_add(1, Ordering::SeqCst);
 }
 
 #[async_trait]
 impl ExtractionPort for CanonicalExtractHost {
     async fn load_extraction_input(&self, _request: &ExtractRequest) -> SpokeResult<Value> {
         self.state.loads.fetch_add(1, Ordering::SeqCst);
+        if self.behavior == ExtractBehavior::WorkerPanic {
+            panic!("the canonical extract host's loader failed");
+        }
+        if self.behavior == ExtractBehavior::AsyncStages {
+            host_async_stage(&self.state).await;
+        }
         spoke_ok(json!({
             "canary": LOADER_CANARY,
             "manuscript": "host-local source content that must never reach the wire",
@@ -4671,6 +4728,15 @@ impl ExtractionPort for CanonicalExtractHost {
     }
 }
 
+/// The host's `extract` service face (B3). The connect face is `Send +
+/// Sync`, while `orchestrate_extract` takes a plain `&dyn ExtractionPort` and
+/// returns a `!Send` future, so the host drains its own orchestration on a
+/// blocking worker: an owned `Send + Sync + 'static` host clone plus a clone
+/// of the active multi-thread runtime handle cross the boundary, and the
+/// `!Send` future is built and driven inside that closure — never on an
+/// async worker, never across threads. A worker `JoinError` answers the
+/// existing `INTERNAL_ERROR` row. The responder's local serve budget bounds
+/// only the *wait* for this call; it never terminates the worker.
 #[async_trait]
 impl RemoteExtractService for CanonicalExtractHost {
     async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
@@ -4681,15 +4747,13 @@ impl RemoteExtractService for CanonicalExtractHost {
         let host = self.clone();
         let behavior = self.behavior;
         let state = Arc::clone(&self.state);
-        // `orchestrate_extract` takes `&dyn ExtractionPort` (a plain trait
-        // object), so its returned future is `!Send`; the connect service
-        // face is `Send`. The host drives the real orchestration on a
-        // blocking worker — the same place a host's loader callback belongs.
+        let handle = tokio::runtime::Handle::current();
         let joined = tokio::task::spawn_blocking(move || {
-            futures::executor::block_on(orchestrate_extract(
-                &host,
-                request,
-                move |input: ExtractRunInput| async move {
+            handle.block_on(async move {
+                orchestrate_extract(&host, request, move |input: ExtractRunInput| async move {
+                    if behavior == ExtractBehavior::AsyncStages {
+                        host_async_stage(&state).await;
+                    }
                     state.canary_consumed.store(
                         input.input.get("canary").and_then(Value::as_str) == Some(LOADER_CANARY),
                         Ordering::SeqCst,
@@ -4719,8 +4783,9 @@ impl RemoteExtractService for CanonicalExtractHost {
                         method: Some("canonical".to_owned()),
                         coverage_hint: None,
                     })
-                },
-            ))
+                })
+                .await
+            })
         })
         .await;
         match joined {
@@ -5349,6 +5414,112 @@ async fn ke_remote_extract_normalizes_the_response_error_branch_to_the_reject_pa
 
     client.close();
     responder.close();
+}
+
+// ── B3: `Send`-safe host bridge recipe (worker + runtime handle) ──────────
+
+/// The B3 recipe driven for real: `RemoteExtractService::extract` runs from a
+/// `tokio::spawn`ed task with an owned service handle and an owned request
+/// (the face is `Send`), while the `!Send` orchestration future is built and
+/// driven inside the host's blocking worker. The host's loader and extractor
+/// do real Tokio-aware async work there — a yield, a timer that must actually
+/// elapse, and a runtime-handle reach.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extract_send_bridge_drives_a_spawned_task_with_async_host_stages() {
+    let caller_thread = std::thread::current().id();
+    let host = CanonicalExtractHost::new(ExtractBehavior::AsyncStages);
+    let service: Arc<dyn RemoteExtractService> = Arc::new(host.clone());
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-extract-send-bridge",
+        "sources": [
+            { "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} },
+            { "schema_version": 1, "source_id": "manuscript/ch2", "extensions": {} },
+        ],
+    }))
+    .expect("valid ExtractRequest");
+
+    let joined = tokio::spawn(async move { service.extract(request).await }).await;
+    let result = match joined {
+        Ok(result) => result,
+        Err(error) => panic!("the bridge must not fail its join: {error}"),
+    };
+
+    match result {
+        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
+            // Correlation: the run id crosses the bridge verbatim.
+            assert_eq!(run.run_id.as_str(), "run-extract-send-bridge");
+            assert_eq!(candidates.len(), 2);
+            for candidate in &candidates {
+                assert_eq!(candidate.status.as_str(), "provisional");
+            }
+        }
+        SpokeResult::Ok(ExtractResponse::Variant1 { error, .. }) => {
+            panic!("the bridged extract must succeed: {}", error.message)
+        }
+        SpokeResult::Reject(reject) => panic!("the bridged extract must succeed: {reject:?}"),
+    }
+
+    // Both host stages ran once, the extractor consumed the loaded value, and
+    // each stage's Tokio timer actually elapsed inside the worker.
+    assert_eq!(host.calls(), (1, 1));
+    assert!(
+        host.canary_consumed(),
+        "the extractor must consume the loaded value on the serving host"
+    );
+    assert_eq!(
+        host.timed_stages(),
+        2,
+        "the async loader and the async extractor both awaited a Tokio timer"
+    );
+    // Ownership: both stages ran on the one blocking worker, never on the
+    // async caller's thread.
+    let stage_threads = host.stage_threads();
+    assert_eq!(stage_threads.len(), 2);
+    assert_eq!(
+        stage_threads[0], stage_threads[1],
+        "both stages run on the one blocking worker"
+    );
+    assert_ne!(
+        stage_threads[0], caller_thread,
+        "the host stages run on the worker, not on the async caller"
+    );
+}
+
+/// The recipe's other outcome: a worker that panics or is cancelled produces
+/// a `JoinError`, and the service face answers the existing `INTERNAL_ERROR`
+/// row — never a silent success, never a panic across the service boundary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extract_send_bridge_maps_a_worker_join_error_to_internal_error() {
+    let host = CanonicalExtractHost::new(ExtractBehavior::WorkerPanic);
+    let service: Arc<dyn RemoteExtractService> = Arc::new(host.clone());
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-extract-send-bridge-panic",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    let joined = tokio::spawn(async move { service.extract(request).await }).await;
+    let result = match joined {
+        Ok(result) => result,
+        Err(error) => panic!("the worker's failure is mapped, not re-joined: {error}"),
+    };
+
+    match result {
+        SpokeResult::Ok(_) => panic!("a panicked host worker must not answer success"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert!(
+                reject.message.contains("extract host task failed"),
+                "the JoinError mapping answers the INTERNAL_ERROR row: {}",
+                reject.message
+            );
+        }
+    }
+    assert_eq!(
+        host.calls(),
+        (1, 1),
+        "the loader panicked after the service was entered"
+    );
 }
 
 #[tokio::test]

@@ -71,6 +71,67 @@ pnpm ci:typescript                          # full repo gate, including both dem
 | `client/tests/e2e.test.ts` | The end-to-end gate: real WebSocket, discovery → reverse invoke → result feeds orchestration, the negative capability-deny path, and the allowlist proof. |
 | `server/tests/orchestration.test.ts` | The orchestration step over the loopback pair: discovery + reverse invoke + feed + deny, server-side. |
 
+## Rust connect host bridge recipe
+
+The connect wire family is not TypeScript-only: a Rust host serves the same `extract` service through the connect-owned `RemoteExtractService` face (`remote-adapter` feature) and drives the `spoke-operations` orchestration itself (`orchestrate_extract(&dyn ExtractionPort, request, extractor)`). The two ends disagree on one property, and the host must bridge it deliberately:
+
+- the connect service face is `Send + Sync` (the responder dispatches it from its own task), while
+- `orchestrate_extract` takes a plain `&dyn ExtractionPort` and therefore returns a `!Send` future.
+
+**Recipe — own the host, clone the runtime handle, build the `!Send` future on a blocking worker** (no `Send`/`Sync` supertrait on `ExtractionPort`, no operations runtime dependency, no unsafe). Condensed from the tested host — the loader impl, the service's error branch and the full candidate assembly are elided:
+
+```rust
+impl RemoteExtractService for MyHost {
+    async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
+        // 1. Own a `Send + Sync + 'static` clone of the host (it is the
+        //    `ExtractionPort`) and a clone of the active runtime handle.
+        let host = self.clone();
+        let handle = tokio::runtime::Handle::current(); // multi-thread runtime
+        // 2. Hand the whole call to a blocking worker and build + drive the
+        //    `!Send` orchestration future INSIDE that closure.
+        let joined = tokio::task::spawn_blocking(move || {
+            handle.block_on(async move {
+                orchestrate_extract(&host, request, move |input: ExtractRunInput| async move {
+                    // The host's own extractor: local work over the loaded
+                    // value, returning the provisional candidates.
+                    spoke_ok(ExtractionResult {
+                        candidates: vec![provisional_candidate(&input.request.run_id, 0)],
+                        method: Some("canonical".to_owned()),
+                        coverage_hint: None,
+                    })
+                })
+                .await
+            })
+        })
+        .await;
+        match joined {
+            Ok(result) => result,
+            // 3. A panicked or cancelled worker surfaces a `JoinError`; answer
+            //    the existing `INTERNAL_ERROR` row (no new wire code).
+            Err(error) => spoke_reject(
+                SpokeRejectCode::InternalError,
+                format!("extract host task failed: {error}"),
+                None,
+            ),
+        }
+    }
+}
+```
+
+The host implements `ExtractionPort` for its loader (a real host-local load, never a wire parameter) and attaches the service face with `RemoteServePortsComposite::with_extract(Arc::new(host))`; `ConnectResponder` then serves `extract` through gate → probe → decode → one call → signed response.
+
+**Ownership.** The blocking closure owns the host clone, the request and the orchestration future; the `!Send` future is created, awaited and dropped inside the worker, so it never crosses a thread boundary and the async side only ever holds `Send` values. `Handle::block_on` enters the runtime context for the worker, which is what makes the host's own async stages usable there: they can yield, park on Tokio timers, and reach `tokio::runtime::Handle::current()` — use a **multi-thread** runtime so the timer/IO drivers keep running while the worker blocks.
+
+**`JoinError` mapping.** A worker that panics (or is cancelled) fails the join; the service face answers the existing application reject `INTERNAL_ERROR` with the worker's failure in `message` — never a silent success and never a panic across the service boundary. No new wire vocabulary is introduced for it.
+
+**The responder's serve timeout stops waiting — it does not terminate the worker.** The responder's local serve budget (`invokeTimeoutMs` / `invoke_timeout_ms`, default 5000 ms) bounds the *wait* for this service call: on expiry it answers one signed `INTERNAL_ERROR` (`details.kind = "timeout"`) response and stops awaiting the call, while an already-started blocking worker keeps running to completion and its result is discarded (no second response, no rollback of host work). Neither side promises preemption or side-effect rollback — a host owns cooperative cancellation and its own limits on blocking work.
+
+**This recipe is tested, not just documented.** `CanonicalExtractHost` in [`crates/spoke-connect/tests/remote_loopback.rs`](../../crates/spoke-connect/tests/remote_loopback.rs) is exactly this host — a host-local loader, an in-process extractor and the operations `orchestrate_extract` — and the `extract_send_bridge_` witnesses drive it from `tokio::spawn` on a multi-thread runtime with an async loader and extractor that yield and park on Tokio timers, asserting the run id / provisional result, the worker's thread ownership, and the `JoinError` → `INTERNAL_ERROR` mapping (from the repository root):
+
+```bash
+cargo +nightly test -p spoke-connect --features remote-adapter --test remote_loopback extract_send_bridge_ -- --nocapture
+```
+
 ## Dependency surface
 
 The third-party story is that a client needs **only two SPOKE packages** plus a WebSocket library:

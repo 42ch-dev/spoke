@@ -270,11 +270,15 @@ std::string sign_golden_hello(const Golden& golden) {
 /** One direction of the queue pair: a bounded-free FIFO with a close flag. */
 class MessageQueue {
   public:
-    void push(const std::vector<uint8_t>& envelope) {
+    /** Enqueues one envelope and reports whether it was accepted: a push into a
+     *  closed queue returns false, so a send that can no longer be delivered is
+     *  reported to the carrier instead of being dropped silently. */
+    bool push(const std::vector<uint8_t>& envelope) {
         std::lock_guard<std::mutex> guard(mutex_);
-        if (closed_) return;
+        if (closed_) return false;
         envelopes_.push_back(envelope);
         signal_.notify_all();
+        return true;
     }
 
     /** Blocks the calling thread until an envelope arrives or the queue closes. */
@@ -309,7 +313,7 @@ struct Endpoint {
     MessageQueue* outbound;
     MessageQueue* inbound;
 
-    void send(const std::vector<uint8_t>& envelope) { outbound->push(envelope); }
+    bool send(const std::vector<uint8_t>& envelope) { return outbound->push(envelope); }
     bool recv(std::vector<uint8_t>* out) { return inbound->pop_blocking(out); }
     void close() {
         outbound->close();
@@ -374,14 +378,20 @@ void write_foreign_owned(SpokeConnectForeignBuffer* out_buffer, const std::strin
 extern "C" {
 
 int32_t SPOKE_CONNECT_CALL transport_send(void* user_data, SpokeConnectSlice envelope,
-                                          SpokeConnectForeignError* /*out_error*/) {
+                                          SpokeConnectForeignError* out_error) {
     HostTransport* host = static_cast<HostTransport*>(user_data);
     host->counters->send.fetch_add(1);
     std::vector<uint8_t> bytes;
     if (envelope.data != nullptr && envelope.len != 0) {
         bytes.assign(envelope.data, envelope.data + envelope.len);
     }
-    host->endpoint.send(bytes);
+    // A closed queue cannot deliver, so the contract's transport-closed status
+    // (with an error record) replaces the success that would acknowledge a
+    // dropped envelope.
+    if (!host->endpoint.send(bytes)) {
+        write_static_error(out_error, "host transport closed");
+        return SPOKE_CONNECT_TRANSPORT_CLOSED;
+    }
     return SPOKE_CONNECT_OK;
 }
 
@@ -704,7 +714,15 @@ void assert_loopback_pair_round_trip() {
  * A dialer and a responder over two cross-wired host queues, then one baseline
  * ports call across that loopback. Both ends use the golden identity, so the
  * fixture that pins the golden assertions also supplies the session identities.
+ *
+ * The scenario is a fixed handshake plus one invoke/response pair, so it carries
+ * a deterministic number of envelopes in each direction: the counts below are
+ * what every host-populated callback buffer must be released back exactly once
+ * for (A2 §C), and `ports_counters.release` is the served ports result buffer.
  */
+constexpr long kDialerEnvelopes = 2;
+constexpr long kResponderEnvelopes = 3;
+
 void assert_host_queue_loopback_ports(const Golden& golden) {
     MessageQueue dialer_to_responder;
     MessageQueue responder_to_dialer;
@@ -787,8 +805,6 @@ void assert_host_queue_loopback_ports(const Golden& golden) {
           "the dialer transport callbacks did not both run");
     check(responder_counters.send.load() > 0 && responder_counters.recv.load() > 0,
           kLoopbackLabel, "the responder transport callbacks did not both run");
-    check(dialer_counters.release.load() > 0 && responder_counters.release.load() > 0,
-          kLoopbackLabel, "a delivered envelope buffer was never released");
 
     require_ok(spoke_connect_remote_adapter_close(adapter, &error), &error, kLoopbackLabel,
                "spoke_connect_remote_adapter_close");
@@ -814,6 +830,26 @@ void assert_host_queue_loopback_ports(const Golden& golden) {
     check(wait_for([&ports_counters] { return ports_counters.destroy.load() == 1; },
                    std::chrono::milliseconds(5000)),
           kLoopbackLabel, "the ports context was not destroyed exactly once");
+
+    // Every populated callback buffer transfers to the carrier and comes back
+    // released exactly once (A2 §C). No callback can still be in flight here
+    // (each context was destroyed exactly once above), so the deterministic
+    // scenario pins both transport counters and the served ports result buffer
+    // to exact counts: the dialer received every envelope the responder sent
+    // and vice versa, and the ports callback's populated result was released
+    // once — not merely "some buffer was released".
+    const long dialer_releases = dialer_counters.release.load();
+    const long responder_releases = responder_counters.release.load();
+    const long ports_releases = ports_counters.release.load();
+    check(dialer_releases == kResponderEnvelopes, kLoopbackLabel,
+          "the dialer released " + std::to_string(dialer_releases) + " of the " +
+              std::to_string(kResponderEnvelopes) + " responder envelope buffers");
+    check(responder_releases == kDialerEnvelopes, kLoopbackLabel,
+          "the responder released " + std::to_string(responder_releases) + " of the " +
+              std::to_string(kDialerEnvelopes) + " dialer envelope buffers");
+    check(ports_releases == 1, kLoopbackLabel,
+          "the served ports result buffer was released " + std::to_string(ports_releases) +
+              " times instead of exactly once");
 }
 
 /** One loopback session plus one baseline ports round trip over it. */
@@ -824,7 +860,8 @@ void assert_loopback_ports(const Golden& golden) {
 }
 
 /** Rejected input leaves ownership with the caller, an accepted handle is
- *  destroyed exactly once, and a tampered hello fails verification. */
+ *  destroyed exactly once, an undeliverable send reports transport-closed, and
+ *  a tampered hello fails verification. */
 void assert_rejection_and_ownership(const Golden& golden) {
     SpokeConnectError error{};
 
@@ -862,6 +899,27 @@ void assert_rejection_and_ownership(const Golden& golden) {
                    std::chrono::milliseconds(5000)),
           kRejectionLabel, "an accepted transport context was not destroyed exactly once");
     spoke_connect_transport_free(nullptr);
+
+    // A send that can no longer be delivered reports the contract's
+    // transport-closed status with an error record, so a concurrent close/send
+    // cannot lose an envelope while acknowledging success. The record points at
+    // static storage with the no-op release, so it needs no free.
+    MessageQueue closed_outbound;
+    MessageQueue closed_inbound;
+    Endpoint closed_endpoint{&closed_outbound, &closed_inbound};
+    closed_endpoint.close();
+    CallbackCounters closed_counters;
+    HostTransport closed_host{closed_endpoint, &closed_counters};
+    SpokeConnectForeignError send_error{};
+    const std::string undeliverable = "cpp-smoke-undeliverable-envelope";
+    const int32_t send_status =
+        transport_send(&closed_host, slice_of(undeliverable), &send_error);
+    check(send_status == SPOKE_CONNECT_TRANSPORT_CLOSED, kRejectionLabel,
+          "a send on a closed host transport returned " + std::to_string(send_status) +
+              " instead of transport-closed (" +
+              std::to_string(SPOKE_CONNECT_TRANSPORT_CLOSED) + ")");
+    check(send_error.message.data != nullptr && send_error.message.len != 0, kRejectionLabel,
+          "a send on a closed host transport carried no error record");
 
     // A tampered hello no longer verifies against the golden public key.
     std::string tampered = sign_golden_hello(golden);

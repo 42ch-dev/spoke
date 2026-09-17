@@ -315,8 +315,9 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
         "/wd4232",
         `/I${includeDir}`,
         probeSource,
-        probeLibrary,
         `/Fe:${join(tempDir, "spoke_connect_probe.exe")}`,
+        "/link",
+        probeLibrary,
       ],
     });
     commands.push({

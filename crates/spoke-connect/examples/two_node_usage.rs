@@ -77,8 +77,7 @@ async fn main() {
         .await
         .expect("session established");
     println!(
-        "session {} with peer {} (roles {:?})",
-        session.session_id(),
+        "session with peer {} (roles {:?})",
         session.remote_peer_id(),
         session.remote_manifest().roles
     );

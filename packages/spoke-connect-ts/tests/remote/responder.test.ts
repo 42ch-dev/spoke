@@ -1571,6 +1571,7 @@ describe("ke remote", () => {
     "extract round-trip echoes run_id, keeps candidates provisional, and omits loader canary from wire",
     async () => {
       const wireRequests: string[] = [];
+      const wireResponses: string[] = [];
       const ports = toyBaselinePorts();
       const extract = (request: ExtractRequest) =>
         orchestrateExtract(extractionPortsWithCanary(), request, async () =>
@@ -1603,7 +1604,11 @@ describe("ke remote", () => {
             wireRequests.push(new TextDecoder().decode(bytes));
             return transport.send(bytes);
           },
-          recv: () => transport.recv(),
+          recv: async () => {
+            const bytes = await transport.recv();
+            wireResponses.push(new TextDecoder().decode(bytes));
+            return bytes;
+          },
           close: () => {
             transport.close?.();
           },
@@ -1622,6 +1627,13 @@ describe("ke remote", () => {
         const joined = wireRequests.join("\n");
         expect(joined).not.toContain(LOADER_CANARY);
         expect(joined).toContain("run-ke-remote-1");
+        // Both wire directions: the response bytes must carry the assembled
+        // batch (positive control) and no loader value (F1: no content
+        // channel; the request direction alone would leave the response
+        // unproven).
+        const joinedResponses = wireResponses.join("\n");
+        expect(joinedResponses).toContain("run-ke-remote-1");
+        expect(joinedResponses).not.toContain(LOADER_CANARY);
       } finally {
         client.close();
         responder.close();

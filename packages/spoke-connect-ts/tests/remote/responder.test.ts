@@ -61,6 +61,7 @@ import {
 import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import {
   CAPABILITY_KE_OWNERSHIP,
+  validateExtractRequestPayload,
   validateScopeOpPayload,
 } from "../../src/remote/responder.js";
 
@@ -1930,6 +1931,64 @@ describe("ke remote", () => {
       if (result.ok) return;
       expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
       expect(result.details?.wire_code).toBeUndefined();
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed extract request payloads before the provider", () => {
+    const malformedPayloads: unknown[] = [
+      null,
+      { run_id: "", sources: [{ schema_version: 1, source_id: "s", extensions: {} }] },
+      { run_id: "run-1", sources: [] },
+      {
+        run_id: "run-1",
+        sources: [{ schema_version: 0, source_id: "s", extensions: {} }],
+      },
+      {
+        run_id: "run-1",
+        sources: [{ schema_version: 1, source_id: "s" }],
+      },
+    ];
+    for (const payload of malformedPayloads) {
+      const reject = validateExtractRequestPayload(payload);
+      expect(reject).not.toBeNull();
+      expect(reject?.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    }
+    expect(
+      validateExtractRequestPayload(sampleExtractRequest("run-valid")),
+    ).toBeNull();
+  });
+
+  it("rejects malformed extract request with INVALID_INPUT before provider call", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.extract = async () => {
+      called = true;
+      return spokeOk({ candidates: [], run: { run_id: "x" } });
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const badRequest = {
+        run_id: "",
+        sources: [],
+      } as unknown as ExtractRequest;
+      const result = await client.extract(badRequest);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
       expect(called).toBe(false);
     } finally {
       client.close();

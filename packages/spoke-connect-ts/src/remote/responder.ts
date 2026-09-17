@@ -260,6 +260,115 @@ export function validateScopeOpPayload(
     { op },
   );
 }
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isValidSourceSpan(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  return (
+    typeof value.start === "number" &&
+    Number.isFinite(value.start) &&
+    typeof value.end === "number" &&
+    Number.isFinite(value.end)
+  );
+}
+
+function isValidSourceAnchor(value: unknown): boolean {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+  const schemaVersion = value.schema_version;
+  if (
+    typeof schemaVersion !== "number" ||
+    !Number.isInteger(schemaVersion) ||
+    schemaVersion < 1
+  ) {
+    return false;
+  }
+  if (typeof value.source_id !== "string") {
+    return false;
+  }
+  if (!isJsonObject(value.extensions)) {
+    return false;
+  }
+  if ("span" in value && value.span !== undefined && !isValidSourceSpan(value.span)) {
+    return false;
+  }
+  if ("label" in value && value.label !== undefined && typeof value.label !== "string") {
+    return false;
+  }
+  if (
+    "mime_type" in value &&
+    value.mime_type !== undefined &&
+    typeof value.mime_type !== "string"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Runtime decode/validate for the `extract` invoke payload (F1/F3 serving order). */
+export function validateExtractRequestPayload(
+  payload: unknown,
+): SpokeReject | null {
+  if (!isJsonObject(payload)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "invalid extract payload: expected a JSON object",
+      { op: "extract" },
+    );
+  }
+  if (typeof payload.run_id !== "string" || payload.run_id.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest run_id must be a non-empty string",
+      { field: "run_id", op: "extract" },
+    );
+  }
+  const sources = payload.sources;
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest sources must be a non-empty SourceAnchor list",
+      { field: "sources", op: "extract" },
+    );
+  }
+  if (!sources.every(isValidSourceAnchor)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest sources must be a non-empty SourceAnchor list",
+      { field: "sources", op: "extract" },
+    );
+  }
+  if (
+    "entry_types" in payload &&
+    payload.entry_types !== undefined &&
+    (!Array.isArray(payload.entry_types) ||
+      payload.entry_types.some((entryType) => typeof entryType !== "string"))
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest entry_types must be an array of strings when present",
+      { field: "entry_types", op: "extract" },
+    );
+  }
+  if (
+    "extensions" in payload &&
+    payload.extensions !== undefined &&
+    !isJsonObject(payload.extensions)
+  ) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest extensions must be an object when present",
+      { field: "extensions", op: "extract" },
+    );
+  }
+  return null;
+}
+
 
 /** Remote-only extract service seam (F3). */
 export interface RemoteExtractService {
@@ -975,9 +1084,15 @@ export class ConnectResponder {
       });
       return;
     }
+    const extractReject = validateExtractRequestPayload(doc.payload);
+    if (extractReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(extractReject));
+      return;
+    }
+    const request = doc.payload as ExtractRequest;
     let result: SpokeResult<ExtractResponse>;
     try {
-      result = await ports.extract.call(ports, doc.payload as ExtractRequest);
+      result = await ports.extract.call(ports, request);
     } catch (error) {
       result = spokeReject(
         SpokeRejectCode.INTERNAL_ERROR,

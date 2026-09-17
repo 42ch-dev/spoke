@@ -479,7 +479,9 @@ pub struct ConnectResponder {
     serve_loop_running: AtomicBool,
     /// In-flight serve dispatch tasks (one per gated invoke), tracked so
     /// `close_session` aborts them: neither a serve wait nor its local
-    /// budget timer outlives the session it was dispatched for.
+    /// budget timer outlives the session it was dispatched for. The serve
+    /// path registers a dispatch under this same lock, so a dispatch is
+    /// either visible to the close's drain or never started at all.
     serve_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// Outbound send serialization tail. Sequences are allocated
     /// synchronously in call order, but the send of invoke N must not start
@@ -885,16 +887,24 @@ impl ConnectResponder {
             ServeGateResult::Ok => {
                 let doc = doc.clone();
                 let responder = Arc::clone(self);
-                let task = tokio::spawn(async move {
-                    responder.dispatch_invoke(doc).await;
-                });
-                // Track the serve dispatch so `close_session` can abort it:
-                // no serve wait or its local budget timer outlives the
-                // session. Finished handles are pruned on the way through, so
-                // the list holds in-flight dispatches only.
+                // Registration is atomic with `close_session`: the closed
+                // check, the spawn and the insert all run under the lock that
+                // close drains, so a close concurrent with this dispatch
+                // either finds the handle in the list and aborts it, or is
+                // seen here and the dispatch never starts. A dispatch
+                // registered into an already-closed responder would instead
+                // arm a serve wait (and its local budget timer) that no close
+                // aborts.
                 let mut tasks = self.serve_tasks.lock().expect("serve task lock");
+                if self.state() == ConnectResponderState::Closed {
+                    return Ok(());
+                }
+                // Finished handles are pruned on the way through, so the list
+                // holds in-flight dispatches only.
                 tasks.retain(|handle| !handle.is_finished());
-                tasks.push(task);
+                tasks.push(tokio::spawn(async move {
+                    responder.dispatch_invoke(doc).await;
+                }));
                 Ok(())
             }
         }

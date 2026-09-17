@@ -5896,6 +5896,103 @@ fn serve_wait_ports(ports: &Arc<ParkingServePorts>) -> Arc<dyn RemoteServePorts 
     )
 }
 
+/// Responder-end transport for the close-race witness. `recv` counts entry and
+/// `send` is captured, so the witness can pin the ordering it claims and prove
+/// a closed responder answers nothing. `close` is the [`Transport`] trait's
+/// documented no-op default: an envelope already in flight when the responder
+/// closes still reaches the serve loop, exactly as a real transport's parked
+/// `recv` can hand back an envelope that arrived concurrently with the close.
+struct CloseRaceTransport {
+    inner: Arc<dyn Transport>,
+    sent: CapturedWire,
+    recv_entries: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Transport for CloseRaceTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        self.sent.lock().expect("sent lock").push(envelope.to_vec());
+        self.inner.send(envelope).await
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        self.recv_entries.fetch_add(1, Ordering::SeqCst);
+        self.inner.recv().await
+    }
+}
+
+/// Loopback for the close-race witness: the responder end serves over
+/// [`CloseRaceTransport`] while the client end stays a plain loopback, so the
+/// witness delivers its own signed envelopes and controls exactly when they
+/// reach the serve loop.
+struct CloseRaceDial {
+    responder: Arc<ConnectResponder>,
+    pair: LoopbackTransportPair,
+    sent: CapturedWire,
+    recv_entries: Arc<AtomicUsize>,
+    seed: [u8; 32],
+}
+
+/// Dial a responder over [`CloseRaceTransport`] with the parking ports face
+/// and a 25ms local serve budget — short enough that a serve wait that outlived
+/// the close would be observable as a bounded-away provider call.
+async fn close_race_dial(ports: Arc<dyn RemoteServePorts + Send + Sync>) -> CloseRaceDial {
+    let pair = loopback_transport_pair();
+    let sent: CapturedWire = Arc::new(Mutex::new(Vec::new()));
+    let recv_entries = Arc::new(AtomicUsize::new(0));
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(CloseRaceTransport {
+            inner: Arc::new(pair.server.clone()),
+            sent: Arc::clone(&sent),
+            recv_entries: Arc::clone(&recv_entries),
+        }),
+        identity: RemoteIdentity {
+            seed: seed_host(),
+        },
+        manifest: ke_remote_manifest("test-responder", &[]),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: Some(ports),
+        invoke_timeout_ms: Some(25),
+    })
+    .await;
+    CloseRaceDial {
+        responder,
+        pair,
+        sent,
+        recv_entries,
+        seed: seed_client(),
+    }
+}
+
+/// Bounded poll until the responder end has entered `recv` `count` times. The
+/// close-race witness uses it to prove the serve loop sits inside a `recv` that
+/// already passed its state check — the handshake's own `recv` precedes it.
+async fn until_recv_entries(entries: &Arc<AtomicUsize>, count: usize) {
+    for _ in 0..200 {
+        if entries.load(Ordering::SeqCst) >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the responder end never entered recv {count} times");
+}
+
+/// The parking provider's recorded entries over a bounded window: the
+/// close-race witness returns them on the first entry (a dispatch armed after
+/// the close) and otherwise proves no wait was armed at all.
+async fn parks_within(ports: &ParkingServePorts, window: Duration) -> Vec<String> {
+    let deadline = std::time::Instant::now() + window;
+    loop {
+        let calls = ports.calls();
+        if !calls.is_empty() || std::time::Instant::now() >= deadline {
+            return calls;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 #[async_trait]
 impl KnowledgeEntryPort for ParkingServePorts {
     async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
@@ -6540,6 +6637,66 @@ async fn serve_timeout_close_aborts_a_parked_serve_dispatch_and_answers_nothing(
             assert_eq!(reject_detail_kind(&reject), Some("session_closed"));
         }
     }
+}
+
+#[tokio::test]
+async fn serve_timeout_close_racing_a_serve_dispatch_arms_no_wait() {
+    // A close that races a serve dispatch must leave nothing armed: the
+    // registration of the dispatch task is atomic with `close_session`
+    // (check + spawn + insert under the lock the close drains), so a closed
+    // responder never arms a provider wait or its local budget timer.
+    //
+    // The ordering this witness pins, instead of racing the scheduler: the
+    // serve loop has already passed its state check and sits inside `recv`
+    // (proved by the second `recv` entry), the responder is closed, and only
+    // then does the invoke envelope reach the loop. A parked `recv` can hand
+    // back an envelope that arrived concurrently with the close; the responder
+    // end here keeps the trait's no-op `close`, which makes that interleaving
+    // deterministic. Pre-fix the dispatch spawned into the closed responder,
+    // entered the provider and armed a 25ms serve wait the close had already
+    // finished draining past.
+    let ports = Arc::new(ParkingServePorts::new());
+    let dial = close_race_dial(serve_wait_ports(&ports)).await;
+    let session_id = raw_handshake(
+        &dial.pair.client,
+        dial.seed,
+        &ke_remote_manifest("test-client", &[]),
+    )
+    .await;
+    until_recv_entries(&dial.recv_entries, 2).await;
+
+    dial.responder.close();
+    let attempted_at_close = dial.sent.lock().expect("sent lock").len();
+
+    let request = sign_invoke_request(
+        dial.seed,
+        &session_id,
+        0,
+        "serve-timeout-close-race",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "serve-timeout-close-race" } }),
+    );
+    dial.pair
+        .client
+        .send(&serde_json::to_vec(&request).expect("request bytes"))
+        .await
+        .expect("the envelope is still in flight when the responder closes");
+
+    let armed = parks_within(&ports, Duration::from_millis(300)).await;
+    assert!(
+        armed.is_empty(),
+        "a close racing this dispatch must leave no armed serve wait, entered {armed:?}"
+    );
+    assert_eq!(
+        ports.dropped(),
+        0,
+        "no serve wait may be armed — and then bounded away — after the close"
+    );
+    assert_eq!(
+        dial.sent.lock().expect("sent lock").len(),
+        attempted_at_close,
+        "no serve response may follow the close"
+    );
 }
 
 #[tokio::test]

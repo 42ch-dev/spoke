@@ -37,6 +37,7 @@ use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
 
+mod bridge;
 mod core;
 mod remote_adapter;
 mod responder;

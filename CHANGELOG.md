@@ -6,6 +6,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.12.0] - 2026-09-17
+
+
+### Added
+
+- **schemas:** Add optional ke-ownership governance fields
+
+- **operations:** Add ke-ownership helpers and viewpoint scope filtering
+
+- **operations:** Add Rust ke-ownership helpers and viewpoint scope filtering
+
+- **ops:** Add extract request/response wire schemas
+
+- **operations:** Add TypeScript injected extraction surface
+
+- **operations:** Add Rust injected extraction surface
+
+
+### Changed
+
+- **fixtures:** Add portable ke-ownership samples and viewpoint filter proof
+
+- **fixtures:** Add portable extraction wire samples and host-local exercise
+
+
+### Documentation
+
+- **roadmap:** Record lockstep v0.11.0 + v0.11.1 releases
+
+- **harness:** Keep only specs, knowledge, and AGENTS.md tracked (#91)
+
+- **specs:** Add ke-ownership and ke-extraction capability ADRs
+
+- **specs:** Calibrate data-model spec to ke-ownership ADR
+
+- **specs:** Sync ke-ownership capability tables and helper semantics
+
+- **specs:** Calibrate input-source vocabulary to ke-extraction ADR
+
+- **specs:** Synchronize the optional ke-extraction capability, wire and library specs
+
+
+### Fixed
+
+- **codegen:** Keep opaque any-JSON fields opaque in generated TypeScript
+
+- **connect:** Restore the pre-fix error path for a null tool-invoke payload
+
+- **operations:** Treat an empty extraction method as absent in the extract response
+
+
+### Internal
+
+- **knowledge:** Compound round for the ke ownership/extraction axes
+
+- **codegen:** Regenerate the extract closure for the merged knowledge-entry ownership fields
+
+
+### build
+
+- **connect:** Refresh xcframework from CI artifact 32123156220 (#90)
+
 ## [0.11.1] - 2026-08-18
 
 

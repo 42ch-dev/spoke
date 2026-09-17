@@ -3,10 +3,12 @@
 //!
 //! PUBLIC surface: the async `BaselinePorts` (six families) + the optional
 //! `l2-computable` / `l5-fork` port faces (`project` / `compute` /
-//! `list_fork_timeline_events`) + the [`connect_remote_adapter`] dial
-//! entrypoint + read-only session info ([`RemoteAdapter::state`],
-//! `session_id`, `remote_peer_id`, `remote_manifest`) +
-//! [`RemoteAdapter::close`].
+//! `list_fork_timeline_events`) + the core `extract` op
+//! ([`RemoteAdapter::extract`] — a service-shaped delegation, not a port
+//! method: the peer runs the whole extraction) + the
+//! [`connect_remote_adapter`] dial entrypoint + read-only session info
+//! ([`RemoteAdapter::state`], `session_id`, `remote_peer_id`,
+//! `remote_manifest`) + [`RemoteAdapter::close`].
 //!
 //! INTERNAL (encapsulated — consumers never touch these): hello sign/verify,
 //! allowlist, nonce single-use, sequence allocate/advance, `request_id`
@@ -42,8 +44,9 @@ use spoke_schemas::connect::connect_invoke_response::{
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
-    ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
-    ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+    ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
+    HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
+    TimelineEvent,
 };
 
 use crate::core::{
@@ -1388,6 +1391,21 @@ impl RemoteAdapter {
             }
             Err(error) => internal_error(error.kind.as_str(), error.message),
         }
+    }
+
+    /// Remote `extract` (core op, F1): delegate the whole extraction to a
+    /// peer that negotiated `ke-extraction` and decode its wire
+    /// [`ExtractResponse`]. The payload is the [`ExtractRequest`] itself —
+    /// no wrapper, no source content. The peer performs source loading and
+    /// extraction through its own host-local port and extractor, so no
+    /// loader value is an argument here or a field on the wire.
+    ///
+    /// No local capability pre-gate: the responder's gate answers
+    /// `op_unsupported` / `capability_missing` and the D7 row maps it to
+    /// `CAPABILITY_PORT_MISSING` with `details.wire_code` preserved —
+    /// identical to the port-method declares.
+    pub async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
+        self.invoke_mapped("extract", json!(request)).await
     }
 }
 

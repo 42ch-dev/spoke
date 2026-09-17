@@ -1911,15 +1911,39 @@ describe("ke remote", () => {
     }
   });
 
+
+  it("rejects malformed declared scope with INVALID_INPUT when ke-ownership is not negotiated", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called = true;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({ ports });
+    try {
+      const badScope = {
+        scope_id: "bad",
+        viewpoint: null,
+      } as unknown as Scope;
+      const result = await client.listKnowledgeEntries(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.wire_code).toBeUndefined();
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
   it("rejects malformed fork scope with INVALID_INPUT before the missing fork-face probe", async () => {
     const { client, responder, pair } = await dialWithResponder({
-      clientManifest: manifestWithCaps("client-fork-malformed", [
-        "l5-fork",
-        CAPABILITY_KE_OWNERSHIP,
-      ]),
+      clientManifest: manifestWithCaps("client-fork-malformed", ["l5-fork"]),
       responderManifest: manifestWithCaps("responder-fork-malformed", [
         "l5-fork",
-        CAPABILITY_KE_OWNERSHIP,
       ]),
       ports: toyBaselinePorts(),
     });

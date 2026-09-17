@@ -81,17 +81,99 @@ function localizeSchemaRefs(schemaObj, relSchemaPath) {
   return schemaObj;
 }
 
+/** Keys that annotate a schema without constraining it. */
+const REF_ANNOTATION_KEYS = new Set([
+  "title",
+  "description",
+  "$comment",
+  "default",
+  "examples",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+]);
+
+/** True for a schema that constrains nothing — the canonical `OpaqueJson` shape (`{}`). */
+function isAnyJsonSchema(node) {
+  return (
+    node !== null &&
+    typeof node === "object" &&
+    !Array.isArray(node) &&
+    Object.keys(node).every((key) => REF_ANNOTATION_KEYS.has(key))
+  );
+}
+
+function resolveLocalRef(ref, relSchemaPath, localizedSchemas) {
+  const [filePart, fragment] = ref.split("#");
+  const targetPath = filePart
+    ? path.posix.normalize(path.posix.join(path.posix.dirname(relSchemaPath), filePart))
+    : relSchemaPath;
+  let node = localizedSchemas.get(targetPath);
+
+  for (const segment of (fragment ?? "").split("/").filter(Boolean)) {
+    const key = decodeURIComponent(segment).replace(/~1/g, "/").replace(/~0/g, "~");
+    if (node === null || typeof node !== "object" || Array.isArray(node) || !(key in node)) {
+      return undefined;
+    }
+    node = node[key];
+  }
+
+  return node;
+}
+
+/**
+ * json-schema-to-typescript renders `{ "$ref": <any-JSON schema>, "description": ... }` as an
+ * object index signature, silently narrowing a wire any-JSON field (canonical `OpaqueJson`)
+ * to an object map. Draft-07 ignores `$ref` siblings, so an annotation-bearing opaque ref is
+ * re-expressed as an `allOf` branch: the annotations stay, and the any-JSON target keeps its
+ * `unknown` type instead of becoming a map.
+ */
+function normalizeOpaqueRefs(schemaObj, relSchemaPath, localizedSchemas) {
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+
+    const siblings = Object.keys(node).filter((key) => key !== "$ref");
+    if (
+      typeof node.$ref === "string" &&
+      siblings.length > 0 &&
+      siblings.every((key) => REF_ANNOTATION_KEYS.has(key)) &&
+      isAnyJsonSchema(resolveLocalRef(node.$ref, relSchemaPath, localizedSchemas))
+    ) {
+      const ref = node.$ref;
+      delete node.$ref;
+      node.allOf = [{ $ref: ref }];
+    }
+
+    Object.values(node).forEach(visit);
+  };
+  visit(schemaObj);
+  return schemaObj;
+}
+
 async function buildLocalizedSchemaTree() {
   fs.rmSync(LOCAL_SCHEMAS_DIR, { recursive: true, force: true });
-  const schemaPaths = await glob("**/*.schema.json", { cwd: SCHEMAS_DIR });
+  const schemaPaths = (await glob("**/*.schema.json", { cwd: SCHEMAS_DIR })).sort();
+  const localizedSchemas = new Map();
+
   for (const relSchema of schemaPaths) {
     const raw = JSON.parse(fs.readFileSync(path.join(SCHEMAS_DIR, relSchema), "utf8"));
-    const localized = localizeSchemaRefs(structuredClone(raw), relSchema);
+    localizedSchemas.set(relSchema, localizeSchemaRefs(structuredClone(raw), relSchema));
+  }
+
+  for (const [relSchema, localized] of localizedSchemas) {
+    normalizeOpaqueRefs(localized, relSchema, localizedSchemas);
     const out = path.join(LOCAL_SCHEMAS_DIR, relSchema);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, JSON.stringify(localized, null, 2));
   }
-  return schemaPaths.sort();
+
+  return schemaPaths;
 }
 
 async function buildDereferencedSchemaTree(schemaPaths) {

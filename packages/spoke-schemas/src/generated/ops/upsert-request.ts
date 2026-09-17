@@ -69,6 +69,14 @@ export interface KnowledgeEntry {
   updated_at?: string;
   extensions: ExtensionMap;
   modules?: ModuleMap;
+  /**
+   * Optional governance: opaque entry_id of the holder KnowledgeEntry in the product's collaboration context. Capability-flagged (ke-ownership); opt-in. Absence means unspecified ownership — not a reserved world owner, public truth, or world consensus. Non-empty; holder resolution stays product-owned and the wire need not embed the referenced holder.
+   */
+  owner?: string;
+  /**
+   * Optional governance: open disclosure vocabulary. Capability-flagged (ke-ownership); opt-in. Core vocabulary (documented, not enforced): owner-private — requires a non-empty owner and is visible only when owner equals the consuming viewpoint. Absence means shared within the already selected KB context, not public access and not a truth claim. Unknown non-empty values round-trip; core helpers never reinterpret them as shared.
+   */
+  disclosure?: string;
 }
 /**
  * ERC721-style trait item for KnowledgeEntry body.attributes. Duplicate trait_type allowed at array level.

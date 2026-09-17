@@ -1,7 +1,8 @@
 //! Injection orchestration entrypoints — compose pure helpers with port I/O.
 
 use crate::adapter::ports::{
-    BaselinePorts, ComputablePorts, ForkPorts, KnowledgeEntryPort, RelationPort,
+    BaselinePorts, ComputablePorts, ExtractRunInput, ExtractionPort, ExtractionResult, ForkPorts,
+    KnowledgeEntryPort, RelationPort,
 };
 use crate::assemble::{build_assemble_packet, BuildAssemblePacketInput, KnowledgeEntryForAssemble};
 use crate::computable::{validate_compute_request, validate_project_request};
@@ -21,10 +22,11 @@ const TERMINAL_KNOWLEDGE_ENTRY_STATUSES: &[&str] = &["merged", "deleted"];
 use serde_json::{json, Map, Value};
 use spoke_schemas::{
     AssembleRequest, AssembleResponse, CheckRequest, CheckResponse, ComputeRequest, ComputeResponse,
-    Finding, KnowledgeEntry, ProjectRequest, ProjectResponse, PromoteRequest, PromoteResponse,
-    RelateRequest, RelateResponse, Relation, Rule, Scope, TimelineEvent, UpsertRequest,
-    UpsertResponse,
+    ExtractRequest, ExtractResponse, Finding, KnowledgeEntry, ProjectRequest, ProjectResponse,
+    PromoteRequest, PromoteResponse, RelateRequest, RelateResponse, Relation, Rule, Scope,
+    TimelineEvent, UpsertRequest, UpsertResponse,
 };
+use std::future::Future;
 
 /// Checker callback input after ports load scoped data and rules.
 #[derive(Debug, Clone)]
@@ -670,6 +672,124 @@ pub async fn orchestrate_fork_assemble(
         .collect();
 
     assemble_packet_response(&scope, &entries, &request)
+}
+
+/// Library-boundary gate: non-empty correlation id and non-empty source list.
+///
+/// Only the source list is checkable here — the generated
+/// `ExtractRequestRunId` already rejects an empty `run_id` at every entry
+/// point (`FromStr` / `Deserialize`), so no runtime re-check can fail. Both
+/// invariants reject with `INVALID_INPUT` before any port or callback call.
+fn assert_extract_request_boundaries(request: &ExtractRequest) -> SpokeResult<()> {
+    if request.sources.is_empty() {
+        let mut details = Map::new();
+        details.insert("field".into(), Value::String("sources".into()));
+        return spoke_reject(
+            SpokeRejectCode::InvalidInput,
+            "ExtractRequest sources must be a non-empty SourceAnchor list",
+            Some(details),
+        );
+    }
+
+    spoke_ok_unit()
+}
+
+/// Operation invariant: every returned candidate is an ordinary provisional
+/// entry. No partial success, no status rewriting, no dropped candidates.
+fn assert_extraction_candidates_provisional(candidates: &[KnowledgeEntry]) -> SpokeResult<()> {
+    for candidate in candidates {
+        if TERMINAL_KNOWLEDGE_ENTRY_STATUSES.contains(&candidate.status.as_str()) {
+            let mut details = Map::new();
+            details.insert("entry_id".into(), Value::String(candidate.entry_id.clone()));
+            details.insert("status".into(), Value::String(candidate.status.clone()));
+            return spoke_reject(
+                SpokeRejectCode::CandidateTerminalStatus,
+                format!(
+                    "Candidate KnowledgeEntry has terminal status: {}",
+                    candidate.status
+                ),
+                Some(details),
+            );
+        }
+
+        if candidate.status != "provisional" {
+            let mut details = Map::new();
+            details.insert("entry_id".into(), Value::String(candidate.entry_id.clone()));
+            details.insert("status".into(), Value::String(candidate.status.clone()));
+            return spoke_reject(
+                SpokeRejectCode::CandidateNotProvisional,
+                format!(
+                    "Candidate KnowledgeEntry status must be provisional (got {})",
+                    candidate.status
+                ),
+                Some(details),
+            );
+        }
+    }
+
+    spoke_ok_unit()
+}
+
+/// Extraction: gate request boundaries, load product-defined input through the
+/// injected port, await the injected extraction callback exactly once, gate
+/// candidate statuses, then assemble the success response with the caller's
+/// exact run id and the supplied advisory metadata. No manifest lookup,
+/// persistence, status upgrade, or promote.
+pub async fn orchestrate_extract<F, Fut>(
+    ports: &dyn ExtractionPort,
+    request: ExtractRequest,
+    run_extractor: F,
+) -> SpokeResult<ExtractResponse>
+where
+    F: FnOnce(ExtractRunInput) -> Fut,
+    Fut: Future<Output = SpokeResult<ExtractionResult>> + Send,
+{
+    if let SpokeResult::Reject(reject) = assert_extract_request_boundaries(&request) {
+        return SpokeResult::Reject(reject);
+    }
+
+    // Read before `request` moves into the extractor input; the response echoes
+    // the request run id exactly.
+    let run_id = request.run_id.as_str().to_owned();
+
+    let input = match ports.load_extraction_input(&request).await {
+        SpokeResult::Ok(input) => input,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    let extracted = match run_extractor(ExtractRunInput { request, input }).await {
+        SpokeResult::Ok(extracted) => extracted,
+        SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+    };
+
+    if let SpokeResult::Reject(reject) =
+        assert_extraction_candidates_provisional(&extracted.candidates)
+    {
+        return SpokeResult::Reject(reject);
+    }
+
+    let mut run = Map::new();
+    run.insert("run_id".into(), Value::String(run_id));
+    // ExtractionRunMetadata requires a non-empty `method` (minLength 1); an
+    // empty string is treated as absent instead of producing a schema-invalid
+    // response. Mirrors the TS orchestrator.
+    if let Some(method) = extracted.method {
+        if !method.is_empty() {
+            run.insert("method".into(), Value::String(method));
+        }
+    }
+    // An omitted hint and a JSON null hint are the same "no hint"; any other
+    // JSON value is retained verbatim.
+    if let Some(coverage_hint) = extracted.coverage_hint {
+        if !coverage_hint.is_null() {
+            run.insert("coverage_hint".into(), coverage_hint);
+        }
+    }
+
+    success_response(json!({
+        "candidates": extracted.candidates,
+        "run": Value::Object(run),
+    }))
 }
 
 #[cfg(test)]
@@ -2518,6 +2638,183 @@ mod tests {
         if let SpokeResult::Reject(reject) = result {
             assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
         }
+    }
+
+    /// Shared entry plus one holder-private entry per holder.
+    fn viewpoint_entries() -> Vec<KnowledgeEntry> {
+        vec![
+            ke(json!({
+                "schema_version": 1,
+                "entry_id": "kb_shared",
+                "entry_type": "character",
+                "canonical_name": "Shared Note",
+                "status": "confirmed",
+                "body": { "summary": "Shared" },
+                "extensions": {}
+            })),
+            ke(json!({
+                "schema_version": 1,
+                "entry_id": "kb_mine",
+                "entry_type": "character",
+                "canonical_name": "Mira Note",
+                "status": "confirmed",
+                "body": { "summary": "Mira private" },
+                "owner": "kb_mira",
+                "disclosure": "owner-private",
+                "extensions": {}
+            })),
+            ke(json!({
+                "schema_version": 1,
+                "entry_id": "kb_theirs",
+                "entry_type": "character",
+                "canonical_name": "Rival Note",
+                "status": "confirmed",
+                "body": { "summary": "Rival private" },
+                "owner": "kb_rival",
+                "disclosure": "owner-private",
+                "extensions": {}
+            })),
+        ]
+    }
+
+    fn store_with_entries(entries: Vec<KnowledgeEntry>) -> MemoryStore {
+        let mut store = MemoryStore::default();
+        for entry in entries {
+            store.entries.insert(entry.entry_id.clone(), entry);
+        }
+        store
+    }
+
+    /// Port reads return an unordered map; sort so assertions observe the visibility
+    /// boundary rather than HashMap iteration order.
+    fn sorted_entry_ids(entries: &[KnowledgeEntry]) -> Vec<String> {
+        let mut entry_ids: Vec<String> =
+            entries.iter().map(|entry| entry.entry_id.clone()).collect();
+        entry_ids.sort();
+        entry_ids
+    }
+
+    #[test]
+    fn ownership_viewpoint_check_supplies_shared_and_own_private_entries() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira" }
+        }));
+        let mut supplied: Vec<String> = Vec::new();
+
+        let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+            supplied = sorted_entry_ids(&input.entries);
+            spoke_ok(Vec::new())
+        }));
+
+        assert!(result.is_ok());
+        assert_eq!(supplied, ["kb_mine", "kb_shared"]);
+    }
+
+    #[test]
+    fn ownership_viewpoint_check_withholds_owner_private_entries_without_viewpoint() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1" }
+        }));
+        let mut supplied: Vec<String> = Vec::new();
+
+        let result = pollster::block_on(orchestrate_check(&ports, request, |input| {
+            supplied = sorted_entry_ids(&input.entries);
+            spoke_ok(Vec::new())
+        }));
+
+        assert!(result.is_ok());
+        assert_eq!(supplied, ["kb_shared"]);
+    }
+
+    #[test]
+    fn ownership_viewpoint_assemble_packs_only_entries_visible_to_scope_viewpoint() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira" }
+        }));
+
+        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
+            let mut entry_ids: Vec<String> = packet
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.clone())
+                .collect();
+            entry_ids.sort();
+            assert_eq!(entry_ids, ["kb_mine", "kb_shared"]);
+        } else {
+            panic!("expected assemble success");
+        }
+    }
+
+    #[test]
+    fn ownership_viewpoint_assemble_swaps_private_entry_for_foreign_viewpoint() {
+        let ports = MemoryBaselinePorts::new(store_with_entries(viewpoint_entries()));
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_rival" }
+        }));
+
+        let result = pollster::block_on(orchestrate_assemble(&ports, request));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
+            let mut entry_ids: Vec<String> = packet
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.clone())
+                .collect();
+            entry_ids.sort();
+            assert_eq!(entry_ids, ["kb_shared", "kb_theirs"]);
+        } else {
+            panic!("expected assemble success");
+        }
+    }
+
+    #[test]
+    fn ownership_viewpoint_fork_check_filters_scoped_entries() {
+        let ports = MemoryForkPorts::new(MemoryBaselinePorts::new(store_with_entries(
+            viewpoint_entries(),
+        )));
+        let request = check_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira", "fork_id": "fork_a" }
+        }));
+        let mut supplied: Vec<String> = Vec::new();
+
+        let result = pollster::block_on(orchestrate_fork_check(&ports, request, |input| {
+            supplied = sorted_entry_ids(&input.entries);
+            spoke_ok(Vec::new())
+        }));
+
+        assert!(result.is_ok());
+        assert_eq!(supplied, ["kb_mine", "kb_shared"]);
+        assert_eq!(ports.fork_list_calls.lock().expect("fork list lock").len(), 1);
+    }
+
+    #[test]
+    fn ownership_viewpoint_fork_assemble_packs_only_visible_entries() {
+        let ports = MemoryForkPorts::new(MemoryBaselinePorts::new(store_with_entries(
+            viewpoint_entries(),
+        )));
+        let request = assemble_request(json!({
+            "scope": { "scope_id": "world_1", "viewpoint": "kb_mira", "fork_id": "fork_a" }
+        }));
+
+        let result = pollster::block_on(orchestrate_fork_assemble(&ports, request));
+        assert!(result.is_ok());
+        if let SpokeResult::Ok(AssembleResponse::Variant0 { packet, .. }) = result {
+            let mut entry_ids: Vec<String> = packet
+                .entries
+                .iter()
+                .map(|entry| entry.entry_id.clone())
+                .collect();
+            entry_ids.sort();
+            assert_eq!(entry_ids, ["kb_mine", "kb_shared"]);
+        } else {
+            panic!("expected assemble success");
+        }
+        assert_eq!(ports.fork_list_calls.lock().expect("fork list lock").len(), 1);
     }
 
     trait ExpectOkEntry {

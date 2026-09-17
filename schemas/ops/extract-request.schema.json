@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/extract-request.schema.json",
+  "title": "ExtractRequest",
+  "description": "Propose provisional KnowledgeEntry candidates from referenced source material; returns ExtractResponse.",
+  "type": "object",
+  "required": ["run_id", "sources"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Non-empty opaque caller-supplied correlation identity for this extraction batch. Echoed verbatim in ExtractResponse run.run_id; not a durable run record."
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json"
+      },
+      "description": "Non-empty referenced source list. Extraction range is this list plus each anchor's optional span (absent span = the referenced artifact as a whole). No inline-content field."
+    },
+    "entry_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional candidate-type hints. Advisory open vocabulary — not a closed taxonomy and not a post-filter."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

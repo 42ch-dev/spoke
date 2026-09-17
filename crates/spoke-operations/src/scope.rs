@@ -1,5 +1,6 @@
 //! Scope matching and filtering helpers.
 
+use crate::knowledge_entry::knowledge_entry_visible_to_viewpoint;
 use serde_json::Value;
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use spoke_schemas::{Scope, TimelineEvent};
@@ -48,7 +49,8 @@ impl ScopeMatchView {
     }
 }
 
-/// KnowledgeEntry passes optional Scope refinements (AND when present).
+/// KnowledgeEntry passes optional Scope refinements (AND when present), including the
+/// core disclosure predicate applied to `scope.viewpoint`.
 #[must_use]
 pub fn knowledge_entry_matches_scope(knowledge_entry: &KnowledgeEntry, scope: &Scope) -> bool {
     knowledge_entry_matches_scope_view(
@@ -57,7 +59,8 @@ pub fn knowledge_entry_matches_scope(knowledge_entry: &KnowledgeEntry, scope: &S
     )
 }
 
-/// KnowledgeEntry passes optional Scope refinements with wire-aware array presence.
+/// KnowledgeEntry passes optional Scope refinements with wire-aware array presence,
+/// including the core disclosure predicate applied to `scope.viewpoint`.
 #[must_use]
 pub fn knowledge_entry_matches_scope_view(
     knowledge_entry: &KnowledgeEntry,
@@ -85,6 +88,16 @@ pub fn knowledge_entry_matches_scope_view(
         {
             return false;
         }
+    }
+
+    if !knowledge_entry_visible_to_viewpoint(
+        knowledge_entry,
+        scope
+            .viewpoint
+            .as_ref()
+            .map(|viewpoint| viewpoint.as_str()),
+    ) {
+        return false;
     }
 
     true
@@ -178,8 +191,12 @@ pub fn filter_timeline_events_by_scope_view<'a>(
 mod tests {
     use super::*;
     use serde_json::json;
-    use spoke_schemas::knowledge_entry::{KnowledgeEntryBody, KnowledgeEntryCanonicalName, SourceAnchor};
+    use spoke_schemas::knowledge_entry::{
+        KnowledgeEntryBody, KnowledgeEntryCanonicalName, KnowledgeEntryDisclosure,
+        KnowledgeEntryOwner, SourceAnchor,
+    };
     use spoke_schemas::timeline_event::TimelineEventCanonicalName;
+    use spoke_schemas::ScopeViewpoint;
     use std::collections::HashMap;
     use std::num::NonZeroU64;
 
@@ -193,6 +210,7 @@ mod tests {
             source_id: None,
             timeline_event_ids: Vec::new(),
             timeline_scale: None,
+            viewpoint: None,
         }
     }
 
@@ -201,10 +219,12 @@ mod tests {
             body: KnowledgeEntryBody::default(),
             canonical_name: KnowledgeEntryCanonicalName::try_from("Mira Vale".to_owned()).unwrap(),
             created_at: None,
+            disclosure: None,
             entry_id: "kb_1".into(),
             entry_type: "character".into(),
             extensions: HashMap::new(),
             modules: HashMap::new(),
+            owner: None,
             revision: None,
             schema_version: NonZeroU64::new(1).unwrap(),
             source_anchor: None,
@@ -731,5 +751,160 @@ mod tests {
                 "nexus": { "text_search": "harbor", "limit": 10 }
             }),
         );
+    }
+
+    fn owner(id: &str) -> KnowledgeEntryOwner {
+        KnowledgeEntryOwner::try_from(id).expect("non-empty owner entry id")
+    }
+
+    fn disclosure(value: &str) -> KnowledgeEntryDisclosure {
+        KnowledgeEntryDisclosure::try_from(value).expect("non-empty disclosure value")
+    }
+
+    fn viewpoint(id: &str) -> Option<ScopeViewpoint> {
+        Some(ScopeViewpoint::try_from(id).expect("non-empty viewpoint entry id"))
+    }
+
+    fn owner_private_entry(entry_id: &str, holder_id: &str) -> KnowledgeEntry {
+        make_knowledge_entry(|entry| {
+            entry.entry_id = entry_id.into();
+            entry.owner = Some(owner(holder_id));
+            entry.disclosure = Some(disclosure("owner-private"));
+        })
+    }
+
+    #[test]
+    fn knowledge_entry_without_disclosure_matches_foreign_scope_viewpoint() {
+        let knowledge_entry = make_knowledge_entry(|entry| {
+            entry.owner = Some(owner("kb_mira"));
+        });
+
+        let mut scope = base_scope();
+        scope.viewpoint = viewpoint("kb_other");
+
+        assert!(knowledge_entry_matches_scope(&knowledge_entry, &scope));
+    }
+
+    #[test]
+    fn knowledge_entry_owner_private_matches_its_own_scope_viewpoint() {
+        let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
+
+        let mut scope = base_scope();
+        scope.viewpoint = viewpoint("kb_mira");
+
+        assert!(knowledge_entry_matches_scope(&knowledge_entry, &scope));
+    }
+
+    #[test]
+    fn knowledge_entry_owner_private_excluded_from_scope_without_viewpoint() {
+        let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
+
+        assert!(!knowledge_entry_matches_scope(&knowledge_entry, &base_scope()));
+    }
+
+    #[test]
+    fn knowledge_entry_owner_private_excluded_from_foreign_scope_viewpoint() {
+        let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
+
+        let mut scope = base_scope();
+        scope.viewpoint = viewpoint("kb_other");
+
+        assert!(!knowledge_entry_matches_scope(&knowledge_entry, &scope));
+    }
+
+    #[test]
+    fn knowledge_entry_composes_disclosure_predicate_with_entry_refinements() {
+        let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
+
+        let mut scope = base_scope();
+        scope.entry_ids = vec!["kb_1".into()];
+        scope.viewpoint = viewpoint("kb_mira");
+        assert!(knowledge_entry_matches_scope(&knowledge_entry, &scope));
+
+        // entry_ids admits the entry; the disclosure predicate still excludes it.
+        scope.viewpoint = viewpoint("kb_other");
+        assert!(!knowledge_entry_matches_scope(&knowledge_entry, &scope));
+
+        // viewpoint admits the entry; the entry refinement still excludes it.
+        scope.entry_ids = vec!["kb_missing".into()];
+        scope.viewpoint = viewpoint("kb_mira");
+        assert!(!knowledge_entry_matches_scope(&knowledge_entry, &scope));
+    }
+
+    #[test]
+    fn knowledge_entry_unknown_disclosure_excluded_under_matching_scope_viewpoint() {
+        let knowledge_entry = make_knowledge_entry(|entry| {
+            entry.owner = Some(owner("kb_mira"));
+            entry.disclosure = Some(disclosure("group-private"));
+        });
+
+        let mut scope = base_scope();
+        scope.viewpoint = viewpoint("kb_mira");
+
+        assert!(!knowledge_entry_matches_scope(&knowledge_entry, &scope));
+    }
+
+    #[test]
+    fn knowledge_entry_matches_scope_view_keeps_viewpoint_and_wire_array_presence() {
+        let knowledge_entry = owner_private_entry("kb_1", "kb_mira");
+
+        let wire = json!({
+            "scope_id": "world_1",
+            "viewpoint": "kb_mira",
+        });
+        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
+        assert!(knowledge_entry_matches_scope_view(&knowledge_entry, &view));
+
+        // Present-empty entry_ids still matches nothing, even with a matching viewpoint.
+        let wire = json!({
+            "scope_id": "world_1",
+            "entry_ids": [],
+            "viewpoint": "kb_mira",
+        });
+        let view = ScopeMatchView::from_wire_json(&wire).expect("scope wire json");
+        assert!(!knowledge_entry_matches_scope_view(&knowledge_entry, &view));
+    }
+
+    #[test]
+    fn filter_knowledge_entries_keeps_shared_and_own_private_entries() {
+        let knowledge_entries = [
+            make_knowledge_entry(|entry| {
+                entry.entry_id = "kb_shared".into();
+            }),
+            owner_private_entry("kb_mine", "kb_mira"),
+            owner_private_entry("kb_theirs", "kb_rival"),
+            make_knowledge_entry(|entry| {
+                entry.entry_id = "kb_group".into();
+                entry.owner = Some(owner("kb_mira"));
+                entry.disclosure = Some(disclosure("group-private"));
+            }),
+        ];
+
+        let mut scope = base_scope();
+        scope.viewpoint = viewpoint("kb_mira");
+
+        let filtered = filter_knowledge_entries_by_scope(&knowledge_entries, &scope);
+        let entry_ids: Vec<&str> = filtered
+            .iter()
+            .map(|entry| entry.entry_id.as_str())
+            .collect();
+        assert_eq!(entry_ids, ["kb_shared", "kb_mine"]);
+    }
+
+    #[test]
+    fn filter_knowledge_entries_without_viewpoint_keeps_only_shared_entries() {
+        let knowledge_entries = [
+            make_knowledge_entry(|entry| {
+                entry.entry_id = "kb_shared".into();
+            }),
+            owner_private_entry("kb_mine", "kb_mira"),
+        ];
+
+        let filtered = filter_knowledge_entries_by_scope(&knowledge_entries, &base_scope());
+        let entry_ids: Vec<&str> = filtered
+            .iter()
+            .map(|entry| entry.entry_id.as_str())
+            .collect();
+        assert_eq!(entry_ids, ["kb_shared"]);
     }
 }

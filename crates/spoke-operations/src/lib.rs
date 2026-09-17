@@ -38,7 +38,8 @@ pub use extensions::{
 };
 pub use finding::{is_valid_finding_status_transition, transition_finding_status};
 pub use knowledge_entry::{
-    assert_unique_active_knowledge_entry, is_valid_knowledge_entry_status_transition,
+    assert_unique_active_knowledge_entry, get_knowledge_entry_owner,
+    is_valid_knowledge_entry_status_transition, knowledge_entry_visible_to_viewpoint,
     transition_knowledge_entry_status, AssertUniqueActiveKnowledgeEntryInput,
 };
 pub use mind_state::validate_mind_state;
@@ -76,6 +77,8 @@ pub use adapter::{
     FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
     ScopeQueryPort,
 };
+pub use adapter::orchestrate::orchestrate_extract;
+pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

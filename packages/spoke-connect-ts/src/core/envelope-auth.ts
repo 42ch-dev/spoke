@@ -101,9 +101,13 @@ export type SessionSignInput = Omit<ConnectSession, "signature" | "extensions">;
 /** Input to `authenticateInvokeRequest`: the request fields covered by the signature (`auth` optional). */
 export type InvokeRequestSignInput = Omit<ConnectInvokeRequest, "signature" | "extensions">;
 
-/** Input to `authenticateInvokeResponse`: exactly one of the two response branches. */
+/**
+ * Input to `authenticateInvokeResponse`: exactly one of the two response branches.
+ * The success branch is selected by the presence of `payload`, which is any-JSON
+ * (`OpaqueJson`) on the wire and therefore cannot discriminate as an object.
+ */
 export type InvokeResponseSignInput =
-  | Omit<Extract<ConnectInvokeResponse, { payload: object }>, "signature" | "extensions">
+  | Omit<Extract<ConnectInvokeResponse, { payload: unknown }>, "signature" | "extensions">
   | Omit<Extract<ConnectInvokeResponse, { error: object }>, "signature" | "extensions">;
 
 // ── wire key sets (runtime whitelists, mirror the locked field tables) ─────

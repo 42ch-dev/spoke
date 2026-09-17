@@ -103,6 +103,11 @@
           "$ref": "#/definitions/ForkId",
           "description": "Optional L5 branch filter — strict equality on TimelineEvent.fork_id (l5-fork)."
         },
+        "viewpoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional reader context: non-empty holder-KE entry_id consumed by ownership-aware operations. Capability-flagged (ke-ownership); opt-in. Check and assemble share this Scope carrier; scope_id stays opaque and is never parsed for viewpoint. A missing viewpoint names no subject and grants no private visibility; entry, entry_type, and source refinements compose with the disclosure predicate by AND."
+        },
         "extensions": {
           "$ref": "#/definitions/ExtensionMap",
           "description": "Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim."

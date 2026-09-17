@@ -1,0 +1,44 @@
+{
+  "candidates": [
+    {
+      "schema_version": 1,
+      "entry_id": "kb_tw_extract_1",
+      "entry_type": "info_point",
+      "canonical_name": "Harbor arrival scene",
+      "status": "provisional",
+      "body": {
+        "summary": "Provisional candidate proposed from manuscript:tw-ch1 offsets 48-312."
+      },
+      "source_anchor": {
+        "schema_version": 1,
+        "source_id": "manuscript:tw-ch1",
+        "span": { "start": 48, "end": 312 },
+        "label": "Harbor arrival scene",
+        "mime_type": "text/plain",
+        "extensions": {}
+      },
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "entry_id": "kb_tw_extract_2",
+      "entry_type": "info_point",
+      "canonical_name": "Extracted note 2",
+      "status": "provisional",
+      "body": {
+        "summary": "Provisional candidate proposed from manuscript:tw-ch1."
+      },
+      "source_anchor": {
+        "schema_version": 1,
+        "source_id": "manuscript:tw-ch1",
+        "extensions": {}
+      },
+      "extensions": {}
+    }
+  ],
+  "run": {
+    "run_id": "run_tw_extract_0001",
+    "method": "toy-world-span-scan",
+    "coverage_hint": { "sources_read": 2, "candidates_proposed": 2 }
+  }
+}

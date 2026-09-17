@@ -10,6 +10,8 @@ export type { CheckRequest } from './check-request';
 export type { CheckResponse } from './check-response';
 export type { ComputeRequest } from './compute-request';
 export type { ComputeResponse } from './compute-response';
+export type { ExtractRequest } from './extract-request';
+export type { ExtractResponse } from './extract-response';
 export type { ProjectRequest } from './project-request';
 export type { ProjectResponse } from './project-response';
 export type { PromoteRequest } from './promote-request';

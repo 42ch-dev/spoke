@@ -7,6 +7,7 @@
 import type {
   ComputeRequest,
   ComputeResponse,
+  ExtractRequest,
   Finding,
   ForkId,
   HostCapabilityManifest,
@@ -141,3 +142,47 @@ export type ForkAdapter = ForkPorts;
 
 /** Ergonomic alias for full adapter composition. */
 export type FullAdapter = FullPorts;
+
+/**
+ * Optional `ke-extraction` family — the injected product boundary for
+ * referenced-content extraction.
+ *
+ * Standalone like `ToolInvokePort`: `ExtractionPort` is NOT part of
+ * `BaselinePorts` / `FullPorts` or the adapter aliases. The library contains no
+ * source I/O and no extraction engine; it only awaits the injected port and
+ * callback, then validates and assembles.
+ */
+
+/**
+ * Opaque JSON (`common.schema.json#/definitions/OpaqueJson`) — any JSON value
+ * retained verbatim, never narrowed to an object map.
+ */
+export type OpaqueJson = unknown;
+
+/**
+ * Injected product source loader. The in-process value it returns may carry
+ * source content; it is not a wire object and never appears on
+ * `ExtractRequest` / `ExtractResponse`.
+ */
+export interface ExtractionPort {
+  loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
+}
+
+/** Extraction callback input — the request plus the loaded product input. */
+export type ExtractRunInput = { request: ExtractRequest; input: OpaqueJson };
+
+/** Product extraction output — candidate entries plus advisory run metadata. */
+export type ExtractionResult = {
+  candidates: KnowledgeEntry[];
+  method?: string;
+  coverage_hint?: OpaqueJson;
+};
+
+/**
+ * Injected product extraction callback. Awaited exactly once by
+ * `orchestrateExtract`; deliberately async because an extraction service can
+ * perform asynchronous work (no sync/async union).
+ */
+export type RunExtractor = (
+  input: ExtractRunInput,
+) => Promise<SpokeResult<ExtractionResult>>;

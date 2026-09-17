@@ -8,15 +8,29 @@ Protocol-owned JSON graph, AJV/Vitest conformance harness, and reference **`ToyW
 
 ## Host capability manifests (in-process collaboration)
 
-Committed `HostCapabilityManifest` JSON describes three toy-world hosts with **pairwise disjoint** `namespaces[]`:
+Committed `HostCapabilityManifest` JSON describes four toy-world hosts with **pairwise disjoint** `namespaces[]`:
 
 | Fixture | `host_id` | Owned namespaces | Roles (summary) |
 |---------|-----------|------------------|-----------------|
 | `host_tw_primary.json` | `host_tw_primary` | `toy_world` | `data-store`, `checker`, `assembler`, `input-source` |
 | `host_tw_peer.json` | `host_tw_peer` | `peer_demo` | `checker`, `input-source` |
 | `host_tw_tools.json` | `host_tw_tools` | `tool_demo` | `checker`, `input-source` |
+| `host_tw_extractor.json` | `host_tw_extractor` | `extract_demo` | `input-source`, capability `ke-extraction` |
 
-All hosts declare `spoke-baseline`. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. The primary host also declares a `tools[]` surface — the copyable tool-provider reference: `tools.toy_world.roll_dice` (deterministic seeded dice) and `tools.toy_world.lore_lookup` (read-only store lookup), both listed in `capabilities[]` with the owned `toy_world` namespace; `validateManifestTools` passes on the manifest. The tools host additionally declares a `tools[]` entry (`tools.tool_demo.lookup`) whose `capability_id` also appears in `capabilities[]` and whose namespace (`tool_demo`) is owned by the manifest. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fi…
+The three collaboration hosts declare `spoke-baseline`; the extraction host claims only `ke-extraction` with the existing `input-source` role, so it declares no baseline adapter. The primary host provides closed-loop `assembler`, write authority via `data-store`, and the broader collaboration role set (`checker`, `input-source`); the peer host contributes `checker` and `input-source` for a narrower in-process peer. The primary host also declares a `tools[]` surface — the copyable tool-provider reference: `tools.toy_world.roll_dice` (deterministic seeded dice) and `tools.toy_world.lore_lookup` (read-only store lookup), both listed in `capabilities[]` with the owned `toy_world` namespace; `validateManifestTools` passes on the manifest. The tools host additionally declares a `tools[]` entry (`tools.tool_demo.lookup`) whose `capability_id` also appears in `capabilities[]` and whose namespace (`tool_demo`) is owned by the manifest. Integrators map each manifest's `namespaces[]` to the owning `host_id` when attributing `KnowledgeEntry.extensions.<ns>` in a collaboration context. Host metadata lives on the `HostCapabilityManifest` wire object. Reference adapters compose these manifests in-process from committed fi…
+
+## Extraction samples (optional `ke-extraction`)
+
+Committed `op_tw_extract_*` / `host_tw_extractor.json` JSON demonstrates the optional extraction op against the same manuscript references:
+
+| Fixture | Envelope | Story |
+|---------|----------|-------|
+| `op_tw_extract_request.json` | ExtractRequest | `run_id: run_tw_extract_0001`; two `SourceAnchor` references over `manuscript:tw-ch1` (one carrying a `span`, one referencing the artifact whole) plus an `entry_types: ["info_point"]` hint |
+| `op_tw_extract_response.json` | ExtractResponse (success branch) | Two provisional `info_point` candidates keyed back to the anchor they came from, plus `run` echoing the request `run_id` with an open `method` and an object `coverage_hint` |
+| `op_tw_extract_error_response.json` | ExtractResponse (error branch) | `CANDIDATE_NOT_PROVISIONAL` for a candidate flipped to `confirmed` — no partial candidate list and no second run record |
+| `host_tw_extractor.json` | HostCapabilityManifest | `input-source` host claiming `ke-extraction` with the disjoint `extract_demo` namespace |
+
+`tests/toy-world-extract.test.ts` validates all four samples through the AJV loader, runs `orchestrateExtract` with a host-local source loader and an async extractor double (the loaded content stays in-process and never crosses the wire), and pins the schema boundaries: the success and error branches are mutually exclusive, and an inline source-text field is rejected. The success/error pair is the library's own wire shape at the documented boundary, not a hand-written approximation.
 
 ## Connect envelope samples (opt-in `spoke-connect`)
 
@@ -89,6 +103,7 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `kb_tw_harbor_market_square_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_market_square_event` |
 | `kb_tw_harbor_customs_gate_beat.json` | KnowledgeEntry (profile `entry_type: "beat"`, `structural_role`) | `kb_tw_harbor_customs_gate_beat` |
 | `kb_tw_harbor_berth_confirm_event.json` | KnowledgeEntry (`entry_type: "event"`) | `kb_tw_harbor_berth_confirm_event` |
+| `kb_tw_owner_private.json` | KnowledgeEntry (`ke-ownership` `owner` / `disclosure: "owner-private"`) | `kb_tw_mira_private_shoal` |
 | `anchor_tw_manuscript.json` | SourceAnchor | (provenance example) |
 | `rel_tw_mira_harbor.json` | Relation | `rel_tw_mira_harbor` |
 | `rel_tw_harbor_precedes_dawn_to_market.json` | Relation (`precedes` on KE ids) | `rel_tw_harbor_precedes_dawn_to_market` |
@@ -105,14 +120,19 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `rule_tw_consistency.json` | Rule | `rule_tw_consistency` |
 | `fnd_tw_open.json` | Finding | `fnd_tw_open` |
 | `pkt_tw_scope.json` | AssemblePacket | `pkt_tw_scope` |
+| `op_tw_ownership_check_request.json` | CheckRequest (shared `Scope.viewpoint` reader selector) | `toy-scope-ownership` / `kb_tw_mira` |
 | `op_tw_project_request.json` | ProjectRequest (optional `l2-computable` op) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_project_response.json` | ProjectResponse (success branch) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_request.json` | ComputeRequest (mid-Session apply) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_request.json` | ComputeRequest (`settle: true`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
 | `op_tw_compute_settle_response.json` | ComputeResponse (success + merged `state`) | `sess_tw_dawn_arrival` / `kb_tw_harbor` |
+| `op_tw_extract_request.json` | ExtractRequest (optional `ke-extraction` op) | `run_tw_extract_0001` |
+| `op_tw_extract_response.json` | ExtractResponse (success branch, provisional candidates + run metadata) | `run_tw_extract_0001` |
+| `op_tw_extract_error_response.json` | ExtractResponse (error branch, `CANDIDATE_NOT_PROVISIONAL` for `kb_tw_extract_2`) | `kb_tw_extract_2` |
 | `host_tw_primary.json` | HostCapabilityManifest (primary collaboration host, `tools[]` declared: `tools.toy_world.roll_dice` / `tools.toy_world.lore_lookup`) | `host_tw_primary` |
 | `host_tw_peer.json` | HostCapabilityManifest (peer checker/input host) | `host_tw_peer` |
 | `host_tw_tools.json` | HostCapabilityManifest (tool provider host, `tools[]` declared) | `host_tw_tools` |
+| `host_tw_extractor.json` | HostCapabilityManifest (extraction host: `input-source` + `ke-extraction`) | `host_tw_extractor` |
 | `tool_tw_minimal.json` | ToolDescriptor (unconstrained `{}` input/output ABI) | `tools.tool_demo.lookup` |
 | `conn_tw_hello_primary_to_peer.json` | ConnectHello (opt-in `spoke-connect` handshake) | `peer_tw_primary` / `host_tw_primary` |
 | `conn_tw_hello_peer_to_primary.json` | ConnectHello (opt-in `spoke-connect` handshake) | `peer_tw_peer` / `host_tw_peer` |

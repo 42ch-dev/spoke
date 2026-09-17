@@ -1126,3 +1126,138 @@ describe("optional fork orchestration", () => {
     }
   });
 });
+
+/** Shared entry plus one holder-private entry per holder, seeded in that order. */
+function makeViewpointEntries(): KnowledgeEntry[] {
+  return [
+    makeKnowledgeEntry({ entry_id: "kb_shared" }),
+    makeKnowledgeEntry({
+      entry_id: "kb_mine",
+      owner: "kb_mira",
+      disclosure: "owner-private",
+    }),
+    makeKnowledgeEntry({
+      entry_id: "kb_theirs",
+      owner: "kb_rival",
+      disclosure: "owner-private",
+    }),
+  ];
+}
+
+describe("ownership viewpoint orchestration", () => {
+  it("orchestrateCheck supplies shared and own-private entries to the checker", async () => {
+    const ports = createMemoryBaselinePorts({ entries: makeViewpointEntries() });
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", viewpoint: "kb_mira" },
+    };
+    let supplied: string[] = [];
+
+    const result = await orchestrateCheck(
+      ports,
+      request,
+      (input: CheckRunInput) => {
+        supplied = input.entries.map((entry) => entry.entry_id);
+        return spokeOk([]);
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(supplied).toEqual(["kb_shared", "kb_mine"]);
+  });
+
+  it("orchestrateCheck withholds owner-private entries without a scope viewpoint", async () => {
+    const ports = createMemoryBaselinePorts({ entries: makeViewpointEntries() });
+    const request: CheckRequest = { scope: { scope_id: "world_1" } };
+    let supplied: string[] = [];
+
+    const result = await orchestrateCheck(
+      ports,
+      request,
+      (input: CheckRunInput) => {
+        supplied = input.entries.map((entry) => entry.entry_id);
+        return spokeOk([]);
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(supplied).toEqual(["kb_shared"]);
+  });
+
+  it("orchestrateAssemble packs only entries visible to the scope viewpoint", async () => {
+    const ports = createMemoryBaselinePorts({ entries: makeViewpointEntries() });
+    const request: AssembleRequest = {
+      scope: { scope_id: "world_1", viewpoint: "kb_mira" },
+    };
+
+    const result = await orchestrateAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.entries.map((entry) => entry.entry_id)).toEqual([
+      "kb_shared",
+      "kb_mine",
+    ]);
+  });
+
+  it("orchestrateAssemble swaps the private entry when the viewpoint is foreign", async () => {
+    const ports = createMemoryBaselinePorts({ entries: makeViewpointEntries() });
+    const request: AssembleRequest = {
+      scope: { scope_id: "world_1", viewpoint: "kb_rival" },
+    };
+
+    const result = await orchestrateAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.entries.map((entry) => entry.entry_id)).toEqual([
+      "kb_shared",
+      "kb_theirs",
+    ]);
+  });
+
+  it("orchestrateForkCheck applies viewpoint filtering to scoped entries", async () => {
+    const baseline = createMemoryBaselinePorts({
+      entries: makeViewpointEntries(),
+    });
+    const ports = withForkPorts(baseline);
+    const request: CheckRequest = {
+      scope: { scope_id: "world_1", viewpoint: "kb_mira", fork_id: "fork_a" },
+    };
+    let supplied: string[] = [];
+
+    const result = await orchestrateForkCheck(ports, request, (input) => {
+      supplied = input.entries.map((entry) => entry.entry_id);
+      return spokeOk([]);
+    });
+
+    expect(result.ok).toBe(true);
+    expect(supplied).toEqual(["kb_shared", "kb_mine"]);
+    expect(ports.forkListCalls).toHaveLength(1);
+  });
+
+  it("orchestrateForkAssemble packs only entries visible to the scope viewpoint", async () => {
+    const baseline = createMemoryBaselinePorts({
+      entries: makeViewpointEntries(),
+    });
+    const ports = withForkPorts(baseline);
+    const request: AssembleRequest = {
+      scope: { scope_id: "world_1", viewpoint: "kb_mira", fork_id: "fork_a" },
+    };
+
+    const result = await orchestrateForkAssemble(ports, request);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.packet.entries.map((entry) => entry.entry_id)).toEqual([
+      "kb_shared",
+      "kb_mine",
+    ]);
+    expect(ports.forkListCalls).toHaveLength(1);
+  });
+});

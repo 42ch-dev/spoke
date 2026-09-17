@@ -9,6 +9,8 @@ import type {
   CheckResponse,
   ComputeRequest,
   ComputeResponse,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   ForkId,
   KnowledgeEntry,
@@ -56,9 +58,11 @@ const TERMINAL_KNOWLEDGE_ENTRY_STATUSES = new Set(["merged", "deleted"]);
 import type {
   BaselinePorts,
   ComputablePorts,
+  ExtractionPort,
   ForkPorts,
   KnowledgeEntryPort,
   RelationPort,
+  RunExtractor,
 } from "./ports.js";
 
 /** Checker callback input after ports load scoped data and rules. */
@@ -578,4 +582,129 @@ export async function orchestrateForkAssemble(
   }
 
   return spokeOk({ packet: packetResult.value });
+}
+
+/** Library-boundary gate: non-empty correlation id and non-empty source list. */
+function assertExtractRequestBoundaries(
+  request: ExtractRequest,
+): SpokeResult<void> {
+  if (typeof request.run_id !== "string" || request.run_id.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest run_id must be a non-empty string",
+      { field: "run_id" },
+    );
+  }
+
+  if (!Array.isArray(request.sources) || request.sources.length === 0) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      "ExtractRequest sources must be a non-empty SourceAnchor list",
+      { field: "sources" },
+    );
+  }
+
+  return spokeOk();
+}
+
+/**
+ * Verify the injected loading method at the dynamic boundary — structural
+ * typing cannot protect runtime composition, so a null/absent port rejects
+ * instead of throwing a TypeError.
+ */
+function requireExtractionLoadMethod(
+  ports: ExtractionPort,
+): SpokeResult<void> {
+  if (ports == null || typeof ports.loadExtractionInput !== "function") {
+    return spokeReject(
+      SpokeRejectCode.CAPABILITY_PORT_MISSING,
+      'Missing ExtractionPort for capability "ke-extraction" (port is null/undefined or loadExtractionInput is not a function)',
+      { capability: "ke-extraction" },
+    );
+  }
+
+  return spokeOk();
+}
+
+/**
+ * Operation invariant: every returned candidate is an ordinary provisional
+ * entry. No partial success, no status rewriting, no dropped candidates.
+ */
+function assertExtractionCandidatesProvisional(
+  candidates: KnowledgeEntry[],
+): SpokeResult<void> {
+  for (const candidate of candidates) {
+    if (TERMINAL_KNOWLEDGE_ENTRY_STATUSES.has(candidate.status)) {
+      return spokeReject(
+        SpokeRejectCode.CANDIDATE_TERMINAL_STATUS,
+        `Candidate KnowledgeEntry has terminal status: ${candidate.status}`,
+        { entry_id: candidate.entry_id, status: candidate.status },
+      );
+    }
+
+    if (candidate.status !== "provisional") {
+      return spokeReject(
+        SpokeRejectCode.CANDIDATE_NOT_PROVISIONAL,
+        `Candidate KnowledgeEntry status must be provisional (got ${candidate.status})`,
+        { entry_id: candidate.entry_id, status: candidate.status },
+      );
+    }
+  }
+
+  return spokeOk();
+}
+
+/**
+ * Extraction: gate request boundaries, load product-defined input through the
+ * injected port, await the injected extraction callback exactly once, gate
+ * candidate statuses, then assemble the success response with the caller's
+ * exact run id and the supplied advisory metadata. No manifest lookup,
+ * persistence, status upgrade, or promote.
+ */
+export async function orchestrateExtract(
+  ports: ExtractionPort,
+  request: ExtractRequest,
+  runExtractor: RunExtractor,
+): Promise<SpokeResult<ExtractResponse>> {
+  const boundaries = assertExtractRequestBoundaries(request);
+  if (!boundaries.ok) {
+    return boundaries;
+  }
+
+  const capability = requireExtractionLoadMethod(ports);
+  if (!capability.ok) {
+    return capability;
+  }
+
+  const loaded = await ports.loadExtractionInput(request);
+  if (!loaded.ok) {
+    return loaded;
+  }
+
+  const extracted = await runExtractor({ request, input: loaded.value });
+  if (!extracted.ok) {
+    return extracted;
+  }
+
+  const candidates = extracted.value.candidates;
+  const candidateGate = assertExtractionCandidatesProvisional(candidates);
+  if (!candidateGate.ok) {
+    return candidateGate;
+  }
+
+  const { method, coverage_hint: coverageHint } = extracted.value;
+
+  return spokeOk({
+    candidates,
+    run: {
+      run_id: request.run_id,
+      // ExtractionRunMetadata requires a non-empty `method` (minLength 1), but
+      // the port boundary is dynamic and `ExtractionResult` cannot enforce it:
+      // only a non-empty string is emitted, and every other value is treated as
+      // absent instead of producing a schema-invalid response. Mirrors the Rust
+      // orchestrator, where `Option<String>` carries the same reachable states.
+      ...(typeof method === "string" && method.length > 0 ? { method } : {}),
+      ...(coverageHint !== undefined ? { coverage_hint: coverageHint } : {}),
+    },
+  });
 }

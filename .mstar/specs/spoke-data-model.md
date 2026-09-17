@@ -66,14 +66,14 @@ Schema: `schemas/data/host-capability-manifest.schema.json`.
 | Role | Purpose | Typical ports / ops |
 |------|---------|---------------------|
 | `data-store` | Single OCC authority per `entry_id`; settled state via `putKnowledgeEntry` | `KnowledgeEntryPort`; `orchestrateUpsert`, `orchestratePromote` |
-| `input-source` | Ingest or propose entries/intent | Product-defined ingest surface (no new port family) |
+| `input-source` | Ingest or propose entries/intent | Product-defined ingest surface; standalone `ExtractionPort` + `orchestrateExtract` when `ke-extraction` declared |
 | `checker` | Emit `Finding[]`; no settled `body.state` write-back | `RuleQueryPort`, `FindingPort`; `orchestrateCheck` |
 | `assembler` | Closed-loop context aggregation | `ScopeQueryPort`; `orchestrateAssemble` |
 | `computable-engine` | Optional L2 session/compute | `ComputablePort` when `l2-computable` declared |
 
 Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, and computable-engine emit intent or derived artifacts — write-back flows through the data-store authority.
 
-`assembler` is closed-loop core vocabulary (not an optional role label). `computable-engine` is optional and pairs with the `l2-computable` capability flag.
+`assembler` is closed-loop core vocabulary (not an optional role label). `computable-engine` is optional and pairs with the `l2-computable` capability flag. `input-source` stays core vocabulary and its ingest surface needs no extra port; the `ExtractionPort` family is optional and activates only under the `ke-extraction` flag, never as a baseline requirement.
 
 ### Host capabilities (open vocabulary)
 
@@ -84,6 +84,8 @@ Only **data-store** commits settled KnowledgeEntry state. Checker, assembler, an
 | `spoke-baseline` | MUST appear when manifest describes a baseline-compliant adapter |
 | `l2-computable` | MUST appear when `computable-engine` ∈ `roles` |
 | `l5-fork` | SHOULD appear when fork-aware timeline query is advertised |
+| `ke-ownership` | MUST appear when the host exchanges `KnowledgeEntry.owner` / `disclosure` or honors `Scope.viewpoint` semantics — see §Ownership governance (`ke-ownership` optional) |
+| `ke-extraction` | MUST appear when the host declares the optional `extract` operation: pairs the unchanged `input-source` role with the standalone `ExtractionPort` + `orchestrateExtract` family (not part of `BaselinePorts` / `FullPorts`). Candidates stay provisional; settled writes remain with `data-store`. Design contract: [`ke-extraction-adr.md`](ke-extraction-adr.md) |
 
 ### Authority (optional)
 
@@ -494,6 +496,8 @@ Every durable data object schema MUST:
 | `created_at` | string (RFC 3339) | Creation timestamp |
 | `updated_at` | string (RFC 3339) | Last mutation timestamp |
 | `modules` | `ModuleMap` | Optional cross-product functional-dialect bag; capability-flagged (`narrative-modules`); see §Modules |
+| `owner` | string (`minLength: 1`) | Opaque holder KnowledgeEntry `entry_id` (`ke-ownership` optional); absent = unspecified ownership — see §Ownership governance (`ke-ownership` optional) |
+| `disclosure` | string (`minLength: 1`) | Open governance disclosure vocabulary (`ke-ownership` optional); core value `owner-private` — see §Ownership governance (`ke-ownership` optional) |
 
 ### Body rules
 
@@ -606,6 +610,47 @@ Products declaring **`l2-computable`** MAY use two documented optional keys unde
 ```
 
 Pre-Session and post-settle: omit `computable` or leave inert; `state` holds durable values.
+
+### Ownership governance (`ke-ownership` optional)
+
+Two optional envelope fields carry **governance** — who holds an entry and how it may be disclosed. Both are wire-optional properties of the existing closed KE object (`additionalProperties: false`) — not a new ownership object or `modules` namespace — and the capability adds no schema file, port, or required field. JSON Schema remains the executable wire SSOT for the requirements below; normative decision, rejected alternatives, and helper behavior: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md) §§1–2.
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `owner` | string (`minLength: 1`) | Opaque `entry_id` of the holder KnowledgeEntry in the product's collaboration context |
+| `disclosure` | string (`minLength: 1`, open) | Governance disclosure vocabulary; the sole core value is `owner-private` |
+
+| Rule | Requirement |
+|------|-------------|
+| **Absent `owner`** | **Unspecified ownership** — **not** a `world` owner, public truth, or world consensus. The protocol reserves no subject-type enum and no `world` token; a world, actor, or group is an ordinary holder KE |
+| **Absent `disclosure`** | Shared **within the already selected KB context** — not public access outside that context and not a claim about epistemic truth |
+| **`owner-private`** | Requires a non-empty `owner`; the core predicate fails closed on a malformed private entry |
+| **Unknown disclosure values** | Open, round-trippable vocabulary: adapters MUST preserve unknown strings verbatim, and core helpers MUST NOT reinterpret an unknown value as shared. Additional audience semantics belong to a Domain Profile — the disclosure vocabulary MUST NOT be closed with a JSON Schema `enum` |
+| **Holder reference** | Reference resolution is product-owned; the wire need not embed the holder or prove that it appears in the same payload |
+
+Core visibility truth table — pure, no I/O, exact string comparison (identifiers are not normalized):
+
+| Disclosure | Owner / viewpoint | Core visibility result |
+|------------|-------------------|------------------------|
+| Absent | Any, including unspecified | Include within the caller's pre-scoped KB |
+| `owner-private` | Both present and exactly equal | Include |
+| `owner-private` | Missing owner, missing viewpoint, or unequal | Exclude |
+| Unknown non-empty value | Any | Exclude |
+
+**`Scope.viewpoint`** is the reader context supplying the comparison target: a non-empty holder-KE `entry_id` defined once in `common.schema.json#/definitions/Scope`. `check` and `assemble` consume it through their existing `$ref`; neither gains a request-only sibling selector, and `scope_id` stays opaque — it is neither parsed for viewpoint nor overloaded with an owner convention. Missing `viewpoint` names no subject and grants no private visibility. A viewpoint is a reader context, not merely an owner-equality filter and **not** an authorization credential: it may consume shared entries held by other holders alongside its own private entries. Existing `entry_ids` / `entry_types` / `source_id` refinements compose by **AND** with the disclosure predicate. Full `Scope` field table: [`spoke-ops.md`](spoke-ops.md) §Scope.
+
+| Concern | Authority |
+|---------|-----------|
+| Entry governance (`owner` / `disclosure`) | That KnowledgeEntry |
+| Holder identity | Existing holder KnowledgeEntry referenced by `entry_id` — no subject registry or ownership Entity |
+| Epistemic stance, including `modules.belief` Access | `modules.belief` on its holder — narrative content, **not** a grant of governance access |
+| Temporal mental changes | `MindState`, strictly derivative — not an ownership registry |
+| Storage write authority / OCC | Existing data-store revision contracts — unrelated to the entry's narrative owner |
+| Authentication, authorization, view composition, audience evaluation | Product runtime / Domain Profile |
+
+**Single authority per fact.** Governance MUST NOT be mirrored into `modules.belief.Access`, `extensions`, a separate subject object, or a temporal record: a belief label may be mistaken or stale and cannot override an entry's disclosure. `TimelineEvent` scope matching is unchanged — a KE governance field creates no event-visibility model.
+
+A host that exchanges these fields or honors viewpoint semantics declares `ke-ownership` (§Host capabilities); a non-declaring host MUST NOT accept a request requiring the capability and silently return an unfiltered success or strip governance before forwarding it. Capability selection/rejection stays at the product boundary, and this capability adds no connect dispatch rule. Pure helpers consume supplied data without fetching manifests, taking a capability boolean, or performing holder lookup, inference, audience expansion, ranking, or I/O — calling the ownership-aware surface is the caller's opt-in, and fields absent on baseline data retain baseline behavior. Check, assemble, and fork variants consume the same shared scope filtering and MUST observe the same visibility result.
 
 ---
 
@@ -874,6 +919,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 
 - **KnowledgeEntry** — atomic Knowledge Base entry in SPOKE wire form
 - **Scope** — shared `Scope` object (`scope_id` required) for `check` / `assemble`; optional `extensions` (`ExtensionMap`) carries product-scoped query metadata (matchers ignore); World/Book ids in op `extensions`, `Scope.extensions`, or adapters — full field table in [`spoke-ops.md`](spoke-ops.md) §Scope
+- **owner / disclosure / Scope.viewpoint** — optional `ke-ownership` governance carrier on the KnowledgeEntry envelope plus the shared reader selector; absence means unspecified ownership / shared within the selected KB context; core disclosure value `owner-private`; not a subject registry, belief stance, or authorization credential — see §Ownership governance (`ke-ownership` optional) and [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md)
 - **TimelineScale** — L5 tier vocabulary (`brief` / `narrative` / `moment`) on `TimelineEvent` and optional `Scope` filter — see §TimelineScale
 - **ForkId** — opaque branch identity (`l5-fork`) on `TimelineEvent.fork_id`, `TimelineEvent.parent_fork_id`, and optional `Scope.fork_id` — see §Fork fields
 - **Domain Profile** — published ontology vocabulary per product/integration; core `entry_type` stays open string — see [`spoke-protocol-layers.md`](spoke-protocol-layers.md); narrative-structure / Beat mapping — [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md); lore-activation (`modules.activation`) — [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md); mental-state (`modules.mental` / `modules.belief` / `modules.observation`) — [`domain-profile-mental-state.md`](domain-profile-mental-state.md)
@@ -920,6 +966,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` |
 | [`domain-profile-mental-state.md`](domain-profile-mental-state.md) | Mental-state Domain Profile — `modules.mental` / `modules.belief` / `modules.observation` dialects + MindState sketch |
 | [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) | `l5-mind` flag; MindState naming, placement, ownership boundary; rejected alternatives |
+| [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md) | `ke-ownership` flag; `owner` / `disclosure` placement, `Scope.viewpoint` semantics, core visibility boundary; rejected alternatives |
 | [`spoke-ops.md`](spoke-ops.md) | Ops that consume these data shapes (`check`, `assemble`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers (extensions, Finding status, promote, AssemblePacket builders) |
 | [`schemas/README.md`](../../schemas/README.md) | Schema file checklist |

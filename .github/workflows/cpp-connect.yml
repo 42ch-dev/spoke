@@ -1,0 +1,129 @@
+name: C++ connect (Windows)
+
+# Dedicated Windows carrier lane: build the C ABI with MSVC, prove the
+# exported symbols, then compile, link, and run the shared C++ smoke.
+on:
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/spoke-connect-capi/**
+      - crates/spoke-connect/src/**
+      - crates/spoke-connect/Cargo.toml
+      - crates/spoke-connect/bindings/cpp/include/**
+      - crates/spoke-connect/bindings/cpp/Smoke/**
+      - tooling/connect/cpp-build.mjs
+      - tooling/connect/cpp-symbol-check.mjs
+      - tooling/connect/cpp-smoke.mjs
+      - .github/workflows/cpp-connect.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - crates/spoke-connect-capi/**
+      - crates/spoke-connect/src/**
+      - crates/spoke-connect/Cargo.toml
+      - crates/spoke-connect/bindings/cpp/include/**
+      - crates/spoke-connect/bindings/cpp/Smoke/**
+      - tooling/connect/cpp-build.mjs
+      - tooling/connect/cpp-symbol-check.mjs
+      - tooling/connect/cpp-smoke.mjs
+      - .github/workflows/cpp-connect.yml
+  workflow_dispatch:
+
+concurrency:
+  group: cpp-connect-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-smoke:
+    name: windows-smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      # Keep the higher-precedence global Rust flag channels empty. The build
+      # script appends the required dynamic-CRT flag to the target-scoped
+      # variable and records the resulting recipe in provenance.json.
+      RUSTFLAGS: ""
+      CARGO_ENCODED_RUSTFLAGS: ""
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup MSVC developer environment
+        # x64 selects the release MSVC toolchain used by the C++ smoke.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Node.js
+        # actions/setup-node@v4.4.0 — Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16) — exact stable pin for
+        # the Windows carrier and its x86_64-pc-windows-msvc target.
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+          targets: x86_64-pc-windows-msvc
+
+      - name: Check Rust flag precedence
+        shell: pwsh
+        run: |
+          if (-not [string]::IsNullOrEmpty($env:RUSTFLAGS)) {
+            throw "RUSTFLAGS must be empty; it would override the target-scoped CRT flag"
+          }
+          if (-not [string]::IsNullOrEmpty($env:CARGO_ENCODED_RUSTFLAGS)) {
+            throw "CARGO_ENCODED_RUSTFLAGS must be empty; it would override the target-scoped CRT flag"
+          }
+          Write-Output "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty; target-scoped CRT flags remain authoritative."
+
+      - name: Report compiler and toolchain
+        shell: pwsh
+        run: |
+          rustc +1.96.0 -Vv
+          cargo +1.96.0 -V
+          & cl.exe 2>&1 | ForEach-Object { Write-Output $_ }
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 2) {
+            throw "cl.exe version probe failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Build Windows carrier
+        run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
+
+      - name: Show native provenance
+        shell: pwsh
+        run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
+
+      - name: Check C ABI symbols
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll
+
+      - name: Run C++ smoke
+        run: node tooling/connect/cpp-smoke.mjs --rid win-x64
+
+      - name: Stage Windows native refresh artifact
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP "spoke-connect-win-x64"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll $stage
+          Copy-Item crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll.lib $stage
+          Copy-Item crates/spoke-connect/bindings/cpp/native/provenance.json $stage
+
+      - name: Upload Windows native refresh artifact
+        # actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spoke-connect-win-x64
+          path: ${{ runner.temp }}/spoke-connect-win-x64
+          if-no-files-found: error
+          retention-days: 5

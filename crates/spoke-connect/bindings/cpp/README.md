@@ -44,6 +44,8 @@ from the executable's directory:
 ```bat
 cl.exe /nologo /std:c++17 /EHs-c- /GR- /MD /W4 /WX /I<absolute path to include> ^
   host.cpp <absolute path to native\win-x64\spoke_connect_capi.dll.lib> /Fe:host.exe
+copy /Y <absolute path to native\win-x64\spoke_connect_capi.dll> .
+host.exe
 ```
 
 ## Calling the ABI
@@ -90,7 +92,7 @@ the first failed check.
 | RID | Status |
 |-----|--------|
 | `osx-arm64` | **Committed** — built and staged by `tooling/connect/cpp-build.mjs` |
-| `win-x64` | Staged by the Windows carrier lane and committed with its import library |
+| `win-x64` | **Committed** — Windows x64 carrier and Rust-produced import library |
 
 `tooling/connect/cpp-build.mjs` rebuilds a native from the integrated Rust
 source and refreshes that RID's `provenance.json` entry with the revision,

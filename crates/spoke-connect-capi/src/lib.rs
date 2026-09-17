@@ -39,6 +39,7 @@ use std::ptr;
 
 mod core;
 mod remote_adapter;
+mod responder;
 
 /// The C boundary revision exposed by [`spoke_connect_abi_version`]; distinct
 /// from the connect hello protocol version.

@@ -240,7 +240,14 @@ impl ffi::Transport for ForeignTransport {
 /// [`ForeignTransport`], so the caller's [`SpokeConnectTransport`] keeps
 /// owning the callback context (and its single `destroy`) after an adapter
 /// dialed over it takes its own reference.
-struct SharedForeignTransport(Arc<ForeignTransport>);
+pub(crate) struct SharedForeignTransport(Arc<ForeignTransport>);
+
+impl SharedForeignTransport {
+    /// A borrowed view over a transport handle's callback context.
+    pub(crate) fn new(transport: Arc<ForeignTransport>) -> Self {
+        Self(transport)
+    }
+}
 
 impl ffi::Transport for SharedForeignTransport {
     fn send(&self, envelope: Vec<u8>) -> Result<(), ffi::TransportError> {
@@ -257,7 +264,7 @@ impl ffi::Transport for SharedForeignTransport {
 }
 
 /// Borrows a transport handle.
-unsafe fn transport_handle<'a>(
+pub(crate) unsafe fn transport_handle<'a>(
     handle: *const SpokeConnectTransport,
 ) -> Result<&'a Arc<ForeignTransport>, AbiFailure> {
     if handle.is_null() {
@@ -493,7 +500,7 @@ unsafe fn remote_adapter<'a>(
 /// Writes the owned JSON a `Result<String, FfiError>` call produced, or
 /// projects its failure. The caller has already required and zeroed
 /// `out_json`.
-unsafe fn write_json(
+pub(crate) unsafe fn write_json(
     out_json: *mut SpokeConnectBuffer,
     result: Result<String, ffi::FfiError>,
 ) -> Result<(), AbiFailure> {
@@ -503,7 +510,7 @@ unsafe fn write_json(
 }
 
 /// Writes the owned text a `String` result produced.
-unsafe fn write_text(
+pub(crate) unsafe fn write_text(
     out_text: *mut SpokeConnectBuffer,
     text: String,
 ) -> Result<(), AbiFailure> {
@@ -513,7 +520,7 @@ unsafe fn write_text(
 
 /// Writes an optional text: absent means `present = 0`; a present empty
 /// string keeps non-NULL data with zero length.
-unsafe fn write_optional_text(
+pub(crate) unsafe fn write_optional_text(
     out_text: *mut SpokeConnectOptionalBuffer,
     text: Option<String>,
 ) -> Result<(), AbiFailure> {

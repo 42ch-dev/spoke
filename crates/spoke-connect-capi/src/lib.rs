@@ -421,6 +421,12 @@ fn optional_buffer(text: Option<&str>) -> SpokeConnectBuffer {
 }
 
 /// Requires a non-NULL out pointer.
+///
+/// Every out write in this crate happens after this check, so the pointer it
+/// writes through is known non-NULL at the point of the write; the *address*
+/// being valid is the caller contract in the crate docs (writable,
+/// non-aliasing, not forged or dangling), which Rust cannot verify and this
+/// carrier cannot recover from.
 pub(crate) fn require_out<T>(out: *mut T, what: &str) -> Result<*mut T, AbiFailure> {
     if out.is_null() {
         return Err(AbiFailure::invalid(format!("{what} is NULL")));

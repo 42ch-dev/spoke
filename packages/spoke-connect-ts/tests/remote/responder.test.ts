@@ -1884,6 +1884,15 @@ describe("ke remote", () => {
       { scope: { scope_id: "s1", viewpoint: 3 } },
       { scope: { scope_id: "s1", viewpoint: [] } },
       { scope: { scope_id: "s1", viewpoint: {} } },
+      { scope: { viewpoint: "holder-a" } },
+      { scope: { scope_id: "s1", viewpoint: "holder-a", unknown_field: 1 } },
+      {
+        scope: {
+          scope_id: "s1",
+          viewpoint: "holder-a",
+          entry_ids: "not-an-array",
+        },
+      },
       {},
       { scope: "not-an-object" },
     ];
@@ -1900,6 +1909,55 @@ describe("ke remote", () => {
         scope: { scope_id: "s1", viewpoint: "holder-a" },
       }),
     ).toBeNull();
+  });
+
+  it("rejects schema-invalid declared scope with valid viewpoint before provider call", async () => {
+    let called = 0;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called += 1;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-scope-schema", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      responderManifest: manifestWithCaps("responder-scope-schema", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports,
+    });
+    try {
+      const malformedScopes = [
+        { viewpoint: "holder-a" },
+        { scope_id: "s1", viewpoint: "holder-a", unknown_field: 1 },
+        {
+          scope_id: "s1",
+          viewpoint: "holder-a",
+          entry_ids: "not-an-array",
+        },
+      ] as unknown as Scope[];
+      for (const badScope of malformedScopes) {
+        const result = await client.listKnowledgeEntries(badScope);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      }
+      expect(called).toBe(0);
+
+      const validScope: Scope = {
+        scope_id: "s1",
+        viewpoint: "holder-a",
+      };
+      const okResult = await client.listKnowledgeEntries(validScope);
+      expect(okResult.ok).toBe(true);
+      expect(called).toBe(1);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
   });
 
   it("rejects malformed viewpoint with INVALID_INPUT before provider call", async () => {

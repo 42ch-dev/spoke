@@ -101,6 +101,13 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "port.finding.put": { kind: "array", fields: FINDING_FIELDS },
   "port.rule.list": { kind: "array", fields: RULE_FIELDS },
   "port.host.list_peer_manifests": { kind: "array", fields: HOST_MANIFEST_FIELDS },
+  extract: {
+    kind: "object",
+    fields: [
+      { name: "candidates", kind: "array" },
+      { name: "run", kind: "object" },
+    ],
+  },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -135,10 +142,25 @@ function matchesShape(value: Record<string, unknown>, shape: SuccessShape): bool
  * Ops outside the baseline catalogue have no shape table entry and are
  * accepted as-is (the dispatch gate owns the op vocabulary).
  */
+function isValidExtractSuccessPayload(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const shape = SUCCESS_SHAPES.extract;
+  if (!matchesShape(value, shape)) {
+    return false;
+  }
+  const run = value.run;
+  return isRecord(run) && typeof run.run_id === "string";
+}
+
 export function isValidSuccessPayload(op: string, value: unknown): boolean {
   const shape = SUCCESS_SHAPES[op];
   if (shape === undefined) {
     return true;
+  }
+  if (op === "extract") {
+    return isValidExtractSuccessPayload(value);
   }
   if (shape.kind === "object") {
     return isRecord(value) && matchesShape(value, shape);

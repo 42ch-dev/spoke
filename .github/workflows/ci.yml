@@ -256,6 +256,66 @@ jobs:
           # resolution is exercised (not the in-repo ProjectReference copy path).
           ./tooling/connect/smoke-nupkg-packageref.sh /tmp/spoke-nuget-out
 
+  kotlin-connect-smoke:
+    name: kotlin-connect-smoke
+    runs-on: ubuntu-22.04
+    env:
+      # Keep the cargo target dir predictable for the -PnativeLib path below.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Cache Rust dependencies
+        # Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4
+        with:
+          shared-key: spoke-rust
+          workspaces: .
+
+      - name: Setup Java
+        # actions/setup-java@v4.7.0
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build production spoke-connect cdylib
+        # The committed production Kotlin bindings are executed against a fresh
+        # Linux cdylib (ffi,remote-adapter): no committed native and no binding
+        # regeneration are part of this lane.
+        run: cargo build --locked -p spoke-connect --features ffi,remote-adapter --release
+
+      - name: Run Kotlin smoke (default Smoke source set)
+        # Committed Gradle 8.10.2 wrapper (distribution pinned by SHA-256 in
+        # gradle/wrapper/gradle-wrapper.properties); no smokeHost property, so
+        # the default Smoke set runs against the built cdylib.
+        working-directory: crates/spoke-connect/bindings/kotlin
+        run: |
+          ./gradlew --no-daemon --rerun-tasks test \
+            -PnativeLib="${{ github.workspace }}/target/release/libspoke_connect.so"
+
+      - name: Verify KE smoke counts
+        working-directory: crates/spoke-connect/bindings/kotlin
+        run: python3 verify-ke-smoke-results.py build/test-results/test
+
+      - name: Upload JUnit XML
+        # Unconditional: a failing smoke must still hand over the XML the count
+        # gate reads.
+        # actions/upload-artifact@v4.6.2
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kotlin-connect-smoke-junit
+          path: crates/spoke-connect/bindings/kotlin/build/test-results/test
+          if-no-files-found: error
+          retention-days: 5
+
   verify-version:
     name: verify-version
     runs-on: ubuntu-latest

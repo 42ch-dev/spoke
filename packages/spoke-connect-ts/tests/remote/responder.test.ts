@@ -253,6 +253,8 @@ function decodeEnvelope(bytes: EnvelopeBytes): unknown {
 async function startRawResponder(options: {
   ports?: BaselinePorts;
   manifest?: HostCapabilityManifest;
+  /** Responder serve budget + reverse-invoke waiter deadline, ms. */
+  invokeTimeoutMs?: number;
 } = {}): Promise<{
   responder: ConnectResponder;
   clientEnd: Transport;
@@ -275,6 +277,7 @@ async function startRawResponder(options: {
     allowlist: [peerIdClient],
     peerKeys: { [peerIdClient]: pubkeyClient },
     ports: options.ports ?? ToyWorldAdapter.withCommittedFixtures(),
+    invokeTimeoutMs: options.invokeTimeoutMs,
   });
   return {
     responder,
@@ -2234,4 +2237,578 @@ describe("ke remote", () => {
       pair.server.close();
     }
   });
+});
+
+/** A promise plus the externally driven settle handles for a parked provider. */
+function parkingGate(): {
+  promise: Promise<void>;
+  release: () => void;
+  fail: (error: unknown) => void;
+} {
+  let release!: () => void;
+  let fail!: (error: unknown) => void;
+  const promise = new Promise<void>((resolve, reject) => {
+    // Executor form: the project's TS lib target predates
+    // `Promise.withResolvers` (ES2024).
+    release = () => resolve();
+    fail = (error) => reject(error);
+  });
+  return { promise, release, fail };
+}
+
+/**
+ * Provider double for the serve-budget cases: `listKnowledgeEntries`,
+ * `compute` and `extract` record entry and park until the test releases (or
+ * fails) the gate, so a witness can prove the responder's own local serve
+ * budget bounded the wait while the dialer's budget stayed far longer. Every
+ * other method delegates; the optional/fork faces stay absent (baseline-only
+ * projection).
+ */
+interface ParkedProvider {
+  ports: BaselinePorts & Partial<RemoteExtractService>;
+  calls: string[];
+  release: () => void;
+  fail: (error: unknown) => void;
+}
+
+function parkedProvider(): ParkedProvider {
+  const full = ToyWorldAdapter.withCommittedFixtures();
+  const gate = parkingGate();
+  const calls: string[] = [];
+  const ports = {
+    ...asBaselineOnly(full),
+    listKnowledgeEntries: async (scope: Scope) => {
+      calls.push("listKnowledgeEntries");
+      await gate.promise;
+      return full.listKnowledgeEntries(scope);
+    },
+    compute: async (request: ComputeRequest) => {
+      calls.push("compute");
+      await gate.promise;
+      return full.compute(request);
+    },
+    extract: async (request: ExtractRequest) => {
+      calls.push("extract");
+      await gate.promise;
+      return spokeOk({ candidates: [], run: { run_id: request.run_id } });
+    },
+  };
+  return { ports, calls, release: gate.release, fail: gate.fail };
+}
+
+/**
+ * Inbound wire capture for the serve-wait witnesses: every frame the dialer
+ * receives, decoded, so the served response can be asserted instead of an
+ * elapsed-time proxy.
+ */
+function wireCapture(
+  frames: Record<string, unknown>[],
+): (transport: Transport) => Transport {
+  return (transport) => ({
+    send: (bytes) => transport.send(bytes),
+    recv: async () => {
+      const bytes = await transport.recv();
+      frames.push(decodeWire(bytes));
+      return bytes;
+    },
+    close: () => {
+      transport.close?.();
+    },
+  });
+}
+
+/** The captured inbound frames carrying `field` (`error` / `payload`). */
+function framesWith(
+  frames: Record<string, unknown>[],
+  field: string,
+): Record<string, unknown>[] {
+  return frames.filter((frame) => frame[field] !== undefined);
+}
+
+/**
+ * Outbound capture for the close-invalidation witnesses: every frame the
+ * RESPONDER attempts to send, decoded. The attempt is the observable — the
+ * loopback transport rejects a send once the connection is closed, so a
+ * delivered frame can no longer be captured on the other end.
+ */
+function sentCapture(
+  frames: Record<string, unknown>[],
+): (transport: Transport) => Transport {
+  return (transport) => ({
+    send: (bytes) => {
+      frames.push(decodeWire(bytes));
+      return transport.send(bytes);
+    },
+    recv: () => transport.recv(),
+    close: () => {
+      transport.close?.();
+    },
+  });
+}
+
+/** Bounded poll until the parked provider has recorded `method` entry. */
+async function untilParked(
+  parked: ParkedProvider,
+  method: string,
+): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!parked.calls.includes(method)) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `${method} never reached the parked provider (calls ${parked.calls.join(",")})`,
+      );
+    }
+    await delay(5);
+  }
+}
+
+/** Assert the served timeout projection on a captured wire response. */
+function expectServedTimeout(
+  frame: Record<string, unknown>,
+  budgetMs: number,
+): void {
+  expect(frame.error).toEqual({
+    code: SpokeRejectCode.INTERNAL_ERROR,
+    message: expect.stringContaining(
+      `serve wait exceeded the local budget of ${budgetMs}ms`,
+    ),
+    details: { kind: "timeout" },
+    extensions: {},
+  });
+}
+
+describe("serve timeout (local serve budget)", () => {
+  it(
+    "bounds a parked Scope port provider, answers one signed timeout and keeps the session usable",
+    async () => {
+      // The provider parks; the responder's own 25ms budget expires while the
+      // dialer's budget is far longer (2000ms), so the observed reject can
+      // only come from the serve-side bound.
+      const parked = parkedProvider();
+      const frames: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+        clientTransport: wireCapture(frames),
+      });
+      try {
+        const scope: Scope = { scope_id: "serve-timeout-scope" };
+        const result = await client.listKnowledgeEntries(scope);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(result.details?.kind).toBe("timeout");
+        expect(result.message).toContain(
+          "serve wait exceeded the local budget of 25ms",
+        );
+
+        expect(parked.calls).toEqual(["listKnowledgeEntries"]);
+        const errors = framesWith(frames, "error");
+        expect(errors).toHaveLength(1);
+        expectServedTimeout(errors[0]!, 25);
+
+        // A late settlement is discarded: releasing the parked provider after
+        // expiry produces no second response.
+        const payloads = framesWith(frames, "payload").length;
+        parked.release();
+        await delay(50);
+        expect(framesWith(frames, "error")).toHaveLength(1);
+        expect(framesWith(frames, "payload")).toHaveLength(payloads);
+
+        // Same session afterwards: the consumed inbound sequence is preserved.
+        expect(responder.state).toBe("Established");
+        expect(client.state).toBe("Established");
+        const followUp = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
+        expect(followUp.ok).toBe(true);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "bounds a parked optional-family provider",
+    async () => {
+      // Optional-family dispatch shares the same serve bound.
+      const parked = parkedProvider();
+      const frames: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        clientManifest: manifestWithCaps("client-serve-compute", [
+          "l2-computable",
+        ]),
+        responderManifest: manifestWithCaps("responder-serve-compute", [
+          "l2-computable",
+        ]),
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+        clientTransport: wireCapture(frames),
+      });
+      try {
+        const request: ComputeRequest = {
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5, cargo_tons: 37 },
+          settle: true,
+        };
+        const result = await client.compute(request);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(result.details?.kind).toBe("timeout");
+        expect(result.message).toContain(
+          "serve wait exceeded the local budget of 25ms",
+        );
+
+        expect(parked.calls).toEqual(["compute"]);
+        const errors = framesWith(frames, "error");
+        expect(errors).toHaveLength(1);
+        expectServedTimeout(errors[0]!, 25);
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "bounds a parked extract service and consumes the late rejection",
+    async () => {
+      // The whole extraction service (loader + extractor) is one bounded wait,
+      // and a late rejection is consumed: no unhandled rejection, no second
+      // response.
+      const parked = parkedProvider();
+      const frames: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        clientManifest: manifestWithCaps("client-serve-extract", [
+          CAPABILITY_KE_EXTRACTION,
+        ]),
+        responderManifest: manifestWithCaps("responder-serve-extract", [
+          CAPABILITY_KE_EXTRACTION,
+        ]),
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+        clientTransport: wireCapture(frames),
+      });
+      try {
+        const result = await client.extract(
+          sampleExtractRequest("run-serve-timeout"),
+        );
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(result.details?.kind).toBe("timeout");
+        expect(result.message).toContain(
+          "serve wait exceeded the local budget of 25ms",
+        );
+
+        expect(parked.calls).toEqual(["extract"]);
+        const errors = framesWith(frames, "error");
+        expect(errors).toHaveLength(1);
+        expectServedTimeout(errors[0]!, 25);
+
+        const payloads = framesWith(frames, "payload").length;
+        parked.fail(new Error("late provider rejection"));
+        await delay(50);
+        expect(framesWith(frames, "error")).toHaveLength(1);
+        expect(framesWith(frames, "payload")).toHaveLength(payloads);
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "zero budget answers the signed timeout before any provider call",
+    async () => {
+      const parked = parkedProvider();
+      const frames: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 0,
+        clientTimeoutMs: 2000,
+        clientTransport: wireCapture(frames),
+      });
+      try {
+        const result = await client.listKnowledgeEntries({
+          scope_id: "serve-timeout-zero",
+        });
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(result.details?.kind).toBe("timeout");
+        expect(result.message).toContain(
+          "serve wait exceeded the local budget of 0ms",
+        );
+
+        expect(parked.calls).toEqual([]);
+        const errors = framesWith(frames, "error");
+        expect(errors).toHaveLength(1);
+        expectServedTimeout(errors[0]!, 0);
+
+        // The bounded wait never closes the session: a further invoke on the
+        // same session is answered on the wire again.
+        expect(responder.state).toBe("Established");
+        const again = await client.getKnowledgeEntry(MIRA_ENTRY_ID);
+        expect(again.ok).toBe(false);
+        if (again.ok) return;
+        expect(again.details?.kind).toBe("timeout");
+        expect(parked.calls).toEqual([]);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "zero budget keeps gate, probe and ownership denials ahead of the bound",
+    async () => {
+      // `l5-fork` negotiated, `l2-computable` not: one dial covers the
+      // capability deny, the optional-face probe deny and the payload-
+      // dependent ownership deny — all of which run before the serve bound.
+      const parked = parkedProvider();
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        clientManifest: manifestWithCaps("client-serve-deny", ["l5-fork"]),
+        responderManifest: manifestWithCaps("responder-serve-deny", [
+          "l5-fork",
+        ]),
+        responderTimeoutMs: 0,
+        clientTimeoutMs: 2000,
+      });
+      try {
+        const compute = await client.compute({
+          session_id: "sess_tw_dawn_arrival",
+          entry_id: "kb_tw_harbor",
+          computable: { tide_level: 2.5 },
+          settle: true,
+        });
+        expect(compute).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("not authorized"),
+          details: { wire_code: "op_unsupported" },
+        });
+
+        const fork = await client.listForkTimelineEvents({
+          scope_id: "serve-timeout-probe",
+          fork_id: "fork_tw_storm_branch",
+        });
+        expect(fork).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining(
+            "requires optional port method listForkTimelineEvents",
+          ),
+          details: { wire_code: "op_unsupported" },
+        });
+
+        const owned = await client.listKnowledgeEntries({
+          scope_id: "serve-timeout-ownership",
+          viewpoint: "holder-a",
+        });
+        expect(owned).toEqual({
+          ok: false,
+          code: SpokeRejectCode.CAPABILITY_PORT_MISSING,
+          message: expect.stringContaining("requires capability ke-ownership"),
+          details: { wire_code: "op_unsupported" },
+        });
+
+        expect(parked.calls).toEqual([]);
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "zero budget answers the signed serve timeout for a malformed baseline port payload",
+    async () => {
+      // Face split (QC W-001): the Rust face decodes the D4 payload before
+      // the serve bound, so a malformed `port.*` payload keeps its
+      // `INVALID_INPUT` reject at any budget. The TS face has no D4 payload
+      // decode at all (`dispatchPortOp` is cast-based) and the helper's
+      // zero-budget early return precedes the provider thunk, so the same
+      // malformed input is answered by the signed serve timeout with zero
+      // provider calls. This witness pins the TS projection only; it does
+      // not claim TS baseline payload validation.
+      const baseline = asBaselineOnly(ToyWorldAdapter.withCommittedFixtures());
+      const calls: string[] = [];
+      const ports: BaselinePorts = {
+        ...baseline,
+        getKnowledgeEntry: async (entryId: string) => {
+          calls.push(`getKnowledgeEntry:${String(entryId)}`);
+          return baseline.getKnowledgeEntry(entryId);
+        },
+      };
+      const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+        await startRawResponder({ ports, invokeTimeoutMs: 0 });
+      try {
+        const { session_id: sessionId } = await rawHandshake(clientEnd, {
+          seed: seedClient,
+          manifest: toolManifest("test-client"),
+          pubkeyResponder,
+          peerIdResponder,
+        });
+        // A non-string `entry_id` is malformed for the D4 row the Rust face
+        // decodes before its bound.
+        const malformed = await signInvokeRequest(seedClient, {
+          session_id: sessionId,
+          sequence: 0,
+          request_id: "serve-timeout-malformed-baseline",
+          op: "port.knowledge.get",
+          payload: { entry_id: 7 },
+        });
+        await clientEnd.send(encodeEnvelope(malformed));
+        const response = decodeEnvelope(await clientEnd.recv()) as {
+          error?: {
+            code?: string;
+            message?: string;
+            details?: Record<string, unknown>;
+          };
+        };
+        expect(response.error?.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+        expect(response.error?.details?.kind).toBe("timeout");
+        expect(response.error?.message).toContain(
+          "serve wait exceeded the local budget of 0ms",
+        );
+        expect(calls).toEqual([]);
+        expect(responder.state).toBe("Established");
+      } finally {
+        responder.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "does not bound a provider call that completes inside the budget",
+    async () => {
+      const { responder, client, pair } = await dialWithResponder({
+        ports: asBaselineOnly(ToyWorldAdapter.withCommittedFixtures()),
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+      });
+      try {
+        const result = await client.listKnowledgeEntries({
+          scope_id: "toy-scope-001",
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(
+          result.value.some((entry) => entry.entry_id === MIRA_ENTRY_ID),
+        ).toBe(true);
+        expect(responder.state).toBe("Established");
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "answers nothing when the provider settles after the responder closed",
+    async () => {
+      // A close releases the session, so a provider that settles afterwards
+      // must not answer a late success or a late error. The wide 200ms budget
+      // keeps the parked provider's release well inside the wait, so this
+      // witness covers the closed-state check rather than the timer.
+      const parked = parkedProvider();
+      const sent: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 200,
+        clientTimeoutMs: 2000,
+        responderTransport: sentCapture(sent),
+      });
+      try {
+        const scope: Scope = { scope_id: "serve-close-settle" };
+        // The close fails the dialer's waiter (the session is gone); the
+        // witness asserts the responder's own send attempts instead.
+        void client.listKnowledgeEntries(scope).catch(() => undefined);
+        await untilParked(parked, "listKnowledgeEntries");
+        expect(parked.calls).toEqual(["listKnowledgeEntries"]);
+
+        responder.close();
+        const attemptedAtClose = sent.length;
+        parked.release();
+        await delay(50);
+
+        expect(responder.state).toBe("Closed");
+        expect(sent).toHaveLength(attemptedAtClose);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "disarms the serve budget when the responder closes mid-wait",
+    async () => {
+      // The armed serve timer must not outlive the close: past the 25ms
+      // budget a surviving timer would have answered the signed timeout, so
+      // the absence of any send attempt after the budget elapsed is the
+      // disarm witness. A provider settling later is discarded too.
+      const parked = parkedProvider();
+      const sent: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+        responderTransport: sentCapture(sent),
+      });
+      try {
+        const scope: Scope = { scope_id: "serve-close-disarm" };
+        void client.listKnowledgeEntries(scope).catch(() => undefined);
+        await untilParked(parked, "listKnowledgeEntries");
+
+        responder.close();
+        const attemptedAtClose = sent.length;
+        await delay(60);
+        expect(sent).toHaveLength(attemptedAtClose);
+
+        parked.release();
+        await delay(50);
+        expect(responder.state).toBe("Closed");
+        expect(sent).toHaveLength(attemptedAtClose);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
 });

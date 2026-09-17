@@ -35,7 +35,7 @@ use minimal_responder::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -57,8 +57,8 @@ use spoke_connect::remote::{
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
-    orchestrate_check, orchestrate_extract, orchestrate_upsert, spoke_ok, spoke_reject,
-    BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
+    orchestrate_check, orchestrate_extract, orchestrate_upsert, parse_tool_capability_id, spoke_ok,
+    spoke_reject, BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
     ExtractionResult, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
     RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
@@ -72,6 +72,7 @@ use spoke_schemas::{
     HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
     TimelineEvent, UpsertRequest,
 };
+use tokio::sync::Notify;
 
 /// Compare two `SpokeResult`s structurally (generated types do not derive
 /// `PartialEq`).
@@ -2916,6 +2917,10 @@ struct ResponderDialOptions {
     responder_manifest: Option<HostCapabilityManifest>,
     ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
     responder_timeout_ms: Option<u64>,
+    /// The dialer's own invoke budget, ms — the serve-wait cases keep it far
+    /// longer than the responder's local serve budget so a served timeout is
+    /// never confused with the caller's timer.
+    client_timeout_ms: Option<u64>,
     responder_transport: Option<TransportWrap>,
     client_transport: Option<TransportWrap>,
 }
@@ -2961,7 +2966,7 @@ async fn dial_with_responder(
             .unwrap_or_else(|| tool_manifest("test-client")),
         remote_pubkey: pubkey_host(),
         allowlist: vec![peer_id_responder.clone()],
-        invoke_timeout_ms: None,
+        invoke_timeout_ms: options.client_timeout_ms,
         capability_token: None,
     })
     .await
@@ -3563,19 +3568,118 @@ async fn responder_answers_the_error_branch_when_a_served_handler_panics_without
     responder.close();
 }
 
+/// The library grammar reject for `capability_id` — the reject the
+/// responder-side registration must pass through unchanged.
+fn grammar_reject(capability_id: &str) -> SpokeReject {
+    match parse_tool_capability_id(capability_id) {
+        SpokeResult::Reject(reject) => reject,
+        SpokeResult::Ok(_) => panic!("{capability_id:?} must fail the tools. grammar"),
+    }
+}
+
+/// A handler that records its arguments and answers `{ "handler": "second" }`
+/// — distinguishable from [`add_handler`] so a last-wins replacement is
+/// observable on the wire value, not only on call counts.
+fn replacing_handler(calls: Arc<Mutex<Vec<Value>>>) -> ToolHandler {
+    Arc::new(move |args: Value| {
+        let calls = Arc::clone(&calls);
+        Box::pin(async move {
+            calls.lock().expect("calls lock").push(args);
+            spoke_ok(json!({ "handler": "second" }))
+        })
+    })
+}
+
 #[tokio::test]
-async fn responder_rejects_register_tool_handler_for_a_non_tool_capability_id() {
+async fn responder_registration_returns_the_library_result_and_serves_the_handler() {
+    let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        responder.register_tool_handler(
-            "spoke-baseline",
+
+    // A valid id answers `SpokeResult::Ok(())` — and only after the
+    // insertion, so the very next invoke is served by that handler.
+    match responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls))) {
+        SpokeResult::Ok(()) => {}
+        SpokeResult::Reject(reject) => panic!("valid grammar must register: {reject:?}"),
+    }
+    match client.invoke_tool("tools.math.add", json!({ "a": 20, "b": 22 })).await {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
+        SpokeResult::Reject(reject) => panic!("registered handler must serve: {reject:?}"),
+    }
+    assert_eq!(
+        calls.lock().expect("calls lock").as_slice(),
+        &[json!({ "a": 20, "b": 22 })]
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_registration_rejects_invalid_grammar_without_touching_the_registry() {
+    let seeded_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
+    assert!(
+        responder
+            .register_tool_handler("tools.math.add", add_handler(Arc::clone(&seeded_calls)))
+            .is_ok()
+    );
+
+    // Neither a non-`tools.` id nor a malformed `tools.` id panics: each
+    // returns the library grammar reject verbatim, with zero side effect.
+    for invalid in ["spoke-baseline", "tools.Math.add"] {
+        let rejected = responder.register_tool_handler(
+            invalid,
             Arc::new(|_args: Value| Box::pin(async move { spoke_ok(Value::Null) })),
         );
-    }));
+        match rejected {
+            SpokeResult::Ok(()) => panic!("invalid grammar {invalid:?} must not register"),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                assert_eq!(reject, grammar_reject(invalid));
+            }
+        }
+    }
+
+    // The registry survived the rejected attempts: the registration that
+    // preceded them still serves, exactly once.
+    match client.invoke_tool("tools.math.add", json!({ "a": 40, "b": 2 })).await {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
+        SpokeResult::Reject(reject) => panic!("registry must survive a rejected registration: {reject:?}"),
+    }
+    assert_eq!(seeded_calls.lock().expect("calls lock").len(), 1);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_registration_last_wins_replaces_the_registered_handler() {
+    let first_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let second_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
+
     assert!(
-        result.is_err(),
-        "non-tool register_tool_handler must panic (grammar gate)"
+        responder
+            .register_tool_handler("tools.math.add", add_handler(Arc::clone(&first_calls)))
+            .is_ok()
     );
+    assert!(
+        responder
+            .register_tool_handler("tools.math.add", replacing_handler(Arc::clone(&second_calls)))
+            .is_ok()
+    );
+
+    match client.invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 })).await {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "handler": "second" })),
+        SpokeResult::Reject(reject) => panic!("the replacement handler must serve: {reject:?}"),
+    }
+    assert_eq!(second_calls.lock().expect("calls lock").len(), 1);
+    assert!(
+        first_calls.lock().expect("calls lock").is_empty(),
+        "the replaced handler must not be reachable"
+    );
+
     client.close();
     responder.close();
 }
@@ -4604,6 +4708,10 @@ async fn responder_serves_computable_and_probe_denies_fork_on_a_mixed_composite(
 /// and must never appear in any wire envelope in either direction.
 const LOADER_CANARY: &str = "spoke-ke-remote-loader-canary-7f3a91";
 
+/// How long each host-local async stage parks on a Tokio timer (B5: the
+/// bridge witness must use a real timer, not an immediately-ready future).
+const HOST_STAGE_SLEEP: Duration = Duration::from_millis(5);
+
 /// How the test host's extraction behaves.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ExtractBehavior {
@@ -4615,6 +4723,12 @@ enum ExtractBehavior {
     Reject,
     /// The `ExtractResponse` error branch returned as a service success.
     ErrorBranch,
+    /// [`Batch`](Self::Batch) whose loader and extractor each do real
+    /// Tokio-aware async work (yield + timer) inside the blocking worker.
+    AsyncStages,
+    /// The host's loader panics inside the blocking worker, so the bridge
+    /// sees a `JoinError`.
+    WorkerPanic,
 }
 
 #[derive(Default)]
@@ -4622,6 +4736,10 @@ struct ExtractHostState {
     loads: AtomicUsize,
     runs: AtomicUsize,
     canary_consumed: AtomicBool,
+    /// Async stages whose Tokio timer actually elapsed.
+    timed_stages: AtomicUsize,
+    /// Threads that ran the async stages, in arrival order.
+    stage_threads: Mutex<Vec<std::thread::ThreadId>>,
 }
 
 /// Host-side `extract` service double: a real host-local loader, a real
@@ -4653,12 +4771,55 @@ impl CanonicalExtractHost {
     fn canary_consumed(&self) -> bool {
         self.state.canary_consumed.load(Ordering::SeqCst)
     }
+
+    /// Async stages whose Tokio timer actually elapsed.
+    fn timed_stages(&self) -> usize {
+        self.state.timed_stages.load(Ordering::SeqCst)
+    }
+
+    /// Threads that ran the async stages, in arrival order.
+    fn stage_threads(&self) -> Vec<std::thread::ThreadId> {
+        self.state
+            .stage_threads
+            .lock()
+            .expect("stage thread lock")
+            .clone()
+    }
+}
+
+/// One host-local async stage: a yield, a Tokio timer that must actually
+/// elapse, and a reach for the runtime handle. Both stages of one extraction
+/// run here, inside the bridge's blocking worker.
+async fn host_async_stage(state: &ExtractHostState) {
+    // `Handle::current()` panics outside a runtime context, so reaching the
+    // next line is itself part of the proof: the worker drives the
+    // orchestration under the active runtime, not on a bare executor.
+    let _handle = tokio::runtime::Handle::current();
+    state
+        .stage_threads
+        .lock()
+        .expect("stage thread lock")
+        .push(std::thread::current().id());
+    tokio::task::yield_now().await;
+    let started = Instant::now();
+    tokio::time::sleep(HOST_STAGE_SLEEP).await;
+    assert!(
+        started.elapsed() >= HOST_STAGE_SLEEP,
+        "the host stage's Tokio timer must actually elapse"
+    );
+    state.timed_stages.fetch_add(1, Ordering::SeqCst);
 }
 
 #[async_trait]
 impl ExtractionPort for CanonicalExtractHost {
     async fn load_extraction_input(&self, _request: &ExtractRequest) -> SpokeResult<Value> {
         self.state.loads.fetch_add(1, Ordering::SeqCst);
+        if self.behavior == ExtractBehavior::WorkerPanic {
+            panic!("the canonical extract host's loader failed");
+        }
+        if self.behavior == ExtractBehavior::AsyncStages {
+            host_async_stage(&self.state).await;
+        }
         spoke_ok(json!({
             "canary": LOADER_CANARY,
             "manuscript": "host-local source content that must never reach the wire",
@@ -4666,6 +4827,15 @@ impl ExtractionPort for CanonicalExtractHost {
     }
 }
 
+/// The host's `extract` service face (B3). The connect face is `Send +
+/// Sync`, while `orchestrate_extract` takes a plain `&dyn ExtractionPort` and
+/// returns a `!Send` future, so the host drains its own orchestration on a
+/// blocking worker: an owned `Send + Sync + 'static` host clone plus a clone
+/// of the active multi-thread runtime handle cross the boundary, and the
+/// `!Send` future is built and driven inside that closure — never on an
+/// async worker, never across threads. A worker `JoinError` answers the
+/// existing `INTERNAL_ERROR` row. The responder's local serve budget bounds
+/// only the *wait* for this call; it never terminates the worker.
 #[async_trait]
 impl RemoteExtractService for CanonicalExtractHost {
     async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
@@ -4676,15 +4846,13 @@ impl RemoteExtractService for CanonicalExtractHost {
         let host = self.clone();
         let behavior = self.behavior;
         let state = Arc::clone(&self.state);
-        // `orchestrate_extract` takes `&dyn ExtractionPort` (a plain trait
-        // object), so its returned future is `!Send`; the connect service
-        // face is `Send`. The host drives the real orchestration on a
-        // blocking worker — the same place a host's loader callback belongs.
+        let handle = tokio::runtime::Handle::current();
         let joined = tokio::task::spawn_blocking(move || {
-            futures::executor::block_on(orchestrate_extract(
-                &host,
-                request,
-                move |input: ExtractRunInput| async move {
+            handle.block_on(async move {
+                orchestrate_extract(&host, request, move |input: ExtractRunInput| async move {
+                    if behavior == ExtractBehavior::AsyncStages {
+                        host_async_stage(&state).await;
+                    }
                     state.canary_consumed.store(
                         input.input.get("canary").and_then(Value::as_str) == Some(LOADER_CANARY),
                         Ordering::SeqCst,
@@ -4714,8 +4882,9 @@ impl RemoteExtractService for CanonicalExtractHost {
                         method: Some("canonical".to_owned()),
                         coverage_hint: None,
                     })
-                },
-            ))
+                })
+                .await
+            })
         })
         .await;
         match joined {
@@ -4942,6 +5111,18 @@ struct KeRemoteDial {
     responder_capabilities: Vec<&'static str>,
     extract: Option<CanonicalExtractHost>,
     baseline: Option<Arc<RecordingScopePorts>>,
+    /// Full ports-face override for the serve-wait scenarios, which compose
+    /// their own provider + optional faces.
+    ports: Option<Arc<dyn RemoteServePorts + Send + Sync>>,
+    /// Responder local serve-wait budget, ms (default: the responder default).
+    serve_budget_ms: Option<u64>,
+    /// Dialer invoke budget, ms (the serve-wait scenarios keep it far longer
+    /// than `serve_budget_ms`).
+    client_timeout_ms: Option<u64>,
+    /// Responder-side outbound capture. The close witnesses observe the
+    /// responder's own send ATTEMPT: the loopback rejects a send once the
+    /// connection is closed, so a delivered frame is no longer observable.
+    responder_sent: Option<CapturedWire>,
 }
 
 /// Loopback pair for the KE remote scenarios: the productized responder
@@ -4956,14 +5137,20 @@ async fn ke_remote_dial(
     CapturedWire,
     CapturedWire,
 ) {
-    let baseline: Arc<dyn BaselinePorts + Send + Sync> = match options.baseline {
-        Some(recording) => recording,
-        None => Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = match options.ports {
+        Some(ports) => ports,
+        None => {
+            let baseline: Arc<dyn BaselinePorts + Send + Sync> = match options.baseline {
+                Some(recording) => recording,
+                None => Arc::new(ToyWorldAdapter::with_committed_fixtures()),
+            };
+            let mut ports = RemoteServePortsComposite::new(baseline, None, None);
+            if let Some(extract) = options.extract {
+                ports = ports.with_extract(Arc::new(extract));
+            }
+            Arc::new(ports)
+        }
     };
-    let mut ports = RemoteServePortsComposite::new(baseline, None, None);
-    if let Some(extract) = options.extract {
-        ports = ports.with_extract(Arc::new(extract));
-    }
     let sent: CapturedWire = Arc::new(Mutex::new(Vec::new()));
     let received: CapturedWire = Arc::new(Mutex::new(Vec::new()));
     let sent_wrap = Arc::clone(&sent);
@@ -4977,7 +5164,20 @@ async fn ke_remote_dial(
             "test-responder",
             &options.responder_capabilities,
         )),
-        ports: Some(Arc::new(ports)),
+        ports: Some(ports),
+        responder_timeout_ms: options.serve_budget_ms,
+        client_timeout_ms: options.client_timeout_ms,
+        responder_transport: options.responder_sent.map(|sent| {
+            let received: CapturedWire = Arc::new(Mutex::new(Vec::new()));
+            let wrap: TransportWrap = Box::new(move |inner| {
+                Arc::new(CapturingTransport {
+                    inner,
+                    sent: Arc::clone(&sent),
+                    received: Arc::clone(&received),
+                })
+            });
+            wrap
+        }),
         client_transport: Some(Box::new(move |inner| {
             Arc::new(CapturingTransport {
                 inner,
@@ -4998,6 +5198,17 @@ async fn start_raw_ke_responder(
     ports: Arc<dyn RemoteServePorts + Send + Sync>,
     capabilities: &[&str],
 ) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
+    start_raw_ke_responder_with_budget(ports, capabilities, None).await
+}
+
+/// [`start_raw_ke_responder`] with an explicit local serve-wait budget, so a
+/// serve-bound witness can drive a raw request the typed adapter cannot
+/// express against a zero/short budget.
+async fn start_raw_ke_responder_with_budget(
+    ports: Arc<dyn RemoteServePorts + Send + Sync>,
+    capabilities: &[&str],
+    serve_budget_ms: Option<u64>,
+) -> (Arc<ConnectResponder>, LoopbackTransportPair, [u8; 32]) {
     let pair = loopback_transport_pair();
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
     let responder = connect_responder(ConnectResponderOptions {
@@ -5009,7 +5220,7 @@ async fn start_raw_ke_responder(
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
         ports: Some(ports),
-        invoke_timeout_ms: None,
+        invoke_timeout_ms: serve_budget_ms,
     })
     .await;
     (responder, pair, seed_client())
@@ -5302,6 +5513,112 @@ async fn ke_remote_extract_normalizes_the_response_error_branch_to_the_reject_pa
 
     client.close();
     responder.close();
+}
+
+// ── B3: `Send`-safe host bridge recipe (worker + runtime handle) ──────────
+
+/// The B3 recipe driven for real: `RemoteExtractService::extract` runs from a
+/// `tokio::spawn`ed task with an owned service handle and an owned request
+/// (the face is `Send`), while the `!Send` orchestration future is built and
+/// driven inside the host's blocking worker. The host's loader and extractor
+/// do real Tokio-aware async work there — a yield, a timer that must actually
+/// elapse, and a runtime-handle reach.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extract_send_bridge_drives_a_spawned_task_with_async_host_stages() {
+    let caller_thread = std::thread::current().id();
+    let host = CanonicalExtractHost::new(ExtractBehavior::AsyncStages);
+    let service: Arc<dyn RemoteExtractService> = Arc::new(host.clone());
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-extract-send-bridge",
+        "sources": [
+            { "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} },
+            { "schema_version": 1, "source_id": "manuscript/ch2", "extensions": {} },
+        ],
+    }))
+    .expect("valid ExtractRequest");
+
+    let joined = tokio::spawn(async move { service.extract(request).await }).await;
+    let result = match joined {
+        Ok(result) => result,
+        Err(error) => panic!("the bridge must not fail its join: {error}"),
+    };
+
+    match result {
+        SpokeResult::Ok(ExtractResponse::Variant0 { candidates, run, .. }) => {
+            // Correlation: the run id crosses the bridge verbatim.
+            assert_eq!(run.run_id.as_str(), "run-extract-send-bridge");
+            assert_eq!(candidates.len(), 2);
+            for candidate in &candidates {
+                assert_eq!(candidate.status.as_str(), "provisional");
+            }
+        }
+        SpokeResult::Ok(ExtractResponse::Variant1 { error, .. }) => {
+            panic!("the bridged extract must succeed: {}", error.message)
+        }
+        SpokeResult::Reject(reject) => panic!("the bridged extract must succeed: {reject:?}"),
+    }
+
+    // Both host stages ran once, the extractor consumed the loaded value, and
+    // each stage's Tokio timer actually elapsed inside the worker.
+    assert_eq!(host.calls(), (1, 1));
+    assert!(
+        host.canary_consumed(),
+        "the extractor must consume the loaded value on the serving host"
+    );
+    assert_eq!(
+        host.timed_stages(),
+        2,
+        "the async loader and the async extractor both awaited a Tokio timer"
+    );
+    // Ownership: both stages ran on the one blocking worker, never on the
+    // async caller's thread.
+    let stage_threads = host.stage_threads();
+    assert_eq!(stage_threads.len(), 2);
+    assert_eq!(
+        stage_threads[0], stage_threads[1],
+        "both stages run on the one blocking worker"
+    );
+    assert_ne!(
+        stage_threads[0], caller_thread,
+        "the host stages run on the worker, not on the async caller"
+    );
+}
+
+/// The recipe's other outcome: a worker that panics or is cancelled produces
+/// a `JoinError`, and the service face answers the existing `INTERNAL_ERROR`
+/// row — never a silent success, never a panic across the service boundary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extract_send_bridge_maps_a_worker_join_error_to_internal_error() {
+    let host = CanonicalExtractHost::new(ExtractBehavior::WorkerPanic);
+    let service: Arc<dyn RemoteExtractService> = Arc::new(host.clone());
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-extract-send-bridge-panic",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    let joined = tokio::spawn(async move { service.extract(request).await }).await;
+    let result = match joined {
+        Ok(result) => result,
+        Err(error) => panic!("the worker's failure is mapped, not re-joined: {error}"),
+    };
+
+    match result {
+        SpokeResult::Ok(_) => panic!("a panicked host worker must not answer success"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert!(
+                reject.message.contains("extract host task failed"),
+                "the JoinError mapping answers the INTERNAL_ERROR row: {}",
+                reject.message
+            );
+        }
+    }
+    assert_eq!(
+        host.calls(),
+        (1, 1),
+        "the loader panicked after the service was entered"
+    );
 }
 
 #[tokio::test]
@@ -5750,5 +6067,932 @@ async fn ke_remote_extract_decodes_the_request_after_the_provider_probe() {
             .contains("no extract service configured"),
         "the probe deny must name the missing service: {absent}"
     );
+    responder.close();
+}
+
+// ── serve-side timeout boundary (B1/B2) ──────────────────────────────────
+
+/// Provider fixture for the serve-wait witnesses: the blocking methods record
+/// entry, park until the test releases them and hold a [`ParkProbe`], so a
+/// witness can prove the local budget bounded the wait and dropped the parked
+/// provider future instead of letting it run to completion. Every other
+/// method delegates to the committed toy-world adapter.
+struct ParkingServePorts {
+    inner: ToyWorldAdapter,
+    calls: Arc<Mutex<Vec<String>>>,
+    release: Arc<Notify>,
+    parked: Arc<AtomicUsize>,
+    released: Arc<AtomicUsize>,
+    dropped: Arc<AtomicUsize>,
+}
+
+impl ParkingServePorts {
+    fn new() -> Self {
+        Self {
+            inner: ToyWorldAdapter::with_committed_fixtures(),
+            calls: Arc::new(Mutex::new(Vec::new())),
+            release: Arc::new(Notify::new()),
+            parked: Arc::new(AtomicUsize::new(0)),
+            released: Arc::new(AtomicUsize::new(0)),
+            dropped: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// The provider methods entered, in order (one entry = one provider call).
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().expect("calls lock").clone()
+    }
+
+    /// Release every parked provider call.
+    fn release(&self) {
+        self.release.notify_waiters();
+    }
+
+    fn parked(&self) -> usize {
+        self.parked.load(Ordering::SeqCst)
+    }
+
+    /// Parked calls that ran past the release gate (a bounded-away call stays
+    /// at 0).
+    fn released(&self) -> usize {
+        self.released.load(Ordering::SeqCst)
+    }
+
+    /// Parked provider futures the serve wait dropped.
+    fn dropped(&self) -> usize {
+        self.dropped.load(Ordering::SeqCst)
+    }
+
+    /// Record entry, park until `release`, then record the release. The
+    /// [`ParkProbe`] marks the future's drop: a serve-budget expiry drops the
+    /// parked future, so `released` stays 0 while `dropped` rises.
+    async fn park(&self, method: &str) {
+        self.calls.lock().expect("calls lock").push(method.to_owned());
+        self.parked.fetch_add(1, Ordering::SeqCst);
+        let _probe = ParkProbe(Arc::clone(&self.dropped));
+        self.release.notified().await;
+        self.released.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Counts the drops of a parked provider call (the B2 bounded-wait model: the
+/// timed-out future is dropped, never left running).
+struct ParkProbe(Arc<AtomicUsize>);
+
+impl Drop for ParkProbe {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Bounded poll until the parking provider has recorded `count` entries, so a
+/// close witness can close the session while the provider call is in flight.
+async fn until_parked(ports: &ParkingServePorts, count: usize) {
+    for _ in 0..200 {
+        if ports.parked() >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the parking provider never recorded {count} entries");
+}
+
+/// The responder ports face for the serve-wait witnesses: the baseline,
+/// l2-computable and `extract` faces are all served by the parking provider.
+fn serve_wait_ports(ports: &Arc<ParkingServePorts>) -> Arc<dyn RemoteServePorts + Send + Sync> {
+    Arc::new(
+        RemoteServePortsComposite::new(ports.clone(), Some(ports.clone()), None)
+            .with_extract(ports.clone()),
+    )
+}
+
+/// Responder-end transport for the close-race witness. `recv` counts entry and
+/// `send` is captured, so the witness can pin the ordering it claims and prove
+/// a closed responder answers nothing. `close` is the [`Transport`] trait's
+/// documented no-op default: an envelope already in flight when the responder
+/// closes still reaches the serve loop, exactly as a real transport's parked
+/// `recv` can hand back an envelope that arrived concurrently with the close.
+struct CloseRaceTransport {
+    inner: Arc<dyn Transport>,
+    sent: CapturedWire,
+    recv_entries: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Transport for CloseRaceTransport {
+    async fn send(&self, envelope: &[u8]) -> Result<(), TransportError> {
+        self.sent.lock().expect("sent lock").push(envelope.to_vec());
+        self.inner.send(envelope).await
+    }
+
+    async fn recv(&self) -> Result<Vec<u8>, TransportError> {
+        self.recv_entries.fetch_add(1, Ordering::SeqCst);
+        self.inner.recv().await
+    }
+}
+
+/// Loopback for the close-race witness: the responder end serves over
+/// [`CloseRaceTransport`] while the client end stays a plain loopback, so the
+/// witness delivers its own signed envelopes and controls exactly when they
+/// reach the serve loop.
+struct CloseRaceDial {
+    responder: Arc<ConnectResponder>,
+    pair: LoopbackTransportPair,
+    sent: CapturedWire,
+    recv_entries: Arc<AtomicUsize>,
+    seed: [u8; 32],
+}
+
+/// Dial a responder over [`CloseRaceTransport`] with the parking ports face
+/// and a 25ms local serve budget — short enough that a serve wait that outlived
+/// the close would be observable as a bounded-away provider call.
+async fn close_race_dial(ports: Arc<dyn RemoteServePorts + Send + Sync>) -> CloseRaceDial {
+    let pair = loopback_transport_pair();
+    let sent: CapturedWire = Arc::new(Mutex::new(Vec::new()));
+    let recv_entries = Arc::new(AtomicUsize::new(0));
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(CloseRaceTransport {
+            inner: Arc::new(pair.server.clone()),
+            sent: Arc::clone(&sent),
+            recv_entries: Arc::clone(&recv_entries),
+        }),
+        identity: RemoteIdentity {
+            seed: seed_host(),
+        },
+        manifest: ke_remote_manifest("test-responder", &[]),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: Some(ports),
+        invoke_timeout_ms: Some(25),
+    })
+    .await;
+    CloseRaceDial {
+        responder,
+        pair,
+        sent,
+        recv_entries,
+        seed: seed_client(),
+    }
+}
+
+/// Bounded poll until the responder end has entered `recv` `count` times. The
+/// close-race witness uses it to prove the serve loop sits inside a `recv` that
+/// already passed its state check — the handshake's own `recv` precedes it.
+async fn until_recv_entries(entries: &Arc<AtomicUsize>, count: usize) {
+    for _ in 0..200 {
+        if entries.load(Ordering::SeqCst) >= count {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the responder end never entered recv {count} times");
+}
+
+/// The parking provider's recorded entries over a bounded window: the
+/// close-race witness returns them on the first entry (a dispatch armed after
+/// the close) and otherwise proves no wait was armed at all.
+async fn parks_within(ports: &ParkingServePorts, window: Duration) -> Vec<String> {
+    let deadline = std::time::Instant::now() + window;
+    loop {
+        let calls = ports.calls();
+        if !calls.is_empty() || std::time::Instant::now() >= deadline {
+            return calls;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[async_trait]
+impl KnowledgeEntryPort for ParkingServePorts {
+    async fn get_knowledge_entry(&self, entry_id: &str) -> SpokeResult<KnowledgeEntry> {
+        self.inner.get_knowledge_entry(entry_id).await
+    }
+
+    async fn put_knowledge_entry(
+        &self,
+        entry: KnowledgeEntry,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<KnowledgeEntry> {
+        self.inner
+            .put_knowledge_entry(entry, expected_base_revision)
+            .await
+    }
+}
+
+#[async_trait]
+impl RelationPort for ParkingServePorts {
+    async fn get_relation(&self, relation_id: &str) -> SpokeResult<Relation> {
+        self.inner.get_relation(relation_id).await
+    }
+
+    async fn put_relation(
+        &self,
+        relation: Relation,
+        expected_base_revision: Option<u64>,
+    ) -> SpokeResult<Relation> {
+        self.inner
+            .put_relation(relation, expected_base_revision)
+            .await
+    }
+}
+
+#[async_trait]
+impl ScopeQueryPort for ParkingServePorts {
+    async fn list_knowledge_entries(&self, scope: &Scope) -> SpokeResult<Vec<KnowledgeEntry>> {
+        self.park("list_knowledge_entries").await;
+        self.inner.list_knowledge_entries(scope).await
+    }
+
+    async fn list_timeline_events(&self, scope: &Scope) -> SpokeResult<Vec<TimelineEvent>> {
+        self.inner.list_timeline_events(scope).await
+    }
+}
+
+#[async_trait]
+impl FindingPort for ParkingServePorts {
+    async fn put_findings(&self, findings: Vec<Finding>) -> SpokeResult<Vec<Finding>> {
+        self.inner.put_findings(findings).await
+    }
+}
+
+#[async_trait]
+impl RuleQueryPort for ParkingServePorts {
+    async fn list_rules(&self, rule_refs: &[String]) -> SpokeResult<Vec<Rule>> {
+        self.inner.list_rules(rule_refs).await
+    }
+}
+
+#[async_trait]
+impl HostManifestPort for ParkingServePorts {
+    async fn get_host_capability_manifest(&self) -> SpokeResult<HostCapabilityManifest> {
+        self.inner.get_host_capability_manifest().await
+    }
+
+    async fn list_peer_host_capability_manifests(
+        &self,
+    ) -> SpokeResult<Vec<HostCapabilityManifest>> {
+        self.inner.list_peer_host_capability_manifests().await
+    }
+}
+
+#[async_trait]
+impl ComputablePort for ParkingServePorts {
+    async fn project(&self, request: ProjectRequest) -> SpokeResult<ProjectResponse> {
+        self.inner.project(request).await
+    }
+
+    async fn compute(&self, request: ComputeRequest) -> SpokeResult<ComputeResponse> {
+        self.park("compute").await;
+        self.inner.compute(request).await
+    }
+}
+
+#[async_trait]
+impl RemoteExtractService for ParkingServePorts {
+    async fn extract(&self, _request: ExtractRequest) -> SpokeResult<ExtractResponse> {
+        self.park("extract").await;
+        // A completion the serve wait already bounded away must never be
+        // served — a late second response would surface this marker.
+        spoke_reject(
+            SpokeRejectCode::InternalError,
+            "a completion that outlived the serve budget must never be served",
+            None,
+        )
+    }
+}
+
+/// The `details.kind` of a reject, when present.
+fn reject_detail_kind(reject: &SpokeReject) -> Option<&str> {
+    reject
+        .details
+        .as_ref()
+        .and_then(|details| details.get("kind"))
+        .and_then(Value::as_str)
+}
+
+/// The `details.wire_code` of a reject, when present.
+fn reject_wire_code(reject: &SpokeReject) -> Option<&str> {
+    reject
+        .details
+        .as_ref()
+        .and_then(|details| details.get("wire_code"))
+        .and_then(Value::as_str)
+}
+
+/// The inbound envelopes carrying `field` — the serve-response accounting
+/// witness (exactly one signed timeout response, never a late second one).
+fn captured_frames_with(envelopes: &CapturedWire, field: &str) -> Vec<Value> {
+    envelopes
+        .lock()
+        .expect("capture lock")
+        .iter()
+        .filter_map(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+        .filter(|doc| doc.get(field).is_some())
+        .collect()
+}
+
+/// Assert the served B2 timeout projection on a captured wire response.
+fn assert_served_timeout_frame(frame: &Value, budget_ms: u64) {
+    assert_eq!(
+        frame["error"]["code"], "INTERNAL_ERROR",
+        "the served expiry is the existing application-reject map: {frame}"
+    );
+    assert_eq!(
+        frame["error"]["details"]["kind"], "timeout",
+        "the served expiry carries the timeout kind: {frame}"
+    );
+    assert!(
+        frame["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(&format!("serve wait exceeded the local budget of {budget_ms}ms")),
+        "the served expiry must name the responder's own budget (never the dialer's): {frame}"
+    );
+}
+
+#[tokio::test]
+async fn serve_timeout_bounds_a_parked_scope_port_and_answers_one_signed_timeout() {
+    // The provider parks; the responder's own 25ms local budget expires while
+    // the dialer's budget is far longer (2000ms), so the observed reject can
+    // only come from the serve-side bound.
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, client, sent, received) = ke_remote_dial(KeRemoteDial {
+        ports: Some(serve_wait_ports(&ports)),
+        serve_budget_ms: Some(25),
+        client_timeout_ms: Some(2000),
+        ..KeRemoteDial::default()
+    })
+    .await;
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "serve-timeout-scope" })).expect("valid Scope");
+
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(_) => panic!("a parked provider must hit the local serve budget"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert_eq!(reject_detail_kind(&reject), Some("timeout"));
+            assert!(
+                reject
+                    .message
+                    .contains("serve wait exceeded the local budget of 25ms"),
+                "the reject is the responder's own budget, not the caller's timer: {}",
+                reject.message
+            );
+        }
+    }
+
+    // The dialer never pre-gates, and the provider ran exactly once.
+    assert!(
+        captured_request_ops(&sent)
+            .iter()
+            .any(|op| op == "port.scope.list_knowledge_entries"),
+        "the invoke must reach the wire"
+    );
+    assert_eq!(ports.calls(), vec!["list_knowledge_entries"]);
+    assert_eq!(ports.parked(), 1);
+    assert_eq!(
+        ports.released(),
+        0,
+        "the parked provider call must not run past the serve wait"
+    );
+    assert_eq!(
+        ports.dropped(),
+        1,
+        "the serve wait drops the timed-out provider future"
+    );
+
+    // Exactly one signed timeout response reached the wire.
+    let errors = captured_frames_with(&received, "error");
+    assert_eq!(errors.len(), 1, "exactly one error response: {errors:?}");
+    assert_served_timeout_frame(&errors[0], 25);
+
+    // A late completion is discarded: releasing the parked provider after
+    // expiry produces no second response, and the dropped future never
+    // observes the release.
+    let payloads_before = captured_frames_with(&received, "payload").len();
+    ports.release();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(captured_frames_with(&received, "error").len(), 1);
+    assert_eq!(
+        captured_frames_with(&received, "payload").len(),
+        payloads_before
+    );
+    assert_eq!(ports.released(), 0);
+
+    // The session stayed Established and the consumed inbound sequence is
+    // preserved: the next invoke on the same session is served normally.
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    assert_eq!(client.state(), RemoteAdapterState::Established);
+    match client.get_knowledge_entry("kb_tw_mira").await {
+        SpokeResult::Ok(entry) => assert_eq!(entry.entry_id.as_str(), "kb_tw_mira"),
+        SpokeResult::Reject(reject) => panic!("same-session serving must stay usable: {reject:?}"),
+    }
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_bounds_a_parked_optional_family_provider() {
+    // Optional-family dispatch shares the same serve bound (one boundary
+    // covers the method family).
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["l2-computable"],
+        responder_capabilities: vec!["l2-computable"],
+        ports: Some(serve_wait_ports(&ports)),
+        serve_budget_ms: Some(25),
+        client_timeout_ms: Some(2000),
+        ..KeRemoteDial::default()
+    })
+    .await;
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": { "tide_level": 2.5 },
+        "settle": true,
+    }))
+    .expect("valid ComputeRequest");
+
+    match client.compute(request).await {
+        SpokeResult::Ok(_) => panic!("a parked optional-family provider must hit the serve budget"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert_eq!(reject_detail_kind(&reject), Some("timeout"));
+            assert!(
+                reject
+                    .message
+                    .contains("serve wait exceeded the local budget of 25ms"),
+                "the reject is the responder's own budget: {}",
+                reject.message
+            );
+        }
+    }
+    assert_eq!(ports.calls(), vec!["compute"]);
+    assert_eq!(ports.dropped(), 1);
+
+    let errors = captured_frames_with(&received, "error");
+    assert_eq!(errors.len(), 1, "exactly one error response: {errors:?}");
+    assert_served_timeout_frame(&errors[0], 25);
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_bounds_a_parked_extract_service_and_discards_the_late_completion() {
+    // The whole extraction service (loader + extractor) is one bounded wait.
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
+        client_capabilities: vec!["ke-extraction"],
+        responder_capabilities: vec!["ke-extraction"],
+        ports: Some(serve_wait_ports(&ports)),
+        serve_budget_ms: Some(25),
+        client_timeout_ms: Some(2000),
+        ..KeRemoteDial::default()
+    })
+    .await;
+    let request: ExtractRequest = serde_json::from_value(json!({
+        "run_id": "run-serve-timeout",
+        "sources": [{ "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} }],
+    }))
+    .expect("valid ExtractRequest");
+
+    match client.extract(request).await {
+        SpokeResult::Ok(_) => panic!("a parked extract service must hit the serve budget"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert_eq!(reject_detail_kind(&reject), Some("timeout"));
+            assert!(
+                reject
+                    .message
+                    .contains("serve wait exceeded the local budget of 25ms"),
+                "the reject is the responder's own budget: {}",
+                reject.message
+            );
+        }
+    }
+    assert_eq!(ports.calls(), vec!["extract"]);
+    assert_eq!(ports.dropped(), 1);
+    let errors = captured_frames_with(&received, "error");
+    assert_eq!(errors.len(), 1, "exactly one error response: {errors:?}");
+    assert_served_timeout_frame(&errors[0], 25);
+
+    // The late extract completion is discarded — never a second response.
+    let payloads_before = captured_frames_with(&received, "payload").len();
+    ports.release();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(captured_frames_with(&received, "error").len(), 1);
+    assert_eq!(
+        captured_frames_with(&received, "payload").len(),
+        payloads_before
+    );
+    assert_eq!(ports.released(), 0);
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_zero_budget_answers_before_any_provider_call() {
+    // Zero means immediate timeout: the signed response is produced without
+    // starting provider work, and the session is reusable for the ops that
+    // do not need the bounded face.
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, client, _sent, received) = ke_remote_dial(KeRemoteDial {
+        ports: Some(serve_wait_ports(&ports)),
+        serve_budget_ms: Some(0),
+        client_timeout_ms: Some(2000),
+        ..KeRemoteDial::default()
+    })
+    .await;
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "serve-timeout-zero" })).expect("valid Scope");
+
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(_) => panic!("a zero budget must answer the served timeout"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert_eq!(reject_detail_kind(&reject), Some("timeout"));
+            assert!(
+                reject
+                    .message
+                    .contains("serve wait exceeded the local budget of 0ms"),
+                "zero answers the responder's own budget: {}",
+                reject.message
+            );
+        }
+    }
+    assert!(ports.calls().is_empty(), "zero provider calls for a zero budget");
+    assert_eq!(ports.dropped(), 0);
+    let errors = captured_frames_with(&received, "error");
+    assert_eq!(errors.len(), 1, "exactly one error response: {errors:?}");
+    assert_served_timeout_frame(&errors[0], 0);
+
+    // The bounded wait never closes the session (no forced close, no counter
+    // rollback): the state stays Established and a further invoke on the same
+    // session is answered on the wire again.
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    match client.get_knowledge_entry("kb_tw_mira").await {
+        SpokeResult::Ok(_) => panic!("a zero budget bounds every provider call"),
+        SpokeResult::Reject(reject) => assert_eq!(reject_detail_kind(&reject), Some("timeout")),
+    }
+    assert!(ports.calls().is_empty());
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_zero_budget_keeps_gate_and_deny_precedence() {
+    // Gate, payload-dependent ownership deny and optional-face probe all run
+    // BEFORE the serve bound: at zero budget they still answer their own
+    // codes and the provider stays untouched.
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        // `l5-fork` negotiated, `l2-computable` not: one dial covers the
+        // capability deny, the probe deny and the ownership deny.
+        client_capabilities: vec!["l5-fork"],
+        responder_capabilities: vec!["l5-fork"],
+        ports: Some(serve_wait_ports(&ports)),
+        serve_budget_ms: Some(0),
+        client_timeout_ms: Some(2000),
+        ..KeRemoteDial::default()
+    })
+    .await;
+
+    let request: ComputeRequest = serde_json::from_value(json!({
+        "session_id": "sess_tw_dawn_arrival",
+        "entry_id": "kb_tw_harbor",
+        "computable": { "tide_level": 2.5 },
+        "settle": true,
+    }))
+    .expect("valid ComputeRequest");
+    match client.compute(request).await {
+        SpokeResult::Ok(_) => panic!("unnegotiated l2-computable must deny"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(reject_wire_code(&reject), Some("op_unsupported"));
+            assert_eq!(
+                reject_detail_kind(&reject),
+                None,
+                "a gate deny is not the serve timeout: {reject:?}"
+            );
+        }
+    }
+
+    let fork_scope: Scope = serde_json::from_value(json!({
+        "scope_id": "serve-timeout-probe",
+        "fork_id": "fork_tw_storm_branch",
+    }))
+    .expect("valid Scope");
+    match client.list_fork_timeline_events(&fork_scope).await {
+        SpokeResult::Ok(_) => panic!("an absent optional face must probe-deny"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(reject_wire_code(&reject), Some("op_unsupported"));
+        }
+    }
+
+    match client.list_knowledge_entries(&viewpoint_scope()).await {
+        SpokeResult::Ok(_) => panic!("a viewpoint without ke-ownership must deny"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::CapabilityPortMissing);
+            assert_eq!(reject_wire_code(&reject), Some("op_unsupported"));
+        }
+    }
+
+    assert!(
+        ports.calls().is_empty(),
+        "no denied request may reach the provider: {:?}",
+        ports.calls()
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_zero_budget_keeps_scope_validation_precedence() {
+    // The payload-dependent Scope validation runs before the serve bound: a
+    // malformed declared Scope stays an input failure at zero budget, while a
+    // valid Scope on the same session answers the signed timeout.
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(serve_wait_ports(&ports), &[], Some(0)).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &[]),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "serve-timeout-malformed-scope",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "s1", "viewpoint": "" } }),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "validation must win over the serve bound, got {malformed}"
+    );
+
+    let valid = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            1,
+            "serve-timeout-zero-budget",
+            "port.scope.list_knowledge_entries",
+            json!({ "scope": { "scope_id": "s1" } }),
+        ),
+    )
+    .await
+    .expect("the served timeout must arrive without waiting out a client timer");
+    assert_eq!(valid["error"]["code"], "INTERNAL_ERROR", "got {valid}");
+    assert_eq!(valid["error"]["details"]["kind"], "timeout");
+    assert_served_timeout_frame(&valid, 0);
+    assert!(
+        ports.calls().is_empty(),
+        "a zero budget must not reach the provider"
+    );
+    assert_eq!(ports.dropped(), 0);
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_zero_budget_keeps_port_payload_validation_precedence() {
+    // The D4 catalogue decode runs before the serve bound: a malformed
+    // baseline port payload keeps its existing `INVALID_INPUT` reject at zero
+    // budget, while a valid payload on the same session answers the signed
+    // timeout — both with zero provider calls.
+    let ports = Arc::new(ParkingServePorts::new());
+    let (responder, pair, seed) =
+        start_raw_ke_responder_with_budget(serve_wait_ports(&ports), &[], Some(0)).await;
+    let session_id = raw_handshake(
+        &pair.client,
+        seed,
+        &ke_remote_manifest("test-client", &[]),
+    )
+    .await;
+
+    let malformed = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        0,
+        "serve-timeout-malformed-put",
+        "port.knowledge.put",
+        json!({ "entry": { "entry_id": 7 } }),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["code"], "INVALID_INPUT",
+        "the catalogue decode must win over the serve bound, got {malformed}"
+    );
+    assert!(
+        malformed["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("invalid port.knowledge.put payload"),
+        "the existing decode reject is preserved: {malformed}"
+    );
+
+    let non_string = raw_invoke(
+        &pair.client,
+        seed,
+        &session_id,
+        1,
+        "serve-timeout-malformed-get",
+        "port.knowledge.get",
+        json!({ "entry_id": 7 }),
+    )
+    .await;
+    assert_eq!(
+        non_string["error"]["code"], "INVALID_INPUT",
+        "a non-string entry_id is an input failure, not the serve timeout: {non_string}"
+    );
+
+    let valid = tokio::time::timeout(
+        Duration::from_secs(2),
+        raw_invoke(
+            &pair.client,
+            seed,
+            &session_id,
+            2,
+            "serve-timeout-zero-budget-port",
+            "port.knowledge.get",
+            json!({ "entry_id": "kb_tw_mira" }),
+        ),
+    )
+    .await
+    .expect("the served timeout must arrive without waiting out a client timer");
+    assert_eq!(valid["error"]["code"], "INTERNAL_ERROR", "got {valid}");
+    assert_eq!(valid["error"]["details"]["kind"], "timeout");
+    assert_served_timeout_frame(&valid, 0);
+    assert!(
+        ports.calls().is_empty(),
+        "a zero budget must not reach the provider"
+    );
+    assert_eq!(ports.dropped(), 0);
+    responder.close();
+}
+
+#[tokio::test]
+async fn serve_timeout_close_aborts_a_parked_serve_dispatch_and_answers_nothing() {
+    // A close releases the session: the in-flight serve dispatch — and the
+    // local serve timer it armed — must not outlive it, so a provider that
+    // settles afterwards answers neither a late success nor a late error.
+    let ports = Arc::new(ParkingServePorts::new());
+    let responder_sent: CapturedWire = Arc::new(Mutex::new(Vec::new()));
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        ports: Some(serve_wait_ports(&ports)),
+        serve_budget_ms: Some(25),
+        client_timeout_ms: Some(2000),
+        responder_sent: Some(Arc::clone(&responder_sent)),
+        ..KeRemoteDial::default()
+    })
+    .await;
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "serve-timeout-close" })).expect("valid Scope");
+
+    // The close fails the dialer's waiter; the witness asserts the
+    // responder's own send attempts instead.
+    let dialer = {
+        let client = Arc::clone(&client);
+        tokio::spawn(async move { client.list_knowledge_entries(&scope).await })
+    };
+    until_parked(&ports, 1).await;
+    assert_eq!(ports.calls(), vec!["list_knowledge_entries"]);
+
+    responder.close();
+    let attempted_at_close = responder_sent.lock().expect("sent lock").len();
+    // Past the local budget: a serve timer that survived the close would have
+    // answered the signed timeout.
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    assert_eq!(
+        responder_sent.lock().expect("sent lock").len(),
+        attempted_at_close,
+        "no serve response may follow the close"
+    );
+
+    // A provider settling after the close is discarded too.
+    ports.release();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        responder_sent.lock().expect("sent lock").len(),
+        attempted_at_close
+    );
+    assert_eq!(
+        ports.released(),
+        0,
+        "the aborted serve dispatch never resumes past its release gate"
+    );
+    assert_eq!(
+        ports.dropped(),
+        1,
+        "the close drops the parked provider future"
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Closed);
+    match dialer.await.expect("dialer task") {
+        SpokeResult::Ok(_) => panic!("the close must fail the dialer's waiter"),
+        SpokeResult::Reject(reject) => {
+            assert_eq!(reject.code, SpokeRejectCode::InternalError);
+            assert_eq!(reject_detail_kind(&reject), Some("session_closed"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn serve_timeout_close_racing_a_serve_dispatch_arms_no_wait() {
+    // A close that races a serve dispatch must leave nothing armed: the
+    // registration of the dispatch task is atomic with `close_session`
+    // (check + spawn + insert under the lock the close drains), so a closed
+    // responder never arms a provider wait or its local budget timer.
+    //
+    // The ordering this witness pins, instead of racing the scheduler: the
+    // serve loop has already passed its state check and sits inside `recv`
+    // (proved by the second `recv` entry), the responder is closed, and only
+    // then does the invoke envelope reach the loop. A parked `recv` can hand
+    // back an envelope that arrived concurrently with the close; the responder
+    // end here keeps the trait's no-op `close`, which makes that interleaving
+    // deterministic. Pre-fix the dispatch spawned into the closed responder,
+    // entered the provider and armed a 25ms serve wait the close had already
+    // finished draining past.
+    let ports = Arc::new(ParkingServePorts::new());
+    let dial = close_race_dial(serve_wait_ports(&ports)).await;
+    let session_id = raw_handshake(
+        &dial.pair.client,
+        dial.seed,
+        &ke_remote_manifest("test-client", &[]),
+    )
+    .await;
+    until_recv_entries(&dial.recv_entries, 2).await;
+
+    dial.responder.close();
+    let attempted_at_close = dial.sent.lock().expect("sent lock").len();
+
+    let request = sign_invoke_request(
+        dial.seed,
+        &session_id,
+        0,
+        "serve-timeout-close-race",
+        "port.scope.list_knowledge_entries",
+        json!({ "scope": { "scope_id": "serve-timeout-close-race" } }),
+    );
+    dial.pair
+        .client
+        .send(&serde_json::to_vec(&request).expect("request bytes"))
+        .await
+        .expect("the envelope is still in flight when the responder closes");
+
+    let armed = parks_within(&ports, Duration::from_millis(300)).await;
+    assert!(
+        armed.is_empty(),
+        "a close racing this dispatch must leave no armed serve wait, entered {armed:?}"
+    );
+    assert_eq!(
+        ports.dropped(),
+        0,
+        "no serve wait may be armed — and then bounded away — after the close"
+    );
+    assert_eq!(
+        dial.sent.lock().expect("sent lock").len(),
+        attempted_at_close,
+        "no serve response may follow the close"
+    );
+}
+
+#[tokio::test]
+async fn serve_timeout_does_not_affect_a_normal_serve_call() {
+    // A provider that completes inside the budget is served unchanged.
+    let (responder, client, _sent, _received) = ke_remote_dial(KeRemoteDial {
+        serve_budget_ms: Some(25),
+        client_timeout_ms: Some(2000),
+        ..KeRemoteDial::default()
+    })
+    .await;
+    let scope: Scope =
+        serde_json::from_value(json!({ "scope_id": "toy-scope-001" })).expect("valid Scope");
+
+    match client.list_knowledge_entries(&scope).await {
+        SpokeResult::Ok(entries) => assert!(
+            entries
+                .iter()
+                .any(|entry| entry.entry_id.as_str() == "kb_tw_mira"),
+            "a completing provider must be served unchanged"
+        ),
+        SpokeResult::Reject(reject) => {
+            panic!("a completing provider must not be bounded away: {reject:?}")
+        }
+    }
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+    client.close();
     responder.close();
 }

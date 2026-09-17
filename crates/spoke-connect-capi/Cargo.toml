@@ -1,0 +1,26 @@
+[package]
+name = "spoke-connect-capi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SPOKE Connect C ABI carrier — hand-written C boundary over the spoke-connect Rust facade"
+# Workspace-private carrier: consumed as a committed native artifact by C/C++
+# hosts, never published to crates.io.
+publish = false
+
+[lib]
+name = "spoke_connect_capi"
+# `rlib` feeds the scoped Rust checks (`cargo test -p spoke-connect-capi`);
+# `cdylib` is the consumer artifact.
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# Wraps the public Rust facade: `ffi` exports it, `remote-adapter` supplies the
+# adapter/router/responder surface the C boundary also covers.
+spoke-connect = { path = "../spoke-connect", features = ["ffi", "remote-adapter"] }
+
+[dev-dependencies]
+# Test-only: loads the shared cross-language golden hello vector.
+serde_json.workspace = true

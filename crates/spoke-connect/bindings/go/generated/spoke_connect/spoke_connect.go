@@ -773,6 +773,15 @@ func uniffiCheckChecksums() {
 	}
 	{
 	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract()
+	})
+	if checksum != 63566 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_remoteadapterffi_extract: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 		return C.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest()
 	})
 	if checksum != 41950 {
@@ -1066,6 +1075,15 @@ func uniffiCheckChecksums() {
 	if checksum != 36942 {
 		// If this happens try cleaning and rebuilding your project
 		panic("spoke_connect: uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events: UniFFI API checksum mismatch")
+	}
+	}
+	{
+	checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+		return C.uniffi_spoke_connect_checksum_method_portshandler_extract()
+	})
+	if checksum != 1921 {
+		// If this happens try cleaning and rebuilding your project
+		panic("spoke_connect: uniffi_spoke_connect_checksum_method_portshandler_extract: UniFFI API checksum mismatch")
 	}
 	}
 	{
@@ -2411,6 +2429,19 @@ type RemoteAdapterFfiInterface interface {
 	// computable updates on the remote peer. Same boundary and deny
 	// mapping as `project`.
 	Compute(computeRequestJson string) (string, error)
+	// Core `extract` op (F1/F3): delegate the whole extraction to a peer
+	// that negotiated `ke-extraction` and return its wire
+	// `ExtractResponse` success branch as a JSON string. The payload is
+	// the `ExtractRequest` itself — no wrapper, and no loader value is an
+	// argument here or a field on the wire.
+	//
+	// `extract_request_json` parses at the FFI boundary (malformed →
+	// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+	// wire_code: None }` with zero wire traffic). No local capability
+	// pre-gate: the responder answers the deny and the D7 rows map it to
+	// `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+	// preserved, exactly like the port methods.
+	Extract(extractRequestJson string) (string, error)
 	GetHostCapabilityManifest() (string, error)
 	GetKnowledgeEntry(entryId string) (string, error)
 	GetRelation(relationId string) (string, error)
@@ -2494,6 +2525,35 @@ func (_self *RemoteAdapterFfi) Compute(computeRequestJson string) (string, error
 		return GoRustBuffer {
 		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_compute(
 		_pointer,FfiConverterStringINSTANCE.Lower(computeRequestJson),_uniffiStatus),
+	}
+	})
+		if _uniffiErr != nil {
+			var _uniffiDefaultValue string
+			return _uniffiDefaultValue, _uniffiErr
+		} else {
+			return FfiConverterStringINSTANCE.Lift(_uniffiRV), nil
+		}
+}
+
+// Core `extract` op (F1/F3): delegate the whole extraction to a peer
+// that negotiated `ke-extraction` and return its wire
+// `ExtractResponse` success branch as a JSON string. The payload is
+// the `ExtractRequest` itself — no wrapper, and no loader value is an
+// argument here or a field on the wire.
+//
+// `extract_request_json` parses at the FFI boundary (malformed →
+// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+// wire_code: None }` with zero wire traffic). No local capability
+// pre-gate: the responder answers the deny and the D7 rows map it to
+// `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+// preserved, exactly like the port methods.
+func (_self *RemoteAdapterFfi) Extract(extractRequestJson string) (string, error) {
+	_pointer := _self.ffiObject.incrementPointer("*RemoteAdapterFfi")
+	defer _self.ffiObject.decrementPointer()
+	_uniffiRV, _uniffiErr := rustCallWithError[*FfiError](FfiConverterFfiError{},func(_uniffiStatus *C.RustCallStatus) RustBufferI {
+		return GoRustBuffer {
+		inner: C.uniffi_spoke_connect_fn_method_remoteadapterffi_extract(
+		_pointer,FfiConverterStringINSTANCE.Lower(extractRequestJson),_uniffiStatus),
 	}
 	})
 		if _uniffiErr != nil {
@@ -3815,6 +3875,21 @@ type PortsHandler interface {
 	
 	ListForkTimelineEvents(scopeJson string) (string, error)
 	
+	// Core `extract` op (F1/F3) — a service face, not a D4 port method:
+	// the callback runs the whole host-local extraction (loader,
+	// extractor, provisional-candidate assembly) and answers the wire
+	// [`ExtractResponse`] JSON. The loaded input value is host-local and
+	// never a parameter here.
+	//
+	// `Ok(json)` → the success branch (parsed inside the bridge; its
+	// `error` branch is normalized by the library responder's F1 path,
+	// never relayed as a nested success). `Err(FfiError::Rejected{..})`
+	// → an application reject passes through verbatim (a callback that
+	// declines to serve extraction locks
+	// `CAPABILITY_PORT_MISSING`, not a fabricated `op_unsupported`);
+	// malformed output / `Dial` / panic → `INTERNAL_ERROR` containment.
+	Extract(extractRequestJson string) (string, error)
+	
 }
 
 
@@ -4376,6 +4451,45 @@ func spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsH
 	*uniffiOutReturn = FfiConverterStringINSTANCE.Lower(res)
 }
 
+
+
+//export spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod12
+func spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod12(uniffiHandle C.uint64_t,extractRequestJson C.RustBuffer,uniffiOutReturn *C.RustBuffer,callStatus *C.RustCallStatus,) {
+	handle := uint64(uniffiHandle)
+	uniffiObj, ok := FfiConverterCallbackInterfacePortsHandlerINSTANCE.handleMap.tryGet(handle)
+	if !ok {
+		panic(fmt.Errorf("no callback in handle map: %d", handle))
+	}
+	
+	
+
+	 res, err :=
+    uniffiObj.Extract(
+        FfiConverterStringINSTANCE.Lift(GoRustBuffer {
+		inner: extractRequestJson,
+	}),
+    )
+	
+    
+	if err != nil {
+		var actualError *FfiError
+		if errors.As(err, &actualError) {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackResultError),
+				errorBuf: FfiConverterFfiErrorINSTANCE.Lower(actualError),
+			}
+		} else {
+			*callStatus = C.RustCallStatus {
+				code: C.int8_t(uniffiCallbackUnexpectedResultError),
+			}
+		}
+		return
+	}
+
+
+	*uniffiOutReturn = FfiConverterStringINSTANCE.Lower(res)
+}
+
 var UniffiVTableCallbackInterfacePortsHandlerINSTANCE = C.UniffiVTableCallbackInterfacePortsHandler {
 	uniffiFree: (C.UniffiCallbackInterfaceFree)(C.spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerFree),
 	uniffiClone: (C.UniffiCallbackInterfaceClone)(C.spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerClone),
@@ -4391,6 +4505,7 @@ var UniffiVTableCallbackInterfacePortsHandlerINSTANCE = C.UniffiVTableCallbackIn
 	project: (C.UniffiCallbackInterfacePortsHandlerMethod9)(C.spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod9),
 	compute: (C.UniffiCallbackInterfacePortsHandlerMethod10)(C.spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod10),
 	listForkTimelineEvents: (C.UniffiCallbackInterfacePortsHandlerMethod11)(C.spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod11),
+	extract: (C.UniffiCallbackInterfacePortsHandlerMethod12)(C.spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerMethod12),
 }
 
 //export spoke_connect_ffi_foreign_ports_handler_cgo_dispatchCallbackInterfacePortsHandlerFree

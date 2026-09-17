@@ -647,6 +647,8 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute() != 30870:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract() != 63566:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_knowledge_entry() != 44466:
@@ -850,6 +852,9 @@ _UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_close.restype =
 _UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_compute.restype = ctypes.c_uint16
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract.argtypes = (
+)
+_UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract.restype = ctypes.c_uint16
 _UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest.argtypes = (
 )
 _UniffiLib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest.restype = ctypes.c_uint16
@@ -1173,6 +1178,12 @@ _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_compute.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_compute.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_extract.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_extract.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_get_host_capability_manifest.argtypes = (
     ctypes.c_uint64,
     ctypes.POINTER(_UniffiRustCallStatus),
@@ -1395,6 +1406,9 @@ _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10 = ctypes.CFUNCTY
 _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
     ctypes.POINTER(_UniffiRustCallStatus),
 )
+_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12 = ctypes.CFUNCTYPE(None,ctypes.c_uint64,_UniffiRustBuffer,ctypes.POINTER(_UniffiRustBuffer),
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
 _UNIFFI_CALLBACK_INTERFACE_CLONE_SPOKE_CONNECT_PORTS_HANDLER = ctypes.CFUNCTYPE(ctypes.c_uint64,ctypes.c_uint64,
 )
 _UNIFFI_CALLBACK_INTERFACE_FREE_SPOKE_CONNECT_PORTS_HANDLER = ctypes.CFUNCTYPE(None,ctypes.c_uint64,
@@ -1415,6 +1429,7 @@ class _UniffiVTableCallbackInterfaceSpokeConnectPortsHandler(ctypes.Structure):
         ("project", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD9),
         ("compute", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD10),
         ("list_fork_timeline_events", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD11),
+        ("extract", _UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12),
     ]
 _UniffiLib.uniffi_spoke_connect_fn_init_callback_vtable_portshandler.argtypes = (
     ctypes.POINTER(_UniffiVTableCallbackInterfaceSpokeConnectPortsHandler),
@@ -2819,6 +2834,22 @@ class RemoteAdapterFfiProtocol(typing.Protocol):
         mapping as `project`.
 """
         raise NotImplementedError
+    def extract(self, extract_request_json: str) -> str:
+        """
+        Core `extract` op (F1/F3): delegate the whole extraction to a peer
+        that negotiated `ke-extraction` and return its wire
+        `ExtractResponse` success branch as a JSON string. The payload is
+        the `ExtractRequest` itself — no wrapper, and no loader value is an
+        argument here or a field on the wire.
+
+        `extract_request_json` parses at the FFI boundary (malformed →
+        `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+        wire_code: None }` with zero wire traffic). No local capability
+        pre-gate: the responder answers the deny and the D7 rows map it to
+        `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+        preserved, exactly like the port methods.
+"""
+        raise NotImplementedError
     def get_host_capability_manifest(self, ) -> str:
         raise NotImplementedError
     def get_knowledge_entry(self, entry_id: str) -> str:
@@ -2954,6 +2985,35 @@ class RemoteAdapterFfi(RemoteAdapterFfiProtocol):
         _uniffi_ffi_result = _uniffi_rust_call_with_error(
             _uniffi_error_converter,
             _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_compute,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def extract(self, extract_request_json: str) -> str:
+        """
+        Core `extract` op (F1/F3): delegate the whole extraction to a peer
+        that negotiated `ke-extraction` and return its wire
+        `ExtractResponse` success branch as a JSON string. The payload is
+        the `ExtractRequest` itself — no wrapper, and no loader value is an
+        argument here or a field on the wire.
+
+        `extract_request_json` parses at the FFI boundary (malformed →
+        `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+        wire_code: None }` with zero wire traffic). No local capability
+        pre-gate: the responder answers the deny and the D7 rows map it to
+        `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+        preserved, exactly like the port methods.
+"""
+        
+        _UniffiFfiConverterString.check_lower(extract_request_json)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterString.lower(extract_request_json),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterString.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeFfiError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_spoke_connect_fn_method_remoteadapterffi_extract,
             *_uniffi_lowered_args,
         )
         return _uniffi_lift_return(_uniffi_ffi_result)
@@ -3902,6 +3962,23 @@ class PortsHandler(typing.Protocol):
         raise NotImplementedError
     def list_fork_timeline_events(self, scope_json: str) -> str:
         raise NotImplementedError
+    def extract(self, extract_request_json: str) -> str:
+        """
+        Core `extract` op (F1/F3) — a service face, not a D4 port method:
+        the callback runs the whole host-local extraction (loader,
+        extractor, provisional-candidate assembly) and answers the wire
+        [`ExtractResponse`] JSON. The loaded input value is host-local and
+        never a parameter here.
+
+        `Ok(json)` → the success branch (parsed inside the bridge; its
+        `error` branch is normalized by the library responder's F1 path,
+        never relayed as a nested success). `Err(FfiError::Rejected{..})`
+        → an application reject passes through verbatim (a callback that
+        declines to serve extraction locks
+        `CAPABILITY_PORT_MISSING`, not a fabricated `op_unsupported`);
+        malformed output / `Dial` / panic → `INTERNAL_ERROR` containment.
+"""
+        raise NotImplementedError
 # Put all the bits inside a class to keep the top-level namespace clean
 class _UniffiTraitImplPortsHandlerImpl:
     # For each method, generate a callback function to pass to Rust
@@ -4171,6 +4248,28 @@ class _UniffiTraitImplPortsHandlerImpl:
                 _UniffiFfiConverterTypeFfiError.lower,
         )
 
+    @_UNIFFI_CALLBACK_INTERFACE_SPOKE_CONNECT_PORTS_HANDLER_METHOD12
+    def extract(
+            uniffi_handle,
+            extract_request_json,
+            uniffi_out_return,
+            uniffi_call_status_ptr,
+        ):
+        uniffi_obj = _UniffiFfiConverterTypePortsHandler._handle_map.get(uniffi_handle)
+        def make_call():
+            uniffi_args = (_UniffiFfiConverterString.lift(extract_request_json), )
+            uniffi_method = uniffi_obj.extract
+            return uniffi_method(*uniffi_args)
+        def write_return_value(v):
+            uniffi_out_return[0] = _UniffiFfiConverterString.lower(v)
+        _uniffi_trait_interface_call_with_error(
+                uniffi_call_status_ptr.contents,
+                make_call,
+                write_return_value,
+                FfiError,
+                _UniffiFfiConverterTypeFfiError.lower,
+        )
+
     @_UNIFFI_CALLBACK_INTERFACE_FREE_SPOKE_CONNECT_PORTS_HANDLER
     def _uniffi_free(uniffi_handle):
         _UniffiFfiConverterTypePortsHandler._handle_map.remove(uniffi_handle)
@@ -4195,6 +4294,7 @@ class _UniffiTraitImplPortsHandlerImpl:
         project,
         compute,
         list_fork_timeline_events,
+        extract,
     )
     # Send Rust a pointer to the VTable.  Note: this means we need to keep the struct alive forever,
     # or else bad things will happen when Rust tries to access it.

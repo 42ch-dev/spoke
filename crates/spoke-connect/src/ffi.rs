@@ -420,12 +420,13 @@ pub use foreign_tool_handler::ToolHandler;
 
 // ── Foreign-callback `PortsHandler` over the async ports seam (D16) ──────
 //
-// The library responder serves `port.*` through the async
-// `remote::RemoteServePorts` seam. Over FFI the binding implements a
-// *synchronous* callback `PortsHandler` — the exact D4 serve catalogue
+// The library responder serves `port.*` plus the core `extract` op through
+// the async `remote::RemoteServePorts` seam. Over FFI the binding implements
+// a *synchronous* callback `PortsHandler` — the exact D4 serve catalogue
 // (the nine baseline serve ops + the three optional families;
 // `getHostCapabilityManifest` is a session-cache face, not a D4 serve op,
-// and stays out) with `Result<String, FfiError>` boundaries.
+// and stays out) plus the core-op `extract` service (F1/F3) with
+// `Result<String, FfiError>` boundaries.
 // [`into_remote_serve_ports`] bridges the two with the `ToolHandler`
 // threading + outcome model: every call runs through the shared runtime's
 // `spawn_blocking` pool (a blocking foreign call never monopolizes an async
@@ -450,16 +451,17 @@ mod foreign_ports_handler {
     use async_trait::async_trait;
     use serde::de::DeserializeOwned;
     use spoke_operations::{
-        ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
+        BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
         KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject,
         SpokeRejectCode, SpokeResult,
     };
     use spoke_schemas::{
-        ComputeRequest, ComputeResponse, Finding, HostCapabilityManifest, KnowledgeEntry,
-        ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+        ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
+        HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule,
+        Scope, TimelineEvent,
     };
 
-    use crate::remote::RemoteServePorts;
+    use crate::remote::{RemoteExtractService, RemoteServePorts, RemoteServePortsComposite};
 
     use super::ffi_runtime;
     use super::foreign_tool_handler::{containment_reject, rehang_details};
@@ -503,6 +505,21 @@ mod foreign_ports_handler {
         fn project(&self, project_request_json: String) -> Result<String, FfiError>;
         fn compute(&self, compute_request_json: String) -> Result<String, FfiError>;
         fn list_fork_timeline_events(&self, scope_json: String) -> Result<String, FfiError>;
+
+        /// Core `extract` op (F1/F3) — a service face, not a D4 port method:
+        /// the callback runs the whole host-local extraction (loader,
+        /// extractor, provisional-candidate assembly) and answers the wire
+        /// [`ExtractResponse`] JSON. The loaded input value is host-local and
+        /// never a parameter here.
+        ///
+        /// `Ok(json)` → the success branch (parsed inside the bridge; its
+        /// `error` branch is normalized by the library responder's F1 path,
+        /// never relayed as a nested success). `Err(FfiError::Rejected{..})`
+        /// → an application reject passes through verbatim (a callback that
+        /// declines to serve extraction locks
+        /// `CAPABILITY_PORT_MISSING`, not a fabricated `op_unsupported`);
+        /// malformed output / `Dial` / panic → `INTERNAL_ERROR` containment.
+        fn extract(&self, extract_request_json: String) -> Result<String, FfiError>;
     }
 
     /// Map one callback outcome to the library `SpokeResult` (D16 strict
@@ -560,17 +577,34 @@ mod foreign_ports_handler {
     ///
     /// The callback is long-held via `Arc::from(box)` and each call runs as
     /// `ffi_runtime().spawn_blocking(...)` — a blocking foreign call never
-    /// monopolizes an async worker (the `ToolHandler` precedent). The
-    /// bridge always presents the computable / fork faces (the probes
-    /// return the bridge) — capability gating stays in the library
-    /// responder (gate → probe → serve/deny), and a callback rejecting an
-    /// op it does not serve is ordinary deny, not containment.
+    /// monopolizes an async worker (the `ToolHandler` precedent). Capability
+    /// gating stays in the library responder (gate → probe → serve/deny), and
+    /// a callback rejecting an op it does not serve is ordinary deny, not
+    /// containment.
+    ///
+    /// The bridge carries the baseline / computable / fork faces *and* the
+    /// `extract` service (F3), so the returned face is an explicit
+    /// [`RemoteServePortsComposite`] with
+    /// [`with_extract`](RemoteServePortsComposite::with_extract): composing
+    /// through the composite is what opts extraction in — the full-optional
+    /// blanket impl answers `None` from `as_extract` and would mask the
+    /// callback as an absent provider.
     pub fn into_remote_serve_ports(
         handler: Box<dyn PortsHandler>,
     ) -> Arc<dyn RemoteServePorts + Send + Sync> {
-        Arc::new(RemoteServePortsBridge {
+        let bridge = Arc::new(RemoteServePortsBridge {
             handler: Arc::from(handler),
-        })
+        });
+        // One callback object, four faces: the plain `let` bindings are what
+        // coerce the concrete `Arc` into each trait object.
+        let baseline: Arc<dyn BaselinePorts + Send + Sync> = bridge.clone();
+        let computable: Arc<dyn ComputablePort + Send + Sync> = bridge.clone();
+        let fork: Arc<dyn ForkTimelineQueryPort + Send + Sync> = bridge.clone();
+        let extract: Arc<dyn RemoteExtractService> = bridge;
+        Arc::new(
+            RemoteServePortsComposite::new(baseline, Some(computable), Some(fork))
+                .with_extract(extract),
+        )
     }
 
     /// The bridge face: one callback call per D4 serve op.
@@ -729,6 +763,26 @@ mod foreign_ports_handler {
             .await
         }
     }
+
+    /// The core-op service face (F1/F3). The request crosses as the
+    /// `ExtractRequest` JSON — no loader value is a parameter, and the
+    /// callback performs the whole host-local extraction.
+    ///
+    /// An `Ok(json)` that decodes into the `ExtractResponse` error branch is
+    /// returned as that value, not re-mapped here: the library responder's F1
+    /// path (`from_error_envelope`) is the single normalization point, so the
+    /// foreign face cannot drift from the Rust/TS service contract.
+    #[async_trait]
+    impl RemoteExtractService for RemoteServePortsBridge {
+        async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse> {
+            let handler = Arc::clone(&self.handler);
+            let request_json = serde_json::to_string(&request).expect("extract request serializes");
+            call_ports(handler, "extract", move |handler| {
+                handler.extract(request_json)
+            })
+            .await
+        }
+    }
 }
 
 #[cfg(feature = "remote-adapter")]
@@ -753,8 +807,8 @@ mod remote_adapter_ffi {
         SpokeReject, SpokeResult,
     };
     use spoke_schemas::{
-        ComputeRequest, Finding, HostCapabilityManifest, KnowledgeEntry, ProjectRequest, Relation,
-        Scope,
+        ComputeRequest, ExtractRequest, Finding, HostCapabilityManifest, KnowledgeEntry,
+        ProjectRequest, Relation, Scope,
     };
 
     use crate::remote::{
@@ -1045,6 +1099,24 @@ mod remote_adapter_ffi {
         pub fn list_fork_timeline_events(&self, scope_json: String) -> Result<String, FfiError> {
             let scope: Scope = parse_json_field(&scope_json, "scope")?;
             map_spoke_result(ffi_block_on(self.inner.list_fork_timeline_events(&scope))?)
+        }
+
+        /// Core `extract` op (F1/F3): delegate the whole extraction to a peer
+        /// that negotiated `ke-extraction` and return its wire
+        /// `ExtractResponse` success branch as a JSON string. The payload is
+        /// the `ExtractRequest` itself — no wrapper, and no loader value is an
+        /// argument here or a field on the wire.
+        ///
+        /// `extract_request_json` parses at the FFI boundary (malformed →
+        /// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+        /// wire_code: None }` with zero wire traffic). No local capability
+        /// pre-gate: the responder answers the deny and the D7 rows map it to
+        /// `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+        /// preserved, exactly like the port methods.
+        pub fn extract(&self, extract_request_json: String) -> Result<String, FfiError> {
+            let request: ExtractRequest =
+                parse_json_field(&extract_request_json, "extract request")?;
+            map_spoke_result(ffi_block_on(self.inner.extract(request))?)
         }
 
         /// Reverse-invoke face (D15): issue a `tools.<ns>.<tool_id>` invoke
@@ -5678,6 +5750,25 @@ mod connect_responder_ffi_tests {
             };
             Ok(serde_json::to_string(&events).expect("events serialize"))
         }
+
+        /// Serves the core-op face with a successful zero-result batch. This
+        /// double covers the D16 port catalogue; the extraction scenarios
+        /// (round-trip, the three unavailability paths, containment,
+        /// error-branch normalization) live in the `ke_remote_ffi_tests`
+        /// battery below.
+        fn extract(&self, extract_request_json: String) -> Result<String, FfiError> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("extract".into());
+            let request: Value =
+                serde_json::from_str(&extract_request_json).expect("test handler receives JSON");
+            Ok(serde_json::to_string(&json!({
+                "candidates": [],
+                "run": { "run_id": request["run_id"] },
+            }))
+            .expect("extract response serializes"))
+        }
     }
 
     #[test]
@@ -6648,3 +6739,628 @@ mod multi_peer_router_ffi_tests {
 
 }
 
+
+// ── KE remote FFI battery: `extract` service + ownership gate (F1–F3) ────
+//
+// The library battery lives in `tests/remote_loopback.rs`; this one proves the
+// *foreign* face mirrors it: the dialer method, the callback method and the
+// bridge — the three distinct unavailability paths (unnegotiated capability /
+// absent `ports` / a callback that declines to serve), the response
+// error-branch normalization, callback containment, and the F2 ownership
+// conjunct on the existing `list_knowledge_entries` witness (OQ-FFI-1).
+#[cfg(all(test, feature = "remote-adapter"))]
+mod ke_remote_ffi_tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use serde_json::{json, Value};
+
+    use crate::core::derive_peer_id_from_ed25519_pubkey;
+    use crate::remote::transport::Transport as RemoteAsyncTransport;
+    use crate::test_support::loopback_oracle::{
+        pubkey_client, pubkey_host, seed_client, seed_host,
+    };
+
+    use super::connect_responder_ffi::{connect_responder_ffi, ConnectResponderFFI};
+    use super::ffi_runtime;
+    use super::foreign_ports_handler::PortsHandler;
+    use super::foreign_transport::{Transport as FfiTransport, TransportError};
+    use super::remote_adapter_ffi::{connect_remote_adapter_ffi, FfiError, RemoteAdapterFFI};
+
+    /// Callback `Transport` impl over the loopback end — the same shape the
+    /// other FFI batteries use (a binding wraps its connected socket).
+    struct LoopbackCallback {
+        inner: crate::remote::transport::LoopbackTransport,
+    }
+
+    impl FfiTransport for LoopbackCallback {
+        fn send(&self, envelope: Vec<u8>) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.send(&envelope))
+                .map_err(Into::into)
+        }
+
+        fn recv(&self) -> Result<Vec<u8>, TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.recv())
+                .map_err(Into::into)
+        }
+
+        fn close(&self) -> Result<(), TransportError> {
+            ffi_runtime()
+                .handle()
+                .block_on(self.inner.close())
+                .map_err(Into::into)
+        }
+    }
+
+    /// Both peers' hello manifests: the baseline capability plus whatever the
+    /// scenario negotiates — a capability must appear in *both* hellos to be
+    /// negotiated, so the omitted side is how the deny scenarios are set up.
+    fn ke_manifest_json(host_id: &str, capabilities: &[&str]) -> String {
+        let mut all = vec!["spoke-baseline"];
+        all.extend_from_slice(capabilities);
+        serde_json::to_string(&json!({
+            "schema_version": 1,
+            "host_id": host_id,
+            "roles": ["data-store"],
+            "capabilities": all,
+            "namespaces": ["toy_world"],
+            "extensions": {},
+        }))
+        .expect("ke manifest json")
+    }
+
+    /// Bounded poll for the handshake to settle — the responder constructor
+    /// returns in `Handshaking` (D16: the dialer hello is the sync point).
+    fn wait_for<F: Fn() -> bool>(what: &str, check: F) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !check() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Loopback FFI pair for the KE remote battery: the responder serves an
+    /// injected foreign `PortsHandler` (or the documented absent-ports deny
+    /// when `None`), the dialer drives `extract` / `list_knowledge_entries`.
+    fn dial_ke_remote(
+        client_capabilities: &[&str],
+        responder_capabilities: &[&str],
+        ports: Option<Box<dyn PortsHandler>>,
+    ) -> (Arc<ConnectResponderFFI>, Arc<RemoteAdapterFFI>) {
+        let pair = crate::remote::transport::loopback_transport_pair();
+        let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+        let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+
+        let responder = connect_responder_ffi(
+            Box::new(LoopbackCallback { inner: pair.server }),
+            seed_host().to_vec(),
+            ke_manifest_json("test-responder", responder_capabilities),
+            vec![peer_id_client.clone()],
+            HashMap::from([(peer_id_client, pubkey_client().to_vec())]),
+            ports,
+            None,
+        )
+        .expect("responder constructs");
+
+        let dialer = connect_remote_adapter_ffi(
+            Box::new(LoopbackCallback { inner: pair.client }),
+            seed_client().to_vec(),
+            ke_manifest_json("test-client", client_capabilities),
+            pubkey_host().to_vec(),
+            vec![peer_id_host],
+            None,
+        )
+        .expect("ffi dial");
+        assert_eq!(dialer.state(), "Established");
+        wait_for("responder handshake to establish", || {
+            responder.state() == "Established"
+        });
+        (responder, dialer)
+    }
+
+    /// An `extract` request for the scenario's run id (`sources` carry
+    /// references only — source loading is the serving host's business).
+    fn extract_request_json(run_id: &str) -> String {
+        json!({
+            "run_id": run_id,
+            "sources": [
+                { "schema_version": 1, "source_id": "manuscript/ch1", "extensions": {} },
+                { "schema_version": 1, "source_id": "manuscript/ch2", "extensions": {} },
+            ],
+        })
+        .to_string()
+    }
+
+    /// A Scope carrying a reader viewpoint plus opaque extension values the
+    /// callback must receive unchanged.
+    fn viewpoint_scope_json() -> String {
+        json!({
+            "scope_id": "toy-scope-001",
+            "viewpoint": "kb_tw_mira",
+            "entry_types": ["note"],
+            "extensions": { "product": { "viewpoint": "decoy", "owner": "someone" } },
+        })
+        .to_string()
+    }
+
+    /// How the foreign handler answers an `extract` call.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ExtractAnswer {
+        /// One provisional candidate per declared source, echoing the run id.
+        Batch,
+        /// The `ExtractResponse` error branch returned as `Ok` — the shape the
+        /// responder normalizes through the library F1 path.
+        ErrorBranch,
+        /// `Ok` that is not JSON — the bridge containment row.
+        Malformed,
+        /// An application refusal: this binding does not serve extraction.
+        ApplicationRefusal,
+    }
+
+    /// Foreign `PortsHandler` double for the KE remote battery: `extract` per
+    /// [`ExtractAnswer`], `port.scope.list_knowledge_entries` from a fixed
+    /// store; every call and every received request/scope JSON is recorded.
+    struct KeRemotePortsHandler {
+        answer: ExtractAnswer,
+        entries: Vec<Value>,
+        extract_requests: Arc<Mutex<Vec<Value>>>,
+        scope_calls: Arc<Mutex<Vec<Value>>>,
+    }
+
+    fn ke_ports_handler(
+        answer: ExtractAnswer,
+        entries: Vec<Value>,
+    ) -> (
+        Box<KeRemotePortsHandler>,
+        Arc<Mutex<Vec<Value>>>,
+        Arc<Mutex<Vec<Value>>>,
+    ) {
+        let extract_requests = Arc::new(Mutex::new(Vec::new()));
+        let scope_calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Box::new(KeRemotePortsHandler {
+                answer,
+                entries,
+                extract_requests: Arc::clone(&extract_requests),
+                scope_calls: Arc::clone(&scope_calls),
+            }),
+            extract_requests,
+            scope_calls,
+        )
+    }
+
+    /// One served `KnowledgeEntry` (schema-valid — the bridge decodes it).
+    fn served_entry(entry_id: &str, canonical_name: &str) -> Value {
+        json!({
+            "schema_version": 1,
+            "entry_id": entry_id,
+            "entry_type": "knowledge",
+            "canonical_name": canonical_name,
+            "status": "active",
+            "body": { "summary": "served through the foreign ports callback" },
+            "extensions": {},
+        })
+    }
+
+    /// Row for catalogue ops this double does not serve: an ordinary
+    /// application reject, never containment.
+    fn unserved(op: &str) -> Result<String, FfiError> {
+        Err(FfiError::Rejected {
+            code: "INVALID_INPUT".into(),
+            message: format!("{op} is not served by this test handler"),
+            kind: None,
+            wire_code: None,
+        })
+    }
+
+    /// Assert one FFI reject row and return its message.
+    fn assert_rejected(
+        error: &FfiError,
+        code: &str,
+        kind: Option<&str>,
+        wire_code: Option<&str>,
+    ) -> String {
+        match error {
+            FfiError::Rejected {
+                code: actual_code,
+                message,
+                kind: actual_kind,
+                wire_code: actual_wire_code,
+            } => {
+                assert_eq!(actual_code, code, "reject code (got {error:?})");
+                assert_eq!(actual_kind.as_deref(), kind, "details.kind (got {error:?})");
+                assert_eq!(
+                    actual_wire_code.as_deref(),
+                    wire_code,
+                    "details.wire_code (got {error:?})"
+                );
+                message.clone()
+            }
+            FfiError::Dial { .. } => panic!("expected a reject row, got {error:?}"),
+        }
+    }
+
+    impl PortsHandler for KeRemotePortsHandler {
+        fn extract(&self, extract_request_json: String) -> Result<String, FfiError> {
+            let request: Value =
+                serde_json::from_str(&extract_request_json).expect("test handler receives JSON");
+            self.extract_requests
+                .lock()
+                .expect("extract requests lock")
+                .push(request.clone());
+            match self.answer {
+                ExtractAnswer::Batch => {
+                    let run_id = request["run_id"].as_str().unwrap_or_default().to_owned();
+                    let candidates: Vec<Value> = request["sources"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, _)| {
+                            json!({
+                                "schema_version": 1,
+                                "entry_id": format!("ke-ffi-{run_id}-{index}"),
+                                "entry_type": "note",
+                                "canonical_name": format!("Extracted note {index}"),
+                                "status": "provisional",
+                                "body": { "summary": format!("provisional candidate {index}") },
+                                "extensions": {},
+                            })
+                        })
+                        .collect();
+                    Ok(serde_json::to_string(&json!({
+                        "candidates": candidates,
+                        "run": { "run_id": run_id },
+                    }))
+                    .expect("extract response serializes"))
+                }
+                ExtractAnswer::ErrorBranch => Ok(json!({
+                    "error": {
+                        "code": "KNOWLEDGE_ENTRY_NOT_FOUND",
+                        "message": "the extractor's referenced source is gone",
+                        "extensions": {},
+                    },
+                })
+                .to_string()),
+                ExtractAnswer::Malformed => Ok("not json".to_string()),
+                ExtractAnswer::ApplicationRefusal => Err(FfiError::Rejected {
+                    code: "CAPABILITY_PORT_MISSING".into(),
+                    message: "this binding does not serve extraction".into(),
+                    kind: None,
+                    wire_code: None,
+                }),
+            }
+        }
+
+        fn list_knowledge_entries(&self, scope_json: String) -> Result<String, FfiError> {
+            let scope: Value =
+                serde_json::from_str(&scope_json).expect("test handler receives JSON");
+            self.scope_calls
+                .lock()
+                .expect("scope calls lock")
+                .push(scope);
+            Ok(serde_json::to_string(&self.entries).expect("entries serialize"))
+        }
+
+        fn get_knowledge_entry(&self, _entry_id: String) -> Result<String, FfiError> {
+            unserved("get_knowledge_entry")
+        }
+
+        fn put_knowledge_entry(
+            &self,
+            _entry_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            unserved("put_knowledge_entry")
+        }
+
+        fn get_relation(&self, _relation_id: String) -> Result<String, FfiError> {
+            unserved("get_relation")
+        }
+
+        fn put_relation(
+            &self,
+            _relation_json: String,
+            _expected_base_revision: Option<u64>,
+        ) -> Result<String, FfiError> {
+            unserved("put_relation")
+        }
+
+        fn list_timeline_events(&self, _scope_json: String) -> Result<String, FfiError> {
+            unserved("list_timeline_events")
+        }
+
+        fn put_findings(&self, _findings_json: String) -> Result<String, FfiError> {
+            unserved("put_findings")
+        }
+
+        fn list_rules(&self, _rule_refs: Vec<String>) -> Result<String, FfiError> {
+            unserved("list_rules")
+        }
+
+        fn list_peer_host_capability_manifests(&self) -> Result<String, FfiError> {
+            unserved("list_peer_host_capability_manifests")
+        }
+
+        fn project(&self, _project_request_json: String) -> Result<String, FfiError> {
+            unserved("project")
+        }
+
+        fn compute(&self, _compute_request_json: String) -> Result<String, FfiError> {
+            unserved("compute")
+        }
+
+        fn list_fork_timeline_events(&self, _scope_json: String) -> Result<String, FfiError> {
+            unserved("list_fork_timeline_events")
+        }
+    }
+
+    #[test]
+    fn ke_remote_extract_round_trips_a_provisional_batch_through_the_foreign_callback() {
+        let (handler, extract_requests, _scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, Vec::new());
+        let (responder, dialer) =
+            dial_ke_remote(&["ke-extraction"], &["ke-extraction"], Some(handler));
+
+        let response_json = dialer
+            .extract(extract_request_json("run-ffi-ke-1"))
+            .expect("extract through the foreign callback");
+        let response: Value = serde_json::from_str(&response_json).expect("response json");
+        assert_eq!(response["run"]["run_id"], "run-ffi-ke-1");
+        let candidates = response["candidates"].as_array().expect("candidates");
+        assert_eq!(candidates.len(), 2);
+        for candidate in candidates {
+            assert_eq!(candidate["status"], "provisional");
+        }
+
+        // The callback received the `ExtractRequest` itself: no wrapper and no
+        // loader value — only the request carried the source references.
+        let requests = extract_requests.lock().expect("extract requests lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["run_id"], "run-ffi-ke-1");
+        assert_eq!(requests[0]["sources"].as_array().expect("sources").len(), 2);
+        assert!(requests[0].get("request").is_none());
+        assert!(requests[0].get("arguments").is_none());
+        assert!(requests[0].get("input").is_none());
+        drop(requests);
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_extract_rejects_malformed_request_json_with_zero_callback_calls() {
+        let (handler, extract_requests, _scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, Vec::new());
+        let (responder, dialer) =
+            dial_ke_remote(&["ke-extraction"], &["ke-extraction"], Some(handler));
+
+        let error = dialer
+            .extract("not json".to_string())
+            .expect_err("malformed request JSON must reject");
+        assert_rejected(&error, "INVALID_INPUT", None, None);
+        assert!(
+            extract_requests
+                .lock()
+                .expect("extract requests lock")
+                .is_empty(),
+            "the malformed request must not reach the wire or the callback"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_extract_denies_when_ke_extraction_is_not_negotiated() {
+        // The callback object exists; neither hello lists `ke-extraction`, so
+        // the negotiated intersection lacks it and the responder's static gate
+        // denies before any host work.
+        let (handler, extract_requests, _scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, Vec::new());
+        let (responder, dialer) = dial_ke_remote(&[], &[], Some(handler));
+
+        let error = dialer
+            .extract(extract_request_json("run-ffi-unnegotiated"))
+            .expect_err("an unnegotiated extract must deny");
+        assert_rejected(
+            &error,
+            "CAPABILITY_PORT_MISSING",
+            None,
+            Some("op_unsupported"),
+        );
+        assert!(
+            extract_requests
+                .lock()
+                .expect("extract requests lock")
+                .is_empty(),
+            "the capability gate denies before the callback"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_extract_probe_denies_when_ports_are_absent() {
+        // `ke-extraction` is negotiated but the responder has no ports face at
+        // all: the absent-provider probe deny — distinct from the
+        // unnegotiated row above and from a callback's own refusal below.
+        let (responder, dialer) = dial_ke_remote(&["ke-extraction"], &["ke-extraction"], None);
+
+        let error = dialer
+            .extract(extract_request_json("run-ffi-absent-ports"))
+            .expect_err("an absent ports face must deny");
+        assert_rejected(
+            &error,
+            "CAPABILITY_PORT_MISSING",
+            None,
+            Some("op_unsupported"),
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_extract_passes_a_callback_application_refusal_through() {
+        let (handler, extract_requests, _scope_calls) =
+            ke_ports_handler(ExtractAnswer::ApplicationRefusal, Vec::new());
+        let (responder, dialer) =
+            dial_ke_remote(&["ke-extraction"], &["ke-extraction"], Some(handler));
+
+        let error = dialer
+            .extract(extract_request_json("run-ffi-refusal"))
+            .expect_err("a callback that declines extraction must reject");
+        let message = assert_rejected(&error, "CAPABILITY_PORT_MISSING", None, None);
+        assert!(
+            message.contains("does not serve extraction"),
+            "the callback's message must survive: {message}"
+        );
+        assert_eq!(
+            extract_requests
+                .lock()
+                .expect("extract requests lock")
+                .len(),
+            1,
+            "a refusal is the callback's own answer, not a probe deny"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_extract_normalizes_the_callback_error_branch_to_the_reject_path() {
+        // A callback answering `Ok` with the `ExtractResponse` error branch
+        // must travel the library's F1 normalization — never a nested success
+        // carrying an error.
+        let (handler, _extract_requests, _scope_calls) =
+            ke_ports_handler(ExtractAnswer::ErrorBranch, Vec::new());
+        let (responder, dialer) =
+            dial_ke_remote(&["ke-extraction"], &["ke-extraction"], Some(handler));
+
+        let error = dialer
+            .extract(extract_request_json("run-ffi-error-branch"))
+            .expect_err("the error branch must not answer success");
+        let message = assert_rejected(&error, "KNOWLEDGE_ENTRY_NOT_FOUND", None, None);
+        assert!(
+            message.contains("referenced source is gone"),
+            "the envelope message must survive: {message}"
+        );
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_extract_contains_malformed_callback_output_and_the_session_survives() {
+        let entries = vec![served_entry("kb_ffi_ke_after", "After Containment")];
+        let (handler, _extract_requests, scope_calls) =
+            ke_ports_handler(ExtractAnswer::Malformed, entries);
+        let (responder, dialer) =
+            dial_ke_remote(&["ke-extraction"], &["ke-extraction"], Some(handler));
+
+        // Malformed foreign output → the bridge containment row, NOT an
+        // unavailable-capability recast.
+        let error = dialer
+            .extract(extract_request_json("run-ffi-containment"))
+            .expect_err("malformed callback output must be contained");
+        assert_rejected(&error, "INTERNAL_ERROR", None, None);
+
+        // The session survived: a healthy op still serves through the same
+        // callback.
+        let served_json = dialer
+            .list_knowledge_entries(json!({ "scope_id": "toy-scope-001" }).to_string())
+            .expect("post-containment serving succeeds");
+        let served: Value = serde_json::from_str(&served_json).expect("served entries json");
+        assert_eq!(served[0]["entry_id"], "kb_ffi_ke_after");
+        assert_eq!(scope_calls.lock().expect("scope calls lock").len(), 1);
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_scope_viewpoint_serves_and_preserves_fields_with_ownership_negotiated() {
+        let entries = vec![served_entry("kb_ffi_ke_own", "FFI KE Own")];
+        let (handler, extract_requests, scope_calls) =
+            ke_ports_handler(ExtractAnswer::Batch, entries);
+        let (responder, dialer) =
+            dial_ke_remote(&["ke-ownership"], &["ke-ownership"], Some(handler));
+
+        // The OQ-FFI-1 witness: the existing Scope method carries the gate —
+        // no ownership-specific method or callback is added.
+        let served_json = dialer
+            .list_knowledge_entries(viewpoint_scope_json())
+            .expect("a negotiated viewpoint request must serve");
+        let served: Value = serde_json::from_str(&served_json).expect("served entries json");
+        assert_eq!(served.as_array().expect("array").len(), 1);
+        assert_eq!(served[0]["entry_id"], "kb_ffi_ke_own");
+        assert_eq!(served[0]["canonical_name"], "FFI KE Own");
+
+        // The callback received the declared Scope unchanged: the viewpoint and
+        // the opaque extension values are not stripped to make the request
+        // succeed, and no extraction call was involved.
+        let scopes = scope_calls.lock().expect("scope calls lock");
+        assert_eq!(scopes.len(), 1, "the callback is reached exactly once");
+        assert_eq!(scopes[0]["viewpoint"], "kb_tw_mira");
+        assert_eq!(scopes[0]["entry_types"], json!(["note"]));
+        assert_eq!(scopes[0]["extensions"]["product"]["viewpoint"], "decoy");
+        assert_eq!(scopes[0]["extensions"]["product"]["owner"], "someone");
+        drop(scopes);
+        assert!(extract_requests
+            .lock()
+            .expect("extract requests lock")
+            .is_empty());
+
+        dialer.close();
+        responder.close();
+    }
+
+    #[test]
+    fn ke_remote_scope_viewpoint_without_negotiated_ownership_refuses_with_zero_callback_calls() {
+        // Either hello omitting `ke-ownership` leaves it out of the negotiated
+        // intersection: the F2 conjunct refuses before the callback runs.
+        for (client_capabilities, responder_capabilities) in [
+            (vec!["ke-ownership"], Vec::new()),
+            (Vec::new(), vec!["ke-ownership"]),
+        ] {
+            let entries = vec![served_entry("kb_ffi_ke_denied", "FFI KE Denied")];
+            let (handler, _extract_requests, scope_calls) =
+                ke_ports_handler(ExtractAnswer::Batch, entries);
+            let (responder, dialer) = dial_ke_remote(
+                &client_capabilities,
+                &responder_capabilities,
+                Some(handler),
+            );
+
+            let error = dialer
+                .list_knowledge_entries(viewpoint_scope_json())
+                .expect_err("an unnegotiated viewpoint request must refuse");
+            let message = assert_rejected(
+                &error,
+                "CAPABILITY_PORT_MISSING",
+                None,
+                Some("op_unsupported"),
+            );
+            assert!(
+                message.contains("ke-ownership"),
+                "the deny must name the missing capability: {message}"
+            );
+            assert!(
+                scope_calls.lock().expect("scope calls lock").is_empty(),
+                "the gate refuses before the callback is reached"
+            );
+
+            dialer.close();
+            responder.close();
+        }
+    }
+}

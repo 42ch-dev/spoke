@@ -738,6 +738,10 @@ static class _UniFFILib {
         ulong @uniffiHandle,RustBuffer @scopeJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void UniffiCallbackInterfacePortsHandlerMethod12(
+        ulong @uniffiHandle,RustBuffer @extractRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void UniffiCallbackInterfaceToolHandlerMethod0(
         ulong @uniffiHandle,RustBuffer @argumentsJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err
     );
@@ -770,6 +774,7 @@ static class _UniFFILib {
         public IntPtr @project;
         public IntPtr @compute;
         public IntPtr @listForkTimelineEvents;
+        public IntPtr @extract;
     }
     [StructLayout(LayoutKind.Sequential)]
     public struct UniffiVTableCallbackInterfaceToolHandler
@@ -787,6 +792,9 @@ static class _UniFFILib {
         public IntPtr @recv;
         public IntPtr @close;
     }
+    
+    
+    
     
     
     
@@ -1561,6 +1569,17 @@ static class _UniFFILib {
     public static extern
 #endif
      RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_compute(ulong @ptr,RustBuffer @computeRequestJson,ref UniffiRustCallStatus _uniffi_out_err
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
+     RustBuffer uniffi_spoke_connect_fn_method_remoteadapterffi_extract(ulong @ptr,RustBuffer @extractRequestJson,ref UniffiRustCallStatus _uniffi_out_err
     );
 
     #if NET8_0_OR_GREATER
@@ -2979,6 +2998,17 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_extract(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      ushort uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest(
     );
 
@@ -3342,6 +3372,17 @@ static class _UniFFILib {
     [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
     public static extern
 #endif
+     ushort uniffi_spoke_connect_checksum_method_portshandler_extract(
+    );
+
+    #if NET8_0_OR_GREATER
+    [LibraryImport("spoke_connect")]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+    public static partial
+#else
+    [DllImport("spoke_connect", CallingConvention = CallingConvention.Cdecl)]
+    public static extern
+#endif
      ushort uniffi_spoke_connect_checksum_method_toolhandler_handle(
     );
 
@@ -3657,6 +3698,12 @@ static class _UniFFILib {
             }
         }
         {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_extract();
+            if (checksum != 63566) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_extract` checksum `63566`, library returned `{checksum}`");
+            }
+        }
+        {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest();
             if (checksum != 41950) {
                 throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest` checksum `41950`, library returned `{checksum}`");
@@ -3852,6 +3899,12 @@ static class _UniFFILib {
             var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events();
             if (checksum != 36942) {
                 throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events` checksum `36942`, library returned `{checksum}`");
+            }
+        }
+        {
+            var checksum = _UniFFILib.uniffi_spoke_connect_checksum_method_portshandler_extract();
+            if (checksum != 1921) {
+                throw new UniffiContractChecksumException($"uniffi.spoke_connect: uniffi bindings expected function `uniffi_spoke_connect_checksum_method_portshandler_extract` checksum `1921`, library returned `{checksum}`");
             }
         }
         {
@@ -5424,6 +5477,22 @@ public interface IRemoteAdapterFfi {
     /// </summary>
     /// <exception cref="FfiException"></exception>
     string Compute(string @computeRequestJson);
+    /// <summary>
+    /// Core `extract` op (F1/F3): delegate the whole extraction to a peer
+    /// that negotiated `ke-extraction` and return its wire
+    /// `ExtractResponse` success branch as a JSON string. The payload is
+    /// the `ExtractRequest` itself — no wrapper, and no loader value is an
+    /// argument here or a field on the wire.
+    ///
+    /// `extract_request_json` parses at the FFI boundary (malformed →
+    /// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+    /// wire_code: None }` with zero wire traffic). No local capability
+    /// pre-gate: the responder answers the deny and the D7 rows map it to
+    /// `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+    /// preserved, exactly like the port methods.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string Extract(string @extractRequestJson);
     /// <exception cref="FfiException"></exception>
     string GetHostCapabilityManifest();
     /// <exception cref="FfiException"></exception>
@@ -5610,6 +5679,29 @@ public class RemoteAdapterFfi : IRemoteAdapterFfi, IDisposable {
         return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
     _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
     _UniFFILib.uniffi_spoke_connect_fn_method_remoteadapterffi_compute(thisPtr, FfiConverterString.INSTANCE.Lower(@computeRequestJson), ref _status)
+)));
+    }
+    
+    
+    /// <summary>
+    /// Core `extract` op (F1/F3): delegate the whole extraction to a peer
+    /// that negotiated `ke-extraction` and return its wire
+    /// `ExtractResponse` success branch as a JSON string. The payload is
+    /// the `ExtractRequest` itself — no wrapper, and no loader value is an
+    /// argument here or a field on the wire.
+    ///
+    /// `extract_request_json` parses at the FFI boundary (malformed →
+    /// `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+    /// wire_code: None }` with zero wire traffic). No local capability
+    /// pre-gate: the responder answers the deny and the D7 rows map it to
+    /// `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+    /// preserved, exactly like the port methods.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    public string Extract(string @extractRequestJson) {
+        return CallWithPointer(thisPtr => FfiConverterString.INSTANCE.Lift(
+    _UniffiHelpers.RustCallWithError(FfiConverterTypeFfiError.INSTANCE, (ref UniffiRustCallStatus _status) =>
+    _UniFFILib.uniffi_spoke_connect_fn_method_remoteadapterffi_extract(thisPtr, FfiConverterString.INSTANCE.Lower(@extractRequestJson), ref _status)
 )));
     }
     
@@ -6481,6 +6573,23 @@ public interface PortsHandler {
     string Compute(string @computeRequestJson);
     /// <exception cref="FfiException"></exception>
     string ListForkTimelineEvents(string @scopeJson);
+    /// <summary>
+    /// Core `extract` op (F1/F3) — a service face, not a D4 port method:
+    /// the callback runs the whole host-local extraction (loader,
+    /// extractor, provisional-candidate assembly) and answers the wire
+    /// [`ExtractResponse`] JSON. The loaded input value is host-local and
+    /// never a parameter here.
+    ///
+    /// `Ok(json)` → the success branch (parsed inside the bridge; its
+    /// `error` branch is normalized by the library responder's F1 path,
+    /// never relayed as a nested success). `Err(FfiError::Rejected{..})`
+    /// → an application reject passes through verbatim (a callback that
+    /// declines to serve extraction locks
+    /// `CAPABILITY_PORT_MISSING`, not a fabricated `op_unsupported`);
+    /// malformed output / `Dial` / panic → `INTERNAL_ERROR` containment.
+    /// </summary>
+    /// <exception cref="FfiException"></exception>
+    string Extract(string @extractRequestJson);
 }
 
 class UniffiCallbackInterfacePortsHandler {
@@ -6869,6 +6978,38 @@ class UniffiCallbackInterfacePortsHandler {
             }
         }
     }
+    static void Extract(ulong @uniffiHandle,RustBuffer @extractRequestJson,IntPtr /*RustBuffer*/ @uniffiOutReturn,ref UniffiRustCallStatus _uniffi_out_err) {
+        var handle = @uniffiHandle;
+        try {
+            if (!FfiConverterTypePortsHandler.INSTANCE.handleMap.TryGet(handle, out var uniffiObject)) {
+                throw new InternalException($"No callback in handlemap '{handle}'");
+            }
+            var result =
+            uniffiObject.Extract(
+                FfiConverterString.INSTANCE.Lift(@extractRequestJson));
+            unsafe {
+                *(RustBuffer*)uniffiOutReturn = FfiConverterString.INSTANCE.Lower(result);
+            }
+
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.SUCCESS;
+        }
+        catch (FfiException e) {
+            try {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.ERROR;
+                _uniffi_out_err.error_buf = FfiConverterTypeFfiError.INSTANCE.Lower(e);
+            } catch {
+                _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            }
+        }
+        catch (System.Exception e){
+            _uniffi_out_err.code = UniffiCallbackResponseStatus.UNEXPECTED_ERROR;
+            try {
+                _uniffi_out_err.error_buf = FfiConverterString.INSTANCE.Lower(e.Message);
+            }
+            catch {
+            }
+        }
+    }
 
     static void UniffiFree(ulong @handle) {
         FfiConverterTypePortsHandler.INSTANCE.handleMap.Remove(@handle);
@@ -6896,6 +7037,7 @@ class UniffiCallbackInterfacePortsHandler {
     static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9 _m9 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod9(Project);
     static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10 _m10 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod10(Compute);
     static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11 _m11 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod11(ListForkTimelineEvents);
+    static _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod12 _m12 = new _UniFFILib.UniffiCallbackInterfacePortsHandlerMethod12(Extract);
     static _UniFFILib.UniffiCallbackInterfaceFree _callback_interface_free = new _UniFFILib.UniffiCallbackInterfaceFree(UniffiFree);
     static _UniFFILib.UniffiCallbackInterfaceClone _callback_interface_clone = new _UniFFILib.UniffiCallbackInterfaceClone(UniffiClone);
 
@@ -6916,6 +7058,7 @@ class UniffiCallbackInterfacePortsHandler {
             @project = Marshal.GetFunctionPointerForDelegate(_m9),
             @compute = Marshal.GetFunctionPointerForDelegate(_m10),
             @listForkTimelineEvents = Marshal.GetFunctionPointerForDelegate(_m11),
+            @extract = Marshal.GetFunctionPointerForDelegate(_m12),
             @uniffiFree = Marshal.GetFunctionPointerForDelegate(_callback_interface_free),
             @uniffiClone = Marshal.GetFunctionPointerForDelegate(_callback_interface_clone),
         };

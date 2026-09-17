@@ -281,6 +281,10 @@ func runPortsLoopbackSmoke(_ r: Reporter) throws {
     r.check("capability-deny dialer state is Established", gateDialer.state() == "Established")
     try waitForStatePorts("capability-deny responder handshake", { gateResponder.state() }, "Established")
     try assertOptionalOpsDenied(r, gateDialer, "capability deny")
+
+    // 4. KE remote (F1/F2/F3) matrix — the `extract` service face and the
+    //    `ke-ownership` gate on the existing Scope query.
+    try runKeRemoteSmoke(r, fixture: fixture)
 }
 
 /// Assert all three optional ops deny with CAPABILITY_PORT_MISSING +
@@ -498,4 +502,570 @@ private final class SmokePortsHandler: PortsHandler {
         let eventData = try JSONSerialization.data(withJSONObject: [event])
         return String(data: eventData, encoding: .utf8) ?? "[]"
     }
+
+    /// This double serves only the optional `port.*` families, so `extract`
+    /// is an ordinary application refusal (never the absent-provider probe
+    /// deny). The regenerated `PortsHandler` interface requires the method.
+    func extract(extractRequestJson: String) throws -> String {
+        throw FfiError.Rejected(
+            code: "CAPABILITY_PORT_MISSING",
+            message: "this ports smoke double does not serve extraction",
+            kind: nil,
+            wireCode: nil
+        )
+    }
+}
+
+// MARK: - KE remote (F1/F2/F3)
+
+// The `extract` service face and the `ke-ownership` gate on the existing
+// Scope query, mirroring the Rust `ke_remote_ffi_tests` battery
+// (`crates/spoke-connect/src/ffi.rs`). The generated `PortsHandler`
+// interface carries no loader method — source loading is the serving host's
+// own business — so the loader value stays a private handler field and the
+// canary below exists nowhere else: not in the request, not in the expected
+// response. It is asserted absent from the recorded envelopes.
+
+private let keLoaderCanary = "ke-ffi-loader-canary-swift"
+
+/// Both peers' hello manifests: the baseline capability plus whatever the
+/// scenario negotiates. A capability must appear in *both* hellos to be
+/// negotiated, so the omitted side is how the deny scenarios are set up.
+/// Mirror of the Rust `ke_manifest_json` test helper.
+private func keManifestJson(hostId: String, capabilities: [String]) -> String {
+    let manifest: [String: Any] = [
+        "schema_version": 1,
+        "host_id": hostId,
+        "roles": ["data-store"],
+        "capabilities": ["spoke-baseline"] + capabilities,
+        "namespaces": ["toy_world"],
+        "extensions": [:],
+    ]
+    let data = try? JSONSerialization.data(withJSONObject: manifest)
+    return data.flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+}
+
+/// An `extract` request for the scenario's run id: the payload is the
+/// `ExtractRequest` itself and `sources` carry references only.
+private func keExtractRequestJson(runId: String) -> String {
+    "{\"run_id\":\"\(runId)\",\"sources\":["
+        + "{\"schema_version\":1,\"source_id\":\"manuscript/ch1\",\"extensions\":{}},"
+        + "{\"schema_version\":1,\"source_id\":\"manuscript/ch2\",\"extensions\":{}}]}"
+}
+
+/// A Scope carrying a reader viewpoint plus opaque extension values the
+/// callback must receive unchanged.
+private func keViewpointScopeJson() -> String {
+    "{\"scope_id\":\"toy-scope-001\",\"viewpoint\":\"kb_tw_mira\",\"entry_types\":[\"note\"],"
+        + "\"extensions\":{\"product\":{\"viewpoint\":\"decoy\",\"owner\":\"someone\"}}}"
+}
+
+/// One served `KnowledgeEntry`; `visibility` rides the opaque extensions and
+/// is the host's own filtering input, not a wire contract.
+private func keEntry(entryId: String, canonicalName: String, visibility: String) -> [String: Any] {
+    [
+        "schema_version": 1,
+        "entry_id": entryId,
+        "entry_type": "knowledge",
+        "canonical_name": canonicalName,
+        "status": "active",
+        "body": ["summary": "served through the foreign ports callback"],
+        "extensions": ["visibility": ["scope": visibility]],
+    ]
+}
+
+/// Dialer-side transport that records every envelope in both directions, so
+/// the smoke can assert what did and did not reach the wire.
+private final class RecordingLoopbackTransport: Transport {
+    private let inner: LoopbackTransport
+    private let lock = NSLock()
+    private var recorded: [Data] = []
+
+    init(inner: LoopbackTransport) {
+        self.inner = inner
+    }
+
+    var frames: [Data] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func send(envelope: Data) throws {
+        lock.lock()
+        recorded.append(envelope)
+        lock.unlock()
+        try inner.send(envelope: envelope)
+    }
+
+    func recv() throws -> Data {
+        let envelope = try inner.recv()
+        lock.lock()
+        recorded.append(envelope)
+        lock.unlock()
+        return envelope
+    }
+
+    func close() throws {
+        try inner.close()
+    }
+}
+
+/// Foreign-callback ports handler for the KE remote matrix: a private
+/// host-local loader value, the `extract` service face, and a
+/// viewpoint-filtered knowledge store. Mirror of the Rust
+/// `KeRemotePortsHandler` double.
+private final class KeRemotePortsHandler: PortsHandler {
+    private let lock = NSLock()
+    private let declineExtract: Bool
+    private var requested: [[String: Any]] = []
+    private var scopes: [[String: Any]] = []
+    /// The serving host's loaded in-process input (F1): only this host sees
+    /// it, and the canary is unique to the loader.
+    private let loadedCanary = keLoaderCanary
+    private let entries: [[String: Any]] = [
+        keEntry(entryId: "kb_ffi_ke_foreign", canonicalName: "FFI KE Foreign", visibility: "private:kb_tw_other"),
+        keEntry(entryId: "kb_ffi_ke_own", canonicalName: "FFI KE Own", visibility: "private:kb_tw_mira"),
+        keEntry(entryId: "kb_ffi_ke_shared", canonicalName: "FFI KE Shared", visibility: "shared"),
+    ]
+
+    init(declineExtract: Bool = false) {
+        self.declineExtract = declineExtract
+    }
+
+    var extractRequests: [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requested
+    }
+
+    var scopeCalls: [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return scopes
+    }
+
+    func extract(extractRequestJson: String) throws -> String {
+        guard let data = extractRequestJson.data(using: .utf8),
+              let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "ports_loopback_smoke", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "handler received malformed extract JSON",
+            ])
+        }
+        lock.lock()
+        requested.append(request)
+        lock.unlock()
+        if declineExtract {
+            throw FfiError.Rejected(
+                code: "CAPABILITY_PORT_MISSING",
+                message: "this binding does not serve extraction",
+                kind: nil,
+                wireCode: nil
+            )
+        }
+        // The loader runs inside the host service: its value feeds the
+        // extractor here and is never a transport argument or callback value.
+        if loadedCanary.isEmpty {
+            throw NSError(domain: "ports_loopback_smoke", code: 11, userInfo: [
+                NSLocalizedDescriptionKey: "host loader value is missing",
+            ])
+        }
+        let runId = request["run_id"] as? String ?? ""
+        let sources = request["sources"] as? [[String: Any]] ?? []
+        let candidates: [[String: Any]] = sources.enumerated().map { index, _ in
+            [
+                "schema_version": 1,
+                "entry_id": "ke-ffi-\(runId)-\(index)",
+                "entry_type": "note",
+                "canonical_name": "Extracted note \(index)",
+                "status": "provisional",
+                "body": ["summary": "provisional candidate \(index)"],
+                "extensions": [:],
+            ]
+        }
+        let response: [String: Any] = ["candidates": candidates, "run": ["run_id": runId]]
+        let responseData = try JSONSerialization.data(withJSONObject: response)
+        return String(data: responseData, encoding: .utf8) ?? "{}"
+    }
+
+    func listKnowledgeEntries(scopeJson: String) throws -> String {
+        guard let data = scopeJson.data(using: .utf8),
+              let scope = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "ports_loopback_smoke", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "handler received malformed scope JSON",
+            ])
+        }
+        lock.lock()
+        scopes.append(scope)
+        lock.unlock()
+        let viewpoint = scope["viewpoint"] as? String
+        let visible = entries
+            .filter { entry in
+                let extensions = entry["extensions"] as? [String: Any]
+                let visibility = (extensions?["visibility"] as? [String: Any])?["scope"] as? String
+                return visibility == "shared" || visibility == "private:\(viewpoint ?? "")"
+            }
+            .sorted { ($0["entry_id"] as? String ?? "") < ($1["entry_id"] as? String ?? "") }
+        let served = try JSONSerialization.data(withJSONObject: visible)
+        return String(data: served, encoding: .utf8) ?? "[]"
+    }
+
+    /// Catalogue ops this double does not serve: an ordinary application
+    /// reject (`wireCode` nil), never containment.
+    private func unserved(_ op: String) -> FfiError {
+        FfiError.Rejected(
+            code: "INVALID_INPUT",
+            message: "\(op) is not served by this test handler",
+            kind: nil,
+            wireCode: nil
+        )
+    }
+
+    func getKnowledgeEntry(entryId: String) throws -> String {
+        throw unserved("get_knowledge_entry")
+    }
+
+    func putKnowledgeEntry(entryJson: String, expectedBaseRevision: UInt64?) throws -> String {
+        throw unserved("put_knowledge_entry")
+    }
+
+    func getRelation(relationId: String) throws -> String {
+        throw unserved("get_relation")
+    }
+
+    func putRelation(relationJson: String, expectedBaseRevision: UInt64?) throws -> String {
+        throw unserved("put_relation")
+    }
+
+    func listTimelineEvents(scopeJson: String) throws -> String {
+        throw unserved("list_timeline_events")
+    }
+
+    func putFindings(findingsJson: String) throws -> String {
+        throw unserved("put_findings")
+    }
+
+    func listRules(ruleRefs: [String]) throws -> String {
+        throw unserved("list_rules")
+    }
+
+    func listPeerHostCapabilityManifests() throws -> String {
+        throw unserved("list_peer_host_capability_manifests")
+    }
+
+    func project(projectRequestJson: String) throws -> String {
+        throw unserved("project")
+    }
+
+    func compute(computeRequestJson: String) throws -> String {
+        throw unserved("compute")
+    }
+
+    func listForkTimelineEvents(scopeJson: String) throws -> String {
+        throw unserved("list_fork_timeline_events")
+    }
+}
+
+/// Loopback pair through both FFI faces with the scenario's negotiated
+/// capabilities and optional foreign `PortsHandler`. Mirror of the Rust
+/// `dial_ke_remote` test helper.
+private func dialKePair(
+    _ fixture: PortsLoopbackSmokeFixture,
+    clientCapabilities: [String],
+    responderCapabilities: [String],
+    ports: PortsHandler?
+) throws -> (ConnectResponderFfi, RemoteAdapterFfi, RecordingLoopbackTransport) {
+    let pair = loopbackTransportPair()
+    let responder = try connectResponderFfi(
+        transport: LoopbackCallbackTransport(inner: pair.server()),
+        seed: fixture.seedHost,
+        manifestJson: keManifestJson(hostId: "test-responder", capabilities: responderCapabilities),
+        allowlist: [fixture.peerIdClient],
+        peerKeys: [fixture.peerIdClient: fixture.pubkeyClient],
+        ports: ports,
+        invokeTimeoutMs: nil
+    )
+    let transport = RecordingLoopbackTransport(inner: pair.client())
+    let dialer = try connectRemoteAdapterFfi(
+        transport: transport,
+        localSeed: fixture.seedClient,
+        localManifestJson: keManifestJson(hostId: "test-client", capabilities: clientCapabilities),
+        remotePubkey: fixture.pubkeyHost,
+        allowlist: [fixture.peerIdHost],
+        invokeTimeoutMs: nil
+    )
+    try waitForStatePorts("ke responder handshake", { responder.state() }, "Established")
+    return (responder, dialer, transport)
+}
+
+/// The unavailable-capability row shared by the unnegotiated and
+/// absent-provider denials (the callback-refusal row differs in `wireCode`
+/// and is asserted at its own case).
+private func assertUnavailableCapability(
+    _ r: Reporter,
+    _ what: String,
+    _ expectedWireCode: String?,
+    _ invoke: () throws -> String
+) {
+    do {
+        _ = try invoke()
+        r.check("\(what): denies", false)
+    } catch let error as FfiError {
+        if case let .Rejected(code, _, kind, wireCode) = error {
+            r.check("\(what): code is CAPABILITY_PORT_MISSING", code == "CAPABILITY_PORT_MISSING")
+            r.check("\(what): kind is nil", kind == nil)
+            r.check("\(what): wire_code is \(expectedWireCode ?? "nil")", wireCode == expectedWireCode)
+        } else {
+            r.check("\(what): surfaces as FfiError.Rejected (got \(error))", false)
+        }
+    } catch {
+        r.check("\(what): surfaces as FfiError (got \(error))", false)
+    }
+}
+
+/// The frozen KE remote matrix: extract round-trip, its three unavailability
+/// outcomes, and the OQ-FFI-1 ownership witness on the existing Scope query.
+private func runKeRemoteSmoke(_ r: Reporter, fixture: PortsLoopbackSmokeFixture) throws {
+    // 1. Extract round-trip through the foreign callback: the request is the
+    //    `ExtractRequest` itself and the response is the assembled batch.
+    do {
+        let handler = KeRemotePortsHandler()
+        let (responder, dialer, _) = try dialKePair(
+            fixture,
+            clientCapabilities: ["ke-extraction"],
+            responderCapabilities: ["ke-extraction"],
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        let response = try dialer.extract(extractRequestJson: keExtractRequestJson(runId: "run-ffi-ke-1"))
+        // Observable, deterministic response behaviour: one provisional
+        // candidate per declared source reference, carrying the run id.
+        r.check("ke extract run_id round-trips", jsonStringField(response, "run.run_id") == "run-ffi-ke-1")
+        r.check("ke extract returns one candidate per declared source", keArrayCount(response, "candidates") == 2)
+        r.check("ke extract candidate 0 entry_id", jsonStringField(response, "candidates.0.entry_id") == "ke-ffi-run-ffi-ke-1-0")
+        r.check("ke extract candidate 1 entry_id", jsonStringField(response, "candidates.1.entry_id") == "ke-ffi-run-ffi-ke-1-1")
+        r.check("ke extract candidates are provisional", jsonStringField(response, "candidates.0.status") == "provisional"
+            && jsonStringField(response, "candidates.1.status") == "provisional")
+        r.check("ke extract candidates are notes", jsonStringField(response, "candidates.0.entry_type") == "note")
+
+        // The callback received the `ExtractRequest` itself: no wrapper and no
+        // loader value — only references travelled.
+        let requests = handler.extractRequests
+        r.check("ke extract callback is reached exactly once", requests.count == 1)
+        let request = requests.first ?? [:]
+        r.check("ke extract callback run_id", request["run_id"] as? String == "run-ffi-ke-1")
+        r.check("ke extract callback sources", (request["sources"] as? [Any])?.count == 2)
+        r.check("ke extract callback source reference",
+            ((request["sources"] as? [[String: Any]])?.first)?["source_id"] as? String == "manuscript/ch1")
+        for wrapper in ["request", "arguments", "input", "loaded_input"] {
+            r.check("ke extract callback request carries no \(wrapper) wrapper", request[wrapper] == nil)
+        }
+    }
+
+    // 2. Malformed request JSON: rejected locally with zero wire traffic.
+    do {
+        let handler = KeRemotePortsHandler()
+        let (responder, dialer, transport) = try dialKePair(
+            fixture,
+            clientCapabilities: ["ke-extraction"],
+            responderCapabilities: ["ke-extraction"],
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        let framesBefore = transport.frames.count
+        do {
+            _ = try dialer.extract(extractRequestJson: "{ not json")
+            r.check("ke malformed extract json rejects", false)
+        } catch let error as FfiError {
+            if case let .Rejected(code, _, kind, wireCode) = error {
+                r.check("ke malformed extract json code is INVALID_INPUT", code == "INVALID_INPUT")
+                r.check("ke malformed extract json kind is nil", kind == nil)
+                r.check("ke malformed extract json wire_code is nil", wireCode == nil)
+            } else {
+                r.check("ke malformed extract json surfaces as FfiError.Rejected (got \(error))", false)
+            }
+        }
+        r.check("ke malformed extract never reaches the callback", handler.extractRequests.isEmpty)
+        r.check("ke malformed extract never reaches the wire", transport.frames.count == framesBefore)
+    }
+
+    // 3. Unnegotiated `ke-extraction` — otherwise identical manifests with one
+    //    flag omitted, in both directions.
+    for (what, clientCapabilities, responderCapabilities) in [
+        ("responder omits the flag", ["ke-extraction"], [String]()),
+        ("dialer omits the flag", [String](), ["ke-extraction"]),
+    ] {
+        let handler = KeRemotePortsHandler()
+        let (responder, dialer, _) = try dialKePair(
+            fixture,
+            clientCapabilities: clientCapabilities,
+            responderCapabilities: responderCapabilities,
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        assertUnavailableCapability(r, "ke extract unnegotiated (\(what))", "op_unsupported") {
+            try dialer.extract(extractRequestJson: keExtractRequestJson(runId: "run-ffi-unnegotiated"))
+        }
+        r.check("ke extract unnegotiated (\(what)) gate denies before the callback", handler.extractRequests.isEmpty)
+    }
+
+    // 4. Negotiated, `ports: nil` — the absent-provider probe deny.
+    do {
+        let (responder, dialer, _) = try dialKePair(
+            fixture,
+            clientCapabilities: ["ke-extraction"],
+            responderCapabilities: ["ke-extraction"],
+            ports: nil
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        assertUnavailableCapability(r, "ke extract absent-ports probe deny", "op_unsupported") {
+            try dialer.extract(extractRequestJson: keExtractRequestJson(runId: "run-ffi-absent-ports"))
+        }
+    }
+
+    // 5. Negotiated, callback declines: an ordinary application refusal, not a
+    //    missing-method probe deny.
+    do {
+        let handler = KeRemotePortsHandler(declineExtract: true)
+        let (responder, dialer, _) = try dialKePair(
+            fixture,
+            clientCapabilities: ["ke-extraction"],
+            responderCapabilities: ["ke-extraction"],
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        do {
+            _ = try dialer.extract(extractRequestJson: keExtractRequestJson(runId: "run-ffi-refusal"))
+            r.check("ke extract callback refusal rejects", false)
+        } catch let error as FfiError {
+            if case let .Rejected(code, _, kind, wireCode) = error {
+                r.check("ke extract refusal code is CAPABILITY_PORT_MISSING", code == "CAPABILITY_PORT_MISSING")
+                r.check("ke extract refusal kind is nil", kind == nil)
+                r.check("ke extract refusal wire_code is nil (not a probe deny)", wireCode == nil)
+            } else {
+                r.check("ke extract refusal surfaces as FfiError.Rejected (got \(error))", false)
+            }
+        }
+        r.check("ke extract refusal is the callback's own answer", handler.extractRequests.count == 1)
+    }
+
+    // 6. OQ-FFI-1 allow: the existing Scope method carries the ownership gate —
+    //    no ownership-specific method or callback is added.
+    do {
+        let handler = KeRemotePortsHandler()
+        let (responder, dialer, _) = try dialKePair(
+            fixture,
+            clientCapabilities: ["ke-ownership"],
+            responderCapabilities: ["ke-ownership"],
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        let served = try dialer.listKnowledgeEntries(scopeJson: keViewpointScopeJson())
+        r.check("ke ownership allow serves the own-private entry", jsonStringField(served, "0.entry_id") == "kb_ffi_ke_own")
+        r.check("ke ownership allow serves the shared entry", jsonStringField(served, "1.entry_id") == "kb_ffi_ke_shared")
+        r.check("ke ownership allow keeps the foreign-private entry out",
+            jsonStringField(served, "2.entry_id") == nil)
+        r.check("ke ownership allow preserves canonical_name", jsonStringField(served, "0.canonical_name") == "FFI KE Own")
+
+        // The callback received the declared Scope unchanged: the viewpoint and
+        // the opaque extension values are not stripped to make the request
+        // succeed, and no extraction call was involved.
+        let scopes = handler.scopeCalls
+        r.check("ke ownership allow reaches the callback exactly once", scopes.count == 1)
+        let scope = scopes.first ?? [:]
+        r.check("ke ownership allow preserves the viewpoint", scope["viewpoint"] as? String == "kb_tw_mira")
+        r.check("ke ownership allow preserves entry_types", (scope["entry_types"] as? [Any])?.first as? String == "note")
+        let product = (scope["extensions"] as? [String: Any])?["product"] as? [String: Any]
+        r.check("ke ownership allow preserves the decoy viewpoint",
+            product?["viewpoint"] as? String == "decoy")
+        r.check("ke ownership allow preserves the opaque owner", product?["owner"] as? String == "someone")
+        r.check("ke ownership allow never invokes extract", handler.extractRequests.isEmpty)
+    }
+
+    // 7. OQ-FFI-1 deny: either hello omitting `ke-ownership` refuses before the
+    //    callback runs.
+    for (what, clientCapabilities, responderCapabilities) in [
+        ("dialer omits the flag", [String](), ["ke-ownership"]),
+        ("responder omits the flag", ["ke-ownership"], [String]()),
+    ] {
+        let handler = KeRemotePortsHandler()
+        let (responder, dialer, _) = try dialKePair(
+            fixture,
+            clientCapabilities: clientCapabilities,
+            responderCapabilities: responderCapabilities,
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        assertUnavailableCapability(r, "ke ownership deny (\(what))", "op_unsupported") {
+            try dialer.listKnowledgeEntries(scopeJson: keViewpointScopeJson())
+        }
+        r.check("ke ownership deny (\(what)) refuses before the callback", handler.scopeCalls.isEmpty)
+    }
+
+    // 8. The host-local loader value never crosses the wire.
+    do {
+        let handler = KeRemotePortsHandler()
+        let (responder, dialer, transport) = try dialKePair(
+            fixture,
+            clientCapabilities: ["ke-extraction"],
+            responderCapabilities: ["ke-extraction"],
+            ports: handler
+        )
+        defer {
+            dialer.close()
+            responder.close()
+        }
+
+        let response = try dialer.extract(extractRequestJson: keExtractRequestJson(runId: "run-ffi-canary"))
+        r.check("ke canary round-trip really happened", response.contains("run-ffi-canary"))
+        r.check("ke canary is not serialized into the response", !response.contains(keLoaderCanary))
+        let frames = transport.frames
+        r.check("ke canary row records the envelopes", !frames.isEmpty)
+        let recorded = frames.compactMap { String(data: $0, encoding: .utf8) }.joined()
+        // Positive control: the recording really observes the plaintext wire
+        // (the invoke request's run id is visible), so the canary absence below
+        // is a real observation, not a vacuous one.
+        r.check("ke canary positive control: the request is on the wire", recorded.contains("run-ffi-canary"))
+        r.check("ke loader canary never reaches the wire", !recorded.contains(keLoaderCanary))
+    }
+}
+
+/// Decode a JSON document into a Foundation object (`nil` on malformed input).
+private func decodedJson(_ raw: String) -> Any? {
+    guard let data = raw.data(using: .utf8) else { return nil }
+    return try? JSONSerialization.jsonObject(with: data)
+}
+
+/// Array length at a dotted path (`nil` on malformed input or a non-array).
+private func keArrayCount(_ raw: String, _ path: String) -> Int? {
+    guard let object = decodedJson(raw) else { return nil }
+    return (jsonValueAt(object, path) as? [Any])?.count
 }

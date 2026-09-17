@@ -1919,6 +1919,22 @@ public protocol RemoteAdapterFfiProtocol: AnyObject, Sendable {
      */
     func compute(computeRequestJson: String) throws  -> String
     
+    /**
+     * Core `extract` op (F1/F3): delegate the whole extraction to a peer
+     * that negotiated `ke-extraction` and return its wire
+     * `ExtractResponse` success branch as a JSON string. The payload is
+     * the `ExtractRequest` itself — no wrapper, and no loader value is an
+     * argument here or a field on the wire.
+     *
+     * `extract_request_json` parses at the FFI boundary (malformed →
+     * `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+     * wire_code: None }` with zero wire traffic). No local capability
+     * pre-gate: the responder answers the deny and the D7 rows map it to
+     * `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+     * preserved, exactly like the port methods.
+     */
+    func extract(extractRequestJson: String) throws  -> String
+    
     func getHostCapabilityManifest() throws  -> String
     
     func getKnowledgeEntry(entryId: String) throws  -> String
@@ -2073,6 +2089,30 @@ open func compute(computeRequestJson: String)throws  -> String  {
     uniffi_spoke_connect_fn_method_remoteadapterffi_compute(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(computeRequestJson),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Core `extract` op (F1/F3): delegate the whole extraction to a peer
+     * that negotiated `ke-extraction` and return its wire
+     * `ExtractResponse` success branch as a JSON string. The payload is
+     * the `ExtractRequest` itself — no wrapper, and no loader value is an
+     * argument here or a field on the wire.
+     *
+     * `extract_request_json` parses at the FFI boundary (malformed →
+     * `FfiError::Rejected { code: "INVALID_INPUT", kind: None,
+     * wire_code: None }` with zero wire traffic). No local capability
+     * pre-gate: the responder answers the deny and the D7 rows map it to
+     * `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"`
+     * preserved, exactly like the port methods.
+     */
+open func extract(extractRequestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_spoke_connect_fn_method_remoteadapterffi_extract(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(extractRequestJson),uniffiCallStatus
     )
 })
 }
@@ -2868,6 +2908,23 @@ public protocol PortsHandler: AnyObject, Sendable {
     
     func listForkTimelineEvents(scopeJson: String) throws  -> String
     
+    /**
+     * Core `extract` op (F1/F3) — a service face, not a D4 port method:
+     * the callback runs the whole host-local extraction (loader,
+     * extractor, provisional-candidate assembly) and answers the wire
+     * [`ExtractResponse`] JSON. The loaded input value is host-local and
+     * never a parameter here.
+     *
+     * `Ok(json)` → the success branch (parsed inside the bridge; its
+     * `error` branch is normalized by the library responder's F1 path,
+     * never relayed as a nested success). `Err(FfiError::Rejected{..})`
+     * → an application reject passes through verbatim (a callback that
+     * declines to serve extraction locks
+     * `CAPABILITY_PORT_MISSING`, not a fabricated `op_unsupported`);
+     * malformed output / `Dial` / panic → `INTERNAL_ERROR` containment.
+     */
+    func extract(extractRequestJson: String) throws  -> String
+    
 }
 
 
@@ -3183,6 +3240,31 @@ fileprivate struct UniffiCallbackInterfacePortsHandler {
                 }
                 return try uniffiObj.listForkTimelineEvents(
                      scopeJson: try FfiConverterString.lift(scopeJson)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeFfiError_lower
+            )
+        },
+        extract: { (
+            uniffiHandle: UInt64,
+            extractRequestJson: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePortsHandler.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.extract(
+                     extractRequestJson: try FfiConverterString.lift(extractRequestJson)
                 )
             }
 
@@ -4077,6 +4159,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_compute() != 30870) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_spoke_connect_checksum_method_remoteadapterffi_extract() != 63566) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_spoke_connect_checksum_method_remoteadapterffi_get_host_capability_manifest() != 41950) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4174,6 +4259,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_portshandler_list_fork_timeline_events() != 36942) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_spoke_connect_checksum_method_portshandler_extract() != 1921) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_spoke_connect_checksum_method_toolhandler_handle() != 47918) {

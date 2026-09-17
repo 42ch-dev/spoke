@@ -1,0 +1,111 @@
+# Connect C/C++ native binding — C ABI decision record
+
+**Status:** Accepted architecture contract. This record specifies the C/C++ boundary; the packaging inventory in [`connect-binding-channels.md`](connect-binding-channels.md) records implemented channels and their evidence. Acceptance of this decision is not a claim that native artifacts or engine verification exist.
+
+## Decision and basis
+
+The C/C++ channel uses a hand-written C ABI and a single hand-written C header. It is a native binding of the Rust reference, not a language-native reimplementation. Wire shapes, authentication, capability gates, session transitions and error vocabulary remain owned by [`spoke-connect.md`](spoke-connect.md) §Embedding model and [`spoke-remote-adapter.md`](spoke-remote-adapter.md) D1–D16.
+
+The relevant existing facts are:
+
+| Source | Fact used by this decision |
+|---|---|
+| `spoke-connect.md:25-44` | Wire, session core and transport are separate; native bindings share the Rust implementation and must preserve signed hello bytes and outcomes. |
+| `spoke-remote-adapter.md:160-167` | Native calls are synchronous over a library-owned multi-thread Tokio runtime; foreign callbacks use its blocking pool. |
+| `crates/spoke-connect/Cargo.toml:39-61` | The UniFFI dependency is 0.32.0, with an opt-in `ffi` feature and `rlib`/`cdylib` targets. |
+| `crates/spoke-connect/src/ffi.rs:1766-1771,1873-2092` | Public Rust facade functions and objects already expose the required core, adapter, responder and router behavior. |
+| `crates/spoke-connect/src/ffi.rs:487-522,1783-1851` | The ports callback includes `extract`; `CoreError` includes `ProtocolVersionMismatch` as well as the seven older variants. Source, rather than stale prose counts, decides parity. |
+
+[UniFFI's supported-language documentation](https://mozilla.github.io/uniffi-rs/latest/) lists Swift, Kotlin and Python as fully supported first-party languages and describes other generators separately. The [C++ generator's README](https://github.com/NordSecurity/uniffi-bindgen-cpp#readme) documents `v0.8.1+v0.29.4`, requires C++20, and lists async functions as unsupported. Those facts are not evidence that this repository's synchronous facade needs async code generation; they are evidence of a separate compatibility/toolchain burden. A generator fork is rejected in favor of an explicit C boundary that does not expose STL layout, C++ name mangling, exceptions or RTTI. C++ ABI compatibility across compiler families is not a dependency of this design. Diplomat is also rejected: another bridge definition would duplicate the export inventory without reusing the existing facade directly.
+
+## Carrier and reuse boundary
+
+- Carrier: workspace-private `crates/spoke-connect-capi`, package `spoke-connect-capi`, library `spoke_connect_capi`, `publish = false`, `crate-type = ["rlib", "cdylib"]`. `rlib` is for scoped Rust checks, not a consumer artifact. The package inherits workspace version/edition and depends on `spoke-connect` with `ffi,remote-adapter` enabled. The existing crate's targets and feature definitions stay unchanged.
+- Reuse **public Rust functions and objects in `spoke_connect::ffi`**, not UniFFI-generated C symbols or its serialization/checksum ABI. The core wrappers already delegate to `core`; the remote objects already delegate to `remote`. The C carrier performs pointer validation, C/Rust value conversion, handle ownership and error projection only. It does not copy dispatch, cryptography, router selection, timeout or serving logic.
+- C callback adapters implement the existing public `ffi::Transport`, `ffi::PortsHandler` and `ffi::ToolHandler` traits. Passing these adapters into the public facade constructors reuses `ForeignCallbackTransport`, ports/tool bridges and the private `ffi_runtime` without making it public or editing `ffi.rs` (`ffi.rs:41-52,68-75,296-305,430-446,1466-1501`).
+- One lazily initialized multi-thread runtime serves all C handles in the loaded carrier image. There is no C-carrier runtime of its own and no per-handle runtime. The dependency is linked into the carrier; consumers link only `spoke_connect_capi`, not an additional `spoke_connect` dynamic library. Independently loaded copies of native libraries are separate ownership domains; handles and allocations never move between them.
+- Production parity includes the loopback pair/end helpers, all core functions/objects/errors, adapter optional ports and `extract`, baseline/router views, responder lifecycle, tool invoke/registration and the complete ports callback. The feature-gated smoke-host exports are test infrastructure, not production parity obligations. Envelope-auth internals remain encapsulated (`ffi.rs:19-33`); router `extract` is not invented (`spoke-remote-adapter.md:148,156`).
+
+## C boundary rules
+
+### Calling and representation
+
+The header is `crates/spoke-connect/bindings/cpp/include/spoke_connect.h`. Its language floor is C99 (fixed-width integers from `<stdint.h>`, lengths from `<stddef.h>`); C++ inclusion uses `extern "C"`. Windows functions and callback pointers use `__cdecl`; imports use `__declspec(dllimport)` unless building the carrier. Other platforms use default C calling convention and explicit public symbol visibility. Every public symbol is prefixed `spoke_connect_`. No packed structs, variadic calls, C++ types, ABI-sized C enums or exported data variables are permitted.
+
+All operations return `int32_t` status, put results in caller-supplied out parameters, and accept `spoke_connect_error *out_error`. Release functions alone return `void` and have no error output. Scalars use `uint8_t` for boolean/presence (only 0/1), `uint64_t` for unsigned values and `int64_t` for signed sequence inputs. Counts use `size_t` and are checked before constructing slices. ABI version is `1`, distinct from the hello protocol version; expose it through `spoke_connect_abi_version` under the same status/out convention.
+
+Mapping is mechanical: free functions keep their Rust snake-case names after the prefix; object methods use `<object>_<method>`, stripping the Rust `FFI` suffix (`remote_adapter`, `multi_peer_router`, `responder`, `nonce_store`, `outbound_sequence`, `inbound_sequence`, `loopback_transport`, `loopback_transport_pair`). Constructors use `<object>_new`; each object has `<object>_free`. The parity table records the public Rust source member and its C declaration, including constructors and callbacks.
+
+### Ownership table
+
+| Crossing value | Representation and ownership |
+|---|---|
+| Borrowed bytes or text | `spoke_connect_slice { const uint8_t *data; size_t len; }`. Valid through the complete synchronous call only; Rust copies anything retained. `NULL` is legal only with length zero; length must fit `isize::MAX`. Text is validated UTF-8; length is authoritative (no `strlen`). Keys are raw bytes, checked to exactly 32 bytes by the existing facade. |
+| Arrays/maps | Arrays of borrowed slices use pointer + `size_t count`, with the same NULL/zero rule. Peer keys use an array of `{ peer_id: slice, public_key: slice }` entries; duplicate peer ids reject as invalid input rather than silently choosing a key. Outputs that are lists/maps use owned JSON buffers. Manifests, requests, responses and tool arguments/results preserve the JSON shapes of the Rust facade. |
+| Optional values | `uint8_t present` plus a scalar/buffer value in a named C struct (`spoke_connect_optional_u64`, `spoke_connect_optional_buffer`); absent means `present = 0` and zero value. Present empty strings remain distinguishable from absence. An optional ports handle uses NULL for absence. |
+| Owned result buffer | `spoke_connect_buffer { uint8_t *data; size_t len; }`. Rust allocates `len + 1` bytes with a trailing zero byte (excluded from `len`, also for binary output). Consumer reads but never mutates fields/data or frees with its allocator. `spoke_connect_buffer_free(&buffer)` deallocates in the producing library and zeroes the struct; a zero buffer is a no-op. Optional buffers release their contained buffer. |
+| Object handles | Incomplete, separately named C structs; each pointer owns one boxed Rust handle containing an `Arc` of its facade object (the pair may own its pair value). Methods borrow the handle. A returned handle is owned and freed exactly once with its type's `*_free`; NULL free is a no-op. Passing a handle to a router or constructor borrows it and clones the Rust ownership internally, never consumes the caller's handle. No retain API is needed. |
+| Error output | Caller supplies a zeroed `spoke_connect_error`: owned buffers `message`, `code`, `kind`, `wire_code`, plus `uint64_t expected` and `int64_t actual` for sequence mismatch. A NULL/zero `kind` or `wire_code` buffer means absent; a present empty string has non-NULL data with length zero. `spoke_connect_error_free(&error)` frees all fields and zeroes the struct. Caller frees a previous error before reuse. |
+| Callback table and context | `transport_new`, `ports_handler_new`, `tool_handler_new` receive a table pointer and `void *user_data`, copy the table and return an owned callback handle. On success ownership of `user_data` transfers to the adapter, and its mandatory `destroy(user_data)` runs exactly once after the last Rust reference/in-flight callback is gone. On failure there is no transfer and no destroy call. Borrowing these handles for dial/serve/register does not transfer the caller's handle. |
+| Callback input | Slices/arrays are borrowed only until that callback returns. The foreign function copies anything it retains. |
+| Callback result/error buffers | `spoke_connect_foreign_buffer { const uint8_t *data; size_t len; void *release_context; void (*release)(void *, const uint8_t *, size_t); }`. Each populated buffer transfers to Rust when the callback returns, on success **or error**. Rust copies/validates it, then calls its mandatory release exactly once; Rust never uses the host allocator directly. Zero/NULL means empty and needs no release. A host returning static storage supplies a no-op release. Error callback records mirror the four textual error fields using foreign buffers. |
+
+All non-release out pointers are mandatory, writable, non-aliasing and initialized to empty/zero before work. A NULL out pointer or NULL/nonzero input span returns invalid-argument status; if `out_error` itself is NULL, return that status without an error record. Failed calls leave no result ownership with the caller; allocated intermediates are reclaimed. Rust cannot validate forged, dangling or concurrently freed non-NULL pointers: these are caller contract violations, not recoverable errors. No handle may be freed concurrently with a call using it. `close` is distinct from `free`: hosts close adapters/responders/transports before releasing their ownership. Router removal/free releases its references and does not close caller-owned adapters (D11).
+
+### Status and error projection
+
+Constants are `int32_t`-valued macros, not C enum parameters. Values are fixed:
+
+| Status | Meaning |
+|---|---|
+| 0 | `SPOKE_CONNECT_OK` |
+| 1 / 2 | `SPOKE_CONNECT_INVALID_ARGUMENT` / `SPOKE_CONNECT_PANIC` (C-boundary validation / caught wrapper panic; local only) |
+| 100–107 | Core errors in this order: invalid hello signature, nonce replay, handshake failed, invalid nonce, crypto, JCS, token invalid, protocol version mismatch |
+| 200–202 | Core invoke errors: sequence exhausted, inbound sequence mismatch, correlation mismatch |
+| 300 / 301 | FFI dial error / FFI rejected error |
+| 400 / 401 | Transport closed / transport I/O |
+
+Core errors preserve their message/reason; sequence mismatch preserves both numeric fields. Dial preserves `kind` and `message`; rejected preserves `code`, `message`, optional `kind` and `wire_code` exactly as `FfiError` exposes them (`ffi.rs:899-909`). D7 application reject codes are strings, not a second closed C enum. C callbacks return the same status with foreign-buffer error fields: transport accepts 0/400/401, ports/tool accepts 0/301. An unsupported status or malformed callback result is contained through the existing facade's transport-I/O or `INTERNAL_ERROR` path; known application rejection codes pass through and unknown codes downgrade as the existing ports/tool bridge specifies (`ffi.rs:525-549`). A callback returning status `300` is a foreign fault and follows the unsupported-status containment rule above.
+
+Every exported Rust entry catches unwind before it crosses C, including conversion and handle disposal. Core/wrapper panics use status 2; facade-mapped invoke panics retain `INTERNAL_ERROR`/`kind = panic`. Release functions contain a destructor panic and return without unwinding; they do not promise recovery from arbitrary memory corruption. Foreign functions, including release/destroy callbacks, MUST contain their own exceptions/panics. A C ABI cannot recover from a C++ exception crossing it, process abort or access violation. The C++ channel requires neither exception handling nor RTTI to call it.
+
+### Callback catalogue and threading
+
+- Tables contain one pointer per existing trait method: Transport `send`/`recv`/`close`; ToolHandler `handle`; PortsHandler the thirteen methods at `ffi.rs:487-522` (nine baseline serve methods, `project`, `compute`, `list_fork_timeline_events`, `extract`). Every method pointer is required on a present table. A provider declines an unsupported method by returning an application reject, preserving the existing distinction between absent ports and an explicit refusing callback.
+- Each callback signature starts with `void *user_data`, translates method arguments by the ownership table, and ends with output buffer (where applicable) and foreign-error out pointers; its return is status. `put_*` revisions use the optional-u64 struct; `list_rules` receives an array of UTF-8 slices. There is no generic op dispatch callback that could lose catalogue parity.
+- Calls block the calling host OS thread; concurrent invokes use concurrent host threads. Callbacks run on the existing Tokio blocking pool and may run concurrently. Context state, release and destroy callbacks must be thread-safe and need no thread affinity. `recv` blocks for one envelope; idempotent `close` must unblock pending/next `recv` with transport-closed. Transport implementations must allow close while recv waits.
+- Callbacks must not synchronously reenter operational C/UniFFI faces, including the exported loopback helpers. Host-owned message queues implement the C++ smoke transport. Memory-release functions are safe on completed outputs. No UE game-thread affinity, automatic dispatch onto that thread, or native-library hot-unload guarantee is implied. Keep the carrier and host callback code loaded for process lifetime; close resources before host shutdown. These restrictions preserve the existing reentrancy rule (`ffi.rs:442-446`; crate README:403-407).
+
+## Native artifacts and linking
+
+Only dynamic consumer libraries are selected. A staticlib is rejected because it introduces a second native shape, platform transitive-link recipes, and duplicate-runtime risk without a consumer requirement. The Swift staticlib/xcframework remains a separate channel precedent, not a requirement to duplicate it here.
+
+| RID / target | Committed channel path relative to `crates/spoke-connect/bindings/cpp/` | Link/load rule |
+|---|---|---|
+| osx-arm64 / aarch64-apple-darwin | `native/osx-arm64/libspoke_connect_capi.dylib` | Install name `@rpath/libspoke_connect_capi.dylib`; link with the dylib and provide loader rpath. |
+| win-x64 / x86_64-pc-windows-msvc | `native/win-x64/spoke_connect_capi.dll` and `spoke_connect_capi.dll.lib` | Link the Rust-produced import library; stage the DLL alongside the executable. Rust dynamic CRT (`-C target-feature=-crt-static`) and C++ `/MD`; no `/MT` or `/MDd` mix in the validated recipe. |
+
+The RID spellings match `release.yml:454-462`; that existing matrix produces **UniFFI** artifacts (`release.yml:482-504`), not the new carrier. C carrier builds are separate and never masquerade as those artifacts. Linux/Android/iOS C++ natives are not part of this artifact set. The header, import library and platform natives are plain git blobs resolved together from the same repository tag `vX.Y.Z`, following the committed-native channel pattern (`connect-binding-channels.md:60-62`; `.gitattributes:11-15`). A native refresh records source revision, target, `rustc -Vv`, compiler version, build flags, header SHA-256 and native SHA-256 in `bindings/cpp/native/provenance.json`; binaries are refreshed whenever carrier or linked implementation behavior changes. A pre-tag refresh rebuilds from that release source tree. CI downloads used for maintainer refresh are CI artifacts, not public Release archive assets.
+
+## Header ownership and executable drift gate
+
+The carrier maintainer owns both Rust exports and `include/spoke_connect.h`; changes land together. The header is hand-written, not generated by cbindgen, UniFFI or a C++ generator. Declarations use `SPOKE_CONNECT_API` and `SPOKE_CONNECT_CALL`; the checking grammar accepts a prototype ending in `;` and forbids conditional declarations within the public function block (platform macro definitions may be conditional). Callback typedefs are outside that block.
+
+The required runnable entry is `node tooling/connect/cpp-symbol-check.mjs --header <header> --library <native>`. It must:
+
+1. Parse the marked public declaration block, fail on any unparsed non-comment text, duplicate symbol or empty declaration set, and collect every `spoke_connect_*` function declaration.
+2. Enumerate **defined exported** native symbols: macOS `nm -gU` (strip exactly one Mach-O leading underscore); Windows `dumpbin /nologo /exports` (parse export rows, not prose). Missing tool/library, parse failure or empty exports fails. Compare only the reserved `spoke_connect_` namespace: other dependency/UniFFI exports are outside this ABI and are not consumer entry points.
+3. Compare sets in both directions and exit nonzero for either missing or extra export; print both lists and declared/exported counts. Success prints `C ABI symbols: PASS (N declarations, N exports, 0 missing, 0 extra)`.
+4. Generate a C probe in a temporary directory that includes the header and holds a correctly typed volatile, used function pointer to **every** declaration (no function-pointer-to-object-pointer casts). Compile/link macOS with `clang -std=c99 -Wall -Wextra -Werror` and the dylib; compile/link Windows with `cl.exe /TC /std:c11 /MD /W4 /WX` and the import library (MSVC C11 mode accepts this C99-floor header). Also compile inclusion in C++17 mode with exceptions/RTTI disabled. Any failure fails the check. Remove temporary files on success/failure. Symbol matching checks names/linkage, not behavioral parity; golden/loopback/error smokes provide that separately.
+
+The maintainer proves fail-closed behavior by running the same command on temporary copies: one header missing a real declaration and one containing a declaration for nonexistent `spoke_connect_drift_probe` must both fail. Header/type layout assertions and direct Rust ABI tests cover scalar/struct layout and ownership; a name-only comparison cannot certify signatures. `crates/spoke-connect/bindings/cpp/parity.md` maps each production facade member and each callback to the C header; missing counterpart count must be zero.
+
+## UE integration reference
+
+The reference consists of `crates/spoke-connect/bindings/cpp/ue/SpokeConnect.Build.cs` and its README. The external module consumes the sibling `include/` and `native/<rid>/` tree: `Type = ModuleType.External`, `PublicIncludePaths` to the header, and `PublicAdditionalLibraries` to the Win64 import library or macOS dylib. Win64 uses `RuntimeDependencies.Add("$(TargetOutputDir)/spoke_connect_capi.dll", sourceDll)`; macOS stages the dylib as a loose runtime dependency and relies on its `@rpath` install name and UnrealBuildTool's dylib rpath handling. The template accepts only the named architectures and rejects others explicitly. The consuming game/plugin module adds `SpokeConnect` to its dependencies. No delay-load, manual dynamic-symbol lookup, UObject API or plugin lifecycle module is introduced.
+
+These mechanisms are documented by [Epic's Third-Party Libraries guide](https://dev.epicgames.com/documentation/en-us/unreal-engine/integrating-third-party-libraries-into-unreal-engine), specifically Module Setup, Dynamic Libraries and Runtime Dependencies. The reference states **“Validation status: standalone macOS/Windows evidence is recorded separately; UE editor and packaged-game integration are unverified.”** It describes `/MD` release-CRT matching, include/link/load paths, host transport/context lifetime, host-thread blocking, and callback handoff to engine-owned threads. It lists the maintainer's future engine checks (editor build/load, packaged loose-library load, one connected session and orderly shutdown) as an unverified checklist, not acceptance evidence. No particular engine-version/toolchain combination is certified by standalone smoke results.
+
+## Deliberate exclusions
+
+C++ convenience/RAII wrappers, C++20 generator integration, vcpkg/Conan, public Release archives, additional platform artifacts, engine-internal verification, new wire/session semantics, exposed envelope-auth helpers, async node lifecycle and cross-image handle interoperability are outside this contract. Product transport and engine scheduling remain host-owned. The selected C ABI is the durable boundary, not a temporary compatibility shim.

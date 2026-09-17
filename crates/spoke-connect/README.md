@@ -349,7 +349,8 @@ Errors map variant-for-variant onto two uniffi enums:
 - `CoreError` → Swift `CoreError`: `InvalidHelloSignature`, `NonceReplay`,
   `HandshakeFailed(reason: String)`, `InvalidNonce(message: String)`,
   `Crypto(message: String)`, `Jcs(message: String)`,
-  `TokenInvalid(message: String)`.
+  `TokenInvalid(message: String)`,
+  `ProtocolVersionMismatch(reason: String)`.
 - `CoreInvokeError` → Swift `CoreInvokeError`: `SequenceExhausted`,
   `InboundSequenceMismatch(expected: UInt64, actual: Int64)`,
   `CorrelationMismatch`.
@@ -480,6 +481,28 @@ async/foreign-runtime mechanism — is deferred: node start/listen/shutdown and
 | **Swift (iOS / macOS)** | Native binding (uniffi) | **SPM git** (root `Package.swift` + `vX.Y.Z` tags) | Fourth — **landed** | Product `SpokeConnect`; macOS golden-parity smoke; [`bindings/swift/README.md`](bindings/swift/README.md) |
 | **Kotlin (Android)** | Native binding (uniffi) | **GitHub Packages Maven** (`dev.42ch:spoke-connect`) | Fifth — **landed** | Same sync core surface; `publish-maven` on `release.yml`; [`bindings/kotlin/README.md`](bindings/kotlin/README.md) |
 | TypeScript (browser / Node) | **Language-native client** (TypeScript, direct) | **npm** (`@42ch/spoke-connect`) | Parallel track | The TypeScript route decision lives with the TS identity proof |
+
+### C ABI carrier (C and C++ hosts)
+
+A separate workspace-private carrier, `crates/spoke-connect-capi` (package
+`spoke-connect-capi`, library `spoke_connect_capi`, `crate-type = ["rlib",
+"cdylib"]`, `publish = false`), exports the same facade over a hand-written C
+ABI for C and C++ hosts: it links this crate with the `ffi,remote-adapter`
+features and wraps the public `spoke_connect::ffi` functions and objects. The
+uniffi surface above stays the contract for the generated bindings.
+
+The C contract — status values, value types, callback tables and every exported
+function — is [`bindings/cpp/include/spoke_connect.h`](bindings/cpp/include/spoke_connect.h)
+(ABI revision `1` through `spoke_connect_abi_version`), with committed carriers
+under `bindings/cpp/native/osx-arm64/` and `bindings/cpp/native/win-x64/`.
+[`bindings/cpp/parity.md`](bindings/cpp/parity.md) maps every facade member,
+callback and error variant to its C declaration, and
+`tooling/connect/cpp-symbol-check.mjs` fails when the header and the carrier's
+exported symbols drift apart, and pins the record and callback-table layout with
+`sizeof` / `_Alignof` / `offsetof` assertions against the carrier's `#[repr(C)]`
+mirrors. Consumer build, link and run instructions:
+[`bindings/cpp/README.md`](bindings/cpp/README.md); the Unreal Engine module
+reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
 
 ### Binding checklist
 

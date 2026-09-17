@@ -13,7 +13,7 @@ The family reads as one integrator journey: install → a language-native client
 | Surface | What ships | When to choose it |
 |---------|------------|-------------------|
 | **Language-native client** | The wire contract and session-core rules implemented in the host language — the TypeScript `@42ch/spoke-connect` client, paired with the platform WebSocket | No Rust runtime in the host; browser or Node consumers |
-| **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI) | Host languages with an FFI story that want the core implemented once, with transport in the host |
+| **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI, [C/C++ git](/how-to/connect-cpp-binding)) | Host languages with an FFI story that want the core implemented once, with transport in the host |
 | **Rust reference** | The published `spoke-connect` crate: the session-core reference, the binding source, and a rust-libp2p transport stack | Rust consumers, and the reference for byte-level parity everywhere |
 
 All three surfaces share the same session-core rules — `peer_id` derivation, hello crypto, allowlist, nonce, sequence, correlation, dispatch gate — locked by golden vectors.

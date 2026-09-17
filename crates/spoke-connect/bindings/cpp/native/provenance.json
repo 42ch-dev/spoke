@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "nativeArtifacts": {
+    "osx-arm64": {
+      "target": "aarch64-apple-darwin",
+      "sourceRevision": "9f8f9c2df778f58abf15fbca3485277d542d7af4",
+      "rustcVersion": "rustc 1.100.0-nightly (215a8af4b 2026-09-15)\nbinary: rustc\ncommit-hash: 215a8af4bb4c106cccf6d6535f84eaae91818265\ncommit-date: 2026-09-15\nhost: aarch64-apple-darwin\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1",
+      "compilerVersion": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+      "buildFlags": {
+        "cargoArgs": [
+          "build",
+          "--locked",
+          "-p",
+          "spoke-connect-capi",
+          "--release",
+          "--target",
+          "aarch64-apple-darwin",
+          "--target-dir",
+          "target/cpp"
+        ],
+        "rustFlags": []
+      },
+      "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
+      "artifacts": [
+        {
+          "path": "libspoke_connect_capi.dylib",
+          "sha256": "5d5354e33629d348df7fec6dd6a02dc87c2a4fb21b28740dd377cc7683d13a6e"
+        }
+      ]
+    },
+    "win-x64": {
+      "target": "x86_64-pc-windows-msvc",
+      "sourceRevision": "bf7909b6bc2d15ebc5eddab68d2dfadd3c2add10",
+      "rustcVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: x86_64-pc-windows-msvc\nrelease: 1.96.0\nLLVM version: 22.1.2",
+      "compilerVersion": "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36256 for x64",
+      "buildFlags": {
+        "cargoArgs": [
+          "build",
+          "--locked",
+          "-p",
+          "spoke-connect-capi",
+          "--release",
+          "--target",
+          "x86_64-pc-windows-msvc",
+          "--target-dir",
+          "target/cpp"
+        ],
+        "rustFlags": [
+          "-C",
+          "target-feature=-crt-static"
+        ]
+      },
+      "headerSha256": "7b4b4472f8a3d877978f1d0805c4acdfc6f02c99d44a1643a33a54a3aeec88a1",
+      "artifacts": [
+        {
+          "path": "spoke_connect_capi.dll",
+          "sha256": "6a48a396abf17ac888a51c6d051cea9348e8504e61cd849ffa5c7593bf2a068c"
+        },
+        {
+          "path": "spoke_connect_capi.dll.lib",
+          "sha256": "dbaf09de0dd48b49183462d4fd0ab96f8b37aafa429a7ddccc6ff70e9e5234c4"
+        }
+      ]
+    }
+  }
+}

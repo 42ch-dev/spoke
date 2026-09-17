@@ -1,7 +1,7 @@
 ---
 module: connect / CI native artifacts
 date: 2026-08-18
-last_updated: 2026-08-18
+last_updated: 2026-09-18
 problem_type: tooling_decision
 category: tooling-decisions
 severity: medium
@@ -40,7 +40,7 @@ Determinism lessons (both were latent bugs the CI gate exposed):
 Two extensions proven by the first FFI-ABI refresh round (2026-08-18):
 
 5. **DEFAULT-suite smokes consume the committed natives — an ABI change forces a natives rebuild before suites can pass.** Per-channel default smoke suites link the committed dylibs (`bindings/go/native/darwin_arm64` — which the Swift macOS `swiftc` gate also links — `bindings/kotlin/native/darwin-aarch64`, the Python smoke dylib); a changed FFI surface leaves them symbol-stale (`nm` shows the new checksum/vtable symbols missing) and the suites fail at load/link, by design. "Natives build at publish time" assumptions do not cover committed-artifact smoke consumption: plan for rebuild + commit of every consumed native in the same slice as the ABI change, then re-run every channel's DEFAULT suite as the closing gate. C# is the exception — its smoke consumes the locally built cargo cdylib, so it proves scenario semantics ahead of the artifact wave.
-6. **Branch-independent refresh via dispatch.** When the push trigger is branch-scoped (e.g. `main`/`iteration/**`), a feature branch gets zero runs; add a top-level `workflow_dispatch:` to the assembly workflow — dispatch-only, filters and drift gate untouched. The maintainer sequence on any branch: dispatch → expect drift-red (stale committed artifact vs new sources) while the upload succeeds → `apply-xcframework-artifact.sh <run-id>` → commit → dispatch again at the new head → drift-green (same-SHA determinism proof).
+6. **Branch-independent refresh via dispatch.** When the push trigger is branch-scoped (e.g. `main`/`iteration/**`), a feature branch gets zero runs; add a top-level `workflow_dispatch:` to the assembly workflow — dispatch-only, filters and drift gate untouched. A dispatch also **bypasses the path filter**, so the run always executes — but the ref must already exist on the remote: dispatching a branch that was never pushed fails immediately (`HTTP 422 No ref found`), so push the feature branch first. The maintainer sequence on any branch: dispatch → expect drift-red (stale committed artifact vs new sources) while the upload succeeds → `apply-xcframework-artifact.sh <run-id>` → commit → dispatch again at the new head → drift-green (same-SHA determinism proof).
 
 ## Why This Matters
 

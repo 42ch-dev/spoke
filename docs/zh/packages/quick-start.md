@@ -49,7 +49,7 @@ cargo add spoke-connect@X.Y.Z
 
 - **`spoke-connect`** —— Rust 参考实现（libp2p 传输 + uniffi 绑定面）。
 
-原生绑定宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `dev.42ch:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）经 FFI 嵌入共享会话核心 —— 见[原生绑定](/zh/how-to/connect-native-bindings)。
+原生绑定宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `dev.42ch:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）与 C 和 C++（手写 C ABI，git）经 FFI 嵌入共享会话核心 —— 见[原生绑定](/zh/how-to/connect-native-bindings)与[从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding)。
 
 ## 集成路径
 

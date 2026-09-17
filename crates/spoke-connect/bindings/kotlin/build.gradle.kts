@@ -13,7 +13,7 @@ repositories {
 
 dependencies {
     implementation("net.java.dev.jna:jna:5.16.0")
-    testImplementation(kotlin("test"))
+    testImplementation(kotlin("test-junit5"))
     // JSON parsing for the golden-parity smoke fixture (Smoke/fixtures).
     testImplementation("org.json:json:20240303")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

@@ -350,7 +350,7 @@ RemoteAdapter 在已建立的会话上像任何基线方法一样代理这三个
 | 嵌入方式 | 交付物 |
 |----------|--------|
 | **语言原生客户端（language-native client）** | 在宿主语言中实现的线上契约与会话核心规则（TypeScript `@42ch/spoke-connect` 客户端，WebSocket 传输） |
-| **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI） |
+| **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI、[C/C++ git](/zh/how-to/connect-cpp-binding)） |
 | **Rust 参考实现（Rust reference）** | 已发布的 `spoke-connect` crate：会话核心参考、uniffi 绑定来源，以及 rust-libp2p 传输栈（[crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md)） |
 
 会话核心规则 —— allowlist、`peer_id` 推导与反推、握手密码学、nonce、请求关联、sequence、capability-token 鉴权与 dispatch gate —— 在所有语言间共享，并由 golden vectors 锁定。薄客户端便利（`Session`、`negotiatedCapabilities`、`generateNonce`）在宿主运行时受益处提供。

@@ -3,6 +3,16 @@ members = [
   "crates/spoke-schemas",
   "crates/spoke-operations",
   "crates/spoke-connect",
+  "crates/spoke-connect-capi",
+  "fixtures/toy-world/rust",
+]
+# Default selection stays on the four product members; the C ABI carrier is
+# built explicitly (`-p spoke-connect-capi`) so ordinary workspace commands do
+# not produce native binding artifacts.
+default-members = [
+  "crates/spoke-schemas",
+  "crates/spoke-operations",
+  "crates/spoke-connect",
   "fixtures/toy-world/rust",
 ]
 resolver = "2"

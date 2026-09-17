@@ -350,7 +350,7 @@ One JSON connect envelope per message over an ordered, reliable, bidirectional b
 | Embedding | What ships |
 |-----------|------------|
 | **Language-native client** | The wire contract and session-core rules implemented in the host language (the TypeScript `@42ch/spoke-connect` client with WebSocket transport) |
-| **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI) |
+| **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI, [C/C++ git](/how-to/connect-cpp-binding)) |
 | **Rust reference** | The published `spoke-connect` crate: session-core reference, uniffi binding source, and a rust-libp2p transport stack ([crate README](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/README.md)) |
 
 The session-core rules — allowlist, `peer_id` derive and reverse, hello crypto, nonce, request correlation, sequence, capability-token auth, and the dispatch gate — are shared across every language and locked by golden vectors. Thin client conveniences (`Session`, `negotiatedCapabilities`, `generateNonce`) are provided where the host runtime benefits from them.

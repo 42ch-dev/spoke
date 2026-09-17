@@ -13,7 +13,7 @@ title: Connect 架构
 | 面 | 交付物 | 何时选择 |
 |----|--------|----------|
 | **语言原生客户端（language-native client）** | 以宿主语言实现的线上契约与会话核心规则 —— TypeScript `@42ch/spoke-connect` 客户端，配合平台 WebSocket | 宿主无 Rust 运行时；浏览器或 Node 消费方 |
-| **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI） | 有 FFI 故事的宿主语言，希望核心只实现一次、传输留在宿主 |
+| **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI、[C/C++ git](/zh/how-to/connect-cpp-binding)） | 有 FFI 故事的宿主语言，希望核心只实现一次、传输留在宿主 |
 | **Rust 参考实现（Rust reference）** | 已发布的 `spoke-connect` crate：会话核心参考、绑定来源与 rust-libp2p 传输栈 | Rust 消费方，以及各处字节级一致性的参考 |
 
 三个面共享同一套会话核心规则 —— `peer_id` 推导、握手密码学、allowlist、nonce、sequence、关联校验、dispatch gate —— 由 golden vectors 锁定。

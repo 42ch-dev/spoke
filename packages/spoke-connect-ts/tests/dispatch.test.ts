@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CAPABILITY_KE_EXTRACTION,
   CAPABILITY_L2_COMPUTABLE,
   CAPABILITY_SPOKE_BASELINE,
   dispatchAllowed,
@@ -35,5 +36,14 @@ describe("dispatch gate (port of dispatch.rs)", () => {
     expect(dispatchAllowed("custom-op", ["spoke-baseline"])).toBe(false);
     expect(dispatchAllowed("custom-op", ["spoke-connect"])).toBe(false);
     expect(dispatchAllowed("", ["spoke-baseline"])).toBe(false);
+  });
+});
+
+describe("ke remote", () => {
+  it("extract requires ke-extraction in the core dispatch table", () => {
+    expect(requiredCapability("extract")).toBe(CAPABILITY_KE_EXTRACTION);
+    expect(dispatchAllowed("extract", ["ke-extraction"])).toBe(true);
+    expect(dispatchAllowed("extract", ["spoke-baseline"])).toBe(false);
+    expect(dispatchAllowed("extract", [])).toBe(false);
   });
 });

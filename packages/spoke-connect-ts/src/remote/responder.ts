@@ -45,6 +45,8 @@ import type {
   ConnectInvokeRequest,
   ConnectInvokeResponse,
   ErrorEnvelope,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   ForkId,
   HostCapabilityManifest,
@@ -198,6 +200,72 @@ const PORT_OP_CAPABILITY_REQUIREMENTS: Record<string, string> = {
  * module-private there). Baseline ops are not probed: the `BaselinePorts`
  * type guarantees their methods.
  */
+
+/** Capability required when a Scope-bearing remote op carries viewpoint. */
+export const CAPABILITY_KE_OWNERSHIP = "ke-ownership";
+
+const SCOPE_OWNERSHIP_OPS = new Set([
+  "port.scope.list_knowledge_entries",
+  "port.scope.list_timeline_events",
+  "port.fork.list_timeline_events",
+]);
+
+/**
+ * Whether `op` + `payload` require `ke-ownership` in the negotiated set (F2).
+ * Malformed Scope payloads return false here — `validateScopeOpPayload` rejects
+ * them with `INVALID_INPUT` before provider calls.
+ */
+export function scopeOpRequiresOwnershipCapability(
+  op: string,
+  payload: Record<string, unknown>,
+): boolean {
+  if (!SCOPE_OWNERSHIP_OPS.has(op)) {
+    return false;
+  }
+  const scope = payload.scope;
+  if (typeof scope !== "object" || scope === null || Array.isArray(scope)) {
+    return false;
+  }
+  const viewpoint = (scope as Record<string, unknown>).viewpoint;
+  return typeof viewpoint === "string" && viewpoint.length > 0;
+}
+
+/** Scope validation for the three remote catalogue ops (F2 malformed rows). */
+export function validateScopeOpPayload(
+  op: string,
+  payload: Record<string, unknown>,
+): SpokeReject | null {
+  if (!SCOPE_OWNERSHIP_OPS.has(op)) {
+    return null;
+  }
+  const scope = payload.scope;
+  if (typeof scope !== "object" || scope === null || Array.isArray(scope)) {
+    return spokeReject(
+      SpokeRejectCode.INVALID_INPUT,
+      `port op ${op} requires a JSON object scope payload`,
+      { op },
+    );
+  }
+  const scopeRecord = scope as Record<string, unknown>;
+  if (!("viewpoint" in scopeRecord)) {
+    return null;
+  }
+  const viewpoint = scopeRecord.viewpoint;
+  if (typeof viewpoint === "string" && viewpoint.length > 0) {
+    return null;
+  }
+  return spokeReject(
+    SpokeRejectCode.INVALID_INPUT,
+    "scope.viewpoint must be a non-empty string when present",
+    { op },
+  );
+}
+
+/** Remote-only extract service seam (F3). */
+export interface RemoteExtractService {
+  extract(request: ExtractRequest): Promise<SpokeResult<ExtractResponse>>;
+}
+
 const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
   "port.computable.project": "project",
   "port.computable.compute": "compute",
@@ -317,7 +385,7 @@ export interface ConnectResponderOptions {
    * catalogue. Absent `ports` still answers `port.*` invokes with the
    * dispatch-deny branch (documented behavior).
    */
-  ports?: BaselinePorts;
+  ports?: BaselinePorts & Partial<RemoteExtractService>;
   /** Bounded-wait deadline for each reverse-invoke waiter, ms (default 5000). */
   invokeTimeoutMs?: number;
 }
@@ -352,7 +420,7 @@ export class ConnectResponder {
   readonly #manifest: HostCapabilityManifest;
   readonly #allowlist: readonly string[];
   readonly #peerKeys: Readonly<Record<string, Uint8Array>>;
-  readonly #ports: BaselinePorts | undefined;
+  readonly #ports: (BaselinePorts & Partial<RemoteExtractService>) | undefined;
   readonly #invokeTimeoutMs: number;
   readonly #nonceStore = new NonceStore();
 
@@ -786,12 +854,17 @@ export class ConnectResponder {
       // product map to `l2-computable` / `l5-fork`. All evaluate against
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
-      if (!this.#gateAllows(doc.op, session)) {
+      const payload = doc.payload as Record<string, unknown>;
+      if (!this.#gateAllows(doc.op, session, payload)) {
         await this.#sendReverseErrorEnvelope(doc, {
           code: "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
         });
+        return;
+      }
+      if (doc.op === "extract") {
+        await this.#dispatchExtractInvoke(doc);
         return;
       }
       if (doc.op.startsWith("tools.")) {
@@ -816,12 +889,24 @@ export class ConnectResponder {
   }
 
   /** Dispatch gate: core table (incl. `tools.*`) then the port product map. */
-  #gateAllows(op: string, session: Session): boolean {
+  #gateAllows(
+    op: string,
+    session: Session,
+    payload: Record<string, unknown>,
+  ): boolean {
+    const negotiated = session.negotiated_capabilities;
+    const needsOwnership = scopeOpRequiresOwnershipCapability(op, payload);
+
     if (session.dispatchAllowed(op)) {
-      return true;
+      return (
+        !needsOwnership || negotiated.includes(CAPABILITY_KE_OWNERSHIP)
+      );
     }
     const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
-    return required !== undefined && session.negotiated_capabilities.includes(required);
+    if (required === undefined || !negotiated.includes(required)) {
+      return false;
+    }
+    return !needsOwnership || negotiated.includes(CAPABILITY_KE_OWNERSHIP);
   }
 
   /** Serve a `tools.*` invoke through the registered handler (or deny). */
@@ -879,8 +964,53 @@ export class ConnectResponder {
     }
   }
 
+  /** Serve the `extract` core op through the optional extract service (F3). */
+  async #dispatchExtractInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const ports = this.#ports;
+    if (ports === undefined || typeof ports.extract !== "function") {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no extract service configured for op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    let result: SpokeResult<ExtractResponse>;
+    try {
+      result = await ports.extract.call(ports, doc.payload as ExtractRequest);
+    } catch (error) {
+      result = spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    if (!result.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      return;
+    }
+    const response = result.value;
+    if (
+      typeof response === "object" &&
+      response !== null &&
+      "error" in response
+    ) {
+      await this.#sendReverseErrorEnvelope(
+        doc,
+        toErrorEnvelope(fromErrorEnvelope(response.error)),
+      );
+      return;
+    }
+    await this.#sendOkResponse(doc, response);
+  }
+
   /** Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */
   async #dispatchPortInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const payload = doc.payload as Record<string, unknown>;
+    const scopeReject = validateScopeOpPayload(doc.op, payload);
+    if (scopeReject !== null) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(scopeReject));
+      return;
+    }
     const ports = this.#ports;
     if (ports === undefined) {
       // Absent `ports` (documented): the capability gate passes but there

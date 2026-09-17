@@ -27,6 +27,8 @@ import type {
   ConnectInvokeRequest,
   ConnectInvokeResponse,
   ErrorEnvelope,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   ForkId,
   HostCapabilityManifest,
@@ -469,6 +471,18 @@ export class RemoteAdapter implements BaselinePorts {
       PORT_OPS.listForkTimelineEvents,
       { scope },
     );
+  }
+
+
+  /**
+   * Remote extract core op (frozen contract F1): delegates literal op
+   * `"extract"` with the `ExtractRequest` as the invoke payload. No local
+   * capability pre-gate — the responder's negotiated-set gate denies when
+   * `ke-extraction` is absent; D7 maps wire `op_unsupported` /
+   * `capability_missing` to `CAPABILITY_PORT_MISSING`.
+   */
+  async extract(request: ExtractRequest): Promise<SpokeResult<ExtractResponse>> {
+    return this.#invokeExtractMapped(request);
   }
 
   /**
@@ -1101,6 +1115,44 @@ export class RemoteAdapter implements BaselinePorts {
         },
       );
     });
+  }
+
+  /** Invoke the `extract` core op and map the wire response (F1). */
+  async #invokeExtractMapped(
+    request: ExtractRequest,
+  ): Promise<SpokeResult<ExtractResponse>> {
+    try {
+      const response = await this.#invokeOp(
+        "extract",
+        request as unknown as Record<string, unknown>,
+      );
+      if ("error" in response) {
+        return mapErrorEnvelope(response.error);
+      }
+      if (!isValidSuccessPayload("extract", response.payload)) {
+        return internalError(
+          "transport",
+          "response payload decode failed: payload does not match the extract success shape",
+        );
+      }
+      const payload = response.payload as ExtractResponse;
+      if (
+        typeof payload === "object" &&
+        payload !== null &&
+        "error" in payload
+      ) {
+        return fromErrorEnvelope(payload.error);
+      }
+      return spokeOk(payload);
+    } catch (error) {
+      if (error instanceof RemoteError) {
+        return internalError(error.kind, error.message);
+      }
+      return internalError(
+        "transport",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   /** Invoke a port op and map the response to `SpokeResult` (contract §5.3/§8). */

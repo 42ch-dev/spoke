@@ -25,6 +25,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  ExtractRequest,
   ComputeRequest,
   ConnectHello,
   ConnectInvokeRequest,
@@ -36,10 +37,13 @@ import type {
   ToolDescriptor,
 } from "@42ch/spoke-schemas";
 import {
+  orchestrateExtract,
   SpokeRejectCode,
   spokeOk,
+  spokeReject,
   validateManifestTools,
   type BaselinePorts,
+  type ExtractionPort,
   type SpokeResult,
 } from "@42ch/spoke-operations";
 import {
@@ -54,6 +58,8 @@ import {
   asBaselineOnly,
   ToyWorldAdapter,
 } from "@42ch/spoke-fixture-toy-world";
+import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
+import { CAPABILITY_KE_OWNERSHIP } from "../../src/remote/responder.js";
 
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import {
@@ -70,6 +76,7 @@ import {
   connectResponder,
   type ConnectResponder,
   type ConnectResponderState,
+  type RemoteExtractService,
 } from "@42ch/spoke-connect/remote";
 
 /** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
@@ -133,7 +140,7 @@ function addHandler(calls: { args: Record<string, unknown> }[]): {
 interface DialResponderOptions {
   clientManifest?: HostCapabilityManifest;
   responderManifest?: HostCapabilityManifest;
-  ports?: BaselinePorts;
+  ports?: BaselinePorts & Partial<RemoteExtractService>;
   /** Bounded wait for the RESPONDER's reverse-invoke waiters, ms. */
   responderTimeoutMs?: number;
   /** Bounded wait for the CLIENT's dial + invoke waiters, ms. */
@@ -1515,4 +1522,331 @@ describe("connectResponder per-invoke gate (peek → verify → advance)", () =>
     },
     15000,
   );
+});
+
+const LOADER_CANARY = "LOADER_ONLY_CANARY_ke_remote_ts";
+
+function manifestWithCaps(
+  hostId: string,
+  capabilities: readonly string[],
+): HostCapabilityManifest {
+  const base = schemaConformantManifest();
+  const caps = [...new Set([...base.capabilities, ...capabilities])] as [
+    string,
+    ...string[],
+  ];
+  return { ...base, host_id: hostId, capabilities: caps };
+}
+
+function sampleExtractRequest(runId = "run-ke-remote-1"): ExtractRequest {
+  return {
+    run_id: runId,
+    sources: [
+      {
+        schema_version: 1,
+        source_id: "src-ke-remote",
+        extensions: {},
+      },
+    ],
+  };
+}
+
+function extractionPortsWithCanary(): ExtractionPort {
+  return {
+    loadExtractionInput: async () => spokeOk({ secret: LOADER_CANARY }),
+  };
+}
+
+function toyBaselinePorts(): BaselinePorts & Partial<RemoteExtractService> {
+  return asBaselineOnly(new ToyWorldAdapter()) as BaselinePorts &
+    Partial<RemoteExtractService>;
+}
+
+describe("ke remote", () => {
+  it(
+    "extract round-trip echoes run_id, keeps candidates provisional, and omits loader canary from wire",
+    async () => {
+      const wireRequests: string[] = [];
+      const ports = toyBaselinePorts();
+      const extract = (request: ExtractRequest) =>
+        orchestrateExtract(extractionPortsWithCanary(), request, async () =>
+          spokeOk({
+            candidates: [
+              {
+                schema_version: 1,
+                entry_id: "cand-1",
+                entry_type: "character",
+                canonical_name: "Cand",
+                status: "provisional",
+                body: { summary: "x" },
+                extensions: {},
+              },
+            ],
+          }),
+        );
+      ports.extract = extract;
+      const { client, responder, pair } = await dialWithResponder({
+        clientManifest: manifestWithCaps("client-extract", [
+          CAPABILITY_KE_EXTRACTION,
+        ]),
+        responderManifest: manifestWithCaps("responder-extract", [
+          CAPABILITY_KE_EXTRACTION,
+          "input-source",
+        ]),
+        ports,
+        clientTransport: (transport) => ({
+          send: async (bytes) => {
+            wireRequests.push(new TextDecoder().decode(bytes));
+            return transport.send(bytes);
+          },
+          recv: () => transport.recv(),
+          close: () => {
+            transport.close?.();
+          },
+        }),
+      });
+      try {
+        const result = await client.extract(sampleExtractRequest());
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        if (!("run" in result.value)) {
+          throw new Error("expected extract success branch");
+        }
+        expect(result.value.run.run_id).toBe("run-ke-remote-1");
+        expect(result.value.candidates).toHaveLength(1);
+        expect(result.value.candidates[0]?.status).toBe("provisional");
+        const joined = wireRequests.join("\n");
+        expect(joined).not.toContain(LOADER_CANARY);
+        expect(joined).toContain("run-ke-remote-1");
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it("denies extract when ke-extraction is missing from negotiated capabilities", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = async () =>
+      spokeOk({ candidates: [], run: { run_id: "x" } });
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-no-extract", []),
+      responderManifest: manifestWithCaps("responder-extract-ad", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("probe-denies extract when capability is negotiated but extract service is absent", async () => {
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-probe", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-probe", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("maps service application reject separately from probe-deny", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = async () =>
+      spokeReject(SpokeRejectCode.CAPABILITY_PORT_MISSING, "declined", {
+        capability: "ke-extraction",
+      });
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-app", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-app", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBeUndefined();
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("normalizes an injected ExtractResponse error branch through the application reject path", async () => {
+    const ports = toyBaselinePorts();
+    ports.extract = async () =>
+      spokeOk({
+        error: {
+          code: SpokeRejectCode.INVALID_INPUT,
+          message: "bad request",
+          extensions: {},
+        },
+      });
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-err", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-err", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.extract(sampleExtractRequest());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("allows listKnowledgeEntries without viewpoint when only baseline is negotiated", async () => {
+    const scope: Scope = { scope_id: "s1" };
+    const calls: Scope[] = [];
+    const ports = toyBaselinePorts();
+    const original = ports.listKnowledgeEntries.bind(ports);
+    ports.listKnowledgeEntries = async (s) => {
+      calls.push(s);
+      return original(s);
+    };
+    const { client, responder, pair } = await dialWithResponder({ ports });
+    try {
+      const result = await client.listKnowledgeEntries(scope);
+      expect(result.ok).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual(scope);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("requires ke-ownership for non-empty viewpoint and preserves scope fields", async () => {
+    const scope: Scope = {
+      scope_id: "s-own",
+      viewpoint: "holder-a",
+      extensions: { x: { flag: true } },
+    };
+    const calls: Scope[] = [];
+    const ports = toyBaselinePorts();
+    const original = ports.listKnowledgeEntries.bind(ports);
+    ports.listKnowledgeEntries = async (s) => {
+      calls.push(s);
+      return original(s);
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-own", [CAPABILITY_KE_OWNERSHIP]),
+      responderManifest: manifestWithCaps("responder-own", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports,
+    });
+    try {
+      const result = await client.listKnowledgeEntries(scope);
+      expect(result.ok).toBe(true);
+      expect(calls[0]?.viewpoint).toBe("holder-a");
+      expect(calls[0]?.extensions).toEqual({ x: { flag: true } });
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("denies viewpoint-bearing list when ke-ownership is not negotiated", async () => {
+    const scope: Scope = {
+      scope_id: "s-deny",
+      viewpoint: "holder-a",
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const result = await client.listKnowledgeEntries(scope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects malformed viewpoint with INVALID_INPUT before provider call", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called = true;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-malformed", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      responderManifest: manifestWithCaps("responder-malformed", [
+        CAPABILITY_KE_OWNERSHIP,
+      ]),
+      ports,
+    });
+    try {
+      const badScope = {
+        scope_id: "bad",
+        viewpoint: "",
+      } as Scope;
+      const result = await client.listKnowledgeEntries(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
 });

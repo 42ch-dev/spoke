@@ -61,6 +61,7 @@ import {
 import { CAPABILITY_KE_EXTRACTION } from "../../src/core/dispatch.js";
 import {
   CAPABILITY_KE_OWNERSHIP,
+  testActiveServeBudgetWaits,
   validateExtractRequestPayload,
   validateScopeOpPayload,
 } from "../../src/remote/responder.js";
@@ -2362,6 +2363,21 @@ async function untilParked(
   }
 }
 
+/** Poll until every in-flight `#withServeBudget` wait has settled. */
+async function untilServeBudgetDrained(
+  responder: ConnectResponder,
+): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (testActiveServeBudgetWaits(responder) > 0) {
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `serve budget wait still in flight (${testActiveServeBudgetWaits(responder)} active)`,
+      );
+    }
+    await delay(5);
+  }
+}
+
 /** Assert the served timeout projection on a captured wire response. */
 function expectServedTimeout(
   frame: Record<string, unknown>,
@@ -2761,6 +2777,47 @@ describe("serve timeout (local serve budget)", () => {
         parked.release();
         await delay(50);
 
+        expect(responder.state).toBe("Closed");
+        expect(sent).toHaveLength(attemptedAtClose);
+      } finally {
+        client.close();
+        responder.close();
+        pair.client.close();
+        pair.server.close();
+      }
+    },
+    15000,
+  );
+
+  it(
+    "settles the in-flight serve budget wait when the responder closes",
+    async () => {
+      // Close must settle `#withServeBudget`'s race, not only clear its timer:
+      // a never-released provider leaves `pending` unresolved while a disarm
+      // that only clears the timer leaves `expired` unsettled too, so the
+      // fire-and-forget dispatch would hang indefinitely.
+      const parked = parkedProvider();
+      const sent: Record<string, unknown>[] = [];
+      const { responder, client, pair } = await dialWithResponder({
+        ports: parked.ports,
+        responderTimeoutMs: 25,
+        clientTimeoutMs: 2000,
+        responderTransport: sentCapture(sent),
+      });
+      try {
+        const scope: Scope = { scope_id: "serve-close-settle-race" };
+        void client.listKnowledgeEntries(scope).catch(() => undefined);
+        await untilParked(parked, "listKnowledgeEntries");
+        expect(testActiveServeBudgetWaits(responder)).toBe(1);
+
+        responder.close();
+        await untilServeBudgetDrained(responder);
+        const attemptedAtClose = sent.length;
+        await delay(60);
+        expect(sent).toHaveLength(attemptedAtClose);
+
+        parked.release();
+        await delay(50);
         expect(responder.state).toBe("Closed");
         expect(sent).toHaveLength(attemptedAtClose);
       } finally {

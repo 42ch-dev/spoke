@@ -94,7 +94,58 @@ The adapter also exposes the optional-port faces with the same JSON-in / JSON-ou
 
 Concurrent calls on one adapter are allowed; responses demultiplex on `request_id` and may arrive out of order.
 
-## 4. Read session info
+## 4. Remote extraction and the ownership gate
+
+Two more capability-gated surfaces ride the same established session as the port methods. Declare each flag in **both** peers' `HostCapabilityManifest` — the session's negotiated set is the both-hello intersection, so a flag only one side declared is not negotiated.
+
+### Remote extraction (`ke-extraction`)
+
+`extract` is a core op served by a host-local extract service, not a `port.*` port method. The payload is the `ExtractRequest` itself as JSON — reference-only, no wrapper — and the serving host runs source loading and extraction through its own machinery, so no loader value is an argument here or a field on the wire:
+
+```python
+extract_json = adapter.extract(
+    json.dumps(
+        {
+            "run_id": "run-harbor-1",
+            "sources": [
+                {
+                    "schema_version": 1,
+                    "source_id": "harbor/source/log",
+                    "extensions": {},
+                }
+            ],
+        }
+    )
+)
+```
+
+The returned JSON is the `ExtractResponse` success branch: `candidates` (each `provisional`) plus the correlated `run`, whose `run_id` echoes the request. Each binding exposes the method under its own casing — `Extract` in C# and Go, `extract` in Kotlin, Swift, and Python (see the [symbol map](#symbol-map-across-the-bindings)). The offering extract host declares the `input-source` role; roles are not capabilities, so the role alone neither grants nor gates the op. Serving the op over FFI is the `PortsHandler.extract(extract_request_json)` callback, which runs the whole host-local extraction and answers the wire `ExtractResponse` JSON.
+
+### The ownership gate (`ke-ownership`)
+
+A Scope-bearing port op requires `ke-ownership` in addition to its row capability when the scope carries a non-empty `viewpoint` string — read exactly at `payload.scope.viewpoint`, with no normalization or recursive scan. Over FFI the witness is the existing `RemoteAdapterFFI.list_knowledge_entries(scope_json)` call, unchanged:
+
+```python
+listed_json = adapter.list_knowledge_entries(
+    json.dumps({"scope_id": "toy-scope-001", "viewpoint": "kb_tw_mira"})
+)
+```
+
+Each binding spells that method in its own casing — `ListKnowledgeEntries` in C# and Go, `listKnowledgeEntries` in Kotlin and Swift, `list_knowledge_entries` in Python (see the [symbol map](#symbol-map-across-the-bindings)). Declare `ke-ownership` in both manifests for a viewpoint-bearing query; a viewpoint-free Scope keeps serving under the row capability alone.
+
+### Extraction and ownership refusals
+
+Both surfaces settle through the existing `FfiError` rows — no extraction-specific or ownership-specific error class is added:
+
+| Refusal origin | `FfiError` row |
+|----------------|----------------|
+| The negotiated set lacks the required capability, or the host provides no extract service | `Rejected` with `code: "CAPABILITY_PORT_MISSING"` and the preserved `wire_code: "op_unsupported"` |
+| The foreign extract callback declines the request itself | `Rejected` with the callback's own `code` preserved — `CAPABILITY_PORT_MISSING` with no `wire_code` when it declines extraction, so a refused extraction stays distinguishable from a missing capability |
+| Malformed `extract_request_json`, or callback output that is not a contract payload | `Rejected` with `code: "INVALID_INPUT"` (zero wire traffic) / `code: "INTERNAL_ERROR"` (containment, the session survives) |
+
+Either hello omitting a flag leaves it out of the negotiated intersection, and the responder refuses before the foreign callback runs — a missing capability is never an empty success.
+
+## 5. Read session info
 
 The adapter exposes read-only session metadata:
 
@@ -107,7 +158,7 @@ adapter.remote_manifest()  # the remote peer's HostCapabilityManifest as JSON
 
 `session_id` / `remote_peer_id` / `remote_manifest` are populated once the session establishes; the session info comes from the authenticated hello and the session core, captured at establish time.
 
-## 5. Route across multiple peers with `MultiPeerRouterFFI`
+## 6. Route across multiple peers with `MultiPeerRouterFFI`
 
 `new_multi_peer_router_ffi()` returns an empty router. Dial each peer's `RemoteAdapterFFI` (step 2), register the established handles, and every port call routes to exactly one capable peer:
 
@@ -125,7 +176,7 @@ result_json = router.get_knowledge_entry(entry_id)  # routed to a capable peer
 
 Selection reads each registered peer's cached `HostCapabilityManifest` — hard gates on the operation's required capability and exact namespace, a soft role preference, and a deterministic lowest-`peer_id` tie-break. When no registered peer passes the hard gates, the call rejects with `CAPABILITY_PORT_MISSING` and `wire_code = "no_capable_peer"`; register a satisfying peer and re-invoke with a fresh `request_id`. The router also exposes the composed and per-peer `HostManifestPort` views (`get_host_capability_manifest` and `list_peer_host_capability_manifests`). The full selection contract is in [Route across multiple peers](/how-to/multi-peer-routing).
 
-## 6. Serve and invoke tools over FFI
+## 7. Serve and invoke tools over FFI
 
 The FFI surface carries the tool contract in both directions: the dialer invokes tools the responder serves through a foreign `ToolHandler` callback, and the responder reverse-invokes tools the dialer serves through handlers registered with `register_tool_handler`. `invoke_tool` exists on `RemoteAdapterFFI`, `MultiPeerRouterFFI`, and `ConnectResponderFFI`; `register_tool_handler` exists on `RemoteAdapterFFI` and `ConnectResponderFFI`.
 
@@ -193,11 +244,11 @@ while responder.state() != "Established":
     time.sleep(0.01)
 ```
 
-The constructor's `Result` slot carries config-validation failures only — manifest JSON, seed length, or peer-key length → `Dial { kind: "config" }`. `ports` is an **optional** foreign-callback ports face: pass a `PortsHandler` to serve `port.*` invokes (baseline + optional families) through the callback bridge, or `None` to keep the documented absent-ports deny branch — every `port.*` invoke then answers `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"` (the same fail-closed row as the library responder without `ports`). See [The `PortsHandler` callback](#the-portshandler-callback) below.
+The constructor's `Result` slot carries config-validation failures only — manifest JSON, seed length, or peer-key length → `Dial { kind: "config" }`. `ports` is an **optional** foreign-callback ports face: pass a `PortsHandler` to serve `port.*` invokes (baseline + optional families) and the core `extract` op through the callback bridge, or `None` to keep the documented absent-ports deny branch — every `port.*` invoke and every `extract` invoke then answers `CAPABILITY_PORT_MISSING` with `wire_code: "op_unsupported"` (the same fail-closed row as the library responder without `ports`). See [The `PortsHandler` callback](#the-portshandler-callback) below.
 
 ### The `PortsHandler` callback
 
-A `PortsHandler` is the responder's foreign-callback ports face: each method takes the request payload as a JSON string and returns the success payload as a JSON string — the same catalogue the library responder serves through its `ports` option. The interface has twelve methods (nine baseline + three optional):
+A `PortsHandler` is the responder's foreign-callback ports face: each method takes the request payload as a JSON string and returns the success payload as a JSON string — the same catalogue the library responder serves through its `ports` option, plus the `extract` service face. The interface has thirteen methods (nine baseline + three optional + `extract`):
 
 | Method | Family | Serves op |
 |--------|--------|-----------|
@@ -211,8 +262,9 @@ A `PortsHandler` is the responder's foreign-callback ports face: each method tak
 | `project(project_request_json)` | `l2-computable` | `port.computable.project` |
 | `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+| `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
-`get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method may raise `FfiError.Rejected` to deny an op it does not serve; the reject passes through to the invoker as an application reject. The optional families are served only when the pair negotiated the family (both manifests declare it) — the capability gate runs before the callback, and a host that declared a family but does not provide its method answers the same deny branch as absent `ports`.
+`get_host_capability_manifest` is not in the catalogue — it is the session cache, never served through the ports handler. A method may raise `FfiError.Rejected` to deny an op it does not serve; the reject passes through to the invoker as an application reject, which is how an extract callback declines extraction. The optional families are served only when the pair negotiated the family (both manifests declare it) — the capability gate runs before the callback, and a host that declared a family but does not provide its method answers the same deny branch as absent `ports`.
 
 The reference shape ships in the Python loopback smoke (`bindings/python/Smoke/test_ports_loopback.py`); the optional methods show the JSON contract:
 
@@ -332,7 +384,7 @@ Handlers run on the FFI blocking pool: every `handle` call (like every callback 
 
 Each established FFI session pins one blocking-pool thread per transport end (the receive loops block on the foreign `recv`). At the tokio default of 512 blocking threads, a host process sustains roughly 256 full-duplex sessions before new callback work queues — size long-lived connection counts against that ceiling.
 
-## 7. Errors
+## 8. Errors
 
 Every FFI call settles through the `FfiError` surface — dial failures before an adapter exists, invoke-path `SpokeResult` rejects, and the callback transport's own failures:
 
@@ -353,7 +405,7 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 
 | Row | Shape |
 |-----|-------|
-| Application rejects | `code` preserved verbatim (for example `KNOWLEDGE_ENTRY_NOT_FOUND`) |
+| Application rejects | `code` / `message` preserved verbatim (for example `KNOWLEDGE_ENTRY_NOT_FOUND`), with `kind` / `wire_code` present only where the mapping defines them |
 | Payload JSON parse failure | `INVALID_INPUT`, no `kind` / `wire_code` |
 | `INTERNAL_ERROR` rows | `kind` ∈ {`transport`, `session_closed`, `timeout`, `panic`, `correlation_mismatch`, `sequence_exhausted`, `envelope_auth_missing`, `envelope_auth_invalid`, `envelope_auth_session_unbound`} |
 | Dispatch deny | `CAPABILITY_PORT_MISSING` with `wire_code` = `op_unsupported` / `capability_missing` |
@@ -379,6 +431,8 @@ Every FFI call settles through the `FfiError` surface — dial failures before a
 | Router object | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` | `MultiPeerRouterFfi` |
 | Port methods | PascalCase (`GetKnowledgeEntry`) | PascalCase (`GetKnowledgeEntry`) | camelCase (`getKnowledgeEntry`) | snake_case (`get_knowledge_entry`) | camelCase (`getKnowledgeEntry`) |
 | Optional port methods | `Project` / `Compute` / `ListForkTimelineEvents` | `Project` / `Compute` / `ListForkTimelineEvents` | `project` / `compute` / `listForkTimelineEvents` | `project` / `compute` / `list_fork_timeline_events` | `project` / `compute` / `listForkTimelineEvents` |
+| Remote extract (`ke-extraction`) | `Extract(extractRequestJson)` | `Extract(extractRequestJson)` | `extract(extractRequestJson)` | `extract(extract_request_json)` | `extract(extractRequestJson:)` |
+| Ownership Scope query (`ke-ownership`) | `ListKnowledgeEntries(scopeJson)` | `ListKnowledgeEntries(scopeJson)` | `listKnowledgeEntries(scopeJson)` | `list_knowledge_entries(scope_json)` | `listKnowledgeEntries(scopeJson:)` |
 | Tool invoke | `InvokeTool(...)` | `InvokeTool(...)` | `invokeTool(...)` | `invoke_tool(...)` | `invokeTool(capabilityId:argumentsJson:)` |
 | Tool serving registration | `RegisterToolHandler(...)` | `RegisterToolHandler(...)` | `registerToolHandler(...)` | `register_tool_handler(...)` | `registerToolHandler(capabilityId:handler:)` |
 | Tool handler callback | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` | `ToolHandler` |

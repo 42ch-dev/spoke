@@ -189,11 +189,42 @@ Beyond the baseline six families, the adapter ships the optional `l2-computable`
 
 The `PROJECT_STATE` and `COMPUTE_DELTA` constants the snippet spreads are defined in the demo client source (`examples/connect-demo/client/src/main.ts`): the static state the session projects and the delta `compute` merges.
 
-The family must be **negotiated**: both manifests declare it in `capabilities[]`, so the session's `negotiated_capabilities` contains it. The demo gates its optional steps on its own manifest's declarations — the negotiated set is the intersection, so a server that did not declare a family denies loudly instead of being skipped. Denials map through the shared dispatch-deny row: wire `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved (section 5 below).
+The family must be **negotiated**: both manifests declare it in `capabilities[]`, so the session's `negotiated_capabilities` contains it. The demo gates its optional steps on its own manifest's declarations — the negotiated set is the intersection, so a server that did not declare a family denies loudly instead of being skipped. Denials map through the shared dispatch-deny row: wire `op_unsupported` / `capability_missing` → `CAPABILITY_PORT_MISSING` reject with `details.wire_code` preserved (section 6 below).
 
 The Rust adapter exposes the same faces as `project` / `compute` / `list_fork_timeline_events`; over FFI the same methods live on `RemoteAdapterFFI` (per-language casing in the [symbol map](/how-to/remote-adapter-native-binding#symbol-map-across-the-bindings)). Serving the families on the responder side — the library `ports` option, the Rust `RemoteServePorts` seam, and the foreign-callback `PortsHandler` — is documented in [Optional port families](/reference/connect#optional-port-families).
 
-## 5. Concurrency and errors
+## 5. Remote extraction and the ownership gate
+
+Two further surfaces ride the same established session, each behind its own capability flag: the `extract` core op delegates a whole extraction to the peer, and the ownership gate conditions the Scope-bearing ops on a reader viewpoint. Declare each flag in **both** peers' `HostCapabilityManifest.capabilities[]` — `negotiated_capabilities` is the both-hello intersection, so a flag only one side declared is not negotiated and the responder denies the invoke instead of the peer being skipped.
+
+### Remote extraction (`ke-extraction`)
+
+`extract` is a core op rather than a `port.*` port method: the adapter delegates the whole extraction and decodes the peer's wire `ExtractResponse`. The request carries source references only — the serving host owns source loading and extraction, so no loader value is an argument here or a field on the wire:
+
+```ts
+const result = await adapter.extract(request); // request: ExtractRequest
+```
+
+`request` is `{ run_id, sources, entry_types?, extensions? }`: a non-empty correlation id plus a non-empty `SourceAnchor` list, each anchor's optional span narrowing the referenced artifact. The success branch is `{ candidates, run }` — an empty `candidates` array is a successful zero-result run, every returned candidate carries `status: "provisional"`, and `run.run_id` echoes the request verbatim. The Rust reference drives the same op with `adapter.extract(request).await`, and over FFI the method is `RemoteAdapterFFI.extract(extract_request_json)`.
+
+Serving extraction is a connect-owned service face: the TypeScript `ports` provider adds `RemoteExtractService.extract(request)`, the Rust reference injects a `RemoteExtractService` (composing a mixed host with `RemoteServePortsComposite::with_extract`), and the FFI responder serves it through `PortsHandler.extract(extract_request_json)`. The offering extract host declares the `input-source` role — roles are not capabilities, so the role alone neither grants nor gates the op.
+
+### The ownership gate (`ke-ownership`)
+
+The three Scope-bearing port ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, and `port.fork.list_timeline_events` — additionally require `ke-ownership` when the request's Scope carries a non-empty `viewpoint` string. The predicate reads exactly that declared location: no trimming, normalization, holder lookup or recursive scan, so a viewpoint-free Scope keeps serving under the op's row capability alone. The method call is unchanged — the existing scope query carries the gate. The Rust reference drives the same witness as `adapter.list_knowledge_entries(&scope).await`, and over FFI it is `RemoteAdapterFFI.list_knowledge_entries(scope_json)`:
+
+```ts
+const listed = await adapter.listKnowledgeEntries({
+  scope_id: DEMO_SCOPE_ID,
+  viewpoint: holderId,
+});
+```
+
+The two flags are independent: a host can serve extraction, the ownership gate, both, or neither, and each is declared on both sides of the hello exchange. Refusals stay on the existing error vocabulary — the dispatch deny, the missing service face, a serving callback's own refusal, and the router's terminal reject are catalogued in [Refusal surfaces](/reference/connect#refusal-surfaces).
+
+The demo drives both surfaces end to end in `examples/connect-demo/client/src/main.ts`, against a host that declares both flags in `examples/connect-demo/server/src/adapter/mock-adapter.ts`.
+
+## 6. Concurrency and errors
 
 Concurrent port calls on one established session are allowed: outbound `sequence` is allocated at send time, responses demultiplex on `request_id`, and completions may arrive out of order. Each pending invoke carries an adapter-owned timeout; on elapse only that call fails and the session stays usable.
 
@@ -212,7 +243,7 @@ Port calls settle to `SpokeResult`; invoke-path failures surface as rejects:
 
 Dial / hello / allowlist / nonce failures happen before an adapter exists: `connectRemoteAdapter` rejects (TypeScript) or returns `Err(RemoteAdapterError)` with `Config` / `Handshake` / `ProtocolVersionMismatch` / `Timeout` variants (Rust).
 
-## 6. Envelope authentication
+## 7. Envelope authentication
 
 The adapter enforces **protocol version 2** per-envelope authentication internally on every post-hello envelope, with nothing to configure:
 
@@ -222,7 +253,7 @@ The adapter enforces **protocol version 2** per-envelope authentication internal
 
 Envelope authenticity is a protocol-level property above the transport — it does not depend on TLS or Noise. See [Envelope authentication](/explanation/connect#envelope-authentication) in the Connect architecture, and the [wire reference](/reference/connect#envelope-authentication-protocol-version-2) for the signed field sets.
 
-## 7. Loopback smoke
+## 8. Loopback smoke
 
 The in-repo loopback pair gives you the whole flow with no network: the server end is served by the repository's test loopback host ([`tests/remote/loopback-host.ts`](https://github.com/42ch-dev/spoke/blob/main/packages/spoke-connect-ts/tests/remote/loopback-host.ts) — test-only), the client end is dialed by `connectRemoteAdapter`:
 

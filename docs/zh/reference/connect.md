@@ -45,7 +45,7 @@ connect 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-con
 | `session_id` | 不透明会话 id |
 | `sequence` | 本发送方按会话单调递增的出站序列；逻辑 u64，上限 2^53−1（JSON 安全） |
 | `request_id` | 调用方生成的关联 id（建议 UUID） |
-| `op` | 开放词汇。核心列表（记录在案，不强制）：`upsert`、`promote`、`relate`、`check`、`assemble`、`project`、`compute`；保留 `port.*` 前缀用于 RemoteAdapter port 方法（见[Port-method ops（RemoteAdapter）](#port-method-ops-remoteadapter)） |
+| `op` | 开放词汇。核心列表（记录在案，不强制）：`upsert`、`promote`、`relate`、`check`、`assemble`、`extract`、`project`、`compute`；保留 `port.*` 前缀用于 RemoteAdapter port 方法（见 [Port-method ops（RemoteAdapter）](#port-method-ops-remoteadapter)；`extract` 核心 op 见[知识抽取与归属（RemoteAdapter）](#知识抽取与归属-remoteadapter)） |
 | `payload` | 不透明 JSON —— 面向 SPOKE ops 时，必须是所命名 op 的完整既有 ops 请求信封 |
 | `auth` | 可选会话中证明块；主要鉴权是握手。使用时形状按方法决定。在 protocol_version 2 线上存在时，`auth` 包含在 JCS 签名对象中 |
 | `signature` | 仅 v2、必填、minLength 86 maxLength 86 —— 对 JCS 规范化签名对象的 64 字节 Ed25519 签名的 base64url（无填充）编码（`spoke-connect-invoke-request-jcs-v1`）；见[信封认证（protocol_version 2）](#信封认证-protocol-version-2) |
@@ -171,8 +171,10 @@ RemoteAdapter（TypeScript `./remote` 子路径、Rust `remote-adapter` feature�
 | 操作 | 所需能力 |
 |------|----------|
 | `upsert`、`promote`、`relate`、`check`、`assemble`（以及 `port.*` 基线操作） | `spoke-baseline` |
+| `extract` | `ke-extraction` |
 | `project`、`compute`（以及 `port.computable.*`） | `l2-computable` |
 | `listForkTimelineEvents`（以及 `port.fork.*`） | `l5-fork` |
+| 携带非空 `scope.viewpoint` 的 `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` | 该行能力**外加** `ke-ownership` |
 | 产品自定义操作 | 产品文档化的能力 |
 
 能力令牌授权为其 `capabilities[]` 覆盖的 ops 授权会话成员资格，但并不取代 `negotiated_capabilities` —— 令牌门禁生效时，令牌授权与协商集都必须允许该 op。
@@ -220,7 +222,7 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 |----|------|
 | TypeScript —— `connectResponder({ ports })` | 实现 `BaselinePorts` 及可选方法（`project` / `compute` / `listForkTimelineEvents`）的 `ports` provider；组合类型 `FullPorts` 覆盖全部十二个服务方法 |
 | Rust —— `ConnectResponderOptions.ports` | `Arc<dyn RemoteServePorts>`：当 provider 实现 `BaselinePorts + ComputablePort + ForkTimelineQueryPort` 时，blanket impl 服务所有族；混合主机经 `RemoteServePortsComposite::new(baseline, computable, fork)` 组合，未提供的面传 `None` |
-| FFI —— `connect_responder_ffi` 的 `ports` 参数 | 可选的带外回调 `PortsHandler`，实现全部十二个方法（九个基线 + 三个可选）；见下方回调表 |
+| FFI —— `connect_responder_ffi` 的 `ports` 参数 | 可选的带外回调 `PortsHandler`，实现下方 port 目录外加 `extract` 服务面；见下方回调表 |
 
 | FFI `PortsHandler` 方法 | 族 | 服务的 op |
 |-------------------------|----|-----------|
@@ -234,6 +236,7 @@ Provider 面是 operations crate 的契约（`@42ch/spoke-operations`）；组�
 | `project(project_request_json)` | `l2-computable` | `port.computable.project` |
 | `compute(compute_request_json)` | `l2-computable` | `port.computable.compute` |
 | `list_fork_timeline_events(scope_json)` | `l5-fork` | `port.fork.list_timeline_events` |
+| `extract(extract_request_json)` | `ke-extraction` | `extract` |
 
 每个 `PortsHandler` 方法以 JSON 字符串接收请求载荷，以 JSON 字符串返回成功载荷。`get_host_capability_manifest` 不在目录中 —— 它是会话缓存，绝不经过 ports handler 服务。不服务某 op 的方法抛出 `FfiError.Rejected`，原样穿透给调用方作为应用拒绝；缺席的 `ports` handler（构造参数 `ports = None`）对每条 `port.*` 调用保留文档化的拒绝分支。
 
@@ -250,6 +253,46 @@ RemoteAdapter 在已建立的会话上像任何基线方法一样代理这三个
 ### 拒绝映射
 
 可选 port 的拒绝与其它任何分派拒绝走同一行：响应方 gate 以线上码 `op_unsupported` 应答（族未协商 —— 任一侧都未声明，或只有一侧声明），RemoteAdapter 将其映射为带 `details.wire_code = "op_unsupported"` 的 `CAPABILITY_PORT_MISSING` 拒绝；FFI 上同一行是 `code: "CAPABILITY_PORT_MISSING"` 且保留 `wire_code` 的 `FfiError.Rejected`。声明了某族但不为其提供任何 provider 面的主机 —— `ports` 缺席，或探测缺失方法 —— 应答同一拒绝分支，因此调用方总能观察到拒绝，而非静默成功。
+
+## 知识抽取与归属（RemoteAdapter）
+
+两个能力把 adapter 扩展到 port 目录之外：用于 `extract` 核心 op 的 `ke-extraction`，以及用于携带读者视角的 Scope 承载操作的 `ke-ownership`。两者都是普通能力字符串，声明在**双方**对等节点的 `HostCapabilityManifest.capabilities[]` 中，因此会话的 `negotiated_capabilities`（双方握手交集）必须包含该标志，操作才会被服务。角色不是能力：提供抽取的主机声明 `input-source` 角色，它是描述性元数据，绝不作为选择或分派输入。
+
+### 远程抽取（Remote extraction，`ke-extraction`）
+
+`extract` 是核心 op，不是 `port.*` 方法 —— adapter 委派整个抽取，并解码对等节点的线上 `ExtractResponse`：
+
+| 面 | 方法 |
+|----|------|
+| TypeScript `RemoteAdapter` | `extract(request)` —— 类型化 `ExtractRequest` 进，`SpokeResult<ExtractResponse>` 出 |
+| Rust `RemoteAdapter` | `extract(request)` —— 同一契约 |
+| FFI `RemoteAdapterFFI` | `extract(extract_request_json)` —— `ExtractRequest` JSON 进，`ExtractResponse` 成功分支 JSON 出 |
+
+| 线上位置 | 形状 |
+|----------|------|
+| `op` | `extract` |
+| 请求 `payload` | `ExtractRequest` 本身 —— `{ run_id, sources, entry_types?, extensions? }`，无包装。`run_id` 是非空关联 id，`sources` 是非空 `SourceAnchor`（溯源指针）列表，每个锚点的可选 span 收窄所引用的制品；不携带内联源内容 |
+| 成功 `payload` | `ExtractResponse` 成功分支 —— `{ candidates, run }`。`candidates` 为空数组是成功的零结果运行；每个返回的候选都携带 `status: "provisional"`；`run.run_id` 原样回显请求，`run.method` / `run.coverage_hint` 是产品的咨询性运行元数据 |
+| 错误 | `ExtractResponse` 错误分支复用共享 `ErrorEnvelope`，走应用拒绝路径 |
+
+服务方主机拥有源加载与抽取：没有 loader 值作为请求参数或线上字段，请求方只需协商后的标志。服务是一个 connect 拥有的服务面 —— TypeScript `RemoteExtractService.extract(request)` 组合进响应方的 `ports`（`BaselinePorts & Partial<RemoteExtractService>`，以函数值的 `ports.extract` 做结构性探测）；Rust `RemoteExtractService` 经 `RemoteServePorts::as_extract` 探测，并以 `RemoteServePortsComposite::with_extract` 接入混合主机；FFI 上则是经 `into_remote_serve_ports` 桥接的 `PortsHandler.extract(extract_request_json)` 回调。服务顺序是 gate → probe → serve/deny，因此声明了 `ke-extraction` 却不提供抽取服务的主机，应答与 `ports` 面缺席相同的拒绝分支。
+
+### 归属门禁（The ownership gate，`ke-ownership`）
+
+三个 Scope 承载操作 —— `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` —— 在 `payload.scope.viewpoint` 为非空字符串时，要求在其行能力之外**另加** `ke-ownership`。谓词只读取这一声明位置：不做去空白、规范化、持有者查找、所有者比对或递归扫描，也不做受众扩展，因此其它任何 Scope 形状都仅按其行能力放行。畸形 Scope 仍是既有的 `INVALID_INPUT` 拒绝。`viewpoint` 是读者上下文，绝不是凭据；查询返回的条目与治理字段保持不变。
+
+该要求是能力而非 op —— 它没有分派表行，而是在远程分派边界依据请求载荷求值。响应方在行能力门禁之后、探测或调用 provider 之前，把它作为补充门禁施加；路由器在选对等节点时把它作为硬能力过滤器，因此仅凭通告并非授权，被选中的对等节点仍可拒绝。拨号方 adapter 不做本地预门禁，直接发出请求并呈现对等节点的拒绝。
+
+### 拒绝面（Refusal surfaces）
+
+每个拒绝都留在既有错误词汇内 —— 不引入抽取专属或归属专属的错误类：
+
+| 拒绝来源 | 观察到的拒绝 |
+|----------|--------------|
+| 协商集缺少所需能力（`ke-extraction`，或视角承载 Scope 上的 `ke-ownership`） | 分派拒绝：线上码 `op_unsupported` 映射为带 `details.wire_code = "op_unsupported"` 的 `CAPABILITY_PORT_MISSING` |
+| 标志已协商，但主机未为该 op 提供服务面（无抽取服务的 `extract` 请求，或无可选 provider 方法的可选族） | 同一分派拒绝分支 |
+| 服务方回调自行拒绝该调用 | 回调的应用拒绝原样穿透 —— 拒绝抽取的回调给出不带 `wire_code` 的 `CAPABILITY_PORT_MISSING`，因此被拒绝的抽取与缺失的能力可区分 |
+| 路由器找不到通告所需能力的对等节点 —— 视角承载 Scope 请求，且无 `ke-ownership` 对等节点 | 既有本地终结拒绝：`CAPABILITY_PORT_MISSING`，`wire_code` = `kind` = `no_capable_peer` |
 
 ## 工具（反向调用）
 

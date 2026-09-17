@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 import type {
   ComputeResponse,
   ComputableFieldMap,
+  ExtractRequest,
+  ExtractResponse,
   Finding,
   HostCapabilityManifest,
   KnowledgeEntry,
@@ -56,6 +58,10 @@ import { WsTransport } from "./transport/ws-transport.js";
  * `l5-fork` families are declared too: the negotiated set is the
  * intersection of both manifests, so this client can drive the server's
  * optional port faces (and an undeclared server capability denies).
+ * The two KE flags are declared for the same reason: `ke-extraction` for the
+ * `extract` core op and `ke-ownership` for the viewpoint-bearing scope query
+ * the flow performs. Both-hello declaration is part of the contract — each
+ * flag is independent, and neither is a tool.
  */
 export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
   schema_version: 1,
@@ -67,6 +73,8 @@ export const DEMO_CLIENT_MANIFEST: HostCapabilityManifest = {
     TOY_WORLD_LORE_LOOKUP_ID,
     "l2-computable",
     "l5-fork",
+    "ke-extraction",
+    "ke-ownership",
   ],
   namespaces: [DEMO_SCOPE_ID, "toy_world"],
   tools: [ROLL_DICE_DESCRIPTOR, LORE_LOOKUP_DESCRIPTOR],
@@ -104,6 +112,43 @@ const SUBMITTED_FINDING: Finding = {
  */
 export const DEMO_STORM_FORK_ID = "demo-harbor/fork/storm";
 
+/**
+ * The seeded viewpoint holder the demo's ownership query reads as
+ * (client-local copy — same dep-surface reason as {@link DEMO_STORM_FORK_ID};
+ * the e2e catches drift against the server's seed corpus). This is the
+ * `Scope.viewpoint` that makes the disclosure predicate observable: the
+ * holder's own owner-private entries are visible, a foreign holder's are not.
+ */
+export const DEMO_VIEWPOINT_HOLDER_ID = "demo-harbor/character/mira";
+
+/**
+ * Extraction correlation id the demo client owns. Batch id and correlation id
+ * are one wire field: the host echoes it verbatim as `run.run_id`.
+ */
+export const DEMO_EXTRACTION_RUN_ID = "demo-run/harbor-extract-1";
+
+/**
+ * The reference-only extraction request this client sends: source anchors,
+ * never source content, and no candidate data — candidates are the host's
+ * (derived from `run_id` plus these anchors) and stay provisional.
+ */
+export const DEMO_EXTRACTION_REQUEST: ExtractRequest = {
+  run_id: DEMO_EXTRACTION_RUN_ID,
+  sources: [
+    {
+      schema_version: 1,
+      source_id: "demo-harbor/source/harbor-log",
+      label: "Harbor log",
+      extensions: {},
+    },
+    {
+      schema_version: 1,
+      source_id: "demo-harbor/source/tide-table",
+      extensions: {},
+    },
+  ],
+};
+
 /** The l2-computable session the demo drives (project → compute settle). */
 const COMPUTABLE_SESSION_ID = "demo-session/harbor-1";
 
@@ -119,6 +164,9 @@ const COMPUTE_DELTA: ComputableFieldMap = { tide: "rising" };
 /** Success branch of the ProjectResponse / ComputeResponse wire unions. */
 type ProjectSuccess = Exclude<ProjectResponse, { error: unknown }>;
 type ComputeSuccess = Exclude<ComputeResponse, { error: unknown }>;
+
+/** Success branch of the ExtractResponse wire union. */
+type ExtractSuccess = Exclude<ExtractResponse, { error: unknown }>;
 
 /** Structural subset of `SpokeResult` — the client does not import operations. */
 type AnySpokeResult<T> =
@@ -151,12 +199,22 @@ export interface DemoClientRun {
   updated: KnowledgeEntry;
   /** The entry as fetched back after the update. */
   fetched: KnowledgeEntry;
-  /** All knowledge entries in the demo namespace after the submission. */
+  /**
+   * All knowledge entries visible to the demo viewpoint after the submission
+   * (`listKnowledgeEntries` with the viewpoint-bearing scope — OQ-DEMO-1).
+   */
   listed: KnowledgeEntry[];
   /** The stored findings (round-tripped). */
   findings: Finding[];
   /** The host's peer manifest list (empty — the demo host knows no peers). */
   peerManifests: HostCapabilityManifest[];
+  /** The reference-only extraction request the flow sent (`ke-extraction`). */
+  extractionRequest: ExtractRequest;
+  /**
+   * The served extraction response: the host's provisional candidates plus the
+   * run metadata whose `run_id` echoes the request.
+   */
+  extraction: ExtractSuccess;
   /**
    * l2-computable: the projected computable view (session materialized).
    * Present when the dialed manifest declared the optional families (the
@@ -196,8 +254,9 @@ export interface RunDemoClientOptions {
  * Execute the full third-party flow over a real WebSocket: dial (registering
  * the toy-world tool handlers on the RemoteAdapter so the host can
  * reverse-invoke them), then manifest → put (OCC create) → put (CAS update)
- * → get → list → findings → peer manifests → the optional families:
- * l2-computable (project → compute settle → derived state) and l5-fork
+ * → get → list (viewpoint-bearing, the ownership witness) → findings → peer
+ * manifests → extract (F1) → the optional families: l2-computable
+ * (project → compute settle → derived state) and l5-fork
  * (listForkTimelineEvents over the seeded storm fork). Every port call must
  * succeed — a rejection throws.
  */
@@ -248,9 +307,17 @@ export async function runDemoClient(
     await adapter.getKnowledgeEntry(SUBMITTED_ENTRY.entry_id),
   );
 
-  // Step 3 — list: seed corpus + submitted entry + engine-derived artifacts.
+  // Step 3 — the ownership witness (ke-ownership / OQ-DEMO-1): the scope
+  // query declares the demo viewpoint, so the host's disclosure predicate
+  // decides visibility — shared entries and the viewpoint holder's own
+  // private entries come back, a foreign holder's private entries are
+  // withheld. Entries listed here still carry the seed corpus, the submitted
+  // entry and the engine-derived artifacts.
   const listed = requireOk(
-    await adapter.listKnowledgeEntries({ scope_id: DEMO_SCOPE_ID }),
+    await adapter.listKnowledgeEntries({
+      scope_id: DEMO_SCOPE_ID,
+      viewpoint: DEMO_VIEWPOINT_HOLDER_ID,
+    }),
   );
 
   // Step 4 — findings round-trip.
@@ -261,7 +328,21 @@ export async function runDemoClient(
     await adapter.listPeerHostCapabilityManifests(),
   );
 
-  // Steps 6-7 — optional families: drive them only when THIS client's
+  // Step 6 — ke-extraction (F1): the reference-only request goes out, the
+  // host loads the referenced sources in its own process, runs its own
+  // extractor and answers provisional candidates correlated by `run_id`. The
+  // loaded value stays host-local — it is never a request or response field.
+  const extractionResult = requireOk(
+    await adapter.extract(DEMO_EXTRACTION_REQUEST),
+  );
+  if ("error" in extractionResult) {
+    throw new Error(
+      `demo client: extract answered an error branch (${extractionResult.error.code})`,
+    );
+  }
+  const extraction = extractionResult;
+
+  // Steps 7-8 — optional families: drive them only when THIS client's
   // manifest declares them (the negotiated set is the intersection of both
   // manifests, so a server that does not declare a family denies loudly
   // through requireOk instead of skipping silently). The default manifest
@@ -270,7 +351,7 @@ export async function runDemoClient(
     dialManifest.capabilities.includes("l2-computable") &&
     dialManifest.capabilities.includes("l5-fork");
 
-  // Step 6 — l2-computable round-trip: project materializes the session's
+  // Step 7 — l2-computable round-trip: project materializes the session's
   // computable view from static state; compute applies the delta and
   // settles it back into static state (the derived state).
   let projected: ProjectSuccess | undefined;
@@ -306,7 +387,7 @@ export async function runDemoClient(
     }
     computed = computedResult;
 
-    // Step 7 — l5-fork round-trip: the seeded storm-fork timeline.
+    // Step 8 — l5-fork round-trip: the seeded storm-fork timeline.
     forkEvents = requireOk(
       await adapter.listForkTimelineEvents({
         scope_id: DEMO_SCOPE_ID,
@@ -330,6 +411,8 @@ export async function runDemoClient(
     listed,
     findings,
     peerManifests,
+    extractionRequest: DEMO_EXTRACTION_REQUEST,
+    extraction,
     projected,
     computed,
     forkEvents,
@@ -380,7 +463,7 @@ async function main(): Promise<void> {
       `  getKnowledgeEntry  ${run.fetched.entry_id} → status ${run.fetched.status}`,
     );
     console.log(
-      `  listKnowledgeEntries → ${run.listed.length} entries (${run.listed
+      `  listKnowledgeEntries (viewpoint ${DEMO_VIEWPOINT_HOLDER_ID}) → ${run.listed.length} entries (${run.listed
         .map((entry) => entry.entry_id)
         .join(", ")})`,
     );
@@ -388,6 +471,11 @@ async function main(): Promise<void> {
       `  putFindings        → ${run.findings.length} finding(s) stored`,
     );
     console.log("  listPeerHostCapabilityManifests → []");
+    console.log(
+      `  extract            run ${run.extraction.run.run_id} → ${run.extraction.candidates.length} provisional candidate(s) (${run.extraction.candidates
+        .map((candidate) => candidate.entry_id)
+        .join(", ")})`,
+    );
     if (run.projected !== undefined && run.computed !== undefined) {
       console.log(
         `  project            ${run.projected.entry_id} → ${JSON.stringify(run.projected.computable)}`,

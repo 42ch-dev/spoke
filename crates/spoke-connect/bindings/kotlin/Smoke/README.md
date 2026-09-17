@@ -53,8 +53,11 @@ From `crates/spoke-connect/bindings/kotlin/` (requires host native under
 gradle test
 ```
 
-Expected: 9 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest` +
-`PortsLoopbackFfiPairTest`).
+Expected: 19 tests PASS (`GoldenParityTest` 5 + `ToolLoopbackFfiPairTest` 1 +
+`PortsLoopbackFfiPairTest` 13 — 3 `portsLoopback_*` + the ten `keRemote_*`).
+The `kotlin-connect-smoke` CI lane runs this same default set against a Linux
+cdylib and asserts the ten `keRemote_*` cases through
+`verify-ke-smoke-results.py`.
 
 Override native path explicitly:
 
@@ -92,8 +95,7 @@ gradle test \
   -PnativeLib="$PWD/native/darwin-aarch64/libspoke_connect.dylib"
 ```
 
-Expected: 10 tests PASS (`GoldenParityTest` + `ToolLoopbackFfiPairTest` +
-`PortsLoopbackFfiPairTest` + `RemoteAdapterLoopbackTest`).
+Expected: 20 tests PASS (the 19 above + `RemoteAdapterLoopbackTest` 1).
 
 ## Maintainer: regenerate committed production bindings
 

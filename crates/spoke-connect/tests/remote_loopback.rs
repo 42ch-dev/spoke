@@ -57,8 +57,8 @@ use spoke_connect::remote::{
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{
-    orchestrate_check, orchestrate_extract, orchestrate_upsert, spoke_ok, spoke_reject,
-    BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
+    orchestrate_check, orchestrate_extract, orchestrate_upsert, parse_tool_capability_id, spoke_ok,
+    spoke_reject, BaselinePorts, CheckRunInput, ComputablePort, ExtractRunInput, ExtractionPort,
     ExtractionResult, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
     RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
@@ -3568,19 +3568,118 @@ async fn responder_answers_the_error_branch_when_a_served_handler_panics_without
     responder.close();
 }
 
+/// The library grammar reject for `capability_id` — the reject the
+/// responder-side registration must pass through unchanged.
+fn grammar_reject(capability_id: &str) -> SpokeReject {
+    match parse_tool_capability_id(capability_id) {
+        SpokeResult::Reject(reject) => reject,
+        SpokeResult::Ok(_) => panic!("{capability_id:?} must fail the tools. grammar"),
+    }
+}
+
+/// A handler that records its arguments and answers `{ "handler": "second" }`
+/// — distinguishable from [`add_handler`] so a last-wins replacement is
+/// observable on the wire value, not only on call counts.
+fn replacing_handler(calls: Arc<Mutex<Vec<Value>>>) -> ToolHandler {
+    Arc::new(move |args: Value| {
+        let calls = Arc::clone(&calls);
+        Box::pin(async move {
+            calls.lock().expect("calls lock").push(args);
+            spoke_ok(json!({ "handler": "second" }))
+        })
+    })
+}
+
 #[tokio::test]
-async fn responder_rejects_register_tool_handler_for_a_non_tool_capability_id() {
+async fn responder_registration_returns_the_library_result_and_serves_the_handler() {
+    let calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
     let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        responder.register_tool_handler(
-            "spoke-baseline",
+
+    // A valid id answers `SpokeResult::Ok(())` — and only after the
+    // insertion, so the very next invoke is served by that handler.
+    match responder.register_tool_handler("tools.math.add", add_handler(Arc::clone(&calls))) {
+        SpokeResult::Ok(()) => {}
+        SpokeResult::Reject(reject) => panic!("valid grammar must register: {reject:?}"),
+    }
+    match client.invoke_tool("tools.math.add", json!({ "a": 20, "b": 22 })).await {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
+        SpokeResult::Reject(reject) => panic!("registered handler must serve: {reject:?}"),
+    }
+    assert_eq!(
+        calls.lock().expect("calls lock").as_slice(),
+        &[json!({ "a": 20, "b": 22 })]
+    );
+    assert_eq!(responder.state(), RemoteAdapterState::Established);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_registration_rejects_invalid_grammar_without_touching_the_registry() {
+    let seeded_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
+    assert!(
+        responder
+            .register_tool_handler("tools.math.add", add_handler(Arc::clone(&seeded_calls)))
+            .is_ok()
+    );
+
+    // Neither a non-`tools.` id nor a malformed `tools.` id panics: each
+    // returns the library grammar reject verbatim, with zero side effect.
+    for invalid in ["spoke-baseline", "tools.Math.add"] {
+        let rejected = responder.register_tool_handler(
+            invalid,
             Arc::new(|_args: Value| Box::pin(async move { spoke_ok(Value::Null) })),
         );
-    }));
+        match rejected {
+            SpokeResult::Ok(()) => panic!("invalid grammar {invalid:?} must not register"),
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                assert_eq!(reject, grammar_reject(invalid));
+            }
+        }
+    }
+
+    // The registry survived the rejected attempts: the registration that
+    // preceded them still serves, exactly once.
+    match client.invoke_tool("tools.math.add", json!({ "a": 40, "b": 2 })).await {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "sum": 42 })),
+        SpokeResult::Reject(reject) => panic!("registry must survive a rejected registration: {reject:?}"),
+    }
+    assert_eq!(seeded_calls.lock().expect("calls lock").len(), 1);
+
+    client.close();
+    responder.close();
+}
+
+#[tokio::test]
+async fn responder_registration_last_wins_replaces_the_registered_handler() {
+    let first_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let second_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let (responder, client, _pair) = dial_with_responder(ResponderDialOptions::default()).await;
+
     assert!(
-        result.is_err(),
-        "non-tool register_tool_handler must panic (grammar gate)"
+        responder
+            .register_tool_handler("tools.math.add", add_handler(Arc::clone(&first_calls)))
+            .is_ok()
     );
+    assert!(
+        responder
+            .register_tool_handler("tools.math.add", replacing_handler(Arc::clone(&second_calls)))
+            .is_ok()
+    );
+
+    match client.invoke_tool("tools.math.add", json!({ "a": 1, "b": 2 })).await {
+        SpokeResult::Ok(value) => assert_eq!(value, json!({ "handler": "second" })),
+        SpokeResult::Reject(reject) => panic!("the replacement handler must serve: {reject:?}"),
+    }
+    assert_eq!(second_calls.lock().expect("calls lock").len(), 1);
+    assert!(
+        first_calls.lock().expect("calls lock").is_empty(),
+        "the replaced handler must not be reachable"
+    );
+
     client.close();
     responder.close();
 }

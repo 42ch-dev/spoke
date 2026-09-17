@@ -567,23 +567,30 @@ impl ConnectResponder {
     // ── Tool serving + reverse invoke (frozen contract §6) ────────────────
 
     /// Register a handler for a `tools.<ns>.<tool_id>` capability served on
-    /// this responder. Grammar-asserted: a non-`tools.` id panics
-    /// (programmer misuse, like the generated-type ergonomics of
-    /// `tool_capability_id`). Duplicate registration for the same id
-    /// OVERWRITES the previous handler (last-wins, documented). The registry
-    /// does NOT mutate the local manifest — descriptor truth for discovery
-    /// stays in the manifest's `tools[]` (sent through hello).
-    pub fn register_tool_handler(&self, capability_id: &str, handler: ToolHandler) {
+    /// this responder. Grammar-validated: a non-`tools.` id returns the
+    /// library grammar reject (`INVALID_INPUT` with `details.capability_id`,
+    /// the `parse_tool_capability_id` result unchanged) and registers
+    /// nothing; `SpokeResult::Ok(())` is answered only after the insertion.
+    /// This responder face follows the library result convention; the
+    /// dialer-side `RemoteAdapter` face keeps its programmer-error panic.
+    /// Duplicate registration for the same id OVERWRITES the previous handler
+    /// (last-wins, documented). The registry does NOT mutate the local
+    /// manifest — descriptor truth for discovery stays in the manifest's
+    /// `tools[]` (sent through hello).
+    pub fn register_tool_handler(
+        &self,
+        capability_id: &str,
+        handler: ToolHandler,
+    ) -> SpokeResult<()> {
         match parse_tool_capability_id(capability_id) {
             SpokeResult::Ok(_) => {}
-            SpokeResult::Reject(reject) => {
-                panic!("{}", reject.message);
-            }
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         }
         self.tool_handlers
             .lock()
             .expect("tool handlers lock")
             .insert(capability_id.to_owned(), handler);
+        SpokeResult::Ok(())
     }
 
     /// Reverse tool-invoke face (frozen contract §6): issue a

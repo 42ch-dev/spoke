@@ -41,6 +41,11 @@ mod core;
 mod remote_adapter;
 mod responder;
 
+/// Record-layout report consumed by the C ABI gate
+/// (`tooling/connect/cpp-symbol-check.mjs`); test-only, never exported.
+#[cfg(test)]
+mod abi_layout;
+
 /// The C boundary revision exposed by [`spoke_connect_abi_version`]; distinct
 /// from the connect hello protocol version.
 pub const SPOKE_CONNECT_ABI_VERSION: u64 = 1;

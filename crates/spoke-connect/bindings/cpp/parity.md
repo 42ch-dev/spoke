@@ -12,10 +12,15 @@ facade member lands in `crates/spoke-connect/bindings/cpp/include/spoke_connect.
   with the left column; the header is the single contract for Tasks 5–8.
 - **Executable proof:** `tooling/connect/cpp-symbol-check.mjs` compares the
   header's declaration set against the carrier library's exported
-  `spoke_connect_*` symbols in both directions, and compiles/links a C probe
-  that holds a typed function pointer to every declaration. Names, not
-  signatures, are compared there; the layout/ownership assertions live in the
-  carrier's Rust battery.
+  `spoke_connect_*` symbols in both directions, compiles/links a C probe that
+  holds a typed function pointer to every declaration, and pins the record and
+  callback-table layouts. The symbol pass compares names; the layout pass takes
+  the size, alignment and field offsets of every `#[repr(C)]` mirror from the
+  carrier itself and asserts this header's `sizeof` / `_Alignof` / `offsetof`
+  against them, in both directions — a declared record or member with no
+  carrier report fails, and a reported record or member that is not declared
+  here fails. Ownership rules stay as the carrier's Rust battery and the C++
+  smoke describe them.
 
 ## Conclusion
 
@@ -289,6 +294,11 @@ node tooling/connect/cpp-symbol-check.mjs \
   --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib
 ```
 
-The second command re-derives the declaration set from this header and the
-export set from the staged library, so a header edit that misses an export (or
-an export that misses a declaration) fails the gate rather than landing.
+The second command re-derives the declaration set from this header, the export
+set from the staged library, and both sides of every record and callback-table
+layout (the carrier reports its `#[repr(C)]` mirrors through
+`cargo test -p spoke-connect-capi --lib abi_layout`, so cargo has to be on
+PATH; the local nightly convention is picked up automatically). A header edit
+that misses an export, an export that misses a declaration, or a record or
+member whose layout no longer matches the mirror fails the gate rather than
+landing.

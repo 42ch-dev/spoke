@@ -1,4 +1,4 @@
-//! Record-layout report for the C ABI gate.
+//! Record-layout and callback-signature report for the C ABI gate.
 //!
 //! The C header `crates/spoke-connect/bindings/cpp/include/spoke_connect.h`
 //! declares the records and callback tables this carrier crosses, and the
@@ -11,15 +11,32 @@
 //! compiled against the header. A drift on either side then fails the gate
 //! instead of silently changing the ABI.
 //!
+//! It also reports every callback signature, because a callback table's
+//! function pointers keep their size and their offsets when a parameter, a
+//! return type or a calling convention changes — layout assertions alone cannot
+//! see that. `type_name` renders the alias or the member type the carrier
+//! actually has (nothing here restates a signature by hand), and the gate
+//! renders that Rust type into the C signature it must equal. The member
+//! reports additionally coerce a field accessor to an `fn` pointer, so a member
+//! whose type stops matching the named one is a compile error rather than a
+//! silently different report.
+//!
 //! The report runs under `cargo test -p spoke-connect-capi --lib abi_layout --
 //! --nocapture`, which the gate drives itself; it is a verification surface and
 //! never part of the carrier's exported ABI.
 
+use std::any::type_name;
+use std::ffi::c_void;
 use std::mem::{align_of, offset_of, size_of};
 
-use crate::remote_adapter::SpokeConnectTransportTable;
+use crate::remote_adapter::{
+    SpokeConnectTransportCloseFn, SpokeConnectTransportDestroyFn, SpokeConnectTransportRecvFn,
+    SpokeConnectTransportSendFn, SpokeConnectTransportTable,
+};
 use crate::responder::{
-    SpokeConnectPeerKey, SpokeConnectPortsHandlerTable, SpokeConnectToolHandlerTable,
+    SpokeConnectCallbackDestroyFn, SpokeConnectPeerKey, SpokeConnectPortsHandlerTable,
+    SpokeConnectPortsListRulesFn, SpokeConnectPortsNoInputFn, SpokeConnectPortsRevisionFn,
+    SpokeConnectPortsTextFn, SpokeConnectToolHandleFn, SpokeConnectToolHandlerTable,
 };
 use crate::{
     SpokeConnectBuffer, SpokeConnectError, SpokeConnectForeignBuffer, SpokeConnectForeignError,
@@ -43,6 +60,36 @@ macro_rules! report {
                 .join(" ")
         );
     };
+}
+
+/// Reports one callback typedef as `SPOKE_CONNECT_ABI_CALLBACK typedef <name>
+/// <rust type>`. The name is the alias's own path (the header names its
+/// typedef identically) and the type is the alias's real expansion, so a
+/// changed parameter, return type or calling convention changes this line.
+macro_rules! callback_typedef {
+    ($alias:ty) => {
+        println!(
+            "SPOKE_CONNECT_ABI_CALLBACK typedef {} {}",
+            stringify!($alias),
+            type_name::<$alias>()
+        );
+    };
+}
+
+/// Reports one callback member as `SPOKE_CONNECT_ABI_CALLBACK member
+/// <record>.<field> <rust type>`. The coerced closure is the typed probe: it
+/// only compiles while the field's type is exactly `Option<$alias>`, so the
+/// reported signature is the field's own — not a restatement of it.
+macro_rules! callback_member {
+    ($record:ty, $field:ident, $alias:ty) => {{
+        let _: fn($record) -> Option<$alias> = |record| record.$field;
+        println!(
+            "SPOKE_CONNECT_ABI_CALLBACK member {}.{} {}",
+            stringify!($record),
+            stringify!($field),
+            type_name::<$alias>()
+        );
+    }};
 }
 
 /// Prints the layout of every `#[repr(C)]` record the header declares.
@@ -170,5 +217,110 @@ fn abi_layout_report() {
             ("handle", offset_of!(SpokeConnectToolHandlerTable, handle)),
             ("destroy", offset_of!(SpokeConnectToolHandlerTable, destroy)),
         ]
+    );
+    report_callbacks();
+}
+
+/// Prints every callback typedef and every callback-table member the header
+/// declares.
+///
+/// Called from `abi_layout_report` rather than declared as its own `#[test]`:
+/// the gate parses the whole report from one `cargo test -- --nocapture` run,
+/// and a second test would let the harness write its own status line from
+/// another thread while this one is mid-report, gluing a report line onto it.
+/// One test means one writer, so each report line reaches the gate intact.
+fn report_callbacks() {
+    callback_typedef!(SpokeConnectTransportSendFn);
+    callback_typedef!(SpokeConnectTransportRecvFn);
+    callback_typedef!(SpokeConnectTransportCloseFn);
+    callback_typedef!(SpokeConnectTransportDestroyFn);
+    callback_typedef!(SpokeConnectCallbackDestroyFn);
+    callback_typedef!(SpokeConnectPortsTextFn);
+    callback_typedef!(SpokeConnectPortsRevisionFn);
+    callback_typedef!(SpokeConnectPortsListRulesFn);
+    callback_typedef!(SpokeConnectPortsNoInputFn);
+    callback_typedef!(SpokeConnectToolHandleFn);
+
+    callback_member!(SpokeConnectTransportTable, send, SpokeConnectTransportSendFn);
+    callback_member!(SpokeConnectTransportTable, recv, SpokeConnectTransportRecvFn);
+    callback_member!(SpokeConnectTransportTable, close, SpokeConnectTransportCloseFn);
+    callback_member!(
+        SpokeConnectTransportTable,
+        destroy,
+        SpokeConnectTransportDestroyFn
+    );
+
+    // The foreign buffer's `release` is the one callback member the header
+    // writes inline instead of naming a typedef for.
+    callback_member!(
+        SpokeConnectForeignBuffer,
+        release,
+        unsafe extern "C" fn(*mut c_void, *const u8, usize)
+    );
+
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        get_knowledge_entry,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        put_knowledge_entry,
+        SpokeConnectPortsRevisionFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        get_relation,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        put_relation,
+        SpokeConnectPortsRevisionFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        list_knowledge_entries,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        list_timeline_events,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        put_findings,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        list_rules,
+        SpokeConnectPortsListRulesFn
+    );
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        list_peer_host_capability_manifests,
+        SpokeConnectPortsNoInputFn
+    );
+    callback_member!(SpokeConnectPortsHandlerTable, project, SpokeConnectPortsTextFn);
+    callback_member!(SpokeConnectPortsHandlerTable, compute, SpokeConnectPortsTextFn);
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        list_fork_timeline_events,
+        SpokeConnectPortsTextFn
+    );
+    callback_member!(SpokeConnectPortsHandlerTable, extract, SpokeConnectPortsTextFn);
+    callback_member!(
+        SpokeConnectPortsHandlerTable,
+        destroy,
+        SpokeConnectCallbackDestroyFn
+    );
+
+    callback_member!(SpokeConnectToolHandlerTable, handle, SpokeConnectToolHandleFn);
+    callback_member!(
+        SpokeConnectToolHandlerTable,
+        destroy,
+        SpokeConnectCallbackDestroyFn
     );
 }

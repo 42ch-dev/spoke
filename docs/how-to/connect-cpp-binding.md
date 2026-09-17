@@ -114,6 +114,8 @@ Validation status: the executed evidence is the standalone C++17 smoke for `osx-
 
 `tooling/connect/cpp-symbol-check.mjs` is the executable drift gate: it parses the header's declaration block, compares it against the carrier's exported `spoke_connect_*` symbols in both directions, checks the header's `typedef struct` block against the carrier's reported record layouts, compiles a C99 probe holding a typed function pointer to every declaration, and compiles a C++17 inclusion check with `-fno-exceptions -fno-rtti`.
 
+Because the record-layout report comes from the carrier's own test target, the gate needs `cargo` on `PATH`; the compile-and-assert half of the layout pass is that target's scoped run, `cargo test -p spoke-connect-capi --lib abi_layout`, which the gate invokes for you.
+
 ```sh
 node tooling/connect/cpp-symbol-check.mjs \
   --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h \

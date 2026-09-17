@@ -114,6 +114,8 @@ PublicDependencyModuleNames.AddRange(new string[] { "SpokeConnect" });
 
 `tooling/connect/cpp-symbol-check.mjs` 是可执行的漂移门：解析头文件的声明块，与载体导出的 `spoke_connect_*` 符号双向比对，把头文件的 `typedef struct` 块与载体报告的记录布局对照，编译一个对每条声明都持有类型化函数指针的 C99 探针，并编译一个使用 `-fno-exceptions -fno-rtti` 的 C++17 包含检查。
 
+由于记录布局报告来自载体自身的测试目标，该漂移门需要 `cargo` 位于 `PATH`；布局检查中"编译并断言"的那一半即该目标的定向运行 `cargo test -p spoke-connect-capi --lib abi_layout`，由漂移门代为调用。
+
 ```sh
 node tooling/connect/cpp-symbol-check.mjs \
   --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h \

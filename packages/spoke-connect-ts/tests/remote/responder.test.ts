@@ -1681,6 +1681,30 @@ describe("ke remote", () => {
     }
   });
 
+  it("probe-denies malformed extract payload when extract service is absent", async () => {
+    const { client, responder, pair } = await dialWithResponder({
+      clientManifest: manifestWithCaps("client-extract-probe-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      responderManifest: manifestWithCaps("responder-extract-probe-malformed", [
+        CAPABILITY_KE_EXTRACTION,
+      ]),
+      ports: toyBaselinePorts(),
+    });
+    try {
+      const result = await client.extract({} as unknown as ExtractRequest);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+      expect(result.details?.wire_code).toBe("op_unsupported");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
   it("maps service application reject separately from probe-deny", async () => {
     const ports = toyBaselinePorts();
     ports.extract = async () =>

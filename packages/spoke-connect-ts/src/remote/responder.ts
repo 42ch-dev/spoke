@@ -254,6 +254,13 @@ const SCOPE_WIRE_KEYS = new Set([
   "extensions",
 ]);
 
+const EXTRACT_REQUEST_WIRE_KEYS = new Set([
+  "run_id",
+  "sources",
+  "entry_types",
+  "extensions",
+]);
+
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
 function isValidExtensionMap(value: unknown): boolean {
@@ -350,7 +357,7 @@ export function validateScopeOpPayload(
   }
   const scope = payload.scope;
   if (!isJsonObject(scope)) {
-    return scopePayloadReject(op, "missing scope");
+    return scopePayloadReject(op, "scope must be an object");
   }
   if ("viewpoint" in scope) {
     const viewpoint = scope.viewpoint;
@@ -424,6 +431,15 @@ export function validateExtractRequestPayload(
       "invalid extract payload: expected a JSON object",
       { op: "extract" },
     );
+  }
+  for (const key of Object.keys(payload)) {
+    if (!EXTRACT_REQUEST_WIRE_KEYS.has(key)) {
+      return spokeReject(
+        SpokeRejectCode.INVALID_INPUT,
+        `invalid extract payload: unknown property \`${key}\``,
+        { op: "extract" },
+      );
+    }
   }
   if (typeof payload.run_id !== "string" || payload.run_id.length === 0) {
     return spokeReject(

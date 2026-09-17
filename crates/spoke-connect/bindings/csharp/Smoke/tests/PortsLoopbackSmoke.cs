@@ -508,7 +508,7 @@ public static class PortsLoopbackSmoke
     /// <summary>An `extract` request for the scenario's run id: the payload is
     /// the `ExtractRequest` itself and `sources` carry references only.</summary>
     private static string KeExtractRequestJson(string runId) =>
-        $$"""{"run_id":"{{runId}}","sources":[{"schema_version":1,"source_id":"manuscript/ch1","extensions":{}},{"schema_version":1,"source_id":"manuscript/ch2","extensions":{}}]}""";
+        $$$"""{"run_id":"{{{runId}}}","sources":[{"schema_version":1,"source_id":"manuscript/ch1","extensions":{}},{"schema_version":1,"source_id":"manuscript/ch2","extensions":{}}]}""";
 
     /// <summary>A Scope carrying a reader viewpoint plus opaque extension values
     /// the callback must receive unchanged.</summary>

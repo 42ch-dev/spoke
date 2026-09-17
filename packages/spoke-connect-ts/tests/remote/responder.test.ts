@@ -2007,6 +2007,35 @@ describe("ke remote", () => {
   });
 
 
+
+  it("rejects malformed declared scope with non-empty viewpoint as INVALID_INPUT before ownership gate when ke-ownership is not negotiated", async () => {
+    let called = false;
+    const ports = toyBaselinePorts();
+    ports.listKnowledgeEntries = async () => {
+      called = true;
+      return spokeOk([]);
+    };
+    const { client, responder, pair } = await dialWithResponder({ ports });
+    try {
+      const badScope = {
+        scope_id: "s1",
+        viewpoint: "holder-a",
+        unknown_field: 1,
+      } as unknown as Scope;
+      const result = await client.listKnowledgeEntries(badScope);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INVALID_INPUT);
+      expect(result.details?.wire_code).toBeUndefined();
+      expect(called).toBe(false);
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
   it("rejects malformed declared scope with INVALID_INPUT when ke-ownership is not negotiated", async () => {
     let called = false;
     const ports = toyBaselinePorts();
@@ -2051,6 +2080,39 @@ describe("ke remote", () => {
         run_id: "run-1",
         sources: [{ schema_version: 1, source_id: "s", extensions: {} }],
         reuqest_id: "x",
+      },
+      {
+        run_id: "run-1",
+        sources: [
+          {
+            schema_version: 1,
+            source_id: "s",
+            extensions: {},
+            unknown_anchor_key: 1,
+          },
+        ],
+      },
+      {
+        run_id: "run-1",
+        sources: [
+          {
+            schema_version: 1,
+            source_id: "s",
+            extensions: {},
+            span: "not-an-object",
+          },
+        ],
+      },
+      {
+        run_id: "run-1",
+        sources: [
+          {
+            schema_version: 1,
+            source_id: "s",
+            extensions: {},
+            span: { start: "bad", end: 4 },
+          },
+        ],
       },
     ];
     for (const payload of malformedPayloads) {

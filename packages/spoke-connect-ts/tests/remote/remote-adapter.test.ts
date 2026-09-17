@@ -56,6 +56,7 @@ import {
   type Transport,
 } from "@42ch/spoke-connect/remote";
 
+import { isValidSuccessPayload } from "../../src/remote/payload.js";
 import { getPublicKeyEd25519 } from "../../src/crypto.js";
 import { issueCapabilityToken } from "../../src/core/capability-token.js";
 // Fixture crafting for the fail-closed dial tests: a genuinely-signed
@@ -1748,6 +1749,95 @@ describe("ke remote", () => {
       transport: pair.client,
       localIdentity: { seed: seedClient },
       localManifest: manifestWithExtract("client-malformed"),
+      remotePubkey: pubkeyResponder,
+      allowlist: [peerIdResponder],
+    });
+    try {
+      const result = await client.extract(sampleExtractRequestAdapter());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.code).toBe(SpokeRejectCode.INTERNAL_ERROR);
+      expect(result.details?.kind).toBe("transport");
+    } finally {
+      client.close();
+      responder.close();
+      pair.client.close();
+      pair.server.close();
+    }
+  });
+
+  it("rejects extract success payloads with unknown top-level keys", () => {
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [],
+        run: { run_id: "run-1" },
+        junk: true,
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [],
+        run: { run_id: "run-1" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects extract success payloads whose candidates are not objects", () => {
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: ["not-an-object"],
+        run: { run_id: "run-1" },
+      }),
+    ).toBe(false);
+    expect(
+      isValidSuccessPayload("extract", {
+        candidates: [
+          {
+            schema_version: 1,
+            entry_id: "e1",
+            entry_type: "note",
+            canonical_name: "n",
+            status: "provisional",
+            body: {},
+            extensions: {},
+          },
+        ],
+        run: { run_id: "run-1", method: "demo" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects malformed extract success payloads with INTERNAL_ERROR transport kind for non-object candidates on the wire", async () => {
+    const seedResponder = seed(0xb1);
+    const seedClient = seed(0x21);
+    const pubkeyResponder = getPublicKeyEd25519(seedResponder);
+    const pubkeyClient = getPublicKeyEd25519(seedClient);
+    const peerIdResponder = derivePeerIdFromEd25519Pubkey(pubkeyResponder);
+    const peerIdClient = derivePeerIdFromEd25519Pubkey(pubkeyClient);
+    const pair = loopbackTransportPair();
+    const ports = {
+      ...asBaselineOnly(new ToyWorldAdapter()),
+      extract: async () =>
+        spokeOk({
+          candidates: ["bad"],
+          run: { run_id: "run-adapter-ke" },
+        } as unknown as {
+          candidates: never[];
+          run: { run_id: string };
+        }),
+    };
+    const responder = await connectResponder({
+      transport: pair.server,
+      identity: { seed: seedResponder },
+      manifest: manifestWithExtract("responder-malformed-candidate"),
+      allowlist: [peerIdClient],
+      peerKeys: { [peerIdClient]: pubkeyClient },
+      ports,
+    });
+    const client = await connectRemoteAdapter({
+      transport: pair.client,
+      localIdentity: { seed: seedClient },
+      localManifest: manifestWithExtract("client-malformed-candidate"),
       remotePubkey: pubkeyResponder,
       allowlist: [peerIdResponder],
     });

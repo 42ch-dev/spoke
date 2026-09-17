@@ -134,6 +134,54 @@ function matchesShape(value: Record<string, unknown>, shape: SuccessShape): bool
   );
 }
 
+const EXTRACT_RESPONSE_WIRE_KEYS = new Set(["candidates", "run", "extensions"]);
+
+const EXTRACTION_RUN_WIRE_KEYS = new Set(["run_id", "method", "coverage_hint"]);
+
+const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
+
+function isValidExtensionMap(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const [key, namespaceValue] of Object.entries(value)) {
+    if (!EXTENSION_MAP_KEY_PATTERN.test(key)) {
+      return false;
+    }
+    if (!isRecord(namespaceValue)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isValidExtractionRunMetadata(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const key of Object.keys(value)) {
+    if (!EXTRACTION_RUN_WIRE_KEYS.has(key)) {
+      return false;
+    }
+  }
+  if (typeof value.run_id !== "string" || value.run_id.length === 0) {
+    return false;
+  }
+  if (
+    "method" in value &&
+    value.method !== undefined &&
+    (typeof value.method !== "string" || value.method.length === 0)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+const EXTRACT_CANDIDATE_SHAPE: SuccessShape = {
+  kind: "object",
+  fields: KNOWLEDGE_ENTRY_FIELDS,
+};
+
 /**
  * Whether `value` matches the success-payload shape for `op` (Rust §8.2
  * parity: malformed payloads must reject with `INTERNAL_ERROR` instead of
@@ -146,12 +194,33 @@ function isValidExtractSuccessPayload(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
   }
-  const shape = SUCCESS_SHAPES.extract;
-  if (!matchesShape(value, shape)) {
+  for (const key of Object.keys(value)) {
+    if (!EXTRACT_RESPONSE_WIRE_KEYS.has(key)) {
+      return false;
+    }
+  }
+  if (!Array.isArray(value.candidates)) {
     return false;
   }
-  const run = value.run;
-  return isRecord(run) && typeof run.run_id === "string";
+  if (
+    !value.candidates.every(
+      (candidate) =>
+        isRecord(candidate) && matchesShape(candidate, EXTRACT_CANDIDATE_SHAPE),
+    )
+  ) {
+    return false;
+  }
+  if (!isValidExtractionRunMetadata(value.run)) {
+    return false;
+  }
+  if (
+    "extensions" in value &&
+    value.extensions !== undefined &&
+    !isValidExtensionMap(value.extensions)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function isValidSuccessPayload(op: string, value: unknown): boolean {

@@ -263,6 +263,17 @@ const EXTRACT_REQUEST_WIRE_KEYS = new Set([
 
 const EXTENSION_MAP_KEY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
+const SOURCE_ANCHOR_WIRE_KEYS = new Set([
+  "schema_version",
+  "source_id",
+  "span",
+  "label",
+  "mime_type",
+  "extensions",
+]);
+
+const SOURCE_SPAN_WIRE_KEYS = new Set(["start", "end"]);
+
 function isValidExtensionMap(value: unknown): boolean {
   if (!isJsonObject(value)) {
     return false;
@@ -379,6 +390,11 @@ function isValidSourceSpan(value: unknown): boolean {
   if (!isJsonObject(value)) {
     return false;
   }
+  for (const key of Object.keys(value)) {
+    if (!SOURCE_SPAN_WIRE_KEYS.has(key)) {
+      return false;
+    }
+  }
   return (
     typeof value.start === "number" &&
     Number.isFinite(value.start) &&
@@ -391,6 +407,11 @@ function isValidSourceAnchor(value: unknown): boolean {
   if (!isJsonObject(value)) {
     return false;
   }
+  for (const key of Object.keys(value)) {
+    if (!SOURCE_ANCHOR_WIRE_KEYS.has(key)) {
+      return false;
+    }
+  }
   const schemaVersion = value.schema_version;
   if (
     typeof schemaVersion !== "number" ||
@@ -402,7 +423,7 @@ function isValidSourceAnchor(value: unknown): boolean {
   if (typeof value.source_id !== "string") {
     return false;
   }
-  if (!isJsonObject(value.extensions)) {
+  if (!isValidExtensionMap(value.extensions)) {
     return false;
   }
   if ("span" in value && value.span !== undefined && !isValidSourceSpan(value.span)) {
@@ -478,11 +499,11 @@ export function validateExtractRequestPayload(
   if (
     "extensions" in payload &&
     payload.extensions !== undefined &&
-    !isJsonObject(payload.extensions)
+    !isValidExtensionMap(payload.extensions)
   ) {
     return spokeReject(
       SpokeRejectCode.INVALID_INPUT,
-      "ExtractRequest extensions must be an object when present",
+      "ExtractRequest extensions must be an ExtensionMap object when present",
       { field: "extensions", op: "extract" },
     );
   }
@@ -1083,8 +1104,7 @@ export class ConnectResponder {
       // product map to `l2-computable` / `l5-fork`. All evaluate against
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
-      const payload = doc.payload as Record<string, unknown>;
-      if (!this.#gateAllows(doc.op, session, payload)) {
+      if (!this.#gateAllows(doc.op, session)) {
         await this.#sendReverseErrorEnvelope(doc, {
           code: "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
@@ -1118,24 +1138,16 @@ export class ConnectResponder {
   }
 
   /** Dispatch gate: core table (incl. `tools.*`) then the port product map. */
-  #gateAllows(
-    op: string,
-    session: Session,
-    payload: Record<string, unknown>,
-  ): boolean {
+  #gateAllows(op: string, session: Session): boolean {
     const negotiated = session.negotiated_capabilities;
-    const needsOwnership = scopeOpRequiresOwnershipCapability(op, payload);
-
     if (session.dispatchAllowed(op)) {
-      return (
-        !needsOwnership || negotiated.includes(CAPABILITY_KE_OWNERSHIP)
-      );
+      return true;
     }
     const required = PORT_OP_CAPABILITY_REQUIREMENTS[op];
     if (required === undefined || !negotiated.includes(required)) {
       return false;
     }
-    return !needsOwnership || negotiated.includes(CAPABILITY_KE_OWNERSHIP);
+    return true;
   }
 
   /** Serve a `tools.*` invoke through the registered handler (or deny). */
@@ -1240,10 +1252,26 @@ export class ConnectResponder {
 
   /** Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */
   async #dispatchPortInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const session = this.#session;
+    if (session === null) {
+      return;
+    }
     const payload = doc.payload as Record<string, unknown>;
     const scopeReject = validateScopeOpPayload(doc.op, payload);
     if (scopeReject !== null) {
       await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(scopeReject));
+      return;
+    }
+    const negotiated = session.negotiated_capabilities;
+    if (
+      scopeOpRequiresOwnershipCapability(doc.op, payload) &&
+      !negotiated.includes(CAPABILITY_KE_OWNERSHIP)
+    ) {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `op ${doc.op} requires capability ${CAPABILITY_KE_OWNERSHIP} for its declared viewpoint`,
+        extensions: {},
+      });
       return;
     }
     const ports = this.#ports;

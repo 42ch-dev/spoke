@@ -495,14 +495,19 @@ The C contract — status values, value types, callback tables and every exporte
 function — is [`bindings/cpp/include/spoke_connect.h`](bindings/cpp/include/spoke_connect.h)
 (ABI revision `1` through `spoke_connect_abi_version`), with committed carriers
 under `bindings/cpp/native/osx-arm64/` and `bindings/cpp/native/win-x64/`.
+[`bindings/cpp/include/spoke_connect.hpp`](bindings/cpp/include/spoke_connect.hpp)
+is the header-only C++17 convenience layer over that contract: move-only
+ownership, borrowed views with explicit copies, one `Result` error channel and
+the host callback bridges.
 [`bindings/cpp/parity.md`](bindings/cpp/parity.md) maps every facade member,
-callback and error variant to its C declaration, and
+callback and error variant to its C declaration and its C++ counterpart, and
 `tooling/connect/cpp-symbol-check.mjs` fails when the header and the carrier's
 exported symbols drift apart, and pins the record and callback-table layout with
 `sizeof` / `_Alignof` / `offsetof` assertions against the carrier's `#[repr(C)]`
 mirrors. Consumer build, link and run instructions:
-[`bindings/cpp/README.md`](bindings/cpp/README.md); the Unreal Engine module
-reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
+[`bindings/cpp/README.md`](bindings/cpp/README.md) and the
+[C and C++ how-to](../../docs/how-to/connect-cpp-binding.md); the Unreal Engine
+module reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
 
 ### Binding checklist
 
@@ -536,10 +541,11 @@ the independently captured output bytes. The same file also carries the
 **responder golden** (`responder` block): the same key pair / manifest signed
 over the 5-field object incl. `peer_nonce` = the initiator golden nonce,
 pinned when the dial-binding mechanism landed. The crate's golden-vector
-tests, the TypeScript client (`packages/spoke-connect-ts`), and all five
-binding smokes (C# / Go / Python / Swift / Kotlin) load from the SSOT or a
-registered byte-identical copy; `tooling/connect/golden-vector-sync.mjs`
-verifies byte-equality across every copy and exits non-zero on drift.
+tests, the TypeScript client (`packages/spoke-connect-ts`), the generated
+binding smokes (C# / Go / Python / Swift / Kotlin) and the C/C++ smoke load
+from the SSOT or a registered byte-identical copy;
+`tooling/connect/golden-vector-sync.mjs` verifies byte-equality across every
+copy and exits non-zero on drift.
 
 ### Swift smoke (macOS)
 

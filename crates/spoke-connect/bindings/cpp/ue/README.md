@@ -15,7 +15,8 @@ of this file.
 | Path | Contents |
 |------|----------|
 | `ue/SpokeConnect.Build.cs` | The module template: include path, link wiring, native staging, platform/architecture acceptance |
-| `../include/spoke_connect.h` | The C/C++ contract the module puts on the include path (ABI revision 1) |
+| `../include/spoke_connect.h` | The C contract the module puts on the include path (C99 language floor, ABI revision 1) |
+| `../include/spoke_connect.hpp` | The C++17 header-only convenience layer over that contract, on the same include path: move-only ownership, borrowed views, structured `Result` values and the callback bridges |
 | `../native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 carrier, install name `@rpath/libspoke_connect_capi.dylib` |
 | `../native/win-x64/` | Windows x64 carrier: `spoke_connect_capi.dll` and the Rust-produced `spoke_connect_capi.dll.lib` import library |
 | `../native/provenance.json` | Per RID: source revision, target, toolchains, build flags and artifact hashes |
@@ -35,9 +36,16 @@ or plugin module adds it to its dependency list:
 PublicDependencyModuleNames.AddRange(new string[] { "SpokeConnect" });
 ```
 
-The module contributes include paths and link/staging wiring. The consuming
-module calls the C ABI functions it needs, owns the transport implementation and
-decides which engine thread consumes callback results.
+The module contributes include paths and link/staging wiring — both headers land on the same include path, so engine code includes `spoke_connect.h` for the raw C ABI or `spoke_connect.hpp` for the C++17 layer. The consuming module calls the ABI functions it needs, owns the transport implementation and decides which engine thread consumes callback results.
+
+## Calling the ABI from engine code
+
+| Concern | Behaviour in an engine target |
+|---------|-------------------------------|
+| Language surface | `spoke_connect.hpp` is C++17 with no RTTI and needs no exception handling; the module's include path covers it. Every fallible call returns `[[nodiscard]] Result<T>` / `Result<void>` carrying the original status and a structured `Error`, and there is no throwing API. |
+| Ownership | Buffers and handles are move-only: a destructor releases, `Buffer::view()` borrows the owned payload while the buffer lives, and `Buffer::str()` returns an owned copy when a value must outlive it. |
+| Build configuration | The layer compiles with exceptions disabled and with exceptions enabled. Pick one configuration for the whole target: translation units that include the header in one linked image must not diverge, and the header defines no configuration macro. |
+| Session end | Destructors never close. Close the adapter and responder explicitly, then the module's own queues, and release the handles before shutdown. |
 
 ## Platform wiring
 
@@ -92,10 +100,10 @@ and in the [decision record](../../../../../.mstar/specs/connect-cpp-binding.md)
 UE editor and packaged-game integration are unverified: no engine was available
 while this reference was written, so every item below is open until a maintainer
 with an engine environment runs it. The standalone evidence recorded separately
-is the C++17 smoke of `../Smoke/main.cpp`, run per RID through
-`node tooling/connect/cpp-smoke.mjs --rid osx-arm64` and `--rid win-x64`; that
-smoke exercises the header, the native carrier and the session surface outside an
-engine.
+is the C++17 smoke of `../Smoke/main.cpp` and `../Smoke/convenience.cpp`, run per
+RID through `node tooling/connect/cpp-smoke.mjs --rid osx-arm64` and
+`--rid win-x64`; that smoke exercises both headers, the native carrier and the
+session surface outside an engine.
 
 1. **Editor build and load.** Build a project with the vendored module in a
    Development Editor configuration: the module resolves `include/` and

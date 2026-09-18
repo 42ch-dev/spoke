@@ -4,7 +4,7 @@ title: 从原生绑定连接
 
 # 从原生绑定连接（Connect from native bindings）
 
-**原生绑定（native bindings）**通过 FFI 把共享的 connect **会话核心**嵌入宿主语言：纯会话规则 —— `peer_id` 推导、握手签名/校验、allowlist、nonce 单次使用、sequence 分配、关联校验、dispatch gate —— 集中在一个核心中，传输则留在各宿主语言。绑定经**五种渠道类型 —— 三种注册表承载（GitHub Packages NuGet、GitHub Packages Maven、PyPI）、两种基于 git（Swift Package Manager、Go modules）—— 覆盖五种生成语言**，全部与 SPOKE git tag `vX.Y.Z` 锁步；C 与 C++ 绑定是额外的基于 git 渠道，通过手写 C ABI 链接同一核心，并从相同 tag 解析：
+**原生绑定（native bindings）**通过 FFI 把共享的 connect **会话核心**嵌入宿主语言：纯会话规则 —— `peer_id` 推导、握手签名/校验、allowlist、nonce 单次使用、sequence 分配、关联校验、dispatch gate —— 集中在一个核心中，传输则留在各宿主语言。原生绑定中，C#（GitHub Packages NuGet）、Kotlin（GitHub Packages Maven）与 Python（PyPI）走**注册表承载**（registry-backed）分发；Swift（Swift Package Manager）、Go（Go modules）与 C/C++（提交的头文件与平台载体）走**基于 git**（git-based）分发。注册表软件包携带锁步发布版本；基于 git 的消费方从对应仓库 tag `vX.Y.Z` 解析。NuGet 与 Maven 共用 GitHub Packages 注册表族。
 
 | 语言 | 渠道 | 软件包 |
 |------|------|--------|
@@ -13,9 +13,9 @@ title: 从原生绑定连接
 | Swift | Swift Package Manager（git + tags） | 产品 `SpokeConnect` |
 | Go | Go modules（git + tags） | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
-| C / C++ | git（提交的头文件 + 平台原生库） | [`spoke_connect.h` + `native/<rid>/`](/zh/how-to/connect-cpp-binding) |
+| C / C++ | git（提交的头文件 + 平台载体） | [`spoke_connect.h` + `spoke_connect.hpp` + `native/<rid>/`](/zh/how-to/connect-cpp-binding) |
 
-NuGet 与 Maven 共用 GitHub Packages 注册表族。每个绑定暴露相同的同步核心面；golden-parity smoke 从各宿主侧断言字节级一致的行为。每个绑定原生库都由生产构建特性对 `ffi,remote-adapter` 构建 —— 重新生成的绑定在加载时需要 `remote-adapter` 符号（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`），因此发布构建始终同时携带这两个特性。
+每个绑定暴露相同的同步核心面；golden-parity smoke 从各宿主侧断言字节级一致的行为。每个绑定原生库都由生产构建特性对 `ffi,remote-adapter` 构建 —— 重新生成的绑定在加载时需要 `remote-adapter` 符号（`RemoteAdapterFFI`、`MultiPeerRouterFFI`、回调 `Transport`），因此发布构建始终同时携带这两个特性。
 
 ## C# —— GitHub Packages NuGet
 
@@ -130,6 +130,23 @@ version = spoke_connect.protocol_version()  # 1
 ```
 
 绑定 README：[`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md)。
+
+## C 与 C++ —— git
+
+```bash
+git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+```
+
+- `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` —— C99 ABI 头文件
+- `crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp` —— C++17 便利层头文件
+- `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` —— macOS arm64 载体
+- `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` —— Windows x64 载体
+
+提交的 C/C++ 载体面向 macOS arm64（`osx-arm64`）与 Windows x64（`win-x64`）。`spoke_connect.h`、`spoke_connect.hpp` 与目标平台的原生文件都取自同一仓库 tag `vX.Y.Z`。
+
+C++17 头文件为 header-only，并包含 C 头文件。`spoke::connect` 把同一会话核心包装为可移动的 RAII 句柄、显式的 `Result` 错误通道、返回缓冲区的借用文本视图，以及传输、ports 与工具面的宿主回调桥。C99 头文件仍是 C 宿主的 ABI 契约 —— 状态值加原始记录与回调表布局。
+
+完整走查 —— 获取、编译、开会话并完成一次调用：[从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding)。
 
 ## 共享会话核心
 

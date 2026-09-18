@@ -13,7 +13,7 @@ title: Connect 架构
 | 面 | 交付物 | 何时选择 |
 |----|--------|----------|
 | **语言原生客户端（language-native client）** | 以宿主语言实现的线上契约与会话核心规则 —— TypeScript `@42ch/spoke-connect` 客户端，配合平台 WebSocket | 宿主无 Rust 运行时；浏览器或 Node 消费方 |
-| **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI、[C/C++ git](/zh/how-to/connect-cpp-binding)） | 有 FFI 故事的宿主语言，希望核心只实现一次、传输留在宿主 |
+| **原生绑定（native bindings）** | 经 FFI 导出到宿主语言的共享会话核心（C# NuGet、Kotlin Maven、Swift SPM、Go modules、Python PyPI、[C/C++ git](/zh/how-to/connect-cpp-binding)）；C 与 C++ 面由 C ABI 载体加 C++17 header-only 便利层组成 | 有 FFI 故事的宿主语言，希望核心只实现一次、传输留在宿主 |
 | **Rust 参考实现（Rust reference）** | 已发布的 `spoke-connect` crate：会话核心参考、绑定来源与 rust-libp2p 传输栈 | Rust 消费方，以及各处字节级一致性的参考 |
 
 三个面共享同一套会话核心规则 —— `peer_id` 推导、握手密码学、allowlist、nonce、sequence、关联校验、dispatch gate —— 由 golden vectors 锁定。
@@ -57,7 +57,7 @@ port 方向是主机到客户端的消费：主机的 `connectResponder` 针对�
 
 ## 传输层在哪里
 
-传输是消费方实现的接缝。connect 软件包定义一个消息导向的 `Transport`（传输接口）—— 每次 `send` / `recv` 调用一个 connect 信封，`recv` 阻塞直到信封到达或连接关闭，`close` 幂等 —— 并附带一个内存回环对（loopback，测试用途）供测试。WebSocket 与其它载体是同样的三个方法的消费方侧实现；字节流载体应用长度前缀（或等价方式）定界。回环对仅供测试 —— 经它拨号的冒烟测试是验证流程，不是生产载体。
+传输是消费方实现的接缝。connect 软件包定义一个消息导向的 `Transport`（传输接口）—— 每次 `send` / `recv` 调用一个 connect 信封，`recv` 阻塞直到信封到达或连接关闭，`close` 幂等 —— 并附带一个内存回环对（loopback，测试用途）供测试。WebSocket 与其它载体是同样的三个方法的消费方侧实现；字节流载体应用长度前缀（或等价方式）定界。C++ 宿主经 C ABI 载体的回调桥提供同样的三个方法 —— [从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding)。回环对仅供测试 —— 经它拨号的冒烟测试是验证流程，不是生产载体。
 
 ## 相关页面
 

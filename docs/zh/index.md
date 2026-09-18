@@ -22,7 +22,7 @@ features:
 
 SPOKE 是一套面向叙事知识的 JSON Schema 线上契约协议：各独立产品通过共享的数据与 ops 形状交换一致性检查和上下文组装的 I/O，避免每个产品为同一概念各自发明本地格式。本仓库即单一事实来源（SSOT）—— 手写 schema、生成的 TypeScript 与 Rust 线上类型，以及纯函数操作库。
 
-- **单一线上方言** —— 九个数据对象与五个基线 ops（另含可选 `project` / `compute` 与 `extract` 操作族）
+- **单一线上方言** —— 十个数据对象与五个基线 ops（另含可选 `project` / `compute` 与 `extract` 操作族）
 - **基于开放字符串的 Domain Profile** —— 本体词汇经开放字符串发布，并经可选 `modules.*` 字段袋承载跨产品方言
 - **能力标志** —— 声明 `spoke-baseline`，或显式声明 `l2-computable`、`l5-fork`、`l5-mind`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect`
 - **语言对齐** —— npm 与 crates.io 共用一套锁步 SemVer

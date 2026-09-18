@@ -61,6 +61,7 @@ git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
 - **`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`** —— C++17 头文件式便利层。
 - **`crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`** —— macOS arm64 载体。
 - **`crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`** —— Windows x64 载体。
+- **`crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll.lib`** —— Windows x64 链接步骤所用的 Rust 生成导入库。
 
 已提交的 C/C++ 载体面向 macOS arm64（`osx-arm64`）与 Windows x64（`win-x64`）。`spoke_connect.h`、`spoke_connect.hpp` 与目标平台的原生文件均取自同一仓库标签 `vX.Y.Z` —— 获取方式是一次标签检出，`cargo add spoke-connect` 安装的是 crates.io 上的 crate。完整指南：[从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding)。
 

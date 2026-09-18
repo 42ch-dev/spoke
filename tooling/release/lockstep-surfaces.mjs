@@ -3,6 +3,10 @@
  *
  * Normative source: `.mstar/specs/spoke-version-release.md` lockstep table (rows 1–16).
  *
+ * Cargo dependency pins use inline tables with bare, basic-quoted, or
+ * literal-quoted keys and basic or literal string values. Section-form and
+ * dotted-key declarations naming a workspace member are refused.
+ *
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.
  * - pnpm-lock.yaml — workspace `link:` entries do not embed package SemVer.
@@ -205,6 +209,23 @@ export function resolveCargoLockPackageNames(
 }
 
 const CARGO_STRING_PATTERN = String.raw`(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)')`;
+const CARGO_KEY_PATTERN = String.raw`(?:[A-Za-z0-9_-]+|"[^"\\]*(?:\\.[^"\\]*)*"|'[^']*')`;
+
+/**
+ * Remove TOML key quoting for package-name resolution.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+function decodeCargoKey(key) {
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    return key.slice(1, -1);
+  }
+  return key;
+}
 
 /**
  * Refuse Cargo dependency declaration forms that this narrow scanner cannot
@@ -220,22 +241,28 @@ function assertSupportedCargoPathDependencyShape(
   manifestPath,
 ) {
   const workspaceMembers = new Set(packageNames);
-  const sectionPattern =
-    /^\s*\[(dependencies|dev-dependencies|build-dependencies)\.([A-Za-z0-9_-]+)\]\s*(?:#.*)?$/gm;
-  for (const [, family, member] of contents.matchAll(sectionPattern)) {
+  const sectionPattern = new RegExp(
+    String.raw`^\s*\[(dependencies|dev-dependencies|build-dependencies)\.(${CARGO_KEY_PATTERN})\]\s*(?:#.*)?$`,
+    "gm",
+  );
+  for (const [, family, key] of contents.matchAll(sectionPattern)) {
+    const member = decodeCargoKey(key);
     if (workspaceMembers.has(member)) {
       throw new Error(
-        `${manifestPath}: dependency section [${family}.${member}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+        `${manifestPath}: dependency section [${family}.${key}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
       );
     }
   }
 
-  const dottedKeyPattern =
-    /^\s*([A-Za-z0-9_-]+)\s*\.\s*(version|path)\s*=/gm;
-  for (const [, member, attribute] of contents.matchAll(dottedKeyPattern)) {
+  const dottedKeyPattern = new RegExp(
+    String.raw`^\s*(${CARGO_KEY_PATTERN})\s*\.\s*(version|path)\s*=`,
+    "gm",
+  );
+  for (const [, key, attribute] of contents.matchAll(dottedKeyPattern)) {
+    const member = decodeCargoKey(key);
     if (workspaceMembers.has(member)) {
       throw new Error(
-        `${manifestPath}: dotted-key dependency ${member}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+        `${manifestPath}: dotted-key dependency ${key}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
       );
     }
   }
@@ -280,15 +307,17 @@ export function parseCargoPathDependencyPins(
 ) {
   assertSupportedCargoPathDependencyShape(contents, packageNames, manifestPath);
   const pins = [];
-  const dependencyPattern =
-    /^[ \t]*([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm;
-  for (const [, name, attributes] of contents.matchAll(dependencyPattern)) {
+  const dependencyPattern = new RegExp(
+    String.raw`^[ \t]*(${CARGO_KEY_PATTERN})\s*=\s*\{([^{}]*)\}`,
+    "gm",
+  );
+  for (const [, key, attributes] of contents.matchAll(dependencyPattern)) {
     const version = readCargoStringAttribute(attributes, "version");
     const path = readCargoStringAttribute(attributes, "path");
     const packageName = readCargoStringAttribute(attributes, "package");
     if (version !== null && path !== null) {
       pins.push({
-        name: packageName?.value ?? name,
+        name: packageName?.value ?? decodeCargoKey(key),
         version: version.value,
         path: path.value,
       });
@@ -315,9 +344,13 @@ export function replaceCargoPathDependencyPinVersions(
 ) {
   assertSupportedCargoPathDependencyShape(contents, packageNames, manifestPath);
   const selected = new Set(packageNames);
+  const dependencyPattern = new RegExp(
+    String.raw`^([ \t]*)(${CARGO_KEY_PATTERN})\s*=\s*\{([^{}]*)\}`,
+    "gm",
+  );
   return contents.replace(
-    /^([ \t]*)([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm,
-    (full, indentation, name, attributes) => {
+    dependencyPattern,
+    (full, indentation, key, attributes) => {
       const packageName = readCargoStringAttribute(attributes, "package");
       const path = readCargoStringAttribute(attributes, "path");
       const versionPattern = new RegExp(
@@ -325,7 +358,7 @@ export function replaceCargoPathDependencyPinVersions(
       );
       const currentVersion = attributes.match(versionPattern);
       if (
-        !selected.has(packageName?.value ?? name) ||
+        !selected.has(packageName?.value ?? decodeCargoKey(key)) ||
         path === null ||
         currentVersion === null
       ) {

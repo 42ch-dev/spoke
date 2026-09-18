@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.13.1] - 2026-09-18
+
+
+### Added
+
+- **connect-cpp:** Add the C++17 convenience value layer, core helpers and loopback
+
+- **connect-cpp:** Add the callback bridges and the session wrappers
+
+- **connect-cpp:** Add the multi-peer router wrapper and close out C++ coverage
+
+
+### Documentation
+
+- **connect:** Unify native-binding channel classification across SSOT and docs
+
+- **site:** Surface the C/C++ git channel on entry surfaces
+
+- **site:** Name the Windows import library in the quick-start C/C++ list
+
+- **connect-cpp:** State one C++ counterpart invariant in the parity conclusion
+
+- **connect-cpp:** Document the C++17 convenience layer with a runnable walkthrough
+
+- **connect-cpp:** Point consumer READMEs at public destinations
+
+- **connect-cpp:** Route walkthrough failures through the ordered close path
+
+- **knowledge:** Record the C++ convenience-layer pattern
+
+
+### Fixed
+
+- **connect-cpp:** Pass /D_HAS_EXCEPTIONS=0 to the MSVC smoke argv
+
+- **connect-cpp:** Require each smoke configuration's exact banner list
+
+- **connect-cpp:** Split smoke banners on CRLF as well as LF
+
+- **connect-cpp:** Import kFixtureLabel into the smoke's fixture-path helper
+
+
+### Internal
+
+- **connect-cpp:** Run the symbol-check self-test on the Windows lane
+
+- **connect-cpp:** Add macOS smoke lane
+
+- **connect-cpp:** Watch native carrier paths
+
 ## [0.13.0] - 2026-09-18
 
 

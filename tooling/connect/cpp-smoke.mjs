@@ -188,9 +188,12 @@ function executableFor(spec, build) {
 /** A banner-shaped line: what `banner()` in the smoke prints per passed group. */
 const BANNER_LINE = /^.+: PASS$/;
 
-/** Every banner-shaped line one smoke run printed, in output order. */
+/** Every banner-shaped line one smoke run printed, in output order. The split
+    is line-ending agnostic: the child's C runtime writes CRLF on Windows, so a
+    "\n"-only split would leave a trailing "\r" on every line and no banner line
+    would match. */
 function bannerLines(output) {
-  return output.split("\n").filter((line) => BANNER_LINE.test(line));
+  return output.split(/\r?\n/).filter((line) => BANNER_LINE.test(line));
 }
 
 /** Requires the run's banner lines to equal one configuration's expected list

@@ -17,6 +17,14 @@
  * owned output buffer arrives as a `Buffer` (zero-copy; `view()` borrows,
  * `str()` copies), a handle arrives as its own move-only class, and both are
  * released exactly once through the matching carrier release function.
+ *
+ * A host context that the carrier calls — a transport, a ports provider, a tool
+ * handler — arrives as a `std::function` record whose factory refuses an
+ * incomplete record and hands ownership over only on success. In
+ * exception-enabled builds the thunks contain an escaping host exception into
+ * the frozen `SPOKE_CONNECT_TRANSPORT_IO` / `SPOKE_CONNECT_FFI_REJECTED` row;
+ * with exceptions disabled the header contains no `try`, `catch` or `throw` at
+ * all, and a host callback reports failure through its `Result`.
  */
 
 #ifndef SPOKE_CONNECT_HPP
@@ -28,6 +36,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -747,6 +758,1067 @@ class LoopbackTransportPair
         : HandleBase(handle) {}
 };
 
+// ── Host callback records ────────────────────────────────────────────────
+//
+// A bridge is three pieces: the host record below, the static thunks that
+// render the complete C table, and the handle the carrier's reference lives in.
+// A thunk never calls back into an operational C/C++ API and holds no lock
+// across a host callback — the host context it was handed is the only thing it
+// touches.
+
+/**
+ * The host transport callbacks of one connection. Every member is required: a
+ * record with an unset slot is refused before the carrier sees it, so a host
+ * that cannot send, receive or close never produces a half-served connection.
+ *
+ * The carrier copies the table, takes ownership of this record on success, and
+ * runs its destructor exactly once after the last reference and in-flight
+ * callback are gone. Callbacks run on the carrier's blocking pool and may run
+ * concurrently, so the captured state must be thread-safe and free of thread
+ * affinity. Capture by value — a reference capture must outlive the record.
+ */
+struct TransportCallbacks {
+    /** Sends one envelope; a closed connection reports `SPOKE_CONNECT_TRANSPORT_CLOSED`. */
+    std::function<Result<void>(std::string_view)> send;
+    /** Receives the next envelope, blocking until one arrives or the transport closes. */
+    std::function<Result<std::string>()> recv;
+    /** Closes the connection; it must also unblock a pending or later `recv`. */
+    std::function<Result<void>()> close;
+};
+
+/**
+ * The host ports provider: one member per served ports method, named exactly as
+ * the C table. Every output is the JSON text the carrier parses, and `revision`
+ * follows the optional-scalar rule (`nullopt` = no expectation, `0` = a
+ * present zero). A method the host does not serve must still be implemented:
+ * return an application reject so an explicitly refusing provider stays
+ * distinguishable from an absent `ports` handler.
+ */
+struct PortsCallbacks {
+    std::function<Result<std::string>(std::string_view entry_id)> get_knowledge_entry;
+    std::function<Result<std::string>(std::string_view entry_json,
+                                      std::optional<uint64_t> expected_base_revision)>
+        put_knowledge_entry;
+    std::function<Result<std::string>(std::string_view relation_id)> get_relation;
+    std::function<Result<std::string>(std::string_view relation_json,
+                                      std::optional<uint64_t> expected_base_revision)>
+        put_relation;
+    std::function<Result<std::string>(std::string_view scope_json)> list_knowledge_entries;
+    std::function<Result<std::string>(std::string_view scope_json)> list_timeline_events;
+    std::function<Result<std::string>(std::string_view findings_json)> put_findings;
+    /** The rule references cross as the borrowed C array; the host never owns it. */
+    std::function<Result<std::string>(const SpokeConnectSlice* rule_refs, size_t rule_refs_count)>
+        list_rules;
+    std::function<Result<std::string>()> list_peer_host_capability_manifests;
+    std::function<Result<std::string>(std::string_view project_request_json)> project;
+    std::function<Result<std::string>(std::string_view compute_request_json)> compute;
+    std::function<Result<std::string>(std::string_view scope_json)> list_fork_timeline_events;
+    std::function<Result<std::string>(std::string_view extract_request_json)> extract;
+};
+
+/**
+ * The host tool handler: `handle` answers the arguments JSON with the result
+ * JSON. Registration is last-wins on the serving side, and a handler should
+ * only report `SPOKE_CONNECT_FFI_REJECTED` — anything else is contained into
+ * the carrier's `INTERNAL_ERROR` row.
+ */
+struct ToolCallbacks {
+    std::function<Result<std::string>(std::string_view arguments_json)> handle;
+};
+
+namespace detail {
+
+/**
+ * Whether this translation unit is built with exception handling: MSVC reports
+ * it through `_CPPUNWIND`, other compilers through `__cpp_exceptions` /
+ * `__EXCEPTIONS`. The containment below exists only when it does — with
+ * exceptions disabled the preprocessor removes every `try`, `catch` and `throw`
+ * from this header, so such a translation unit contains none of the three.
+ */
+#if defined(_CPPUNWIND) || defined(__cpp_exceptions) || defined(__EXCEPTIONS)
+#define SPOKE_CONNECT_HPP_EXCEPTION_CONTAINMENT 1
+#else
+#define SPOKE_CONNECT_HPP_EXCEPTION_CONTAINMENT 0
+#endif
+
+/**
+ * The static row the containment path writes. Every field points at storage the
+ * host already owns, because the path is reporting a failure and must not be
+ * able to produce a second one.
+ */
+struct Containment {
+    int32_t status;
+    const char* message;
+    const char* code;  /* nullptr = absent */
+    const char* kind;  /* nullptr = absent */
+};
+
+/** A host transport callback threw — a transport I/O failure. */
+inline constexpr Containment kTransportContainment{
+    SPOKE_CONNECT_TRANSPORT_IO, "the host transport callback threw an exception", nullptr, nullptr};
+
+/** A host ports or tool callback threw — the `INTERNAL_ERROR` containment row. */
+inline constexpr Containment kCallbackContainment{SPOKE_CONNECT_FFI_REJECTED,
+                                                  "the host callback threw an exception",
+                                                  "INTERNAL_ERROR", "callback"};
+
+/** Deletes a host payload once the carrier has copied it. */
+inline void SPOKE_CONNECT_CALL release_owned_text(void* release_context, const uint8_t*,
+                                                  size_t) noexcept {
+    delete static_cast<std::string*>(release_context);
+}
+
+/** Releases static storage: the address stays the host's. */
+inline void SPOKE_CONNECT_CALL release_static_text(void*, const uint8_t*, size_t) noexcept {}
+
+/** One text field over storage the host already owns; the carrier's no-op
+    release means nothing is ever freed. */
+[[nodiscard]] inline SpokeConnectForeignBuffer static_field(const char* text) noexcept {
+    SpokeConnectForeignBuffer field{};
+    field.data = reinterpret_cast<const uint8_t*>(text);
+    field.len = std::strlen(text);
+    field.release = &release_static_text;
+    return field;
+}
+
+/**
+ * Writes one callback's success payload. A zero-length result uses a zero
+ * record: the carrier releases only a populated buffer, so a heap holder for an
+ * empty payload would leak. A non-empty payload moves into host-owned storage
+ * whose `release_context` frees it once the carrier has copied the bytes.
+ */
+inline void write_payload(SpokeConnectForeignBuffer* out_payload, std::string&& payload) {
+    if (out_payload == nullptr) return;
+    *out_payload = SpokeConnectForeignBuffer{};
+    if (payload.empty()) return;
+    std::string* holder = new std::string(std::move(payload));
+    out_payload->data = reinterpret_cast<const uint8_t*>(holder->data());
+    out_payload->len = holder->size();
+    out_payload->release_context = holder;
+    out_payload->release = &release_owned_text;
+}
+
+/**
+ * Owns the host storage one callback failure needs until the carrier has taken
+ * the record. Each non-empty field moves into its own holder, because the
+ * carrier runs one `release` per populated buffer: a holder for an empty field
+ * would never be released, and one holder shared by several fields would be
+ * freed more than once.
+ *
+ * Building several fields can fail part-way (an allocating build only); the
+ * guard then releases what it already holds, and the caller answers with the
+ * static containment row instead.
+ */
+class ErrorPackage {
+  public:
+    ErrorPackage() noexcept = default;
+    ErrorPackage(const ErrorPackage&) = delete;
+    ErrorPackage& operator=(const ErrorPackage&) = delete;
+    ~ErrorPackage() { reset(); }
+
+    /** Packages `error`. A field is present per its `optional`, and a present
+        empty text crosses as a present empty field rather than an absent one. */
+    void build(Error&& error) {
+        record_.message = field(std::move(error.message), message_);
+        record_.code = optional_field(std::move(error.code), code_);
+        record_.kind = optional_field(std::move(error.kind), kind_);
+        record_.wire_code = optional_field(std::move(error.wire_code), wire_code_);
+    }
+
+    /** Hands the record to the carrier, which now owns every holder. */
+    void commit(SpokeConnectForeignError* out_error) noexcept {
+        *out_error = record_;
+        release_ownership();
+    }
+
+  private:
+    [[nodiscard]] static SpokeConnectForeignBuffer field(std::string&& text,
+                                                         std::string*& owned) {
+        if (text.empty()) {
+            // Present and empty: the address of a static empty string carries
+            // presence, where a holder would be allocated but never released.
+            return static_field("");
+        }
+        owned = new std::string(std::move(text));
+        SpokeConnectForeignBuffer slot{};
+        slot.data = reinterpret_cast<const uint8_t*>(owned->data());
+        slot.len = owned->size();
+        slot.release_context = owned;
+        slot.release = &release_owned_text;
+        return slot;
+    }
+
+    [[nodiscard]] static SpokeConnectForeignBuffer optional_field(
+        std::optional<std::string>&& text, std::string*& owned) {
+        if (!text.has_value()) return SpokeConnectForeignBuffer{};
+        return field(std::move(*text), owned);
+    }
+
+    void release_ownership() noexcept {
+        message_ = nullptr;
+        code_ = nullptr;
+        kind_ = nullptr;
+        wire_code_ = nullptr;
+        record_ = SpokeConnectForeignError{};
+    }
+
+    void reset() noexcept {
+        delete message_;
+        delete code_;
+        delete kind_;
+        delete wire_code_;
+        release_ownership();
+    }
+
+    SpokeConnectForeignError record_{};
+    std::string* message_ = nullptr;
+    std::string* code_ = nullptr;
+    std::string* kind_ = nullptr;
+    std::string* wire_code_ = nullptr;
+};
+
+/** Renders one host-reported failure. A normally returned status is never
+    reclassified — the carrier receives exactly what the host reported. */
+inline void write_error(SpokeConnectForeignError* out_error, Error&& error) {
+    ErrorPackage package;
+    package.build(std::move(error));
+    package.commit(out_error);
+}
+
+/** Renders the containment row from static literals. */
+inline void write_containment(SpokeConnectForeignError* out_error,
+                              const Containment& containment) noexcept {
+    SpokeConnectForeignError record{};
+    record.message = static_field(containment.message);
+    if (containment.code != nullptr) record.code = static_field(containment.code);
+    if (containment.kind != nullptr) record.kind = static_field(containment.kind);
+    *out_error = record;
+}
+
+/** One host callback invocation's outcome. */
+struct CallbackOutcome {
+    bool failed = false;
+    int32_t status = SPOKE_CONNECT_OK;
+    bool contained = false;
+    std::string payload;
+    Error error;
+
+    [[nodiscard]] static CallbackOutcome success(std::string payload = std::string()) {
+        CallbackOutcome outcome;
+        outcome.payload = std::move(payload);
+        return outcome;
+    }
+
+    [[nodiscard]] static CallbackOutcome failure(Error error) {
+        CallbackOutcome outcome;
+        outcome.failed = true;
+        outcome.status = error.status;
+        outcome.error = std::move(error);
+        return outcome;
+    }
+
+    [[nodiscard]] static CallbackOutcome containment() {
+        CallbackOutcome outcome;
+        outcome.contained = true;
+        return outcome;
+    }
+};
+
+/** Adapts a host callback's `Result` into an outcome. */
+[[nodiscard]] inline CallbackOutcome outcome_of(Result<std::string>&& result) {
+    if (result.has_value()) return CallbackOutcome::success(std::move(result).value());
+    return CallbackOutcome::failure(std::move(result).error());
+}
+
+[[nodiscard]] inline CallbackOutcome outcome_of(Result<void>&& result) {
+    if (result.has_value()) return CallbackOutcome::success();
+    return CallbackOutcome::failure(std::move(result).error());
+}
+
+/**
+ * Runs one host callback and renders its outcome onto the C boundary, both
+ * inside the containment: exception-enabled builds convert an escaping
+ * exception — from the host callback or from the packaging that follows it —
+ * into the bridge's static row, while disabled builds preprocess the whole
+ * `try` / `catch` away, so such a translation unit contains neither.
+ *
+ * A success payload moves into host-owned storage; a host-reported failure
+ * packages its `Error` fields and returns the status it carried, unreclassified.
+ */
+template <typename Body>
+[[nodiscard]] inline int32_t callback_return(const Containment& containment,
+                                             SpokeConnectForeignBuffer* out_payload,
+                                             SpokeConnectForeignError* out_error, Body&& body) {
+    // Read here rather than only in the containment branch below: a build with
+    // exceptions disabled still compiles this function without an
+    // unused-parameter diagnostic.
+    (void)containment;
+#if SPOKE_CONNECT_HPP_EXCEPTION_CONTAINMENT
+    try {
+#endif
+        CallbackOutcome outcome = body();
+        if (outcome.failed) {
+            write_error(out_error, std::move(outcome.error));
+            return outcome.status;
+        }
+        write_payload(out_payload, std::move(outcome.payload));
+        return SPOKE_CONNECT_OK;
+#if SPOKE_CONNECT_HPP_EXCEPTION_CONTAINMENT
+    } catch (...) {
+        write_containment(out_error, containment);
+        return containment.status;
+    }
+#endif
+}
+
+/** Borrows a callback argument span as text; the length is authoritative. */
+[[nodiscard]] inline std::string_view text_view(SpokeConnectSlice span) noexcept {
+    if (span.data == nullptr) return std::string_view();
+    return std::string_view(reinterpret_cast<const char*>(span.data), span.len);
+}
+
+/** `present == 0` → absent; `present == 1` → the value, even when it is zero. */
+[[nodiscard]] inline std::optional<uint64_t> optional_of(
+    SpokeConnectOptionalU64 optional) noexcept {
+    if (optional.present == 0) return std::nullopt;
+    return optional.value;
+}
+
+/** The C optional-scalar form of an optional value. */
+[[nodiscard]] inline SpokeConnectOptionalU64 optional_u64(
+    std::optional<uint64_t> value) noexcept {
+    SpokeConnectOptionalU64 optional{};
+    if (value.has_value()) {
+        optional.present = 1;
+        optional.value = *value;
+    }
+    return optional;
+}
+
+/** Adopts one call's owned output buffer, or reports the failure it recorded. */
+[[nodiscard]] inline Result<Buffer> buffered(int32_t status, SpokeConnectBuffer out,
+                                             const CErrorRecord& error) {
+    Buffer buffer = Buffer::adopt(out);
+    if (status != SPOKE_CONNECT_OK) return Result<Buffer>::failure(take_error(status, error));
+    return Result<Buffer>::success(std::move(buffer));
+}
+
+/** Adopts one call's optional output buffer, or reports the failure it recorded. */
+[[nodiscard]] inline Result<std::optional<Buffer>> optional_buffered(
+    int32_t status, OptionalBufferRecord& out, const CErrorRecord& error) {
+    std::optional<Buffer> value = out.take();
+    if (status != SPOKE_CONNECT_OK) {
+        return Result<std::optional<Buffer>>::failure(take_error(status, error));
+    }
+    return Result<std::optional<Buffer>>::success(std::move(value));
+}
+
+/** The `Result<void>` of one call that reports no value. */
+[[nodiscard]] inline Result<void> nothing(int32_t status, const CErrorRecord& error) {
+    if (status != SPOKE_CONNECT_OK) return Result<void>::failure(take_error(status, error));
+    return Result<void>::success();
+}
+
+/** The `SPOKE_CONNECT_INVALID_ARGUMENT` a missing callback record produces. */
+[[nodiscard]] inline Error missing_record(const char* record) {
+    Error error;
+    error.status = SPOKE_CONNECT_INVALID_ARGUMENT;
+    error.message = std::string(record) + " is NULL";
+    return error;
+}
+
+/** The `SPOKE_CONNECT_INVALID_ARGUMENT` one unset callback slot produces. */
+[[nodiscard]] inline Error unset_slot(const char* record, const char* slot) {
+    Error error;
+    error.status = SPOKE_CONNECT_INVALID_ARGUMENT;
+    error.message = std::string(record) + "::" + slot + " is not set";
+    return error;
+}
+
+/** The first required transport slot that is not set, or `nullptr` when the
+    record is complete. */
+[[nodiscard]] inline const char* missing_slot(const TransportCallbacks& callbacks) noexcept {
+    if (!callbacks.send) return "send";
+    if (!callbacks.recv) return "recv";
+    if (!callbacks.close) return "close";
+    return nullptr;
+}
+
+/** The first required ports slot that is not set, or `nullptr` when the record
+    is complete. */
+[[nodiscard]] inline const char* missing_slot(const PortsCallbacks& callbacks) noexcept {
+    if (!callbacks.get_knowledge_entry) return "get_knowledge_entry";
+    if (!callbacks.put_knowledge_entry) return "put_knowledge_entry";
+    if (!callbacks.get_relation) return "get_relation";
+    if (!callbacks.put_relation) return "put_relation";
+    if (!callbacks.list_knowledge_entries) return "list_knowledge_entries";
+    if (!callbacks.list_timeline_events) return "list_timeline_events";
+    if (!callbacks.put_findings) return "put_findings";
+    if (!callbacks.list_rules) return "list_rules";
+    if (!callbacks.list_peer_host_capability_manifests) {
+        return "list_peer_host_capability_manifests";
+    }
+    if (!callbacks.project) return "project";
+    if (!callbacks.compute) return "compute";
+    if (!callbacks.list_fork_timeline_events) return "list_fork_timeline_events";
+    if (!callbacks.extract) return "extract";
+    return nullptr;
+}
+
+/** The first required tool slot that is not set, or `nullptr` when the record
+    is complete. */
+[[nodiscard]] inline const char* missing_slot(const ToolCallbacks& callbacks) noexcept {
+    if (!callbacks.handle) return "handle";
+    return nullptr;
+}
+
+// The thunks below are the complete C callback tables rendered over the host
+// records. They are the only place the carrier enters this header. They keep
+// C++ linkage on purpose: a C-linkage name here would share the global C
+// namespace with the host's own callback helpers, which the smoke (and any
+// binding that hand-rolls a table) legitimately defines.
+
+inline int32_t SPOKE_CONNECT_CALL transport_send(void* user_data, SpokeConnectSlice envelope,
+                                                 SpokeConnectForeignError* out_error) noexcept {
+    auto* callbacks = static_cast<TransportCallbacks*>(user_data);
+    const std::string_view text = text_view(envelope);
+    return callback_return(kTransportContainment, nullptr, out_error,
+                           [&] { return outcome_of(callbacks->send(text)); });
+}
+
+inline int32_t SPOKE_CONNECT_CALL transport_recv(void* user_data,
+                                                 SpokeConnectForeignBuffer* out_envelope,
+                                                 SpokeConnectForeignError* out_error) noexcept {
+    auto* callbacks = static_cast<TransportCallbacks*>(user_data);
+    return callback_return(kTransportContainment, out_envelope, out_error,
+                           [&] { return outcome_of(callbacks->recv()); });
+}
+
+inline int32_t SPOKE_CONNECT_CALL transport_close(void* user_data,
+                                                  SpokeConnectForeignError* out_error) noexcept {
+    auto* callbacks = static_cast<TransportCallbacks*>(user_data);
+    return callback_return(kTransportContainment, nullptr, out_error,
+                           [&] { return outcome_of(callbacks->close()); });
+}
+
+inline void SPOKE_CONNECT_CALL transport_destroy(void* user_data) noexcept {
+    delete static_cast<TransportCallbacks*>(user_data);
+}
+
+/** Runs one ports text callback — the shape nine of the thirteen slots share. */
+[[nodiscard]] inline int32_t ports_text_call(void* user_data, SpokeConnectSlice input_json,
+                                             SpokeConnectForeignBuffer* out_json,
+                                             SpokeConnectForeignError* out_error,
+                                             const std::function<Result<std::string>(std::string_view)>
+                                                 PortsCallbacks::*slot) noexcept {
+    auto* callbacks = static_cast<PortsCallbacks*>(user_data);
+    const std::string_view input = text_view(input_json);
+    return callback_return(kCallbackContainment, out_json, out_error,
+                           [&] { return outcome_of((callbacks->*slot)(input)); });
+}
+
+/** Runs one ports revision callback — the `put*` pair. */
+[[nodiscard]] inline int32_t ports_revision_call(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectOptionalU64 expected_base_revision,
+    SpokeConnectForeignBuffer* out_json, SpokeConnectForeignError* out_error,
+    const std::function<Result<std::string>(std::string_view, std::optional<uint64_t>)>
+        PortsCallbacks::*slot) noexcept {
+    auto* callbacks = static_cast<PortsCallbacks*>(user_data);
+    const std::string_view input = text_view(input_json);
+    const std::optional<uint64_t> revision = optional_of(expected_base_revision);
+    return callback_return(kCallbackContainment, out_json, out_error,
+                           [&] { return outcome_of((callbacks->*slot)(input, revision)); });
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_get_knowledge_entry(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::get_knowledge_entry);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_put_knowledge_entry(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectOptionalU64 expected_base_revision,
+    SpokeConnectForeignBuffer* out_json, SpokeConnectForeignError* out_error) noexcept {
+    return ports_revision_call(user_data, input_json, expected_base_revision, out_json, out_error,
+                               &PortsCallbacks::put_knowledge_entry);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_get_relation(void* user_data,
+                                                     SpokeConnectSlice input_json,
+                                                     SpokeConnectForeignBuffer* out_json,
+                                                     SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::get_relation);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_put_relation(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectOptionalU64 expected_base_revision,
+    SpokeConnectForeignBuffer* out_json, SpokeConnectForeignError* out_error) noexcept {
+    return ports_revision_call(user_data, input_json, expected_base_revision, out_json, out_error,
+                               &PortsCallbacks::put_relation);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_list_knowledge_entries(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::list_knowledge_entries);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_list_timeline_events(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::list_timeline_events);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_put_findings(void* user_data,
+                                                     SpokeConnectSlice input_json,
+                                                     SpokeConnectForeignBuffer* out_json,
+                                                     SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::put_findings);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_list_rules(void* user_data,
+                                                   const SpokeConnectSlice* rule_refs,
+                                                   size_t rule_refs_count,
+                                                   SpokeConnectForeignBuffer* out_json,
+                                                   SpokeConnectForeignError* out_error) noexcept {
+    auto* callbacks = static_cast<PortsCallbacks*>(user_data);
+    return callback_return(
+        kCallbackContainment, out_json, out_error,
+        [&] { return outcome_of(callbacks->list_rules(rule_refs, rule_refs_count)); });
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_list_peer_host_capability_manifests(
+    void* user_data, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    auto* callbacks = static_cast<PortsCallbacks*>(user_data);
+    return callback_return(
+        kCallbackContainment, out_json, out_error,
+        [&] { return outcome_of(callbacks->list_peer_host_capability_manifests()); });
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_project(void* user_data, SpokeConnectSlice input_json,
+                                                SpokeConnectForeignBuffer* out_json,
+                                                SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error, &PortsCallbacks::project);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_compute(void* user_data, SpokeConnectSlice input_json,
+                                                SpokeConnectForeignBuffer* out_json,
+                                                SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error, &PortsCallbacks::compute);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_list_fork_timeline_events(
+    void* user_data, SpokeConnectSlice input_json, SpokeConnectForeignBuffer* out_json,
+    SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error,
+                           &PortsCallbacks::list_fork_timeline_events);
+}
+
+inline int32_t SPOKE_CONNECT_CALL ports_extract(void* user_data, SpokeConnectSlice input_json,
+                                                SpokeConnectForeignBuffer* out_json,
+                                                SpokeConnectForeignError* out_error) noexcept {
+    return ports_text_call(user_data, input_json, out_json, out_error, &PortsCallbacks::extract);
+}
+
+inline void SPOKE_CONNECT_CALL ports_destroy(void* user_data) noexcept {
+    delete static_cast<PortsCallbacks*>(user_data);
+}
+
+inline int32_t SPOKE_CONNECT_CALL tool_handle(void* user_data, SpokeConnectSlice arguments_json,
+                                              SpokeConnectForeignBuffer* out_json,
+                                              SpokeConnectForeignError* out_error) noexcept {
+    auto* callbacks = static_cast<ToolCallbacks*>(user_data);
+    const std::string_view arguments = text_view(arguments_json);
+    return callback_return(kCallbackContainment, out_json, out_error,
+                           [&] { return outcome_of(callbacks->handle(arguments)); });
+}
+
+inline void SPOKE_CONNECT_CALL tool_destroy(void* user_data) noexcept {
+    delete static_cast<ToolCallbacks*>(user_data);
+}
+
+/** The complete transport table over the static thunks. */
+[[nodiscard]] inline SpokeConnectTransportTable transport_table() noexcept {
+    SpokeConnectTransportTable table{};
+    table.send = &transport_send;
+    table.recv = &transport_recv;
+    table.close = &transport_close;
+    table.destroy = &transport_destroy;
+    return table;
+}
+
+/** The complete ports table over the static thunks. */
+[[nodiscard]] inline SpokeConnectPortsHandlerTable ports_table() noexcept {
+    SpokeConnectPortsHandlerTable table{};
+    table.get_knowledge_entry = &ports_get_knowledge_entry;
+    table.put_knowledge_entry = &ports_put_knowledge_entry;
+    table.get_relation = &ports_get_relation;
+    table.put_relation = &ports_put_relation;
+    table.list_knowledge_entries = &ports_list_knowledge_entries;
+    table.list_timeline_events = &ports_list_timeline_events;
+    table.put_findings = &ports_put_findings;
+    table.list_rules = &ports_list_rules;
+    table.list_peer_host_capability_manifests = &ports_list_peer_host_capability_manifests;
+    table.project = &ports_project;
+    table.compute = &ports_compute;
+    table.list_fork_timeline_events = &ports_list_fork_timeline_events;
+    table.extract = &ports_extract;
+    table.destroy = &ports_destroy;
+    return table;
+}
+
+/** The complete tool table over the static thunks. */
+[[nodiscard]] inline SpokeConnectToolHandlerTable tool_table() noexcept {
+    SpokeConnectToolHandlerTable table{};
+    table.handle = &tool_handle;
+    table.destroy = &tool_destroy;
+    return table;
+}
+
+}  // namespace detail
+
+// ── Callback handles ─────────────────────────────────────────────────────
+
+/**
+ * Carries one host-callback transport handle. The callback record belongs to
+ * the carrier from the moment `create` succeeds — ownership moved on the
+ * successful C return, and `create` clears the caller's `unique_ptr` only then.
+ * The C surface exports no standalone transport `close`, so there is none here:
+ * a session's close reaches the transported close through the adapter or
+ * responder that was built over it, and the host keeps its own explicit close.
+ */
+class Transport : public detail::HandleBase<SpokeConnectTransport, &spoke_connect_transport_free> {
+  public:
+    /** Creates a transport over `callbacks`. An unset slot (or a missing
+        record) reports `SPOKE_CONNECT_INVALID_ARGUMENT` and leaves the record
+        with the caller; on success the carrier owns it and runs its destructor
+        exactly once. */
+    [[nodiscard]] static Result<Transport> create(std::unique_ptr<TransportCallbacks>& callbacks) {
+        if (callbacks == nullptr) {
+            return Result<Transport>::failure(detail::missing_record("TransportCallbacks"));
+        }
+        if (const char* slot = detail::missing_slot(*callbacks); slot != nullptr) {
+            return Result<Transport>::failure(detail::unset_slot("TransportCallbacks", slot));
+        }
+        const SpokeConnectTransportTable table = detail::transport_table();
+        SpokeConnectTransport* handle = nullptr;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_transport_new(&table, callbacks.get(), &handle, error.out());
+        if (status != SPOKE_CONNECT_OK) {
+            return Result<Transport>::failure(detail::take_error(status, error));
+        }
+        callbacks.release();
+        return Result<Transport>::success(Transport(handle));
+    }
+
+  private:
+    Transport() noexcept = default;
+    explicit Transport(SpokeConnectTransport* handle) noexcept : HandleBase(handle) {}
+};
+
+/**
+ * Carries one host-callback ports-handler handle. Every one of the thirteen
+ * slots must be set: a provider that declines a method returns an application
+ * reject from that slot, which keeps an explicitly refusing provider
+ * distinguishable from an absent `ports` handler.
+ */
+class PortsHandler
+    : public detail::HandleBase<SpokeConnectPortsHandler, &spoke_connect_ports_handler_free> {
+  public:
+    [[nodiscard]] static Result<PortsHandler> create(std::unique_ptr<PortsCallbacks>& callbacks) {
+        if (callbacks == nullptr) {
+            return Result<PortsHandler>::failure(detail::missing_record("PortsCallbacks"));
+        }
+        if (const char* slot = detail::missing_slot(*callbacks); slot != nullptr) {
+            return Result<PortsHandler>::failure(detail::unset_slot("PortsCallbacks", slot));
+        }
+        const SpokeConnectPortsHandlerTable table = detail::ports_table();
+        SpokeConnectPortsHandler* handle = nullptr;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_ports_handler_new(&table, callbacks.get(), &handle, error.out());
+        if (status != SPOKE_CONNECT_OK) {
+            return Result<PortsHandler>::failure(detail::take_error(status, error));
+        }
+        callbacks.release();
+        return Result<PortsHandler>::success(PortsHandler(handle));
+    }
+
+  private:
+    PortsHandler() noexcept = default;
+    explicit PortsHandler(SpokeConnectPortsHandler* handle) noexcept : HandleBase(handle) {}
+};
+
+/** Carries one host-callback tool-handler handle, for registration on either
+    face of a session (served by a responder, or reverse-served by an adapter). */
+class ToolHandler
+    : public detail::HandleBase<SpokeConnectToolHandler, &spoke_connect_tool_handler_free> {
+  public:
+    [[nodiscard]] static Result<ToolHandler> create(std::unique_ptr<ToolCallbacks>& callbacks) {
+        if (callbacks == nullptr) {
+            return Result<ToolHandler>::failure(detail::missing_record("ToolCallbacks"));
+        }
+        if (const char* slot = detail::missing_slot(*callbacks); slot != nullptr) {
+            return Result<ToolHandler>::failure(detail::unset_slot("ToolCallbacks", slot));
+        }
+        const SpokeConnectToolHandlerTable table = detail::tool_table();
+        SpokeConnectToolHandler* handle = nullptr;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_tool_handler_new(&table, callbacks.get(), &handle, error.out());
+        if (status != SPOKE_CONNECT_OK) {
+            return Result<ToolHandler>::failure(detail::take_error(status, error));
+        }
+        callbacks.release();
+        return Result<ToolHandler>::success(ToolHandler(handle));
+    }
+
+  private:
+    ToolHandler() noexcept = default;
+    explicit ToolHandler(SpokeConnectToolHandler* handle) noexcept : HandleBase(handle) {}
+};
+
+// ── Remote adapter ───────────────────────────────────────────────────────
+
+/**
+ * The dialing side of one established peer session. `connect` blocks until the
+ * session is established; the transport is borrowed and cloned internally, so
+ * the caller may release its transport handle while the session lives on.
+ * `close` ends the session and is distinct from destruction — a destructor only
+ * frees the carrier reference.
+ */
+class RemoteAdapter
+    : public detail::HandleBase<SpokeConnectRemoteAdapter, &spoke_connect_remote_adapter_free> {
+  public:
+    /** Dials `transport` and returns the established adapter. `local_seed` is
+        the 32-byte Ed25519 identity seed, `remote_pubkey` the peer's 32-byte
+        public key, and `invoke_timeout_ms` follows the optional-scalar rule. */
+    [[nodiscard]] static Result<RemoteAdapter> connect(
+        const Transport& transport, SpokeConnectSlice local_seed,
+        std::string_view local_manifest_json, SpokeConnectSlice remote_pubkey,
+        const SpokeConnectSlice* allowlist, size_t allowlist_count,
+        std::optional<uint64_t> invoke_timeout_ms = std::nullopt) {
+        SpokeConnectRemoteAdapter* handle = nullptr;
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_new(
+            transport.get(), local_seed, slice(local_manifest_json), remote_pubkey, allowlist,
+            allowlist_count, detail::optional_u64(invoke_timeout_ms), &handle, error.out());
+        if (status != SPOKE_CONNECT_OK) {
+            return Result<RemoteAdapter>::failure(detail::take_error(status, error));
+        }
+        return Result<RemoteAdapter>::success(RemoteAdapter(handle));
+    }
+
+    /** One of `Disconnected` / `Handshaking` / `Established` / `Closed`. */
+    [[nodiscard]] Result<Buffer> state() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_state(get(), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** The session id; absent until the session is established. */
+    [[nodiscard]] Result<std::optional<Buffer>> session_id() const {
+        detail::OptionalBufferRecord out;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_remote_adapter_session_id(get(), out.out(), error.out());
+        return detail::optional_buffered(status, out, error);
+    }
+
+    /** The remote peer id; absent until the session is established. */
+    [[nodiscard]] Result<std::optional<Buffer>> remote_peer_id() const {
+        detail::OptionalBufferRecord out;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_remote_adapter_remote_peer_id(get(), out.out(), error.out());
+        return detail::optional_buffered(status, out, error);
+    }
+
+    /** The remote host capability manifest; absent before establish. */
+    [[nodiscard]] Result<std::optional<Buffer>> remote_manifest() const {
+        detail::OptionalBufferRecord out;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_remote_adapter_remote_manifest(get(), out.out(), error.out());
+        return detail::optional_buffered(status, out, error);
+    }
+
+    /** The local host capability manifest as JSON. */
+    [[nodiscard]] Result<Buffer> get_host_capability_manifest() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_remote_adapter_get_host_capability_manifest(get(), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `getKnowledgeEntry`. */
+    [[nodiscard]] Result<Buffer> get_knowledge_entry(std::string_view entry_id) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_get_knowledge_entry(
+            get(), slice(entry_id), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `putKnowledgeEntry` with an optional base revision. */
+    [[nodiscard]] Result<Buffer> put_knowledge_entry(
+        std::string_view entry_json,
+        std::optional<uint64_t> expected_base_revision = std::nullopt) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_put_knowledge_entry(
+            get(), slice(entry_json), detail::optional_u64(expected_base_revision), &out,
+            error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `getRelation`. */
+    [[nodiscard]] Result<Buffer> get_relation(std::string_view relation_id) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_get_relation(
+            get(), slice(relation_id), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `putRelation` with an optional base revision. */
+    [[nodiscard]] Result<Buffer> put_relation(
+        std::string_view relation_json,
+        std::optional<uint64_t> expected_base_revision = std::nullopt) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_put_relation(
+            get(), slice(relation_json), detail::optional_u64(expected_base_revision), &out,
+            error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `listKnowledgeEntries`. */
+    [[nodiscard]] Result<Buffer> list_knowledge_entries(std::string_view scope_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_list_knowledge_entries(
+            get(), slice(scope_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `listTimelineEvents`. */
+    [[nodiscard]] Result<Buffer> list_timeline_events(std::string_view scope_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_list_timeline_events(
+            get(), slice(scope_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `putFindings`. */
+    [[nodiscard]] Result<Buffer> put_findings(std::string_view findings_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_put_findings(
+            get(), slice(findings_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `listRules` over the borrowed C array of rule refs. */
+    [[nodiscard]] Result<Buffer> list_rules(const SpokeConnectSlice* rule_refs,
+                                            size_t rule_refs_count) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_list_rules(
+            get(), rule_refs, rule_refs_count, &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Baseline ports: `listPeerHostCapabilityManifests`. */
+    [[nodiscard]] Result<Buffer> list_peer_host_capability_manifests() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_remote_adapter_list_peer_host_capability_manifests(get(), &out,
+                                                                            error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Optional ports: `port.computable.project`. */
+    [[nodiscard]] Result<Buffer> project(std::string_view project_request_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_project(
+            get(), slice(project_request_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Optional ports: `port.computable.compute`. */
+    [[nodiscard]] Result<Buffer> compute(std::string_view compute_request_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_compute(
+            get(), slice(compute_request_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Optional ports: `port.fork.listTimelineEvents`. */
+    [[nodiscard]] Result<Buffer> list_fork_timeline_events(std::string_view scope_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_list_fork_timeline_events(
+            get(), slice(scope_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Core-op extract service face. */
+    [[nodiscard]] Result<Buffer> extract(std::string_view extract_request_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_extract(
+            get(), slice(extract_request_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Invokes a capability on the remote peer by capability id. */
+    [[nodiscard]] Result<Buffer> invoke_tool(std::string_view capability_id,
+                                             std::string_view arguments_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_invoke_tool(
+            get(), slice(capability_id), slice(arguments_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Registers a dialer-side handler for `capability_id`, so the peer can
+        invoke it in reverse. The handler is borrowed and cloned internally, so
+        the wrapper may be released afterwards. */
+    [[nodiscard]] Result<void> register_tool_handler(std::string_view capability_id,
+                                                     const ToolHandler& handler) const {
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_register_tool_handler(
+            get(), slice(capability_id), handler.get(), error.out());
+        return detail::nothing(status, error);
+    }
+
+    /** Ends the session; distinct from destruction and idempotent. */
+    [[nodiscard]] Result<void> close() const {
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_remote_adapter_close(get(), error.out());
+        return detail::nothing(status, error);
+    }
+
+  private:
+    RemoteAdapter() noexcept = default;
+    explicit RemoteAdapter(SpokeConnectRemoteAdapter* handle) noexcept : HandleBase(handle) {}
+};
+
+// ── Connect responder ────────────────────────────────────────────────────
+
+/**
+ * The serving side of one accepted session. `serve` returns before the dialer
+ * hello arrives; the session reaches `Established` asynchronously. The
+ * transport is borrowed and cloned internally. `close` ends the session and is
+ * distinct from destruction.
+ */
+class ConnectResponder
+    : public detail::HandleBase<SpokeConnectResponder, &spoke_connect_responder_free> {
+  public:
+    /** Serves an accepted connection on `transport`. `peer_keys` is the peer id
+        to 32-byte public key table, `ports` an optional ports provider (NULL
+        serves no ports callbacks), and `invoke_timeout_ms` follows the
+        optional-scalar rule. */
+    [[nodiscard]] static Result<ConnectResponder> serve(
+        const Transport& transport, SpokeConnectSlice local_seed,
+        std::string_view local_manifest_json, const SpokeConnectSlice* allowlist,
+        size_t allowlist_count, const SpokeConnectPeerKey* peer_keys, size_t peer_key_count,
+        const PortsHandler* ports, std::optional<uint64_t> invoke_timeout_ms = std::nullopt) {
+        SpokeConnectResponder* handle = nullptr;
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_new(
+            transport.get(), local_seed, slice(local_manifest_json), allowlist, allowlist_count,
+            peer_keys, peer_key_count, ports == nullptr ? nullptr : ports->get(),
+            detail::optional_u64(invoke_timeout_ms), &handle, error.out());
+        if (status != SPOKE_CONNECT_OK) {
+            return Result<ConnectResponder>::failure(detail::take_error(status, error));
+        }
+        return Result<ConnectResponder>::success(ConnectResponder(handle));
+    }
+
+    /** One of `Disconnected` / `Handshaking` / `Established` / `Closed`. */
+    [[nodiscard]] Result<Buffer> state() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_state(get(), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** The session id; absent until the session is established. */
+    [[nodiscard]] Result<std::optional<Buffer>> session_id() const {
+        detail::OptionalBufferRecord out;
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_session_id(get(), out.out(), error.out());
+        return detail::optional_buffered(status, out, error);
+    }
+
+    /** The dialer's peer id; absent until the session is established. */
+    [[nodiscard]] Result<std::optional<Buffer>> remote_peer_id() const {
+        detail::OptionalBufferRecord out;
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_responder_remote_peer_id(get(), out.out(), error.out());
+        return detail::optional_buffered(status, out, error);
+    }
+
+    /** The dialer's host capability manifest; absent before establish. */
+    [[nodiscard]] Result<std::optional<Buffer>> remote_manifest() const {
+        detail::OptionalBufferRecord out;
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_remote_manifest(get(), out.out(), error.out());
+        return detail::optional_buffered(status, out, error);
+    }
+
+    /** Registers a served tool for `capability_id`; registration is
+        last-wins. The handler is borrowed and cloned internally. */
+    [[nodiscard]] Result<void> register_tool_handler(std::string_view capability_id,
+                                                     const ToolHandler& handler) const {
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_register_tool_handler(
+            get(), slice(capability_id), handler.get(), error.out());
+        return detail::nothing(status, error);
+    }
+
+    /** Invokes the peer's tool for `capability_id` from the serving side. */
+    [[nodiscard]] Result<Buffer> invoke_tool(std::string_view capability_id,
+                                             std::string_view arguments_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_invoke_tool(
+            get(), slice(capability_id), slice(arguments_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Ends the session; distinct from destruction and idempotent. */
+    [[nodiscard]] Result<void> close() const {
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_responder_close(get(), error.out());
+        return detail::nothing(status, error);
+    }
+
+  private:
+    ConnectResponder() noexcept = default;
+    explicit ConnectResponder(SpokeConnectResponder* handle) noexcept : HandleBase(handle) {}
+};
+
 }  // namespace spoke::connect
+
+// The containment branch selector is this header's own: it does not outlive the
+// include, so no consumer can depend on it.
+#undef SPOKE_CONNECT_HPP_EXCEPTION_CONTAINMENT
 
 #endif /* SPOKE_CONNECT_HPP */

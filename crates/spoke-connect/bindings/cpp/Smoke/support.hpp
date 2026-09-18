@@ -148,10 +148,12 @@ inline Golden load_golden(const std::string& fixture) {
 
 /**
  * The convenience-layer proofs in `Smoke/convenience.cpp`. `main.cpp` calls
- * this once with the golden vector it read, so the second translation unit
- * never re-reads or re-transcribes the fixture.
+ * each group once with the golden vector it read, so the second translation
+ * unit never re-reads or re-transcribes the fixture: the value/ownership group
+ * first, then the callback bridges with the adapter and responder wrappers.
  */
 void run_convenience_values(const Golden& golden);
+void run_convenience_session(const Golden& golden);
 
 }  // namespace spoke_smoke
 

@@ -52,15 +52,16 @@ host.exe
 
 ## 3. 建立一个会话
 
-下面三个代码块组成一个完整的 `host.cpp`：宿主自有的队列传输、带所服务 echo 工具的演示身份、以及拨号与一次真实调用。按顺序拼接即可 —— 用到的每个 include 与辅助函数都已列出。
+下面三个代码块组成一个完整的 `host.cpp`：宿主自有的队列传输、带所服务 echo 工具的演示身份、以及拨号与一次真实调用。按顺序拼接即可 —— 用到的每个 include 与辅助函数都已列出。服务句柄出现之前的失败会带着底层 status 结束进程；`ConnectResponder::serve` 返回之后的每一次失败都会先打印错误、走有序关闭，并作为进程的退出状态返回。
 
 ### 第 1 段 —— 宿主传输
 
 ```cpp
 // ── host.cpp — append part 1 of 3 ───────────────────────────────────────────
 //
-// The host transport: the includes, the two `Result` helpers, and the queue
-// pair whose callbacks carry every envelope this session sends and receives.
+// The host transport: the includes, the error-printing and construction
+// helpers, and the queue pair whose callbacks carry every envelope this session
+// sends and receives.
 
 #include "spoke_connect.hpp"
 
@@ -94,22 +95,15 @@ int report(int previous, const char* step, const Error& error) {
 }
 
 /**
- * Returns the value of a successful construction step; a failure prints the
- * error and ends the process with its status. Only the steps before a session
- * exists use this — a post-establishment failure takes the ordered close path
- * in part 3 instead.
+ * Returns the value of a construction step that runs before a serving handle
+ * exists; a failure prints the error and ends the process with its status.
+ * Every step that runs after `ConnectResponder::serve` has returned propagates
+ * its failure instead, so the session this example acquires always leaves
+ * through the ordered close path.
  */
 template <typename T>
 T unwrap(Result<T>&& result, const char* step) {
     if (result.has_value()) return std::move(result).value();
-    std::cerr << step << ": status " << result.error().status << " — " << result.error().message
-              << "\n";
-    std::exit(result.error().status);
-}
-
-/** The `Result<void>` flavour of `unwrap`, for a step that reports no value. */
-void unwrap(Result<void>&& result, const char* step) {
-    if (result.has_value()) return;
     std::cerr << step << ": status " << result.error().status << " — " << result.error().message
               << "\n";
     std::exit(result.error().status);
@@ -214,7 +208,8 @@ std::unique_ptr<connect::TransportCallbacks> make_transport(HostQueues host) {
 // ── host.cpp — append part 2 of 3 ───────────────────────────────────────────
 //
 // The demo identity, the capability manifest both ends advertise, and the
-// serving end: both transports, `ConnectResponder::serve`, and the echo tool.
+// serving end: both transports, `ConnectResponder::serve`, the echo tool, and
+// the ordered cleanup every exit path shares.
 
 /** The tool this example serves, and the arguments the dialer invokes it with. */
 constexpr std::string_view kEchoToolId = "tools.example.echo";
@@ -281,11 +276,42 @@ struct Endpoints {
 };
 
 /**
+ * Ends the session in the documented order — the dialing session when one
+ * exists, then the serving session, then both host queues so a blocked `recv`
+ * returns — and returns the status the example exits with. Every path that has
+ * acquired a session leaves through this one cleanup, so no exit path ends the
+ * process while a session is live. A null session is one that was never
+ * established or is already closed; the handles themselves release through RAII
+ * when their scope ends.
+ */
+int close_ordered(int previous, const connect::RemoteAdapter* dialer,
+                  const connect::ConnectResponder* responder, const HostQueues& server_queues,
+                  const HostQueues& dialer_queues) {
+    int status = previous;
+    if (dialer != nullptr) {
+        Result<void> closed = dialer->close();
+        if (!closed.has_value()) status = report(status, "RemoteAdapter::close", closed.error());
+    }
+    if (responder != nullptr) {
+        Result<void> closed = responder->close();
+        if (!closed.has_value()) status = report(status, "ConnectResponder::close", closed.error());
+    }
+    server_queues.close();
+    dialer_queues.close();
+    return status;
+}
+
+/**
  * Creates both ends over the cross-wired queue pair, starts serving and
  * registers the echo tool. `ports` is absent — the service is offered no ports
  * callbacks at all, which is different from a provider that declines a method.
+ *
+ * A failure that follows `ConnectResponder::serve` is reported, closed in order
+ * and returned to `main`: the serving handle this function acquired is never
+ * left to the process to reclaim.
  */
-Endpoints start_endpoints(const HostQueues& server_queues, const HostQueues& dialer_queues) {
+Result<Endpoints> start_endpoints(const HostQueues& server_queues,
+                                  const HostQueues& dialer_queues) {
     const SpokeConnectSlice seed = connect::bytes(kDemoSeed.data(), kDemoSeed.size());
     const SpokeConnectSlice pubkey = connect::bytes(kDemoPubkey.data(), kDemoPubkey.size());
     const std::string manifest = kManifest;
@@ -310,19 +336,30 @@ Endpoints start_endpoints(const HostQueues& server_queues, const HostQueues& dia
                                          peer_keys, 1, nullptr, invoke_timeout),
         "ConnectResponder::serve");
 
+    // A serving handle exists from here on: a later failure reports its step,
+    // reaches the ordered close, and returns the failure to `main`.
+    auto failed = [&](const char* step, Error error) -> Result<Endpoints> {
+        error.status = close_ordered(report(SPOKE_CONNECT_OK, step, error), nullptr, &responder,
+                                     server_queues, dialer_queues);
+        return Result<Endpoints>::failure(std::move(error));
+    };
+
     std::unique_ptr<connect::ToolCallbacks> echo_callbacks = make_echo_tool();
-    connect::ToolHandler echo =
-        unwrap(connect::ToolHandler::create(echo_callbacks), "ToolHandler::create");
-    unwrap(responder.register_tool_handler(kEchoToolId, echo),
-           "ConnectResponder::register_tool_handler");
+    Result<connect::ToolHandler> echo = connect::ToolHandler::create(echo_callbacks);
+    if (!echo.has_value()) return failed("ToolHandler::create", std::move(echo).error());
 
-    std::unique_ptr<connect::TransportCallbacks> dialer_callbacks =
-        make_transport(dialer_queues);
-    connect::Transport dialer_transport =
-        unwrap(connect::Transport::create(dialer_callbacks), "Transport::create (dialer)");
+    Result<void> registered = responder.register_tool_handler(kEchoToolId, echo.value());
+    if (!registered.has_value()) {
+        return failed("ConnectResponder::register_tool_handler", std::move(registered).error());
+    }
 
-    return Endpoints{std::move(server_transport), std::move(dialer_transport),
-                     std::move(responder), std::move(echo), std::move(peer_id_text)};
+    std::unique_ptr<connect::TransportCallbacks> dialer_callbacks = make_transport(dialer_queues);
+    Result<connect::Transport> dialer = connect::Transport::create(dialer_callbacks);
+    if (!dialer.has_value()) return failed("Transport::create (dialer)", std::move(dialer).error());
+
+    return Result<Endpoints>::success(
+        Endpoints{std::move(server_transport), std::move(dialer).value(), std::move(responder),
+                  std::move(echo).value(), std::move(peer_id_text)});
 }
 ```
 
@@ -342,7 +379,12 @@ int main() {
     const HostQueues server_queues{to_server, to_dialer};
     const HostQueues dialer_queues{to_dialer, to_server};
 
-    Endpoints endpoints = start_endpoints(server_queues, dialer_queues);
+    // A failed startup step has already run the ordered close for everything it
+    // acquired, so only its status is left to return.
+    Result<Endpoints> started = start_endpoints(server_queues, dialer_queues);
+    if (!started.has_value()) return started.error().status;
+    Endpoints endpoints = std::move(started).value();
+
     const SpokeConnectSlice seed = connect::bytes(kDemoSeed.data(), kDemoSeed.size());
     const SpokeConnectSlice pubkey = connect::bytes(kDemoPubkey.data(), kDemoPubkey.size());
     const SpokeConnectSlice allowlist[] = {connect::slice(endpoints.peer_id)};
@@ -350,25 +392,35 @@ int main() {
 
     // `connect` performs the signed hello and the handshake itself — no second
     // hello is sent by hand. Both ends share this example's identity, so the
-    // dialed peer is this host.
-    connect::RemoteAdapter adapter = unwrap(
+    // dialed peer is this host. A failed dial is reported and leaves through the
+    // same ordered close as every other path; no dialing session exists yet, so
+    // the serving session and the host queues are what closes.
+    Result<connect::RemoteAdapter> dialed =
         connect::RemoteAdapter::connect(endpoints.dialer_transport, seed, manifest, pubkey,
-                                        allowlist, 1, uint64_t{5000}),
-        "RemoteAdapter::connect");
+                                        allowlist, 1, uint64_t{5000});
+    if (!dialed.has_value()) {
+        return close_ordered(report(SPOKE_CONNECT_OK, "RemoteAdapter::connect", dialed.error()),
+                             nullptr, &endpoints.responder, server_queues, dialer_queues);
+    }
+    connect::RemoteAdapter adapter = std::move(dialed).value();
 
     int status = SPOKE_CONNECT_OK;
 
     // A present session id is what an established session carries; the state
     // names the transition the dialer reached.
-    Buffer state = unwrap(adapter.state(), "RemoteAdapter::state");
+    Result<Buffer> state = adapter.state();
+    if (!state.has_value()) {
+        return close_ordered(report(status, "RemoteAdapter::state", state.error()), &adapter,
+                             &endpoints.responder, server_queues, dialer_queues);
+    }
     Result<std::optional<Buffer>> session = adapter.session_id();
-    const bool established = state.view() == "Established" && session.has_value() &&
+    const bool established = state.value().view() == "Established" && session.has_value() &&
                              session.value().has_value() && !session.value()->empty();
     if (established) {
-        std::cout << "state: " << state.view()
+        std::cout << "state: " << state.value().view()
                   << ", session id: " << session.value()->view() << "\n";
     } else {
-        std::cerr << "the session did not establish (state \"" << state.view() << "\")\n";
+        std::cerr << "the session did not establish (state \"" << state.value().view() << "\")\n";
         status = SPOKE_CONNECT_HANDSHAKE_FAILED;
     }
 
@@ -383,21 +435,11 @@ int main() {
         }
     }
 
-    // Ordered close, on the failure path too: end both sessions explicitly, then
-    // close the host queues so a blocked `recv` returns, then let this scope
-    // release the RAII handles and every buffer it still holds.
-    Result<void> dialer_closed = adapter.close();
-    if (!dialer_closed.has_value()) {
-        status = report(status, "RemoteAdapter::close", dialer_closed.error());
-    }
-    Result<void> responder_closed = endpoints.responder.close();
-    if (!responder_closed.has_value()) {
-        status = report(status, "ConnectResponder::close", responder_closed.error());
-    }
-    server_queues.close();
-    dialer_queues.close();
-
-    return status;
+    // The close every path above shares — the success run and the failures
+    // alike: end both sessions explicitly, then close the host queues so a
+    // blocked `recv` returns, then let this scope release the RAII handles and
+    // every buffer it still holds.
+    return close_ordered(status, &adapter, &endpoints.responder, server_queues, dialer_queues);
 }
 ```
 

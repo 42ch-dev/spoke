@@ -35,6 +35,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -832,6 +833,33 @@ void assert_rejection_and_ownership(const Golden& golden) {
     banner(kRejectionLabel);
 }
 
+std::string resolve_fixture_path(const char* raw_path) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    const fs::path base = fs::weakly_canonical("crates/spoke-connect/tests/fixtures", ec);
+    if (ec) {
+        fail(kFixtureLabel, "cannot resolve fixtures base directory");
+    }
+
+    const fs::path candidate = fs::weakly_canonical(fs::path(raw_path), ec);
+    if (ec) {
+        fail(kFixtureLabel, std::string("cannot resolve fixture path: ") + raw_path);
+    }
+
+    const std::string base_s = base.generic_string();
+    const std::string candidate_s = candidate.generic_string();
+    const bool in_base =
+        candidate_s.size() >= base_s.size() &&
+        candidate_s.compare(0, base_s.size(), base_s) == 0 &&
+        (candidate_s.size() == base_s.size() || candidate_s[base_s.size()] == '/');
+    if (!in_base) {
+        fail(kFixtureLabel, std::string("fixture path escapes fixtures directory: ") + raw_path);
+    }
+
+    return candidate.string();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -842,7 +870,8 @@ int main(int argc, char** argv) {
                      argv[0]);
         return 2;
     }
-    const Golden golden = load_golden(read_file(argv[1]));
+    const std::string fixture_path = resolve_fixture_path(argv[1]);
+    const Golden golden = load_golden(read_file(fixture_path));
     assert_golden_peer_id(golden);
     assert_golden_hello_signature(golden);
     assert_protocol_version();

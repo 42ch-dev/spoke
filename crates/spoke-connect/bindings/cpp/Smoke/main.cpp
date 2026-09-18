@@ -48,6 +48,7 @@ using spoke_smoke::check;
 using spoke_smoke::fail;
 using spoke_smoke::Golden;
 using spoke_smoke::json_string_field;
+using spoke_smoke::kFixtureLabel;
 using spoke_smoke::load_golden;
 using spoke_smoke::read_file;
 

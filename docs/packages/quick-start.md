@@ -49,6 +49,20 @@ cargo add spoke-connect@X.Y.Z
 
 Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven `dev.42ch:spoke-connect`, Swift SPM `SpokeConnect`, Go module `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`, Python PyPI `spoke-connect`) and for C and C++ (hand-written C ABI, git) embed the shared session core via FFI — see [Native bindings](/how-to/connect-native-bindings) and [Connect from C and C++](/how-to/connect-cpp-binding).
 
+### C and C++ (git)
+
+```bash
+git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+```
+
+- **`crates/spoke-connect/bindings/cpp/include/spoke_connect.h`** — the hand-written C ABI header.
+- **`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`** — the C++17 header-only convenience layer.
+- **`crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`** — the macOS arm64 carrier.
+- **`crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`** — the Windows x64 carrier.
+- **`crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll.lib`** — the Rust-produced import library the Windows x64 link step consumes.
+
+The committed C/C++ carriers target macOS arm64 (`osx-arm64`) and Windows x64 (`win-x64`). Take `spoke_connect.h`, `spoke_connect.hpp`, and the native files for your target from the same repository tag `vX.Y.Z` — resolution is a tag checkout, while `cargo add spoke-connect` installs the crates.io crate. Full guide: [Connect from C and C++](/how-to/connect-cpp-binding).
+
 ## Integrator path
 
 1. Import wire types from the schemas package.

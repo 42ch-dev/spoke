@@ -51,6 +51,20 @@ cargo add spoke-connect@X.Y.Z
 
 原生绑定宿主语言（C# NuGet `42ch.Spoke.Connect`、Kotlin Maven `dev.42ch:spoke-connect`、Swift SPM `SpokeConnect`、Go 模块 `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go`、Python PyPI `spoke-connect`）与 C 和 C++（手写 C ABI，git）经 FFI 嵌入共享会话核心 —— 见[原生绑定](/zh/how-to/connect-native-bindings)与[从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding)。
 
+### C 与 C++（git）
+
+```bash
+git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+```
+
+- **`crates/spoke-connect/bindings/cpp/include/spoke_connect.h`** —— 手写 C ABI 头文件。
+- **`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`** —— C++17 头文件式便利层。
+- **`crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`** —— macOS arm64 载体。
+- **`crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`** —— Windows x64 载体。
+- **`crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll.lib`** —— Windows x64 链接步骤所用的 Rust 生成导入库。
+
+已提交的 C/C++ 载体面向 macOS arm64（`osx-arm64`）与 Windows x64（`win-x64`）。`spoke_connect.h`、`spoke_connect.hpp` 与目标平台的原生文件均取自同一仓库标签 `vX.Y.Z` —— 获取方式是一次标签检出，`cargo add spoke-connect` 安装的是 crates.io 上的 crate。完整指南：[从 C 与 C++ 连接](/zh/how-to/connect-cpp-binding)。
+
 ## 集成路径
 
 1. 从 schemas 软件包导入线上类型。

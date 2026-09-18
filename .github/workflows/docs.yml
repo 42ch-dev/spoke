@@ -1,11 +1,11 @@
 name: Docs site
 
-# SPOKE integrator docs site (VitePress under docs/).
-#
-# Build gate: runs on PRs that touch the docs site or its tooling; the PR
-# fails if `pnpm docs:build` breaks, if an EN page ships without its CN twin
-# (twin-parity), or if an internal link resolves to a missing page
-# (dead-link).
+# Documentation gate: validates every documentation change — the site under
+# docs/ (with its tooling) and any Markdown file elsewhere. `ci.yml` skips its
+# compile/test matrix for documentation-only change sets, so this workflow is
+# the validation entry point; it fails if `pnpm docs:build` breaks, if an EN
+# page ships without its CN twin (twin-parity), or if an internal link resolves
+# to a missing page (dead-link).
 # Deploy: on push to main, the built site is published to GitHub Pages via the
 # official Pages actions (upload-pages-artifact + deploy-pages).
 #
@@ -25,6 +25,7 @@ on:
     paths:
       - docs/**
       - tooling/docs/**
+      - '**/*.md'
       - .github/workflows/docs.yml
       - package.json
       - pnpm-lock.yaml
@@ -34,6 +35,7 @@ on:
     paths:
       - docs/**
       - tooling/docs/**
+      - '**/*.md'
       - .github/workflows/docs.yml
       - package.json
       - pnpm-lock.yaml

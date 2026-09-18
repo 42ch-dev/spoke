@@ -57,13 +57,16 @@ move-only class that releases through the matching carrier function) — a
 destructor only frees, and only `RemoteAdapter::close` /
 `ConnectResponder::close` / `LoopbackTransport::close` end a session.
 
-The remaining declarations are C-owned mechanics with no facade counterpart: 11
+The remaining declarations are C-owned mechanics rather than business API: 11
 handle-release functions (a Rust `Arc` has no explicit free), the 3 callback
 table constructors (a facade callback trait crosses as a boxed trait object),
 and 4 boundary-only declarations (an ABI-version reporter and the buffer /
 error release primitives) that exist only because C has no Rust drop glue and
-no status/out convention of its own. No facade capability is left without a C
-entry point, and no C declaration is left without a facade member behind it.
+no status/out convention of its own. Their C++ counterparts are likewise
+mechanics rather than business API — a destructor, a `create` factory, or
+`abi_version()` — so the classification covers the whole header: no facade
+capability is left without a C entry point, and no C declaration is left
+without a C++ counterpart.
 
 Two capabilities deserve explicit mention because they are the ones the older
 prose inventories missed:

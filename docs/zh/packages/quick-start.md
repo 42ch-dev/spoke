@@ -69,7 +69,7 @@ git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
 
 1. 从 schemas 软件包导入线上类型。
 2. 在一个 adapter 类型上为所声明能力实现 port 族（`BaselineAdapter` … `FullAdapter`）。
-3. 调用匹配的编排器（`orchestrateUpsert`、`orchestratePromote` 等）—— 纯门禁运行，持久化经您的 ports 进行。
+3. 调用匹配的编排器（`orchestrateUpsert`、`orchestratePromote`、`orchestrateExtract` 等）—— 纯门禁运行，持久化经您的 ports 进行。可选的 `ke-extraction` 路径接收独立的 `ExtractionPort` 与异步抽取器回调，不持久化任何内容。
 4. 走一遍已提交的 "Mira at Harbor" 图与 `fixtures/toy-world/` 中的参考 `ToyWorldAdapter`（TypeScript adapter 与 Rust fixture crate）。
 
 ## 版本策略

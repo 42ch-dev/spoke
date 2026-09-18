@@ -44,6 +44,7 @@ title: 操作线上参考（Ops wire）
 | `source_id` | 字符串 | 溯源或手稿定位符作用域 |
 | `timeline_scale` | TimelineScale | L5 层级过滤（`brief`、`narrative`、`moment`） |
 | `fork_id` | ForkId | L5 分支过滤 —— 对 `TimelineEvent.fork_id` 严格相等（`l5-fork`） |
+| `viewpoint` | 字符串 | 读者上下文（`ke-ownership`）—— 读者的 holder KnowledgeEntry `entry_id`；缺省时不指名主体，也不授予私有可见性 |
 | `extensions` | ExtensionMap | 产品作用域查询元数据；协议匹配器忽略它，adapter 原样往返 |
 
 ## 信封字段表
@@ -96,6 +97,42 @@ title: 操作线上参考（Ops wire）
 | `scope` | 组装作用域选择器 |
 | `max_entries` | 可选条目数量提示（协议不强制） |
 | `extensions` | 可选传输元数据 |
+
+## 可选操作（`ke-extraction`）
+
+`extract` 是 `ke-extraction` 能力标志下的可选操作，由既有 `input-source` 角色的主机提供 —— 不是第六个基线操作。它从被引用的源材料提议 `provisional` 候选 KnowledgeEntry。
+
+| Op | 意图 | 请求 | 响应 |
+|----|------|------|------|
+| `extract` | 从被引用的源材料提议 `provisional` 候选 KnowledgeEntry | `ExtractRequest` | `ExtractResponse` |
+
+### ExtractRequest / ExtractResponse
+
+`ExtractRequest` 必填：`run_id`、`sources`。输入仅含引用 —— 请求携带溯源指针，绝不携带内联文本。
+
+| 字段 | 说明 |
+|------|------|
+| `run_id` | 非空不透明关联标识；经 `run.run_id` 原样回显 |
+| `sources` | 非空 `SourceAnchor[]`（溯源指针）；抽取范围是该列表加上每个锚点的可选 span（span 缺省表示整个被引用制品） |
+| `entry_types` | 可选的咨询性候选类型提示（开放词汇，非后置过滤） |
+| `extensions` | 可选传输元数据 |
+
+`ExtractResponse` 成功：`{ candidates, run }` —— **或** `{ error }`。两个分支永不共存。
+
+| 成功字段 | 说明 |
+|----------|------|
+| `candidates` | `KnowledgeEntry[]` —— 每个返回的候选都携带 `status: "provisional"`；空数组是合法的零结果运行 |
+| `run` | `ExtractionRunMetadata` —— 必填 `run_id`（请求的精确回显）、可选非空 `method`、可选不透明 `coverage_hint` |
+| `extensions` | 可选传输元数据 |
+
+| 失败字段 | 说明 |
+|----------|------|
+| `error` | `ErrorEnvelope`；失败的运行不携带候选列表，也不携带第二条运行记录 |
+| `extensions` | 可选传输元数据 |
+
+**`provisional` 不变量。** 候选集合中含 `merged` / `deleted` 条目时以 `CANDIDATE_TERMINAL_STATUS` 拒绝；含其他非 `provisional` 状态时以 `CANDIDATE_NOT_PROVISIONAL` 拒绝。库从不改写状态，也从不返回部分成功。
+
+**`extract` 与 `extract→promote` 的区别。** 基线 `extract→promote` 行是准入：`promote` 把单个 `provisional` 候选准入持久存储。可选的 `extract` 操作是产出：它从被引用的源材料提议 `provisional` 候选。抽取产物仍只能经 promote 到达持久存储。
 
 ## 共享规则
 

@@ -15,6 +15,7 @@ adapter port 类型按能力切片。选择与你的主机所声明能力匹配�
 | `spoke-baseline` | `KnowledgeEntryPort`、`RelationPort`、`ScopeQueryPort`、`FindingPort`、`RuleQueryPort`、`HostManifestPort` | `BaselineAdapter` |
 | `spoke-baseline` + `l2-computable` | 基线 + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | 基线 + `ForkTimelineQueryPort` | `ForkAdapter` |
+| `spoke-baseline` + `ke-extraction` | 独立的 `ExtractionPort` | 无 —— 该 port 直接传给 `orchestrateExtract` |
 | 三者全含 | 完整组合 | `FullAdapter` |
 
 这些别名与 `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts` 命名相同的 port 交集。从操作包导入：
@@ -33,6 +34,7 @@ import type {
   HostManifestPort,
   ComputablePort,
   ForkTimelineQueryPort,
+  ExtractionPort,
 } from "@42ch/spoke-operations";
 ```
 
@@ -116,6 +118,14 @@ listForkTimelineEvents(
 ```
 
 Fork 作用域的时间轴读取。同一个对象可同时满足 `ScopeQueryPort` 与该 port。
+
+### ExtractionPort —— 可选 `ke-extraction`
+
+```ts
+loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
+```
+
+可选 `extract` 操作所需的宿主本地源加载：该 port 读取被引用的材料，返回一个绝不出现在线上的进程内不透明值。`ExtractionPort` 独立存在 —— 不属于任何组合别名，也从不加入 `BaselinePorts` / `FullPorts` —— 因此 `orchestrateExtract` 直接接收它，连同你自己的异步抽取器回调。动态边界缺失该 port 时以 `CAPABILITY_PORT_MISSING` 拒绝，`details.capability = "ke-extraction"`。
 
 ## 3. 让 adapter 保持 I/O 边界
 

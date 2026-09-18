@@ -154,9 +154,17 @@ export function parseCargoWorkspaceMembers(contents) {
   if (membersBody === undefined) {
     throw new Error("Cargo.toml: missing [workspace].members array");
   }
-  return [...membersBody.replace(/#.*$/gm, "").matchAll(/"([^"]+)"/g)].map(
-    ([, memberPath]) => memberPath,
-  );
+  const memberPaths = [
+    ...membersBody.replace(/#.*$/gm, "").matchAll(/"([^"]+)"/g),
+  ].map(([, memberPath]) => memberPath);
+  for (const memberPath of memberPaths) {
+    if (/[*?\[\]]/.test(memberPath)) {
+      throw new Error(
+        `Cargo.toml: workspace member "${memberPath}" uses glob metacharacters; explicit member paths are required`,
+      );
+    }
+  }
+  return memberPaths;
 }
 
 /**
@@ -198,7 +206,9 @@ export function resolveCargoLockPackageNames(
 
 /**
  * Parse inline dependency tables that pin workspace crates by both version and
- * path. Path-only dependencies intentionally do not participate in lockstep.
+ * path. The returned name uses the inline `package` attribute for aliases,
+ * falling back to the dependency key. Path-only dependencies intentionally do
+ * not participate in lockstep.
  *
  * @param {string} contents
  * @returns {{ name: string; version: string; path: string }[]}
@@ -210,8 +220,9 @@ export function parseCargoPathDependencyPins(contents) {
   for (const [, name, attributes] of contents.matchAll(dependencyPattern)) {
     const version = attributes.match(/\bversion\s*=\s*"([^"]+)"/)?.[1];
     const path = attributes.match(/\bpath\s*=\s*"([^"]+)"/)?.[1];
+    const packageName = attributes.match(/\bpackage\s*=\s*"([^"]+)"/)?.[1];
     if (version !== undefined && path !== undefined) {
-      pins.push({ name, version, path });
+      pins.push({ name: packageName ?? name, version, path });
     }
   }
   return pins;
@@ -235,8 +246,9 @@ export function replaceCargoPathDependencyPinVersions(
   return contents.replace(
     /^([ \t]*)([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm,
     (full, indentation, name, attributes) => {
+      const packageName = attributes.match(/\bpackage\s*=\s*"([^"]+)"/)?.[1];
       if (
-        !selected.has(name) ||
+        !selected.has(packageName ?? name) ||
         !/\bpath\s*=\s*"[^"]+"/.test(attributes) ||
         !/\bversion\s*=\s*"[^"]+"/.test(attributes)
       ) {

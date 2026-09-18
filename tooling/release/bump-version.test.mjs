@@ -74,6 +74,12 @@ describe("bump-version.mjs", () => {
     const current = readCanonicalVersion(repoRoot);
     const target = nextPatchRelease(current);
 
+    const pathOnlyCratePath = findCargoMemberManifest(
+      repoRoot,
+      "spoke-connect-capi",
+    );
+    const pathOnlyCrateBefore = readFileSync(pathOnlyCratePath, "utf8");
+
     const result = runReleaseScript(
       "bump-version.mjs",
       [target],
@@ -130,6 +136,11 @@ describe("bump-version.mjs", () => {
       repoRoot,
     );
     assert.equal(assertResult.status, 0, assertResult.stderr || assertResult.stdout);
+    assert.equal(
+      readFileSync(pathOnlyCratePath, "utf8"),
+      pathOnlyCrateBefore,
+      "path-only dependency manifest must remain untouched",
+    );
   });
 
   it("refuses a non-increasing target SemVer", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { parseSemVer } from "./semver.mjs";
 import {
   CARGO_LOCK_PATH,
   CARGO_WORKSPACE_PATH,
@@ -12,6 +13,7 @@ import {
   cleanupTempRepo,
   createTempRepo,
   findCargoMemberManifest,
+  initGitRepo,
   readCanonicalVersion,
   runReleaseScript,
 } from "./test-harness.mjs";
@@ -41,6 +43,82 @@ describe("assert-lockstep-version.mjs", () => {
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /Lockstep version OK/);
+  });
+
+  it("verifies and bumps aliased Cargo path pins", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const aliased = crate.replace(
+      /^spoke-schemas = \{ version = "([^"]+)", path = "\.\.\/spoke-schemas" \}$/m,
+      `schemas = { package = "spoke-schemas", version = "$1", path = "../spoke-schemas" }`,
+    );
+    assert.notEqual(aliased, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, aliased, "utf8");
+
+    const initiallyPassing = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.equal(
+      initiallyPassing.status,
+      0,
+      initiallyPassing.stderr || initiallyPassing.stdout,
+    );
+
+    writeFileSync(
+      cratePath,
+      aliased.replace(
+        `version = "${current}"`,
+        `version = "${current}-drift.test"`,
+      ),
+      "utf8",
+    );
+    const stalePin = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(stalePin.status, 0);
+    assert.match(stalePin.stderr, /spoke-schemas dependency/);
+
+    writeFileSync(cratePath, aliased, "utf8");
+    const bumped = runReleaseScript(
+      "bump-version.mjs",
+      [target],
+      repoRoot,
+    );
+    assert.equal(bumped.status, 0, bumped.stderr || bumped.stdout);
+    const bumpedCrate = readFileSync(cratePath, "utf8");
+    assert.match(
+      bumpedCrate,
+      new RegExp(
+        `^schemas = \\{ package = "spoke-schemas", version = "${target}", path = "\\.\\./spoke-schemas" \\}`,
+        "m",
+      ),
+    );
+  });
+
+  it("refuses globbed Cargo workspace members with explicit-path guidance", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+
+    const workspace = '[workspace]\nmembers = ["crates/*"]\n';
+    assert.throws(
+      () =>
+        resolveCargoLockPackageNames(workspace, (memberPath) =>
+          readFileSync(join(repoRoot, memberPath, "Cargo.toml"), "utf8"),
+        ),
+      /Cargo\.toml: workspace member "crates\/\*" uses glob metacharacters; explicit member paths are required/,
+    );
   });
 
   it("covers every extra Cargo workspace member in lockstep coverage", () => {

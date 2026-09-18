@@ -13,6 +13,7 @@ on:
       - crates/spoke-connect/Cargo.toml
       - crates/spoke-connect/bindings/cpp/include/**
       - crates/spoke-connect/bindings/cpp/Smoke/**
+      - crates/spoke-connect/bindings/cpp/native/**
       - tooling/connect/cpp-build.mjs
       - tooling/connect/cpp-symbol-check.mjs
       - tooling/connect/cpp-smoke.mjs
@@ -28,6 +29,7 @@ on:
       - crates/spoke-connect/Cargo.toml
       - crates/spoke-connect/bindings/cpp/include/**
       - crates/spoke-connect/bindings/cpp/Smoke/**
+      - crates/spoke-connect/bindings/cpp/native/**
       - tooling/connect/cpp-build.mjs
       - tooling/connect/cpp-symbol-check.mjs
       - tooling/connect/cpp-smoke.mjs

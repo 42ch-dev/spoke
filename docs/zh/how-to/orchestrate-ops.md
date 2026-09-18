@@ -18,7 +18,7 @@ title: 编排操作（Orchestrate operations）
 | `orchestrateProject(ports, request)` —— `l2-computable` | `ProjectRequest` | `ProjectResponse` | 校验 → `ComputablePort.project` |
 | `orchestrateCompute(ports, request)` —— `l2-computable` | `ComputeRequest` | `ComputeResponse` | 校验 → `ComputablePort.compute` |
 | `orchestrateForkCheck` / `orchestrateForkAssemble` —— `l5-fork` | fork 作用域请求 | 同形状响应 | 要求 `scope.fork_id` → fork 时间轴读取 |
-| `orchestrateExtract(ports, request, runExtractor)` —— `ke-extraction` | `ExtractRequest` | `ExtractResponse` | 校验 → `ExtractionPort.loadExtractionInput` → `runExtractor` → `provisional` 门禁 → 组装 |
+| `orchestrateExtract(ports, request, runExtractor)` —— `ke-extraction` | `ExtractRequest` | `ExtractResponse` | 校验 → `ExtractionPort.loadExtractionInput` → `runExtractor` → `provisional` 门禁 |
 
 ## Upsert —— 创建或更新条目
 

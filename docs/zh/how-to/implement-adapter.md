@@ -16,7 +16,7 @@ adapter port 类型按能力切片。选择与你的主机所声明能力匹配�
 | `spoke-baseline` + `l2-computable` | 基线 + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | 基线 + `ForkTimelineQueryPort` | `ForkAdapter` |
 | `spoke-baseline` + `ke-extraction` | 独立的 `ExtractionPort` | 无 —— 该 port 直接传给 `orchestrateExtract` |
-| 三者全含 | 完整组合 | `FullAdapter` |
+| `spoke-baseline` + `l2-computable` + `l5-fork` | 完整组合 | `FullAdapter` |
 
 这些别名与 `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts` 命名相同的 port 交集。从操作包导入：
 

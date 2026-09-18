@@ -16,7 +16,7 @@ The adapter port types are sliced by capability. Pick the alias that matches the
 | `spoke-baseline` + `l2-computable` | baseline + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | baseline + `ForkTimelineQueryPort` | `ForkAdapter` |
 | `spoke-baseline` + `ke-extraction` | standalone `ExtractionPort` | none — the port is passed to `orchestrateExtract` directly |
-| all three | full composition | `FullAdapter` |
+| `spoke-baseline` + `l2-computable` + `l5-fork` | full composition | `FullAdapter` |
 
 The aliases name the same port intersections as `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`. Import them from the operations package:
 

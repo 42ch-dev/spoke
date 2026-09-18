@@ -18,7 +18,7 @@ The operations library exposes one **orchestrator per op family**. The persisten
 | `orchestrateProject(ports, request)` — `l2-computable` | `ProjectRequest` | `ProjectResponse` | validate → `ComputablePort.project` |
 | `orchestrateCompute(ports, request)` — `l2-computable` | `ComputeRequest` | `ComputeResponse` | validate → `ComputablePort.compute` |
 | `orchestrateForkCheck` / `orchestrateForkAssemble` — `l5-fork` | fork-scoped requests | same response shapes | require `scope.fork_id` → fork timeline reads |
-| `orchestrateExtract(ports, request, runExtractor)` — `ke-extraction` | `ExtractRequest` | `ExtractResponse` | validate → `ExtractionPort.loadExtractionInput` → `runExtractor` → provisional gate → assemble |
+| `orchestrateExtract(ports, request, runExtractor)` — `ke-extraction` | `ExtractRequest` | `ExtractResponse` | validate → `ExtractionPort.loadExtractionInput` → `runExtractor` → provisional gate |
 
 ## Upsert — create or update entries
 

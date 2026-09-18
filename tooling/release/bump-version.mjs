@@ -13,20 +13,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
-  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PATH,
-  CARGO_OPS_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   NUGET_CONNECT_CSPROJ_PATH,
   PYPI_CONNECT_PYPROJECT_PATH,
   MAVEN_CONNECT_GRADLE_PATH,
+  parseCargoPathDependencyPins,
+  parseCargoWorkspaceMembers,
   replaceCargoLockPackageVersions,
+  replaceCargoPathDependencyPinVersions,
   replaceCsprojVersion,
   replaceGradleVersion,
   replacePyprojectVersion,
-  replaceSpokeOperationsPathDependencyVersion,
-  replaceSpokeSchemasPathDependencyVersion,
+  resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
 import { extractChangelogSection } from "./extract-changelog-notes.mjs";
 import { runGitCliff } from "./run-git-cliff.mjs";
@@ -63,6 +63,29 @@ function readRepoFile(relativePath) {
  */
 function writeRepoFile(relativePath, contents) {
   writeFileSync(repoPath(relativePath), contents, "utf8");
+}
+/**
+ * Read the Cargo workspace members and their package names from the workspace
+ * manifests. The workspace manifest is the only member-set source of truth.
+ *
+ * @returns {{ paths: string[]; packageNames: string[] }}
+ */
+function readCargoWorkspaceMembers() {
+  const workspaceContents = readRepoFile(CARGO_WORKSPACE_PATH);
+  const paths = parseCargoWorkspaceMembers(workspaceContents);
+  const packageNames = resolveCargoLockPackageNames(
+    workspaceContents,
+    (memberPath) => readRepoFile(join(memberPath, "Cargo.toml")),
+  );
+  for (const memberPath of paths) {
+    const manifestPath = join(memberPath, "Cargo.toml");
+    parseCargoPathDependencyPins(
+      readRepoFile(manifestPath),
+      packageNames,
+      manifestPath,
+    );
+  }
+  return { paths, packageNames };
 }
 
 /**
@@ -429,10 +452,15 @@ if (currentVersion === targetVersion) {
   console.log(
     `Version already ${targetVersion}; ensuring changelog section, Cargo.lock, and re-running assert.`,
   );
+  const { packageNames: cargoLockPackageNames } = readCargoWorkspaceMembers();
   const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
   writeRepoFile(
     CARGO_LOCK_PATH,
-    replaceCargoLockPackageVersions(cargoLockContents, targetVersion),
+    replaceCargoLockPackageVersions(
+      cargoLockContents,
+      targetVersion,
+      cargoLockPackageNames,
+    ),
   );
   const changelog = existsSync(repoPath(CHANGELOG_PATH))
     ? readRepoFile(CHANGELOG_PATH)
@@ -473,6 +501,7 @@ if (!isSemVerGreater(targetVersion, currentVersion)) {
   );
   process.exit(1);
 }
+const cargoWorkspaceMembers = readCargoWorkspaceMembers();
 
 writeJsonVersion(CANONICAL_PATH, targetVersion);
 
@@ -517,27 +546,20 @@ writeRepoFile(
     ),
   );
 }
-
-for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
-  const crateContents = readRepoFile(cratePath);
+const {
+  paths: cargoMemberPaths,
+  packageNames: cargoLockPackageNames,
+} = cargoWorkspaceMembers;
+for (const memberPath of cargoMemberPaths) {
+  const manifestPath = join(memberPath, "Cargo.toml");
+  const manifestContents = readRepoFile(manifestPath);
   writeRepoFile(
-    cratePath,
-    replaceSpokeSchemasPathDependencyVersion(
-      crateContents,
+    manifestPath,
+    replaceCargoPathDependencyPinVersions(
+      manifestContents,
       targetVersion,
-      cratePath,
-    ),
-  );
-}
-
-{
-  const connectContents = readRepoFile(CARGO_CONNECT_CRATE_PATH);
-  writeRepoFile(
-    CARGO_CONNECT_CRATE_PATH,
-    replaceSpokeOperationsPathDependencyVersion(
-      connectContents,
-      targetVersion,
-      CARGO_CONNECT_CRATE_PATH,
+      cargoLockPackageNames,
+      manifestPath,
     ),
   );
 }
@@ -545,7 +567,11 @@ for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
 const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
 writeRepoFile(
   CARGO_LOCK_PATH,
-  replaceCargoLockPackageVersions(cargoLockContents, targetVersion),
+  replaceCargoLockPackageVersions(
+    cargoLockContents,
+    targetVersion,
+    cargoLockPackageNames,
+  ),
 );
 
 updateChangelog(targetVersion);

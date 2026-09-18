@@ -3,6 +3,13 @@
  *
  * Normative source: `.mstar/specs/spoke-version-release.md` lockstep table (rows 1–16).
  *
+ * Cargo dependency pins use inline tables with bare, basic-quoted, or
+ * literal-quoted keys and basic or literal string values. Basic-string escapes
+ * are decoded for name resolution; literal strings are used verbatim. Any table
+ * header whose final key segment names a workspace member, and any dotted key
+ * containing a workspace-member segment and ending in `version` or `path`, are
+ * refused.
+
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.
  * - pnpm-lock.yaml — workspace `link:` entries do not embed package SemVer.
@@ -27,14 +34,6 @@ export const JSON_VERSION_PATHS = [
 /** @type {string} Cargo workspace version (row 6). */
 export const CARGO_WORKSPACE_PATH = "Cargo.toml";
 
-/** @type {string} Rust schema crate manifest (row 7). */
-export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
-
-/** @type {string} Rust operations crate manifest (row 8). */
-export const CARGO_OPS_CRATE_PATH = "crates/spoke-operations/Cargo.toml";
-
-/** @type {string} Rust connect crate manifest (row 9; published as spoke-connect). */
-export const CARGO_CONNECT_CRATE_PATH = "crates/spoke-connect/Cargo.toml";
 
 /**
  * C# NuGet project Version (GitHub Packages 42ch.Spoke.Connect; lockstep).
@@ -145,101 +144,356 @@ export function replaceGradleVersion(contents, version, manifestPath) {
 }
 
 /**
- * Workspace member crate names whose `[[package]]` version in Cargo.lock must
- * match the lockstep SemVer.
- * @type {readonly string[]}
+ * Parse Cargo workspace member paths from the `[workspace]` `members` array.
+ *
+ * @param {string} contents
+ * @returns {string[]}
  */
-export const CARGO_LOCK_PACKAGE_NAMES = [
-  "spoke-schemas",
-  "spoke-operations",
-  "spoke-fixture-toy-world",
-  "spoke-connect",
-];
-
-/**
- * @param {string} version
- * @returns {string}
- */
-export function formatSpokeSchemasPathDependency(version) {
-  return `spoke-schemas = { version = "${version}", path = "../spoke-schemas" }`;
+export function parseCargoWorkspaceMembers(contents) {
+  const workspaceStart = contents.indexOf("[workspace]");
+  const workspaceSection =
+    workspaceStart < 0
+      ? null
+      : contents.slice(workspaceStart + "[workspace]".length);
+  const membersBody = workspaceSection?.match(
+    /^\s*members\s*=\s*\[([\s\S]*?)\]/m,
+  )?.[1];
+  if (membersBody === undefined) {
+    throw new Error("Cargo.toml: missing [workspace].members array");
+  }
+  const memberPaths = [
+    ...membersBody.replace(/#.*$/gm, "").matchAll(/"([^"]+)"/g),
+  ].map(([, memberPath]) => memberPath);
+  for (const memberPath of memberPaths) {
+    if (/[*?\[\]]/.test(memberPath)) {
+      throw new Error(
+        `Cargo.toml: workspace member "${memberPath}" uses glob metacharacters; explicit member paths are required`,
+      );
+    }
+  }
+  return memberPaths;
 }
 
 /**
+ * Parse the package name from a member's Cargo manifest.
+ *
  * @param {string} contents
- * @returns {string | null}
+ * @returns {string}
  */
-export function parseSpokeSchemasPathDependencyVersion(contents) {
-  const match = contents.match(
-    /^spoke-schemas\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
-  );
-  return match?.[1] ?? null;
+export function parseCargoPackageName(contents) {
+  const packageStart = contents.indexOf("[package]");
+  const packageSection =
+    packageStart < 0
+      ? null
+      : contents.slice(packageStart + "[package]".length);
+  const packageName = packageSection?.match(
+    /^\s*name\s*=\s*"([^"]+)"/m,
+  )?.[1];
+  if (!packageName) {
+    throw new Error("Cargo.toml: missing [package].name");
+  }
+  return packageName;
 }
 
 /**
- * @param {string} contents
- * @param {string} version
- * @param {string} manifestPath Used in the error message.
- * @returns {string}
+ * Resolve Cargo lock package names from workspace members.
+ *
+ * @param {string} workspaceContents
+ * @param {(memberPath: string) => string} readMemberManifest
+ * @returns {string[]}
  */
-export function replaceSpokeSchemasPathDependencyVersion(
-  contents,
-  version,
-  manifestPath,
+export function resolveCargoLockPackageNames(
+  workspaceContents,
+  readMemberManifest,
 ) {
-  const updated = contents.replace(
-    /^spoke-schemas\s*=\s*\{[^}]*\}/m,
-    formatSpokeSchemasPathDependency(version),
+  return parseCargoWorkspaceMembers(workspaceContents).map((memberPath) =>
+    parseCargoPackageName(readMemberManifest(memberPath)),
   );
-  if (updated === contents) {
+}
+
+const CARGO_STRING_PATTERN = String.raw`(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)')`;
+const CARGO_KEY_PATTERN = String.raw`(?:[A-Za-z0-9_-]+|"[^"\\]*(?:\\.[^"\\]*)*"|'[^']*')`;
+
+/**
+ * Decode a TOML basic string, refusing escapes outside the TOML basic-string
+ * escape set.
+ *
+ * @param {string} token
+ * @param {string} manifestPath
+ * @returns {string}
+ */
+function decodeCargoBasicString(token, manifestPath) {
+  const contents = token.slice(1, -1);
+  let decoded = "";
+  for (let index = 0; index < contents.length; index += 1) {
+    const character = contents[index];
+    if (character !== "\\") {
+      decoded += character;
+      continue;
+    }
+
+    const escape = contents[index + 1];
+    const offendingToken = token;
+    if (escape === undefined) {
+      throw new Error(
+        `${manifestPath}: malformed TOML basic-string escape in token ${offendingToken}`,
+      );
+    }
+    const simpleEscapes = {
+      b: "\b",
+      t: "\t",
+      n: "\n",
+      f: "\f",
+      r: "\r",
+      '"': '"',
+      "\\": "\\",
+    };
+    if (Object.hasOwn(simpleEscapes, escape)) {
+      decoded += simpleEscapes[escape];
+      index += 1;
+      continue;
+    }
+    if (escape === "u" || escape === "U") {
+      const width = escape === "u" ? 4 : 8;
+      const digits = contents.slice(index + 2, index + 2 + width);
+      if (
+        digits.length !== width ||
+        !/^[0-9A-Fa-f]+$/.test(digits)
+      ) {
+        throw new Error(
+          `${manifestPath}: malformed TOML basic-string escape in token ${offendingToken}`,
+        );
+      }
+      const codePoint = Number.parseInt(digits, 16);
+      if (
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        throw new Error(
+          `${manifestPath}: malformed TOML basic-string escape in token ${offendingToken}`,
+        );
+      }
+      decoded += String.fromCodePoint(codePoint);
+      index += width + 1;
+      continue;
+    }
     throw new Error(
-      `${manifestPath}: could not update spoke-schemas path dependency`,
+      `${manifestPath}: unsupported TOML basic-string escape in token ${offendingToken}`,
     );
   }
-  return updated;
+  return decoded;
 }
 
-
 /**
- * @param {string} version
+ * Remove Cargo key quoting for package-name resolution.
+ *
+ * @param {string} key
+ * @param {string} manifestPath
  * @returns {string}
  */
-export function formatSpokeOperationsPathDependency(version) {
-  return `spoke-operations = { version = "${version}", path = "../spoke-operations", optional = true }`;
+function decodeCargoKey(key, manifestPath) {
+  if (key.startsWith('"') && key.endsWith('"')) {
+    return decodeCargoBasicString(key, manifestPath);
+  }
+  if (key.startsWith("'") && key.endsWith("'")) {
+    return key.slice(1, -1);
+  }
+  return key;
 }
 
 /**
- * @param {string} contents
- * @returns {string | null}
+ * Split a Cargo dotted key path and decode each key segment.
+ *
+ * @param {string} keyPath
+ * @param {string} manifestPath
+ * @returns {string[]}
  */
-export function parseSpokeOperationsPathDependencyVersion(contents) {
-  const match = contents.match(
-    /^spoke-operations\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
-  );
-  return match?.[1] ?? null;
+function splitCargoKeyPath(keyPath, manifestPath) {
+  const segments = [];
+  let remaining = keyPath.trim();
+  while (remaining.length > 0) {
+    const match = remaining.match(
+      new RegExp(`^(${CARGO_KEY_PATTERN})(?:\\s*\\.\\s*|$)`),
+    );
+    if (!match) {
+      throw new Error(
+        `${manifestPath}: malformed Cargo key path ${keyPath}`,
+      );
+    }
+    segments.push(decodeCargoKey(match[1], manifestPath));
+    remaining = remaining.slice(match[0].length).trim();
+  }
+  return segments;
 }
 
 /**
+ * Refuse Cargo dependency declaration forms that this narrow scanner cannot
+ * parse safely.
+ *
  * @param {string} contents
- * @param {string} version
- * @param {string} manifestPath Used in the error message.
- * @returns {string}
+ * @param {readonly string[] | ReadonlySet<string>} packageNames
+ * @param {string} manifestPath
  */
-export function replaceSpokeOperationsPathDependencyVersion(
+function assertSupportedCargoPathDependencyShape(
   contents,
-  version,
+  packageNames,
   manifestPath,
 ) {
-  const updated = contents.replace(
-    /^spoke-operations\s*=\s*\{[^}]*\}/m,
-    formatSpokeOperationsPathDependency(version),
+  const workspaceMembers = new Set(packageNames);
+  const sectionPattern = new RegExp(
+    String.raw`^\s*(\[\[|\[)\s*(${CARGO_KEY_PATTERN}(?:\s*\.\s*${CARGO_KEY_PATTERN})*)\s*(\]\]|\])\s*(?:#.*)?$`,
+    "gm",
   );
-  if (updated === contents) {
-    throw new Error(
-      `${manifestPath}: could not update spoke-operations path dependency`,
-    );
+  for (const [, opening, keyPath, closing] of contents.matchAll(
+    sectionPattern,
+  )) {
+    if ((opening === "[[") !== (closing === "]]")) {
+      continue;
+    }
+    const segments = splitCargoKeyPath(keyPath, manifestPath);
+    const member = segments.at(-1);
+    if (member !== undefined && workspaceMembers.has(member)) {
+      throw new Error(
+        `${manifestPath}: dependency section [${keyPath}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+      );
+    }
   }
-  return updated;
+
+  const dottedKeyPattern = new RegExp(
+    String.raw`^\s*(${CARGO_KEY_PATTERN}(?:\s*\.\s*${CARGO_KEY_PATTERN})*)\s*\.\s*(${CARGO_KEY_PATTERN})\s*=`,
+    "gm",
+  );
+  for (const [, keyPath, attribute] of contents.matchAll(dottedKeyPattern)) {
+    const segments = splitCargoKeyPath(keyPath, manifestPath);
+    const decodedAttribute = decodeCargoKey(attribute, manifestPath);
+    if (decodedAttribute !== "version" && decodedAttribute !== "path") {
+      continue;
+    }
+    const member = segments.find((segment) => workspaceMembers.has(segment));
+    if (member !== undefined) {
+      throw new Error(
+        `${manifestPath}: dotted-key dependency ${keyPath}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+      );
+    }
+  }
 }
+
+/**
+ * Read a quoted Cargo inline-table attribute.
+ *
+ * @param {string} attributes
+ * @param {string} key
+ * @param {string} manifestPath
+ * @returns {{ value: string; quoted: string } | null}
+ */
+function readCargoStringAttribute(attributes, key, manifestPath) {
+  const match = attributes.match(
+    new RegExp(`\\b${key}\\s*=\\s*(${CARGO_STRING_PATTERN})`),
+  );
+  if (!match) {
+    return null;
+  }
+  const quoted = match[1];
+  return {
+    quoted,
+    value: quoted.startsWith('"')
+      ? decodeCargoBasicString(quoted, manifestPath)
+      : match[3],
+  };
+}
+
+/**
+ * Parse inline dependency tables that pin workspace crates by both version and
+ * path. The returned name uses the inline `package` attribute for aliases,
+ * falling back to the dependency key. Path-only dependencies intentionally do
+ * not participate in lockstep.
+ *
+ * @param {string} contents
+ * @param {readonly string[] | ReadonlySet<string>} packageNames
+ * @param {string} manifestPath
+ * @returns {{ name: string; version: string; path: string }[]}
+ */
+export function parseCargoPathDependencyPins(
+  contents,
+  packageNames,
+  manifestPath,
+) {
+  assertSupportedCargoPathDependencyShape(contents, packageNames, manifestPath);
+  const pins = [];
+  const dependencyPattern = new RegExp(
+    String.raw`^[ \t]*(${CARGO_KEY_PATTERN})\s*=\s*\{([^{}]*)\}`,
+    "gm",
+  );
+  for (const [, key, attributes] of contents.matchAll(dependencyPattern)) {
+    const decodedKey = decodeCargoKey(key, manifestPath);
+    const version = readCargoStringAttribute(attributes, "version", manifestPath);
+    const path = readCargoStringAttribute(attributes, "path", manifestPath);
+    const packageName = readCargoStringAttribute(
+      attributes,
+      "package",
+      manifestPath,
+    );
+    if (version !== null && path !== null) {
+      pins.push({
+        name: packageName?.value ?? decodedKey,
+        version: version.value,
+        path: path.value,
+      });
+    }
+  }
+  return pins;
+}
+
+/**
+ * Rewrite every selected inline workspace path dependency's version.
+ * Missing or path-only dependencies are left untouched.
+ *
+ * @param {string} contents
+ * @param {string} version
+ * @param {readonly string[]} packageNames
+ * @param {string} manifestPath
+ * @returns {string}
+ */
+export function replaceCargoPathDependencyPinVersions(
+  contents,
+  version,
+  packageNames,
+  manifestPath,
+) {
+  assertSupportedCargoPathDependencyShape(contents, packageNames, manifestPath);
+  const selected = new Set(packageNames);
+  const dependencyPattern = new RegExp(
+    String.raw`^([ \t]*)(${CARGO_KEY_PATTERN})\s*=\s*\{([^{}]*)\}`,
+    "gm",
+  );
+  return contents.replace(
+    dependencyPattern,
+    (full, indentation, key, attributes) => {
+      const decodedKey = decodeCargoKey(key, manifestPath);
+      const packageName = readCargoStringAttribute(
+        attributes,
+        "package",
+        manifestPath,
+      );
+      const path = readCargoStringAttribute(attributes, "path", manifestPath);
+      const currentVersion = attributes.match(
+        new RegExp(`(\\bversion\\s*=\\s*)(${CARGO_STRING_PATTERN})`),
+      );
+      readCargoStringAttribute(attributes, "version", manifestPath);
+      if (
+        !selected.has(packageName?.value ?? decodedKey) ||
+        path === null ||
+        currentVersion === null
+      ) {
+        return full;
+      }
+      const quote = currentVersion[3] !== undefined ? '"' : "'";
+      const updatedVersion = `${currentVersion[1]}${quote}${version}${quote}`;
+      return full.replace(currentVersion[0], updatedVersion);
+    },
+  );
+}
+
 
 /**
  * Read the version for a top-level `[[package]]` entry in Cargo.lock.
@@ -265,13 +519,13 @@ export function parseCargoLockPackageVersion(contents, packageName) {
  *
  * @param {string} contents
  * @param {string} version
- * @param {readonly string[]} [packageNames]
+ * @param {readonly string[]} packageNames Derived from Cargo.toml workspace members.
  * @returns {string}
  */
 export function replaceCargoLockPackageVersions(
   contents,
   version,
-  packageNames = CARGO_LOCK_PACKAGE_NAMES,
+  packageNames,
 ) {
   let updated = contents;
   for (const packageName of packageNames) {

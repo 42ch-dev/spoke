@@ -28,13 +28,13 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | 5 | Codegen runner | `tooling/codegen/package.json` → `version` | JSON `version` field |
 | 6 | TypeScript connect library | `packages/spoke-connect-ts/package.json` → `version` | JSON `version` field (published as `@42ch/spoke-connect`; asserted by `verify:version`, bumped by `release:bump`; built via `tsup` → `dist/` for the npm tarball) |
 | 7 | Rust workspace | `Cargo.toml` → `[workspace.package].version` | TOML parse |
-| 8 | Rust schema crate | `crates/spoke-schemas/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 |
-| 9 | Rust operations crate | `crates/spoke-operations/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 |
-| 10 | Rust connect crate | `crates/spoke-connect/Cargo.toml` | MUST declare `version.workspace = true`; effective version equals row 7 (published as `spoke-connect`) |
-| 11 | C# connect NuGet | `crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj` → `<Version>` | Lockstep SemVer; published as GitHub Packages `42ch.Spoke.Connect` |
-| 12 | Python connect PyPI | `crates/spoke-connect/bindings/python/pyproject.toml` → `[project].version` | Lockstep SemVer; published as PyPI `spoke-connect` via `publish-pypi` on `release.yml` |
-| 13 | Kotlin connect Maven | `crates/spoke-connect/bindings/kotlin/build.gradle.kts` → `version` | Lockstep SemVer; published as GitHub Packages `dev.42ch:spoke-connect` via `publish-maven` on `release.yml` |
-| 14 | Cargo lockfile | `Cargo.lock` → `[[package]]` for `spoke-schemas`, `spoke-operations`, `spoke-fixture-toy-world`, `spoke-connect` | TOML package version entries |
+| 8 | Rust workspace member manifests | Every `Cargo.toml` named by `[workspace].members` | MUST declare `version.workspace = true`; effective version equals row 7 |
+| 9 | Rust inter-crate path pins | Every workspace-member dependency using both `{ version, path }` | Pin version equals row 7 |
+| 10 | C# connect NuGet | `crates/spoke-connect/bindings/csharp/42ch.Spoke.Connect.csproj` → `<Version>` | Lockstep SemVer; published as GitHub Packages `42ch.Spoke.Connect` |
+| 11 | Python connect PyPI | `crates/spoke-connect/bindings/python/pyproject.toml` → `[project].version` | Lockstep SemVer; published as PyPI `spoke-connect` via `publish-pypi` on `release.yml` |
+| 12 | Kotlin connect Maven | `crates/spoke-connect/bindings/kotlin/build.gradle.kts` → `version` | Lockstep SemVer; published as GitHub Packages `dev.42ch:spoke-connect` via `publish-maven` on `release.yml` |
+| 13 | Cargo workspace package entries | Every workspace member package named by its member manifest | Package version equals row 7 |
+| 14 | Cargo lockfile | `Cargo.lock` → `[[package]]` entries for every workspace member | TOML package version entries equal row 7 |
 | 15 | README EN badge | `README.md` | Dynamic shields.io GitHub Releases badge (presence) |
 | 16 | README CN badge | `README_CN.md` | Same as row 15 |
 
@@ -47,7 +47,9 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 | `tooling/codegen/rust-gen/Cargo.toml` | Standalone `[workspace]` bin crate (`spoke-rust-gen`); not a consumer pin surface; version is local to the codegen tool |
 | `pnpm-lock.yaml` | Workspace packages use `link:` protocol; lockfile does not embed package SemVer |
 
-CI **lockstep assert** MUST cover rows 1–16. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite `Cargo.lock` member versions when bumping (Node-only; no `cargo` required).
+CI **lockstep assert** MUST cover rows 1–16. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite every workspace member entry and every inter-crate `{version, path}` pin when bumping (Node-only; no `cargo` required).
+
+Lockstep pins use inline dependency tables with bare or quoted keys and basic or literal string values; basic-string escapes are decoded for name resolution, while literal strings are used verbatim. Any table header whose final key segment names a workspace member, and any dotted key containing a workspace-member segment and ending in `version` or `path`, are refused.
 
 ## SemVer usage (monorepo)
 
@@ -150,9 +152,9 @@ Both `README.md` and `README_CN.md` MUST contain a dynamic shields.io GitHub Rel
 
 | Script | Path | Role |
 |--------|------|------|
-| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports `CANONICAL_PATH`, `JSON_VERSION_PATHS[]`, `CARGO_WORKSPACE_PATH`, `CARGO_SCHEMA_CRATE_PATH`, `CARGO_OPS_CRATE_PATH`, `CARGO_LOCK_PATH`, `CARGO_LOCK_PACKAGE_NAMES[]`, `README_BADGE_PATHS[]`, `README_RELEASE_BADGE_MARKER` |
-| Assert | `tooling/release/assert-lockstep-version.mjs` | Reads manifest (incl. `Cargo.lock` member versions); exits 0/1 |
-| Bump | `tooling/release/bump-version.mjs` | Updates all lockstep manifests + `Cargo.lock` member versions; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
+| SSOT manifest | `tooling/release/lockstep-surfaces.mjs` | Exports the JSON surfaces, `CARGO_WORKSPACE_PATH`, `CARGO_LOCK_PATH`, pure Cargo workspace/member parsers, path-pin transformations, and the derived member resolver shared by assert and bump |
+| Assert | `tooling/release/assert-lockstep-version.mjs` | Reads every Cargo workspace member manifest and its `Cargo.lock` entry, plus all lockstep surfaces; exits 0/1 |
+| Bump | `tooling/release/bump-version.mjs` | Updates every workspace member manifest pin and `Cargo.lock` member entry; regenerates `CHANGELOG.md` via git-cliff; invokes assert before exit 0 |
 | Changelog runner | `tooling/release/run-git-cliff.mjs` | Resolves `git-cliff` (PATH → `pnpm dlx` → `npx`); used by bump and `release:changelog` |
 | Notes extractor | `tooling/release/extract-changelog-notes.mjs` | Prints `CHANGELOG.md` section body for `vX.Y.Z` / `X.Y.Z` (CI + local) |
 | Config | `cliff.toml` | git-cliff Conventional Commits grouping (Keep a Changelog sections) |

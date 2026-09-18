@@ -100,7 +100,7 @@ title: 操作线上参考（Ops wire）
 
 ## 可选操作（`ke-extraction`）
 
-`extract` 是 `ke-extraction` 能力标志下的可选操作，由既有 `input-source` 角色的主机提供 —— 不是第六个基线操作。它从被引用的源材料提议 `provisional` 候选 KnowledgeEntry。
+`extract` 是 `ke-extraction` 能力标志下的可选操作族，由既有 `input-source` 角色的主机提供；五个基线操作族保持不变。它从被引用的源材料提议 `provisional` 候选 KnowledgeEntry。
 
 | Op | 意图 | 请求 | 响应 |
 |----|------|------|------|
@@ -108,7 +108,7 @@ title: 操作线上参考（Ops wire）
 
 ### ExtractRequest / ExtractResponse
 
-`ExtractRequest` 必填：`run_id`、`sources`。输入仅含引用 —— 请求携带溯源指针，绝不携带内联文本。
+`ExtractRequest` 必填：`run_id`、`sources`。输入仅含引用：请求携带溯源指针与各自的可选 span。
 
 | 字段 | 说明 |
 |------|------|
@@ -117,7 +117,7 @@ title: 操作线上参考（Ops wire）
 | `entry_types` | 可选的咨询性候选类型提示（开放词汇，非后置过滤） |
 | `extensions` | 可选传输元数据 |
 
-`ExtractResponse` 成功：`{ candidates, run }` —— **或** `{ error }`。两个分支永不共存。
+`ExtractResponse` 携带单一分支：成功 `{ candidates, run }` —— **或** 失败 `{ error }`。
 
 | 成功字段 | 说明 |
 |----------|------|
@@ -127,12 +127,12 @@ title: 操作线上参考（Ops wire）
 
 | 失败字段 | 说明 |
 |----------|------|
-| `error` | `ErrorEnvelope`；失败的运行不携带候选列表，也不携带第二条运行记录 |
+| `error` | `ErrorEnvelope` —— 该响应的失败分支 |
 | `extensions` | 可选传输元数据 |
 
-**`provisional` 不变量。** 候选集合中含 `merged` / `deleted` 条目时以 `CANDIDATE_TERMINAL_STATUS` 拒绝；含其他非 `provisional` 状态时以 `CANDIDATE_NOT_PROVISIONAL` 拒绝。库从不改写状态，也从不返回部分成功。
+**`provisional` 不变量。** 任一候选非 `provisional` 时，库拒绝整个候选集合 —— `merged` / `deleted` 条目给出 `CANDIDATE_TERMINAL_STATUS`，其他状态给出 `CANDIDATE_NOT_PROVISIONAL` —— 成功响应并原样回显请求的 `run_id`。
 
-**`extract` 与 `extract→promote` 的区别。** 基线 `extract→promote` 行是准入：`promote` 把单个 `provisional` 候选准入持久存储。可选的 `extract` 操作是产出：它从被引用的源材料提议 `provisional` 候选。抽取产物仍只能经 promote 到达持久存储。
+**`extract` 与 `extract→promote` 的区别。** 基线 `extract→promote` 行覆盖准入：`promote` 把单个 `provisional` 候选准入持久存储。可选 `extract` 操作覆盖产出：它从被引用的源材料提议 `provisional` 候选。抽取产物经 promote 到达持久存储。
 
 ## 共享规则
 

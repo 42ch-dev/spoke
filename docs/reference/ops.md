@@ -100,7 +100,7 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 
 ## Optional op (`ke-extraction`)
 
-`extract` is an optional op under the `ke-extraction` capability flag, provided by hosts in the existing `input-source` role — not a sixth baseline op. It proposes provisional `KnowledgeEntry` candidates from referenced source material.
+`extract` is an optional op family under the `ke-extraction` capability flag, provided by hosts in the existing `input-source` role; the five baseline op families stay unchanged. It proposes provisional `KnowledgeEntry` candidates from referenced source material.
 
 | Op | Intent | Request | Response |
 |----|--------|---------|----------|
@@ -108,7 +108,7 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 
 ### ExtractRequest / ExtractResponse
 
-`ExtractRequest` required: `run_id`, `sources`. Input is reference-only — the request carries source anchors, never inline text.
+`ExtractRequest` required: `run_id`, `sources`. Input is reference-only: the request carries source anchors with their optional spans.
 
 | Field | Notes |
 |-------|-------|
@@ -117,7 +117,7 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `entry_types` | Optional advisory candidate-type hints (an open vocabulary, not a post-filter) |
 | `extensions` | Optional transport metadata |
 
-`ExtractResponse` success: `{ candidates, run }` — **or** `{ error }`. The branches never co-exist.
+`ExtractResponse` carries one branch: success `{ candidates, run }` — **or** failure `{ error }`.
 
 | Success field | Notes |
 |---------------|-------|
@@ -127,12 +127,12 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 
 | Failure field | Notes |
 |---------------|-------|
-| `error` | `ErrorEnvelope`; a failed run carries no candidate list and no second run record |
+| `error` | `ErrorEnvelope` — the response's failure branch for this run |
 | `extensions` | Optional transport metadata |
 
-**Provisional invariant.** A candidate set containing a `merged` / `deleted` entry rejects as `CANDIDATE_TERMINAL_STATUS`; any other non-provisional status rejects as `CANDIDATE_NOT_PROVISIONAL`. The library never rewrites statuses and never returns partial success.
+**Provisional invariant.** The library rejects the whole candidate set when any candidate is not `provisional` — a `merged` / `deleted` entry yields `CANDIDATE_TERMINAL_STATUS`, another status yields `CANDIDATE_NOT_PROVISIONAL` — and a success response echoes the request's `run_id` verbatim.
 
-**`extract` vs `extract→promote`.** The baseline `extract→promote` row is admission: `promote` admits one provisional candidate to durable storage. The optional `extract` op is production: it proposes provisional candidates from referenced sources. Extraction output still reaches durable storage only through promote.
+**`extract` vs `extract→promote`.** The baseline `extract→promote` row covers admission: `promote` admits one provisional candidate to durable storage. The optional `extract` op covers production: it proposes provisional candidates from referenced sources. Extraction output reaches durable storage through promote.
 
 ## Shared rules
 

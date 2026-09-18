@@ -4,7 +4,7 @@ title: 编排操作（Orchestrate operations）
 
 # 编排操作（Orchestrate operations）
 
-操作库为每个 op 族暴露**一个编排器**。每个编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。同样的调用也可以原样运行在[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)或[多对等节点路由器](/zh/how-to/multi-peer-routing)之上 —— 两者都可直接作为 `BaselinePorts` 实现接入。
+操作库为每个 op 族暴露**一个编排器**。承载持久化的基线编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。基线调用也可以原样运行在[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)或[多对等节点路由器](/zh/how-to/multi-peer-routing)之上 —— 两者都可直接作为 `BaselinePorts` 实现接入。可选的抽取路径接收独立的 `ExtractionPort` 与异步抽取器回调，经该 port 加载被引用的输入，运行一次抽取器，并返回 `provisional` 候选，供随后经 `promote` 准入持久存储；经 connect 的抽取[以整操作远程 op 委派](/zh/reference/connect#远程抽取-remote-extraction-ke-extraction)。
 
 ## 编排器一览
 
@@ -53,7 +53,7 @@ async function runPromote() {
 }
 ```
 
-Promote 是准入，而非抽取：它把单个候选准入持久存储，抽取产物只能经此到达持久层。Promote 运行验收门禁（`CANDIDATE_NOT_PROVISIONAL`、`CANDIDATE_TERMINAL_STATUS` 等）与修订门禁，应用验收状态迁移，并经由 `putKnowledgeEntry` 持久化。携带 `target_entry_id` 时，响应会带上被合并条目的 `superseded_id`。
+Promote 覆盖准入：它把单个候选准入持久存储，抽取产物经此步骤到达持久层。Promote 运行验收门禁（`CANDIDATE_NOT_PROVISIONAL`、`CANDIDATE_TERMINAL_STATUS` 等）与修订门禁，应用验收状态迁移，并经由 `putKnowledgeEntry` 持久化。携带 `target_entry_id` 时，响应会带上被合并条目的 `superseded_id`。
 
 ## Relate —— 类型化有向边
 
@@ -114,7 +114,7 @@ async function runAssemble() {
 
 ## Extract —— 提议 `provisional` 候选
 
-`orchestrateExtract(ports, request, runExtractor)` 是可选的 `ke-extraction` 路径。`ExtractionPort` 独立存在 —— 不组合进 `BaselinePorts` / `FullPorts` 或任何 adapter 别名 —— 因此你直接传入它，连同你自己的异步抽取器回调：
+`orchestrateExtract(ports, request, runExtractor)` 是可选的 `ke-extraction` 路径。`ExtractionPort` 是独立的可选 port 族，直接传给 `orchestrateExtract`，连同你自己的异步抽取器回调：
 
 ```ts
 import { orchestrateExtract, spokeOk, type ExtractionPort, type RunExtractor } from "@42ch/spoke-operations";
@@ -141,9 +141,9 @@ async function runExtract() {
 }
 ```
 
-编排器校验 `run_id` 与 `sources`，经该 port 加载被引用的材料，然后以 `{ request, input }` 恰好调用一次你的抽取器。加载值是进程内不透明值 —— 绝不出现在 `ExtractRequest` / `ExtractResponse` 上。运行返回候选加上 `run` 元数据；它从不持久化或 promote 任何内容，也从不获取 manifests；动态边界缺失该 port 时以 `CAPABILITY_PORT_MISSING` 拒绝，`details.capability = "ke-extraction"`。
+编排器校验 `run_id` 与 `sources`，经该 port 加载被引用的材料，然后以 `{ request, input }` 恰好调用一次你的抽取器。加载值保持进程内且不透明；线上承载的是请求的引用与响应的候选。运行返回候选加上 `run` 元数据 —— 这些 `provisional` 提议随后经 `promote` 完成持久准入。动态边界缺失该 port 时以 `CAPABILITY_PORT_MISSING` 拒绝，`details.capability = "ke-extraction"`。
 
-Rust 导出同一入口 `orchestrate_extract`，配 `ExtractRunInput` / `ExtractionResult` 结构体，回调为泛型 `F: FnOnce(ExtractRunInput) -> Fut` —— 没有名为 `RunExtractor` 的孪生类型。
+Rust 将同一入口拼写为 `orchestrate_extract`，配 `ExtractRunInput` / `ExtractionResult` 结构体，回调为泛型 `F: FnOnce(ExtractRunInput) -> Fut`。
 
 ## 处理拒绝
 

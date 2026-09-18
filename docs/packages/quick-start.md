@@ -67,7 +67,7 @@ The committed C/C++ carriers target macOS arm64 (`osx-arm64`) and Windows x64 (`
 
 1. Import wire types from the schemas package.
 2. Implement the port families for the capabilities you claim on one adapter type (`BaselineAdapter` … `FullAdapter`).
-3. Call the matching orchestrator (`orchestrateUpsert`, `orchestratePromote`, `orchestrateExtract`, …) — pure gates run, persistence goes through your ports. The optional `ke-extraction` path takes a standalone `ExtractionPort` plus an async extractor callback and persists nothing.
+3. Call the matching orchestrator (`orchestrateUpsert`, `orchestratePromote`, `orchestrateExtract`, …) — pure gates run, and the persistence-bearing paths write through your ports. The optional `ke-extraction` path takes a standalone `ExtractionPort` plus an async extractor callback and returns provisional candidates for later admission through `promote`.
 4. Walk the committed "Mira at Harbor" graph and the reference `ToyWorldAdapter` in `fixtures/toy-world/` (TypeScript adapter + Rust fixture crate).
 
 ## Version policy

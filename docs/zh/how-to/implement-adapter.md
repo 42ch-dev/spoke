@@ -125,7 +125,7 @@ Fork 作用域的时间轴读取。同一个对象可同时满足 `ScopeQueryPor
 loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
 ```
 
-可选 `extract` 操作所需的宿主本地源加载：该 port 读取被引用的材料，返回一个绝不出现在线上的进程内不透明值。`ExtractionPort` 独立存在 —— 不属于任何组合别名，也从不加入 `BaselinePorts` / `FullPorts` —— 因此 `orchestrateExtract` 直接接收它，连同你自己的异步抽取器回调。动态边界缺失该 port 时以 `CAPABILITY_PORT_MISSING` 拒绝，`details.capability = "ke-extraction"`。
+可选 `extract` 操作所需的宿主本地源加载：该 port 读取被引用的材料，返回留在宿主进程内的不透明值。`ExtractionPort` 是独立的可选 port 族，由 `orchestrateExtract` 直接接收，连同你自己的异步抽取器回调。动态边界缺失该 port 时以 `CAPABILITY_PORT_MISSING` 拒绝，`details.capability = "ke-extraction"`。
 
 ## 3. 让 adapter 保持 I/O 边界
 

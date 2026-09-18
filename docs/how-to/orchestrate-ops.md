@@ -4,7 +4,7 @@ title: Orchestrate operations
 
 # Orchestrate operations
 
-The operations library exposes one **orchestrator per op family**. Each orchestrator takes your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, runs the protocol gates, loads and persists data through your ports, and returns a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust). The same calls run unchanged against a [RemoteAdapter over a consumer Transport](/how-to/connect-remote-adapter) or a [multi-peer router](/how-to/multi-peer-routing) — either drops in as the `BaselinePorts` implementation.
+The operations library exposes one **orchestrator per op family**. The persistence-bearing baseline orchestrators take your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, run the protocol gates, load and persist data through your ports, and return a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust). The baseline calls run unchanged against a [RemoteAdapter over a consumer Transport](/how-to/connect-remote-adapter) or a [multi-peer router](/how-to/multi-peer-routing) — either drops in as the `BaselinePorts` implementation. The optional extraction path takes its own standalone `ExtractionPort` plus the async extractor callback, loads the referenced input through that port, runs the extractor once, and returns provisional candidates for later admission through `promote`; extraction over connect is [delegated as a whole-operation remote op](/reference/connect#remote-extraction-ke-extraction).
 
 ## The orchestrators
 
@@ -53,7 +53,7 @@ async function runPromote() {
 }
 ```
 
-Promote is admission, not extraction: it admits one candidate to durable storage, and extraction output reaches durability only this way. Promote runs the acceptance gates (`CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, …) and the revision gate, applies the acceptance transition, and persists through `putKnowledgeEntry`. With a `target_entry_id`, the response carries `superseded_id` for the merged-away entry.
+Promote covers admission: it admits one candidate to durable storage, and extraction output reaches durability through this step. Promote runs the acceptance gates (`CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, …) and the revision gate, applies the acceptance transition, and persists through `putKnowledgeEntry`. With a `target_entry_id`, the response carries `superseded_id` for the merged-away entry.
 
 ## Relate — typed directed edges
 
@@ -114,7 +114,7 @@ The orchestrator loads the scope, applies scope filters, and builds a wire-only 
 
 ## Extract — propose provisional candidates
 
-`orchestrateExtract(ports, request, runExtractor)` is the optional `ke-extraction` path. `ExtractionPort` is standalone — not composed into `BaselinePorts` / `FullPorts` or any adapter alias — so you pass it directly, together with your own async extractor callback:
+`orchestrateExtract(ports, request, runExtractor)` is the optional `ke-extraction` path. `ExtractionPort` is a standalone optional family passed directly to `orchestrateExtract`, together with your own async extractor callback:
 
 ```ts
 import { orchestrateExtract, spokeOk, type ExtractionPort, type RunExtractor } from "@42ch/spoke-operations";
@@ -141,9 +141,9 @@ async function runExtract() {
 }
 ```
 
-The orchestrator validates `run_id` and `sources`, loads the referenced material through the port, then invokes your extractor exactly once with `{ request, input }`. The loaded value is opaque and in-process — it never appears on `ExtractRequest` / `ExtractResponse`. The run returns candidates plus `run` metadata; it never persists or promotes anything and never fetches manifests, and a missing port at a dynamic boundary rejects as `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
+The orchestrator validates `run_id` and `sources`, loads the referenced material through the port, then invokes your extractor exactly once with `{ request, input }`. The loaded value stays in-process and opaque; the wire carries the request's references and the response's candidates. The run returns candidates plus `run` metadata — provisional proposals whose durable admission happens later through `promote`. A missing port at a dynamic boundary rejects as `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
 
-Rust exports the same entrypoint as `orchestrate_extract`, with `ExtractRunInput` / `ExtractionResult` structs and the callback as a generic `F: FnOnce(ExtractRunInput) -> Fut` — there is no nominal `RunExtractor` twin.
+Rust spells the same entrypoint `orchestrate_extract`, with `ExtractRunInput` / `ExtractionResult` structs and the callback as a generic `F: FnOnce(ExtractRunInput) -> Fut`.
 
 ## Handle rejects
 

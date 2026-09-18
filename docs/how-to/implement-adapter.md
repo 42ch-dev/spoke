@@ -125,7 +125,7 @@ Fork-scoped timeline reads. One object may satisfy both `ScopeQueryPort` and thi
 loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
 ```
 
-Host-local source loading for the optional `extract` op: the port reads the referenced material and returns one in-process opaque value that never appears on the wire. `ExtractionPort` is standalone — not part of any composed alias and never added to `BaselinePorts` / `FullPorts` — so `orchestrateExtract` takes it directly, together with your own async extractor callback. Absence at a dynamic boundary surfaces `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
+Host-local source loading for the optional `extract` op: the port reads the referenced material and returns one in-process opaque value that stays local to the host. `ExtractionPort` is a standalone optional family, passed directly to `orchestrateExtract` together with your own async extractor callback. At a dynamic boundary, a missing port surfaces `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
 
 ## 3. Keep the adapter I/O-bound
 

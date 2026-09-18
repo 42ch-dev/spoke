@@ -14,37 +14,23 @@ connect 是面向跨进程 SPOKE 主机的可选交互信封族（`spoke-connect
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-`@42ch/spoke-connect` 提供四个入口：
-
-- **`.`** —— 同构核心：身份推导、Ed25519 密码学、RFC 8785 JCS 规范化，以及纯会话核心规则（allowlist、nonce、sequence、correlation、dispatch gate）。
-- **`./node`** —— Node 版 `connectClient`，负责拨号 WebSocket 并完成完整握手。
-- **`./noise`** —— 可选的 Noise XX mesh 传输子路径，用于直接的 libp2p-noise 互操作。
-- **`./remote`** —— 可选的 RemoteAdapter 模块：经消费方 `Transport` 的 `connectRemoteAdapter`、多对等节点路由器，以及仓库内回环对（见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)）。
+该软件包提供同构核心、Node 版 `connectClient`、Noise 子路径与 RemoteAdapter 模块；各入口与对应辅助函数见[从 TypeScript 客户端连接](/zh/how-to/connect-ts-client)。
 
 ## 2. 推导你的对等节点身份
 
 每个 connect 主机都有一对 Ed25519 密钥。线上的 `peer_id`（对等节点标识）由 32 字节公钥推导而来 —— libp2p `PublicKey` protobuf 的身份 multihash，再经 base58btc 编码。该推导在 TypeScript 客户端、Rust 参考实现与全部原生绑定之间字节一致（由共享 golden vectors 锁定）。
 
-```ts
-import { derivePeerIdFromEd25519Pubkey, getPublicKeyEd25519 } from "@42ch/spoke-connect";
-
-const seed = new TextEncoder().encode("..."); // 32-byte Ed25519 seed
-const publicKey = getPublicKeyEd25519(seed);
-const peerId = derivePeerIdFromEd25519Pubkey(publicKey);
-
-console.log(peerId); // base58btc, e.g. 12D3KooW...
-```
-
-`peer_id` 是网络信任根 —— 与 manifest 内携带的咨询性 `host_id`（主机标识）不同。
+`peer_id` 是网络信任根 —— 与 manifest 内携带的咨询性 `host_id`（主机标识）不同。用 `derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed))` 推导它；身份辅助函数见[从 TypeScript 客户端连接](/zh/how-to/connect-ts-client)。
 
 ## 3. 签署并校验握手
 
-握手是一个已签名的 `ConnectHello`：`{protocol_version, peer_id, nonce, host}` 对象（发起方 hello）—— 或 `{protocol_version, peer_id, nonce, host, peer_nonce}`（响应方 hello，`peer_nonce` = 发起方的 nonce，即拨号绑定）—— 先经 RFC 8785 JCS 规范化（[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)），再用 Ed25519 签名，原始签名以无填充 base64url 编码（[RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)）。
+握手是一个已签名的 `ConnectHello`：双方各对一个 JCS 规范化对象签名 —— 发起方为 `{protocol_version, peer_id, nonce, host}`，响应方为该对象加 `peer_nonce`（发起方的 nonce，即拨号绑定）—— 使用各自的 Ed25519 密钥，并以无填充 base64url 承载。
 
 ```ts
 import { generateNonce, signHelloEd25519, verifyHelloEd25519 } from "@42ch/spoke-connect";
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
+const seed = new TextEncoder().encode("..."); // 32-byte Ed25519 seed
 const manifest: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "host_tutorial",
@@ -62,32 +48,19 @@ const hello = await signHelloEd25519(seed, nonce, manifest);
 await verifyHelloEd25519(remotePubkey, remotePeerId, hello);
 ```
 
-nonce 按发送方单次使用：接收方在 `NonceStore` 中记录每个已接受的 `(peer_id, nonce)` 对，并拒绝重放。
-
-**响应方**（收到 hello 的一方）在签署自己的 hello 时带上发起方的 nonce —— 即拨号绑定。发起方在验证时传入自己的 nonce，因此捕获的响应方 hello 无法重放进新的拨号：
-
-```ts
-// 响应方：把发起方的 nonce 回显进签名对象（5 个字段）。
-const responderHello = await signHelloEd25519(seed, generateNonce(), manifest, receivedHello.nonce);
-
-// 发起方：断言响应方的 peer_nonce 等于我们自己的 nonce。
-await verifyHelloEd25519(remotePubkey, remotePeerId, responderHello, ourNonce);
-```
+nonce 按发送方单次使用：接收方记录每个已接受的 `(peer_id, nonce)` 对并拒绝重放。响应方用自身 nonce 加发起方 nonce（`signHelloEd25519` 的第四个参数）签署同一对象，发起方在验证时传入自己的 nonce —— 因此捕获的响应方 hello 无法重放进新的拨号。完整握手走查 —— 规范化字节、nonce 下限与 `NonceStore` 重放防护 —— 见[从 TypeScript 客户端连接](/zh/how-to/connect-ts-client)。
 
 ## 4. 配置 allowlist
 
 准入是 fail-closed 的：空 allowlist 拒绝所有对端。接收主机只接受认证后的远端 `peer_id` 出现在列表中的连接。
 
 ```ts
-import { isAllowlisted, NonceStore } from "@42ch/spoke-connect";
+import { isAllowlisted } from "@42ch/spoke-connect";
 
 const allowlist = [remotePeerId];
 if (!isAllowlisted(allowlist, remotePeerId)) {
   throw new Error(`peer ${remotePeerId} is not allowlisted`);
 }
-
-const nonceStore = new NonceStore();
-nonceStore.checkAndRecord(remotePeerId, hello.nonce); // 重放时返回 false
 ```
 
 ## 5. sequence 与 correlation

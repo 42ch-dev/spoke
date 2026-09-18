@@ -244,13 +244,7 @@ port 调用结算为 `SpokeResult`；invoke 路径的失败以拒绝呈现：
 
 ## 7. 信封认证
 
-adapter 在每条 post-hello 信封上内部强制 **protocol version 2** 逐信封认证，无需任何配置：
-
-- 拨号在建立前校验响应方已签名的 `ConnectSession` 快照与握手身份一致；
-- 每个出站 invoke 请求携带 `spoke-connect-invoke-request-jcs-v1` 签名；
-- 每个入站响应先执行关联回显检查，再进行 `spoke-connect-invoke-response-jcs-v1` 校验。
-
-信封真实性是传输层之上的协议级属性 —— 不依赖 TLS 或 Noise。见 [Connect 架构](/zh/explanation/connect#信封认证)中的信封认证，以及[线上参考](/zh/reference/connect#信封认证-protocol-version-2)中的已签名字段集。
+adapter 在每条 post-hello 信封上内部强制 **protocol version 2** 逐信封认证，无需任何配置。[Connect 架构](/zh/explanation/connect#信封认证)解释该属性；[线上参考](/zh/reference/connect#信封认证-protocol-version-2)给出算法 id、已签名字段集、校验规则与逐信封强制细节。
 
 ## 8. 回环冒烟测试
 

@@ -4,9 +4,7 @@ title: Connect 架构
 
 # Connect 架构（Connect architecture）
 
-**Connect** 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-connect` 能力标志）：签名清单交换、会话上下文、远程 op 调用与可扩展鉴权。它是增量的 —— 基线合规与基线 schema 保持不变，未声明 `spoke-connect` 的主机不受影响。
-
-整个家族是一条完整的集成方旅程：安装 → 语言原生客户端会话 → 基于消费方 `Transport` 的 RemoteAdapter → 跨多个对等节点路由 → 原生绑定 → 回环冒烟测试。本页解释该旅程背后的概念；[教程](/zh/tutorials/first-connect-session)带着你走一遍，[how-to 指南](/zh/how-to/connect-remote-adapter)是配方，[线上参考](/zh/reference/connect)是字典。
+**Connect** 是面向跨进程 SPOKE 主机的可选**交互信封族**（`spoke-connect` 能力标志）—— 一条完整的集成方旅程：安装 → 语言原生客户端会话 → 基于消费方 `Transport` 的 RemoteAdapter → 跨多个对等节点路由 → 原生绑定 → 回环冒烟测试。本页解释该旅程背后的概念；[教程](/zh/tutorials/first-connect-session)带着你走一遍，[how-to 指南](/zh/how-to/connect-remote-adapter)是配方，[线上参考](/zh/reference/connect)是字典。
 
 ## 三种嵌入面
 
@@ -35,6 +33,8 @@ connect 会话经过四个状态：`Disconnected` → `Handshaking` → `Establi
 ## 能力路由
 
 **RemoteAdapter（远程适配器）**通过在已建立会话上把每个 port 调用作为保留的 `port.*` op 代理，实现异步 `BaselinePorts` adapter 契约 —— 远端主机的 port 面看起来就在本地。**多对等节点路由器（multi-peer router）**在同一个 `BaselinePorts` 面之后组合 N 个已注册 adapter，因此 `orchestrateUpsert(router, req)` 能触达有能力的对等节点而无需指名。
+
+两个能力标志把该面延伸到 `port.*` 之外：可选的 `extract` op 在会话协商出的 `negotiated_capabilities` 含 `ke-extraction` 时分派；携带非空 `viewpoint` 的 Scope 则在行能力之外额外要求 `ke-ownership`。完整契约见线上参考中的[知识抽取与归属](/zh/reference/connect#知识抽取与归属-remoteadapter)。
 
 路由器的选择是已注册对等节点集与请求的纯函数：对等节点声明能力（op 的必需能力）、namespaces 与 `authority.scope_key` 上的硬门禁；对 op 首选角色的软偏好；以及确定性的最小 `peer_id` 决胜。当没有已注册对等节点通过硬门禁时，调用以 `no_capable_peer` 拒绝 —— 消费方注册一个满足条件的对等节点，并用新的 `request_id` 重新调用。重试由消费方负责：调用可能在传输失败前已被应用，因此由消费方决定重新运行该操作是否安全。
 

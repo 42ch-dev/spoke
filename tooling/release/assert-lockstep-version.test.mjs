@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { CARGO_CONNECT_CRATE_PATH } from "./lockstep-surfaces.mjs";
+import {
+  CARGO_LOCK_PATH,
+  CARGO_WORKSPACE_PATH,
+  parseCargoWorkspaceMembers,
+  resolveCargoLockPackageNames,
+} from "./lockstep-surfaces.mjs";
 import {
   cleanupTempRepo,
   createTempRepo,
+  findCargoMemberManifest,
   readCanonicalVersion,
   runReleaseScript,
 } from "./test-harness.mjs";
@@ -35,6 +41,71 @@ describe("assert-lockstep-version.mjs", () => {
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /Lockstep version OK/);
+  });
+
+  it("covers every extra Cargo workspace member in lockstep coverage", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const extraMemberPath = "fixtures/extra-member/rust";
+    const extraPackageName = "spoke-fixture-extra";
+    const workspacePath = join(repoRoot, CARGO_WORKSPACE_PATH);
+    const workspace = readFileSync(workspacePath, "utf8");
+    const updatedWorkspace = workspace.replace(
+      /(^members\s*=\s*\[[\s\S]*?)(^\])/m,
+      `$1  "${extraMemberPath}",\n$2`,
+    );
+    assert.notEqual(updatedWorkspace, workspace);
+    writeFileSync(workspacePath, updatedWorkspace);
+    mkdirSync(join(repoRoot, extraMemberPath), { recursive: true });
+    const extraManifestPath = join(repoRoot, extraMemberPath, "Cargo.toml");
+    writeFileSync(
+      extraManifestPath,
+      `[package]\nname = "${extraPackageName}"\nversion.workspace = true\n`,
+      "utf8",
+    );
+
+    const cargoLockPath = join(repoRoot, CARGO_LOCK_PATH);
+    const cargoLock = readFileSync(cargoLockPath, "utf8");
+    writeFileSync(
+      cargoLockPath,
+      `${cargoLock}\n[[package]]\nname = "${extraPackageName}"\nversion = "${current}"\n`,
+      "utf8",
+    );
+
+    const workspaceMembers = parseCargoWorkspaceMembers(updatedWorkspace);
+    const derivedNames = resolveCargoLockPackageNames(
+      updatedWorkspace,
+      (memberPath) =>
+        readFileSync(join(repoRoot, memberPath, "Cargo.toml"), "utf8"),
+    );
+    assert.ok(workspaceMembers.includes(extraMemberPath));
+    assert.ok(derivedNames.includes(extraPackageName));
+
+    const passing = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.equal(passing.status, 0, passing.stderr || passing.stdout);
+
+    writeFileSync(
+      cargoLockPath,
+      cargoLock.replace(
+        `name = "${extraPackageName}"\nversion = "${current}"`,
+        `name = "${extraPackageName}"\nversion = "${current}-drift.test"`,
+      ) +
+        `\n[[package]]\nname = "${extraPackageName}"\nversion = "${current}-drift.test"\n`,
+      "utf8",
+    );
+    const failing = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(failing.status, 0);
+    assert.match(failing.stderr, new RegExp(extraPackageName));
   });
 
   it("rejects when one manifest version drifts", () => {
@@ -71,7 +142,7 @@ describe("assert-lockstep-version.mjs", () => {
     const drifted = `${current}-drift.test`;
     assert.notEqual(drifted, current);
 
-    const cratePath = join(repoRoot, CARGO_CONNECT_CRATE_PATH);
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
     const crate = readFileSync(cratePath, "utf8");
     const driftedCrate = crate.replace(
       /^spoke-schemas\s*=\s*\{[^}]*version\s*=\s*"[^"]+"/m,
@@ -90,7 +161,7 @@ describe("assert-lockstep-version.mjs", () => {
     assert.match(result.stderr, /Lockstep version mismatch/);
     assert.match(
       result.stderr,
-      new RegExp(CARGO_CONNECT_CRATE_PATH.replace("/", "\\/")),
+      /crates\/spoke-connect\/Cargo\.toml/,
     );
   });
 
@@ -102,7 +173,7 @@ describe("assert-lockstep-version.mjs", () => {
     const drifted = `${current}-drift.test`;
     assert.notEqual(drifted, current);
 
-    const cratePath = join(repoRoot, CARGO_CONNECT_CRATE_PATH);
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
     const crate = readFileSync(cratePath, "utf8");
     const driftedCrate = crate.replace(
       /^spoke-operations\s*=\s*\{[^}]*version\s*=\s*"[^"]+"/m,

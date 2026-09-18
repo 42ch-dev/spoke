@@ -23,11 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
-  CARGO_CONNECT_CRATE_PATH,
-  CARGO_LOCK_PACKAGE_NAMES,
   CARGO_LOCK_PATH,
-  CARGO_OPS_CRATE_PATH,
-  CARGO_SCHEMA_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   NUGET_CONNECT_CSPROJ_PATH,
@@ -37,11 +33,13 @@ import {
   README_RELEASE_BADGE_MARKER,
   hasReadmeReleaseBadge,
   parseCargoLockPackageVersion,
+  parseCargoPathDependencyPins,
+  parseCargoWorkspaceMembers,
+  parseCargoPackageName,
   parseCsprojVersion,
   parseGradleVersion,
   parsePyprojectVersion,
-  parseSpokeOperationsPathDependencyVersion,
-  parseSpokeSchemasPathDependencyVersion,
+  resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
 
 const REPO_ROOT = process.env.SPOKE_REPO_ROOT
@@ -208,24 +206,30 @@ if (cargoWorkspaceVersion === null) {
   assertEqual(CARGO_WORKSPACE_PATH, canonicalVersion, cargoWorkspaceVersion);
 }
 
-assertWorkspaceCrateVersion(
-  CARGO_SCHEMA_CRATE_PATH,
-  "crates/spoke-schemas/Cargo.toml",
-  canonicalVersion,
-  cargoWorkspaceVersion,
+const cargoMemberPaths = parseCargoWorkspaceMembers(cargoWorkspaceContents);
+const cargoLockPackageNames = resolveCargoLockPackageNames(
+  cargoWorkspaceContents,
+  (memberPath) => readRepoFile(join(memberPath, "Cargo.toml")),
 );
-assertWorkspaceCrateVersion(
-  CARGO_OPS_CRATE_PATH,
-  "crates/spoke-operations/Cargo.toml",
-  canonicalVersion,
-  cargoWorkspaceVersion,
-);
-assertWorkspaceCrateVersion(
-  CARGO_CONNECT_CRATE_PATH,
-  "crates/spoke-connect/Cargo.toml",
-  canonicalVersion,
-  cargoWorkspaceVersion,
-);
+const cargoMemberNames = new Set(cargoLockPackageNames);
+const cargoMembers = cargoMemberPaths.map((memberPath) => {
+  const relativePath = join(memberPath, "Cargo.toml");
+  const contents = readRepoFile(relativePath);
+  return {
+    path: relativePath,
+    name: parseCargoPackageName(contents),
+    contents,
+  };
+});
+
+for (const member of cargoMembers) {
+  assertWorkspaceCrateVersion(
+    member.path,
+    member.name,
+    canonicalVersion,
+    cargoWorkspaceVersion,
+  );
+}
 
 {
   const nugetContents = readRepoFile(NUGET_CONNECT_CSPROJ_PATH);
@@ -280,47 +284,20 @@ assertWorkspaceCrateVersion(
   }
 }
 
-for (const cratePath of [CARGO_OPS_CRATE_PATH, CARGO_CONNECT_CRATE_PATH]) {
-  const crateContents = readRepoFile(cratePath);
-  const schemasDepVersion = parseSpokeSchemasPathDependencyVersion(crateContents);
-  if (schemasDepVersion === null) {
-    recordFailure(
-      `${cratePath} (spoke-schemas dependency)`,
-      `version = "${canonicalVersion}" with path`,
-      "(missing version in path dependency)",
-      "Workspace crates must declare spoke-schemas with version + path (lockstep; published crates require it for cargo publish)",
-    );
-  } else {
-    assertEqual(
-      `${cratePath} (spoke-schemas dependency)`,
-      canonicalVersion,
-      schemasDepVersion,
-    );
-  }
-}
-
-{
-  const connectContents = readRepoFile(CARGO_CONNECT_CRATE_PATH);
-  const operationsDepVersion =
-    parseSpokeOperationsPathDependencyVersion(connectContents);
-  if (operationsDepVersion === null) {
-    recordFailure(
-      `${CARGO_CONNECT_CRATE_PATH} (spoke-operations dependency)`,
-      `version = "${canonicalVersion}" with path`,
-      "(missing version in path dependency)",
-      "spoke-connect must declare spoke-operations with version + path (lockstep; published crates require it for cargo publish)",
-    );
-  } else {
-    assertEqual(
-      `${CARGO_CONNECT_CRATE_PATH} (spoke-operations dependency)`,
-      canonicalVersion,
-      operationsDepVersion,
-    );
+for (const member of cargoMembers) {
+  for (const pin of parseCargoPathDependencyPins(member.contents)) {
+    if (cargoMemberNames.has(pin.name)) {
+      assertEqual(
+        `${member.path} (${pin.name} dependency)`,
+        canonicalVersion,
+        pin.version,
+      );
+    }
   }
 }
 
 const cargoLockContents = readRepoFile(CARGO_LOCK_PATH);
-for (const packageName of CARGO_LOCK_PACKAGE_NAMES) {
+for (const packageName of cargoLockPackageNames) {
   const lockVersion = parseCargoLockPackageVersion(
     cargoLockContents,
     packageName,
@@ -340,6 +317,7 @@ for (const packageName of CARGO_LOCK_PACKAGE_NAMES) {
     );
   }
 }
+
 
 for (const readmePath of README_BADGE_PATHS) {
   const contents = readRepoFile(readmePath);

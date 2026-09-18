@@ -2,19 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import {
-  CARGO_CONNECT_CRATE_PATH,
-  CANONICAL_PATH,
-} from "./lockstep-surfaces.mjs";
+import { CANONICAL_PATH } from "./lockstep-surfaces.mjs";
 import { parseSemVer } from "./semver.mjs";
 import {
   cleanupTempRepo,
   createTempRepo,
+  findCargoMemberManifest,
   initGitRepo,
   readCanonicalVersion,
   runReleaseScript,
 } from "./test-harness.mjs";
-
 /** @type {string[]} */
 const tempDirs = [];
 
@@ -99,7 +96,7 @@ describe("bump-version.mjs", () => {
     // The private connect crate advances with the workspace: its
     // `spoke-schemas` path dependency and its Cargo.lock entry.
     const connectCrate = readFileSync(
-      join(repoRoot, CARGO_CONNECT_CRATE_PATH),
+      findCargoMemberManifest(repoRoot, "spoke-connect"),
       "utf8",
     );
     assert.match(

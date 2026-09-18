@@ -9,16 +9,15 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   CANONICAL_PATH,
-  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PATH,
-  CARGO_OPS_CRATE_PATH,
-  CARGO_SCHEMA_CRATE_PATH,
   CARGO_WORKSPACE_PATH,
   JSON_VERSION_PATHS,
   NUGET_CONNECT_CSPROJ_PATH,
   PYPI_CONNECT_PYPROJECT_PATH,
   MAVEN_CONNECT_GRADLE_PATH,
   README_BADGE_PATHS,
+  parseCargoPackageName,
+  parseCargoWorkspaceMembers,
 } from "./lockstep-surfaces.mjs";
 
 const RELEASE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -30,9 +29,6 @@ export const LOCKSTEP_FIXTURE_PATHS = [
   CANONICAL_PATH,
   ...JSON_VERSION_PATHS,
   CARGO_WORKSPACE_PATH,
-  CARGO_SCHEMA_CRATE_PATH,
-  CARGO_OPS_CRATE_PATH,
-  CARGO_CONNECT_CRATE_PATH,
   CARGO_LOCK_PATH,
   NUGET_CONNECT_CSPROJ_PATH,
   PYPI_CONNECT_PYPROJECT_PATH,
@@ -51,6 +47,16 @@ export function createTempRepo() {
     mkdirSync(dirname(dest), { recursive: true });
     cpSync(join(REPO_ROOT, rel), dest);
   }
+  const workspace = readFileSync(
+    join(REPO_ROOT, CARGO_WORKSPACE_PATH),
+    "utf8",
+  );
+  for (const memberPath of parseCargoWorkspaceMembers(workspace)) {
+    const rel = join(memberPath, "Cargo.toml");
+    const dest = join(dir, rel);
+    mkdirSync(dirname(dest), { recursive: true });
+    cpSync(join(REPO_ROOT, rel), dest);
+  }
   return dir;
 }
 
@@ -58,6 +64,7 @@ export function createTempRepo() {
  * @param {string} dir
  */
 export function initGitRepo(dir) {
+
   const run = (args) =>
     spawnSync("git", args, { cwd: dir, encoding: "utf8", stdio: "ignore" });
 
@@ -66,6 +73,28 @@ export function initGitRepo(dir) {
   run(["config", "user.name", "Release Test"]);
   run(["add", "-A"]);
   run(["commit", "-m", "init"]);
+}
+/**
+ * @param {string} repoRoot
+ * @param {string} packageName
+ * @returns {string}
+ */
+export function findCargoMemberManifest(repoRoot, packageName) {
+  const workspace = readFileSync(
+    join(repoRoot, CARGO_WORKSPACE_PATH),
+    "utf8",
+  );
+  const memberPath = parseCargoWorkspaceMembers(workspace).find((path) => {
+    const manifest = readFileSync(
+      join(repoRoot, path, "Cargo.toml"),
+      "utf8",
+    );
+    return parseCargoPackageName(manifest) === packageName;
+  });
+  if (!memberPath) {
+    throw new Error(`Cargo workspace member not found: ${packageName}`);
+  }
+  return join(repoRoot, memberPath, "Cargo.toml");
 }
 
 /**

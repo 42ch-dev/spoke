@@ -27,14 +27,6 @@ export const JSON_VERSION_PATHS = [
 /** @type {string} Cargo workspace version (row 6). */
 export const CARGO_WORKSPACE_PATH = "Cargo.toml";
 
-/** @type {string} Rust schema crate manifest (row 7). */
-export const CARGO_SCHEMA_CRATE_PATH = "crates/spoke-schemas/Cargo.toml";
-
-/** @type {string} Rust operations crate manifest (row 8). */
-export const CARGO_OPS_CRATE_PATH = "crates/spoke-operations/Cargo.toml";
-
-/** @type {string} Rust connect crate manifest (row 9; published as spoke-connect). */
-export const CARGO_CONNECT_CRATE_PATH = "crates/spoke-connect/Cargo.toml";
 
 /**
  * C# NuGet project Version (GitHub Packages 42ch.Spoke.Connect; lockstep).
@@ -145,100 +137,117 @@ export function replaceGradleVersion(contents, version, manifestPath) {
 }
 
 /**
- * Workspace member crate names whose `[[package]]` version in Cargo.lock must
- * match the lockstep SemVer.
- * @type {readonly string[]}
- */
-export const CARGO_LOCK_PACKAGE_NAMES = [
-  "spoke-schemas",
-  "spoke-operations",
-  "spoke-fixture-toy-world",
-  "spoke-connect",
-];
-
-/**
- * @param {string} version
- * @returns {string}
- */
-export function formatSpokeSchemasPathDependency(version) {
-  return `spoke-schemas = { version = "${version}", path = "../spoke-schemas" }`;
-}
-
-/**
+ * Parse Cargo workspace member paths from the `[workspace]` `members` array.
+ *
  * @param {string} contents
- * @returns {string | null}
+ * @returns {string[]}
  */
-export function parseSpokeSchemasPathDependencyVersion(contents) {
-  const match = contents.match(
-    /^spoke-schemas\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
+export function parseCargoWorkspaceMembers(contents) {
+  const workspaceStart = contents.indexOf("[workspace]");
+  const workspaceSection =
+    workspaceStart < 0
+      ? null
+      : contents.slice(workspaceStart + "[workspace]".length);
+  const membersBody = workspaceSection?.match(
+    /^\s*members\s*=\s*\[([\s\S]*?)\]/m,
+  )?.[1];
+  if (membersBody === undefined) {
+    throw new Error("Cargo.toml: missing [workspace].members array");
+  }
+  return [...membersBody.replace(/#.*$/gm, "").matchAll(/"([^"]+)"/g)].map(
+    ([, memberPath]) => memberPath,
   );
-  return match?.[1] ?? null;
 }
 
 /**
+ * Parse the package name from a member's Cargo manifest.
+ *
  * @param {string} contents
- * @param {string} version
- * @param {string} manifestPath Used in the error message.
  * @returns {string}
  */
-export function replaceSpokeSchemasPathDependencyVersion(
+export function parseCargoPackageName(contents) {
+  const packageStart = contents.indexOf("[package]");
+  const packageSection =
+    packageStart < 0
+      ? null
+      : contents.slice(packageStart + "[package]".length);
+  const packageName = packageSection?.match(
+    /^\s*name\s*=\s*"([^"]+)"/m,
+  )?.[1];
+  if (!packageName) {
+    throw new Error("Cargo.toml: missing [package].name");
+  }
+  return packageName;
+}
+
+/**
+ * Resolve Cargo lock package names from workspace members.
+ *
+ * @param {string} workspaceContents
+ * @param {(memberPath: string) => string} readMemberManifest
+ * @returns {string[]}
+ */
+export function resolveCargoLockPackageNames(
+  workspaceContents,
+  readMemberManifest,
+) {
+  return parseCargoWorkspaceMembers(workspaceContents).map((memberPath) =>
+    parseCargoPackageName(readMemberManifest(memberPath)),
+  );
+}
+
+/**
+ * Parse inline dependency tables that pin workspace crates by both version and
+ * path. Path-only dependencies intentionally do not participate in lockstep.
+ *
+ * @param {string} contents
+ * @returns {{ name: string; version: string; path: string }[]}
+ */
+export function parseCargoPathDependencyPins(contents) {
+  const pins = [];
+  const dependencyPattern =
+    /^[ \t]*([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm;
+  for (const [, name, attributes] of contents.matchAll(dependencyPattern)) {
+    const version = attributes.match(/\bversion\s*=\s*"([^"]+)"/)?.[1];
+    const path = attributes.match(/\bpath\s*=\s*"([^"]+)"/)?.[1];
+    if (version !== undefined && path !== undefined) {
+      pins.push({ name, version, path });
+    }
+  }
+  return pins;
+}
+
+/**
+ * Rewrite every selected inline workspace path dependency's version.
+ * Missing or path-only dependencies are left untouched.
+ *
+ * @param {string} contents
+ * @param {string} version
+ * @param {readonly string[]} packageNames
+ * @returns {string}
+ */
+export function replaceCargoPathDependencyPinVersions(
   contents,
   version,
-  manifestPath,
+  packageNames,
 ) {
-  const updated = contents.replace(
-    /^spoke-schemas\s*=\s*\{[^}]*\}/m,
-    formatSpokeSchemasPathDependency(version),
+  const selected = new Set(packageNames);
+  return contents.replace(
+    /^([ \t]*)([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm,
+    (full, indentation, name, attributes) => {
+      if (
+        !selected.has(name) ||
+        !/\bpath\s*=\s*"[^"]+"/.test(attributes) ||
+        !/\bversion\s*=\s*"[^"]+"/.test(attributes)
+      ) {
+        return full;
+      }
+      return `${indentation}${name} = {${attributes.replace(
+        /\bversion\s*=\s*"[^"]+"/,
+        `version = "${version}"`,
+      )}}`;
+    },
   );
-  if (updated === contents) {
-    throw new Error(
-      `${manifestPath}: could not update spoke-schemas path dependency`,
-    );
-  }
-  return updated;
-}
-
-
-/**
- * @param {string} version
- * @returns {string}
- */
-export function formatSpokeOperationsPathDependency(version) {
-  return `spoke-operations = { version = "${version}", path = "../spoke-operations", optional = true }`;
-}
-
-/**
- * @param {string} contents
- * @returns {string | null}
- */
-export function parseSpokeOperationsPathDependencyVersion(contents) {
-  const match = contents.match(
-    /^spoke-operations\s*=\s*\{[^}]*version\s*=\s*"([^"]+)"/m,
-  );
-  return match?.[1] ?? null;
-}
-
-/**
- * @param {string} contents
- * @param {string} version
- * @param {string} manifestPath Used in the error message.
- * @returns {string}
- */
-export function replaceSpokeOperationsPathDependencyVersion(
-  contents,
-  version,
-  manifestPath,
-) {
-  const updated = contents.replace(
-    /^spoke-operations\s*=\s*\{[^}]*\}/m,
-    formatSpokeOperationsPathDependency(version),
-  );
-  if (updated === contents) {
-    throw new Error(
-      `${manifestPath}: could not update spoke-operations path dependency`,
-    );
-  }
-  return updated;
 }
 
 /**
@@ -265,13 +274,13 @@ export function parseCargoLockPackageVersion(contents, packageName) {
  *
  * @param {string} contents
  * @param {string} version
- * @param {readonly string[]} [packageNames]
+ * @param {readonly string[]} packageNames Derived from Cargo.toml workspace members.
  * @returns {string}
  */
 export function replaceCargoLockPackageVersions(
   contents,
   version,
-  packageNames = CARGO_LOCK_PACKAGE_NAMES,
+  packageNames,
 ) {
   let updated = contents;
   for (const packageName of packageNames) {

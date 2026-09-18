@@ -1718,6 +1718,180 @@ class RemoteAdapter
     explicit RemoteAdapter(SpokeConnectRemoteAdapter* handle) noexcept : HandleBase(handle) {}
 };
 
+// ── Multi-peer router ────────────────────────────────────────────────────
+
+/**
+ * Routes one op per call across the peers registered with it. The group is
+ * exactly the production one — `register_peer` / `unregister_peer` /
+ * `list_peers`, the composed manifest, the baseline ports and `invoke_tool`.
+ * The C surface has no router `extract` / `project` / `compute` / fork member,
+ * so none is invented here: the optional port families stay a per-peer adapter
+ * face, reached by driving the adapter the caller already holds.
+ *
+ * Registration borrows and retains an adapter, so a router never owns a session
+ * — destruction releases the router's own references only, and no destructor
+ * closes a caller-owned adapter.
+ */
+class MultiPeerRouter
+    : public detail::HandleBase<SpokeConnectMultiPeerRouter,
+                                &spoke_connect_multi_peer_router_free> {
+  public:
+    /** Creates an empty router. With no peer registered every routed op is the
+        terminal `no_capable_peer` reject. */
+    [[nodiscard]] static Result<MultiPeerRouter> create() {
+        SpokeConnectMultiPeerRouter* handle = nullptr;
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_new(&handle, error.out());
+        if (status != SPOKE_CONNECT_OK) {
+            return Result<MultiPeerRouter>::failure(detail::take_error(status, error));
+        }
+        return Result<MultiPeerRouter>::success(MultiPeerRouter(handle));
+    }
+
+    /** Registers `adapter`, borrowing it and retaining an internal reference,
+        and returns the peer id it was registered under. The adapter stays
+        caller-owned, so a failed registration changes nothing for it. */
+    [[nodiscard]] Result<Buffer> register_peer(const RemoteAdapter& adapter) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_register_peer(
+            get(), adapter.get(), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Removes a peer id from the registry; the adapter itself is untouched. */
+    [[nodiscard]] Result<void> unregister_peer(std::string_view peer_id) const {
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_multi_peer_router_unregister_peer(get(), slice(peer_id), error.out());
+        return detail::nothing(status, error);
+    }
+
+    /** The registered peer ids, in registration order, as a JSON array. */
+    [[nodiscard]] Result<Buffer> list_peers() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_multi_peer_router_list_peers(get(), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** The composed host capability manifest of the registered peers. */
+    [[nodiscard]] Result<Buffer> get_host_capability_manifest() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_get_host_capability_manifest(
+            get(), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `getKnowledgeEntry`. */
+    [[nodiscard]] Result<Buffer> get_knowledge_entry(std::string_view entry_id) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_get_knowledge_entry(
+            get(), slice(entry_id), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `putKnowledgeEntry` with an optional base revision. */
+    [[nodiscard]] Result<Buffer> put_knowledge_entry(
+        std::string_view entry_json,
+        std::optional<uint64_t> expected_base_revision = std::nullopt) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_put_knowledge_entry(
+            get(), slice(entry_json), detail::optional_u64(expected_base_revision), &out,
+            error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `getRelation`. */
+    [[nodiscard]] Result<Buffer> get_relation(std::string_view relation_id) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_get_relation(
+            get(), slice(relation_id), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `putRelation` with an optional base revision. */
+    [[nodiscard]] Result<Buffer> put_relation(
+        std::string_view relation_json,
+        std::optional<uint64_t> expected_base_revision = std::nullopt) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_put_relation(
+            get(), slice(relation_json), detail::optional_u64(expected_base_revision), &out,
+            error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `listKnowledgeEntries`. */
+    [[nodiscard]] Result<Buffer> list_knowledge_entries(std::string_view scope_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_list_knowledge_entries(
+            get(), slice(scope_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `listTimelineEvents`. */
+    [[nodiscard]] Result<Buffer> list_timeline_events(std::string_view scope_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_list_timeline_events(
+            get(), slice(scope_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `putFindings`. */
+    [[nodiscard]] Result<Buffer> put_findings(std::string_view findings_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_put_findings(
+            get(), slice(findings_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `listRules` over the borrowed C array of rule refs. */
+    [[nodiscard]] Result<Buffer> list_rules(const SpokeConnectSlice* rule_refs,
+                                            size_t rule_refs_count) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_list_rules(
+            get(), rule_refs, rule_refs_count, &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routed baseline ports: `listPeerHostCapabilityManifests`. */
+    [[nodiscard]] Result<Buffer> list_peer_host_capability_manifests() const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status =
+            spoke_connect_multi_peer_router_list_peer_host_capability_manifests(get(), &out,
+                                                                               error.out());
+        return detail::buffered(status, out, error);
+    }
+
+    /** Routes a `tools.<namespace>.<tool_id>` invoke to the registered peer
+        whose cached manifest advertises that capability. With no capable peer
+        the call fails with the terminal `no_capable_peer` reject and sends
+        nothing. */
+    [[nodiscard]] Result<Buffer> invoke_tool(std::string_view capability_id,
+                                             std::string_view arguments_json) const {
+        SpokeConnectBuffer out{};
+        detail::CErrorRecord error;
+        const int32_t status = spoke_connect_multi_peer_router_invoke_tool(
+            get(), slice(capability_id), slice(arguments_json), &out, error.out());
+        return detail::buffered(status, out, error);
+    }
+
+  private:
+    MultiPeerRouter() noexcept = default;
+    explicit MultiPeerRouter(SpokeConnectMultiPeerRouter* handle) noexcept : HandleBase(handle) {}
+};
+
 // ── Connect responder ────────────────────────────────────────────────────
 
 /**

@@ -59,6 +59,7 @@ const BANNERS = [
   "rejection/ownership: PASS",
   "C++ convenience values/core: PASS",
   "C++ convenience callbacks/session: PASS",
+  "C++ convenience router: PASS",
 ];
 /** The final banner every configuration prints last. */
 const FINAL_BANNER = "C++ smoke: PASS";

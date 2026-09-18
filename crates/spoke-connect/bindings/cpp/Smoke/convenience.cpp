@@ -1,8 +1,8 @@
 /*
  * C++17 convenience-layer smoke: the value and ownership layer, the core free
  * functions, the three core session objects, the loopback pair and ends, and —
- * over a host queue transport — the callback bridges with the adapter and
- * responder wrappers.
+ * over a host queue transport — the callback bridges with the adapter,
+ * responder and router wrappers.
  *
  * The unit is linked with `Smoke/main.cpp` into one smoke program: both
  * translation units include the convenience header (through `support.hpp`), so
@@ -49,6 +49,7 @@ namespace {
 using spoke::connect::Buffer;
 using spoke::connect::ConnectResponder;
 using spoke::connect::Error;
+using spoke::connect::MultiPeerRouter;
 using spoke::connect::PortsCallbacks;
 using spoke::connect::PortsHandler;
 using spoke::connect::RemoteAdapter;
@@ -1057,6 +1058,201 @@ void assert_session(const Golden& golden) {
               " tool calls");
 }
 
+// ── Router ───────────────────────────────────────────────────────────────
+
+const char* const kRouterLabel = "C++ convenience router";
+
+/**
+ * The router proofs: one established adapter registered into a router, one real
+ * call routed through it, the terminal `no_capable_peer` reject once the peer is
+ * removed, and the ownership rule that releasing the router leaves the
+ * caller-owned adapter open and serving.
+ */
+void assert_router(const Golden& golden) {
+    using namespace spoke::connect;
+
+    // Host side: the same cross-wired queue pair and records the session group
+    // uses, so the routed call really travels the wire.
+    const auto to_responder = std::make_shared<EnvelopeQueue>();
+    const auto to_dialer = std::make_shared<EnvelopeQueue>();
+    RecordCounters dialer_counters;
+    RecordCounters responder_counters;
+    RecordCounters served_tool_counters;
+
+    std::shared_ptr<HostTransport> dialer_host =
+        std::make_shared<HostTransport>(to_responder, to_dialer, &dialer_counters);
+    std::shared_ptr<HostTransport> responder_host =
+        std::make_shared<HostTransport>(to_dialer, to_responder, &responder_counters);
+    std::shared_ptr<HostTool> served_tool_host =
+        std::make_shared<HostTool>(&served_tool_counters);
+    const std::weak_ptr<HostTransport> dialer_released = dialer_host;
+    const std::weak_ptr<HostTransport> responder_released = responder_host;
+    const std::weak_ptr<HostTool> served_tool_released = served_tool_host;
+
+    const SpokeConnectSlice seed = slice_of(golden.seed);
+    const SpokeConnectSlice pubkey = slice_of(golden.pubkey);
+    const SpokeConnectSlice peer_id = slice(golden.peer_id);
+    const SpokeConnectSlice allowlist[] = {peer_id};
+    const SpokeConnectPeerKey peer_keys[] = {SpokeConnectPeerKey{peer_id, pubkey}};
+    const std::string manifest = tool_manifest(golden);
+    const std::optional<uint64_t> invoke_timeout = uint64_t{5000};
+
+    {
+        // The serving side: the echo tool the routed invoke reaches. It serves
+        // no ports, so the routed call is a tool invoke and nothing else.
+        std::unique_ptr<ToolCallbacks> served_tool_callbacks = make_echo_tool(served_tool_host);
+        served_tool_host.reset();
+        ToolHandler served_tool = unwrap(ToolHandler::create(served_tool_callbacks), kRouterLabel,
+                                         "ToolHandler::create (served)");
+        std::unique_ptr<TransportCallbacks> responder_callbacks = make_transport(responder_host);
+        responder_host.reset();
+        Transport responder_transport =
+            unwrap(Transport::create(responder_callbacks), kRouterLabel,
+                   "Transport::create (responder)");
+        ConnectResponder responder = unwrap(
+            ConnectResponder::serve(responder_transport, seed, manifest, allowlist, 1, peer_keys,
+                                     1, nullptr, invoke_timeout),
+            kRouterLabel, "ConnectResponder::serve");
+        unwrap_ok(responder.register_tool_handler(kEchoToolId, served_tool), kRouterLabel,
+                  "ConnectResponder::register_tool_handler");
+        {
+            // The carrier cloned the handler; the wrapper is released before the
+            // record's lifetime is asserted below.
+            ToolHandler released = std::move(served_tool);
+        }
+
+        // The dialing side: the adapter the router will borrow.
+        std::unique_ptr<TransportCallbacks> dialer_callbacks = make_transport(dialer_host);
+        dialer_host.reset();
+        Transport dialer_transport = unwrap(Transport::create(dialer_callbacks), kRouterLabel,
+                                            "Transport::create (dialer)");
+        RemoteAdapter adapter = unwrap(
+            RemoteAdapter::connect(dialer_transport, seed, manifest, pubkey, allowlist, 1,
+                                   invoke_timeout),
+            kRouterLabel, "RemoteAdapter::connect");
+        const bool responder_established = wait_for(
+            [&responder] {
+                Result<Buffer> state = responder.state();
+                return state.has_value() && state.value().view() == "Established";
+            },
+            std::chrono::milliseconds(5000));
+        check(responder_established, kRouterLabel, "the responder did not reach Established");
+
+        // The router scope: everything the router owns is released here, and the
+        // adapter declared outside it must be untouched by that.
+        {
+            MultiPeerRouter router =
+                unwrap(MultiPeerRouter::create(), kRouterLabel, "MultiPeerRouter::create");
+            const Buffer fresh_peers =
+                unwrap(router.list_peers(), kRouterLabel, "MultiPeerRouter::list_peers (empty)");
+            check(fresh_peers.view() == "[]", kRouterLabel,
+                  "a fresh router did not start with an empty registry");
+
+            const std::string registered =
+                unwrap(router.register_peer(adapter), kRouterLabel,
+                       "MultiPeerRouter::register_peer")
+                    .str();
+            check(registered == golden.peer_id, kRouterLabel,
+                  "register_peer reported peer id \"" + registered +
+                      "\" instead of the established adapter's \"" + golden.peer_id + "\"");
+            const std::string listed =
+                unwrap(router.list_peers(), kRouterLabel, "MultiPeerRouter::list_peers").str();
+            check(listed.find(golden.peer_id) != std::string::npos, kRouterLabel,
+                  "the registry does not list the registered peer: " + listed);
+
+            const std::string composed =
+                unwrap(router.get_host_capability_manifest(), kRouterLabel,
+                       "MultiPeerRouter::get_host_capability_manifest")
+                    .str();
+            check(composed.find(golden.peer_id) != std::string::npos, kRouterLabel,
+                  "the composed manifest does not name the contributing peer: " + composed);
+
+            // One real call, routed by the router through the registered peer's
+            // adapter to the responder's tool.
+            const std::string routed =
+                unwrap(router.invoke_tool(kEchoToolId, kEchoArguments), kRouterLabel,
+                       "MultiPeerRouter::invoke_tool")
+                    .str();
+            check(routed.find("\"message\":\"hello\"") != std::string::npos, kRouterLabel,
+                  "the routed invoke carries no echo of the arguments: " + routed);
+            const long routed_calls = served_tool_counters.calls.load();
+            check(routed_calls == 1, kRouterLabel,
+                  "the served tool handler ran " + std::to_string(routed_calls) +
+                      " times for one routed invoke");
+
+            unwrap_ok(router.unregister_peer(golden.peer_id), kRouterLabel,
+                      "MultiPeerRouter::unregister_peer");
+            const Buffer remaining =
+                unwrap(router.list_peers(), kRouterLabel,
+                       "MultiPeerRouter::list_peers (after unregister)");
+            check(remaining.view() == "[]", kRouterLabel,
+                  "the registry still lists an unregistered peer");
+
+            // With no peer left the op is the terminal `no_capable_peer` reject,
+            // and nothing reaches the wire.
+            Result<Buffer> unrouted = router.invoke_tool(kEchoToolId, kEchoArguments);
+            const Error& terminal =
+                rejection(unrouted, kRouterLabel, "a routed invoke with no capable peer");
+            check(terminal.status == SPOKE_CONNECT_FFI_REJECTED, kRouterLabel,
+                  "the terminal reject reported " + describe(terminal));
+            check(terminal.code.has_value() && *terminal.code == "CAPABILITY_PORT_MISSING",
+                  kRouterLabel, "the terminal reject lost its code: " + describe(terminal));
+            check(terminal.kind.has_value() && *terminal.kind == "no_capable_peer", kRouterLabel,
+                  "the terminal reject lost its kind: " + describe(terminal));
+            check(terminal.wire_code.has_value() && *terminal.wire_code == "no_capable_peer",
+                  kRouterLabel, "the terminal reject lost its wire code: " + describe(terminal));
+            check(served_tool_counters.calls.load() == 1, kRouterLabel,
+                  "a rejected routed invoke still reached the served tool handler");
+
+            // Releasing the router releases the router's own references only:
+            // the moved-to handle keeps the registry, and the caller-owned
+            // adapter stays open and serving afterwards.
+            {
+                MultiPeerRouter released = std::move(router);
+                check(router.get() == nullptr, kRouterLabel, "a moved-from router is not empty");
+                const Buffer moved_peers = unwrap(released.list_peers(), kRouterLabel,
+                                                  "MultiPeerRouter::list_peers (moved-to)");
+                check(moved_peers.view() == "[]", kRouterLabel,
+                      "the moved-to router lost the registry");
+            }
+            const Buffer state =
+                unwrap(adapter.state(), kRouterLabel, "RemoteAdapter::state after router release");
+            check(state.view() == "Established", kRouterLabel,
+                  "releasing the router moved the caller-owned adapter to state \"" +
+                      std::string(state.view()) + "\"");
+            const std::string still_serving =
+                unwrap(adapter.invoke_tool(kEchoToolId, kEchoArguments), kRouterLabel,
+                       "RemoteAdapter::invoke_tool after router release")
+                    .str();
+            check(still_serving.find("\"message\":\"hello\"") != std::string::npos, kRouterLabel,
+                  "the caller-owned adapter stopped serving after the router was released: " +
+                      still_serving);
+            const long total_calls = served_tool_counters.calls.load();
+            check(total_calls == 2, kRouterLabel,
+                  "the served tool handler ran " + std::to_string(total_calls) +
+                      " times for the routed and the direct invoke");
+        }
+
+        // Contract order: close the sessions before releasing the host resources.
+        unwrap_ok(adapter.close(), kRouterLabel, "RemoteAdapter::close");
+        unwrap_ok(responder.close(), kRouterLabel, "ConnectResponder::close");
+        to_responder->close();
+        to_dialer->close();
+    }
+
+    // Every callback record the two sessions held was released exactly once,
+    // after both sessions ended and the router was gone.
+    check(record_released(dialer_counters, dialer_released), kRouterLabel,
+          "the dialer transport record was not released exactly once (releases " +
+              std::to_string(dialer_counters.releases.load()) + ")");
+    check(record_released(responder_counters, responder_released), kRouterLabel,
+          "the responder transport record was not released exactly once (releases " +
+              std::to_string(responder_counters.releases.load()) + ")");
+    check(record_released(served_tool_counters, served_tool_released), kRouterLabel,
+          "the served tool record was not released exactly once (releases " +
+              std::to_string(served_tool_counters.releases.load()) + ")");
+}
+
 }  // namespace
 
 /** Runs the Task 1a convenience-layer group against the shared golden vector. */
@@ -1071,14 +1267,18 @@ void spoke_smoke::run_convenience_values(const Golden& golden) {
 }
 
 /**
- * Runs the Task 1b group: the callback bridges, the adapter and responder
- * wrappers, and the ownership rules they owe the host. The containment banner
+ * Runs the Task 1b group — the callback bridges and the adapter and responder
+ * wrappers — and then the router group, which owns the final convenience
+ * banner. `main.cpp` reaches both through this one entry point, so the ordered
+ * banner list is values/core, callbacks/session, router. The containment banner
  * exists only in the exception-enabled configuration, which is the only one
  * that injects a throwing host callback.
  */
 void spoke_smoke::run_convenience_session(const Golden& golden) {
     assert_session(golden);
     banner(kSessionLabel);
+    assert_router(golden);
+    banner(kRouterLabel);
 #if SPOKE_SMOKE_EXCEPTIONS
     banner(kContainmentLabel);
 #endif

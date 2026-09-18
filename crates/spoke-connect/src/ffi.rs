@@ -3160,11 +3160,14 @@ mod remote_adapter_ffi_tests {
 
     #[test]
     fn ffi_error_parity_invoke_timeout() {
-        let delay_ms = Arc::new(AtomicUsize::new(100));
+        // The invoke timeout also gates the dial handshake, so keep it well
+        // above the handshake's worst-case latency under parallel-suite load
+        // (a 20ms budget here flakes the dial with "server hello timed out").
+        let delay_ms = Arc::new(AtomicUsize::new(200));
         let delay_flag = Arc::clone(&delay_ms);
         parity_on_same_adapter(
             DialOptions {
-                invoke_timeout_ms: Some(20),
+                invoke_timeout_ms: Some(100),
                 host_delay: Some(Box::new(move |_| delay_flag.load(Ordering::Relaxed) as u64)),
                 ..Default::default()
             },

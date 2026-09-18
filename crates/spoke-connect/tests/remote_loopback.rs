@@ -342,12 +342,15 @@ async fn demuxes_concurrent_invokes_with_out_of_order_responses() {
 #[tokio::test]
 async fn maps_invoke_timeout_to_internal_error_kind_timeout_without_closing_session() {
     let host_adapter = ToyWorldAdapter::with_committed_fixtures();
-    let delay_ms = Arc::new(AtomicU64::new(100));
+    // The invoke timeout also gates the dial handshake, so keep it well
+    // above the handshake's worst-case latency under parallel-suite load
+    // (a 20ms budget here flakes the dial with "server hello timed out").
+    let delay_ms = Arc::new(AtomicU64::new(200));
     let delay_ms_clone = Arc::clone(&delay_ms);
     let (client, host) = dial(
         host_adapter,
         DialOptions {
-            invoke_timeout_ms: Some(20),
+            invoke_timeout_ms: Some(100),
             host_delay: Some(Box::new(move |_| delay_ms_clone.load(Ordering::Relaxed))),
             ..Default::default()
         },

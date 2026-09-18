@@ -21,8 +21,11 @@
  *      correctly typed, volatile, used function pointer to every declaration
  *      is compiled and linked against the library
  *      (`clang -std=c99 -Wall -Wextra -Werror` / `cl.exe /TC /std:c11 /MD /W4
- *      /WX`), and the header must also compile in C++17 mode with exceptions
- *      and RTTI disabled.
+ *      /WX`), and a C++17 probe with exceptions and RTTI disabled includes the
+ *      C header and the convenience header `spoke_connect.hpp` (twice, so
+ *      repeated inclusion is covered) and instantiates the convenience value
+ *      layer — `Result`, `Buffer`, a move-only handle — so the second header
+ *      cannot stop compiling behind a green C-only check.
  *   5. Record layout parity — the carrier reports the size, alignment and
  *      field offsets of every `#[repr(C)]` record it mirrors
  *      (`cargo test -p spoke-connect-capi --lib abi_layout -- --nocapture`)
@@ -838,6 +841,12 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
     cxxSource,
     [
       '#include "spoke_connect.h"',
+      '#include "spoke_connect.hpp"',
+      "// Included twice: the convenience header must be safe to include more than once.",
+      '#include "spoke_connect.hpp"',
+      "",
+      "#include <string_view>",
+      "#include <utility>",
       "",
       "namespace {",
       "using AbiVersionFn = int32_t (SPOKE_CONNECT_CALL *)(uint64_t *, SpokeConnectError *);",
@@ -845,6 +854,30 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       "}  // namespace",
       "",
       "void spoke_connect_cxx_probe_use(void) { (void)abi_version_probe; }",
+      "",
+      "// Instantiates the convenience value layer and one move-only handle, so a",
+      "// header that stopped compiling — or lost a name this layer wraps — fails",
+      "// the gate instead of degrading to the C-only check.",
+      "void spoke_connect_cxx_probe_convenience(void) {",
+      "    namespace connect = spoke::connect;",
+      "    connect::Result<connect::Buffer> buffered =",
+      "        connect::Result<connect::Buffer>::success(connect::Buffer());",
+      "    connect::Buffer taken = std::move(buffered).value();",
+      "    const std::string_view view = taken.view();",
+      "",
+      "    connect::Result<connect::NonceStore> store = connect::NonceStore::create();",
+      "    connect::NonceStore handle = std::move(store).value();",
+      "    SpokeConnectNonceStore* raw = handle.release();",
+      "    handle.adopt(raw);",
+      "",
+      "    connect::Result<void> bare = connect::Result<void>::success();",
+      "    const SpokeConnectSlice borrowed = connect::slice(view);",
+      "    const SpokeConnectSlice raw_bytes = connect::bytes(nullptr, 0);",
+      "    (void)handle.get();",
+      "    (void)bare.has_value();",
+      "    (void)borrowed;",
+      "    (void)raw_bytes;",
+      "}",
       "",
     ].join("\n"),
   );
@@ -870,7 +903,7 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI)",
+      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
       command: "cl.exe",
       args: [
         "/nologo",
@@ -903,7 +936,7 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI)",
+      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
       command: "clang++",
       args: [
         "-std=c++17",

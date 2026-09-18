@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * C++ smoke runner: compile, link and run `bindings/cpp/Smoke/main.cpp` against
- * a staged carrier native.
+ * C++ smoke runner: compile, link and run the `bindings/cpp/Smoke` translation
+ * units (`main.cpp` for the raw C ABI, `convenience.cpp` for the C++17
+ * convenience layer) against a staged carrier native.
  *
  * The smoke is the executable boundary proof for the C ABI: it reads the shared
  * `golden-hello.json` vector, derives and verifies over the exported session
- * core, runs a ports round trip over a host-owned loopback, and exercises the
- * rejection/ownership rules. This script builds it in `target/cpp-smoke`,
- * executes it, and then requires every banner the plan names to appear in the
- * output in order — a run that executes no assertions fails.
+ * core, runs a ports round trip over a host-owned loopback, exercises the
+ * rejection/ownership rules, and repeats the core groups through the
+ * convenience layer. This script builds it in `target/cpp-smoke`, executes it,
+ * and then requires every banner the plan names to appear in the output in
+ * order — a run that executes no assertions fails.
  *
  * Usage:
  *   node tooling/connect/cpp-smoke.mjs --rid osx-arm64
@@ -29,7 +31,10 @@ import { spawnSync } from "node:child_process";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CPP_DIR = join(REPO_ROOT, "crates", "spoke-connect", "bindings", "cpp");
 const INCLUDE_DIR = join(CPP_DIR, "include");
-const SMOKE_SOURCE = join(CPP_DIR, "Smoke", "main.cpp");
+const SMOKE_SOURCES = [
+  join(CPP_DIR, "Smoke", "main.cpp"),
+  join(CPP_DIR, "Smoke", "convenience.cpp"),
+];
 const FIXTURE = join(
   REPO_ROOT,
   "crates",
@@ -47,6 +52,7 @@ const BANNERS = [
   "protocol version 1: PASS",
   "loopback ports: PASS",
   "rejection/ownership: PASS",
+  "C++ convenience values/core: PASS",
   "C++ smoke: PASS",
 ];
 
@@ -116,7 +122,7 @@ function compileArgs(spec) {
       "/W4",
       "/WX",
       `/I${INCLUDE_DIR}`,
-      SMOKE_SOURCE,
+      ...SMOKE_SOURCES,
       library,
       `/Fe:${spec.executable}`,
     ];
@@ -129,7 +135,7 @@ function compileArgs(spec) {
     "-Wextra",
     "-Werror",
     `-I${INCLUDE_DIR}`,
-    SMOKE_SOURCE,
+    ...SMOKE_SOURCES,
     library,
     `-Wl,-rpath,${spec.nativeDir}`,
     "-o",
@@ -161,7 +167,9 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const spec = RIDS[args.rid];
 
-  if (!existsSync(SMOKE_SOURCE)) fail(`missing smoke source: ${display(SMOKE_SOURCE)}`);
+  for (const source of SMOKE_SOURCES) {
+    if (!existsSync(source)) fail(`missing smoke source: ${display(source)}`);
+  }
   if (!existsSync(INCLUDE_DIR)) fail(`missing include directory: ${display(INCLUDE_DIR)}`);
   if (!existsSync(FIXTURE)) fail(`missing golden vector: ${display(FIXTURE)}`);
   const library = join(spec.nativeDir, spec.library);

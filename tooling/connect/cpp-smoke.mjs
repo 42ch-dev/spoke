@@ -119,6 +119,7 @@ function compileArgs(spec) {
       "/EHs-c-",
       "/GR-",
       "/MD",
+      "/D_HAS_EXCEPTIONS=0",
       "/W4",
       "/WX",
       `/I${INCLUDE_DIR}`,

@@ -64,14 +64,33 @@ CARGO_VERSION_SENTINEL="${XCFRAMEWORK_VERSION_SENTINEL:-0.0.0}"
 CARGO_VERSION_BACKUP="$(mktemp -d)"
 restore_cargo_versions() {
   local status=0
+  local previous_int previous_term backup_path
+  previous_int="$(trap -p INT || true)"
+  previous_term="$(trap -p TERM || true)"
+  trap '' INT TERM
   if [[ -f "${CARGO_VERSION_BACKUP}/files.json" ]]; then
+    backup_path="$(cd "${CARGO_VERSION_BACKUP}" && pwd -P)"
     if ! node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" restore \
       "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}"; then
-      echo "error: failed to restore Cargo version surfaces" >&2
+      echo "error: failed to restore Cargo version surfaces; backup retained at ${backup_path}" >&2
       status=1
+    else
+      rm -rf "${CARGO_VERSION_BACKUP}"
     fi
+  else
+    rm -rf "${CARGO_VERSION_BACKUP}"
   fi
-  rm -rf "${CARGO_VERSION_BACKUP}" "${STAGE:-}"
+  rm -rf "${STAGE:-}"
+  if [[ -n "${previous_int}" ]]; then
+    eval "${previous_int}"
+  else
+    trap - INT
+  fi
+  if [[ -n "${previous_term}" ]]; then
+    eval "${previous_term}"
+  else
+    trap - TERM
+  fi
   return "${status}"
 }
 cleanup() {

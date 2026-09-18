@@ -121,7 +121,12 @@ function restore() {
     readFileSync(join(backupDir, "files.json"), "utf8"),
   );
   for (const relativePath of relativePaths) {
-    copyFileSync(join(backupDir, relativePath), join(repoRoot, relativePath));
+    try {
+      copyFileSync(join(backupDir, relativePath), join(repoRoot, relativePath));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`restore failed for ${relativePath}: ${detail}`);
+    }
   }
 }
 

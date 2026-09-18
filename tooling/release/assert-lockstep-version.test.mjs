@@ -106,6 +106,149 @@ describe("assert-lockstep-version.mjs", () => {
       ),
     );
   });
+  it("verifies and bumps literal-string aliased Cargo path pins", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const aliased = crate.replace(
+      /^spoke-schemas = \{ version = "([^"]+)", path = "\.\.\/spoke-schemas" \}$/m,
+      `schemas = { package = 'spoke-schemas', version = '$1', path = '../spoke-schemas' }`,
+    );
+    assert.notEqual(aliased, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, aliased, "utf8");
+
+    const initiallyPassing = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.equal(
+      initiallyPassing.status,
+      0,
+      initiallyPassing.stderr || initiallyPassing.stdout,
+    );
+
+    const stale = aliased.replace(
+      `version = '${current}'`,
+      `version = '${current}-drift.test'`,
+    );
+    writeFileSync(cratePath, stale, "utf8");
+    const stalePin = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(stalePin.status, 0);
+    assert.match(stalePin.stderr, /spoke-schemas dependency/);
+
+    writeFileSync(cratePath, aliased, "utf8");
+    const bumped = runReleaseScript(
+      "bump-version.mjs",
+      [target],
+      repoRoot,
+    );
+    assert.equal(bumped.status, 0, bumped.stderr || bumped.stdout);
+    const bumpedCrate = readFileSync(cratePath, "utf8");
+    assert.match(
+      bumpedCrate,
+      new RegExp(
+        `^schemas = \\{ package = 'spoke-schemas', version = '${target}', path = '\\.\\./spoke-schemas' \\}`,
+        "m",
+      ),
+    );
+  });
+
+  it("refuses section-form workspace-member dependencies", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const sectionForm = crate.replace(
+      /^spoke-schemas = \{ version = "[^"]+", path = "\.\.\/spoke-schemas" \}\n/m,
+      `[dependencies.spoke-schemas]\nversion = "${current}"\npath = "../spoke-schemas"\n`,
+    );
+    assert.notEqual(sectionForm, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, sectionForm, "utf8");
+
+    const asserted = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(asserted.status, 0);
+    assert.match(
+      asserted.stderr,
+      /crates\/spoke-connect\/Cargo\.toml: dependency section \[dependencies\.spoke-schemas\].*inline dependency tables are the supported shape/s,
+    );
+
+    const bumped = runReleaseScript(
+      "bump-version.mjs",
+      [target],
+      repoRoot,
+    );
+    assert.notEqual(bumped.status, 0);
+    assert.match(
+      bumped.stderr,
+      /crates\/spoke-connect\/Cargo\.toml: dependency section \[dependencies\.spoke-schemas\].*inline dependency tables are the supported shape/s,
+    );
+    assert.equal(readCanonicalVersion(repoRoot), current);
+  });
+
+  it("refuses dotted-key workspace-member dependencies", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const dottedForm = crate.replace(
+      /^spoke-schemas = \{ version = "[^"]+", path = "\.\.\/spoke-schemas" \}$/m,
+      `spoke-schemas.version = "${current}"\nspoke-schemas.path = "../spoke-schemas"`,
+    );
+    assert.notEqual(dottedForm, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, dottedForm, "utf8");
+
+    const asserted = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(asserted.status, 0);
+    assert.match(
+      asserted.stderr,
+      /crates\/spoke-connect\/Cargo\.toml: dotted-key dependency spoke-schemas\.(?:version|path).*inline dependency tables are the supported shape/s,
+    );
+
+    const bumped = runReleaseScript(
+      "bump-version.mjs",
+      [target],
+      repoRoot,
+    );
+    assert.notEqual(bumped.status, 0);
+    assert.match(
+      bumped.stderr,
+      /crates\/spoke-connect\/Cargo\.toml: dotted-key dependency spoke-schemas\.(?:version|path).*inline dependency tables are the supported shape/s,
+    );
+    assert.equal(readCanonicalVersion(repoRoot), current);
+  });
+
 
   it("refuses globbed Cargo workspace members with explicit-path guidance", () => {
     const repoRoot = createTempRepo();

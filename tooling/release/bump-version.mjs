@@ -19,6 +19,7 @@ import {
   NUGET_CONNECT_CSPROJ_PATH,
   PYPI_CONNECT_PYPROJECT_PATH,
   MAVEN_CONNECT_GRADLE_PATH,
+  parseCargoPathDependencyPins,
   parseCargoWorkspaceMembers,
   replaceCargoLockPackageVersions,
   replaceCargoPathDependencyPinVersions,
@@ -76,6 +77,14 @@ function readCargoWorkspaceMembers() {
     workspaceContents,
     (memberPath) => readRepoFile(join(memberPath, "Cargo.toml")),
   );
+  for (const memberPath of paths) {
+    const manifestPath = join(memberPath, "Cargo.toml");
+    parseCargoPathDependencyPins(
+      readRepoFile(manifestPath),
+      packageNames,
+      manifestPath,
+    );
+  }
   return { paths, packageNames };
 }
 
@@ -492,6 +501,7 @@ if (!isSemVerGreater(targetVersion, currentVersion)) {
   );
   process.exit(1);
 }
+const cargoWorkspaceMembers = readCargoWorkspaceMembers();
 
 writeJsonVersion(CANONICAL_PATH, targetVersion);
 
@@ -536,11 +546,10 @@ writeRepoFile(
     ),
   );
 }
-
 const {
   paths: cargoMemberPaths,
   packageNames: cargoLockPackageNames,
-} = readCargoWorkspaceMembers();
+} = cargoWorkspaceMembers;
 for (const memberPath of cargoMemberPaths) {
   const manifestPath = join(memberPath, "Cargo.toml");
   const manifestContents = readRepoFile(manifestPath);
@@ -550,6 +559,7 @@ for (const memberPath of cargoMemberPaths) {
       manifestContents,
       targetVersion,
       cargoLockPackageNames,
+      manifestPath,
     ),
   );
 }

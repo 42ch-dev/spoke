@@ -285,7 +285,11 @@ for (const member of cargoMembers) {
 }
 
 for (const member of cargoMembers) {
-  for (const pin of parseCargoPathDependencyPins(member.contents)) {
+  for (const pin of parseCargoPathDependencyPins(
+    member.contents,
+    cargoMemberNames,
+    member.path,
+  )) {
     if (cargoMemberNames.has(pin.name)) {
       assertEqual(
         `${member.path} (${pin.name} dependency)`,

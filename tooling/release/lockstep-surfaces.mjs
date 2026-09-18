@@ -204,6 +204,64 @@ export function resolveCargoLockPackageNames(
   );
 }
 
+const CARGO_STRING_PATTERN = String.raw`(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)')`;
+
+/**
+ * Refuse Cargo dependency declaration forms that this narrow scanner cannot
+ * parse safely.
+ *
+ * @param {string} contents
+ * @param {readonly string[] | ReadonlySet<string>} packageNames
+ * @param {string} manifestPath
+ */
+function assertSupportedCargoPathDependencyShape(
+  contents,
+  packageNames,
+  manifestPath,
+) {
+  const workspaceMembers = new Set(packageNames);
+  const sectionPattern =
+    /^\s*\[(dependencies|dev-dependencies|build-dependencies)\.([A-Za-z0-9_-]+)\]\s*(?:#.*)?$/gm;
+  for (const [, family, member] of contents.matchAll(sectionPattern)) {
+    if (workspaceMembers.has(member)) {
+      throw new Error(
+        `${manifestPath}: dependency section [${family}.${member}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+      );
+    }
+  }
+
+  const dottedKeyPattern =
+    /^\s*([A-Za-z0-9_-]+)\s*\.\s*(version|path)\s*=/gm;
+  for (const [, member, attribute] of contents.matchAll(dottedKeyPattern)) {
+    if (workspaceMembers.has(member)) {
+      throw new Error(
+        `${manifestPath}: dotted-key dependency ${member}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+      );
+    }
+  }
+}
+
+/**
+ * Read a quoted Cargo inline-table attribute.
+ *
+ * @param {string} attributes
+ * @param {string} key
+ * @returns {{ value: string; quoted: string } | null}
+ */
+function readCargoStringAttribute(attributes, key) {
+  const match = attributes.match(
+    new RegExp(`\\b${key}\\s*=\\s*(${CARGO_STRING_PATTERN})`),
+  );
+  if (!match) {
+    return null;
+  }
+  const quoted = match[1];
+  return {
+    quoted,
+    value: quoted.startsWith('"') ? match[2] : match[3],
+  };
+}
+
 /**
  * Parse inline dependency tables that pin workspace crates by both version and
  * path. The returned name uses the inline `package` attribute for aliases,
@@ -211,18 +269,29 @@ export function resolveCargoLockPackageNames(
  * not participate in lockstep.
  *
  * @param {string} contents
+ * @param {readonly string[] | ReadonlySet<string>} packageNames
+ * @param {string} manifestPath
  * @returns {{ name: string; version: string; path: string }[]}
  */
-export function parseCargoPathDependencyPins(contents) {
+export function parseCargoPathDependencyPins(
+  contents,
+  packageNames,
+  manifestPath,
+) {
+  assertSupportedCargoPathDependencyShape(contents, packageNames, manifestPath);
   const pins = [];
   const dependencyPattern =
     /^[ \t]*([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm;
   for (const [, name, attributes] of contents.matchAll(dependencyPattern)) {
-    const version = attributes.match(/\bversion\s*=\s*"([^"]+)"/)?.[1];
-    const path = attributes.match(/\bpath\s*=\s*"([^"]+)"/)?.[1];
-    const packageName = attributes.match(/\bpackage\s*=\s*"([^"]+)"/)?.[1];
-    if (version !== undefined && path !== undefined) {
-      pins.push({ name: packageName ?? name, version, path });
+    const version = readCargoStringAttribute(attributes, "version");
+    const path = readCargoStringAttribute(attributes, "path");
+    const packageName = readCargoStringAttribute(attributes, "package");
+    if (version !== null && path !== null) {
+      pins.push({
+        name: packageName?.value ?? name,
+        version: version.value,
+        path: path.value,
+      });
     }
   }
   return pins;
@@ -235,32 +304,40 @@ export function parseCargoPathDependencyPins(contents) {
  * @param {string} contents
  * @param {string} version
  * @param {readonly string[]} packageNames
+ * @param {string} manifestPath
  * @returns {string}
  */
 export function replaceCargoPathDependencyPinVersions(
   contents,
   version,
   packageNames,
+  manifestPath,
 ) {
+  assertSupportedCargoPathDependencyShape(contents, packageNames, manifestPath);
   const selected = new Set(packageNames);
   return contents.replace(
     /^([ \t]*)([A-Za-z0-9_-]+)\s*=\s*\{([^{}]*)\}/gm,
     (full, indentation, name, attributes) => {
-      const packageName = attributes.match(/\bpackage\s*=\s*"([^"]+)"/)?.[1];
+      const packageName = readCargoStringAttribute(attributes, "package");
+      const path = readCargoStringAttribute(attributes, "path");
+      const versionPattern = new RegExp(
+        `(\\bversion\\s*=\\s*)(${CARGO_STRING_PATTERN})`,
+      );
+      const currentVersion = attributes.match(versionPattern);
       if (
-        !selected.has(packageName ?? name) ||
-        !/\bpath\s*=\s*"[^"]+"/.test(attributes) ||
-        !/\bversion\s*=\s*"[^"]+"/.test(attributes)
+        !selected.has(packageName?.value ?? name) ||
+        path === null ||
+        currentVersion === null
       ) {
         return full;
       }
-      return `${indentation}${name} = {${attributes.replace(
-        /\bversion\s*=\s*"[^"]+"/,
-        `version = "${version}"`,
-      )}}`;
+      const quote = currentVersion[3] !== undefined ? '"' : "'";
+      const updatedVersion = `${currentVersion[1]}${quote}${version}${quote}`;
+      return full.replace(currentVersion[0], updatedVersion);
     },
   );
 }
+
 
 /**
  * Read the version for a top-level `[[package]]` entry in Cargo.lock.

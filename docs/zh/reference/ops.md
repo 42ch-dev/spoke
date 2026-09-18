@@ -114,7 +114,7 @@ title: 操作线上参考（Ops wire）
 |------|------|
 | `run_id` | 非空不透明关联标识；经 `run.run_id` 原样回显 |
 | `sources` | 非空 `SourceAnchor[]`（溯源指针）；抽取范围是该列表加上每个锚点的可选 span（span 缺省表示整个被引用制品） |
-| `entry_types` | 可选的咨询性候选类型提示（开放词汇，非后置过滤） |
+| `entry_types` | 可选的咨询性提示，说明调用方期望的候选类型；服务方主机可采用或忽略它们 |
 | `extensions` | 可选传输元数据 |
 
 `ExtractResponse` 携带单一分支：成功 `{ candidates, run }` —— **或** 失败 `{ error }`。
@@ -130,7 +130,7 @@ title: 操作线上参考（Ops wire）
 | `error` | `ErrorEnvelope` —— 该响应的失败分支 |
 | `extensions` | 可选传输元数据 |
 
-**`provisional` 不变量。** 任一候选非 `provisional` 时，库拒绝整个候选集合 —— `merged` / `deleted` 条目给出 `CANDIDATE_TERMINAL_STATUS`，其他状态给出 `CANDIDATE_NOT_PROVISIONAL` —— 成功响应并原样回显请求的 `run_id`。
+**`provisional` 不变量。** 库只准入 `status` 为 `provisional` 的候选。当任一候选携带其他状态时，整个集合被拒绝并返回错误分支 —— `merged` / `deleted` 条目给出 `CANDIDATE_TERMINAL_STATUS`，其他状态给出 `CANDIDATE_NOT_PROVISIONAL`；被准入的候选保持抽取器产出的状态，成功响应并原样回显请求的 `run_id`。
 
 **`extract` 与 `extract→promote` 的区别。** 基线 `extract→promote` 行覆盖准入：`promote` 把单个 `provisional` 候选准入持久存储。可选 `extract` 操作覆盖产出：它从被引用的源材料提议 `provisional` 候选。抽取产物经 promote 到达持久存储。
 

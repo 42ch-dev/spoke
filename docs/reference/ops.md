@@ -114,7 +114,7 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 |-------|-------|
 | `run_id` | Non-empty opaque correlation identity; echoed verbatim as `run.run_id` |
 | `sources` | Non-empty `SourceAnchor[]`; the extraction range is this list plus each anchor's optional span (an absent span means the referenced artifact as a whole) |
-| `entry_types` | Optional advisory candidate-type hints (an open vocabulary, not a post-filter) |
+| `entry_types` | Optional advisory hints naming the candidate types the caller expects; the serving host may use them or ignore them |
 | `extensions` | Optional transport metadata |
 
 `ExtractResponse` carries one branch: success `{ candidates, run }` — **or** failure `{ error }`.
@@ -130,7 +130,7 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `error` | `ErrorEnvelope` — the response's failure branch for this run |
 | `extensions` | Optional transport metadata |
 
-**Provisional invariant.** The library rejects the whole candidate set when any candidate is not `provisional` — a `merged` / `deleted` entry yields `CANDIDATE_TERMINAL_STATUS`, another status yields `CANDIDATE_NOT_PROVISIONAL` — and a success response echoes the request's `run_id` verbatim.
+**Provisional invariant.** The library admits only candidates whose `status` is `provisional`. When any candidate carries another status, the whole set is rejected and the error branch is returned — `CANDIDATE_TERMINAL_STATUS` for a `merged` / `deleted` entry, `CANDIDATE_NOT_PROVISIONAL` for any other status; every candidate that is admitted keeps the status the extractor produced, and a success response echoes the request's `run_id` verbatim.
 
 **`extract` vs `extract→promote`.** The baseline `extract→promote` row covers admission: `promote` admits one provisional candidate to durable storage. The optional `extract` op covers production: it proposes provisional candidates from referenced sources. Extraction output reaches durable storage through promote.
 

@@ -140,7 +140,7 @@ Six opt-in interaction envelopes in `schemas/connect/`: `ConnectHello` (signed m
 
 ### Connect embedding path
 
-How a host language embeds connect session rules. **Path A (language-direct)** = language-native client — host-language session core, no Rust runtime (exemplar TypeScript `@42ch/spoke-connect`). **Path B (shared core bindings)** = native bindings — FFI into a shared session core (C# / Kotlin / Swift / Go / Python). **Rust `spoke-connect`** = Rust reference (session-core reference + Path B uniffi source + libp2p transport), not Path A. Consumer docs use the aliases, not the Path letters. Field table: [`spoke-connect.md`](.mstar/specs/spoke-connect.md) §Embedding model.
+How a host language embeds connect session rules. **Path A (language-direct)** = language-native client — host-language session core, no Rust runtime (exemplar TypeScript `@42ch/spoke-connect`). **Path B (shared core bindings)** = native bindings — FFI into a shared session core, exposed through generated bindings or the hand-written C ABI carrier (C# / Kotlin / Swift / Go / Python / C and C++). **Rust `spoke-connect`** = Rust reference (session-core reference + Path B uniffi source + libp2p transport), not Path A. Consumer docs use the aliases, not the Path letters. Field table: [`spoke-connect.md`](.mstar/specs/spoke-connect.md) §Embedding model.
 
 ### Session (connect)
 

@@ -4,19 +4,19 @@ date: 2026-08-03
 problem_type: tooling_decision
 category: tooling-decisions
 severity: medium
-applies_when: ["publishing a new connect surface from the protocol repo", "staging a registry publish of a connect artifact", "choosing npm/crates.io vs GitHub Packages vs SPM vs Go modules vs PyPI for a connect binding"]
-tags: [spoke-connect, publish, npm, nuget, maven, github-packages, spm, go-modules, pypi, staging, lockstep-semver, trusted-publishing, bindings]
+applies_when: ["publishing a new connect surface from the protocol repo", "staging a registry publish of a connect artifact", "choosing npm/crates.io vs GitHub Packages vs SPM vs Go modules vs PyPI vs committed git carriers for a connect binding"]
+tags: [spoke-connect, publish, npm, nuget, maven, github-packages, spm, go-modules, pypi, cpp, git-based, staging, lockstep-semver, trusted-publishing, bindings]
 ---
 
 # Connect publish staging (registry split)
 
 ## Context
 
-The connect embedding model ships several surfaces with different publishing costs: a pure-TS client, a Rust crate (libp2p + optional `ffi` cdylib), per-language uniffi bindings, and an integrator docs site. The connect publish strategy (`.mstar/specs/connect-publish-strategy.md`) stages registries so primary TS/Rust surfaces use npm/crates.io Trusted Publishing while Path B bindings use **four channel types** across five languages (packaging contract: `.mstar/specs/connect-binding-channels.md`).
+The connect embedding model ships several surfaces with different publishing costs: a pure-TS client, a Rust crate (libp2p + optional `ffi` cdylib), per-language uniffi bindings, a hand-written C/C++ carrier, and an integrator docs site. The connect publish strategy (`.mstar/specs/connect-publish-strategy.md`) stages registries so primary TS/Rust surfaces use npm/crates.io Trusted Publishing while Path B bindings split into registry-backed channels (GitHub Packages NuGet, GitHub Packages Maven, PyPI) for C#/Kotlin/Python and git-based channels (Swift Package Manager, Go modules, committed C/C++ headers and platform carriers) for Swift/Go/C and C++ (packaging contract: `.mstar/specs/connect-binding-channels.md`).
 
 ## Guidance
 
-### Registry split: npm/crates.io for primary; four channels for bindings
+### Registry split: npm/crates.io for primary; registry-backed and git-based channels for bindings
 
 | Surface | Registry / mechanism | Rule |
 |---|---|---|
@@ -27,6 +27,7 @@ The connect embedding model ships several surfaces with different publishing cos
 | Swift binding | **GitHub repo + SPM** | Root `Package.swift` + `vX.Y.Z` tags; consumers `.package(url:from:)` |
 | Go binding | **GitHub repo + Go modules** | Root `go.mod` + `vX.Y.Z` tags; consumers `go get …@vX.Y.Z` |
 | Python binding | **PyPI** | `publish-pypi` via Trusted Publishing OIDC; `pip install spoke-connect` |
+| C/C++ binding | **git — committed headers + platform carriers** | `include/spoke_connect.h` + `include/spoke_connect.hpp` + `native/<rid>/` taken from the `vX.Y.Z` tag; workspace-private carrier, no publish job |
 | Docs site | **GitHub Pages** | Companion site on main |
 
 ### Lockstep SemVer continuation
@@ -51,7 +52,7 @@ C# bindings hit a toolchain gap (`uniffi-bindgen-cs` targets uniffi 0.31 vs the 
 
 ## Why This Matters
 
-Registry choice is a cost and trust decision: npm/crates.io OIDC Trusted Publishing covers the primary TS/Rust surfaces; each binding language uses its ecosystem-native channel (GitHub Packages for C#/Kotlin, SPM/Go git tags, PyPI OIDC) without forcing public mirrors before demand exists. Lockstep SemVer keeps integrators on one pin across wire + connect + bindings.
+Registry choice is a cost and trust decision: npm/crates.io OIDC Trusted Publishing covers the primary TS/Rust surfaces; each binding language uses its ecosystem-native channel (GitHub Packages for C#/Kotlin, SPM/Go git tags, PyPI OIDC, committed headers and platform carriers for C/C++) without forcing public mirrors before demand exists. Lockstep SemVer keeps integrators on one pin across wire + connect + bindings.
 
 ## When to Apply
 

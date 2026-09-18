@@ -154,7 +154,6 @@ the report it compiles against is produced by the carrier's own test target.
 ## Reference
 
 - Consumer how-to: [docs/how-to/connect-cpp-binding.md](../../../../docs/how-to/connect-cpp-binding.md)
-- Decision record: [`.mstar/specs/connect-cpp-binding.md`](../../../../.mstar/specs/connect-cpp-binding.md)
 - C contract header: [`include/spoke_connect.h`](include/spoke_connect.h)
 - C++17 convenience header: [`include/spoke_connect.hpp`](include/spoke_connect.hpp)
 - Parity table: [`parity.md`](parity.md)

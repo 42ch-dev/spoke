@@ -92,8 +92,7 @@ runtime with the same carrier.
 | Context lifetime | A callback context's `destroy` runs once, after the last carrier reference and in-flight callback. The carrier copies any bytes it retains when a callback returns. |
 | Library lifetime | The carrier stays resident for the process lifetime, and the module keeps it loaded through link/staging wiring. Close sessions, then release handles, before host shutdown. |
 
-The boundary rules are stated in full in the [C++ binding README](../README.md)
-and in the [decision record](../../../../../.mstar/specs/connect-cpp-binding.md).
+The boundary rules are stated in full in the [C++ binding README](../README.md).
 
 ## Maintainer verification checklist
 
@@ -128,5 +127,4 @@ session surface outside an engine.
 - C++ binding README and link recipes: [`../README.md`](../README.md)
 - C ABI ⇄ facade parity table: [`../parity.md`](../parity.md)
 - C contract header: [`../include/spoke_connect.h`](../include/spoke_connect.h)
-- Decision record: [`connect-cpp-binding.md`](../../../../../.mstar/specs/connect-cpp-binding.md)
 - Native provenance: [`../native/provenance.json`](../native/provenance.json)

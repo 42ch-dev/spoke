@@ -1,6 +1,7 @@
 # spoke-connect
 
-Reference library for the SPOKE Connect wire family (`../../.mstar/specs/spoke-connect.md`):
+Reference library for the SPOKE Connect wire family ([Connect wire
+reference](https://spoke.42ch.dev/reference/connect)):
 an embeddable Rust library that maps the connect envelopes onto rust-libp2p and
 demonstrates the `noise-peerid` authenticated hello handshake, the
 `capability-token` step-up auth method, per-session ordering, and op
@@ -36,8 +37,8 @@ a `connect is already in progress` error.
 
 Session admission stays fully gated by the allowlist and signed hello: the
 connect wire carries only the six envelope families; discovery is
-transport-side (see the [spoke-connect spec §Discovery
-boundary](../../.mstar/specs/spoke-connect.md)).
+transport-side (see the [Connect wire reference §Discovery and
+peering](https://spoke.42ch.dev/reference/connect#discovery-and-peering)).
 
 ## Authenticated hello (`spoke-connect-hello-jcs-v1`)
 
@@ -76,8 +77,8 @@ multihash form.
 
 ## Capability-token auth (`capability-token`)
 
-The `capability-token` method (normative, [spoke-connect spec §Method —
-capability-token](../../.mstar/specs/spoke-connect.md)) is a **step-up /
+The `capability-token` method (normative, [Connect wire reference §Auth
+methods](https://spoke.42ch.dev/reference/connect#auth-methods)) is a **step-up /
 mid-session capability grant** on top of the `noise-peerid` hello identity:
 a trusted issuer signs a short claim set (`iss` / `sub` / `aud` /
 `capabilities` / `exp`, optional `iat` / `jti`) over RFC 8785 JCS with
@@ -302,8 +303,8 @@ transport layer converts `libp2p::PeerId` ↔ `String` at the boundary and
 calls into the core.
 
 This section records the binding facade decision for the spec's
-**native-bindings** embedding path (shared core bindings,
-`../../.mstar/specs/spoke-connect.md` §Embedding model):
+**native-bindings** embedding path (shared core bindings, [Connect wire reference
+§Embedding model](https://spoke.42ch.dev/reference/connect#embedding-model)):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
 first binding exposes, and which languages are targeted. **Swift (SPM
 `SpokeConnect`)** and **Kotlin (GitHub Packages Maven)** are landed alongside
@@ -618,6 +619,6 @@ the `connect` / `invoke` futures).
 
 ## Normative reference
 
-- `../../.mstar/specs/spoke-connect.md` — envelope field tables, JCS rules, nonce /
-  replay, ordering, auth model, discovery boundary.
+- [Connect wire reference](https://spoke.42ch.dev/reference/connect) — envelope field
+  tables, JCS rules, nonce / replay, ordering, auth model, discovery boundary.
 - `schemas/connect/` — the JSON Schema SSOT for the six connect envelopes.

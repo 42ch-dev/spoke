@@ -61,14 +61,48 @@ fi
 # mangled symbol. Keep the native artifact independent of the lockstep version
 # for the duration of the build, then restore every edited manifest/lockfile.
 CARGO_VERSION_SENTINEL="${XCFRAMEWORK_VERSION_SENTINEL:-0.0.0}"
-CARGO_VERSION_BACKUP="$(mktemp -d)"
+CARGO_VERSION_BACKUP=""
+XCFRAMEWORK_VERSION_LOCK="${REPO_ROOT}/.xcframework-version.lock"
+XCFRAMEWORK_VERSION_LOCK_HELD=0
+acquire_xcframework_version_lock() {
+  local holder_pid stale_lock
+  while ! mkdir "${XCFRAMEWORK_VERSION_LOCK}" 2>/dev/null; do
+    holder_pid=""
+    if [[ -f "${XCFRAMEWORK_VERSION_LOCK}/pid" ]]; then
+      IFS= read -r holder_pid < "${XCFRAMEWORK_VERSION_LOCK}/pid" || true
+    fi
+    if [[ "${holder_pid}" =~ ^[1-9][0-9]*$ ]] \
+      && kill -0 "${holder_pid}" 2>/dev/null; then
+      echo "error: another xcframework build (PID ${holder_pid}) is already normalising Cargo versions in this checkout; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to queue" >&2
+      return 1
+    fi
+    stale_lock="${XCFRAMEWORK_VERSION_LOCK}.stale.$$"
+    if ! mv "${XCFRAMEWORK_VERSION_LOCK}" "${stale_lock}" 2>/dev/null; then
+      continue
+    fi
+    if [[ -n "${holder_pid}" ]]; then
+      echo "warning: removing stale xcframework version lock (dead PID ${holder_pid}): ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    else
+      echo "warning: removing stale xcframework version lock (missing holder PID): ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    fi
+    rm -rf "${stale_lock}"
+  done
+  XCFRAMEWORK_VERSION_LOCK_HELD=1
+  printf '%s\n' "$$" > "${XCFRAMEWORK_VERSION_LOCK}/pid"
+}
+release_xcframework_version_lock() {
+  if [[ "${XCFRAMEWORK_VERSION_LOCK_HELD}" -eq 1 ]]; then
+    rm -rf "${XCFRAMEWORK_VERSION_LOCK}"
+    XCFRAMEWORK_VERSION_LOCK_HELD=0
+  fi
+}
 restore_cargo_versions() {
   local status=0
   local previous_int previous_term backup_path
   previous_int="$(trap -p INT || true)"
   previous_term="$(trap -p TERM || true)"
   trap '' INT TERM
-  if [[ -f "${CARGO_VERSION_BACKUP}/files.json" ]]; then
+  if [[ -n "${CARGO_VERSION_BACKUP}" && -f "${CARGO_VERSION_BACKUP}/files.json" ]]; then
     backup_path="$(cd "${CARGO_VERSION_BACKUP}" && pwd -P)"
     if ! node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" restore \
       "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}"; then
@@ -77,7 +111,7 @@ restore_cargo_versions() {
     else
       rm -rf "${CARGO_VERSION_BACKUP}"
     fi
-  else
+  elif [[ -n "${CARGO_VERSION_BACKUP}" ]]; then
     rm -rf "${CARGO_VERSION_BACKUP}"
   fi
   rm -rf "${STAGE:-}"
@@ -96,17 +130,20 @@ restore_cargo_versions() {
 cleanup() {
   local status=$?
   trap - EXIT
+  trap '' INT TERM
   if ! restore_cargo_versions; then
     status=1
   fi
+  release_xcframework_version_lock
   exit "${status}"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+acquire_xcframework_version_lock
+CARGO_VERSION_BACKUP="$(mktemp -d)"
 node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" apply \
   "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}" "${CARGO_VERSION_SENTINEL}"
-
 
 # Slice id -> Apple target triple. All four builds are explicit `--target`.
 SLICES=(

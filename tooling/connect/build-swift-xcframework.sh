@@ -57,6 +57,38 @@ if [[ "${XCFRAMEWORK_LOCKED:-0}" != "1" ]] \
   RUSTUP_TOOLCHAIN=(--toolchain nightly)
 fi
 
+# Cargo folds the package version into crate metadata and therefore into every
+# mangled symbol. Keep the native artifact independent of the lockstep version
+# for the duration of the build, then restore every edited manifest/lockfile.
+CARGO_VERSION_SENTINEL="${XCFRAMEWORK_VERSION_SENTINEL:-0.0.0}"
+CARGO_VERSION_BACKUP="$(mktemp -d)"
+restore_cargo_versions() {
+  local status=0
+  if [[ -f "${CARGO_VERSION_BACKUP}/files.json" ]]; then
+    if ! node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" restore \
+      "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}"; then
+      echo "error: failed to restore Cargo version surfaces" >&2
+      status=1
+    fi
+  fi
+  rm -rf "${CARGO_VERSION_BACKUP}" "${STAGE:-}"
+  return "${status}"
+}
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if ! restore_cargo_versions; then
+    status=1
+  fi
+  exit "${status}"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+node "${REPO_ROOT}/tooling/connect/normalize-cargo-version.mjs" apply \
+  "${REPO_ROOT}" "${CARGO_VERSION_BACKUP}" "${CARGO_VERSION_SENTINEL}"
+
+
 # Slice id -> Apple target triple. All four builds are explicit `--target`.
 SLICES=(
   "macos-arm64|aarch64-apple-darwin"
@@ -112,7 +144,6 @@ mkdir -p "${GENERATED}"
 # Stage each staticlib under <tmp>/<slice-id>/; headers are shared across
 # slices (xcodebuild copies them into each slice's Headers/).
 STAGE="$(mktemp -d)"
-trap 'rm -rf "${STAGE}"' EXIT
 HDRS="${STAGE}/Headers"
 mkdir -p "${HDRS}"
 cp "${GENERATED}/spoke_connectFFI.h" "${HDRS}/"

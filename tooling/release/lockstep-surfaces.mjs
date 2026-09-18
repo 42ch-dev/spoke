@@ -5,9 +5,11 @@
  *
  * Cargo dependency pins use inline tables with bare, basic-quoted, or
  * literal-quoted keys and basic or literal string values. Basic-string escapes
- * are decoded for name resolution; literal strings are used verbatim. Section-
- * form and dotted-key declarations naming a workspace member are refused.
- *
+ * are decoded for name resolution; literal strings are used verbatim. Any table
+ * header whose final key segment names a workspace member, and any dotted key
+ * containing a workspace-member segment and ending in `version` or `path`, are
+ * refused.
+
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.
  * - pnpm-lock.yaml — workspace `link:` entries do not embed package SemVer.
@@ -300,6 +302,31 @@ function decodeCargoKey(key, manifestPath) {
 }
 
 /**
+ * Split a Cargo dotted key path and decode each key segment.
+ *
+ * @param {string} keyPath
+ * @param {string} manifestPath
+ * @returns {string[]}
+ */
+function splitCargoKeyPath(keyPath, manifestPath) {
+  const segments = [];
+  let remaining = keyPath.trim();
+  while (remaining.length > 0) {
+    const match = remaining.match(
+      new RegExp(`^(${CARGO_KEY_PATTERN})(?:\\s*\\.\\s*|$)`),
+    );
+    if (!match) {
+      throw new Error(
+        `${manifestPath}: malformed Cargo key path ${keyPath}`,
+      );
+    }
+    segments.push(decodeCargoKey(match[1], manifestPath));
+    remaining = remaining.slice(match[0].length).trim();
+  }
+  return segments;
+}
+
+/**
  * Refuse Cargo dependency declaration forms that this narrow scanner cannot
  * parse safely.
  *
@@ -314,27 +341,38 @@ function assertSupportedCargoPathDependencyShape(
 ) {
   const workspaceMembers = new Set(packageNames);
   const sectionPattern = new RegExp(
-    String.raw`^\s*\[(dependencies|dev-dependencies|build-dependencies)\.(${CARGO_KEY_PATTERN})\]\s*(?:#.*)?$`,
+    String.raw`^\s*(\[\[|\[)\s*(${CARGO_KEY_PATTERN}(?:\s*\.\s*${CARGO_KEY_PATTERN})*)\s*(\]\]|\])\s*(?:#.*)?$`,
     "gm",
   );
-  for (const [, family, key] of contents.matchAll(sectionPattern)) {
-    const member = decodeCargoKey(key, manifestPath);
-    if (workspaceMembers.has(member)) {
+  for (const [, opening, keyPath, closing] of contents.matchAll(
+    sectionPattern,
+  )) {
+    if ((opening === "[[") !== (closing === "]]")) {
+      continue;
+    }
+    const segments = splitCargoKeyPath(keyPath, manifestPath);
+    const member = segments.at(-1);
+    if (member !== undefined && workspaceMembers.has(member)) {
       throw new Error(
-        `${manifestPath}: dependency section [${family}.${key}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+        `${manifestPath}: dependency section [${keyPath}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
       );
     }
   }
 
   const dottedKeyPattern = new RegExp(
-    String.raw`^\s*(${CARGO_KEY_PATTERN})\s*\.\s*(version|path)\s*=`,
+    String.raw`^\s*(${CARGO_KEY_PATTERN}(?:\s*\.\s*${CARGO_KEY_PATTERN})*)\s*\.\s*(${CARGO_KEY_PATTERN})\s*=`,
     "gm",
   );
-  for (const [, key, attribute] of contents.matchAll(dottedKeyPattern)) {
-    const member = decodeCargoKey(key, manifestPath);
-    if (workspaceMembers.has(member)) {
+  for (const [, keyPath, attribute] of contents.matchAll(dottedKeyPattern)) {
+    const segments = splitCargoKeyPath(keyPath, manifestPath);
+    const decodedAttribute = decodeCargoKey(attribute, manifestPath);
+    if (decodedAttribute !== "version" && decodedAttribute !== "path") {
+      continue;
+    }
+    const member = segments.find((segment) => workspaceMembers.has(segment));
+    if (member !== undefined) {
       throw new Error(
-        `${manifestPath}: dotted-key dependency ${key}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
+        `${manifestPath}: dotted-key dependency ${keyPath}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
       );
     }
   }

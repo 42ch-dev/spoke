@@ -8,6 +8,7 @@ import {
   CARGO_WORKSPACE_PATH,
   parseCargoPathDependencyPins,
   parseCargoWorkspaceMembers,
+  replaceCargoPathDependencyPinVersions,
   resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
 import {
@@ -560,6 +561,171 @@ describe("assert-lockstep-version.mjs", () => {
       assert.equal(readCanonicalVersion(repoRoot), current);
     }
   });
+  it("refuses target-qualified and nested section/dotted workspace-member declarations", () => {
+    const cases = [
+      {
+        name: "target-qualified dependency section",
+        replacement:
+          `[target.'cfg(windows)'.dependencies.spoke-schemas]\nversion = "{version}"\npath = "../spoke-schemas"`,
+        error:
+          /dependency section \[target\.'cfg\(windows\)'\.dependencies\.spoke-schemas\].*workspace member "spoke-schemas".*inline dependency tables are the supported shape/s,
+      },
+      {
+        name: "patch registry dependency section",
+        replacement:
+          `[patch.crates-io.spoke-schemas]\nversion = "{version}"\npath = "../spoke-schemas"`,
+        error:
+          /dependency section \[patch\.crates-io\.spoke-schemas\].*workspace member "spoke-schemas".*inline dependency tables are the supported shape/s,
+      },
+      {
+        name: "nested dotted dependency key",
+        replacement:
+          `dependencies.spoke-schemas.version = "{version}"\ndependencies.spoke-schemas.path = "../spoke-schemas"`,
+        error:
+          /dotted-key dependency dependencies\.spoke-schemas\.(?:version|path).*workspace member "spoke-schemas".*inline dependency tables are the supported shape/s,
+      },
+      {
+        name: "quoted target-qualified dependency section",
+        replacement:
+          `[target.'cfg(windows)'.dependencies.'spoke-schemas']\nversion = "{version}"\npath = "../spoke-schemas"`,
+        error:
+          /dependency section \[target\.'cfg\(windows\)'\.dependencies\.'spoke-schemas'\].*workspace member "spoke-schemas".*inline dependency tables are the supported shape/s,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const repoRoot = createTempRepo();
+      tempDirs.push(repoRoot);
+      initGitRepo(repoRoot);
+
+      const current = readCanonicalVersion(repoRoot);
+      const parsed = parseSemVer(current);
+      assert.ok(parsed, "fixture version must be valid SemVer");
+      const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+      const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+      const crate = readFileSync(cratePath, "utf8");
+      const replacement = testCase.replacement.replace("{version}", current);
+      const declaration = crate.replace(
+        /^spoke-schemas = \{ version = "[^"]+", path = "\.\.\/spoke-schemas" \}\n/m,
+        `${replacement}\n`,
+      );
+      assert.notEqual(declaration, crate, `${testCase.name}: fixture must contain the direct pin`);
+      writeFileSync(cratePath, declaration, "utf8");
+
+      const asserted = runReleaseScript(
+        "assert-lockstep-version.mjs",
+        [],
+        repoRoot,
+      );
+      assert.notEqual(asserted.status, 0, `${testCase.name}: assert must refuse`);
+      assert.match(asserted.stderr, testCase.error);
+
+      const bumped = runReleaseScript(
+        "bump-version.mjs",
+        [target],
+        repoRoot,
+      );
+      assert.notEqual(bumped.status, 0, `${testCase.name}: bump must refuse`);
+      assert.match(bumped.stderr, testCase.error);
+      assert.equal(readCanonicalVersion(repoRoot), current);
+    }
+  });
+
+  it("keeps legitimate Cargo table shapes and target inline pins in lockstep", () => {
+    const contents = `[package]
+name = "fixture"
+version = "0.12.0"
+
+[lib]
+name = "fixture"
+
+[[bin]]
+name = "fixture-bin"
+
+[dependencies]
+serde = "1"
+
+[dev-dependencies]
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+
+[package.metadata.release]
+tag = true
+
+[target.'cfg(unix)'.dependencies]
+spoke-schemas = { version = "0.11.0", path = "../spoke-schemas" }
+
+[workspace.dependencies]
+serde = "1"
+`;
+    const pins = parseCargoPathDependencyPins(
+      contents,
+      ["spoke-schemas"],
+      "fixture/Cargo.toml",
+    );
+    assert.deepEqual(pins, [
+      {
+        name: "spoke-schemas",
+        version: "0.11.0",
+        path: "../spoke-schemas",
+      },
+    ]);
+    assert.equal(
+      replaceCargoPathDependencyPinVersions(
+        contents,
+        "0.12.0",
+        ["spoke-schemas"],
+        "fixture/Cargo.toml",
+      ),
+      contents.replace('version = "0.11.0"', 'version = "0.12.0"'),
+    );
+
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const targetInline = crate.replace(
+      /^spoke-schemas = \{ version = "[^"]+", path = "\.\.\/spoke-schemas" \}\n/m,
+      `[target.'cfg(windows)'.dependencies]\nspoke-schemas = { version = "0.11.0", path = "../spoke-schemas" }\n`,
+    );
+    assert.notEqual(targetInline, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, targetInline, "utf8");
+
+    const stale = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(stale.status, 0);
+    assert.match(
+      stale.stderr,
+      new RegExp(
+        String.raw`spoke-schemas dependency\).*expected: ${current}.*actual:   0\.11\.0`,
+        "s",
+      ),
+    );
+
+    const bumped = runReleaseScript("bump-version.mjs", [target], repoRoot);
+    assert.equal(bumped.status, 0, bumped.stderr);
+    assert.match(
+      readFileSync(cratePath, "utf8"),
+      /\[target\.'cfg\(windows\)'\.dependencies\]\nspoke-schemas = \{ version = "[^"]+", path = "\.\.\/spoke-schemas" \}/,
+    );
+    assert.match(
+      readFileSync(cratePath, "utf8"),
+      new RegExp(
+        String.raw`\[target\.'cfg\(windows\)'\.dependencies\]\nspoke-schemas = \{ version = "${target}", path = "\.\.\/spoke-schemas" \}`,
+      ),
+    );
+  });
+
 
 
   it("refuses globbed Cargo workspace members with explicit-path guidance", () => {

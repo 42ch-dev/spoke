@@ -49,7 +49,7 @@ All of the following MUST share the same `X.Y.Z` string (no independent channels
 
 CI **lockstep assert** MUST cover rows 1–16. Drift on any row MUST fail the build (no warn-only path). `release:bump` MUST rewrite every workspace member entry and every inter-crate `{version, path}` pin when bumping (Node-only; no `cargo` required).
 
-Lockstep pins use inline dependency tables with bare or quoted keys and basic or literal string values; basic-string escapes are decoded for name resolution, while literal strings are used verbatim. Section-form and dotted-key declarations naming a workspace member are refused.
+Lockstep pins use inline dependency tables with bare or quoted keys and basic or literal string values; basic-string escapes are decoded for name resolution, while literal strings are used verbatim. Any table header whose final key segment names a workspace member, and any dotted key containing a workspace-member segment and ending in `version` or `path`, are refused.
 
 ## SemVer usage (monorepo)
 

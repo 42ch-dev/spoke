@@ -9,8 +9,8 @@
  * core, runs a ports round trip over a host-owned loopback, exercises the
  * rejection/ownership rules, and repeats the core groups through the
  * convenience layer. This script builds it in `target/cpp-smoke`, executes it,
- * and then requires every banner the plan names to appear in the output in
- * order — a run that executes no assertions fails.
+ * and then requires the banner lines it printed to equal the configuration's
+ * expected list exactly — a run that executes no assertions fails.
  *
  * Every RID is built twice: exceptions disabled (the consumer default) and
  * exceptions enabled, which is the build that exercises the convenience layer's
@@ -184,25 +184,29 @@ function executableFor(spec, build) {
   return `${spec.executable}${build.executableSuffix}${spec.platform === "win32" ? ".exe" : ""}`;
 }
 
-/** Requires every banner of one configuration, in order; a run that asserts
-    nothing prints none. */
+/** A banner-shaped line: what `banner()` in the smoke prints per passed group. */
+const BANNER_LINE = /^.+: PASS$/;
+
+/** Every banner-shaped line one smoke run printed, in output order. */
+function bannerLines(output) {
+  return output.split("\n").filter((line) => BANNER_LINE.test(line));
+}
+
+/** Requires the run's banner lines to equal one configuration's expected list
+    exactly — same count, same order, same text — so a missing, extra, repeated
+    or reordered banner all fail naming the first position that differs; a run
+    that asserts nothing prints no banner and cannot match a non-empty list. */
 function verifyBanners(output, banners) {
-  const missing = [];
-  let cursor = 0;
-  for (const banner of banners) {
-    const at = output.indexOf(banner, cursor);
-    if (at < 0) {
-      missing.push(banner);
-      continue;
-    }
-    cursor = at + banner.length;
-  }
-  if (missing.length > 0) {
-    fail(
-      `the smoke run did not report ${missing.map((entry) => `'${entry}'`).join(", ")} ` +
-        `in order`,
-    );
-  }
+  const observed = bannerLines(output);
+  const mismatch = observed.findIndex((line, index) => line !== banners[index]);
+  if (mismatch < 0 && observed.length === banners.length) return;
+  const at = mismatch < 0 ? Math.min(observed.length, banners.length) : mismatch;
+  fail(
+    `the smoke run's banners differ at position ${at + 1}: expected ` +
+      `${banners[at] ? `'${banners[at]}'` : "no banner"}, saw ` +
+      `${observed[at] ? `'${observed[at]}'` : "no banner"} ` +
+      `(${banners.length} expected, ${observed.length} printed)`,
+  );
 }
 
 function main() {

@@ -11,7 +11,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 | 列 | 内容 |
 |----|------|
 | **数据线上（Data wire）** | 九个持久对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、MindState（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) |
-| **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute` |
+| **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute`，`ke-extraction` 下另有可选 `extract` |
 | **操作库（Operations library）** | 在生成的线上类型之上的手写行为层：纯函数生命周期辅助、按能力切片的 adapter ports 与注入式编排（TypeScript `@42ch/spoke-operations`；Rust `spoke-operations`，锁步 SemVer） |
 
 ## connect 信封族（可选加入）
@@ -20,7 +20,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## Schema 清单与代码生成姿态
 
-线上清单为 **32 个已提交的 `*.schema.json`**：2 common + 10 data + 14 ops + 6 connect 信封。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 在生成树偏离 `schemas/` 时令构建失败；schema 变更与重新生成输出落在同一提交。
+线上清单为 **34 个已提交的 `*.schema.json`**：2 common + 10 data + 16 ops（10 基线 + 4 `l2-computable` + 2 `ke-extraction`）+ 6 connect 信封。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 在生成树偏离 `schemas/` 时令构建失败；schema 变更与重新生成输出落在同一提交。
 
 ## 扩展契约
 
@@ -42,6 +42,8 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 | `l5-fork` | TimelineEvent 上的 `fork_id` / `parent_fork_id` 分支元数据与 `Scope.fork_id` 过滤 |
 | `l5-mind` | when 轴上的可选 `MindState` 时间心智状态记录（快照 / 增量）与 TimelineEvent 上的 `modules.observation` —— 见 [MindState 参考](/zh/reference/mind-state) |
 | `narrative-modules` | KnowledgeEntry + AssemblePacket + TimelineEvent 上的可选 `modules`（`ModuleMap`）字段袋 |
+| `ke-extraction` | 可选 `extract` 操作族 —— 从被引用的源材料提议 `provisional` 候选 KnowledgeEntry —— 外加独立 `ExtractionPort` 与 `orchestrateExtract` 边界 |
+| `ke-ownership` | `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` 治理字段与共享 `Scope.viewpoint` 读取方选择器 |
 | `spoke-connect` | 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志 |
 
 ## 仓库布局

@@ -11,7 +11,7 @@ SPOKE is a shared **wire dialect** for narrative products: one set of JSON Schem
 | Column | Contents |
 |--------|----------|
 | **Data wire** | Nine durable objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, MindState ([`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)), plus shared definitions in [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) |
-| **Ops wire** | Five baseline operation families — upsert, extract→promote, relate, check, assemble — as transport-agnostic request/response envelopes ([`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)), plus optional `project` / `compute` under `l2-computable` |
+| **Ops wire** | Five baseline operation families — upsert, extract→promote, relate, check, assemble — as transport-agnostic request/response envelopes ([`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)), plus optional `project` / `compute` under `l2-computable` and optional `extract` under `ke-extraction` |
 | **Operations library** | Hand-written behavior over the generated wire types: pure lifecycle helpers, capability-sliced adapter ports, and injection orchestration (`@42ch/spoke-operations` TypeScript; `spoke-operations` Rust, lockstep SemVer) |
 
 ## Connect family (opt-in)
@@ -20,7 +20,7 @@ Six interaction envelopes ([`schemas/connect/`](https://github.com/42ch-dev/spok
 
 ## Schema inventory and codegen posture
 
-The wire inventory is **32 committed `*.schema.json` files**: 2 common + 10 data + 14 ops + 6 connect envelopes. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` fails the build if the generated tree drifts from `schemas/`; schema changes and regenerated output land in the same commit.
+The wire inventory is **34 committed `*.schema.json` files**: 2 common + 10 data + 16 ops (10 baseline + 4 `l2-computable` + 2 `ke-extraction`) + 6 connect envelopes. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` fails the build if the generated tree drifts from `schemas/`; schema changes and regenerated output land in the same commit.
 
 ## Extensions contract
 
@@ -42,6 +42,8 @@ Placement rule: a **cross-product functional dialect** uses `modules.*`; **produ
 | `l5-fork` | `fork_id` / `parent_fork_id` branch metadata on TimelineEvent and `Scope.fork_id` filtering |
 | `l5-mind` | optional `MindState` temporal mental-state records over the when-axis (snapshot / delta) and `modules.observation` on TimelineEvent — see [MindState reference](/reference/mind-state) |
 | `narrative-modules` | the optional `modules` (`ModuleMap`) bag on KnowledgeEntry + AssemblePacket + TimelineEvent |
+| `ke-extraction` | the optional `extract` op family — provisional `KnowledgeEntry` candidates from referenced source material — plus the standalone `ExtractionPort` and the `orchestrateExtract` boundary |
+| `ke-ownership` | `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` governance fields and the shared `Scope.viewpoint` reader selector |
 | `spoke-connect` | the opt-in interaction envelope family; hosts that speak it list the flag in `HostCapabilityManifest.capabilities` |
 
 ## Repository layout

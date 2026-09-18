@@ -4,7 +4,7 @@ title: 数据模型参考
 
 # 数据模型参考（Data model reference）
 
-数据层定义叙事产品交换的持久线上对象。所有对象传输无关、携带必填的 `extensions.<namespace>` 字段袋、并保持核心字段封闭（`additionalProperties: false`）。以下字段表溯源到 [`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data) 与 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) 中的已提交 schema。
+数据层定义叙事产品交换的持久线上对象。对象传输无关；必填的 `extensions.<namespace>` 字段袋与核心字段封闭规则详见[扩展契约](/zh/reference/protocol#扩展契约)。以下字段表溯源到 [`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data) 与 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) 中的已提交 schema。
 
 ## 共享定义
 
@@ -17,7 +17,7 @@ title: 数据模型参考
 | `SourceSpan` | `{ start, end }`（start 含、end 不含） | 源工件内的区间 |
 | `TimelineScale` | 开放字符串；核心列表 `brief`、`narrative`、`moment` | L5 投影层级 |
 | `ForkId` | 字符串 ≥ 1 字符 | 不透明世界历史分支标识（`l5-fork`） |
-| `Scope` | 对象；必填 `scope_id` | 共享 ops 选择器 —— 见[操作线上参考](/zh/reference/ops) |
+| `Scope` | 对象；必填 `scope_id`；可选 `viewpoint`（`ke-ownership`） | 共享 ops 选择器 —— 见[操作线上参考](/zh/reference/ops)与[归属治理](#归属治理-ke-ownership) |
 | `BodyAttribute` | `{ trait_type, value, display_type?, max_value? }` | ERC721 风格特征项；数组层允许重复 `trait_type` |
 | `ComputableFieldMap` | 字段名到域值的开放映射 | `body.state` 与 `body.computable` 共用（`l2-computable`） |
 | `ComputableLogEntry` | `{ logged_at, entry_id, changes[] }` + 可选 `session_id` / `message` | computable 字段变化的 moment 尺度呈现（`l2-computable`） |
@@ -38,6 +38,8 @@ title: 数据模型参考
 | `created_at` / `updated_at` | Timestamp | |
 | `extensions` | ExtensionMap，必填 | |
 | `modules` | ModuleMap，可选 | 能力标志 `narrative-modules`；携带按条目的方言（如 `modules.activation`） |
+| `owner` | 字符串 ≥ 1 字符，可选 | 产品协作上下文中持有者 KnowledgeEntry 的 `entry_id`（`ke-ownership`） |
+| `disclosure` | 开放字符串，可选 | 治理披露词汇；唯一核心值为 `owner-private`（`ke-ownership`） |
 
 ## Relation
 
@@ -101,7 +103,7 @@ title: 数据模型参考
 |------|------|------|
 | `host_id` | 字符串 ≥ 1 字符 | 稳定主机标识，对协议不透明 |
 | `roles` | 字符串数组，≥1，去重 | 开放词汇。核心列表（记录在案，不强制）：`data-store`、`input-source`、`checker`、`assembler`、`computable-engine` |
-| `capabilities` | 字符串数组，≥1，去重 | 开放字符串能力标志。核心列表（记录在案，不强制）：`spoke-baseline`、`l2-computable` |
+| `capabilities` | 字符串数组，≥1，去重 | 开放字符串能力标志。核心列表（记录在案，不强制）：`spoke-baseline`、`l2-computable`、`l5-fork`、`l5-mind`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect` |
 | `namespaces` | 字符串数组，≥1，去重；键 `^[a-z][a-z0-9_-]*$` | 该主机在协作上下文中拥有的扩展 namespace 键 |
 | `authority` | `{ scope_key }`，可选 | 显式单写者权限作用域；缺省且 `roles` 含 `data-store` 时，隐式权限为该 manifest 的 `host_id` |
 | `extensions` | ExtensionMap，必填 | 部署元数据 —— 与 KnowledgeEntry `extensions` 是不同表面 |
@@ -142,6 +144,14 @@ title: 数据模型参考
 | `extensions` | ExtensionMap，必填 | |
 
 `MindState` 是同一 when 轴上心智状态的配套 L5 时间记录 —— 见 [MindState 参考](/zh/reference/mind-state)。
+
+## 归属治理（`ke-ownership`）
+
+可选的 `ke-ownership` 能力在 KnowledgeEntry 信封上承载归属事实，并在共享 `Scope` 上提供读取方选择器。`KnowledgeEntry.owner` 是产品协作上下文中持有者 KnowledgeEntry 的 `entry_id`；`owner` 缺省表示未指定归属。`KnowledgeEntry.disclosure` 承载治理披露词汇，唯一核心值为 `owner-private`；`disclosure` 缺省表示在已选定的 KB 上下文内共享。持有者是产品在自身上下文中解析的普通 KnowledgeEntry。
+
+`Scope.viewpoint` 是共享选择器上的可选非空字符串：读者持有者 KnowledgeEntry 的 `entry_id`。核心披露谓词仅在条目的 `owner` 与请求的 `viewpoint` 精确相等时准入 `owner-private` 条目 —— 对 id 原样做字符串相等比较；没有 `disclosure` 的条目对任何 viewpoint 都保持可见。
+
+三个带 Scope 的远程操作 —— `port.scope.list_knowledge_entries`、`port.scope.list_timeline_events`、`port.fork.list_timeline_events` —— 在请求 Scope 携带非空 `viewpoint` 时，除行能力外还要求 `ke-ownership`。见 [connect 参考](/zh/reference/connect#归属门禁-the-ownership-gate-ke-ownership)。
 
 ## 开放词汇
 

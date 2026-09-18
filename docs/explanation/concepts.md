@@ -24,11 +24,13 @@ SPOKE defines its vocabulary in **wire terms** — every concept below is a conc
 
 A product claims compliance at a declared capability level. **`spoke-baseline`** covers L0–L8 semantics via the five ops wire families, `HostCapabilityManifest` + baseline `HostManifestPort`, and the shared `Scope` / `error-envelope` definitions. Optional flags are additive — baseline compliance stands alone:
 
-- **`l2-computable`** — `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and `project` / `compute` ops.
-- **`l5-fork`** — `fork_id` / `parent_fork_id` branch metadata on TimelineEvent and `Scope.fork_id` filtering.
-- **`l5-mind`** — optional `MindState` temporal mental-state records (snapshot / delta) over the when-axis and `modules.observation` on TimelineEvent — see the [MindState reference](/reference/mind-state).
-- **`narrative-modules`** — the optional `modules` (`ModuleMap`) bag for cross-product functional dialects.
-- **`spoke-connect`** — the opt-in interaction envelope family; hosts that speak it list the flag in `HostCapabilityManifest.capabilities`.
+- **`l2-computable`** — computable knowledge state and its history, with the `project` / `compute` ops.
+- **`l5-fork`** — world-history branch metadata on the timeline.
+- **`l5-mind`** — `MindState`, the strictly derivative temporal mental-state record over the when-axis — see the [MindState reference](/reference/mind-state).
+- **`narrative-modules`** — the optional `modules` bag for cross-product functional dialects.
+- **`ke-extraction`** — the optional `extract` op: referenced source material in, provisional KnowledgeEntry candidates out.
+- **`ke-ownership`** — ownership and disclosure on the KnowledgeEntry envelope, with the `Scope.viewpoint` reader selector.
+- **`spoke-connect`** — the opt-in cross-process interaction envelope family.
 
 The connect family's session lifecycle, envelope authentication, and capability routing are explained in [Connect architecture](/explanation/connect).
 
@@ -48,7 +50,7 @@ Core objects keep closed envelopes (`additionalProperties: false`), while core v
 
 ## Selectors and extension points
 
-- **Scope** — the shared ops selector for `check` / `assemble`: required opaque `scope_id` plus optional refinements (`entry_ids`, `entry_types`, `timeline_scale`, `fork_id`, …).
+- **Scope** — the shared ops selector for `check` / `assemble`: required opaque `scope_id` plus optional refinements (`entry_ids`, `entry_types`, `timeline_scale`, `fork_id`, `viewpoint`, …); `viewpoint` is the `ke-ownership` reader selector.
 - **Extensions** — `extensions.<namespace>` product bag on every durable object; adapters round-trip unknown namespaces verbatim.
 - **Modules** — the optional `modules.*` bag (capability-flagged `narrative-modules`) for cross-product functional dialects on KnowledgeEntry, AssemblePacket, and TimelineEvent.
 

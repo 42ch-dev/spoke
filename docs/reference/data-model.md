@@ -4,7 +4,7 @@ title: Data model reference
 
 # Data model reference
 
-The data layer defines the durable wire objects narrative products exchange. All objects are transport-agnostic, carry the required `extensions.<namespace>` bag, and keep core fields closed (`additionalProperties: false`). Field tables below trace to the committed schemas in [`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data) and [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common).
+The data layer defines the durable wire objects narrative products exchange. Objects are transport-agnostic; the required `extensions.<namespace>` bag and the closed-core rule are specified once in the [extensions contract](/reference/protocol#extensions-contract). Field tables below trace to the committed schemas in [`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data) and [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common).
 
 ## Shared definitions
 
@@ -17,7 +17,7 @@ The data layer defines the durable wire objects narrative products exchange. All
 | `SourceSpan` | `{ start, end }` (inclusive start, exclusive end) | Span within a source artifact |
 | `TimelineScale` | open string; core list `brief`, `narrative`, `moment` | L5 projection tier |
 | `ForkId` | string ≥ 1 char | Opaque world-history branch identity (`l5-fork`) |
-| `Scope` | object; required `scope_id` | Shared ops selector — see [Ops wire reference](/reference/ops) |
+| `Scope` | object; required `scope_id`; optional `viewpoint` (`ke-ownership`) | Shared ops selector — see [Ops wire reference](/reference/ops) and [Ownership governance](#ownership-governance-ke-ownership) |
 | `BodyAttribute` | `{ trait_type, value, display_type?, max_value? }` | ERC721-style trait item; duplicate `trait_type` allowed at array level |
 | `ComputableFieldMap` | open map of field names to domain values | Shared by `body.state` and `body.computable` under `l2-computable` |
 | `ComputableLogEntry` | `{ logged_at, entry_id, changes[] }` + optional `session_id` / `message` | Moment-scale presentation of computable field changes (`l2-computable`) |
@@ -38,6 +38,8 @@ The atomic knowledge-base unit. Required: `schema_version`, `entry_id`, `entry_t
 | `created_at` / `updated_at` | Timestamp | |
 | `extensions` | ExtensionMap, required | |
 | `modules` | ModuleMap, optional | Capability-flagged `narrative-modules`; carries per-entry dialects (e.g. `modules.activation`) |
+| `owner` | string ≥ 1 char, optional | Holder-KnowledgeEntry `entry_id` in the product's collaboration context (`ke-ownership`) |
+| `disclosure` | open string, optional | Governance disclosure vocabulary; the sole core value is `owner-private` (`ke-ownership`) |
 
 ## Relation
 
@@ -101,7 +103,7 @@ Host self-description for in-process collaboration. Required: `schema_version`, 
 |-------|------|-------|
 | `host_id` | string ≥ 1 char | Stable host identity, opaque to the protocol |
 | `roles` | string[], min 1, unique | Open vocabulary. Core list (documented, not enforced): `data-store`, `input-source`, `checker`, `assembler`, `computable-engine` |
-| `capabilities` | string[], min 1, unique | Open string capability flags. Core list (documented, not enforced): `spoke-baseline`, `l2-computable` |
+| `capabilities` | string[], min 1, unique | Open string capability flags. Core list (documented, not enforced): `spoke-baseline`, `l2-computable`, `l5-fork`, `l5-mind`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-connect` |
 | `namespaces` | string[], min 1, unique; keys `^[a-z][a-z0-9_-]*$` | Extension namespace keys this host owns in a collaboration context |
 | `authority` | `{ scope_key }`, optional | Explicit single-writer authority scope; when absent with `data-store` in roles, implicit authority is this manifest's `host_id` |
 | `extensions` | ExtensionMap, required | Deployment metadata — distinct surface from KnowledgeEntry `extensions` |
@@ -142,6 +144,14 @@ First-class when-axis temporal object (L5). Required: `schema_version`, `timelin
 | `extensions` | ExtensionMap, required | |
 
 `MindState` is the companion L5 temporal record for mental state on the same when-axis — see [MindState reference](/reference/mind-state).
+
+## Ownership governance (`ke-ownership`)
+
+The optional `ke-ownership` capability carries ownership facts on the KnowledgeEntry envelope and a reader selector on the shared `Scope`. `KnowledgeEntry.owner` names the holder KnowledgeEntry (`entry_id`) in the product's collaboration context; when `owner` is absent, ownership is unspecified. `KnowledgeEntry.disclosure` carries the governance disclosure vocabulary, whose sole core value is `owner-private`; when `disclosure` is absent, the entry is shared within the already selected KB context. A holder is an ordinary KnowledgeEntry that the product resolves in its own context.
+
+`Scope.viewpoint` is an optional non-empty string on the shared selector: the reader's holder-KnowledgeEntry `entry_id`. The core disclosure predicate admits an `owner-private` entry only when its `owner` equals the requesting `viewpoint` exactly — string equality on the ids as supplied; an entry without `disclosure` stays visible regardless of viewpoint.
+
+The three Scope-bearing remote ops — `port.scope.list_knowledge_entries`, `port.scope.list_timeline_events`, `port.fork.list_timeline_events` — require `ke-ownership` in addition to their row capability when the request's Scope carries a non-empty `viewpoint`. See the [connect reference](/reference/connect#the-ownership-gate-ke-ownership).
 
 ## Open vocabulary
 

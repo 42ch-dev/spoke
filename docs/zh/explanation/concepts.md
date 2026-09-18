@@ -24,11 +24,13 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 
 产品按声明的能力等级主张合规。**`spoke-baseline`** 经五个 ops 线上族、`HostCapabilityManifest` + 基线 `HostManifestPort`、以及共享 `Scope` / `error-envelope` 定义覆盖 L0–L8 语义。可选标志是增量的 —— 基线合规可独立成立：
 
-- **`l2-computable`** —— `body.state` / `body.computable`、`TimelineEvent.computable_logs`，以及 `project` / `compute` ops。
-- **`l5-fork`** —— TimelineEvent 上的 `fork_id` / `parent_fork_id` 分支元数据与 `Scope.fork_id` 过滤。
-- **`l5-mind`** —— when 轴上的可选 `MindState` 时间心智状态记录（快照 / 增量）与 TimelineEvent 上的 `modules.observation` —— 见 [MindState 参考](/zh/reference/mind-state)。
-- **`narrative-modules`** —— 面向跨产品功能方言的可选 `modules`（`ModuleMap`）字段袋。
-- **`spoke-connect`** —— 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志。
+- **`l2-computable`** —— computable 知识状态及其历史，以及 `project` / `compute` ops。
+- **`l5-fork`** —— 时间轴上的世界历史分支元数据。
+- **`l5-mind`** —— `MindState`，when 轴上严格派生的时间心智状态记录 —— 见 [MindState 参考](/zh/reference/mind-state)。
+- **`narrative-modules`** —— 面向跨产品功能方言的可选 `modules` 字段袋。
+- **`ke-extraction`** —— 可选 `extract` 操作：被引用的源材料进、`provisional` 候选 KnowledgeEntry 出。
+- **`ke-ownership`** —— KnowledgeEntry 信封上的归属与披露，以及 `Scope.viewpoint` 读取方选择器。
+- **`spoke-connect`** —— 可选跨进程交互信封族。
 
 connect 家族的会话生命周期、信封认证与能力路由在 [Connect 架构](/zh/explanation/connect) 中说明。
 
@@ -48,7 +50,7 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 
 ## 选择器与扩展点
 
-- **Scope** —— `check` / `assemble` 的共享 ops 选择器：必填不透明 `scope_id` 加可选细化（`entry_ids`、`entry_types`、`timeline_scale`、`fork_id` 等）。
+- **Scope** —— `check` / `assemble` 的共享 ops 选择器：必填不透明 `scope_id` 加可选细化（`entry_ids`、`entry_types`、`timeline_scale`、`fork_id`、`viewpoint` 等）；`viewpoint` 是 `ke-ownership` 读取方选择器。
 - **Extensions** —— 每个持久对象上的 `extensions.<namespace>` 产品字段袋；adapter 原样往返未知 namespace。
 - **Modules** —— KnowledgeEntry、AssemblePacket 与 TimelineEvent 上的可选 `modules.*` 字段袋（能力标志 `narrative-modules`），用于跨产品功能方言。
 

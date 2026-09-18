@@ -18,10 +18,13 @@ facade member and error variant to its C declaration.
 | Path | Contents |
 |------|----------|
 | `include/spoke_connect.h` | The C contract: status values, value types, callback tables and every exported function |
+| `include/spoke_connect.hpp` | C++17 header-only convenience layer over the C contract: move-only ownership, borrowed views, structured `Result` values and the callback bridges |
 | `native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 carrier, install name `@rpath/libspoke_connect_capi.dylib` |
 | `native/win-x64/` | Windows x64 carrier: `spoke_connect_capi.dll` plus the Rust-produced `spoke_connect_capi.dll.lib` import library |
 | `native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, header SHA-256 and native SHA-256 |
-| `Smoke/main.cpp` | C++17 smoke: golden-vector assertions, a ports round trip over a host-owned loopback, and the rejection/ownership rules |
+| `Smoke/main.cpp` | C++17 smoke (raw C ABI): golden-vector assertions, a ports round trip over a host-owned loopback, and the rejection/ownership rules |
+| `Smoke/convenience.cpp` | C++17 smoke (convenience layer): the value/ownership layer, the core functions and objects, and the loopback pair |
+| `Smoke/support.hpp` | Shared smoke support: the golden-vector read and parse, the assertion primitives, and the convenience-group entry point |
 | `parity.md` | C ABI ⇄ production facade parity table |
 
 ## Linking

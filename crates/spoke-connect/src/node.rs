@@ -124,7 +124,7 @@ struct ConnectBehaviour {
 impl ConnectBehaviour {
     fn new(keypair: &Keypair, config: &ConnectConfig) -> Result<Self, ConnectError> {
         let identify = identify::Behaviour::new(identify::Config::new(
-            format!("spoke-connect/{}", env!("CARGO_PKG_VERSION")),
+            "spoke-connect".to_owned(),
             keypair.public(),
         ));
         let timeout = config.effective_handshake_timeout();

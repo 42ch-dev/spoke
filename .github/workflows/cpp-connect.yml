@@ -105,7 +105,7 @@ jobs:
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
       - name: Check C ABI symbols
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run C++ smoke
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64

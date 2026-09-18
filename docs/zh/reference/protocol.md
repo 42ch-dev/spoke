@@ -10,7 +10,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 | 列 | 内容 |
 |----|------|
-| **数据线上（Data wire）** | 九个持久对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、MindState（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) |
+| **数据线上（Data wire）** | 十个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、MindState、ToolDescriptor（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) |
 | **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute`，`ke-extraction` 下另有可选 `extract` |
 | **操作库（Operations library）** | 在生成的线上类型之上的手写行为层：纯函数生命周期辅助、按能力切片的 adapter ports 与注入式编排（TypeScript `@42ch/spoke-operations`；Rust `spoke-operations`，锁步 SemVer） |
 
@@ -20,7 +20,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## Schema 清单与代码生成姿态
 
-线上清单为 **34 个已提交的 `*.schema.json`**：2 common + 10 data + 16 ops（10 基线 + 4 `l2-computable` + 2 `ke-extraction`）+ 6 connect 信封。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 在生成树偏离 `schemas/` 时令构建失败；schema 变更与重新生成输出落在同一提交。
+线上清单为 **34 个已提交的 `*.schema.json`**：2 common + 10 data + 16 ops（10 基线 + 4 `l2-computable` + 2 `ke-extraction`）+ 6 connect 信封。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`；`MindState` 作为第十个数据文件属于可选的 `l5-mind` 层。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 在生成树偏离 `schemas/` 时令构建失败；schema 变更与重新生成输出落在同一提交。
 
 ## 扩展契约
 
@@ -52,7 +52,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## 相关页面
 
-- [数据模型参考](/zh/reference/data-model) —— 九个持久对象的字段表。
+- [数据模型参考](/zh/reference/data-model) —— 十个数据对象的字段表。
 - [操作线上参考（Ops wire）](/zh/reference/ops) —— 请求/响应信封、`Scope`、`ErrorEnvelope`。
 - [connect 参考](/zh/reference/connect) —— 可选信封族。
 - [MindState 参考](/zh/reference/mind-state) —— L5 时间心智状态记录（`l5-mind`）。

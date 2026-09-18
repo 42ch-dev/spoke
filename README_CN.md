@@ -16,7 +16,7 @@
 - Ops 层 schema：`upsert`、extract→promote、`relate`、`check`、`assemble`；可选 **`project` / `compute`**（`l2-computable` 能力下）
 - 生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`、`spoke-operations`）
 - 纯函数生命周期辅助，以及 **adapter ports** 与 **injection orchestration**（`@42ch/spoke-operations` / `spoke-operations`）
-- 可选 **Connect**，用于签名的跨进程交互（`@42ch/spoke-connect` / `spoke-connect`，以及原生绑定）
+- 可选 **Connect**，用于签名的跨进程交互（`@42ch/spoke-connect` / `spoke-connect`，以及包括 C 与 C++ 在内的原生绑定）
 - 协议一致性样例与参考 **`ToyWorldAdapter`**（[`fixtures/toy-world/`](fixtures/toy-world/)）
 
 ## 软件包
@@ -132,7 +132,13 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-Connect 支持多语言：npm 上的语言原生客户端（TypeScript）、crates.io 上的 Rust 参考实现（libp2p + uniffi 绑定面），以及经四种渠道发布的原生绑定 —— GitHub Packages NuGet/Maven、SPM git、Go modules git、PyPI。总览、TypeScript 路线与原生绑定见 [TypeScript 客户端](https://spoke.42ch.dev/zh/how-to/connect-ts-client) 与 [原生绑定](https://spoke.42ch.dev/zh/how-to/connect-native-bindings)。
+**C 与 C++** —— 基于 git、与发布标签同源：检出 `vX.Y.Z`，取用 `crates/spoke-connect/bindings/cpp/include/spoke_connect.h`（手写 C ABI 头文件）、`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`（C++17 头文件式便利层），以及目标平台的已提交载体 —— macOS arm64 用 `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`，Windows x64 用 `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`。
+
+```bash
+git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+```
+
+Connect 支持多语言：npm 上的语言原生客户端（TypeScript）、crates.io 上的 Rust 参考实现（libp2p + uniffi 绑定面），以及原生绑定 —— C#（GitHub Packages NuGet）、Kotlin（GitHub Packages Maven）与 Python（PyPI）走注册表分发，Swift、Go 与 C/C++（已提交头文件与平台载体）走 git 分发。路线见 [TypeScript 客户端](https://spoke.42ch.dev/zh/how-to/connect-ts-client)、[原生绑定](https://spoke.42ch.dev/zh/how-to/connect-native-bindings) 与 [从 C 与 C++ 连接](https://spoke.42ch.dev/zh/how-to/connect-cpp-binding)。
 
 ## 版本与固定
 

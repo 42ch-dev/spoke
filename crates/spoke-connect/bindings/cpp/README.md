@@ -1,28 +1,36 @@
 # spoke-connect C++ binding
 
-Hand-written C ABI over the Rust `spoke-connect` reference: one header,
-`include/spoke_connect.h`, plus a committed dynamic library per platform. A
-C++17 host compiles against the header and links the native, with exceptions
-and RTTI disabled. The boundary reports ABI revision `1` through
+Hand-written C ABI over the Rust `spoke-connect` reference, plus a C++17
+convenience layer over that ABI: `include/spoke_connect.h` is the C contract and
+`include/spoke_connect.hpp` is the header-only C++ surface, with a committed
+dynamic library per platform. The boundary reports ABI revision `1` through
 `spoke_connect_abi_version`.
 
-The surface mirrors the native bindings' facade: the session core (peer id
-derivation, hello signing and verification, the allowlist, the nonce store, the
-sequence counters, the correlation and dispatch gates), `RemoteAdapter`,
-`MultiPeerRouter`, `ConnectResponder` with the `PortsHandler` and `ToolHandler`
-callbacks, and the in-memory loopback helpers. `parity.md` maps each production
-facade member and error variant to its C declaration.
+A C++17 host includes `spoke_connect.hpp` (which includes the C header) and
+links the native. The convenience layer wraps every production capability of the
+C ABI in namespace `spoke::connect`: the session core (peer id derivation, hello
+signing and verification, the allowlist, the nonce store, the sequence counters,
+the correlation and dispatch gates), `RemoteAdapter`, `MultiPeerRouter`,
+`ConnectResponder` with the `PortsHandler` and `ToolHandler` callbacks, and the
+in-memory loopback helpers. `parity.md` maps each production facade member and
+error variant to its C declaration and its C++ counterpart.
+
+Full consumer guide, with a complete runnable session:
+<https://github.com/42ch-dev/spoke/blob/main/docs/how-to/connect-cpp-binding.md>.
 
 ## Layout
 
 | Path | Contents |
 |------|----------|
-| `include/spoke_connect.h` | The C contract: status values, value types, callback tables and every exported function |
+| `include/spoke_connect.h` | The C contract: status values, value types, callback tables and every exported function (C99 language floor, `extern "C"` inclusion for C++) |
+| `include/spoke_connect.hpp` | C++17 header-only convenience layer over the C contract: move-only ownership, borrowed views, structured `Result` values and the callback bridges |
 | `native/osx-arm64/libspoke_connect_capi.dylib` | macOS arm64 carrier, install name `@rpath/libspoke_connect_capi.dylib` |
 | `native/win-x64/` | Windows x64 carrier: `spoke_connect_capi.dll` plus the Rust-produced `spoke_connect_capi.dll.lib` import library |
 | `native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, header SHA-256 and native SHA-256 |
-| `Smoke/main.cpp` | C++17 smoke: golden-vector assertions, a ports round trip over a host-owned loopback, and the rejection/ownership rules |
-| `parity.md` | C ABI ⇄ production facade parity table |
+| `Smoke/main.cpp` | C++17 smoke (raw C ABI): golden-vector assertions, a ports round trip over a host-owned loopback, and the rejection/ownership rules |
+| `Smoke/convenience.cpp` | C++17 smoke (convenience layer): the value/ownership layer, the core functions and objects, the session and tool callbacks, and the router |
+| `Smoke/support.hpp` | Shared smoke support: the golden-vector read and parse, the assertion primitives, and the convenience-group entry point |
+| `parity.md` | C ABI ⇄ production facade parity table with the C++ counterpart column |
 
 ## Linking
 
@@ -42,11 +50,18 @@ carrier's Rust dynamic CRT runtime, links the import library, and loads the DLL
 from the executable's directory:
 
 ```bat
-cl.exe /nologo /std:c++17 /EHs-c- /GR- /MD /W4 /WX /I<absolute path to include> ^
+cl.exe /nologo /std:c++17 /EHs-c- /GR- /MD /D_HAS_EXCEPTIONS=0 /W4 /WX ^
+  /I<absolute path to include> ^
   host.cpp <absolute path to native\win-x64\spoke_connect_capi.dll.lib> /Fe:host.exe
 copy /Y <absolute path to native\win-x64\spoke_connect_capi.dll> .
 host.exe
 ```
+
+`-fno-exceptions -fno-rtti` (`/EHs-c- /GR- /D_HAS_EXCEPTIONS=0`) is the
+consumer default; an exception-enabled build uses `-fexceptions -fno-rtti`
+(`/EHsc`) with the same error API. Translation units that include
+`spoke_connect.hpp` in one linked image must use a consistent exception and
+standard-library configuration.
 
 ## Calling the ABI
 
@@ -62,18 +77,32 @@ host.exe
 | Threading | Calls block the calling host thread; callbacks run on the carrier's blocking pool and may run concurrently, so host contexts are thread-safe. |
 | Lifetime | Load the carrier for the process lifetime, and close sessions and release handles before host shutdown. |
 
+### The C++ layer
+
+| Concern | Contract |
+|---------|----------|
+| Borrowed views | `Buffer::view()` borrows the owned payload — valid while that `Buffer` lives, binary length authoritative, deleted on a temporary. `Buffer::str()` returns an owned `std::string`. |
+| Results | Every fallible call returns `[[nodiscard]] Result<T>` / `Result<void>`; `Error` carries the original status plus `message`, optional `code` / `kind` / `wire_code`, `expected` and `actual`. No throwing API. |
+| Handles | Move-only RAII classes: the destructor performs the release, a moved-from object is empty, and `get()` / `release()` / `adopt()` cover raw-C interop. |
+| Explicit close | Destructors free only. `RemoteAdapter::close()` and `ConnectResponder::close()` end a session; the C ABI exports no standalone transport close, so the host closes its own queue or connection. Close sessions before releasing the last host resources. |
+| Callback context | The factories take `std::unique_ptr<TransportCallbacks>&` (and the ports/tool equivalents), refuse an incomplete record with `SPOKE_CONNECT_INVALID_ARGUMENT`, and release the pointer only on C success. The carrier then owns the record and runs its `destroy` once; capture what a callback needs by value. |
+| Exceptions | With exceptions disabled the header contains no `try` / `catch` / `throw` and a callback reports failure through its `Result`; with exceptions enabled an escaping callback exception is contained into `SPOKE_CONNECT_TRANSPORT_IO` (transport) or `SPOKE_CONNECT_FFI_REJECTED` with `code="INTERNAL_ERROR"` (ports/tool). |
+
 ## Smoke
 
-`tooling/connect/cpp-smoke.mjs` builds `Smoke/main.cpp` in `target/cpp-smoke`,
-links the staged native for the requested RID, and runs it against the shared
-golden vector `crates/spoke-connect/tests/fixtures/golden-hello.json`:
+`tooling/connect/cpp-smoke.mjs` builds `Smoke/main.cpp` and
+`Smoke/convenience.cpp` in `target/cpp-smoke`, links the staged native for the
+requested RID, and runs them against the shared golden vector
+`crates/spoke-connect/tests/fixtures/golden-hello.json`:
 
 ```sh
 node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 node tooling/connect/cpp-smoke.mjs --rid win-x64
 ```
 
-A green run prints one banner per assertion group, in order:
+Each RID is built in two configurations — exceptions disabled (the consumer
+default) and exceptions enabled — and each configuration must print its own
+ordered banner list exactly:
 
 ```text
 golden peer-id: PASS
@@ -81,11 +110,15 @@ golden hello signature: PASS
 protocol version 1: PASS
 loopback ports: PASS
 rejection/ownership: PASS
+C++ convenience values/core: PASS
+C++ convenience callbacks/session: PASS
+C++ convenience router: PASS
 C++ smoke: PASS
 ```
 
-Each banner follows the assertions of its group, and the run exits non-zero at
-the first failed check.
+The exceptions-enabled configuration additionally prints
+`C++ callback exception containment: PASS` before the final line. A missing,
+extra, repeated or reordered banner fails the run.
 
 ## Committed natives
 
@@ -96,15 +129,21 @@ the first failed check.
 
 `tooling/connect/cpp-build.mjs` rebuilds a native from the integrated Rust
 source and refreshes that RID's `provenance.json` entry with the revision,
-toolchain and hashes of the shipped files.
+toolchain and hashes of the shipped files. It accepts the two committed targets,
+`aarch64-apple-darwin` and `x86_64-pc-windows-msvc`.
 
 ## Header durability
 
 `tooling/connect/cpp-symbol-check.mjs` compares the header's declaration block
 against the native's exported `spoke_connect_*` symbols in both directions, then
 compiles a C99 probe holding a typed function pointer to every declaration and a
-C++17 inclusion check with exceptions and RTTI disabled, so a header edit and its
-export land together.
+C++17 inclusion probe that includes `spoke_connect.h` and `spoke_connect.hpp`
+(twice, covering repeated inclusion) and instantiates the convenience layer's
+values, handle set and callback factories with exceptions and RTTI disabled — so
+a header edit and its export land together, and a `.hpp` that stopped compiling
+fails instead of degrading to a C-only pass. `--self-test` re-runs those probes
+on temporary copies carrying a missing declaration, an invented symbol, a
+mutated callback signature and a `.hpp` exception-syntax mutation.
 
 It also pins the record and callback-table representation: the header's
 `typedef struct` block is checked against the carrier's `#[repr(C)]` mirrors, and
@@ -114,7 +153,8 @@ the report it compiles against is produced by the carrier's own test target.
 
 ## Reference
 
-- Decision record: [`.mstar/specs/connect-cpp-binding.md`](../../../../.mstar/specs/connect-cpp-binding.md)
-- Header: [`include/spoke_connect.h`](include/spoke_connect.h)
+- Consumer how-to: [docs/how-to/connect-cpp-binding.md](../../../../docs/how-to/connect-cpp-binding.md)
+- C contract header: [`include/spoke_connect.h`](include/spoke_connect.h)
+- C++17 convenience header: [`include/spoke_connect.hpp`](include/spoke_connect.hpp)
 - Parity table: [`parity.md`](parity.md)
 - Rust facade: [`../../src/ffi.rs`](../../src/ffi.rs)

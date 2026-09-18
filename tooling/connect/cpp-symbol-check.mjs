@@ -21,8 +21,11 @@
  *      correctly typed, volatile, used function pointer to every declaration
  *      is compiled and linked against the library
  *      (`clang -std=c99 -Wall -Wextra -Werror` / `cl.exe /TC /std:c11 /MD /W4
- *      /WX`), and the header must also compile in C++17 mode with exceptions
- *      and RTTI disabled.
+ *      /WX`), and a C++17 probe with exceptions and RTTI disabled includes the
+ *      C header and the convenience header `spoke_connect.hpp` (twice, so
+ *      repeated inclusion is covered) and instantiates the convenience value
+ *      layer — `Result`, `Buffer`, a move-only handle — so the second header
+ *      cannot stop compiling behind a green C-only check.
  *   5. Record layout parity — the carrier reports the size, alignment and
  *      field offsets of every `#[repr(C)]` record it mirrors
  *      (`cargo test -p spoke-connect-capi --lib abi_layout -- --nocapture`)
@@ -59,14 +62,24 @@
  *
  * `--self-test` additionally proves fail-closed behavior: temporary header
  * copies with (a) a real declaration removed, (b) an invented declaration
- * added and (c) a callback argument retyped to a same-size record — which no
- * layout or offset check can see — must all fail their comparison. Temporary
- * files are removed on success and on failure.
+ * added, (c) a callback argument retyped to a same-size record — which no
+ * layout or offset check can see — and (d) exception syntax planted in the
+ * convenience header must all fail their comparison. Temporary files are
+ * removed on success and on failure.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -75,6 +88,10 @@ const DECLARATIONS_BEGIN = "/* SPOKE_CONNECT_DECLARATIONS_BEGIN */";
 const DECLARATIONS_END = "/* SPOKE_CONNECT_DECLARATIONS_END */";
 const SYMBOL_NAMESPACE = "spoke_connect_";
 const INVENTED_SYMBOL = "spoke_connect_drift_probe";
+/** The convenience header's include-guard end: where the `.hpp` mutation lands. */
+const HPP_GUARD_END = "#endif /* SPOKE_CONNECT_HPP */";
+/** The name the planted `.hpp` mutation declares, for a readable control. */
+const HPP_MUTATION_MARKER = "spoke_connect_hpp_exception_syntax_probe";
 
 /**
  * The carrier's record-layout report lines (`abi_layout.rs`) and the header's
@@ -574,11 +591,23 @@ function runCallbackCheck(headerText, headerPath, records, carrier) {
   );
 }
 
-/** Compiles one probe translation unit; a non-zero exit is a gate failure. */
-function runCompiler(entry, tempDir) {
+/** Compiles one probe translation unit; a non-zero exit is a gate failure.
+    A caller that is the negative control asks to observe the failure instead
+    (`expectFailure`), where a *zero* exit is what fails the gate. */
+function runCompiler(entry, tempDir, expectFailure = false) {
   const result = spawnSync(entry.command, entry.args, { cwd: tempDir, encoding: "utf8" });
   if (result.error) {
     fail(`${entry.label}: failed to run '${entry.command}': ${result.error.message}`);
+  }
+  const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (expectFailure) {
+    if (result.status === 0) {
+      fail(
+        `${entry.label}: the negative control compiled — this probe does not cover ` +
+          "what the mutation changed",
+      );
+    }
+    return { status: result.status, diagnostics };
   }
   if (result.status !== 0) {
     fail(
@@ -587,6 +616,7 @@ function runCompiler(entry, tempDir) {
     );
   }
   console.log(`${entry.label}: PASS`);
+  return { status: 0, diagnostics };
 }
 
 /**
@@ -799,8 +829,15 @@ function reportFailure(result) {
   );
 }
 
-/** Writes and compiles the declaration probes; returns nothing on success. */
-function runProbes(declarations, headerPath, libraryPath, tempDir) {
+/**
+ * Writes the probe translation units of one header directory and returns the
+ * compile/link entries they run. The C++ probe includes both `.h` and `.hpp`
+ * (twice, covering repeated inclusion) and instantiates the convenience layer's
+ * values, its full handle set and its three callback factories, so the entries
+ * are what a caller can re-run against a mutated header tree — the `--self-test`
+ * negative control does exactly that.
+ */
+function probeCommands(declarations, headerPath, libraryPath, tempDir) {
   const includeDir = dirname(headerPath);
   const probeLibrary =
     process.platform === "win32" ? libraryPath.replace(/\.dll$/i, ".dll.lib") : libraryPath;
@@ -838,13 +875,124 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
     cxxSource,
     [
       '#include "spoke_connect.h"',
+      '#include "spoke_connect.hpp"',
+      "// Included twice: the convenience header must be safe to include more than once.",
+      '#include "spoke_connect.hpp"',
+      "",
+      "#include <memory>",
+      "#include <optional>",
+      "#include <string_view>",
+      "#include <type_traits>",
+      "#include <utility>",
       "",
       "namespace {",
       "using AbiVersionFn = int32_t (SPOKE_CONNECT_CALL *)(uint64_t *, SpokeConnectError *);",
       "volatile AbiVersionFn abi_version_probe = &spoke_connect_abi_version;",
+      "",
+      "// Every opaque handle is a move-only RAII wrapper: instantiated for each one",
+      "// below, so a handle class that lost that shape fails the gate here.",
+      "template <typename Handle>",
+      "void probe_handle_shape(void) {",
+      "    static_assert(!std::is_copy_constructible<Handle>::value,",
+      "                  \"a handle must not be copy-constructible\");",
+      "    static_assert(!std::is_copy_assignable<Handle>::value,",
+      "                  \"a handle must not be copy-assignable\");",
+      "    static_assert(std::is_move_constructible<Handle>::value,",
+      "                  \"a handle must be move-constructible\");",
+      "    static_assert(std::is_move_assignable<Handle>::value,",
+      "                  \"a handle must be move-assignable\");",
+      "    static_assert(std::is_nothrow_move_constructible<Handle>::value,",
+      "                  \"a handle move must not throw\");",
+      "    static_assert(std::is_nothrow_move_assignable<Handle>::value,",
+      "                  \"a handle move must not throw\");",
+      "    static_assert(std::is_nothrow_destructible<Handle>::value,",
+      "                  \"a handle destructor must not throw\");",
+      "}",
       "}  // namespace",
       "",
       "void spoke_connect_cxx_probe_use(void) { (void)abi_version_probe; }",
+      "",
+      "// Instantiates the convenience value layer, so a header that stopped",
+      "// compiling — or lost a name this layer wraps — fails the gate instead of",
+      "// degrading to the C-only check.",
+      "void spoke_connect_cxx_probe_convenience(void) {",
+      "    namespace connect = spoke::connect;",
+      "    connect::Result<connect::Buffer> buffered =",
+      "        connect::Result<connect::Buffer>::success(connect::Buffer());",
+      "    connect::Buffer taken = std::move(buffered).value();",
+      "    const std::string_view view = taken.view();",
+      "",
+      "    connect::Result<connect::NonceStore> store = connect::NonceStore::create();",
+      "    connect::NonceStore handle = std::move(store).value();",
+      "    SpokeConnectNonceStore* raw = handle.release();",
+      "    handle.adopt(raw);",
+      "",
+      "    connect::Result<void> bare = connect::Result<void>::success();",
+      "    const SpokeConnectSlice borrowed = connect::slice(view);",
+      "    const SpokeConnectSlice raw_bytes = connect::bytes(nullptr, 0);",
+      "    (void)handle.get();",
+      "    (void)bare.has_value();",
+      "    (void)borrowed;",
+      "    (void)raw_bytes;",
+      "}",
+      "",
+      "// The complete handle set: all eleven opaque handles are instantiated, so a",
+      "// wrapper that disappeared, or stopped being a move-only RAII handle, fails",
+      "// the probe.",
+      "void spoke_connect_cxx_probe_handles(void) {",
+      "    namespace connect = spoke::connect;",
+      "    probe_handle_shape<connect::NonceStore>();",
+      "    probe_handle_shape<connect::OutboundSequence>();",
+      "    probe_handle_shape<connect::InboundSequence>();",
+      "    probe_handle_shape<connect::Transport>();",
+      "    probe_handle_shape<connect::LoopbackTransport>();",
+      "    probe_handle_shape<connect::LoopbackTransportPair>();",
+      "    probe_handle_shape<connect::RemoteAdapter>();",
+      "    probe_handle_shape<connect::MultiPeerRouter>();",
+      "    probe_handle_shape<connect::ConnectResponder>();",
+      "    probe_handle_shape<connect::PortsHandler>();",
+      "    probe_handle_shape<connect::ToolHandler>();",
+      "}",
+      "",
+      "// The callback records and their three factories: each factory call renders",
+      "// the complete C table, so every thunk the carrier can reach is compiled",
+      "// here as well.",
+      "void spoke_connect_cxx_probe_callbacks(void) {",
+      "    namespace connect = spoke::connect;",
+      "    std::unique_ptr<connect::TransportCallbacks> transport;",
+      "    std::unique_ptr<connect::PortsCallbacks> ports;",
+      "    std::unique_ptr<connect::ToolCallbacks> tools;",
+      "    (void)connect::Transport::create(transport);",
+      "    (void)connect::PortsHandler::create(ports);",
+      "    (void)connect::ToolHandler::create(tools);",
+      "}",
+      "",
+      "// The three session wrappers and the bridge-fed methods the smoke drives: a",
+      "// wrapper that stopped compiling, or a signature the carrier no longer",
+      "// matches, fails the probe.",
+      "void spoke_connect_cxx_probe_session(void) {",
+      "    namespace connect = spoke::connect;",
+      "    (void)connect::Result<connect::RemoteAdapter>::failure(connect::Error());",
+      "    (void)connect::Result<connect::ConnectResponder>::failure(connect::Error());",
+      "    (void)connect::Result<connect::MultiPeerRouter>::failure(connect::Error());",
+      "    using AdapterInvoke = connect::Result<connect::Buffer> (connect::RemoteAdapter::*)(",
+      "        std::string_view, std::string_view) const;",
+      "    using ResponderRegister = connect::Result<void> (connect::ConnectResponder::*)(",
+      "        std::string_view, const connect::ToolHandler &) const;",
+      "    using RouterRegister = connect::Result<connect::Buffer> (connect::MultiPeerRouter::*)(",
+      "        const connect::RemoteAdapter &) const;",
+      "    using RouterInvoke = connect::Result<connect::Buffer> (connect::MultiPeerRouter::*)(",
+      "        std::string_view, std::string_view) const;",
+      "    AdapterInvoke adapter_invoke = &connect::RemoteAdapter::invoke_tool;",
+      "    ResponderRegister responder_register =",
+      "        &connect::ConnectResponder::register_tool_handler;",
+      "    RouterRegister router_register = &connect::MultiPeerRouter::register_peer;",
+      "    RouterInvoke router_invoke = &connect::MultiPeerRouter::invoke_tool;",
+      "    (void)adapter_invoke;",
+      "    (void)responder_register;",
+      "    (void)router_register;",
+      "    (void)router_invoke;",
+      "}",
       "",
     ].join("\n"),
   );
@@ -870,7 +1018,7 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI)",
+      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
       command: "cl.exe",
       args: [
         "/nologo",
@@ -903,7 +1051,7 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       ],
     });
     commands.push({
-      label: "C++17 inclusion (no exceptions, no RTTI)",
+      label: "C++17 inclusion (no exceptions, no RTTI; .h + .hpp)",
       command: "clang++",
       args: [
         "-std=c++17",
@@ -921,9 +1069,14 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
     });
   }
 
-  for (const entry of commands) {
-    runCompiler(entry, tempDir);
-  }
+  return commands;
+}
+
+/** Writes and compiles the declaration probes; returns nothing on success. */
+function runProbes(declarations, headerPath, libraryPath, tempDir) {
+  probeCommands(declarations, headerPath, libraryPath, tempDir).forEach((entry) =>
+    runCompiler(entry, tempDir),
+  );
 }
 
 /** Symbol comparison only — used by the primary pass and the negative mutations. */
@@ -941,7 +1094,7 @@ function compare(headerPath, libraryPath) {
   return { declarations, result: diff(declarations, exports) };
 }
 
-function selfTest(headerPath, libraryPath, tempDir, carrier) {
+function selfTest(headerPath, libraryPath, tempDir, carrier, declarations) {
   const headerText = readFileSync(headerPath, "utf8");
   const mutations = [
     {
@@ -1016,6 +1169,60 @@ function selfTest(headerPath, libraryPath, tempDir, carrier) {
   console.log(
     `negative mutation (callback signature): FAILED as expected (${mismatches[0]})`,
   );
+
+  // A `.hpp` exception-syntax mutation: the C++ probe must really compile the
+  // convenience header. The mutation lands in a copy of the whole header
+  // directory — so an include-path mistake cannot masquerade as a successful
+  // negative control — and the control runs through the same probe entry point
+  // as the gate, asking to observe its failure.
+  const headerDir = dirname(headerPath);
+  const mutatedDir = join(tempDir, "hpp_exception_mutation");
+  mkdirSync(mutatedDir, { recursive: true });
+  for (const entry of readdirSync(headerDir)) {
+    copyFileSync(join(headerDir, entry), join(mutatedDir, entry));
+  }
+  const mutatedHpp = join(mutatedDir, `${basename(headerPath).replace(/\.h$/, "")}.hpp`);
+  if (!existsSync(mutatedHpp)) {
+    fail(`self-test: the header directory ships no ${display(mutatedHpp)} to mutate`);
+  }
+  writeFileSync(mutatedHpp, hppExceptionMutation(readFileSync(mutatedHpp, "utf8")));
+
+  const mutatedHeader = join(mutatedDir, basename(headerPath));
+  const mutatedCommands = probeCommands(declarations, mutatedHeader, libraryPath, tempDir);
+  const cxxProbe = mutatedCommands.find((entry) => entry.label.startsWith("C++17 inclusion"));
+  if (!cxxProbe) {
+    fail("self-test: the probe entry point no longer compiles a C++ inclusion probe");
+  }
+  const observed = runCompiler(cxxProbe, tempDir, true);
+  if (!/exception/i.test(observed.diagnostics)) {
+    fail(
+      "self-test: the .hpp mutation failed for a reason unrelated to exception syntax:\n" +
+        observed.diagnostics.trim(),
+    );
+  }
+  console.log("negative mutation (.hpp exception syntax): FAILED as expected");
+}
+
+/**
+ * The planted `.hpp` mutation: a `throw` (the exception syntax a no-exception
+ * probe must reject) plus a compile-time control driven by the same
+ * exception-capability macros the convenience header selects its containment
+ * branch from — so the control fails on every compiler, including one that
+ * tolerates the `throw` under a disabled-EH configuration.
+ */
+function hppExceptionMutation(text) {
+  if (!text.includes(HPP_GUARD_END)) {
+    fail("self-test: could not locate the convenience header's include-guard end");
+  }
+  const planted = [
+    "/* Self-test mutation: exception syntax in the convenience header. */",
+    `inline void ${HPP_MUTATION_MARKER}() { throw 0; }`,
+    "#if !defined(_CPPUNWIND) && !defined(__cpp_exceptions) && !defined(__EXCEPTIONS)",
+    '#error "the C++ inclusion probe compiled a convenience header that uses exception syntax"',
+    "#endif",
+    "",
+  ].join("\n");
+  return text.replace(HPP_GUARD_END, `${planted}${HPP_GUARD_END}`);
 }
 
 function main() {
@@ -1038,7 +1245,7 @@ function main() {
     const carrier = carrierReport();
     runLayoutCheck(records, carrier.records, args.header, tempDir);
     runCallbackCheck(headerText, args.header, records, carrier);
-    if (args.selfTest) selfTest(args.header, args.library, tempDir, carrier);
+    if (args.selfTest) selfTest(args.header, args.library, tempDir, carrier, declarations);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

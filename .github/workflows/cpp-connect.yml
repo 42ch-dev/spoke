@@ -1,7 +1,8 @@
-name: C++ connect (Windows)
+name: C++ connect (Windows + macOS)
 
-# Dedicated Windows carrier lane: build the C ABI with MSVC, prove the
-# exported symbols, then compile, link, and run the shared C++ smoke.
+# Two dedicated carrier lanes: Windows builds the C ABI and produces the
+# refresh artifact; macOS validates the committed osx-arm64 carrier, then both
+# lanes prove exported symbols and run the shared C++ smoke.
 on:
   pull_request:
     paths:
@@ -12,6 +13,7 @@ on:
       - crates/spoke-connect/Cargo.toml
       - crates/spoke-connect/bindings/cpp/include/**
       - crates/spoke-connect/bindings/cpp/Smoke/**
+      - crates/spoke-connect/bindings/cpp/native/**
       - tooling/connect/cpp-build.mjs
       - tooling/connect/cpp-symbol-check.mjs
       - tooling/connect/cpp-smoke.mjs
@@ -27,6 +29,7 @@ on:
       - crates/spoke-connect/Cargo.toml
       - crates/spoke-connect/bindings/cpp/include/**
       - crates/spoke-connect/bindings/cpp/Smoke/**
+      - crates/spoke-connect/bindings/cpp/native/**
       - tooling/connect/cpp-build.mjs
       - tooling/connect/cpp-symbol-check.mjs
       - tooling/connect/cpp-smoke.mjs
@@ -105,7 +108,7 @@ jobs:
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
       - name: Check C ABI symbols
-        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
 
       - name: Run C++ smoke
         run: node tooling/connect/cpp-smoke.mjs --rid win-x64
@@ -127,3 +130,61 @@ jobs:
           path: ${{ runner.temp }}/spoke-connect-win-x64
           if-no-files-found: error
           retention-days: 5
+
+  macos-smoke:
+    name: macos-smoke
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      # Keep the higher-precedence global Rust flag channels empty so the
+      # committed carrier's recorded build recipe remains authoritative.
+      RUSTFLAGS: ""
+      CARGO_ENCODED_RUSTFLAGS: ""
+    steps:
+      - name: Checkout
+        # actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Node.js
+        # actions/setup-node@v4.4.0 — Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Setup Rust toolchain
+        # dtolnay/rust-toolchain@stable (2026-07-16) — exact stable pin for
+        # the macOS carrier's aarch64-apple-darwin target.
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.96.0
+          targets: aarch64-apple-darwin
+
+      - name: Check Rust flag precedence
+        shell: bash
+        run: |
+          if [[ -n "${RUSTFLAGS}" ]]; then
+            echo "RUSTFLAGS must be empty; it would override the committed carrier recipe" >&2
+            exit 1
+          fi
+          if [[ -n "${CARGO_ENCODED_RUSTFLAGS}" ]]; then
+            echo "CARGO_ENCODED_RUSTFLAGS must be empty; it would override the committed carrier recipe" >&2
+            exit 1
+          fi
+          echo "RUSTFLAGS and CARGO_ENCODED_RUSTFLAGS are controlled empty."
+
+      - name: Report compiler and toolchain
+        shell: bash
+        run: |
+          node -v
+          clang++ --version
+          rustc +1.96.0 -Vv
+
+      - name: Show native provenance
+        shell: bash
+        run: cat crates/spoke-connect/bindings/cpp/native/provenance.json
+
+      - name: Check C ABI symbols
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
+
+      - name: Run C++ smoke
+        run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64

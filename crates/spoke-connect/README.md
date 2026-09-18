@@ -1,6 +1,7 @@
 # spoke-connect
 
-Reference library for the SPOKE Connect wire family (`../../.mstar/specs/spoke-connect.md`):
+Reference library for the SPOKE Connect wire family ([Connect wire
+reference](https://spoke.42ch.dev/reference/connect)):
 an embeddable Rust library that maps the connect envelopes onto rust-libp2p and
 demonstrates the `noise-peerid` authenticated hello handshake, the
 `capability-token` step-up auth method, per-session ordering, and op
@@ -36,8 +37,8 @@ a `connect is already in progress` error.
 
 Session admission stays fully gated by the allowlist and signed hello: the
 connect wire carries only the six envelope families; discovery is
-transport-side (see the [spoke-connect spec §Discovery
-boundary](../../.mstar/specs/spoke-connect.md)).
+transport-side (see the [Connect wire reference §Discovery and
+peering](https://spoke.42ch.dev/reference/connect#discovery-and-peering)).
 
 ## Authenticated hello (`spoke-connect-hello-jcs-v1`)
 
@@ -76,8 +77,8 @@ multihash form.
 
 ## Capability-token auth (`capability-token`)
 
-The `capability-token` method (normative, [spoke-connect spec §Method —
-capability-token](../../.mstar/specs/spoke-connect.md)) is a **step-up /
+The `capability-token` method (normative, [Connect wire reference §Auth
+methods](https://spoke.42ch.dev/reference/connect#auth-methods)) is a **step-up /
 mid-session capability grant** on top of the `noise-peerid` hello identity:
 a trusted issuer signs a short claim set (`iss` / `sub` / `aud` /
 `capabilities` / `exp`, optional `iat` / `jti`) over RFC 8785 JCS with
@@ -302,8 +303,8 @@ transport layer converts `libp2p::PeerId` ↔ `String` at the boundary and
 calls into the core.
 
 This section records the binding facade decision for the spec's
-**native-bindings** embedding path (shared core bindings,
-`../../.mstar/specs/spoke-connect.md` §Embedding model):
+**native-bindings** embedding path (shared core bindings, [Connect wire reference
+§Embedding model](https://spoke.42ch.dev/reference/connect#embedding-model)):
 what stays synchronous vs asynchronous on the FFI boundary, which surface the
 first binding exposes, and which languages are targeted. **Swift (SPM
 `SpokeConnect`)** and **Kotlin (GitHub Packages Maven)** are landed alongside
@@ -495,14 +496,19 @@ The C contract — status values, value types, callback tables and every exporte
 function — is [`bindings/cpp/include/spoke_connect.h`](bindings/cpp/include/spoke_connect.h)
 (ABI revision `1` through `spoke_connect_abi_version`), with committed carriers
 under `bindings/cpp/native/osx-arm64/` and `bindings/cpp/native/win-x64/`.
+[`bindings/cpp/include/spoke_connect.hpp`](bindings/cpp/include/spoke_connect.hpp)
+is the header-only C++17 convenience layer over that contract: move-only
+ownership, borrowed views with explicit copies, one `Result` error channel and
+the host callback bridges.
 [`bindings/cpp/parity.md`](bindings/cpp/parity.md) maps every facade member,
-callback and error variant to its C declaration, and
+callback and error variant to its C declaration and its C++ counterpart, and
 `tooling/connect/cpp-symbol-check.mjs` fails when the header and the carrier's
 exported symbols drift apart, and pins the record and callback-table layout with
 `sizeof` / `_Alignof` / `offsetof` assertions against the carrier's `#[repr(C)]`
 mirrors. Consumer build, link and run instructions:
-[`bindings/cpp/README.md`](bindings/cpp/README.md); the Unreal Engine module
-reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
+[`bindings/cpp/README.md`](bindings/cpp/README.md) and the
+[C and C++ how-to](../../docs/how-to/connect-cpp-binding.md); the Unreal Engine
+module reference: [`bindings/cpp/ue/README.md`](bindings/cpp/ue/README.md).
 
 ### Binding checklist
 
@@ -536,10 +542,11 @@ the independently captured output bytes. The same file also carries the
 **responder golden** (`responder` block): the same key pair / manifest signed
 over the 5-field object incl. `peer_nonce` = the initiator golden nonce,
 pinned when the dial-binding mechanism landed. The crate's golden-vector
-tests, the TypeScript client (`packages/spoke-connect-ts`), and all five
-binding smokes (C# / Go / Python / Swift / Kotlin) load from the SSOT or a
-registered byte-identical copy; `tooling/connect/golden-vector-sync.mjs`
-verifies byte-equality across every copy and exits non-zero on drift.
+tests, the TypeScript client (`packages/spoke-connect-ts`), the generated
+binding smokes (C# / Go / Python / Swift / Kotlin) and the C/C++ smoke load
+from the SSOT or a registered byte-identical copy;
+`tooling/connect/golden-vector-sync.mjs` verifies byte-equality across every
+copy and exits non-zero on drift.
 
 ### Swift smoke (macOS)
 
@@ -612,6 +619,6 @@ the `connect` / `invoke` futures).
 
 ## Normative reference
 
-- `../../.mstar/specs/spoke-connect.md` — envelope field tables, JCS rules, nonce /
-  replay, ordering, auth model, discovery boundary.
+- [Connect wire reference](https://spoke.42ch.dev/reference/connect) — envelope field
+  tables, JCS rules, nonce / replay, ordering, auth model, discovery boundary.
 - `schemas/connect/` — the JSON Schema SSOT for the six connect envelopes.

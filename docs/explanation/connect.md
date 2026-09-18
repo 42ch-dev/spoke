@@ -13,7 +13,7 @@ The family reads as one integrator journey: install → a language-native client
 | Surface | What ships | When to choose it |
 |---------|------------|-------------------|
 | **Language-native client** | The wire contract and session-core rules implemented in the host language — the TypeScript `@42ch/spoke-connect` client, paired with the platform WebSocket | No Rust runtime in the host; browser or Node consumers |
-| **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI, [C/C++ git](/how-to/connect-cpp-binding)) | Host languages with an FFI story that want the core implemented once, with transport in the host |
+| **Native bindings** | The shared session core exported into host languages via FFI (C# NuGet, Kotlin Maven, Swift SPM, Go modules, Python PyPI, [C/C++ git](/how-to/connect-cpp-binding)); the C and C++ surface pairs the C ABI carrier with a C++17 header-only convenience layer | Host languages with an FFI story that want the core implemented once, with transport in the host |
 | **Rust reference** | The published `spoke-connect` crate: the session-core reference, the binding source, and a rust-libp2p transport stack | Rust consumers, and the reference for byte-level parity everywhere |
 
 All three surfaces share the same session-core rules — `peer_id` derivation, hello crypto, allowlist, nonce, sequence, correlation, dispatch gate — locked by golden vectors.
@@ -57,7 +57,7 @@ The deny path is shared: an op that is not negotiated, or a tool with no registe
 
 ## Where transport lives
 
-Transport is a consumer-implemented seam. The connect packages define a message-oriented `Transport` — one connect envelope per `send` / `recv` call, blocking `recv` until an envelope arrives or the connection closes, idempotent `close` — and ship an in-memory loopback pair for tests. WebSocket and other carriers are consumer-side implementations of the same three methods; byte-stream carriers apply length-prefix (or equivalent) delimiting. The loopback pair is test-only — the smoke that dials through it is a verification flow, not a production carrier.
+Transport is a consumer-implemented seam. The connect packages define a message-oriented `Transport` — one connect envelope per `send` / `recv` call, blocking `recv` until an envelope arrives or the connection closes, idempotent `close` — and ship an in-memory loopback pair for tests. WebSocket and other carriers are consumer-side implementations of the same three methods; byte-stream carriers apply length-prefix (or equivalent) delimiting. A C++ host supplies the same three methods through the C ABI carrier's callback bridge — [Connect from C and C++](/how-to/connect-cpp-binding). The loopback pair is test-only — the smoke that dials through it is a verification flow, not a production carrier.
 
 ## Related
 

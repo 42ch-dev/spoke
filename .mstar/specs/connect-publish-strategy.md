@@ -2,7 +2,7 @@
 
 **Status:** Informative decision — does not change connect envelopes or the lockstep release policy for core wire packages.
 
-**Updated:** 2026-08-17
+**Updated:** 2026-09-18
 
 ---
 
@@ -39,6 +39,7 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | **Swift binding** | `crates/spoke-connect/bindings/swift/` | **GitHub repo + Swift Package Manager** (root `Package.swift` product `SpokeConnect` + `vX.Y.Z` tags) | SPM git dependency at lockstep tag |
 | **Go binding** | `crates/spoke-connect/bindings/go/` | **GitHub repo + Go modules** (root `go.mod` → module `github.com/42ch-dev/spoke` + `vX.Y.Z` tags) | `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` at lockstep tag |
 | **Python binding** | `crates/spoke-connect/bindings/python/` | **PyPI** `spoke-connect` (Trusted Publishing OIDC on `release.yml` `publish-pypi`) | Package-ready; platform wheels + `publish-pypi` on stable tags |
+| **C/C++ binding** | `crates/spoke-connect/bindings/cpp/` | **git-based — committed headers + platform carriers** (`include/spoke_connect.h`, `include/spoke_connect.hpp`, `native/<rid>/`); workspace-private carrier (`spoke-connect-capi`, `publish = false`), no registry package, no version-bearing manifest | Resolved from the repo at lockstep tag `vX.Y.Z`; no publish job |
 | **Core wire packages** (context) | `@42ch/spoke-schemas`, `@42ch/spoke-operations`, crates `spoke-schemas` / `spoke-operations` | npm + crates.io | Published under lockstep SemVer |
 
 ---
@@ -55,16 +56,28 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | **Swift binding** | **GitHub repo + SPM** | **Bindings Stage B — done** | Root `Package.swift` product `SpokeConnect` + `vX.Y.Z` tags; SPM resolves the dependency from the repo |
 | **Go binding** | **GitHub repo + Go modules** | **Bindings Stage B — done** | Root `go.mod` + `vX.Y.Z` tags; `go get …/bindings/go@vX.Y.Z` resolves from the repo |
 | **Python binding** | **PyPI** | **Bindings Stage B — done** | `publish-pypi` on `release.yml` via Trusted Publishing OIDC; `pip install spoke-connect==X.Y.Z` |
+| **C/C++ binding** | **git — committed headers + platform carriers** at `crates/spoke-connect/bindings/cpp/` | **Bindings Stage B — done** | Shipped in-repo; headers and the `native/<rid>/` carrier resolve from the same `vX.Y.Z` tag — no publish job |
 | **Core wire packages** | npm + crates.io | **Unchanged** | Existing `spoke-version-release.md` / `release.yml` |
 
-**Channel split (four channel types across five binding languages):**
+**Channel classification (authoritative statement):**
 
-| Channel type | Languages | Registry / mechanism |
-|--------------|-----------|----------------------|
-| **GitHub Packages** | C# (NuGet `42ch.Spoke.Connect`), Kotlin (Maven `maven.pkg.github.com/42ch-dev/spoke`) | `GITHUB_TOKEN` with `packages: write` on `release.yml`; lockstep SemVer tag gate |
-| **GitHub repo + Swift Package Manager** | Swift | `Package.swift` at the repo path + `vX.Y.Z` tags; consumers `.package(url:from:)` |
-| **GitHub repo + Go modules** | Go | `go.mod` at the module path + `vX.Y.Z` tags; consumers `go get …@vX.Y.Z` |
-| **PyPI Trusted Publishing** | Python | `publish-pypi` on `release.yml` via OIDC; Trusted Publishing publisher registered to repository `42ch-dev/spoke` and workflow `release.yml` |
+> **Native bindings use registry-backed distribution for C# (GitHub Packages NuGet), Kotlin (GitHub Packages Maven), and Python (PyPI), and git-based distribution for Swift (Swift Package Manager), Go (Go modules), and C/C++ (committed headers and platform carriers). Registry packages carry the lockstep release version; git-based consumers resolve the matching repository tag `vX.Y.Z`. NuGet and Maven share the GitHub Packages registry family.**
+
+**Registry-backed channels:**
+
+| Channel | Languages | Registry / mechanism |
+|---------|-----------|----------------------|
+| **GitHub Packages NuGet** | C# (`42ch.Spoke.Connect`) | `GITHUB_TOKEN` with `packages: write` on `release.yml`; lockstep SemVer tag gate |
+| **GitHub Packages Maven** | Kotlin (`dev.42ch:spoke-connect`) | `GITHUB_TOKEN` with `packages: write` on `release.yml`; push to `maven.pkg.github.com/42ch-dev/spoke` |
+| **PyPI Trusted Publishing** | Python (`spoke-connect`) | `publish-pypi` on `release.yml` via OIDC; Trusted Publishing publisher registered to repository `42ch-dev/spoke` and workflow `release.yml` |
+
+**Git-based channels:**
+
+| Channel | Languages | Mechanism |
+|---------|-----------|-----------|
+| **Swift Package Manager** | Swift (product `SpokeConnect`) | `Package.swift` at the repo path + `vX.Y.Z` tags; consumers `.package(url:from:)` |
+| **Go modules** | Go (module `github.com/42ch-dev/spoke`) | `go.mod` at the module path + `vX.Y.Z` tags; consumers `go get …@vX.Y.Z` |
+| **Committed headers and platform carriers** | C and C++ | `crates/spoke-connect/bindings/cpp/include/{spoke_connect.h,spoke_connect.hpp}` + `native/<rid>/` resolved from the same `vX.Y.Z` tag — workspace-private carrier, no registry publish job, no version-bearing manifest |
 
 **Owner class:**
 
@@ -73,8 +86,8 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | npm / crates.io connect + wire | Maintainer CI — top-level `release.yml` Trusted Publishing OIDC |
 | Docs site | Docs workflow (GitHub Pages on main) |
 | GitHub Packages bindings (C# NuGet, Kotlin Maven) | Maintainer CI — `publish-nuget` / `publish-maven` with `packages: write` + `GITHUB_TOKEN` |
-| SPM / Go module bindings (Swift, Go) | Maintainer tags `vX.Y.Z` on the repo; consumers resolve via SPM / Go modules — no publish job |
 | PyPI binding (Python) | Maintainer CI — `publish-pypi` via Trusted Publishing OIDC |
+| SPM / Go module / C/C++ git bindings (Swift, Go, C++) | Maintainer tags `vX.Y.Z` on the repo; consumers resolve via SPM / Go modules / the tag's committed headers and carriers — no publish job |
 
 ---
 
@@ -83,7 +96,7 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | Decision | **Continue monorepo lockstep SemVer** for `@42ch/spoke-connect`, `spoke-connect`, and binding packages (`42ch.Spoke.Connect`) |
 |----------|------------------------------------------------------------------------------------------------------------------------------|
 | Rationale | Integrators pin one `X.Y.Z` across schemas + operations + connect surfaces; `release:bump` / `verify:version` cover the manifests; independent SemVer would fork bump scripts and CHANGELOG story for little gain pre-1.0 |
-| Binding packages | Lockstep with spoke SemVer / git tag `vX.Y.Z` (same tag gate as npm/crates publish) |
+| Binding packages | Lockstep with spoke SemVer / git tag `vX.Y.Z` (same tag gate as npm/crates publish). Registry-backed packages (C#, Kotlin, Python) carry that version in their package metadata; git-based consumers (Swift, Go, C/C++) resolve the tag `vX.Y.Z` itself — the C/C++ channel ships no version-bearing manifest |
 | Pre-1.0 note | Breaking connect API changes still allowed without long deprecation; call out in CHANGELOG when a public connect surface breaks |
 | Revisit trigger | A binding gains a substantially different release cadence or a nuget.org mirror demand → record the split in this decision doc before changing channels |
 
@@ -101,11 +114,12 @@ This document is the **publish-strategy SSOT** for SPOKE connect surfaces. Integ
 | **Go modules** | Go binding | Tag-driven: `go.mod` at the module path + `vX.Y.Z` tags; `go get` resolves over git — no registry auth |
 | **PyPI** | Python binding | **Trusted Publishing OIDC** via `publish-pypi` on `release.yml`; Trusted Publishing publisher registered to repository `42ch-dev/spoke` and workflow `release.yml` — no long-lived `PYPI_TOKEN` |
 | **GitHub Pages** | Integrator docs site from `docs/` | Pages deploy workflow on main |
+| **Committed git carriers** | C/C++ binding headers (`include/spoke_connect.h`, `include/spoke_connect.hpp`) + platform carriers under `crates/spoke-connect/bindings/cpp/native/<rid>/` | None — resolved from the repo at tag `vX.Y.Z`; no registry auth, no publish job |
 
 **Alignment constraints:**
 
 - `release.yml` remains the **sole top-level publish workflow** (tag push `v*` or `release`-labeled PR merge). Trusted Publishing OIDC binds to that filename — keep npm/crates/PyPI publish inside `publish-npm` / `publish-crates` / `publish-pypi`; C# NuGet and Kotlin Maven publish are sibling jobs in the same workflow.
-- SPM and Go module bindings resolve from the repo via `vX.Y.Z` tags; they require the tag gate but no `release.yml` publish job.
+- SPM, Go module and C/C++ bindings resolve from the repo via `vX.Y.Z` tags; they require the tag gate but no `release.yml` publish job.
 - Stable tags `vX.Y.Z` and prerelease SemVer tags without `-rc.` publish registries; tags containing `-rc.` create GitHub pre-releases only (no npm / crates.io / GitHub Packages binding / PyPI push).
 
 **Re-run semantics:**
@@ -133,7 +147,7 @@ Stage 1 execution is complete: built `dist/` tarball, Trusted Publishing on `rel
 
 ## 7. Bindings disposition
 
-uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged per language. The publish channel is chosen per language ecosystem — C# and Kotlin use **GitHub Packages**; Swift and Go resolve from the **repo** via SPM / Go modules; Python publishes to **PyPI** via Trusted Publishing.
+Bindings under `crates/spoke-connect/bindings/*` are packaged per language: uniffi-generated sources for C#, Kotlin, Swift, Go and Python, plus the hand-written C ABI carrier for C and C++. The publish channel is chosen per language ecosystem — C# and Kotlin use **GitHub Packages**; Swift, Go and C/C++ resolve from the **repo** via SPM / Go modules / committed headers and platform carriers; Python publishes to **PyPI** via Trusted Publishing.
 
 | Language | Channel | Package / mechanism | State |
 |----------|---------|--------------------|-------|
@@ -142,13 +156,15 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | **Swift** | GitHub repo + SPM | Root `Package.swift` product **`SpokeConnect`** + committed xcframework; consumers `.package(url:from:)` at `vX.Y.Z` | **Landed** |
 | **Go** | GitHub repo + Go modules | Root `go.mod` (module `github.com/42ch-dev/spoke`) + `vX.Y.Z` tags; consumers `go get github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go@vX.Y.Z` | **Landed** |
 | **Python** | PyPI | `pip install spoke-connect==X.Y.Z` via Trusted Publishing OIDC on `release.yml` (`publish-pypi`) — no GitHub Packages | **Landed** — platform wheels + golden-parity smoke |
+| **C / C++** | git — committed headers + platform carriers | `include/spoke_connect.h` (C99 ABI) + `include/spoke_connect.hpp` (C++17 convenience layer) + `native/<rid>/` taken from the `vX.Y.Z` tag; workspace-private carrier, no registry publish job | **Landed** — macOS arm64 (`osx-arm64`) + Windows x64 (`win-x64`) carriers |
 
 | Fact | Detail |
 |------|--------|
 | What this repo ships | Generate scripts, smokes, the sync-core `ffi` surface, and per-language binding packages on the channel above |
 | C# package | **`42ch.Spoke.Connect`** — generated C# + multi-RID native `spoke_connect` / `libspoke_connect` under `runtimes/<rid>/native/`; session core only (transport stays product-owned) |
 | C# consumer DX | One-time `nuget.config` source for `https://nuget.pkg.github.com/42ch-dev/index.json` + `PackageReference` — no Rust toolchain required |
-| Version tracking | Lockstep SemVer with spoke / git tag `vX.Y.Z` |
+| C/C++ mechanism | Committed headers `include/spoke_connect.h` (C99 ABI) and `include/spoke_connect.hpp` (C++17 convenience layer) plus the platform carriers under `native/<rid>/`; the `spoke-connect-capi` carrier crate is workspace-private (`publish = false`) and consumers take the files from the `vX.Y.Z` tag |
+| Version tracking | Lockstep SemVer with spoke / git tag `vX.Y.Z` — registry-backed packages carry the version in their metadata; git-based channels (SPM, Go modules, C/C++) resolve the tag itself |
 | Maintainer regenerate | Vendored bindgen fork until upstream 0.32+; consumers never run bindgen |
 
 ---
@@ -187,6 +203,7 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | nuget.org mirror | GitHub Packages NuGet only for the C# binding until integrator demand justifies a second feed |
 | maven Central mirror | GitHub Packages Maven only for the Kotlin binding until integrator demand justifies a second feed |
 | GitHub Packages for Swift / Go / Python | Swift uses SPM git; Go uses Go module git; Python uses PyPI Trusted Publishing — these ecosystems do not map onto GitHub Packages |
+| Package-manager or release-asset distribution for C/C++ | The C/C++ channel ships committed headers and platform carriers resolved from the repository tag — no vcpkg / Conan integration and no Release archive assets |
 | WebSocket client inside `42ch.Spoke.Connect` | Session core only in v1; a later `42ch.Spoke.Connect.WebSocket` (or product package) may add transport |
 | Per-surface independent SemVer pre-1.0 | No split version channels for connect-ts / bindings vs schemas/ops until the revisit trigger in §4 fires |
 | Overturn pure-TS-minimal | This strategy does not re-litigate the TS connectivity primary route |
@@ -203,6 +220,7 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | **Swift SPM** | Root `Package.swift` product `SpokeConnect` + xcframework + `vX.Y.Z` tags; `.package(url:from:)` docs | **Done** — SPM resolves at lockstep tag |
 | **Go modules** | Root `go.mod` + module path + `vX.Y.Z` tags; `go get …@vX.Y.Z` docs + golden-parity smoke | **Done** — Go modules resolve at lockstep tag |
 | **Python PyPI** | `publish-pypi` on `release.yml` via Trusted Publishing OIDC matching the registered publisher; `pip install` docs | Feasibility gate + packable project + registered publisher | Binding maintainers |
+| **C/C++ committed headers + carriers** | `include/spoke_connect.h` (C99 ABI) with the C++17 convenience header and the `native/<rid>/` carriers in-repo; consumers take both from the tag | **Done** — resolved from `vX.Y.Z` for `osx-arm64` and `win-x64`; no publish job | Release maintainer |
 
 ---
 
@@ -218,4 +236,5 @@ uniffi-generated bindings under `crates/spoke-connect/bindings/*` are packaged p
 | [`packages/spoke-connect-ts/`](../../packages/spoke-connect-ts/) | TS connect client package |
 | [`crates/spoke-connect/`](../../crates/spoke-connect/) | Rust connect crate |
 | [`crates/spoke-connect/bindings/csharp/`](../../crates/spoke-connect/bindings/csharp/) | C# binding + NuGet project |
+| [`crates/spoke-connect/bindings/cpp/`](../../crates/spoke-connect/bindings/cpp/) | C/C++ binding: C99 ABI header, C++17 convenience header, committed platform carriers |
 | [`.github/workflows/release.yml`](../../.github/workflows/release.yml) | Top-level publish workflow (OIDC + GitHub Packages) |

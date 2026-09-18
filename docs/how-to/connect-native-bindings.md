@@ -4,7 +4,7 @@ title: Connect from native bindings
 
 # Connect from native bindings
 
-**Native bindings** embed the shared connect **session core** into host languages through FFI: the pure session rules — `peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate — live in one core, while transport stays in each host language. The bindings ship on **five channel types — three registry-backed (GitHub Packages NuGet, GitHub Packages Maven, PyPI) and two git-based (Swift Package Manager, Go modules)** — across five generated languages, all lockstep with SPOKE git tags `vX.Y.Z`; the C and C++ binding is the additional git-based channel, linking the same core through a hand-written C ABI resolved from those tags:
+**Native bindings** embed the shared connect **session core** into host languages through FFI: the pure session rules — `peer_id` derivation, hello sign/verify, allowlist, nonce single-use, sequence allocation, correlation, dispatch gate — live in one core, while transport stays in each host language. Native bindings use registry-backed distribution for C# (GitHub Packages NuGet), Kotlin (GitHub Packages Maven), and Python (PyPI), and git-based distribution for Swift (Swift Package Manager), Go (Go modules), and C/C++ (committed headers and platform carriers). Registry packages carry the lockstep release version; git-based consumers resolve the matching repository tag `vX.Y.Z`. NuGet and Maven share the GitHub Packages registry family.
 
 | Language | Channel | Package |
 |----------|---------|---------|
@@ -13,9 +13,9 @@ title: Connect from native bindings
 | Swift | Swift Package Manager (git + tags) | Product `SpokeConnect` |
 | Go | Go modules (git + tags) | `github.com/42ch-dev/spoke/crates/spoke-connect/bindings/go` |
 | Python | PyPI | `spoke-connect` |
-| C / C++ | git (committed header + platform natives) | [`spoke_connect.h` + `native/<rid>/`](/how-to/connect-cpp-binding) |
+| C / C++ | git (committed headers + platform carriers) | [`spoke_connect.h` + `spoke_connect.hpp` + `native/<rid>/`](/how-to/connect-cpp-binding) |
 
-NuGet and Maven both use the GitHub Packages registry family. Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side. Every native library is built from the production feature pair `ffi,remote-adapter` — regenerated bindings reference `remote-adapter` symbols (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) at load time, so the release build always carries both features.
+Every binding exposes the same synchronous core surface; golden-parity smokes assert byte-identical behavior from each host side. Every native library is built from the production feature pair `ffi,remote-adapter` — regenerated bindings reference `remote-adapter` symbols (`RemoteAdapterFFI`, `MultiPeerRouterFFI`, the callback `Transport`) at load time, so the release build always carries both features.
 
 ## C# — GitHub Packages NuGet
 
@@ -130,6 +130,23 @@ version = spoke_connect.protocol_version()  # 1
 ```
 
 Binding README: [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/python/README.md).
+
+## C and C++ — git
+
+```bash
+git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+```
+
+- `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` — C99 ABI header
+- `crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp` — C++17 convenience header
+- `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` — macOS arm64 carrier
+- `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` — Windows x64 carrier
+
+The committed C/C++ carriers target macOS arm64 (`osx-arm64`) and Windows x64 (`win-x64`). Take `spoke_connect.h`, `spoke_connect.hpp`, and the native files for your target from the same repository tag `vX.Y.Z`.
+
+The C++17 header is header-only and includes the C header. `spoke::connect` wraps the same session core in move-only RAII handles, an explicit `Result` error channel, borrowed text views over returned buffers, and host callback bridges for the transport, ports and tool surfaces. The C99 header stays the ABI contract for C hosts — status values plus the raw record and callback-table layout.
+
+Full walkthrough — acquire, compile, open a session, make one call: [Connect from C and C++](/how-to/connect-cpp-binding).
 
 ## The shared session core
 

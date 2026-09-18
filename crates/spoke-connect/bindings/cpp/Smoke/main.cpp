@@ -1,18 +1,23 @@
 /*
- * C++17 smoke for the spoke-connect C ABI carrier.
+ * C++17 smoke for the spoke-connect C ABI carrier: the raw-C boundary proof.
  *
- * One translation unit, linking `spoke_connect.h` and the staged native for the
- * host RID (`libspoke_connect_capi.dylib` on macOS, `spoke_connect_capi.dll`
- * plus its import library on Windows), so the same source is the executable
- * boundary proof on both evidence platforms. The runner is
+ * One of the smoke program's two translation units — the other is
+ * `Smoke/convenience.cpp`, which consumes the C++17 convenience layer. Both
+ * include `Smoke/support.hpp` (and through it `spoke_connect.hpp`), so the
+ * linked program also covers single-header ODR. This unit keeps the raw-C
+ * assertions and links the staged native for the host RID
+ * (`libspoke_connect_capi.dylib` on macOS, `spoke_connect_capi.dll` plus its
+ * import library on Windows), so the same source is the executable boundary
+ * proof on both evidence platforms. The runner is
  * `tooling/connect/cpp-smoke.mjs`.
  *
  * Usage: cpp-smoke <path>/crates/spoke-connect/tests/fixtures/golden-hello.json
  *
- * The smoke reads the shared golden vector rather than embedding a copy, and
- * prints one PASS banner per assertion group — peer id, hello signature,
- * protocol version, loopback ports, rejection/ownership — followed by the final
- * banner. A failed check prints FAIL and exits non-zero.
+ * The smoke reads the shared golden vector rather than embedding a copy, hands
+ * the parsed value to the other unit, and prints one PASS banner per assertion
+ * group — peer id, hello signature, protocol version, loopback ports,
+ * rejection/ownership, the convenience layer — followed by the final banner. A
+ * failed check prints FAIL and exits non-zero.
  *
  * The callback transport is a host-owned synchronized message queue (see
  * `MessageQueue`): two cross-wired queues carry envelopes between the dialer and
@@ -20,7 +25,7 @@
  * back into the exported loopback helpers.
  */
 
-#include "spoke_connect.h"
+#include "support.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -30,14 +35,22 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
-#include <fstream>
-#include <iterator>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace {
+
+using spoke_smoke::banner;
+using spoke_smoke::check;
+using spoke_smoke::fail;
+using spoke_smoke::Golden;
+using spoke_smoke::json_string_field;
+using spoke_smoke::kFixtureLabel;
+using spoke_smoke::load_golden;
+using spoke_smoke::read_file;
 
 // ── Assertions ───────────────────────────────────────────────────────────
 
@@ -47,22 +60,6 @@ const char* const kProtocolLabel = "protocol version 1";
 const char* const kLoopbackLabel = "loopback ports";
 const char* const kRejectionLabel = "rejection/ownership";
 const char* const kSmokeLabel = "C++ smoke";
-
-[[noreturn]] void fail(const char* label, const std::string& detail) {
-    std::fprintf(stderr, "%s: FAIL\n  %s\n", label, detail.c_str());
-    std::fflush(stderr);
-    std::exit(1);
-}
-
-void check(bool condition, const char* label, const std::string& detail) {
-    if (!condition) fail(label, detail);
-}
-
-/** Prints the group's banner once every assertion in the group has passed. */
-void banner(const char* label) {
-    std::printf("%s: PASS\n", label);
-    std::fflush(stdout);
-}
 
 /** Fails unless the ABI call succeeded, quoting the error record it filled. */
 void require_ok(int32_t status, SpokeConnectError* error, const char* label,
@@ -148,108 +145,9 @@ SpokeConnectOptionalU64 present_u64(uint64_t value) {
 
 // ── Golden vector ────────────────────────────────────────────────────────
 
-/** The shared golden-hello.json fields the smoke consumes. */
-struct Golden {
-    std::vector<uint8_t> seed;
-    std::vector<uint8_t> pubkey;
-    std::string peer_id;
-    std::string nonce;
-    std::string manifest_json;
-    std::string signature_b64u;
-};
-
-std::string read_file(const std::string& path) {
-    std::ifstream stream(path.c_str(), std::ios::in | std::ios::binary);
-    if (!stream) fail(kPeerIdLabel, "cannot read the golden vector at " + path);
-    const std::string text((std::istreambuf_iterator<char>(stream)),
-                           std::istreambuf_iterator<char>());
-    if (text.empty()) fail(kPeerIdLabel, "the golden vector at " + path + " is empty");
-    return text;
-}
-
-int hex_nibble(char digit) {
-    if (digit >= '0' && digit <= '9') return digit - '0';
-    if (digit >= 'a' && digit <= 'f') return digit - 'a' + 10;
-    if (digit >= 'A' && digit <= 'F') return digit - 'A' + 10;
-    fail(kPeerIdLabel, std::string("invalid hex digit '") + digit + "'");
-}
-
-std::vector<uint8_t> hex_bytes(const std::string& hex, const std::string& key) {
-    if (hex.empty() || hex.size() % 2 != 0) {
-        fail(kPeerIdLabel, "\"" + key + "\" is not an even-length hex string");
-    }
-    std::vector<uint8_t> bytes;
-    bytes.reserve(hex.size() / 2);
-    for (size_t index = 0; index < hex.size(); index += 2) {
-        const int high = hex_nibble(hex[index]);
-        const int low = hex_nibble(hex[index + 1]);
-        bytes.push_back(static_cast<uint8_t>((high << 4) | low));
-    }
-    return bytes;
-}
-
-/**
- * Reads one string field out of a JSON document, decoding the escapes the
- * fixture uses. The smoke consumes a handful of named fields from a document it
- * also gets to control, so a full JSON parser would be weight without benefit;
- * an unexpected shape fails the run instead of being skipped.
- */
-std::string json_string_field(const std::string& json, const std::string& key) {
-    const std::string needle = "\"" + key + "\"";
-    const size_t key_at = json.find(needle);
-    if (key_at == std::string::npos) {
-        fail(kPeerIdLabel, "the golden vector has no \"" + key + "\" field");
-    }
-    size_t at = json.find(':', key_at + needle.size());
-    if (at == std::string::npos) {
-        fail(kPeerIdLabel, "\"" + key + "\" has no value");
-    }
-    at += 1;
-    while (at < json.size() &&
-           (json[at] == ' ' || json[at] == '\n' || json[at] == '\r' || json[at] == '\t')) {
-        at += 1;
-    }
-    if (at >= json.size() || json[at] != '"') {
-        fail(kPeerIdLabel, "\"" + key + "\" is not a string field");
-    }
-    std::string value;
-    for (size_t index = at + 1; index < json.size(); index += 1) {
-        const char current = json[index];
-        if (current == '"') return value;
-        if (current != '\\') {
-            value.push_back(current);
-            continue;
-        }
-        index += 1;
-        if (index >= json.size()) break;
-        switch (json[index]) {
-            case '"': value.push_back('"'); break;
-            case '\\': value.push_back('\\'); break;
-            case '/': value.push_back('/'); break;
-            case 'b': value.push_back('\b'); break;
-            case 'f': value.push_back('\f'); break;
-            case 'n': value.push_back('\n'); break;
-            case 'r': value.push_back('\r'); break;
-            case 't': value.push_back('\t'); break;
-            default:
-                fail(kPeerIdLabel, std::string("unsupported escape in \"") + key + "\"");
-        }
-    }
-    fail(kPeerIdLabel, "\"" + key + "\" has an unterminated string value");
-}
-
-Golden load_golden(const std::string& fixture) {
-    Golden golden;
-    golden.seed = hex_bytes(json_string_field(fixture, "seed_hex"), "seed_hex");
-    golden.pubkey = hex_bytes(json_string_field(fixture, "pubkey_hex"), "pubkey_hex");
-    golden.peer_id = json_string_field(fixture, "peer_id");
-    golden.nonce = json_string_field(fixture, "nonce");
-    golden.manifest_json = json_string_field(fixture, "manifest_json");
-    golden.signature_b64u = json_string_field(fixture, "signature_b64u");
-    check(golden.seed.size() == 32, kPeerIdLabel, "the golden seed is not 32 bytes");
-    check(golden.pubkey.size() == 32, kPeerIdLabel, "the golden public key is not 32 bytes");
-    return golden;
-}
+// The shared `golden-hello.json` struct, its read/parse and the assertion
+// primitives live in `support.hpp`, so both smoke translation units share one
+// parser and one golden value.
 
 /** Signs the golden hello; Ed25519 signatures are deterministic, so the same
  *  bytes come back for the signature assertion and the tamper rejection. */
@@ -936,6 +834,33 @@ void assert_rejection_and_ownership(const Golden& golden) {
     banner(kRejectionLabel);
 }
 
+std::string resolve_fixture_path(const char* raw_path) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    const fs::path base = fs::weakly_canonical("crates/spoke-connect/tests/fixtures", ec);
+    if (ec) {
+        fail(kFixtureLabel, "cannot resolve fixtures base directory");
+    }
+
+    const fs::path candidate = fs::weakly_canonical(fs::path(raw_path), ec);
+    if (ec) {
+        fail(kFixtureLabel, std::string("cannot resolve fixture path: ") + raw_path);
+    }
+
+    const std::string base_s = base.generic_string();
+    const std::string candidate_s = candidate.generic_string();
+    const bool in_base =
+        candidate_s.size() >= base_s.size() &&
+        candidate_s.compare(0, base_s.size(), base_s) == 0 &&
+        (candidate_s.size() == base_s.size() || candidate_s[base_s.size()] == '/');
+    if (!in_base) {
+        fail(kFixtureLabel, std::string("fixture path escapes fixtures directory: ") + raw_path);
+    }
+
+    return candidate.string();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -946,12 +871,15 @@ int main(int argc, char** argv) {
                      argv[0]);
         return 2;
     }
-    const Golden golden = load_golden(read_file(argv[1]));
+    const std::string fixture_path = resolve_fixture_path(argv[1]);
+    const Golden golden = load_golden(read_file(fixture_path));
     assert_golden_peer_id(golden);
     assert_golden_hello_signature(golden);
     assert_protocol_version();
     assert_loopback_ports(golden);
     assert_rejection_and_ownership(golden);
+    spoke_smoke::run_convenience_values(golden);
+    spoke_smoke::run_convenience_session(golden);
     banner(kSmokeLabel);
     return 0;
 }

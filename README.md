@@ -16,7 +16,7 @@
 - Ops-layer schemas: `upsert`, extract→promote, `relate`, `check`, `assemble`; optional **`project` / `compute`** under `l2-computable`
 - Generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`, `spoke-operations`)
 - Pure lifecycle helpers plus **adapter ports** and **injection orchestration** (`@42ch/spoke-operations` / `spoke-operations`)
-- Opt-in **Connect** for signed cross-process interaction (`@42ch/spoke-connect` / `spoke-connect`, plus native bindings)
+- Opt-in **Connect** for signed cross-process interaction (`@42ch/spoke-connect` / `spoke-connect`, plus native bindings, including C and C++)
 - Protocol conformance fixtures and reference **`ToyWorldAdapter`** ([`fixtures/toy-world/`](fixtures/toy-world/))
 
 ## Packages
@@ -132,7 +132,13 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-Connect is multi-language: a language-native TypeScript client on npm, a Rust reference on crates.io (libp2p + uniffi binding surface), and native bindings on four publish channels — GitHub Packages NuGet/Maven, SPM git, Go modules git, PyPI. Overview, TypeScript route, and native bindings: [TypeScript client](https://spoke.42ch.dev/how-to/connect-ts-client) and [native bindings](https://spoke.42ch.dev/how-to/connect-native-bindings).
+**C and C++** — git-based from the release tag: check out `vX.Y.Z` and take `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` (hand-written C ABI header), `crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp` (C++17 header-only convenience layer), and the committed carrier for your target — `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` for macOS arm64 or `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` for Windows x64.
+
+```bash
+git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+```
+
+Connect is multi-language: a language-native TypeScript client on npm, a Rust reference on crates.io (libp2p + uniffi binding surface), and native bindings — registry-backed for C# (GitHub Packages NuGet), Kotlin (GitHub Packages Maven), and Python (PyPI), git-based for Swift, Go, and C/C++ (committed headers and platform carriers). Guides: [TypeScript client](https://spoke.42ch.dev/how-to/connect-ts-client), [native bindings](https://spoke.42ch.dev/how-to/connect-native-bindings), and [Connect from C and C++](https://spoke.42ch.dev/how-to/connect-cpp-binding).
 
 ## Version and pinning
 

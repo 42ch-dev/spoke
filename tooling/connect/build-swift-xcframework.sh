@@ -62,37 +62,134 @@ fi
 # for the duration of the build, then restore every edited manifest/lockfile.
 CARGO_VERSION_SENTINEL="${XCFRAMEWORK_VERSION_SENTINEL:-0.0.0}"
 CARGO_VERSION_BACKUP=""
-XCFRAMEWORK_VERSION_LOCK="${REPO_ROOT}/.xcframework-version.lock"
+# target/ is already gitignored, so the lock does not dirty the checkout.
+XCFRAMEWORK_VERSION_LOCK="${REPO_ROOT}/target/.xcframework-version.lock"
 XCFRAMEWORK_VERSION_LOCK_HELD=0
+create_xcframework_version_lock() {
+  (set -C; printf '%s\n' "$$" > "${XCFRAMEWORK_VERSION_LOCK}") 2>/dev/null
+}
 acquire_xcframework_version_lock() {
-  local holder_pid stale_lock
-  while ! mkdir "${XCFRAMEWORK_VERSION_LOCK}" 2>/dev/null; do
-    holder_pid=""
-    if [[ -f "${XCFRAMEWORK_VERSION_LOCK}/pid" ]]; then
-      IFS= read -r holder_pid < "${XCFRAMEWORK_VERSION_LOCK}/pid" || true
+  local holder_pid holder_process ps_status stale_lock moved_holder
+  if ! mkdir -p "$(dirname "${XCFRAMEWORK_VERSION_LOCK}")" 2>/dev/null; then
+    echo "error: cannot create xcframework version lock directory; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    return 1
+  fi
+  if create_xcframework_version_lock; then
+    XCFRAMEWORK_VERSION_LOCK_HELD=1
+    return 0
+  fi
+
+  if [[ ! -e "${XCFRAMEWORK_VERSION_LOCK}" ]]; then
+    echo "error: cannot create xcframework version lock; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    return 1
+  fi
+  if [[ ! -f "${XCFRAMEWORK_VERSION_LOCK}" || -L "${XCFRAMEWORK_VERSION_LOCK}" ]]; then
+    echo "error: cannot safely inspect xcframework version lock; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to clear it" >&2
+    return 1
+  fi
+  holder_pid=""
+  if ! IFS= read -r holder_pid < "${XCFRAMEWORK_VERSION_LOCK}" && [[ -z "${holder_pid}" ]]; then
+    echo "error: cannot read xcframework version lock holder identity; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to clear it" >&2
+    return 1
+  fi
+  if [[ ! "${holder_pid}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: cannot determine xcframework version lock holder; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to clear it" >&2
+    return 1
+  fi
+  if kill -0 "${holder_pid}" 2>/dev/null; then
+    echo "error: another xcframework build (PID ${holder_pid}) is already normalising Cargo versions in this checkout; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to queue" >&2
+    return 1
+  fi
+  holder_process=""
+  ps_status=0
+  holder_process="$(ps -p "${holder_pid}" -o pid= 2>/dev/null)" || ps_status=$?
+  if [[ "${holder_process}" =~ [0-9] ]]; then
+    echo "error: another xcframework build (PID ${holder_pid}) is already normalising Cargo versions in this checkout; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to queue" >&2
+    return 1
+  fi
+  if [[ "${ps_status}" -ne 1 ]]; then
+    echo "error: cannot confirm xcframework version lock holder PID ${holder_pid} is dead; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to clear it" >&2
+    return 1
+  fi
+
+  stale_lock="${XCFRAMEWORK_VERSION_LOCK}.stale.$$"
+  if [[ -e "${stale_lock}" ]]; then
+    echo "error: cannot remove confirmed-dead xcframework version lock safely; stale path exists: ${stale_lock}" >&2
+    return 1
+  fi
+  if ! mv "${XCFRAMEWORK_VERSION_LOCK}" "${stale_lock}" 2>/dev/null; then
+    echo "error: cannot remove confirmed-dead xcframework version lock; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    return 1
+  fi
+  moved_holder=""
+  if ! IFS= read -r moved_holder < "${stale_lock}" && [[ -z "${moved_holder}" ]]; then
+    echo "error: xcframework version lock changed while clearing it; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to remove the replacement" >&2
+    if [[ ! -e "${XCFRAMEWORK_VERSION_LOCK}" ]]; then
+      mv "${stale_lock}" "${XCFRAMEWORK_VERSION_LOCK}" 2>/dev/null || true
     fi
-    if [[ "${holder_pid}" =~ ^[1-9][0-9]*$ ]] \
-      && kill -0 "${holder_pid}" 2>/dev/null; then
-      echo "error: another xcframework build (PID ${holder_pid}) is already normalising Cargo versions in this checkout; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to queue" >&2
-      return 1
+    return 1
+  fi
+  if [[ "${moved_holder}" != "${holder_pid}" ]]; then
+    echo "error: xcframework version lock changed while clearing it; lock: ${XCFRAMEWORK_VERSION_LOCK}; refusing to remove the replacement" >&2
+    if [[ ! -e "${XCFRAMEWORK_VERSION_LOCK}" ]]; then
+      mv "${stale_lock}" "${XCFRAMEWORK_VERSION_LOCK}" 2>/dev/null || true
     fi
-    stale_lock="${XCFRAMEWORK_VERSION_LOCK}.stale.$$"
-    if ! mv "${XCFRAMEWORK_VERSION_LOCK}" "${stale_lock}" 2>/dev/null; then
-      continue
-    fi
-    if [[ -n "${holder_pid}" ]]; then
-      echo "warning: removing stale xcframework version lock (dead PID ${holder_pid}): ${XCFRAMEWORK_VERSION_LOCK}" >&2
-    else
-      echo "warning: removing stale xcframework version lock (missing holder PID): ${XCFRAMEWORK_VERSION_LOCK}" >&2
-    fi
-    rm -rf "${stale_lock}"
-  done
+    return 1
+  fi
+  if ! rm -f "${stale_lock}"; then
+    echo "error: cannot remove confirmed-dead xcframework version lock; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    return 1
+  fi
+  echo "warning: removing stale xcframework version lock (dead PID ${holder_pid}): ${XCFRAMEWORK_VERSION_LOCK}" >&2
+  if ! create_xcframework_version_lock; then
+    echo "error: cannot acquire xcframework version lock after clearing confirmed-dead holder; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    return 1
+  fi
   XCFRAMEWORK_VERSION_LOCK_HELD=1
-  printf '%s\n' "$$" > "${XCFRAMEWORK_VERSION_LOCK}/pid"
 }
 release_xcframework_version_lock() {
+  local holder_pid release_lock moved_holder
   if [[ "${XCFRAMEWORK_VERSION_LOCK_HELD}" -eq 1 ]]; then
-    rm -rf "${XCFRAMEWORK_VERSION_LOCK}"
+    holder_pid=""
+    if [[ ! -f "${XCFRAMEWORK_VERSION_LOCK}" ]] \
+      || ! IFS= read -r holder_pid < "${XCFRAMEWORK_VERSION_LOCK}" \
+      && [[ -z "${holder_pid}" ]]; then
+      echo "warning: leaving xcframework version lock in place because its holder identity cannot be read; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+      XCFRAMEWORK_VERSION_LOCK_HELD=0
+      return
+    fi
+    if [[ "${holder_pid}" != "$$" ]]; then
+      echo "warning: leaving xcframework version lock in place because it is held by PID ${holder_pid}; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+      XCFRAMEWORK_VERSION_LOCK_HELD=0
+      return
+    fi
+    release_lock="${XCFRAMEWORK_VERSION_LOCK}.release.$$"
+    if [[ -e "${release_lock}" ]] \
+      || ! mv "${XCFRAMEWORK_VERSION_LOCK}" "${release_lock}" 2>/dev/null; then
+      echo "warning: could not remove owned xcframework version lock; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+      XCFRAMEWORK_VERSION_LOCK_HELD=0
+      return
+    fi
+    moved_holder=""
+    if ! IFS= read -r moved_holder < "${release_lock}" && [[ -z "${moved_holder}" ]]; then
+      echo "warning: leaving replacement xcframework version lock in place; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+      if [[ ! -e "${XCFRAMEWORK_VERSION_LOCK}" ]]; then
+        mv "${release_lock}" "${XCFRAMEWORK_VERSION_LOCK}" 2>/dev/null || true
+      fi
+      XCFRAMEWORK_VERSION_LOCK_HELD=0
+      return
+    fi
+    if [[ "${moved_holder}" != "$$" ]]; then
+      echo "warning: leaving replacement xcframework version lock in place; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+      if [[ ! -e "${XCFRAMEWORK_VERSION_LOCK}" ]]; then
+        mv "${release_lock}" "${XCFRAMEWORK_VERSION_LOCK}" 2>/dev/null || true
+      fi
+      XCFRAMEWORK_VERSION_LOCK_HELD=0
+      return
+    fi
+    if ! rm -f "${release_lock}"; then
+      echo "warning: could not remove owned xcframework version lock; lock: ${XCFRAMEWORK_VERSION_LOCK}" >&2
+    fi
     XCFRAMEWORK_VERSION_LOCK_HELD=0
   fi
 }

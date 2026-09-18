@@ -18,7 +18,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 authors = ["42ch"]
 license = "Apache-2.0"

@@ -6,6 +6,92 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.13.0] - 2026-09-18
+
+
+### Added
+
+- **connect:** Remote extract op + ke-ownership gate (Rust library face)
+
+- **spoke-connect-ts:** Remote extract op and ke-ownership gate (Task 2)
+
+- **connect-ffi:** Expose the extract service face over FFI (T1)
+
+- **connect-ffi:** Expose extract in all five generated bindings and refresh natives
+
+- **demo:** Serve remote extraction and ownership fixtures from the demo host
+
+- **demo:** Drive remote extraction and the ownership gate through the demo client
+
+- **connect:** Expose the remote extract op and the ke-ownership gate end to end (#96)
+
+- **connect:** Add the C/C++ native binding channel and clear the residual backlog (#100)
+
+
+### Changed
+
+- **security:** Cover PyPI probe package-name rejection
+
+- **connect:** Pin F2 validation ordering rows
+
+- **connect:** Pin F3 extract serving order (probe before decode)
+
+- **spoke-connect-ts:** Pin ke remote parity rows for T3
+
+- **spoke-connect-ts:** Pin malformed scope INVALID_INPUT without ke-ownership
+
+- **spoke-connect-ts:** Capture response bytes in the extract canary case
+
+- **spoke-connect-ts:** Pin extract probe-before-decode absent-service row
+
+- **connect-ffi:** Prove the KE remote matrix in all five ports-loopback smokes
+
+- **connect:** Raise invoke-timeout budgets above the dial handshake latency (#101)
+
+
+### Documentation
+
+- **knowledge:** Record CodeQL test-only crypto-alert dismissal pattern
+
+- **connect:** Record the extract op and the ownership conjunct as shipped
+
+- **connect:** Synchronize the FFI extract rows with the proved faces
+
+- **connect:** Document remote extraction and the ownership gate
+
+- **connect:** State the new connect surfaces affirmatively
+
+
+### Fixed
+
+- **deps:** Bump vitest to 4.1.11, fast-uri to 3.1.8, js-yaml to 4.3.2 (dependabot alerts)
+
+- **security:** Harden release probe input, drop session id from example log; dismiss test-only crypto-value alerts
+
+- **spoke-connect-ts:** Validate extract request before provider dispatch
+
+- **spoke-connect-ts:** Validate declared Scope before provider dispatch
+
+- **connect:** Decode a declared Scope once per port invoke
+
+- **connect-ts:** Close qc2 TS parity findings for extract and scope validation
+
+- **connect-smoke:** Widen the KE extract literal's interpolation delimiter (CS9007)
+
+- **ts:** Align scope ownership order and tighten extract validation
+
+
+### Internal
+
+- **docs:** Bump actions to node24 targets and pages actions to v5
+
+- **connect:** Record the remote-face round - compound knowledge + roadmap delivery
+
+
+### build
+
+- **connect:** Refresh xcframework from CI artifact 35206197669
+
 ## [0.12.0] - 2026-09-17
 
 

@@ -2,10 +2,19 @@ name: CI
 
 on:
   pull_request:
+    # Skip the compile/test matrix for docs-only changes; docs-site validation lives in docs.yml.
+    paths-ignore:
+      - 'docs/**'
+      - 'tooling/docs/**'
+      - '**/*.md'
   push:
     branches:
       - main
       - iteration/**
+    paths-ignore:
+      - 'docs/**'
+      - 'tooling/docs/**'
+      - '**/*.md'
 
 concurrency:
   group: ci-${{ github.ref }}

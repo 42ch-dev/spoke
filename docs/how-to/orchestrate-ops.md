@@ -4,7 +4,7 @@ title: Orchestrate operations
 
 # Orchestrate operations
 
-The operations library exposes one **orchestrator per op family**. Each orchestrator takes your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, runs the protocol gates, loads and persists data through your ports, and returns a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust). The same calls run unchanged against a [RemoteAdapter over a consumer Transport](/how-to/connect-remote-adapter) or a [multi-peer router](/how-to/multi-peer-routing) — either drops in as the `BaselinePorts` implementation.
+The operations library exposes one **orchestrator per op family**. The persistence-bearing baseline orchestrators take your adapter (the port implementation from [Implement an adapter](/how-to/implement-adapter)) plus the wire request, run the protocol gates, load and persist data through your ports, and return a `SpokeResult` — never a throw for expected rejects. Every orchestrator is an async entrypoint: call it with `await` (TypeScript) or `.await` inside an `async fn` (Rust). The baseline calls run unchanged against a [RemoteAdapter over a consumer Transport](/how-to/connect-remote-adapter) or a [multi-peer router](/how-to/multi-peer-routing) — either drops in as the `BaselinePorts` implementation. The optional extraction path takes its own standalone `ExtractionPort` plus the async extractor callback, loads the referenced input through that port, runs the extractor once, and returns provisional candidates for later admission through `promote`; extraction over connect is [delegated as a whole-operation remote op](/reference/connect#remote-extraction-ke-extraction).
 
 ## The orchestrators
 
@@ -18,6 +18,7 @@ The operations library exposes one **orchestrator per op family**. Each orchestr
 | `orchestrateProject(ports, request)` — `l2-computable` | `ProjectRequest` | `ProjectResponse` | validate → `ComputablePort.project` |
 | `orchestrateCompute(ports, request)` — `l2-computable` | `ComputeRequest` | `ComputeResponse` | validate → `ComputablePort.compute` |
 | `orchestrateForkCheck` / `orchestrateForkAssemble` — `l5-fork` | fork-scoped requests | same response shapes | require `scope.fork_id` → fork timeline reads |
+| `orchestrateExtract(ports, request, runExtractor)` — `ke-extraction` | `ExtractRequest` | `ExtractResponse` | validate → `ExtractionPort.loadExtractionInput` → `runExtractor` → provisional gate |
 
 ## Upsert — create or update entries
 
@@ -38,7 +39,7 @@ async function runUpsert() {
 
 `UpsertRequest` carries 1..n entries plus an optional `idempotency_key` (an opaque hint — wire semantics are product-side). The orchestrator validates each entry (`MISSING_REQUIRED_FIELD`, `EMPTY_CANONICAL_NAME`, …), gates status transitions when the entry already exists, checks active-uniqueness against the batch, and persists with the correct expected base revision.
 
-## Promote — extract to durable
+## Promote — admit a candidate to durable storage
 
 ```ts
 import { orchestratePromote } from "@42ch/spoke-operations";
@@ -52,7 +53,7 @@ async function runPromote() {
 }
 ```
 
-Promote runs the acceptance gates (`CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, …) and the revision gate, applies the acceptance transition, and persists through `putKnowledgeEntry`. With a `target_entry_id`, the response carries `superseded_id` for the merged-away entry.
+Promote covers admission: it admits one candidate to durable storage, and extraction output reaches durability through this step. Promote runs the acceptance gates (`CANDIDATE_NOT_PROVISIONAL`, `CANDIDATE_TERMINAL_STATUS`, …) and the revision gate, applies the acceptance transition, and persists through `putKnowledgeEntry`. With a `target_entry_id`, the response carries `superseded_id` for the merged-away entry.
 
 ## Relate — typed directed edges
 
@@ -110,6 +111,39 @@ async function runAssemble() {
 ```
 
 The orchestrator loads the scope, applies scope filters, and builds a wire-only `AssemblePacket` with order-preserving truncation. Assembly itself — ranking, retrieval, token budgets — is product-side.
+
+## Extract — propose provisional candidates
+
+`orchestrateExtract(ports, request, runExtractor)` is the optional `ke-extraction` path. `ExtractionPort` is a standalone optional family passed directly to `orchestrateExtract`, together with your own async extractor callback:
+
+```ts
+import { orchestrateExtract, spokeOk, type ExtractionPort, type RunExtractor } from "@42ch/spoke-operations";
+import type { ExtractRequest } from "@42ch/spoke-schemas";
+
+const extractionPort: ExtractionPort = {
+  async loadExtractionInput(request: ExtractRequest) {
+    // host-local source loading: the returned value stays in-process
+    return spokeOk(await readSources(request.sources));
+  },
+};
+
+const runExtractor: RunExtractor = async ({ request, input }) => {
+  const candidates = await myExtractionService.propose(input);
+  return spokeOk({ candidates, method: "llm-v1" });
+};
+
+async function runExtract() {
+  const result = await orchestrateExtract(extractionPort, extractRequest, runExtractor);
+
+  if (result.ok) {
+    // result.value.candidates — each entry carries status "provisional"
+  }
+}
+```
+
+The orchestrator validates `run_id` and `sources`, loads the referenced material through the port, then invokes your extractor exactly once with `{ request, input }`. The loaded value stays in-process and opaque; the wire carries the request's references and the response's candidates. The run returns candidates plus `run` metadata — provisional proposals whose durable admission happens later through `promote`. A missing port at a dynamic boundary rejects as `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
+
+Rust spells the same entrypoint `orchestrate_extract`, with `ExtractRunInput` / `ExtractionResult` structs and the callback as a generic `F: FnOnce(ExtractRunInput) -> Fut`.
 
 ## Handle rejects
 

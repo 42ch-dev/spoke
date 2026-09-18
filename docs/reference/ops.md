@@ -44,6 +44,7 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `source_id` | string | Provenance or manuscript locator scope |
 | `timeline_scale` | TimelineScale | L5 tier filter (`brief`, `narrative`, `moment`) |
 | `fork_id` | ForkId | L5 branch filter — strict equality on `TimelineEvent.fork_id` (`l5-fork`) |
+| `viewpoint` | string | Reader context (`ke-ownership`) — the reader's holder KnowledgeEntry `entry_id`; absent names no subject and grants no private visibility |
 | `extensions` | ExtensionMap | Product-scoped query metadata; protocol matchers ignore it, adapters round-trip it |
 
 ## Envelope field tables
@@ -96,6 +97,42 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 | `scope` | Assembly scope selector |
 | `max_entries` | Optional entry limit hint (not enforced by the protocol) |
 | `extensions` | Optional transport metadata |
+
+## Optional op (`ke-extraction`)
+
+`extract` is an optional op family under the `ke-extraction` capability flag, provided by hosts in the existing `input-source` role; the five baseline op families stay unchanged. It proposes provisional `KnowledgeEntry` candidates from referenced source material.
+
+| Op | Intent | Request | Response |
+|----|--------|---------|----------|
+| `extract` | Propose provisional `KnowledgeEntry` candidates from referenced source material | `ExtractRequest` | `ExtractResponse` |
+
+### ExtractRequest / ExtractResponse
+
+`ExtractRequest` required: `run_id`, `sources`. Input is reference-only: the request carries source anchors with their optional spans.
+
+| Field | Notes |
+|-------|-------|
+| `run_id` | Non-empty opaque correlation identity; echoed verbatim as `run.run_id` |
+| `sources` | Non-empty `SourceAnchor[]`; the extraction range is this list plus each anchor's optional span (an absent span means the referenced artifact as a whole) |
+| `entry_types` | Optional advisory hints naming the candidate types the caller expects; the serving host may use them or ignore them |
+| `extensions` | Optional transport metadata |
+
+`ExtractResponse` carries one branch: success `{ candidates, run }` — **or** failure `{ error }`.
+
+| Success field | Notes |
+|---------------|-------|
+| `candidates` | `KnowledgeEntry[]` — every returned candidate carries `status: "provisional"`; an empty array is a valid zero-result run |
+| `run` | `ExtractionRunMetadata` — required `run_id` (the exact request echo), optional non-empty `method`, optional opaque `coverage_hint` |
+| `extensions` | Optional transport metadata |
+
+| Failure field | Notes |
+|---------------|-------|
+| `error` | `ErrorEnvelope` — the response's failure branch for this run |
+| `extensions` | Optional transport metadata |
+
+**Provisional invariant.** The library admits only candidates whose `status` is `provisional`. When any candidate carries another status, the whole set is rejected and the error branch is returned — `CANDIDATE_TERMINAL_STATUS` for a `merged` / `deleted` entry, `CANDIDATE_NOT_PROVISIONAL` for any other status; every candidate that is admitted keeps the status the extractor produced, and a success response echoes the request's `run_id` verbatim.
+
+**`extract` vs `extract→promote`.** The baseline `extract→promote` row covers admission: `promote` admits one provisional candidate to durable storage. The optional `extract` op covers production: it proposes provisional candidates from referenced sources. Extraction output reaches durable storage through promote.
 
 ## Shared rules
 

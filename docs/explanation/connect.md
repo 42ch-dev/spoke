@@ -4,9 +4,7 @@ title: Connect architecture
 
 # Connect architecture
 
-**Connect** is the opt-in interaction envelope family for cross-process SPOKE hosts (the `spoke-connect` capability flag): signed manifest exchange, session context, remote op invocation, and extensible authentication. It is additive — baseline compliance and baseline schemas stay unchanged, and hosts that do not declare `spoke-connect` are unaffected.
-
-The family reads as one integrator journey: install → a language-native client session → a RemoteAdapter over a consumer `Transport` → multi-peer routing → native bindings → a loopback smoke. This page explains the concepts behind that journey; the [tutorial](/tutorials/first-connect-session) walks it, the [how-to guides](/how-to/connect-remote-adapter) are the recipes, and the [wire reference](/reference/connect) is the dictionary.
+**Connect** is the opt-in interaction envelope family for cross-process SPOKE hosts — one integrator journey: install → a language-native client session → a RemoteAdapter over a consumer `Transport` → multi-peer routing → native bindings → a loopback smoke. This page explains the concepts behind that journey; the [tutorial](/tutorials/first-connect-session) walks it, the [how-to guides](/how-to/connect-remote-adapter) are the recipes, and the [wire reference](/reference/connect) is the dictionary.
 
 ## The three embedding surfaces
 
@@ -35,6 +33,8 @@ This is why the adapter works over any ordered, reliable carrier — TCP, WebSoc
 ## Capability routing
 
 A **RemoteAdapter** implements the async `BaselinePorts` adapter contract by proxying each port call as a reserved `port.*` op over an established session — the remote host's port surface appears local. A **multi-peer router** composes N registered adapters behind the same `BaselinePorts` surface, so `orchestrateUpsert(router, req)` reaches a capable peer without naming one.
+
+Two capability flags extend that surface beyond `port.*`: the optional `extract` op dispatches once the session's negotiated capabilities carry `ke-extraction`, and a Scope carrying a non-empty `viewpoint` requires `ke-ownership` in addition to the op's row capability. [Knowledge extraction and ownership](/reference/connect#knowledge-extraction-and-ownership-remoteadapter) in the wire reference holds the full contract.
 
 The router's selection is a pure function of the registered peers and the request: hard gates on the peer's declared capabilities (the op's required capability), namespaces, and `authority.scope_key`; a soft preference for the op's preferred role; and a deterministic lowest-`peer_id` tie-break. When no registered peer passes the hard gates, the call rejects with `no_capable_peer` — the consumer registers a satisfying peer and re-invokes with a fresh `request_id`. Retry is consumer-owned: a call may have been applied before a transport failure, so the consumer decides whether re-running the operation is safe.
 

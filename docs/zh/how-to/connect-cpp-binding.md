@@ -10,7 +10,7 @@ C/C++ 渠道提供两个手写头文件与每个平台一个已提交载体。`s
 
 消费方默认以禁用异常与 RTTI 编译：clang `-std=c++17 -fno-exceptions -fno-rtti`，MSVC `/std:c++17 /EHs-c- /GR- /MD /D_HAS_EXCEPTIONS=0`。启用异常的构建使用同样的错误 API —— clang `-std=c++17 -fexceptions -fno-rtti`，MSVC `/std:c++17 /EHsc /GR- /MD` —— 并且在同一个链接映像中包含便利头文件的每个翻译单元必须使用一致的异常与标准库配置。
 
-载体包装的是生成式**原生绑定**所暴露的同一套 Rust 公共 facade —— 会话核心（`peer_id` 推导、握手签名/校验、allowlist、nonce store、sequence 计数器、响应关联、dispatch gate）、`RemoteAdapter`、`MultiPeerRouter` 与 `ConnectResponder`（含 `PortsHandler` 与 `ToolHandler` 回调），以及内存回环辅助函数。对照表 [`bindings/cpp/parity.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/cpp/parity.md) 逐项记录每个生产 facade 成员、回调与错误变体对应的 C 声明，并记录消费该声明的 C++ 对应面。
+载体包装的是生成式**原生绑定**所暴露的同一套 Rust 公共 facade —— 会话核心（`peer_id` 推导、握手签名/校验、allowlist、nonce store、sequence 计数器、响应关联、dispatch gate）、`RemoteAdapter`、`MultiPeerRouter` 与 `ConnectResponder`（含 `PortsHandler` 与 `ToolHandler` 回调），以及内存回环辅助函数。对照表 [`bindings/cpp/parity.md`](https://github.com/42ch-dev/spoke/blob/main/crates/spoke-connect/bindings/cpp/parity.md) 逐项记录每个生产 facade 成员、回调与错误变体对应的 C 声明，并记录消费该声明的 C++ 对应面。`PortsHandler` 回调桥接 port 目录与可选的 `extract` 服务面；其方法列表见 connect 线上参考中的[服务（响应方）](/zh/reference/connect#服务-响应方)。
 
 ## 1. 取得头文件与原生库
 

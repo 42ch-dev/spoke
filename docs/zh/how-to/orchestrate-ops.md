@@ -4,7 +4,7 @@ title: 编排操作（Orchestrate operations）
 
 # 编排操作（Orchestrate operations）
 
-操作库为每个 op 族暴露**一个编排器**。每个编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。同样的调用也可以原样运行在[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)或[多对等节点路由器](/zh/how-to/multi-peer-routing)之上 —— 两者都可直接作为 `BaselinePorts` 实现接入。
+操作库为每个 op 族暴露**一个编排器**。承载持久化的基线编排器接收你的 adapter（[实现 Adapter](/zh/how-to/implement-adapter) 中的 port 实现）与线上请求，运行协议门禁，经你的 ports 加载与持久化数据，并返回 `SpokeResult` —— 预期的拒绝从不抛异常。每个编排器都是异步入口：调用时用 `await`（TypeScript），或在 `async fn` 内 `.await`（Rust）。基线调用也可以原样运行在[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)或[多对等节点路由器](/zh/how-to/multi-peer-routing)之上 —— 两者都可直接作为 `BaselinePorts` 实现接入。可选的抽取路径接收独立的 `ExtractionPort` 与异步抽取器回调，经该 port 加载被引用的输入，运行一次抽取器，并返回 `provisional` 候选，供随后经 `promote` 准入持久存储；经 connect 的抽取[以整操作远程 op 委派](/zh/reference/connect#远程抽取-remote-extraction-ke-extraction)。
 
 ## 编排器一览
 
@@ -18,6 +18,7 @@ title: 编排操作（Orchestrate operations）
 | `orchestrateProject(ports, request)` —— `l2-computable` | `ProjectRequest` | `ProjectResponse` | 校验 → `ComputablePort.project` |
 | `orchestrateCompute(ports, request)` —— `l2-computable` | `ComputeRequest` | `ComputeResponse` | 校验 → `ComputablePort.compute` |
 | `orchestrateForkCheck` / `orchestrateForkAssemble` —— `l5-fork` | fork 作用域请求 | 同形状响应 | 要求 `scope.fork_id` → fork 时间轴读取 |
+| `orchestrateExtract(ports, request, runExtractor)` —— `ke-extraction` | `ExtractRequest` | `ExtractResponse` | 校验 → `ExtractionPort.loadExtractionInput` → `runExtractor` → `provisional` 门禁 |
 
 ## Upsert —— 创建或更新条目
 
@@ -38,7 +39,7 @@ async function runUpsert() {
 
 `UpsertRequest` 携带 1..n 条条目，外加可选的 `idempotency_key`（不透明提示 —— 线上语义由产品侧决定）。编排器逐条校验（`MISSING_REQUIRED_FIELD`、`EMPTY_CANONICAL_NAME` 等）、在条目已存在时做状态迁移门禁、检查批次内 active 唯一性，并以正确的期望基准修订号持久化。
 
-## Promote —— 提取为持久条目
+## Promote —— 把候选准入持久存储
 
 ```ts
 import { orchestratePromote } from "@42ch/spoke-operations";
@@ -52,7 +53,7 @@ async function runPromote() {
 }
 ```
 
-Promote 运行验收门禁（`CANDIDATE_NOT_PROVISIONAL`、`CANDIDATE_TERMINAL_STATUS` 等）与修订门禁，应用验收状态迁移，并经由 `putKnowledgeEntry` 持久化。携带 `target_entry_id` 时，响应会带上被合并条目的 `superseded_id`。
+Promote 覆盖准入：它把单个候选准入持久存储，抽取产物经此步骤到达持久层。Promote 运行验收门禁（`CANDIDATE_NOT_PROVISIONAL`、`CANDIDATE_TERMINAL_STATUS` 等）与修订门禁，应用验收状态迁移，并经由 `putKnowledgeEntry` 持久化。携带 `target_entry_id` 时，响应会带上被合并条目的 `superseded_id`。
 
 ## Relate —— 类型化有向边
 
@@ -110,6 +111,39 @@ async function runAssemble() {
 ```
 
 编排器加载作用域、应用作用域过滤，并构建仅线上（wire-only）的 `AssemblePacket`，带保序截断。组装本身 —— ranking、retrieval、token 预算 —— 由产品侧完成。
+
+## Extract —— 提议 `provisional` 候选
+
+`orchestrateExtract(ports, request, runExtractor)` 是可选的 `ke-extraction` 路径。`ExtractionPort` 是独立的可选 port 族，直接传给 `orchestrateExtract`，连同你自己的异步抽取器回调：
+
+```ts
+import { orchestrateExtract, spokeOk, type ExtractionPort, type RunExtractor } from "@42ch/spoke-operations";
+import type { ExtractRequest } from "@42ch/spoke-schemas";
+
+const extractionPort: ExtractionPort = {
+  async loadExtractionInput(request: ExtractRequest) {
+    // 宿主本地源加载：返回值留在进程内
+    return spokeOk(await readSources(request.sources));
+  },
+};
+
+const runExtractor: RunExtractor = async ({ request, input }) => {
+  const candidates = await myExtractionService.propose(input);
+  return spokeOk({ candidates, method: "llm-v1" });
+};
+
+async function runExtract() {
+  const result = await orchestrateExtract(extractionPort, extractRequest, runExtractor);
+
+  if (result.ok) {
+    // result.value.candidates —— 每条条目都携带 status "provisional"
+  }
+}
+```
+
+编排器校验 `run_id` 与 `sources`，经该 port 加载被引用的材料，然后以 `{ request, input }` 恰好调用一次你的抽取器。加载值保持进程内且不透明；线上承载的是请求的引用与响应的候选。运行返回候选加上 `run` 元数据 —— 这些 `provisional` 提议随后经 `promote` 完成持久准入。动态边界缺失该 port 时以 `CAPABILITY_PORT_MISSING` 拒绝，`details.capability = "ke-extraction"`。
+
+Rust 将同一入口拼写为 `orchestrate_extract`，配 `ExtractRunInput` / `ExtractionResult` 结构体，回调为泛型 `F: FnOnce(ExtractRunInput) -> Fut`。
 
 ## 处理拒绝
 

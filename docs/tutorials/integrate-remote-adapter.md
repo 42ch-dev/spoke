@@ -83,7 +83,7 @@ The `peer_id` is the host's trust root — derived from its Ed25519 public key, 
 
 ## 3. Implement `WsTransport`
 
-A `Transport` is a consumer-implemented seam that carries connect envelopes between the adapter and the remote peer. It is **message-oriented**: one call moves exactly one connect envelope — `send(envelope)` sends one, `recv()` returns the next inbound one (rejecting when the connection closes), and `close()` releases resources and is idempotent. The full contract table is in [RemoteAdapter over a Transport](/how-to/connect-remote-adapter).
+A `Transport` is a consumer-implemented seam that carries connect envelopes between the adapter and the remote peer. The full contract table is in [RemoteAdapter over a Transport](/how-to/connect-remote-adapter).
 
 The demo client implements the seam over the `ws` WebSocket package (`examples/connect-demo/client/src/transport/ws-transport.ts`):
 

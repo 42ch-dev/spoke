@@ -245,13 +245,7 @@ Dial / hello / allowlist / nonce failures happen before an adapter exists: `conn
 
 ## 7. Envelope authentication
 
-The adapter enforces **protocol version 2** per-envelope authentication internally on every post-hello envelope, with nothing to configure:
-
-- the dial verifies the responder's signed `ConnectSession` snapshot against the hello identity before establishing;
-- every outbound invoke request carries a `spoke-connect-invoke-request-jcs-v1` signature;
-- every inbound response runs the correlation echo check first, then `spoke-connect-invoke-response-jcs-v1` verification.
-
-Envelope authenticity is a protocol-level property above the transport — it does not depend on TLS or Noise. See [Envelope authentication](/explanation/connect#envelope-authentication) in the Connect architecture, and the [wire reference](/reference/connect#envelope-authentication-protocol-version-2) for the signed field sets.
+The adapter enforces **protocol version 2** per-envelope authentication internally on every post-hello envelope, with nothing to configure. [Connect architecture](/explanation/connect#envelope-authentication) explains the property; the [wire reference](/reference/connect#envelope-authentication-protocol-version-2) holds the algorithm ids, the signed field sets, the verify rules, and the per-envelope enforcement detail.
 
 ## 8. Loopback smoke
 

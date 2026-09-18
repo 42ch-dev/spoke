@@ -15,7 +15,8 @@ The adapter port types are sliced by capability. Pick the alias that matches the
 | `spoke-baseline` | `KnowledgeEntryPort`, `RelationPort`, `ScopeQueryPort`, `FindingPort`, `RuleQueryPort`, `HostManifestPort` | `BaselineAdapter` |
 | `spoke-baseline` + `l2-computable` | baseline + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | baseline + `ForkTimelineQueryPort` | `ForkAdapter` |
-| all three | full composition | `FullAdapter` |
+| `spoke-baseline` + `ke-extraction` | standalone `ExtractionPort` | none — the port is passed to `orchestrateExtract` directly |
+| `spoke-baseline` + `l2-computable` + `l5-fork` | full composition | `FullAdapter` |
 
 The aliases name the same port intersections as `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`. Import them from the operations package:
 
@@ -33,6 +34,7 @@ import type {
   HostManifestPort,
   ComputablePort,
   ForkTimelineQueryPort,
+  ExtractionPort,
 } from "@42ch/spoke-operations";
 ```
 
@@ -116,6 +118,14 @@ listForkTimelineEvents(
 ```
 
 Fork-scoped timeline reads. One object may satisfy both `ScopeQueryPort` and this port.
+
+### ExtractionPort — optional `ke-extraction`
+
+```ts
+loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
+```
+
+Host-local source loading for the optional `extract` op: the port reads the referenced material and returns one in-process opaque value that stays local to the host. `ExtractionPort` is a standalone optional family, passed directly to `orchestrateExtract` together with your own async extractor callback. At a dynamic boundary, a missing port surfaces `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
 
 ## 3. Keep the adapter I/O-bound
 

@@ -83,7 +83,7 @@ SPOKE connect demo — mock inference host
 
 ## 3. 实现 `WsTransport`
 
-`Transport` 是由消费方实现的接缝（seam）：在 adapter 与远端对等节点之间搬运 connect 信封。它是**消息导向**的 —— 一次调用恰好移动一个 connect 信封：`send(envelope)` 发送一个，`recv()` 返回下一个入站信封（连接关闭时拒绝），`close()` 释放资源且幂等。完整契约表见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)。
+`Transport` 是由消费方实现的接缝（seam），在 adapter 与远端对等节点之间搬运 connect 信封。完整契约表见[通过 Transport 使用 RemoteAdapter](/zh/how-to/connect-remote-adapter)。
 
 demo 客户端在 `ws` WebSocket 软件包之上实现该接缝（`examples/connect-demo/client/src/transport/ws-transport.ts`）：
 

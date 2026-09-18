@@ -14,37 +14,23 @@ Connect is the opt-in interaction envelope family (`spoke-connect` capability fl
 pnpm add @42ch/spoke-connect@X.Y.Z
 ```
 
-`@42ch/spoke-connect` exports four entry points:
-
-- **`.`** — the isomorphic core: identity derivation, Ed25519 crypto, RFC 8785 JCS canonicalization, and the pure session-core rules (allowlist, nonce, sequence, correlation, dispatch gate).
-- **`./node`** — the Node `connectClient`, which dials a WebSocket and performs the full handshake.
-- **`./noise`** — the opt-in Noise XX mesh transport subpath for direct libp2p-noise interoperability.
-- **`./remote`** — the opt-in RemoteAdapter module: `connectRemoteAdapter` over a consumer `Transport`, the multi-peer router, and the in-repo loopback pair (see [RemoteAdapter over a Transport](/how-to/connect-remote-adapter)).
+The package ships the isomorphic core, the Node `connectClient`, the Noise subpath, and the RemoteAdapter module; [Connect from the TypeScript client](/how-to/connect-ts-client) documents each entry point and its helpers.
 
 ## 2. Derive your peer identity
 
 Every connect host has an Ed25519 keypair. The wire `peer_id` is derived from the 32-byte public key — the identity multihash of the libp2p `PublicKey` protobuf, base58btc-encoded. The derivation is byte-identical across the TypeScript client, the Rust reference, and all native bindings (locked by shared golden vectors).
 
-```ts
-import { derivePeerIdFromEd25519Pubkey, getPublicKeyEd25519 } from "@42ch/spoke-connect";
-
-const seed = new TextEncoder().encode("..."); // 32-byte Ed25519 seed
-const publicKey = getPublicKeyEd25519(seed);
-const peerId = derivePeerIdFromEd25519Pubkey(publicKey);
-
-console.log(peerId); // base58btc, e.g. 12D3KooW...
-```
-
-`peer_id` is the network trust root — distinct from the advisory `host_id` carried inside the manifest.
+`peer_id` is the network trust root — distinct from the advisory `host_id` carried inside the manifest. Derive it with `derivePeerIdFromEd25519Pubkey(getPublicKeyEd25519(seed))`; the identity helpers are documented in [Connect from the TypeScript client](/how-to/connect-ts-client).
 
 ## 3. Sign and verify a hello
 
-The handshake is a signed `ConnectHello`: the object `{protocol_version, peer_id, nonce, host}` (initiator hello) — or `{protocol_version, peer_id, nonce, host, peer_nonce}` with `peer_nonce` = the initiator's nonce (responder hello, dial binding) — is canonicalized with RFC 8785 JCS ([RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)), signed with Ed25519, and the raw signature is encoded base64url without padding ([RFC 4648 §5](https://www.rfc-editor.org/rfc/rfc4648)).
+The handshake is a signed `ConnectHello`: each side signs a JCS-canonicalized object — `{protocol_version, peer_id, nonce, host}` for the initiator, that object plus `peer_nonce` (the initiator's nonce, the dial binding) for the responder — with its Ed25519 key, carried as base64url without padding.
 
 ```ts
 import { generateNonce, signHelloEd25519, verifyHelloEd25519 } from "@42ch/spoke-connect";
 import type { HostCapabilityManifest } from "@42ch/spoke-schemas";
 
+const seed = new TextEncoder().encode("..."); // 32-byte Ed25519 seed
 const manifest: HostCapabilityManifest = {
   schema_version: 1,
   host_id: "host_tutorial",
@@ -63,32 +49,19 @@ const hello = await signHelloEd25519(seed, nonce, manifest);
 await verifyHelloEd25519(remotePubkey, remotePeerId, hello);
 ```
 
-Nonces are single-use per sender: the receiver records each accepted `(peer_id, nonce)` pair in a `NonceStore` and rejects replays.
-
-The **responder** (the side that received a hello) signs its own hello with the initiator's nonce — the dial binding. The initiator passes its own nonce into verification, so a captured responder hello cannot be replayed into a fresh dial:
-
-```ts
-// Responder: echo the initiator's nonce into the signed object (5 fields).
-const responderHello = await signHelloEd25519(seed, generateNonce(), manifest, receivedHello.nonce);
-
-// Initiator: assert the responder's peer_nonce equals our own nonce.
-await verifyHelloEd25519(remotePubkey, remotePeerId, responderHello, ourNonce);
-```
+Nonces are single-use per sender: the receiver records each accepted `(peer_id, nonce)` pair and rejects replays. The responder signs the same object with its own nonce plus the initiator's nonce (`signHelloEd25519`'s fourth argument), and the initiator passes its own nonce into verification — so a captured responder hello cannot be replayed into a fresh dial. The full hello walkthrough — canonical bytes, the nonce floor, and the `NonceStore` replay guard — is in [Connect from the TypeScript client](/how-to/connect-ts-client).
 
 ## 4. Configure the allowlist
 
 Admission is fail-closed: an empty allowlist rejects every peer. The receiving host accepts a connection only when the authenticated remote `peer_id` is listed.
 
 ```ts
-import { isAllowlisted, NonceStore } from "@42ch/spoke-connect";
+import { isAllowlisted } from "@42ch/spoke-connect";
 
 const allowlist = [remotePeerId];
 if (!isAllowlisted(allowlist, remotePeerId)) {
   throw new Error(`peer ${remotePeerId} is not allowlisted`);
 }
-
-const nonceStore = new NonceStore();
-nonceStore.checkAndRecord(remotePeerId, hello.nonce); // false on replay
 ```
 
 ## 5. Sequence and correlation

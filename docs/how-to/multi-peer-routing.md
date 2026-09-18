@@ -64,7 +64,7 @@ Selection reads each registered peer's cached `HostCapabilityManifest` and match
 | `roles` | the peer's `roles[]` | **soft preference** | peers with the operation's preferred role are preferred; capable peers lacking that role remain eligible |
 | `authority.scope_key` | the peer's `authority.scope_key` | **hard gate when both sides declare** | exact match between the peer's scope key and the request's scope key |
 
-Each operation family maps to a required capability — see the [Capability vocabulary](/reference/connect#capability-vocabulary) in the wire reference for the full table.
+Each operation family maps to a required capability — see the [Capability vocabulary](/reference/connect#capability-vocabulary) in the wire reference for the full table, including the two `ke-*` rows: the optional `extract` op requires `ke-extraction`, and a Scope carrying a non-empty `viewpoint` requires `ke-ownership` in addition to its row capability.
 
 The request's namespace derives from the payload `Scope` when the operation carries one (for example `upsert-request.scope` or `check-request.scope`). Namespace matching is exact: a peer declaring `namespaces: ["*"]` declares the literal string `"*"`. When the request carries a scope key and the peer's manifest declares one, the two must match exactly; when only one side declares, that gate passes.
 

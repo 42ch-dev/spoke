@@ -1,12 +1,26 @@
 ---
 module: spoke-docs
 date: 2026-08-02
-last_updated: 2026-08-04
+last_updated: 2026-09-18
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
-applies_when: ["building consumer-facing documentation for a protocol repository", "deploying a VitePress docs site to GitHub Pages via Actions", "structuring integrator docs to serve how-to-use as the primary job", "consolidating fragmented conceptual content without losing wire facts", "removing internal agent-spec links from integrator pages"]
-tags: [docs, vitepress, github-pages, ssot-links, integrator-docs, docs-workflow, concurrency, diataxis, audience-boundary, en-cn-twin]
+applies_when:
+  - "building consumer-facing documentation for a protocol repository"
+  - "deploying a VitePress docs site to GitHub Pages via Actions"
+  - "structuring integrator docs to serve how-to-use as the primary job"
+  - "consolidating fragmented conceptual content without losing wire facts"
+  - "removing internal agent-spec links from integrator pages"
+  - "writing or moving cross-page links on the VitePress site (fragments must match the emitted anchors)"
+tags:
+  - vitepress
+  - github-pages
+  - concurrency
+  - ssot-links
+  - integrator-docs
+  - diataxis
+  - en-cn-twin
+  - anchor-discipline
 ---
 
 # Integrator docs site with consolidated reference and zero spec links (VitePress Diátaxis)
@@ -65,6 +79,18 @@ When consolidating fragmented conceptual content (e.g., merging the old 7-page `
 ### EN ↔ CN twin parity (HARD CI gate)
 
 Every page under `docs/<path>.md` has a twin at `docs/zh/<path>.md`. Page set is 1:1; `tooling/docs/twin-parity.mjs` fails the docs build on drift. Wire identifiers (`KnowledgeEntry`, `peer_id`, `orchestrateUpsert`, `ConnectHello`, …) stay EN on CN pages per the docs i18n glossary. Author EN first, CN immediately after each page to avoid drift.
+
+### Cross-page links: emitted anchors, per-locale owners, one owning page per fact
+
+Cross-page links resolve to the anchor the build emits, not the heading text: VitePress derives each heading `id` at build time, so a link written from the title never resolves at the fragment level. Under the current toolchain (VitePress 1.6.4; no `slugify` override in `docs/.vitepress/config.mts`) the emitted id collapses whitespace and punctuation runs to `-`, prefixes `_` when the heading leads with a digit, keeps an em dash verbatim, and suffixes `-<N>` when a heading repeats on one page. The built page `docs/.vitepress/dist/how-to/connect-remote-adapter.html` shows both shapes: the step heading "2. TypeScript — @42ch/spoke-connect/remote" emits `id="_2-typescript-—-42ch-spoke-connect-remote"` (em dash kept, `_2` prefixed from the leading digit), and "4. Call the BaselinePorts methods" emits `id="_4-call-the-baselineports-methods"`. The repo's own links already carry the emitted form (`/how-to/remote-adapter-native-binding#_4-remote-extraction-and-the-ownership-gate`). The built output is the only authority: read the `id` in `docs/.vitepress/dist/**/*.html` or let the gate prove it.
+
+`tooling/docs/deadlink-check.mjs` enforces this in two halves: the page-link crawl over the built pages, and a markdown-fragment audit that checks every `#fragment` link in `docs/**/*.md` against the emitted id on the target's built page. It reads the build output, so `pnpm docs:build` must run before it — the script refuses without `docs/.vitepress/dist`.
+
+Each locale links to its own owner: a page under `docs/` links `/reference/connect#capability-vocabulary`, while its `docs/zh/` twin links `/zh/reference/connect#能力词汇-capability-vocabulary`. ZH headings produce their own slugs, so an English slug in a ZH page is a wrong target the page-link crawl cannot catch — the fragment audit is what resolves it.
+
+The gates are the verification surface for a consumer-facing docs change — `node tooling/docs/twin-parity.mjs` → `pnpm docs:build` → `node tooling/docs/deadlink-check.mjs`, the order `.github/workflows/docs.yml` runs them in; such a change is evidenced by these three rather than by a test file. Heading parity is exactly what the twin gate compares (text is free), so CN headings may be worded freely while the levels stay 1:1.
+
+Where a wire fact lives — one owning page per fact: Reference pages own the field tables and the capability registry (`reference/protocol.md` § Capability flags), how-to pages own procedures and orchestration, explanation pages own concepts, and sibling pages cross-link instead of restating. A docs round therefore extends the owning page and replaces the sibling's copy with a link; a stale count or a restated table is the symptom of a broken ownership rule.
 
 ### GitHub Pages deploy concurrency
 

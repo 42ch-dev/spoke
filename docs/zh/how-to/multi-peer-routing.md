@@ -64,7 +64,7 @@ router.unregister_peer(&north_id); // 移出选择；adapter 保持开启
 | `roles` | 对等节点的 `roles[]` | **软偏好** | 拥有操作首选角色（preferred role）的对等节点优先；缺少该角色但有能力的对等节点仍可被选中 |
 | `authority.scope_key` | 对等节点的 `authority.scope_key` | **双方都声明时为硬门禁** | 对等节点作用域键与请求作用域键精确匹配 |
 
-每个操作族映射到一个必需能力 —— 完整表格见线上参考中的[能力词汇（Capability vocabulary）](/zh/reference/connect#能力词汇-capability-vocabulary)。
+每个操作族映射到一个必需能力 —— 完整表格（含两个 `ke-*` 行：可选的 `extract` op 要求 `ke-extraction`；携带非空 `viewpoint` 的 Scope 在行能力之外还要求 `ke-ownership`）见线上参考中的[能力词汇（Capability vocabulary）](/zh/reference/connect#能力词汇-capability-vocabulary)。
 
 请求的命名空间在操作携带 `Scope` 时从载荷推导（例如 `upsert-request.scope` 或 `check-request.scope`）。命名空间匹配是精确的：声明 `namespaces: ["*"]` 的对等节点声明的是字面字符串 `"*"`。当请求携带作用域键且对等节点 manifest 声明了作用域键时，二者必须精确匹配；仅一方声明时该门禁通过。
 

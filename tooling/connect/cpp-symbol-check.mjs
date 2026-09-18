@@ -62,14 +62,24 @@
  *
  * `--self-test` additionally proves fail-closed behavior: temporary header
  * copies with (a) a real declaration removed, (b) an invented declaration
- * added and (c) a callback argument retyped to a same-size record — which no
- * layout or offset check can see — must all fail their comparison. Temporary
- * files are removed on success and on failure.
+ * added, (c) a callback argument retyped to a same-size record — which no
+ * layout or offset check can see — and (d) exception syntax planted in the
+ * convenience header must all fail their comparison. Temporary files are
+ * removed on success and on failure.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -78,6 +88,10 @@ const DECLARATIONS_BEGIN = "/* SPOKE_CONNECT_DECLARATIONS_BEGIN */";
 const DECLARATIONS_END = "/* SPOKE_CONNECT_DECLARATIONS_END */";
 const SYMBOL_NAMESPACE = "spoke_connect_";
 const INVENTED_SYMBOL = "spoke_connect_drift_probe";
+/** The convenience header's include-guard end: where the `.hpp` mutation lands. */
+const HPP_GUARD_END = "#endif /* SPOKE_CONNECT_HPP */";
+/** The name the planted `.hpp` mutation declares, for a readable control. */
+const HPP_MUTATION_MARKER = "spoke_connect_hpp_exception_syntax_probe";
 
 /**
  * The carrier's record-layout report lines (`abi_layout.rs`) and the header's
@@ -577,11 +591,23 @@ function runCallbackCheck(headerText, headerPath, records, carrier) {
   );
 }
 
-/** Compiles one probe translation unit; a non-zero exit is a gate failure. */
-function runCompiler(entry, tempDir) {
+/** Compiles one probe translation unit; a non-zero exit is a gate failure.
+    A caller that is the negative control asks to observe the failure instead
+    (`expectFailure`), where a *zero* exit is what fails the gate. */
+function runCompiler(entry, tempDir, expectFailure = false) {
   const result = spawnSync(entry.command, entry.args, { cwd: tempDir, encoding: "utf8" });
   if (result.error) {
     fail(`${entry.label}: failed to run '${entry.command}': ${result.error.message}`);
+  }
+  const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (expectFailure) {
+    if (result.status === 0) {
+      fail(
+        `${entry.label}: the negative control compiled — this probe does not cover ` +
+          "what the mutation changed",
+      );
+    }
+    return { status: result.status, diagnostics };
   }
   if (result.status !== 0) {
     fail(
@@ -590,6 +616,7 @@ function runCompiler(entry, tempDir) {
     );
   }
   console.log(`${entry.label}: PASS`);
+  return { status: 0, diagnostics };
 }
 
 /**
@@ -802,8 +829,15 @@ function reportFailure(result) {
   );
 }
 
-/** Writes and compiles the declaration probes; returns nothing on success. */
-function runProbes(declarations, headerPath, libraryPath, tempDir) {
+/**
+ * Writes the probe translation units of one header directory and returns the
+ * compile/link entries they run. The C++ probe includes both `.h` and `.hpp`
+ * (twice, covering repeated inclusion) and instantiates the convenience layer's
+ * values, its move-only handles and its callback factories, so the entries are
+ * what a caller can re-run against a mutated header tree — the `--self-test`
+ * negative control does exactly that.
+ */
+function probeCommands(declarations, headerPath, libraryPath, tempDir) {
   const includeDir = dirname(headerPath);
   const probeLibrary =
     process.platform === "win32" ? libraryPath.replace(/\.dll$/i, ".dll.lib") : libraryPath;
@@ -845,6 +879,8 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       "// Included twice: the convenience header must be safe to include more than once.",
       '#include "spoke_connect.hpp"',
       "",
+      "#include <memory>",
+      "#include <optional>",
       "#include <string_view>",
       "#include <utility>",
       "",
@@ -877,6 +913,37 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
       "    (void)bare.has_value();",
       "    (void)borrowed;",
       "    (void)raw_bytes;",
+      "}",
+      "",
+      "// The callback records and their three factories: each factory call renders",
+      "// the complete C table, so every thunk the carrier can reach is compiled",
+      "// here as well.",
+      "void spoke_connect_cxx_probe_callbacks(void) {",
+      "    namespace connect = spoke::connect;",
+      "    std::unique_ptr<connect::TransportCallbacks> transport;",
+      "    std::unique_ptr<connect::PortsCallbacks> ports;",
+      "    std::unique_ptr<connect::ToolCallbacks> tools;",
+      "    (void)connect::Transport::create(transport);",
+      "    (void)connect::PortsHandler::create(ports);",
+      "    (void)connect::ToolHandler::create(tools);",
+      "}",
+      "",
+      "// The two session wrappers and the bridge-fed methods the smoke drives: a",
+      "// wrapper that stopped compiling, or a signature the carrier no longer",
+      "// matches, fails the probe.",
+      "void spoke_connect_cxx_probe_session(void) {",
+      "    namespace connect = spoke::connect;",
+      "    (void)connect::Result<connect::RemoteAdapter>::failure(connect::Error());",
+      "    (void)connect::Result<connect::ConnectResponder>::failure(connect::Error());",
+      "    using AdapterInvoke = connect::Result<connect::Buffer> (connect::RemoteAdapter::*)(",
+      "        std::string_view, std::string_view) const;",
+      "    using ResponderRegister = connect::Result<void> (connect::ConnectResponder::*)(",
+      "        std::string_view, const connect::ToolHandler &) const;",
+      "    AdapterInvoke adapter_invoke = &connect::RemoteAdapter::invoke_tool;",
+      "    ResponderRegister responder_register =",
+      "        &connect::ConnectResponder::register_tool_handler;",
+      "    (void)adapter_invoke;",
+      "    (void)responder_register;",
       "}",
       "",
     ].join("\n"),
@@ -954,9 +1021,14 @@ function runProbes(declarations, headerPath, libraryPath, tempDir) {
     });
   }
 
-  for (const entry of commands) {
-    runCompiler(entry, tempDir);
-  }
+  return commands;
+}
+
+/** Writes and compiles the declaration probes; returns nothing on success. */
+function runProbes(declarations, headerPath, libraryPath, tempDir) {
+  probeCommands(declarations, headerPath, libraryPath, tempDir).forEach((entry) =>
+    runCompiler(entry, tempDir),
+  );
 }
 
 /** Symbol comparison only — used by the primary pass and the negative mutations. */
@@ -974,7 +1046,7 @@ function compare(headerPath, libraryPath) {
   return { declarations, result: diff(declarations, exports) };
 }
 
-function selfTest(headerPath, libraryPath, tempDir, carrier) {
+function selfTest(headerPath, libraryPath, tempDir, carrier, declarations) {
   const headerText = readFileSync(headerPath, "utf8");
   const mutations = [
     {
@@ -1049,6 +1121,60 @@ function selfTest(headerPath, libraryPath, tempDir, carrier) {
   console.log(
     `negative mutation (callback signature): FAILED as expected (${mismatches[0]})`,
   );
+
+  // A `.hpp` exception-syntax mutation: the C++ probe must really compile the
+  // convenience header. The mutation lands in a copy of the whole header
+  // directory — so an include-path mistake cannot masquerade as a successful
+  // negative control — and the control runs through the same probe entry point
+  // as the gate, asking to observe its failure.
+  const headerDir = dirname(headerPath);
+  const mutatedDir = join(tempDir, "hpp_exception_mutation");
+  mkdirSync(mutatedDir, { recursive: true });
+  for (const entry of readdirSync(headerDir)) {
+    copyFileSync(join(headerDir, entry), join(mutatedDir, entry));
+  }
+  const mutatedHpp = join(mutatedDir, `${basename(headerPath).replace(/\.h$/, "")}.hpp`);
+  if (!existsSync(mutatedHpp)) {
+    fail(`self-test: the header directory ships no ${display(mutatedHpp)} to mutate`);
+  }
+  writeFileSync(mutatedHpp, hppExceptionMutation(readFileSync(mutatedHpp, "utf8")));
+
+  const mutatedHeader = join(mutatedDir, basename(headerPath));
+  const mutatedCommands = probeCommands(declarations, mutatedHeader, libraryPath, tempDir);
+  const cxxProbe = mutatedCommands.find((entry) => entry.label.startsWith("C++17 inclusion"));
+  if (!cxxProbe) {
+    fail("self-test: the probe entry point no longer compiles a C++ inclusion probe");
+  }
+  const observed = runCompiler(cxxProbe, tempDir, true);
+  if (!/exception/i.test(observed.diagnostics)) {
+    fail(
+      "self-test: the .hpp mutation failed for a reason unrelated to exception syntax:\n" +
+        observed.diagnostics.trim(),
+    );
+  }
+  console.log("negative mutation (.hpp exception syntax): FAILED as expected");
+}
+
+/**
+ * The planted `.hpp` mutation: a `throw` (the exception syntax a no-exception
+ * probe must reject) plus a compile-time control driven by the same
+ * exception-capability macros the convenience header selects its containment
+ * branch from — so the control fails on every compiler, including one that
+ * tolerates the `throw` under a disabled-EH configuration.
+ */
+function hppExceptionMutation(text) {
+  if (!text.includes(HPP_GUARD_END)) {
+    fail("self-test: could not locate the convenience header's include-guard end");
+  }
+  const planted = [
+    "/* Self-test mutation: exception syntax in the convenience header. */",
+    `inline void ${HPP_MUTATION_MARKER}() { throw 0; }`,
+    "#if !defined(_CPPUNWIND) && !defined(__cpp_exceptions) && !defined(__EXCEPTIONS)",
+    '#error "the C++ inclusion probe compiled a convenience header that uses exception syntax"',
+    "#endif",
+    "",
+  ].join("\n");
+  return text.replace(HPP_GUARD_END, `${planted}${HPP_GUARD_END}`);
 }
 
 function main() {
@@ -1071,7 +1197,7 @@ function main() {
     const carrier = carrierReport();
     runLayoutCheck(records, carrier.records, args.header, tempDir);
     runCallbackCheck(headerText, args.header, records, carrier);
-    if (args.selfTest) selfTest(args.header, args.library, tempDir, carrier);
+    if (args.selfTest) selfTest(args.header, args.library, tempDir, carrier, declarations);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

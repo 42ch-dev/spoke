@@ -849,6 +849,7 @@ int main(int argc, char** argv) {
     assert_loopback_ports(golden);
     assert_rejection_and_ownership(golden);
     spoke_smoke::run_convenience_values(golden);
+    spoke_smoke::run_convenience_session(golden);
     banner(kSmokeLabel);
     return 0;
 }

@@ -1,35 +1,62 @@
 /*
  * C++17 convenience-layer smoke: the value and ownership layer, the core free
- * functions, the three core session objects and the loopback pair and ends,
- * all over `spoke_connect.hpp`.
+ * functions, the three core session objects, the loopback pair and ends, and —
+ * over a host queue transport — the callback bridges with the adapter and
+ * responder wrappers.
  *
  * The unit is linked with `Smoke/main.cpp` into one smoke program: both
  * translation units include the convenience header (through `support.hpp`), so
  * the build also covers single-header ODR. `main.cpp` reads the shared golden
  * vector once and hands it over — this unit never re-reads or re-transcribes it.
  *
- * The runner is `tooling/connect/cpp-smoke.mjs`; the group banner is printed
- * only after every assertion in the unit has passed, and a failed check prints
- * FAIL and exits non-zero.
+ * The runner is `tooling/connect/cpp-smoke.mjs`, which builds this unit twice:
+ * with exceptions disabled (the consumer default) and with exceptions enabled.
+ * The exception-containment assertions exist only in the second configuration;
+ * the first exercises the equivalent `Result` refusal path instead.
  */
 
 #include "support.hpp"
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
+/**
+ * Whether this translation unit is built with exception handling. The same
+ * compiler facts the convenience header selects its containment branch from:
+ * the throwing-callback proof exists only where the header contains it, and the
+ * disabled configuration drives the equivalent `Result` refusal instead.
+ */
+#if defined(_CPPUNWIND) || defined(__cpp_exceptions) || defined(__EXCEPTIONS)
+#define SPOKE_SMOKE_EXCEPTIONS 1
+#else
+#define SPOKE_SMOKE_EXCEPTIONS 0
+#endif
+
 namespace {
 
 using spoke::connect::Buffer;
+using spoke::connect::ConnectResponder;
 using spoke::connect::Error;
+using spoke::connect::PortsCallbacks;
+using spoke::connect::PortsHandler;
+using spoke::connect::RemoteAdapter;
 using spoke::connect::Result;
+using spoke::connect::ToolCallbacks;
+using spoke::connect::ToolHandler;
+using spoke::connect::Transport;
+using spoke::connect::TransportCallbacks;
 using spoke_smoke::banner;
 using spoke_smoke::check;
 using spoke_smoke::fail;
@@ -51,22 +78,47 @@ std::string describe(const Error& error) {
 
 /** Fails unless the call succeeded, then returns the value it carried. */
 template <typename T>
-T unwrap(Result<T>&& result, const std::string& detail) {
-    if (!result.has_value()) fail(kValuesLabel, detail + " failed: " + describe(result.error()));
+T unwrap(Result<T>&& result, const char* label, const std::string& detail) {
+    if (!result.has_value()) fail(label, detail + " failed: " + describe(result.error()));
     return std::move(result).value();
 }
 
+/** The values/core group's flavour: failures report against its banner. */
+template <typename T>
+T unwrap(Result<T>&& result, const std::string& detail) {
+    return unwrap(std::move(result), kValuesLabel, detail);
+}
+
 /** The `Result<void>` flavour of `unwrap`. */
+void unwrap_ok(Result<void>&& result, const char* label, const std::string& detail) {
+    if (!result.has_value()) fail(label, detail + " failed: " + describe(result.error()));
+}
+
 void unwrap_ok(Result<void>&& result, const std::string& detail) {
-    if (!result.has_value()) fail(kValuesLabel, detail + " failed: " + describe(result.error()));
+    unwrap_ok(std::move(result), kValuesLabel, detail);
 }
 
 /** Fails unless the call reported exactly `expected_status`. */
 template <typename T>
-void require_status(Result<T>& result, int32_t expected_status, const std::string& detail) {
-    if (result.has_value()) fail(kValuesLabel, detail + " unexpectedly succeeded");
+void require_status(Result<T>& result, const char* label, int32_t expected_status,
+                    const std::string& detail) {
+    if (result.has_value()) fail(label, detail + " unexpectedly succeeded");
     const Error& error = result.error();
-    if (error.status != expected_status) fail(kValuesLabel, detail + " reported " + describe(error));
+    if (error.status != expected_status) fail(label, detail + " reported " + describe(error));
+}
+
+/** The values/core group's flavour of `require_status`. */
+template <typename T>
+void require_status(Result<T>& result, int32_t expected_status, const std::string& detail) {
+    require_status(result, kValuesLabel, expected_status, detail);
+}
+
+/** Fails unless the call reported a failure, then returns the `Error` it
+    carried, so the caller can assert the fields it preserved. */
+template <typename T>
+const Error& rejection(Result<T>& result, const char* label, const std::string& detail) {
+    if (result.has_value()) fail(label, detail + " unexpectedly succeeded");
+    return result.error();
 }
 
 /** Borrows key material from the golden vector into the C slice form. */
@@ -328,6 +380,683 @@ void assert_loopback() {
           "a recv after close carried no message");
 }
 
+// ── Callback bridges and the session wrappers ────────────────────────────
+
+const char* const kSessionLabel = "C++ convenience callbacks/session";
+#if SPOKE_SMOKE_EXCEPTIONS
+/** The exceptions-enabled configuration's additional banner. */
+const char* const kContainmentLabel = "C++ callback exception containment";
+#endif
+const char* const kEchoToolId = "tools.example.echo";
+const char* const kEntryIdText = "cpp-convenience-entry-0001";
+const char* const kEntryCanonicalName = "C++ convenience knowledge entry";
+const char* const kServedEntryJson =
+    "{\"schema_version\":1,\"entry_id\":\"cpp-convenience-entry-0001\","
+    "\"entry_type\":\"note\",\"canonical_name\":\"C++ convenience knowledge entry\","
+    "\"status\":\"confirmed\",\"body\":{\"summary\":\"served through the convenience callback "
+    "bridge\"},\"extensions\":{}}";
+const char* const kRefusalMessage = "the smoke's host tool handler refuses";
+const char* const kRefusalKind = "smoke_reject_kind";
+const char* const kRefusalWireCode = "smoke_reject_wire";
+const char* const kThrowMessage = "the smoke's host tool handler throws";
+/** The arguments the echo tool is asked to echo. */
+const char* const kEchoArguments = R"({"message":"hello"})";
+/** The arguments that make the host handler refuse with every error field set. */
+const char* const kRefusalArguments = R"({"refuse":"fields"})";
+/** The arguments that make the host handler refuse with a present empty `kind`. */
+const char* const kEmptyKindArguments = R"({"refuse":"empty-kind"})";
+/** The arguments that make the host handler throw (exception-enabled builds). */
+const char* const kThrowArguments = R"({"refuse":"throw"})";
+
+/**
+ * One direction of the cross-wired host queue pair: an unbounded FIFO with a
+ * close flag. Both ends share the same two queues, and every callback that
+ * touches one runs on the carrier's blocking pool, so the state is guarded and
+ * a close wakes every waiter.
+ */
+class EnvelopeQueue {
+  public:
+    /** Enqueues one envelope and reports whether it was accepted: a push into a
+        closed queue returns false, so a send that can no longer be delivered is
+        reported to the carrier instead of being dropped silently. */
+    bool push(std::string envelope) {
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (closed_) return false;
+        envelopes_.push_back(std::move(envelope));
+        signal_.notify_all();
+        return true;
+    }
+
+    /** Blocks the calling thread until an envelope arrives or the queue closes. */
+    bool pop(std::string* out) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        for (;;) {
+            if (!envelopes_.empty()) {
+                *out = std::move(envelopes_.front());
+                envelopes_.pop_front();
+                return true;
+            }
+            if (closed_) return false;
+            signal_.wait(lock);
+        }
+    }
+
+    void close() {
+        std::lock_guard<std::mutex> guard(mutex_);
+        closed_ = true;
+        signal_.notify_all();
+    }
+
+  private:
+    std::mutex mutex_;
+    std::condition_variable signal_;
+    std::deque<std::string> envelopes_;
+    bool closed_ = false;
+};
+
+/** What the host observed about one callback record: the calls the carrier ran
+    and the release of the record itself. */
+struct RecordCounters {
+    std::atomic<long> sends{0};
+    std::atomic<long> recvs{0};
+    std::atomic<long> calls{0};
+    std::atomic<long> releases{0};
+};
+
+/**
+ * One host transport record's shared state. Every callback of the record
+ * captures a `shared_ptr` to it by value, so the object dies with the record the
+ * carrier owns — and that destructor is the observable "the carrier released
+ * this record exactly once". The counters stay owned by the caller, which reads
+ * them after the record is gone.
+ */
+struct HostTransport {
+    HostTransport(std::shared_ptr<EnvelopeQueue> outbound_queue,
+                  std::shared_ptr<EnvelopeQueue> inbound_queue, RecordCounters* observed) noexcept
+        : outbound(std::move(outbound_queue)),
+          inbound(std::move(inbound_queue)),
+          counters(observed) {}
+    ~HostTransport() { counters->releases.fetch_add(1); }
+
+    std::shared_ptr<EnvelopeQueue> outbound;
+    std::shared_ptr<EnvelopeQueue> inbound;
+    RecordCounters* counters;
+};
+
+/** One host ports record's shared state: the calls it served, the answers they
+    saw, and the optional base revision of the last `putKnowledgeEntry`. */
+struct HostPorts {
+    explicit HostPorts(RecordCounters* observed) noexcept : counters(observed) {}
+    ~HostPorts() { counters->releases.fetch_add(1); }
+
+    RecordCounters* counters;
+    std::mutex mutex;
+    long calls = 0;
+    std::string last_entry_id;
+    std::optional<uint64_t> last_revision;
+};
+
+/** One host tool record's shared state. */
+struct HostTool {
+    explicit HostTool(RecordCounters* observed) noexcept : counters(observed) {}
+    ~HostTool() { counters->releases.fetch_add(1); }
+
+    RecordCounters* counters;
+    std::mutex mutex;
+    long calls = 0;
+    std::string last_arguments;
+};
+
+/**
+ * The golden host manifest with the demo echo tool added: the fixture's own
+ * manifest text is the base, so the smoke never restates the golden host
+ * identity or its baseline capability. Both ends advertise the result, so
+ * `tools.example.echo` is in the negotiated capability set — which is what the
+ * dispatch gate requires for a tool invoke in either direction.
+ */
+std::string tool_manifest(const Golden& golden) {
+    std::string manifest = golden.manifest_json;
+    const std::string tool = kEchoToolId;
+    const std::string capabilities = "\"capabilities\":[\"spoke-baseline\"]";
+    const std::string namespaces = "\"namespaces\":[]";
+    if (manifest.find(capabilities) == std::string::npos ||
+        manifest.find(namespaces) == std::string::npos) {
+        fail(kSessionLabel, "the golden manifest no longer carries the baseline capability and an "
+                            "empty namespace list to extend: " + manifest);
+    }
+    manifest.replace(manifest.find(capabilities), capabilities.size(),
+                     "\"capabilities\":[\"spoke-baseline\",\"" + tool + "\"]");
+    manifest.replace(manifest.find(namespaces), namespaces.size(),
+                     "\"namespaces\":[\"example\"]");
+    const std::string descriptor = "{\"capability_id\":\"" + tool +
+                                   "\",\"description\":\"Echo the arguments\","
+                                   "\"input\":{\"type\":\"object\"},\"op\":\"" +
+                                   tool +
+                                   "\",\"output\":{\"type\":\"object\"},\"schema_version\":1}";
+    manifest.insert(manifest.rfind('}'), ",\"tools\":[" + descriptor + "]");
+    return manifest;
+}
+
+/** The transport-closed failure a host reports for a queue that can no longer
+    deliver or receive. */
+Error host_closed(const std::string& message) {
+    Error error;
+    error.status = SPOKE_CONNECT_TRANSPORT_CLOSED;
+    error.message = message;
+    return error;
+}
+
+/** Builds one transport record over a queue pair. Every callback captures the
+    shared host state by value, so nothing outlives the carrier's `destroy`, and
+    no callback reaches back into an operational API. */
+std::unique_ptr<TransportCallbacks> make_transport(std::shared_ptr<HostTransport> host) {
+    auto callbacks = std::make_unique<TransportCallbacks>();
+    callbacks->send = [host](std::string_view envelope) -> Result<void> {
+        host->counters->sends.fetch_add(1);
+        if (!host->outbound->push(std::string(envelope))) {
+            return Result<void>::failure(host_closed("the host transport queue is closed"));
+        }
+        return Result<void>::success();
+    };
+    callbacks->recv = [host]() -> Result<std::string> {
+        host->counters->recvs.fetch_add(1);
+        std::string envelope;
+        if (!host->inbound->pop(&envelope)) {
+            return Result<std::string>::failure(host_closed("the host transport queue is closed"));
+        }
+        return Result<std::string>::success(std::move(envelope));
+    };
+    callbacks->close = [host]() -> Result<void> {
+        host->outbound->close();
+        host->inbound->close();
+        return Result<void>::success();
+    };
+    return callbacks;
+}
+
+/** Builds the served ports record: the knowledge-entry pair answers the canned
+    entry — `putKnowledgeEntry` also records the optional base revision it was
+    given — and every other slot declines. A host that does not serve a method
+    still implements it, so an explicitly refusing provider stays
+    distinguishable from an absent `ports` handler. */
+std::unique_ptr<PortsCallbacks> make_ports(std::shared_ptr<HostPorts> host) {
+    auto callbacks = std::make_unique<PortsCallbacks>();
+    callbacks->get_knowledge_entry = [host](std::string_view entry_id) -> Result<std::string> {
+        host->counters->calls.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> guard(host->mutex);
+            host->calls += 1;
+            host->last_entry_id = std::string(entry_id);
+        }
+        return Result<std::string>::success(std::string(kServedEntryJson));
+    };
+    callbacks->put_knowledge_entry = [host](std::string_view,
+                                            std::optional<uint64_t> expected_base_revision)
+        -> Result<std::string> {
+        host->counters->calls.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> guard(host->mutex);
+            host->calls += 1;
+            host->last_revision = expected_base_revision;
+        }
+        return Result<std::string>::success(std::string(kServedEntryJson));
+    };
+    const auto decline = [host]() -> Result<std::string> {
+        host->counters->calls.fetch_add(1);
+        Error error;
+        error.status = SPOKE_CONNECT_FFI_REJECTED;
+        error.code = "CAPABILITY_PORT_MISSING";
+        error.message = "the smoke's host ports record does not serve that method";
+        return Result<std::string>::failure(std::move(error));
+    };
+    const auto refusal = [decline](std::string_view) -> Result<std::string> { return decline(); };
+    const auto revision_refusal = [decline](std::string_view,
+                                            std::optional<uint64_t>) -> Result<std::string> {
+        return decline();
+    };
+    callbacks->get_relation = refusal;
+    callbacks->put_relation = revision_refusal;
+    callbacks->list_knowledge_entries = refusal;
+    callbacks->list_timeline_events = refusal;
+    callbacks->put_findings = refusal;
+    callbacks->list_rules = [decline](const SpokeConnectSlice*, size_t) -> Result<std::string> {
+        return decline();
+    };
+    callbacks->list_peer_host_capability_manifests = [decline]() -> Result<std::string> {
+        return decline();
+    };
+    callbacks->project = refusal;
+    callbacks->compute = refusal;
+    callbacks->list_fork_timeline_events = refusal;
+    callbacks->extract = refusal;
+    return callbacks;
+}
+
+/**
+ * Builds the served echo tool record. It echoes the arguments, unless they carry
+ * one of the refusal markers: a refusal with every error field set, a refusal
+ * whose optional `kind` is present and empty, or — in an exception-enabled
+ * build — a throw, which is where the disabled build returns the equivalent
+ * `Result` failure instead.
+ */
+std::unique_ptr<ToolCallbacks> make_echo_tool(std::shared_ptr<HostTool> host) {
+    auto callbacks = std::make_unique<ToolCallbacks>();
+    callbacks->handle = [host](std::string_view arguments_json) -> Result<std::string> {
+        const std::string arguments(arguments_json);
+        host->counters->calls.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> guard(host->mutex);
+            host->calls += 1;
+            host->last_arguments = arguments;
+        }
+        if (arguments.find(kRefusalArguments) != std::string::npos) {
+            Error error;
+            error.status = SPOKE_CONNECT_FFI_REJECTED;
+            error.code = "INVALID_INPUT";
+            error.message = kRefusalMessage;
+            error.kind = kRefusalKind;
+            error.wire_code = kRefusalWireCode;
+            return Result<std::string>::failure(std::move(error));
+        }
+        if (arguments.find(kEmptyKindArguments) != std::string::npos) {
+            Error error;
+            error.status = SPOKE_CONNECT_FFI_REJECTED;
+            error.code = "INVALID_INPUT";
+            error.message = kRefusalMessage;
+            // Present and empty: the bridge must not collapse it into absent.
+            error.kind = std::string();
+            return Result<std::string>::failure(std::move(error));
+        }
+        if (arguments.find(kThrowArguments) != std::string::npos) {
+#if SPOKE_SMOKE_EXCEPTIONS
+            throw std::runtime_error(kThrowMessage);
+#else
+            Error error;
+            error.status = SPOKE_CONNECT_FFI_REJECTED;
+            error.code = "INVALID_INPUT";
+            error.message = kThrowMessage;
+            return Result<std::string>::failure(std::move(error));
+#endif
+        }
+        return Result<std::string>::success("{\"echo\":" + arguments + "}");
+    };
+    return callbacks;
+}
+
+/** Waits for one host record to be released exactly once, then reports it. */
+template <typename Watch>
+bool record_released(const RecordCounters& counters, const Watch& watch) {
+    const bool counted = wait_for([&counters] { return counters.releases.load() >= 1; },
+                                  std::chrono::milliseconds(5000));
+    return counted && counters.releases.load() == 1 && watch.expired();
+}
+
+/** The callbacks/session proofs: a host queue transport under the adapter and
+    responder wrappers, one real baseline port round trip, a tool round trip in
+    both directions, the rejection rows and the ownership rules. */
+void assert_session(const Golden& golden) {
+    using namespace spoke::connect;
+
+    // Host side: two cross-wired queues, the records built over them, and the
+    // counters the assertions read once the records are gone.
+    const auto to_responder = std::make_shared<EnvelopeQueue>();
+    const auto to_dialer = std::make_shared<EnvelopeQueue>();
+    RecordCounters dialer_counters;
+    RecordCounters responder_counters;
+    RecordCounters ports_counters;
+    RecordCounters served_tool_counters;
+    RecordCounters reverse_tool_counters;
+
+    std::shared_ptr<HostTransport> dialer_host =
+        std::make_shared<HostTransport>(to_responder, to_dialer, &dialer_counters);
+    std::shared_ptr<HostTransport> responder_host =
+        std::make_shared<HostTransport>(to_dialer, to_responder, &responder_counters);
+    std::shared_ptr<HostPorts> ports_host = std::make_shared<HostPorts>(&ports_counters);
+    std::shared_ptr<HostTool> served_tool_host =
+        std::make_shared<HostTool>(&served_tool_counters);
+    std::shared_ptr<HostTool> reverse_tool_host =
+        std::make_shared<HostTool>(&reverse_tool_counters);
+    const std::weak_ptr<HostTransport> dialer_released = dialer_host;
+    const std::weak_ptr<HostTransport> responder_released = responder_host;
+    const std::weak_ptr<HostPorts> ports_released = ports_host;
+    const std::weak_ptr<HostTool> served_tool_released = served_tool_host;
+    const std::weak_ptr<HostTool> reverse_tool_released = reverse_tool_host;
+
+    // The golden fixture supplies the identity; the manifest derived from it
+    // advertises the demo echo tool on both ends.
+    const SpokeConnectSlice seed = slice_of(golden.seed);
+    const SpokeConnectSlice pubkey = slice_of(golden.pubkey);
+    const SpokeConnectSlice peer_id = slice(golden.peer_id);
+    const SpokeConnectSlice allowlist[] = {peer_id};
+    const SpokeConnectPeerKey peer_keys[] = {SpokeConnectPeerKey{peer_id, pubkey}};
+    const std::string manifest = tool_manifest(golden);
+    const std::optional<uint64_t> invoke_timeout = uint64_t{5000};
+
+    // A factory refuses an incomplete record and leaves it with the caller,
+    // which still owns the context the record captures.
+    {
+        RecordCounters refused_counters;
+        std::shared_ptr<HostTransport> refused_host =
+            std::make_shared<HostTransport>(to_responder, to_dialer, &refused_counters);
+        const std::weak_ptr<HostTransport> refused_released = refused_host;
+        std::unique_ptr<TransportCallbacks> incomplete = make_transport(refused_host);
+        // Only the record's own captures keep the host state alive now.
+        refused_host.reset();
+        incomplete->close = nullptr;
+        Result<Transport> refused = Transport::create(incomplete);
+        const Error& error =
+            rejection(refused, kSessionLabel, "Transport::create with an unset slot");
+        check(error.status == SPOKE_CONNECT_INVALID_ARGUMENT, kSessionLabel,
+              "an incomplete transport record reported " + describe(error));
+        check(error.message.find("close") != std::string::npos, kSessionLabel,
+              "the refusal does not name the unset slot: " + error.message);
+        check(incomplete != nullptr, kSessionLabel,
+              "a refused factory took the caller's callback record");
+        check(!refused_released.expired() && refused_counters.releases.load() == 0, kSessionLabel,
+              "a refused factory released the caller-owned context");
+        incomplete.reset();
+        check(record_released(refused_counters, refused_released), kSessionLabel,
+              "the caller's refused callback record was not released exactly once");
+    }
+    {
+        std::unique_ptr<PortsCallbacks> absent;
+        Result<PortsHandler> refused = PortsHandler::create(absent);
+        const Error& error =
+            rejection(refused, kSessionLabel, "PortsHandler::create with no record");
+        check(error.status == SPOKE_CONNECT_INVALID_ARGUMENT, kSessionLabel,
+              "a missing ports record reported " + describe(error));
+    }
+
+    {
+        // The serving side: its transport, its ports provider and its tool.
+        std::unique_ptr<TransportCallbacks> responder_callbacks = make_transport(responder_host);
+        std::unique_ptr<PortsCallbacks> ports_callbacks = make_ports(ports_host);
+        std::unique_ptr<ToolCallbacks> served_tool_callbacks = make_echo_tool(served_tool_host);
+        // Only the records' own captures keep the host state alive from here.
+        responder_host.reset();
+        ports_host.reset();
+        served_tool_host.reset();
+
+        Transport responder_transport =
+            unwrap(Transport::create(responder_callbacks), kSessionLabel,
+                   "Transport::create (responder)");
+        check(responder_callbacks == nullptr, kSessionLabel,
+              "a successful factory left the callback record owned by the caller");
+        PortsHandler ports =
+            unwrap(PortsHandler::create(ports_callbacks), kSessionLabel, "PortsHandler::create");
+        check(ports_callbacks == nullptr, kSessionLabel,
+              "a successful factory left the ports record owned by the caller");
+        ToolHandler served_tool = unwrap(ToolHandler::create(served_tool_callbacks), kSessionLabel,
+                                         "ToolHandler::create (served)");
+        check(served_tool_callbacks == nullptr, kSessionLabel,
+              "a successful factory left the tool record owned by the caller");
+
+        ConnectResponder responder = unwrap(
+            ConnectResponder::serve(responder_transport, seed, manifest, allowlist, 1, peer_keys,
+                                    1, &ports, invoke_timeout),
+            kSessionLabel, "ConnectResponder::serve");
+        unwrap_ok(responder.register_tool_handler(kEchoToolId, served_tool), kSessionLabel,
+                  "ConnectResponder::register_tool_handler");
+        {
+            // The carrier cloned the handler: releasing the wrapper must not
+            // release a record the session still holds.
+            ToolHandler released = std::move(served_tool);
+            check(served_tool.get() == nullptr && !static_cast<bool>(served_tool), kSessionLabel,
+                  "a moved-from handle is not empty");
+        }
+
+        // The dialing side.
+        std::unique_ptr<TransportCallbacks> dialer_callbacks = make_transport(dialer_host);
+        dialer_host.reset();
+        Transport dialer_transport = unwrap(Transport::create(dialer_callbacks), kSessionLabel,
+                                            "Transport::create (dialer)");
+        check(dialer_callbacks == nullptr, kSessionLabel,
+              "a successful factory left the dialer record owned by the caller");
+        RemoteAdapter adapter = unwrap(
+            RemoteAdapter::connect(dialer_transport, seed, manifest, pubkey, allowlist, 1,
+                                   invoke_timeout),
+            kSessionLabel, "RemoteAdapter::connect");
+
+        // Both sessions cloned their transport internally, so releasing the
+        // caller's transport handles must not release a callback record a
+        // session still holds — and the session must keep working afterwards.
+        {
+            std::unique_ptr<Transport> released =
+                std::make_unique<Transport>(std::move(responder_transport));
+            released.reset();
+            std::unique_ptr<Transport> released_dialer =
+                std::make_unique<Transport>(std::move(dialer_transport));
+            released_dialer.reset();
+        }
+        check(!dialer_released.expired() && !responder_released.expired(), kSessionLabel,
+              "releasing a transport handle released a callback record the session still holds");
+        check(dialer_counters.releases.load() == 0 && responder_counters.releases.load() == 0,
+              kSessionLabel, "a transport callback record was destroyed while its session lived");
+
+        // The session is established on both ends.
+        const Buffer dialer_state =
+            unwrap(adapter.state(), kSessionLabel, "RemoteAdapter::state");
+        check(dialer_state.view() == "Established", kSessionLabel,
+              "the dialer reported state \"" + std::string(dialer_state.view()) + "\"");
+        const bool responder_established = wait_for(
+            [&responder] {
+                Result<Buffer> state = responder.state();
+                return state.has_value() && state.value().view() == "Established";
+            },
+            std::chrono::milliseconds(5000));
+        check(responder_established, kSessionLabel, "the responder did not reach Established");
+
+        // The session carries the golden identity, and the manifest both ends
+        // advertise crossed with it.
+        std::optional<Buffer> session_id =
+            unwrap(adapter.session_id(), kSessionLabel, "RemoteAdapter::session_id");
+        check(session_id.has_value() && !session_id->empty(), kSessionLabel,
+              "the established dialer reported no session id");
+        std::optional<Buffer> remote_peer =
+            unwrap(adapter.remote_peer_id(), kSessionLabel, "RemoteAdapter::remote_peer_id");
+        check(remote_peer.has_value() && remote_peer->view() == golden.peer_id, kSessionLabel,
+              "the dialer's remote peer id is not the golden identity");
+        std::optional<Buffer> remote_manifest =
+            unwrap(adapter.remote_manifest(), kSessionLabel, "RemoteAdapter::remote_manifest");
+        check(remote_manifest.has_value() &&
+                  remote_manifest->view().find(kEchoToolId) != std::string_view::npos,
+              kSessionLabel, "the dialer's remote manifest does not advertise the served tool");
+
+        // One real baseline ports round trip through the responder's provider.
+        const std::string entry =
+            unwrap(adapter.get_knowledge_entry(kEntryIdText), kSessionLabel,
+                   "RemoteAdapter::get_knowledge_entry")
+                .str();
+        check(entry.find(std::string("\"entry_id\":\"") + kEntryIdText + "\"") !=
+                  std::string::npos,
+              kSessionLabel, "the round-tripped entry carries no entry id: " + entry);
+        check(entry.find(kEntryCanonicalName) != std::string::npos, kSessionLabel,
+              "the round-tripped entry carries no canonical name: " + entry);
+        {
+            std::shared_ptr<HostPorts> served = ports_released.lock();
+            check(served != nullptr, kSessionLabel,
+                  "the ports record was released while its session lived");
+            std::lock_guard<std::mutex> guard(served->mutex);
+            check(served->calls == 1, kSessionLabel,
+                  "the served ports callback ran " + std::to_string(served->calls) + " times");
+            check(served->last_entry_id == kEntryIdText, kSessionLabel,
+                  "the served ports callback saw entry id \"" + served->last_entry_id + "\"");
+        }
+
+        // An absent expectation and a present zero are different values: the
+        // optional scalar must not collapse one into the other.
+        std::shared_ptr<HostPorts> ports_observer = ports_released.lock();
+        check(ports_observer != nullptr, kSessionLabel,
+              "the ports record was released while its session lived");
+        const std::string written =
+            unwrap(adapter.put_knowledge_entry(kServedEntryJson, std::nullopt), kSessionLabel,
+                   "RemoteAdapter::put_knowledge_entry (no expectation)")
+                .str();
+        check(written.find(kEntryCanonicalName) != std::string::npos, kSessionLabel,
+              "the round-tripped put carries no entry: " + written);
+        {
+            std::lock_guard<std::mutex> guard(ports_observer->mutex);
+            check(!ports_observer->last_revision.has_value(), kSessionLabel,
+                  "an absent base revision arrived as present");
+        }
+        unwrap(adapter.put_knowledge_entry(kServedEntryJson, uint64_t{0}), kSessionLabel,
+               "RemoteAdapter::put_knowledge_entry (present zero)");
+        {
+            std::lock_guard<std::mutex> guard(ports_observer->mutex);
+            check(ports_observer->last_revision.has_value() &&
+                      *ports_observer->last_revision == 0,
+                  kSessionLabel, "a present zero base revision did not arrive as a present zero");
+        }
+        ports_observer.reset();
+
+        // A slot the host declines answers an application reject, not a silent
+        // absence.
+        Result<Buffer> declined = adapter.list_rules(nullptr, 0);
+        const Error& refusal = rejection(declined, kSessionLabel, "a declining ports method");
+        check(refusal.status == SPOKE_CONNECT_FFI_REJECTED && refusal.code.has_value() &&
+                  *refusal.code == "CAPABILITY_PORT_MISSING",
+              kSessionLabel, "a declining ports method reported " + describe(refusal));
+
+        // The dialer invokes the responder's registered tool.
+        const std::string echoed =
+            unwrap(adapter.invoke_tool(kEchoToolId, kEchoArguments), kSessionLabel,
+                   "RemoteAdapter::invoke_tool (dialer -> responder)")
+                .str();
+        check(echoed.find("\"message\":\"hello\"") != std::string::npos, kSessionLabel,
+              "the round-tripped echo carries no echo of the arguments: " + echoed);
+        {
+            std::shared_ptr<HostTool> served = served_tool_released.lock();
+            check(served != nullptr, kSessionLabel,
+                  "the served tool record was released while its session lived");
+            std::lock_guard<std::mutex> guard(served->mutex);
+            check(served->calls == 1, kSessionLabel,
+                  "the served tool handler ran " + std::to_string(served->calls) + " times");
+            check(served->last_arguments == kEchoArguments, kSessionLabel,
+                  "the served tool handler saw arguments \"" + served->last_arguments + "\"");
+        }
+
+        // The dialer registers its own handler and the responder invokes it in
+        // reverse; releasing the wrapper must not release the cloned record.
+        std::unique_ptr<ToolCallbacks> reverse_callbacks = make_echo_tool(reverse_tool_host);
+        reverse_tool_host.reset();
+        ToolHandler reverse_tool = unwrap(ToolHandler::create(reverse_callbacks), kSessionLabel,
+                                         "ToolHandler::create (dialer)");
+        unwrap_ok(adapter.register_tool_handler(kEchoToolId, reverse_tool), kSessionLabel,
+                  "RemoteAdapter::register_tool_handler");
+        {
+            ToolHandler released = std::move(reverse_tool);
+        }
+        const std::string reversed =
+            unwrap(responder.invoke_tool(kEchoToolId, kEchoArguments), kSessionLabel,
+                   "ConnectResponder::invoke_tool (responder -> dialer)")
+                .str();
+        check(reversed.find("\"message\":\"hello\"") != std::string::npos, kSessionLabel,
+              "the reverse invoke carries no echo of the arguments: " + reversed);
+        {
+            std::shared_ptr<HostTool> serving = reverse_tool_released.lock();
+            check(serving != nullptr, kSessionLabel,
+                  "the dialer's tool record was released while its session lived");
+            std::lock_guard<std::mutex> guard(serving->mutex);
+            check(serving->calls == 1, kSessionLabel,
+                  "the dialer's registered handler served " + std::to_string(serving->calls) +
+                      " reverse invokes");
+            check(serving->last_arguments == kEchoArguments, kSessionLabel,
+                  "the reverse invoke reached the handler with arguments \"" +
+                      serving->last_arguments + "\"");
+        }
+
+        // A host refusal crosses the wire with all four error fields intact.
+        Result<Buffer> refused_fields = adapter.invoke_tool(kEchoToolId, kRefusalArguments);
+        const Error& fields = rejection(refused_fields, kSessionLabel, "a host tool-handler refusal");
+        check(fields.status == SPOKE_CONNECT_FFI_REJECTED, kSessionLabel,
+              "the refusal reported " + describe(fields));
+        check(fields.code.has_value() && *fields.code == "INVALID_INPUT", kSessionLabel,
+              "the refusal lost its code: " + describe(fields));
+        check(fields.message == kRefusalMessage, kSessionLabel,
+              "the refusal lost its message: " + describe(fields));
+        check(fields.kind.has_value() && *fields.kind == kRefusalKind, kSessionLabel,
+              "the refusal lost its kind: " + describe(fields));
+        check(fields.wire_code.has_value() && *fields.wire_code == kRefusalWireCode, kSessionLabel,
+              "the refusal lost its wire code: " + describe(fields));
+
+        // A present empty optional stays present, and an absent one stays absent.
+        Result<Buffer> empty_kind = adapter.invoke_tool(kEchoToolId, kEmptyKindArguments);
+        const Error& kind = rejection(empty_kind, kSessionLabel,
+                                      "a refusal with a present empty kind");
+        check(kind.kind.has_value(), kSessionLabel,
+              "a present empty `kind` arrived as absent: " + describe(kind));
+        check(kind.kind->empty(), kSessionLabel,
+              "a present empty `kind` arrived as \"" + *kind.kind + "\"");
+        check(!kind.wire_code.has_value(), kSessionLabel,
+              "an absent `wire_code` arrived as present: " + describe(kind));
+
+        // A host callback that cannot answer: the enabled configuration throws
+        // inside it and the bridge contains the exception, the disabled
+        // configuration returns the equivalent `Result` failure. Either way a
+        // legal call afterwards still completes.
+        Result<Buffer> contained = adapter.invoke_tool(kEchoToolId, kThrowArguments);
+        const Error& failure = rejection(contained, kSessionLabel, "a host callback that throws");
+        check(failure.status == SPOKE_CONNECT_FFI_REJECTED, kSessionLabel,
+              "a throwing host callback reported " + describe(failure));
+#if SPOKE_SMOKE_EXCEPTIONS
+        check(failure.code.has_value() && *failure.code == "INTERNAL_ERROR", kSessionLabel,
+              "the contained exception lost the INTERNAL_ERROR code: " + describe(failure));
+        check(failure.kind.has_value() && *failure.kind == "callback", kSessionLabel,
+              "the contained exception lost the callback kind: " + describe(failure));
+        check(!failure.wire_code.has_value(), kSessionLabel,
+              "the contained exception carried a wire code: " + describe(failure));
+#else
+        check(failure.code.has_value() && *failure.code == "INVALID_INPUT" &&
+                  failure.message == kThrowMessage,
+              kSessionLabel, "the Result refusal path reported " + describe(failure));
+#endif
+        const std::string recovered =
+            unwrap(adapter.invoke_tool(kEchoToolId, kEchoArguments), kSessionLabel,
+                   "RemoteAdapter::invoke_tool after a refusal")
+                .str();
+        check(recovered.find("\"message\":\"hello\"") != std::string::npos, kSessionLabel,
+              "the session stopped serving after a host refusal: " + recovered);
+
+        // Both transports really ran, in both directions.
+        check(dialer_counters.sends.load() > 0 && dialer_counters.recvs.load() > 0 &&
+                  responder_counters.sends.load() > 0 && responder_counters.recvs.load() > 0,
+              kSessionLabel, "the host transport callbacks did not all run");
+
+        // Contract order: close the sessions before releasing the host resources.
+        unwrap_ok(adapter.close(), kSessionLabel, "RemoteAdapter::close");
+        unwrap_ok(responder.close(), kSessionLabel, "ConnectResponder::close");
+        to_responder->close();
+        to_dialer->close();
+    }
+
+    // Each callback record was released exactly once, and only after both
+    // sessions ended and every handle that referenced it was gone.
+    check(record_released(dialer_counters, dialer_released), kSessionLabel,
+          "the dialer transport record was not released exactly once (releases " +
+              std::to_string(dialer_counters.releases.load()) + ")");
+    check(record_released(responder_counters, responder_released), kSessionLabel,
+          "the responder transport record was not released exactly once (releases " +
+              std::to_string(responder_counters.releases.load()) + ")");
+    check(record_released(ports_counters, ports_released), kSessionLabel,
+          "the ports record was not released exactly once (releases " +
+              std::to_string(ports_counters.releases.load()) + ")");
+    check(record_released(served_tool_counters, served_tool_released), kSessionLabel,
+          "the served tool record was not released exactly once (releases " +
+              std::to_string(served_tool_counters.releases.load()) + ")");
+    check(record_released(reverse_tool_counters, reverse_tool_released), kSessionLabel,
+          "the dialer's tool record was not released exactly once (releases " +
+              std::to_string(reverse_tool_counters.releases.load()) + ")");
+    // The served records saw exactly the calls the scenario made: the baseline
+    // lookup, the two `putKnowledgeEntry` calls and the declining call, and one
+    // tool call per invoke — the round trip, the two refusals, the contained
+    // failure and the recovery.
+    check(ports_counters.calls.load() == 4 && served_tool_counters.calls.load() == 5,
+          kSessionLabel,
+          "the served records saw " + std::to_string(ports_counters.calls.load()) +
+              " ports calls and " + std::to_string(served_tool_counters.calls.load()) +
+              " tool calls");
+}
+
 }  // namespace
 
 /** Runs the Task 1a convenience-layer group against the shared golden vector. */
@@ -339,4 +1068,18 @@ void spoke_smoke::run_convenience_values(const Golden& golden) {
     assert_ownership_and_moves(golden);
     assert_loopback();
     banner(kValuesLabel);
+}
+
+/**
+ * Runs the Task 1b group: the callback bridges, the adapter and responder
+ * wrappers, and the ownership rules they owe the host. The containment banner
+ * exists only in the exception-enabled configuration, which is the only one
+ * that injects a throwing host callback.
+ */
+void spoke_smoke::run_convenience_session(const Golden& golden) {
+    assert_session(golden);
+    banner(kSessionLabel);
+#if SPOKE_SMOKE_EXCEPTIONS
+    banner(kContainmentLabel);
+#endif
 }

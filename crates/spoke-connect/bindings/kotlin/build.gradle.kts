@@ -5,7 +5,7 @@ plugins {
 
 group = "dev.42ch"
 // Lockstep SemVer — asserted/bumped with tooling/release lockstep surfaces.
-version = "0.12.0"
+version = "0.13.0"
 
 repositories {
     mavenCentral()

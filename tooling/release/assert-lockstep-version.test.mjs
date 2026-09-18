@@ -6,6 +6,7 @@ import { parseSemVer } from "./semver.mjs";
 import {
   CARGO_LOCK_PATH,
   CARGO_WORKSPACE_PATH,
+  parseCargoPathDependencyPins,
   parseCargoWorkspaceMembers,
   resolveCargoLockPackageNames,
 } from "./lockstep-surfaces.mjs";
@@ -238,6 +239,152 @@ describe("assert-lockstep-version.mjs", () => {
       assert.equal(bumped.status, 0, bumped.stderr || bumped.stdout);
       assert.match(readFileSync(cratePath, "utf8"), form.expected(target));
     }
+  });
+
+  it("verifies and bumps an escaped basic-quoted Cargo path pin", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const escaped = crate.replace(
+      /^spoke-schemas = \{ version = "([^"]+)", path = "\.\.\/spoke-schemas" \}$/m,
+      '"spoke\\u002Dschemas" = { version = "$1", path = "../spoke-schemas" }',
+    );
+    assert.notEqual(escaped, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, escaped, "utf8");
+
+    const initiallyPassing = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.equal(
+      initiallyPassing.status,
+      0,
+      initiallyPassing.stderr || initiallyPassing.stdout,
+    );
+
+    const stale = escaped.replace(
+      `version = "${current}"`,
+      `version = "${current}-drift.test"`,
+    );
+    writeFileSync(cratePath, stale, "utf8");
+    const stalePin = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(stalePin.status, 0);
+    assert.match(stalePin.stderr, /spoke-schemas dependency/);
+
+    writeFileSync(cratePath, escaped, "utf8");
+    const bumped = runReleaseScript(
+      "bump-version.mjs",
+      [target],
+      repoRoot,
+    );
+    assert.equal(bumped.status, 0, bumped.stderr || bumped.stdout);
+    assert.match(
+      readFileSync(cratePath, "utf8"),
+      new RegExp(
+        `^"spoke\\\\u002Dschemas" = \\{ version = "${target}", path = "\\.\\./spoke-schemas" \\}$`,
+        "m",
+      ),
+    );
+  });
+
+  it("resolves escaped basic package attributes as workspace members", () => {
+    const repoRoot = createTempRepo();
+    tempDirs.push(repoRoot);
+    initGitRepo(repoRoot);
+
+    const current = readCanonicalVersion(repoRoot);
+    const parsed = parseSemVer(current);
+    assert.ok(parsed, "fixture version must be valid SemVer");
+    const target = `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+    const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+    const crate = readFileSync(cratePath, "utf8");
+    const escaped = crate.replace(
+      /^spoke-schemas = \{ version = "([^"]+)", path = "\.\.\/spoke-schemas" \}$/m,
+      'schemas = { package = "spoke\\u002Dschemas", version = "$1", path = "../spoke-schemas" }',
+    );
+    assert.notEqual(escaped, crate, "fixture must contain the direct pin");
+    writeFileSync(cratePath, escaped, "utf8");
+
+    const stale = escaped.replace(
+      `version = "${current}"`,
+      `version = "${current}-drift.test"`,
+    );
+    writeFileSync(cratePath, stale, "utf8");
+    const stalePin = runReleaseScript(
+      "assert-lockstep-version.mjs",
+      [],
+      repoRoot,
+    );
+    assert.notEqual(stalePin.status, 0);
+    assert.match(stalePin.stderr, /spoke-schemas dependency/);
+
+    writeFileSync(cratePath, escaped, "utf8");
+    const bumped = runReleaseScript(
+      "bump-version.mjs",
+      [target],
+      repoRoot,
+    );
+    assert.equal(bumped.status, 0, bumped.stderr || bumped.stdout);
+    assert.match(
+      readFileSync(cratePath, "utf8"),
+      new RegExp(
+        `^schemas = \\{ package = "spoke\\\\u002Dschemas", version = "${target}", path = "\\.\\./spoke-schemas" \\}$`,
+        "m",
+      ),
+    );
+  });
+
+  it("refuses unsupported and malformed basic-string escapes", () => {
+    for (const escapedKey of ['"spoke\\x2Dschemas"', '"spoke\\u12schemas"']) {
+      const repoRoot = createTempRepo();
+      tempDirs.push(repoRoot);
+      initGitRepo(repoRoot);
+
+      const cratePath = findCargoMemberManifest(repoRoot, "spoke-connect");
+      const crate = readFileSync(cratePath, "utf8");
+      const malformed = crate.replace(
+        /^spoke-schemas = \{ version = "([^"]+)", path = "\.\.\/spoke-schemas" \}$/m,
+        `${escapedKey} = { version = "$1", path = "../spoke-schemas" }`,
+      );
+      assert.notEqual(malformed, crate, "fixture must contain the direct pin");
+      writeFileSync(cratePath, malformed, "utf8");
+
+      const result = runReleaseScript(
+        "assert-lockstep-version.mjs",
+        [],
+        repoRoot,
+      );
+      assert.notEqual(result.status, 0);
+      assert.match(
+        result.stderr,
+        new RegExp(
+          `crates/spoke-connect/Cargo\\.toml: (?:unsupported|malformed) TOML basic-string escape in token ${escapedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+        ),
+      );
+    }
+  });
+
+  it("uses literal strings verbatim when resolving Cargo pin names", () => {
+    const [pin] = parseCargoPathDependencyPins(
+      "'spoke\\u002Dschemas' = { version = '0.12.0', path = '../spoke-schemas' }",
+      ["spoke-schemas"],
+      "fixture/Cargo.toml",
+    );
+    assert.equal(pin.name, "spoke\\u002Dschemas");
+    assert.equal(pin.version, "0.12.0");
+    assert.equal(pin.path, "../spoke-schemas");
   });
 
 

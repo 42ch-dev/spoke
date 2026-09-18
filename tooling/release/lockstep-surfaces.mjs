@@ -4,8 +4,9 @@
  * Normative source: `.mstar/specs/spoke-version-release.md` lockstep table (rows 1–16).
  *
  * Cargo dependency pins use inline tables with bare, basic-quoted, or
- * literal-quoted keys and basic or literal string values. Section-form and
- * dotted-key declarations naming a workspace member are refused.
+ * literal-quoted keys and basic or literal string values. Basic-string escapes
+ * are decoded for name resolution; literal strings are used verbatim. Section-
+ * form and dotted-key declarations naming a workspace member are refused.
  *
  * Excluded from lockstep (documented only; not asserted):
  * - tooling/codegen/rust-gen/Cargo.toml — standalone codegen bin crate; not a consumer pin surface.
@@ -212,16 +213,87 @@ const CARGO_STRING_PATTERN = String.raw`(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^']*)')
 const CARGO_KEY_PATTERN = String.raw`(?:[A-Za-z0-9_-]+|"[^"\\]*(?:\\.[^"\\]*)*"|'[^']*')`;
 
 /**
- * Remove TOML key quoting for package-name resolution.
+ * Decode a TOML basic string, refusing escapes outside the TOML basic-string
+ * escape set.
  *
- * @param {string} key
+ * @param {string} token
+ * @param {string} manifestPath
  * @returns {string}
  */
-function decodeCargoKey(key) {
-  if (
-    (key.startsWith('"') && key.endsWith('"')) ||
-    (key.startsWith("'") && key.endsWith("'"))
-  ) {
+function decodeCargoBasicString(token, manifestPath) {
+  const contents = token.slice(1, -1);
+  let decoded = "";
+  for (let index = 0; index < contents.length; index += 1) {
+    const character = contents[index];
+    if (character !== "\\") {
+      decoded += character;
+      continue;
+    }
+
+    const escape = contents[index + 1];
+    const offendingToken = token;
+    if (escape === undefined) {
+      throw new Error(
+        `${manifestPath}: malformed TOML basic-string escape in token ${offendingToken}`,
+      );
+    }
+    const simpleEscapes = {
+      b: "\b",
+      t: "\t",
+      n: "\n",
+      f: "\f",
+      r: "\r",
+      '"': '"',
+      "\\": "\\",
+    };
+    if (Object.hasOwn(simpleEscapes, escape)) {
+      decoded += simpleEscapes[escape];
+      index += 1;
+      continue;
+    }
+    if (escape === "u" || escape === "U") {
+      const width = escape === "u" ? 4 : 8;
+      const digits = contents.slice(index + 2, index + 2 + width);
+      if (
+        digits.length !== width ||
+        !/^[0-9A-Fa-f]+$/.test(digits)
+      ) {
+        throw new Error(
+          `${manifestPath}: malformed TOML basic-string escape in token ${offendingToken}`,
+        );
+      }
+      const codePoint = Number.parseInt(digits, 16);
+      if (
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        throw new Error(
+          `${manifestPath}: malformed TOML basic-string escape in token ${offendingToken}`,
+        );
+      }
+      decoded += String.fromCodePoint(codePoint);
+      index += width + 1;
+      continue;
+    }
+    throw new Error(
+      `${manifestPath}: unsupported TOML basic-string escape in token ${offendingToken}`,
+    );
+  }
+  return decoded;
+}
+
+/**
+ * Remove Cargo key quoting for package-name resolution.
+ *
+ * @param {string} key
+ * @param {string} manifestPath
+ * @returns {string}
+ */
+function decodeCargoKey(key, manifestPath) {
+  if (key.startsWith('"') && key.endsWith('"')) {
+    return decodeCargoBasicString(key, manifestPath);
+  }
+  if (key.startsWith("'") && key.endsWith("'")) {
     return key.slice(1, -1);
   }
   return key;
@@ -246,7 +318,7 @@ function assertSupportedCargoPathDependencyShape(
     "gm",
   );
   for (const [, family, key] of contents.matchAll(sectionPattern)) {
-    const member = decodeCargoKey(key);
+    const member = decodeCargoKey(key, manifestPath);
     if (workspaceMembers.has(member)) {
       throw new Error(
         `${manifestPath}: dependency section [${family}.${key}] for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
@@ -259,7 +331,7 @@ function assertSupportedCargoPathDependencyShape(
     "gm",
   );
   for (const [, key, attribute] of contents.matchAll(dottedKeyPattern)) {
-    const member = decodeCargoKey(key);
+    const member = decodeCargoKey(key, manifestPath);
     if (workspaceMembers.has(member)) {
       throw new Error(
         `${manifestPath}: dotted-key dependency ${key}.${attribute} for workspace member "${member}" is unsupported; inline dependency tables are the supported shape`,
@@ -273,9 +345,10 @@ function assertSupportedCargoPathDependencyShape(
  *
  * @param {string} attributes
  * @param {string} key
+ * @param {string} manifestPath
  * @returns {{ value: string; quoted: string } | null}
  */
-function readCargoStringAttribute(attributes, key) {
+function readCargoStringAttribute(attributes, key, manifestPath) {
   const match = attributes.match(
     new RegExp(`\\b${key}\\s*=\\s*(${CARGO_STRING_PATTERN})`),
   );
@@ -285,7 +358,9 @@ function readCargoStringAttribute(attributes, key) {
   const quoted = match[1];
   return {
     quoted,
-    value: quoted.startsWith('"') ? match[2] : match[3],
+    value: quoted.startsWith('"')
+      ? decodeCargoBasicString(quoted, manifestPath)
+      : match[3],
   };
 }
 
@@ -312,12 +387,17 @@ export function parseCargoPathDependencyPins(
     "gm",
   );
   for (const [, key, attributes] of contents.matchAll(dependencyPattern)) {
-    const version = readCargoStringAttribute(attributes, "version");
-    const path = readCargoStringAttribute(attributes, "path");
-    const packageName = readCargoStringAttribute(attributes, "package");
+    const decodedKey = decodeCargoKey(key, manifestPath);
+    const version = readCargoStringAttribute(attributes, "version", manifestPath);
+    const path = readCargoStringAttribute(attributes, "path", manifestPath);
+    const packageName = readCargoStringAttribute(
+      attributes,
+      "package",
+      manifestPath,
+    );
     if (version !== null && path !== null) {
       pins.push({
-        name: packageName?.value ?? decodeCargoKey(key),
+        name: packageName?.value ?? decodedKey,
         version: version.value,
         path: path.value,
       });
@@ -351,14 +431,19 @@ export function replaceCargoPathDependencyPinVersions(
   return contents.replace(
     dependencyPattern,
     (full, indentation, key, attributes) => {
-      const packageName = readCargoStringAttribute(attributes, "package");
-      const path = readCargoStringAttribute(attributes, "path");
-      const versionPattern = new RegExp(
-        `(\\bversion\\s*=\\s*)(${CARGO_STRING_PATTERN})`,
+      const decodedKey = decodeCargoKey(key, manifestPath);
+      const packageName = readCargoStringAttribute(
+        attributes,
+        "package",
+        manifestPath,
       );
-      const currentVersion = attributes.match(versionPattern);
+      const path = readCargoStringAttribute(attributes, "path", manifestPath);
+      const currentVersion = attributes.match(
+        new RegExp(`(\\bversion\\s*=\\s*)(${CARGO_STRING_PATTERN})`),
+      );
+      readCargoStringAttribute(attributes, "version", manifestPath);
       if (
-        !selected.has(packageName?.value ?? decodeCargoKey(key)) ||
+        !selected.has(packageName?.value ?? decodedKey) ||
         path === null ||
         currentVersion === null
       ) {

@@ -1,7 +1,7 @@
 ---
 module: spoke-connect
 date: 2026-08-04
-last_updated: 2026-08-18
+last_updated: 2026-09-22
 problem_type: tooling_decision
 category: tooling-decisions
 severity: medium
@@ -41,8 +41,8 @@ The Swift binding ships the `SpokeConnect` SwiftPM product from a **committed** 
 - Delivered shape: three `LibraryIdentifier`s covering four target triples — `macos-arm64`, `ios-arm64`, `ios-arm64_x86_64-simulator` (arm64 + x86_64 fat). Coverage equals four discrete slices.
 - `xcodebuild -validate-xcframework` does not exist in Xcode 26.6 (only `-create-xcframework`). Validate with `plutil -lint` on the Info.plist, per-slice `lipo -info` arch assertions, and the consumer-path link builds below.
 
-- The xcframework stays **committed in the repo**; between FFI changes the committed framework is the consumer artifact. Assembly runs in CI (`.github/workflows/xcframework.yml`, path-filtered on the FFI surface): the job builds the slices on `macos-14` and the committed artifact is the drift baseline — a sorted per-file SHA-256 manifest diff (`tooling/connect/verify-xcframework-drift.sh`) fails the job on mismatch, and the built artifact uploads on every run.
-- Refresh path: `tooling/connect/apply-xcframework-artifact.sh <run-id>` downloads the CI artifact, checksum-verifies against its manifest, verifies run provenance, and stages the LFS pointers — no local four-target Rust build. After committing a refresh, re-run the drift check locally or via the workflow (a refresh-only push does not re-trigger the path-filtered gate).
+- The xcframework stays **committed in the repo**; between FFI changes the committed framework is the consumer artifact. Assembly runs in CI (`.github/workflows/xcframework.yml`) on every pull request — `xcframework` is a required check, so its pull-request trigger is unfiltered; the push side stays path-filtered on the FFI surface: the job builds the slices on `macos-14` and the committed artifact is the drift baseline — a sorted per-file SHA-256 manifest diff (`tooling/connect/verify-xcframework-drift.sh`) fails the job on mismatch, and the built artifact uploads on every run.
+- Refresh path: `tooling/connect/apply-xcframework-artifact.sh <run-id>` downloads the CI artifact, checksum-verifies against its manifest, verifies run provenance, and stages the LFS pointers — no local four-target Rust build. After committing a refresh, re-run the drift check locally or via the workflow (a refresh-only push stays outside the push-side filter, while a pull request touching the artifact re-runs it).
 - Build determinism: the script normalizes `Info.plist` `AvailableLibraries` ordering (xcodebuild emits it nondeterministically) and normalizes the Cargo lockstep version surfaces to `0.0.0` for every Cargo invocation, restoring them unconditionally afterward. Thus identical FFI sources produce byte-identical committed artifacts at every lockstep version. Cargo otherwise folds the package version into `-C metadata`, changing crate disambiguators and mangled symbols.
 - Generated Swift sources (`generated/spoke_connect.swift`, `spoke_connectFFI.h`, modulemap) stay **byte-identical** across rebuilds while the FFI surface is unchanged — the script verifies with SHA-256 before/after and must not rewrite them.
 - Repo hygiene: `.gitignore` covers SwiftPM artifacts (`.build/`, `.swiftpm/`) at the repo root and local packages, mirroring the C#/Kotlin artifact-ignore pattern.

@@ -2,9 +2,9 @@ name: Xcframework
 
 # Dedicated xcframework job: assembles the three-slice spoke_connectFFI
 # xcframework from the checkout's Rust sources and fails the job when the
-# built bytes drift from the committed (LFS) artifact. Path-filtered so the
-# macOS runner is used only when the FFI surface (or this automation itself)
-# changes — never per-push unconditional. Mirrors ci.yml's event set.
+# built bytes drift from the committed (LFS) artifact. `xcframework` is a
+# required check, so every pull request runs it and pays the macOS runner; the
+# push side keeps the FFI-surface filter, and ci.yml mirrors that event set.
 #
 # Deliberately off-filter: crates/spoke-operations/**, crates/spoke-schemas/**,
 # crates/spoke-fixture-toy-world/** — they change artifact bytes but not the
@@ -12,15 +12,6 @@ name: Xcframework
 # verify-binding-regen.sh gate (generated Swift tree diff).
 on:
   pull_request:
-    paths:
-      - crates/spoke-connect/src/**
-      - crates/spoke-connect/uniffi-bindgen.rs
-      - crates/spoke-connect/Cargo.toml
-      - Cargo.lock
-      - tooling/connect/build-swift-xcframework.sh
-      - tooling/connect/verify-xcframework-drift.sh
-      - crates/spoke-connect/bindings/swift/generated/**
-      - .github/workflows/xcframework.yml
   push:
     branches:
       - main

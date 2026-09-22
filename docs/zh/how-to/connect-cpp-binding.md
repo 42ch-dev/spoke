@@ -24,6 +24,15 @@ C/C++ 渠道提供两个手写头文件与每个平台一个已提交载体。`s
 | `crates/spoke-connect/bindings/cpp/native/provenance.json` | 每个 RID：源码修订、target、`rustc -Vv`、编译器版本、构建标志、头文件与产物哈希 |
 | `crates/spoke-connect/bindings/cpp/README.md` | 绑定 README（完整调用契约） |
 
+两个载体动态库（`*.dylib`、`*.dll`）存放在 Git LFS 中 —— 普通 clone 只会留下指针文件，编译前请先取回真实二进制：
+
+```bash
+git lfs install   # 每台机器执行一次
+git lfs pull      # 已存在的 clone 执行；全新 clone 会自动 smudge
+```
+
+头文件、导入库（`spoke_connect_capi.dll.lib`）与 `provenance.json` 是普通 Git 对象，任何 clone 都会带上。
+
 C 头文件以 C99 编译（`<stdint.h>` 的定宽整数、`<stddef.h>` 的长度类型），C++ 通过 `extern "C"` 包含。Windows 上的函数与回调指针使用 `__cdecl`，macOS 使用平台默认 C 调用约定。所有公开符号都以 `spoke_connect_` 为前缀。便利头文件只依赖 C++17 标准库，且不定义自己的任何配置宏。
 
 ## 2. 编译与链接

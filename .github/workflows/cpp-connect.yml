@@ -4,20 +4,10 @@ name: C++ connect (Windows + macOS)
 # refresh artifact; macOS validates the committed osx-arm64 carrier, then both
 # lanes prove exported symbols and run the shared C++ smoke.
 on:
+  # Unfiltered on pull requests: windows-smoke / macos-smoke are required
+  # checks, so every PR schedules both carrier lanes. The push filter below is
+  # unchanged, so pushes outside those paths still skip them.
   pull_request:
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - crates/spoke-connect-capi/**
-      - crates/spoke-connect/src/**
-      - crates/spoke-connect/Cargo.toml
-      - crates/spoke-connect/bindings/cpp/include/**
-      - crates/spoke-connect/bindings/cpp/Smoke/**
-      - crates/spoke-connect/bindings/cpp/native/**
-      - tooling/connect/cpp-build.mjs
-      - tooling/connect/cpp-symbol-check.mjs
-      - tooling/connect/cpp-smoke.mjs
-      - .github/workflows/cpp-connect.yml
   push:
     branches:
       - main
@@ -56,8 +46,11 @@ jobs:
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2
+        # actions/checkout@v4.2.2 — lfs: true so the symbol check, the smoke and
+        # the provenance check hash the real carrier, not an LFS pointer.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: true
 
       - name: Setup MSVC developer environment
         # x64 selects the release MSVC toolchain used by the C++ smoke.
@@ -101,6 +94,17 @@ jobs:
             throw "cl.exe version probe failed with exit code $LASTEXITCODE"
           }
 
+      - name: Verify committed provenance
+        # Reports drift without cancelling the lane: the build, the smoke and
+        # the uploaded refresh artifact below still run, so a stale record can
+        # be replaced by a real rebuild instead of being hand-edited. The final
+        # `Fail on provenance drift` step re-fails the job from this step's
+        # *outcome* (continue-on-error leaves the outcome `failure`), so the
+        # lane can never end green while the committed bytes disagree.
+        id: provenance
+        continue-on-error: true
+        run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
+
       - name: Build Windows carrier
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
 
@@ -131,6 +135,18 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+      - name: Fail on provenance drift
+        # The lane's verdict. `continue-on-error` above keeps the refresh
+        # artifact flowing, but the job still has to go red when the committed
+        # record does not describe the committed bytes — it reads the raw step
+        # outcome, so drift is never absorbed into a green run.
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.provenance.outcome }}" -ne "success") {
+            throw "committed provenance does not describe the committed win-x64 bytes; apply the uploaded refresh artifact (a genuine Windows rebuild) before this lane can pass"
+          }
+
   macos-smoke:
     name: macos-smoke
     runs-on: macos-14
@@ -142,8 +158,11 @@ jobs:
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2
+        # actions/checkout@v4.2.2 — lfs: true so the committed carrier arrives as
+        # bytes; the provenance check and the symbol check read it.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: true
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24
@@ -178,6 +197,11 @@ jobs:
           node -v
           clang++ --version
           rustc +1.96.0 -Vv
+
+      - name: Verify committed provenance
+        # Fails hard: this lane produces no artifact, so nothing downstream has
+        # to run for the drift to be actionable.
+        run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
 
       - name: Show native provenance
         shell: bash

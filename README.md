@@ -132,7 +132,7 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-**C and C++** — git-based from the release tag: check out `vX.Y.Z` and take `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` (hand-written C ABI header), `crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp` (C++17 header-only convenience layer), and the committed carrier for your target — `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` for macOS arm64 or `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` for Windows x64.
+**C and C++** — git-based from the release tag: check out `vX.Y.Z` and take `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` (hand-written C ABI header), `crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp` (C++17 header-only convenience layer), and the committed carrier for your target — `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` for macOS arm64 or `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` for Windows x64. Both carrier libraries are Git LFS objects, so run `git lfs install` once and `git lfs pull` in an existing clone before linking.
 
 ```bash
 git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git

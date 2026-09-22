@@ -127,10 +127,26 @@ extra, repeated or reordered banner fails the run.
 | `osx-arm64` | **Committed** — built and staged by `tooling/connect/cpp-build.mjs` |
 | `win-x64` | **Committed** — Windows x64 carrier and Rust-produced import library |
 
+**git-lfs:** the carrier dynamic libraries (`native/osx-arm64/*.dylib`,
+`native/win-x64/*.dll`) are tracked via [git-lfs](https://git-lfs.com)
+(`.gitattributes`). Run `git lfs install` once per machine and `git lfs pull` in
+a clone that already exists — a fresh clone smudges them automatically. The
+headers, the import library (`spoke_connect_capi.dll.lib`) and `provenance.json`
+are ordinary Git objects and arrive with any clone.
+
 `tooling/connect/cpp-build.mjs` rebuilds a native from the integrated Rust
 source and refreshes that RID's `provenance.json` entry with the revision,
 toolchain and hashes of the shipped files. It accepts the two committed targets,
 `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`.
+
+`node tooling/connect/cpp-build.mjs --verify --target <triple>` is the read-only
+counterpart consumers run: it re-reads the committed entry and hashes the
+committed header and staged native, so a copy that no longer matches the record
+fails instead of being quietly re-recorded. The C contract header is pinned to
+LF (`crates/spoke-connect/bindings/cpp/include/spoke_connect.h text eol=lf` in
+`.gitattributes`) for that check's sake — the recorded `headerSha256` has to
+describe the header's bytes on every platform, not the bytes one checkout's
+end-of-line conversion happened to produce.
 
 ## Header durability
 

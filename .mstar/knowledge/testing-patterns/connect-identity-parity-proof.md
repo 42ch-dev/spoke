@@ -1,7 +1,7 @@
 ---
 module: spoke-connect
 date: 2026-08-01
-last_updated: 2026-08-04
+last_updated: 2026-09-22
 problem_type: testing_pattern
 category: testing-patterns
 severity: high
@@ -36,7 +36,7 @@ The parity check lives in one zero-dependency standalone script that runs locall
 
 - `tooling/connect-identity-proof/proof.mjs` — zero npm dependencies; WebCrypto `Ed25519` (`subtle.sign` / `subtle.verify`); pure-JS JCS subset and base58btc; run locally with `node tooling/connect-identity-proof/proof.mjs`; exit 0 on full pass.
 - Not a workspace package, not published; zero-dep and local-fixture (no npm install, no network).
-- **CI-gated:** the `connect-identity` job in `.github/workflows/ci.yml` runs the proof on Node 24 (SHA-pinned `actions/setup-node`) and fails the workflow on non-zero exit. The job is path-filtered to `tooling/connect-identity-proof/**`, `packages/spoke-connect-ts/**`, and the workflow file; if the git-diff path filter itself errors, the job fails open and runs the proof anyway (the proof is cheap and zero-dep).
+- **CI-gated:** the `connect-identity` job in `.github/workflows/ci.yml` runs the proof on Node 24 (SHA-pinned `actions/setup-node`) and fails the workflow on non-zero exit. It is a required PR check and therefore not path-filtered: every pull request runs the proof, because the changed-path gate it used to carry reported the context green without proving anything, and the proof is cheap and zero-dep.
 - Re-run it before a TypeScript connect client slice; the same vectors are the regression check for any future pure-TS or uniffi implementation.
 
 ### Gotchas (the non-obvious parts that break byte parity)

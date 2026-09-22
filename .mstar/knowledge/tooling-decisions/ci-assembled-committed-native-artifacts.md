@@ -1,7 +1,7 @@
 ---
 module: connect / CI native artifacts
 date: 2026-08-18
-last_updated: 2026-09-18
+last_updated: 2026-09-22
 problem_type: tooling_decision
 category: tooling-decisions
 severity: medium
@@ -27,9 +27,9 @@ This repo commits compiled native artifacts (the three-slice `spoke_connectFFI.x
 
 The pattern has four parts:
 
-1. **Path-filtered CI assembly.** A dedicated workflow (`xcframework.yml`) builds the artifact from the checkout on every FFI-surface-affecting change (filter: connect sources, `Cargo.toml`/`Cargo.lock`, the build script, the generated binding tree). Pinned exact toolchain + `--locked` builds. `macos-14` for xcframework (needs `xcodebuild`); `actions/checkout` with `lfs: true`.
+1. **Required-check CI assembly.** A dedicated workflow (`xcframework.yml`) builds the artifact from the checkout on **every pull request** — `xcframework` is a required check, and a required context a path filter skips can never be satisfied. On pushes it stays path-filtered to the FFI-surface-affecting change set (connect sources, `Cargo.toml`/`Cargo.lock`, the build script, the generated binding tree). Pinned exact toolchain + `--locked` builds. `macos-14` for xcframework (needs `xcodebuild`); `actions/checkout` with `lfs: true`.
 2. **Committed artifact is the drift baseline.** A sorted per-file SHA-256 manifest diff (`verify-xcframework-drift.sh`) compares the committed artifact against the CI build; mismatch = red job. The built artifact uploads `if: always()` — a red run still ships the correct replacement.
-3. **One-command apply, fail-closed.** `apply-xcframework-artifact.sh <run-id>` downloads the artifact, **mandatorily** checksum-verifies against its manifest (absent manifest = hard fail), verifies provenance (`gh run view`: expected workflow + acceptable conclusion + `headSha` match or an explicit loud override), asserts git-lfs handling, then rsyncs and stages. After committing a refresh, re-verify (a refresh-only push does not re-trigger the path-filtered gate — documented in CONTRIBUTING).
+3. **One-command apply, fail-closed.** `apply-xcframework-artifact.sh <run-id>` downloads the artifact, **mandatorily** checksum-verifies against its manifest (absent manifest = hard fail), verifies provenance (`gh run view`: expected workflow + acceptable conclusion + `headSha` match or an explicit loud override), asserts git-lfs handling, then rsyncs and stages. After committing a refresh, re-verify (a refresh-only push stays outside the push-side filter; a pull request touching the artifact re-runs it — documented in CONTRIBUTING).
 4. **No auto-commit.** `createCommitOnBranch` cannot carry LFS objects and `GITHUB_TOKEN` pushes do not re-trigger workflows; a maintainer applies the artifact locally with one command. That is the deliberate delivery mode — the maintainer never runs the build.
 
 Determinism lessons (both were latent bugs the CI gate exposed):
@@ -53,4 +53,4 @@ Any committed compiled artifact refreshed from CI — today the Swift xcframewor
 ## Examples
 
 - FFI-surface PR: `xcframework.yml` runs → drift detected → red job + artifact uploaded → maintainer runs `apply-xcframework-artifact.sh <run-id>` → commit → next run green (no drift).
-- Non-FFI PR: path filter skips the job — zero macOS minutes.
+- Non-FFI PR: the required `xcframework` check still runs (pull-request triggers are unfiltered) — the macOS minutes are the price of a required context that must never be skipped.

@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.14.1] - 2026-09-22
+
+
+### Documentation
+
+- **spec:** Restore the js-libp2p evidence cell truncated by #110
+
+- Document the LFS carriers and the unfiltered PR validation triggers
+
+- **knowledge:** Record the unfiltered pull-request validation triggers
+
+- **knowledge:** Drop the stale path-filter claims from the knowledge index
+
+- **spec:** Complete connect dependency evidence
+
+
+### Fixed
+
+- **connect:** Pin the C contract header to LF and verify its provenance
+
+- **connect:** Refresh Windows carrier provenance
+
+
+### Internal
+
+- Schedule every required check on every pull request
+
+- **connect:** Keep the carrier refresh artifact flowing on provenance drift
+
+- Run the connect identity proof on every pull request
+
+
+### build
+
+- **connect:** Track the C carrier dynamic libraries with git-lfs
+
 ## [0.14.0] - 2026-09-22
 
 

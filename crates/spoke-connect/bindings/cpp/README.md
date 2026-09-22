@@ -132,6 +132,15 @@ source and refreshes that RID's `provenance.json` entry with the revision,
 toolchain and hashes of the shipped files. It accepts the two committed targets,
 `aarch64-apple-darwin` and `x86_64-pc-windows-msvc`.
 
+`node tooling/connect/cpp-build.mjs --verify --target <triple>` is the read-only
+counterpart consumers run: it re-reads the committed entry and hashes the
+committed header and staged native, so a copy that no longer matches the record
+fails instead of being quietly re-recorded. The C contract header is pinned to
+LF (`crates/spoke-connect/bindings/cpp/include/spoke_connect.h text eol=lf` in
+`.gitattributes`) for that check's sake — the recorded `headerSha256` has to
+describe the header's bytes on every platform, not the bytes one checkout's
+end-of-line conversion happened to produce.
+
 ## Header durability
 
 `tooling/connect/cpp-symbol-check.mjs` compares the header's declaration block

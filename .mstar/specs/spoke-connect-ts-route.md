@@ -78,7 +78,7 @@ Scoring is High / Med / Low fitness for SPOKE Path A browser+Node clients that m
 
 **Location:** [`tooling/connect-identity-proof/`](../../tooling/connect-identity-proof/) (not a workspace package; not published).
 
-**CI gate:** the proof runs via the `connect-identity` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (Node 24) on the workflow's triggers (pull requests, pushes to `main`), path-filtered to `tooling/connect-identity-proof/**` and `packages/spoke-connect-ts/**` (plus the workflow file); a non-zero proof exit fails the workflow.
+**CI gate:** the proof runs via the `connect-identity` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (Node 24) on every pull request and on pushes to `main`; it is a required check, so it is deliberately not path-filtered (a changed-path gate would report the context green without running the proof); a non-zero proof exit fails the workflow.
 
 **Command:**
 

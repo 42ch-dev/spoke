@@ -28,4 +28,4 @@ Exit `0` on full pass; non-zero on any mismatch.
 
 ## CI gate
 
-The `connect-identity` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs the proof on Node 24 for pull requests and pushes to `main`, path-filtered to `tooling/connect-identity-proof/**` and `packages/spoke-connect-ts/**` (plus the workflow file). A non-zero proof exit fails the job and the workflow.
+The `connect-identity` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) runs the proof on Node 24 for every pull request and for pushes to `main`. It is a required PR check and therefore deliberately **not** path-filtered: a changed-path gate would report the context green without running the proof, which is indistinguishable from a real pass. A non-zero proof exit fails the job and the workflow.

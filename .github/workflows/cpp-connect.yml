@@ -46,8 +46,11 @@ jobs:
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2
+        # actions/checkout@v4.2.2 — lfs: true so the symbol check, the smoke and
+        # the provenance check hash the real carrier, not an LFS pointer.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: true
 
       - name: Setup MSVC developer environment
         # x64 selects the release MSVC toolchain used by the C++ smoke.
@@ -138,8 +141,11 @@ jobs:
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2
+        # actions/checkout@v4.2.2 — lfs: true so the committed carrier arrives as
+        # bytes; the provenance check and the symbol check read it.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          lfs: true
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24

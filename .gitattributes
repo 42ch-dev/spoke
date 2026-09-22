@@ -12,7 +12,18 @@
 # stay as plain git blobs: Go modules resolve through the module proxy (no LFS
 # smudge), and the Kotlin/Python dylibs are small build inputs for the
 # Maven/PyPI artifacts.
+#
+# The C carrier's dynamic libraries (staged by tooling/connect/cpp-build.mjs,
+# Windows refresh via the `windows-smoke` lane of
+# .github/workflows/cpp-connect.yml) are ~6 MB each and are tracked the same
+# way. Its import library (`*.dll.lib`, ~150 KB) and `provenance.json` stay
+# plain git blobs: they are small, and every checkout — including the lanes
+# that only hash or diff the record — has to read them without an LFS fetch.
+# C/C++ consumers clone the repo, so they need git-lfs (`git lfs install`
+# once, `git lfs pull` in an existing clone).
 crates/spoke-connect/bindings/swift/xcframework/**/*.a filter=lfs diff=lfs merge=lfs -text
+crates/spoke-connect/bindings/cpp/native/**/*.dll filter=lfs diff=lfs merge=lfs -text
+crates/spoke-connect/bindings/cpp/native/**/*.dylib filter=lfs diff=lfs merge=lfs -text
 
 # The C contract header's bytes are part of the published C carrier record:
 # `tooling/connect/cpp-build.mjs` hashes it into `headerSha256` in

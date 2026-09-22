@@ -4,20 +4,10 @@ name: C++ connect (Windows + macOS)
 # refresh artifact; macOS validates the committed osx-arm64 carrier, then both
 # lanes prove exported symbols and run the shared C++ smoke.
 on:
+  # Unfiltered on pull requests: windows-smoke / macos-smoke are required
+  # checks, so every PR schedules both carrier lanes. The push filter below is
+  # unchanged, so pushes outside those paths still skip them.
   pull_request:
-    paths:
-      - Cargo.toml
-      - Cargo.lock
-      - crates/spoke-connect-capi/**
-      - crates/spoke-connect/src/**
-      - crates/spoke-connect/Cargo.toml
-      - crates/spoke-connect/bindings/cpp/include/**
-      - crates/spoke-connect/bindings/cpp/Smoke/**
-      - crates/spoke-connect/bindings/cpp/native/**
-      - tooling/connect/cpp-build.mjs
-      - tooling/connect/cpp-symbol-check.mjs
-      - tooling/connect/cpp-smoke.mjs
-      - .github/workflows/cpp-connect.yml
   push:
     branches:
       - main
@@ -101,6 +91,12 @@ jobs:
             throw "cl.exe version probe failed with exit code $LASTEXITCODE"
           }
 
+      - name: Verify committed provenance
+        # Fails when the committed provenance no longer describes the committed
+        # header/native bytes — the check that keeps this lane from silently
+        # re-recording a Windows checkout's bytes as the shipped truth.
+        run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
+
       - name: Build Windows carrier
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
 
@@ -178,6 +174,11 @@ jobs:
           node -v
           clang++ --version
           rustc +1.96.0 -Vv
+
+      - name: Verify committed provenance
+        # Read-only: proves the committed record still describes the committed
+        # header and staged native bytes of this RID.
+        run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
 
       - name: Show native provenance
         shell: bash

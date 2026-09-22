@@ -1,11 +1,12 @@
 name: Docs site
 
 # Documentation gate: validates every documentation change — the site under
-# docs/ (with its tooling) and any Markdown file elsewhere. `ci.yml` skips its
-# compile/test matrix for documentation-only change sets, so this workflow is
-# the validation entry point; it fails if `pnpm docs:build` breaks, if an EN
-# page ships without its CN twin (twin-parity), or if an internal link resolves
-# to a missing page (dead-link).
+# docs/ (with its tooling) and any Markdown file elsewhere. It fails if
+# `pnpm docs:build` breaks, if an EN page ships without its CN twin
+# (twin-parity), or if an internal link resolves to a missing page
+# (dead-link). `Build docs site` is a required check, so the pull-request
+# trigger is unfiltered — a path filter would leave that context unscheduled
+# and unmergeable on non-docs PRs; the push side keeps the docs-only filter.
 # Deploy: on push to main, the built site is published to GitHub Pages via the
 # official Pages actions (upload-pages-artifact + deploy-pages).
 #
@@ -22,13 +23,6 @@ name: Docs site
 
 on:
   pull_request:
-    paths:
-      - docs/**
-      - tooling/docs/**
-      - '**/*.md'
-      - .github/workflows/docs.yml
-      - package.json
-      - pnpm-lock.yaml
   push:
     branches:
       - main

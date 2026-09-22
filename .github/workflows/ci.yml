@@ -1,12 +1,11 @@
 name: CI
 
 on:
+  # Unfiltered on pull requests: verify-codegen / typescript / rust /
+  # verify-version / connect-identity / golden-vector-sync are required checks,
+  # and a required context a path filter skips can never be satisfied. The
+  # docs-only optimization survives on the push side below.
   pull_request:
-    # Skip the compile/test matrix for docs-only changes; docs-site validation lives in docs.yml.
-    paths-ignore:
-      - 'docs/**'
-      - 'tooling/docs/**'
-      - '**/*.md'
   push:
     branches:
       - main

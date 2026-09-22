@@ -95,9 +95,14 @@ jobs:
           }
 
       - name: Verify committed provenance
-        # Fails when the committed provenance no longer describes the committed
-        # header/native bytes — the check that keeps this lane from silently
-        # re-recording a Windows checkout's bytes as the shipped truth.
+        # Reports drift without cancelling the lane: the build, the smoke and
+        # the uploaded refresh artifact below still run, so a stale record can
+        # be replaced by a real rebuild instead of being hand-edited. The final
+        # `Fail on provenance drift` step re-fails the job from this step's
+        # *outcome* (continue-on-error leaves the outcome `failure`), so the
+        # lane can never end green while the committed bytes disagree.
+        id: provenance
+        continue-on-error: true
         run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
 
       - name: Build Windows carrier
@@ -129,6 +134,18 @@ jobs:
           path: ${{ runner.temp }}/spoke-connect-win-x64
           if-no-files-found: error
           retention-days: 5
+
+      - name: Fail on provenance drift
+        # The lane's verdict. `continue-on-error` above keeps the refresh
+        # artifact flowing, but the job still has to go red when the committed
+        # record does not describe the committed bytes — it reads the raw step
+        # outcome, so drift is never absorbed into a green run.
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.provenance.outcome }}" -ne "success") {
+            throw "committed provenance does not describe the committed win-x64 bytes; apply the uploaded refresh artifact (a genuine Windows rebuild) before this lane can pass"
+          }
 
   macos-smoke:
     name: macos-smoke
@@ -182,8 +199,8 @@ jobs:
           rustc +1.96.0 -Vv
 
       - name: Verify committed provenance
-        # Read-only: proves the committed record still describes the committed
-        # header and staged native bytes of this RID.
+        # Fails hard: this lane produces no artifact, so nothing downstream has
+        # to run for the drift to be actionable.
         run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
 
       - name: Show native provenance

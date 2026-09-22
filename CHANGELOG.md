@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.14.0] - 2026-09-22
+
+
+### Documentation
+
+- **ops:** Document the optional ke-extraction in-process surface
+
+- **ops:** Narrow the persistence claim and affirm ke-extraction prose
+
+- **ops:** State entry_types and the provisional gate affirmatively
+
+- **protocol:** Document the ke-* capability registry and ownership fields
+
+- **protocol:** State the 21-file baseline schema subset
+
+- **connect:** Bridge the ke-* gates and trim page-to-page restatement
+
+- **ops:** Spell out the FullAdapter composition and end the extract sequence at the gate
+
+- **knowledge:** Record the docs-site anchor and link discipline
+
+- **protocol:** Identify the ten data objects and baseline data subset
+
+- **home:** State ten data objects in the wire-dialect bullet
+
+- Cover ke-extraction and ke-ownership across the integrator site (#109)
+
+
+### Fixed
+
+- **connect:** **BREAKING:** Upgrade libp2p to 0.57 and refresh native carriers (#110)
+
+
+### Internal
+
+- Skip matrix for docs-only changes
+
+- **docs:** Cover all markdown changes
+
 ## [0.13.1] - 2026-09-18
 
 

@@ -53,6 +53,8 @@ Native bindings for host languages (C# NuGet `42ch.Spoke.Connect`, Kotlin Maven 
 
 ```bash
 git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+git lfs install   # once per machine
+git lfs pull      # fetch the carrier libraries; a fresh clone smudges them automatically
 ```
 
 - **`crates/spoke-connect/bindings/cpp/include/spoke_connect.h`** — the hand-written C ABI header.

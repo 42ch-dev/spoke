@@ -135,6 +135,8 @@ Binding README: [`bindings/python/README.md`](https://github.com/42ch-dev/spoke/
 
 ```bash
 git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
+git lfs install   # once per machine
+git lfs pull      # fetch the carrier libraries; a fresh clone smudges them automatically
 ```
 
 - `crates/spoke-connect/bindings/cpp/include/spoke_connect.h` — C99 ABI header
@@ -142,7 +144,7 @@ git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git
 - `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib` — macOS arm64 carrier
 - `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll` — Windows x64 carrier
 
-The committed C/C++ carriers target macOS arm64 (`osx-arm64`) and Windows x64 (`win-x64`). Take `spoke_connect.h`, `spoke_connect.hpp`, and the native files for your target from the same repository tag `vX.Y.Z`.
+The committed C/C++ carriers target macOS arm64 (`osx-arm64`) and Windows x64 (`win-x64`). Take `spoke_connect.h`, `spoke_connect.hpp`, and the native files for your target from the same repository tag `vX.Y.Z`. The two carrier libraries are Git LFS objects (`.gitattributes`); the headers, the Windows import library and `provenance.json` are ordinary Git objects.
 
 The C++17 header is header-only and includes the C header. `spoke::connect` wraps the same session core in move-only RAII handles, an explicit `Result` error channel, borrowed text views over returned buffers, and host callback bridges for the transport, ports and tool surfaces. The C99 header stays the ABI contract for C hosts — status values plus the raw record and callback-table layout.
 

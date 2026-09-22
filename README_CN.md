@@ -132,7 +132,7 @@ pnpm add @42ch/spoke-connect
 cargo add spoke-connect
 ```
 
-**C 与 C++** —— 基于 git、与发布标签同源：检出 `vX.Y.Z`，取用 `crates/spoke-connect/bindings/cpp/include/spoke_connect.h`（手写 C ABI 头文件）、`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`（C++17 头文件式便利层），以及目标平台的已提交载体 —— macOS arm64 用 `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`，Windows x64 用 `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`。
+**C 与 C++** —— 基于 git、与发布标签同源：检出 `vX.Y.Z`，取用 `crates/spoke-connect/bindings/cpp/include/spoke_connect.h`（手写 C ABI 头文件）、`crates/spoke-connect/bindings/cpp/include/spoke_connect.hpp`（C++17 头文件式便利层），以及目标平台的已提交载体 —— macOS arm64 用 `crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib`，Windows x64 用 `crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll`。两个载体动态库为 Git LFS 对象，链接前请先执行一次 `git lfs install`，已有 clone 再执行 `git lfs pull`。
 
 ```bash
 git clone --branch vX.Y.Z --depth 1 https://github.com/42ch-dev/spoke.git

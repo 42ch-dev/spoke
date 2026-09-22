@@ -127,6 +127,13 @@ extra, repeated or reordered banner fails the run.
 | `osx-arm64` | **Committed** — built and staged by `tooling/connect/cpp-build.mjs` |
 | `win-x64` | **Committed** — Windows x64 carrier and Rust-produced import library |
 
+**git-lfs:** the carrier dynamic libraries (`native/osx-arm64/*.dylib`,
+`native/win-x64/*.dll`) are tracked via [git-lfs](https://git-lfs.com)
+(`.gitattributes`). Run `git lfs install` once per machine and `git lfs pull` in
+a clone that already exists — a fresh clone smudges them automatically. The
+headers, the import library (`spoke_connect_capi.dll.lib`) and `provenance.json`
+are ordinary Git objects and arrive with any clone.
+
 `tooling/connect/cpp-build.mjs` rebuilds a native from the integrated Rust
 source and refreshes that RID's `provenance.json` entry with the revision,
 toolchain and hashes of the shipped files. It accepts the two committed targets,

@@ -24,6 +24,15 @@ The carrier wraps the same public Rust facade the generated **native bindings** 
 | `crates/spoke-connect/bindings/cpp/native/provenance.json` | Per RID: source revision, target, `rustc -Vv`, compiler version, build flags, header and artifact hashes |
 | `crates/spoke-connect/bindings/cpp/README.md` | The binding README with the full calling contract |
 
+The two carrier libraries (`*.dylib`, `*.dll`) are stored in Git LFS — a plain clone leaves pointer files behind, so fetch the real bytes before compiling:
+
+```bash
+git lfs install   # once per machine
+git lfs pull      # in an existing clone; a fresh clone smudges them automatically
+```
+
+The headers, the import library (`spoke_connect_capi.dll.lib`) and `provenance.json` are ordinary Git objects and arrive with any clone.
+
 The C header compiles as C99 (fixed-width integers from `<stdint.h>`, lengths from `<stddef.h>`) and uses `extern "C"` inclusion for C++. Windows functions and callback pointers use `__cdecl`; macOS uses the platform default C calling convention. Every public symbol is prefixed `spoke_connect_`. The convenience header needs only the C++17 standard library and defines no configuration macro of its own.
 
 ## 2. Compile and link

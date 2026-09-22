@@ -8,10 +8,12 @@ Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release
 
 - Node.js ≥ 20 and pnpm ≥ 11.21 (pinned via the root packageManager field)
 - Rust toolchain (stable) for `spoke-schemas` / `spoke-operations` crates
+- git-lfs — the committed Swift xcframework static libraries and C carrier dynamic libraries are LFS objects
 
 ```bash
 git clone https://github.com/42ch-dev/spoke.git
 cd spoke
+git lfs install
 pnpm install
 ```
 
@@ -89,7 +91,9 @@ These stay private to the monorepo (not published to registries):
 
 ## Pull requests and CI
 
-PRs must pass GitHub Actions jobs `verify-codegen`, `typescript`, `rust`, and `verify-version` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+Every pull request must pass the required checks bound to the `main` ruleset: the PR validation contexts produced by [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`verify-codegen`, `typescript`, `rust`, `verify-version`, `connect-identity`, `golden-vector-sync`, `csharp-connect`, `kotlin-connect-smoke`), `windows-smoke` and `macos-smoke` ([`cpp-connect.yml`](.github/workflows/cpp-connect.yml)), `xcframework` ([`xcframework.yml`](.github/workflows/xcframework.yml)), `Build docs site` ([`docs.yml`](.github/workflows/docs.yml)), the managed `Analyze (…)` / `CodeQL` analysis, and the Cursor Approval Agent and Greptile review checks. The pull-request triggers of those workflows are deliberately unfiltered — a path filter would leave a required context unscheduled, and an unscheduled required check can never be satisfied.
+
+Two maintenance rules follow. When a new PR validation check is added, register it in the `main` ruleset required checks in the same round; an unregistered check gates nothing. And a PR is ready only once every required check has finished successfully — a pending CodeQL or Greptile run is not a pass, and "no review comments" is not the same as a green review.
 
 ## Integrator docs site
 
@@ -105,7 +109,7 @@ Pages summarize each topic and link the normative body in `.mstar/specs/` — th
 
 ## Refreshing the Swift xcframework
 
-The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the path-filtered `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-14` from the checkout's Rust sources — pinned toolchain 1.96.0, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. The job runs when the FFI surface changes; `tooling/connect/verify-xcframework-drift.sh` compares per-file SHA-256 hashes of the CI build against the committed (LFS) artifact and fails the job on drift. The built xcframework and its hash manifest upload on every run.
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-14` from the checkout's Rust sources — pinned toolchain 1.96.0, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. `tooling/connect/verify-xcframework-drift.sh` compares per-file SHA-256 hashes of the CI build against the committed (LFS) artifact and fails the job on drift. The built xcframework and its hash manifest upload on every run.
 
 Refresh the committed artifact from a run in one command (requires the `gh` CLI and `rsync`):
 
@@ -115,7 +119,7 @@ Refresh the committed artifact from a run in one command (requires the `gh` CLI 
 
 The script first verifies the run's provenance — the `Xcframework` workflow, a `success` conclusion (or a `failure` caused only by the drift gate, which still ships a complete artifact), and a `headSha` matching the current checkout (override with `--allow-sha <sha>` only to deliberately pin an older build). It then requires the artifact's hash manifest and checksum-verifies every file against it before rsyncing the built tree over the committed one and staging the LFS pointers. Commit with the suggested line — `build(connect): refresh xcframework from CI artifact <run-id>` — using normal maintainer credentials (token pushes don't re-trigger workflows and can't carry LFS objects).
 
-A refresh-only push does not re-trigger the `xcframework` job (the committed xcframework path is off the workflow's own filter), so after committing a refreshed artifact, confirm the drift gate is still green before pushing — re-run the producing job (`gh run rerun <run-id>`), or compare the artifact's built tree against the committed one locally:
+A refresh-only push does not re-trigger the `xcframework` job (the committed xcframework path is off the workflow's push filter — a pull request touching it always re-runs), so after committing a refreshed artifact, confirm the drift gate is still green before pushing — re-run the producing job (`gh run rerun <run-id>`), or compare the artifact's built tree against the committed one locally:
 
 ```bash
 gh run download <run-id> --name spoke-connect-xcframework --dir /tmp/xcf-stage
@@ -123,6 +127,14 @@ gh run download <run-id> --name spoke-connect-xcframework --dir /tmp/xcf-stage
   crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework \
   /tmp/xcf-stage/spoke_connectFFI.xcframework
 ```
+
+## Refreshing the C carrier natives
+
+`crates/spoke-connect/bindings/cpp/native/` holds the two committed C carriers (`osx-arm64/libspoke_connect_capi.dylib`, `win-x64/spoke_connect_capi.dll`) with the Windows import library and `provenance.json`. The dynamic libraries are git-lfs objects; `spoke_connect_capi.dll.lib` and `provenance.json` stay ordinary Git objects, so a checkout can read and diff the record without an LFS fetch. A converted or refreshed carrier needs `git add --renormalize <path>` — a plain `git add` sees unchanged bytes and stages nothing.
+
+The Windows lane of [`cpp-connect.yml`](.github/workflows/cpp-connect.yml) checks out with `lfs: true`, builds the carrier (`node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0`) and uploads `spoke-connect-win-x64`: the DLL, the import library and the refreshed `provenance.json`. Refresh the committed carrier by copying that artifact over `native/win-x64/` and committing the binaries together with the record that describes them — the recorded `headerSha256` / artifact hashes must match the committed bytes, never the other way round.
+
+`node tooling/connect/cpp-build.mjs --verify --target <triple>` re-reads the committed `provenance.json` and re-hashes the committed header and native without building; it fails on a mismatch, and both carrier lanes run it before they build anything. The C contract header is pinned to LF (`text eol=lf` in `.gitattributes`) so its recorded `headerSha256` is identical on every platform.
 
 ## Release
 

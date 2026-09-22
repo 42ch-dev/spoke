@@ -1,12 +1,22 @@
 ---
 module: spoke-connect
 date: 2026-07-31
-last_updated: 2026-08-01
+last_updated: 2026-09-22
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["building a libp2p-based spoke-connect runtime", "binding spoke-connect to a foreign language via uniffi", "hardening a p2p handshake/allowlist implementation"]
-tags: [spoke-connect, libp2p, rust, noise, identify, allowlist, pending-dial]
+applies_when:
+  - "building a libp2p-based spoke-connect runtime"
+  - "binding spoke-connect to a foreign language via uniffi"
+  - "hardening a p2p handshake/allowlist implementation"
+tags:
+  - spoke-connect
+  - libp2p
+  - rust
+  - noise
+  - identify
+  - allowlist
+  - pending-dial
 ---
 
 # spoke-connect Rust libp2p spike: transport, auth binding, and event-loop pitfalls
@@ -19,7 +29,7 @@ The `crates/spoke-connect` crate (published on crates.io) implements the `spoke-
 
 ### Transport composition (locked minimal feature set)
 
-Pin a single rust-libp2p version (e.g. `=0.56.0`); enable only `noise`, `yamux`, `request-response`, `identify`, `macros`, `tokio`, `ed25519` (+ `tcp`, `json` as required by the composition). Avoid QUIC, relay, kad, gossipsub, tls unless a real behaviour is wired — a capability-named feature flag with no runtime behaviour must not ship.
+Pin a single rust-libp2p version (e.g. `=0.57.0`); enable only `noise`, `yamux`, `request-response`, `identify`, `macros`, `tokio`, `ed25519` (+ `tcp`, `json` as required by the composition). Avoid QUIC, relay, kad, gossipsub, tls unless a real behaviour is wired — a capability-named feature flag with no runtime behaviour must not ship.
 
 ### Identify key <-> noise PeerId binding (defense in depth)
 

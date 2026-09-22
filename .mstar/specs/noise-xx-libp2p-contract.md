@@ -3,7 +3,7 @@
 **Status:** Frozen normative spec — the wire contract for the Noise XX mesh
 transport in the `@42ch/spoke-connect` TypeScript client (`./noise` subpath)
 and the Rust reference `spoke-connect`. Grounded in rust-libp2p
-`libp2p-noise` 0.46.x (pulled by workspace `libp2p = 0.56.0`) as used by
+`libp2p-noise` 0.47.x (pulled by workspace `libp2p = 0.57.0`) as used by
 `crates/spoke-connect` (`noise::Config::new` in `src/node.rs`).
 
 ## 1. Interop target

@@ -5,7 +5,7 @@
  *
  * The fixture `noise-xx-golden.json` is a GENUINE rust-libp2p recording:
  * `Noise_XX_25519_ChaChaPoly_SHA256` driven with the exact engine behind
- * `libp2p-noise` 0.46.1 (libp2p 0.56.0) — `snow` 0.9.6 with the same
+ * `libp2p-noise` 0.47.0 (libp2p 0.57.0) — `snow` 0.10.0 with the same
  * builder parameters `libp2p_noise::Config` composes, pinned static +
  * ephemeral + identity keys — via the dev-only recorder
  * `crates/spoke-connect/examples/noise_recorder.rs`. Bytes are pure Noise

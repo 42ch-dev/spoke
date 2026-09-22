@@ -67,16 +67,16 @@ required-features = ["bindgen-cli"]
 
 # Dev-only (examples/ only — excluded from the crate tarball via `exclude`):
 # the Noise XX golden-transcript recorder (`examples/noise_recorder.rs`)
-# drives the exact engine behind libp2p-noise 0.46.1 — snow 0.9.6 with the
-# `ring-resolver` feature libp2p-noise itself requests — plus libp2p-identity
-# for the identity payload signing and x25519-dalek for static-key public
-# derivation. None of these enter the published surface.
+# drives the exact engine behind libp2p-noise 0.47.0 — snow 0.10 with the
+# `ring-resolver` feature libp2p-noise itself requests on non-wasm targets —
+# plus libp2p-identity for the identity payload signing and x25519-dalek for
+# static-key public derivation. None of these enter the published surface.
 [dev-dependencies]
-snow = { version = "0.9.6", default-features = false, features = ["ring-resolver"] }
-libp2p-identity = "0.2"
+snow = { version = "0.10", default-features = false, features = ["ring-resolver"] }
+libp2p-identity = "0.3"
 # X25519 DH — the same `x25519`/`X25519_BASEPOINT_BYTES` primitives
 # libp2p-noise's own snow DH impl uses.
-x25519-dalek = "2"
+x25519-dalek = "3"
 # RemoteAdapter loopback interop test: the host serves a reference
 # ToyWorldAdapter, and the dial fixture derives peer ids from raw seeds.
 ed25519-dalek = "2"

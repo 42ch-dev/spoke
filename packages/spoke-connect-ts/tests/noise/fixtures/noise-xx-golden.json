@@ -39,7 +39,7 @@
     "initiator": "I (dialer) — recorded flights 1 and 3; seals the initiator→responder transport frame",
     "responder": "R (listener) — the TS interop test plays this role"
   },
-  "source": "rust-libp2p Noise stack recording: libp2p-noise 0.46.1 (libp2p 0.56.0) engine = snow 0.9.6, driven with the same builder parameters libp2p_noise::Config composes (noise_params_into_builder) and pinned static + ephemeral + identity keys; dev-only recorder crates/spoke-connect/examples/noise_recorder.rs",
+  "source": "rust-libp2p Noise stack recording: libp2p-noise 0.47.0 (libp2p 0.57.0) engine = snow 0.10.0, driven with the same builder parameters libp2p_noise::Config composes (noise_params_into_builder) and pinned static + ephemeral + identity keys; dev-only recorder crates/spoke-connect/examples/noise_recorder.rs",
   "transport": {
     "initiatorToResponder": {
       "frame": "00205436d7cbe456bee12191f2d9b34b7d6789d2e9918c7a17c65c1846770db0dcd7",

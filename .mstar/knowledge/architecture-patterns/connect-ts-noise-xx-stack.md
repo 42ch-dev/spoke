@@ -1,18 +1,30 @@
 ---
 module: spoke-connect
 date: 2026-08-04
+last_updated: 2026-09-22
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["porting the Noise XX transport to another language or runtime", "shipping an opt-in crypto subpath inside a published package", "proving wire interop against rust-libp2p without a live peer in CI"]
-tags: [spoke-connect, noise-xx, libp2p, golden-transcript, interop, subpath, bundle-isolation, snow]
+applies_when:
+  - "porting the Noise XX transport to another language or runtime"
+  - "shipping an opt-in crypto subpath inside a published package"
+  - "proving wire interop against rust-libp2p without a live peer in CI"
+tags:
+  - spoke-connect
+  - noise-xx
+  - libp2p
+  - golden-transcript
+  - interop
+  - subpath
+  - bundle-isolation
+  - snow
 ---
 
 # Pure-TS Noise XX stack: rust-libp2p interop and opt-in subpath isolation
 
 ## Context
 
-`@42ch/spoke-connect` ships a thin default client (WebSocket ordered-stream transport, JCS + Ed25519 identity, the session-core parity rules). Integrators that need to join a libp2p-noise mesh — the transport of the Rust reference `crates/spoke-connect`, which composes `libp2p::noise::Config::new` over libp2p 0.56.0 — get a first-party pure-TypeScript `Noise_XX_25519_ChaChaPoly_SHA256` stack behind the opt-in `./noise` subpath. Two hard problems were solved: (1) proving byte-level wire interop with rust-libp2p deterministically in CI without a live Rust peer; (2) shipping the crypto stack without widening the default bundle's dependency surface. Both solutions generalize to every future language Noise port and every future opt-in crypto subpath.
+`@42ch/spoke-connect` ships a thin default client (WebSocket ordered-stream transport, JCS + Ed25519 identity, the session-core parity rules). Integrators that need to join a libp2p-noise mesh — the transport of the Rust reference `crates/spoke-connect`, which composes `libp2p::noise::Config::new` over libp2p 0.57.0 — get a first-party pure-TypeScript `Noise_XX_25519_ChaChaPoly_SHA256` stack behind the opt-in `./noise` subpath. Two hard problems were solved: (1) proving byte-level wire interop with rust-libp2p deterministically in CI without a live Rust peer; (2) shipping the crypto stack without widening the default bundle's dependency surface. Both solutions generalize to every future language Noise port and every future opt-in crypto subpath.
 
 ## Guidance
 
@@ -20,10 +32,10 @@ tags: [spoke-connect, noise-xx, libp2p, golden-transcript, interop, subpath, bun
 
 The interop gate replays a **recorded rust-libp2p Noise XX initiator transcript** against the TS responder. The recording is produced by a dev-only Rust example binary, `crates/spoke-connect/examples/noise_recorder.rs`:
 
-- Recorder dependencies are **dev-dependencies only** (`snow 0.9.6` with `ring-resolver`, `libp2p-identity 0.2`, `x25519-dalek 2`), and `exclude = ["examples/**"]` keeps the binary out of the published crate tarball (`cargo package --list` verified). No Rust artifacts ship to consumers — only the committed JSON fixture under the TS test tree.
-- The recorder drives `snow::HandshakeState` directly with the **exact engine behind libp2p-noise 0.46.1** (the crate behind the reference's `noise::Config::new`): same `snow` version and `ring-resolver` feature, same builder parameters libp2p-noise composes (`prologue([])`, `local_private_key(static_secret)`), and a `RecorderResolver` mirroring libp2p-noise's `protocol.rs::Resolver` (hash/cipher from `snow::resolvers::RingResolver`; X25519 DH over `x25519_dalek`).
+- Recorder dependencies are **dev-dependencies only** (`snow 0.10` with `ring-resolver`, `libp2p-identity 0.3`, `x25519-dalek 3`), and `exclude = ["examples/**"]` keeps the binary out of the published crate tarball (`cargo package --list` verified). No Rust artifacts ship to consumers — only the committed JSON fixture under the TS test tree.
+- The recorder drives `snow::HandshakeState` directly with the **exact engine behind libp2p-noise 0.47.0** (the crate behind the reference's `noise::Config::new`): same `snow` version and `ring-resolver` feature, same builder parameters libp2p-noise composes (`prologue([])`, `local_private_key(static_secret)`), and a `RecorderResolver` mirroring libp2p-noise's `protocol.rs::Resolver` (hash/cipher from `snow::resolvers::RingResolver`; X25519 DH over `x25519_dalek`).
 - Ephemeral keys are pinned via snow's `fixed_ephemeral_key_for_testing_only` — the only pinning hook; libp2p-noise never exposes ephemerals, which is why the recorder drives `snow::HandshakeState` directly instead of the crate-private framed codec.
-- Payload and signature replicate libp2p-noise `send_identity` exactly: `NoiseHandshakePayload { identity_key = libp2p-identity PublicKey protobuf, identity_sig = Ed25519 over "noise-libp2p-static-key:" || static_x25519_pub }`, no extensions, quick-protobuf field order.
+- Payload and signature replicate libp2p-noise `send_identity` exactly: `NoiseHandshakePayload { identity_key = libp2p-identity PublicKey protobuf, identity_sig = Ed25519 over "noise-libp2p-static-key:" || static_x25519_pub }`, no extensions; prost encodes the `payload.proto` fields by their declared tags (`identity_key` tag 1, `identity_sig` tag 2).
 - The recorder **self-verifies before emitting**: flight-1 payload empty, payloads cross-read intact, handshake hashes equal, remote statics crossed, both identity signatures verified exactly like libp2p-noise `finish()`, transport round-trip opens in both directions. Any mismatch panics — no fixture is written.
 - Rerun is **byte-identical** (deterministic; verified by `diff`). The fixture (`tests/noise/fixtures/noise-xx-golden.json`) records **pure Noise frames after multistream** — u16-BE length-prefixed wire bytes with the `/noise` negotiation outside the Noise messages.
 

@@ -24,7 +24,7 @@ invocation.
 | Messaging | `request-response` — hello exchange and op invocation |
 | Peer info | `identify` (carries the remote public key used to verify hello signatures) |
 
-libp2p is pinned to a single version (`=0.56.0`) with a minimal feature set:
+libp2p is pinned to a single version (`=0.57.0`) with a minimal feature set:
 `noise`, `yamux`, `tcp`, `tokio`, `identify`, `request-response`, `json`,
 `macros`, `ed25519`.
 

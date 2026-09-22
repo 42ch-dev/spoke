@@ -2,9 +2,9 @@
 //! (Task 4, connect-ts-noise-stack).
 //!
 //! Records a `Noise_XX_25519_ChaChaPoly_SHA256` handshake transcript using
-//! the exact engine behind rust-libp2p's `libp2p-noise` 0.46.1 — the crate
-//! behind `crates/spoke-connect`'s `noise::Config::new` (libp2p 0.56.0):
-//! `snow` 0.9.6 with the same builder parameters `libp2p_noise::Config`
+//! the exact engine behind rust-libp2p's `libp2p-noise` 0.47.0 — the crate
+//! behind `crates/spoke-connect`'s `noise::Config::new` (libp2p 0.57.0):
+//! `snow` 0.10.0 with the same builder parameters `libp2p_noise::Config`
 //! composes in `noise_params_into_builder` (`Builder::with_resolver(PARAMS_XX,
 //! RingResolver).prologue([]).local_private_key(static_secret)`), plus
 //! `fixed_ephemeral_key_for_testing_only` so the transcript is fully
@@ -118,7 +118,9 @@ fn xx_builder<'a>(
     let params: NoiseParams = PROTOCOL_NAME.parse().expect("valid Noise params");
     Builder::with_resolver(params, Box::new(RecorderResolver(RingResolver)))
         .prologue(&[])
+        .expect("prologue is set once")
         .local_private_key(static_secret)
+        .expect("static private key is set once")
         .fixed_ephemeral_key_for_testing_only(ephemeral_secret)
 }
 
@@ -153,7 +155,7 @@ impl Dh for X25519Dh {
         self.secret.copy_from_slice(&privkey[..32]);
         self.public = x25519(self.secret, X25519_BASEPOINT_BYTES);
     }
-    fn generate(&mut self, _rng: &mut dyn Random) {
+    fn generate(&mut self, _rng: &mut dyn Random) -> Result<(), snow::Error> {
         // The recorder only ever runs with pinned keys
         // (`fixed_ephemeral_key_for_testing_only` skips `generate`); a
         // random-key run would silently diverge from the fixture contract,
@@ -291,7 +293,7 @@ fn main() {
         "protocol": PROTOCOL_NAME,
         "prologue": "",
         "framing": "u16-BE length prefix; pure Noise frames after multistream (the /noise negotiation lives outside the Noise messages — contract §6)",
-        "source": "rust-libp2p Noise stack recording: libp2p-noise 0.46.1 (libp2p 0.56.0) engine = snow 0.9.6, driven with the same builder parameters libp2p_noise::Config composes (noise_params_into_builder) and pinned static + ephemeral + identity keys; dev-only recorder crates/spoke-connect/examples/noise_recorder.rs",
+        "source": "rust-libp2p Noise stack recording: libp2p-noise 0.47.0 (libp2p 0.57.0) engine = snow 0.10.0, driven with the same builder parameters libp2p_noise::Config composes (noise_params_into_builder) and pinned static + ephemeral + identity keys; dev-only recorder crates/spoke-connect/examples/noise_recorder.rs",
         "roles": {
             "initiator": "I (dialer) — recorded flights 1 and 3; seals the initiator→responder transport frame",
             "responder": "R (listener) — the TS interop test plays this role"

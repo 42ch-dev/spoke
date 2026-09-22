@@ -5,8 +5,19 @@ last_updated: 2026-09-22
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: high
-applies_when: ["porting the Noise XX transport to another language or runtime", "shipping an opt-in crypto subpath inside a published package", "proving wire interop against rust-libp2p without a live peer in CI"]
-tags: [spoke-connect, noise-xx, libp2p, golden-transcript, interop, subpath, bundle-isolation, snow]
+applies_when:
+  - "porting the Noise XX transport to another language or runtime"
+  - "shipping an opt-in crypto subpath inside a published package"
+  - "proving wire interop against rust-libp2p without a live peer in CI"
+tags:
+  - spoke-connect
+  - noise-xx
+  - libp2p
+  - golden-transcript
+  - interop
+  - subpath
+  - bundle-isolation
+  - snow
 ---
 
 # Pure-TS Noise XX stack: rust-libp2p interop and opt-in subpath isolation

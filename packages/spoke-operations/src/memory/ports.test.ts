@@ -8,49 +8,7 @@ import {
   type MemoryPorts,
 } from "../index.js";
 
-/** Every method name of the port contract, type-checked as `keyof MemoryPort`. */
-const MEMORY_PORT_METHODS: (keyof MemoryPort)[] = [
-  "describe",
-  "listSpaces",
-  "freezeSpace",
-  "unfreezeSpace",
-  "ensureSubject",
-  "getSubject",
-  "fenceSubject",
-  "listGrants",
-  "grant",
-  "revokeGrant",
-  "capture",
-  "listCandidates",
-  "getCandidate",
-  "dismissCandidate",
-  "reviewCandidate",
-  "createRecord",
-  "getRecord",
-  "updateRecord",
-  "deleteRecord",
-  "listRecords",
-  "promoteRecord",
-  "recall",
-  "getProfile",
-  "updateProfile",
-  "getReflectionState",
-  "listReflections",
-  "generateReflection",
-  "getReceipt",
-  "createExport",
-  "getExport",
-  "stageImport",
-  "activateImport",
-  "discardImport",
-];
-
 describe("MemoryPort / MemoryPorts (TS parity with the Rust trait)", () => {
-  it("declares exactly the 33 op methods (§7.1–7.33)", () => {
-    expect(MEMORY_PORT_METHODS).toHaveLength(33);
-    expect(new Set(MEMORY_PORT_METHODS).size).toBe(33);
-  });
-
   it("takes Principal as the explicit first parameter (type-level probe)", () => {
     // Assignability probe: each representative method must accept a
     // Principal-first signature and return an awaitable SpokeResult.

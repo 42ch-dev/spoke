@@ -39,19 +39,41 @@ interface GrantView {
   spaceId: string;
 }
 
+const RFC3339_UTC =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
+
 /**
- * `null` = absent; `NaN` = present but malformed. Malformed values fail
- * closed: an unparseable `expires_at` is treated as already expired and an
- * unparseable `revoked_at` as revoked, so a malformed grant never authorizes
- * anything (Rust's typed timestamp cannot represent this state, so the guard
- * exists only on the TS side).
+ * `null` = absent; `NaN` = present but invalid. Invalid means it fails the
+ * strict RFC 3339 UTC grammar (date-only and offset forms are rejected) or
+ * the calendar round-trip (`2027-02-30` must not normalize). Malformed
+ * values fail closed: an invalid `expires_at` is treated as already expired
+ * and an invalid `revoked_at` as revoked, so a malformed grant never
+ * authorizes anything (Rust's typed timestamp cannot represent this state,
+ * so the guard exists only on the TS side).
  */
 function parseTimestamp(value: string | undefined): number | null {
   if (value === undefined) {
     return null;
   }
+  const match = RFC3339_UTC.exec(value);
+  if (match === null) {
+    return Number.NaN;
+  }
   const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? Number.NaN : parsed;
+  if (!Number.isFinite(parsed)) {
+    return Number.NaN;
+  }
+  // Calendar validity: Date.parse normalizes impossible dates (e.g. Feb 30),
+  // so the UTC components must round-trip exactly.
+  const date = new Date(parsed);
+  const sameInstant =
+    date.getUTCFullYear() === Number(match[1]) &&
+    date.getUTCMonth() + 1 === Number(match[2]) &&
+    date.getUTCDate() === Number(match[3]) &&
+    date.getUTCHours() === Number(match[4]) &&
+    date.getUTCMinutes() === Number(match[5]) &&
+    date.getUTCSeconds() === Number(match[6]);
+  return sameInstant ? parsed : Number.NaN;
 }
 
 function isLive(view: GrantView, now: number): boolean {
@@ -195,6 +217,12 @@ export function validateGrantIssuance(
     return notAuthorized(
       "no applicable admin grant matches the issued subject, contexts, and shared_access",
     );
+  }
+
+  // A present but non-finite issued expiry cannot be bounded — reject before
+  // any comparison (NaN comparisons are all false and would slip through).
+  if (issued.expiresAt !== null && !Number.isFinite(issued.expiresAt)) {
+    return notAuthorized("issued expires_at is not a finite timestamp");
   }
 
   // Stage 2: expiry bound over the applicable set only (malformed expiries

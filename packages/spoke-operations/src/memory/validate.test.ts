@@ -140,6 +140,42 @@ describe("page limits (§7.0.7)", () => {
     } as MemoryRecallRequest;
     expectLimit(validateMemoryRecall(tooBig, MAX_PAGE), "max_page_size");
   });
+
+  it("requires positive integer limits before the upper bound", () => {
+    for (const bad of [0, -1, 1.5]) {
+      expectInvalid(
+        validateMemorySpacesList({ limit: bad } as MemorySpacesListRequest, MAX_PAGE),
+        "limit",
+      );
+      expectInvalid(
+        validateMemoryGrantsList({ limit: bad } as MemoryGrantsListRequest, MAX_PAGE),
+        "limit",
+      );
+      expectInvalid(
+        validateMemoryCandidatesList({ limit: bad } as MemoryCandidatesListRequest, MAX_PAGE),
+        "limit",
+      );
+
+      const recall = {
+        space_id: "sp_1",
+        subject_id: "s1",
+        selection: { mode: "shared_only" },
+        budget: { max_items: bad },
+      } as MemoryRecallRequest;
+      expectInvalid(validateMemoryRecall(recall, MAX_PAGE), "max_items");
+    }
+
+    expect(validateMemorySpacesList({ limit: 1 } as MemorySpacesListRequest, MAX_PAGE).ok).toBe(
+      true,
+    );
+    const recallOne = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      selection: { mode: "shared_only" },
+      budget: { max_items: 1 },
+    } as MemoryRecallRequest;
+    expect(validateMemoryRecall(recallOne, MAX_PAGE).ok).toBe(true);
+  });
 });
 
 describe("selection / filter invariants (§6.12, §6.13)", () => {

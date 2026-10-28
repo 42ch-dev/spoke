@@ -7,9 +7,13 @@
  * checks parameterized from `memory.describe.limits` (§7.1). The TS
  * `minItems` tuple types (`[string, ...string[]]`) are compile-time only —
  * runtime callers can still pass empty arrays, so the invariants are
- * re-checked here exactly as the Rust validators do. Everything else
- * (idempotency-key presence, placement conditionality, oneOf shapes) is
- * type-enforced. Limit rejections carry `details.limit` per §7.0.7.
+ * re-checked here exactly as the Rust validators do. Idempotency-key
+ * presence, placement conditionality, and the oneOf shapes are type-enforced,
+ * but `limit` / `budget.max_items` positivity and integrality are NOT — the
+ * generated `number` types admit `0`, negatives, and fractions, so the
+ * page-bound validators check safe-positive integers before the
+ * provider-declared upper bound. Limit exceedances carry `details.limit`
+ * per §7.0.7.
  */
 
 import type {
@@ -43,7 +47,13 @@ function invalidLimit(field: string, limit: string, message: string): SpokeResul
 }
 
 function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeResult<void> {
-  if (limit !== undefined && limit > maxPageSize) {
+  if (limit === undefined) {
+    return spokeOk();
+  }
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    return invalidInput("limit", "limit must be a positive integer");
+  }
+  if (limit > maxPageSize) {
     return invalidLimit("limit", "max_page_size", `limit exceeds the provider max_page_size (${maxPageSize})`);
   }
   return spokeOk();
@@ -291,7 +301,11 @@ export function validateMemoryRecall(
   if (!filterCheck.ok) {
     return filterCheck;
   }
-  if (request.budget.max_items > maxPageSize) {
+  const maxItems = request.budget.max_items;
+  if (!Number.isSafeInteger(maxItems) || maxItems <= 0) {
+    return invalidInput("max_items", "budget.max_items must be a positive integer");
+  }
+  if (maxItems > maxPageSize) {
     return invalidLimit(
       "max_items",
       "max_page_size",

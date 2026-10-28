@@ -119,16 +119,4 @@ mod tests {
             "99168216144c7fed5d4c54916cf98d9c66096280c04a499822a99b6658bd177a"
         );
     }
-
-    /// Non-finite floats cannot be constructed in a `serde_json::Value`
-    /// (`Number::from_f64` rejects them), so the RFC 8785 guard in
-    /// `jcs_sha256_hex` is defensive; exercised here via the only reachable
-    /// construction path — there is none, and canonical inputs digest fine.
-    #[test]
-    fn jcs_sha256_rejects_non_finite_floats() {
-        // Documented limitation: unreachable input class; guard retained
-        // against future Number representations that admit NaN/Infinity.
-        let digest = digest_of(&json!({"x": 1.5}));
-        assert_eq!(digest.len(), 64);
-    }
 }

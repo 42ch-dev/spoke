@@ -302,6 +302,14 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
     const badExpiry = makeGrant({ expires_at: "not-a-date" });
     expect(grantCovers(badExpiry, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
 
+    // Date-only (RFC 3339 requires a full date-time with Z) → invalid.
+    const dateOnly = makeGrant({ expires_at: "2027-01-01" });
+    expect(grantCovers(dateOnly, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
+
+    // Calendar-invalid date must not be normalized by Date.parse.
+    const impossible = makeGrant({ expires_at: "2027-02-30T00:00:00Z" });
+    expect(grantCovers(impossible, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
+
     // Malformed revoked_at → treated as revoked → coverage denied.
     const badRevoked = makeGrant({ revoked_at: "not-a-date" });
     expect(grantCovers(badRevoked, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
@@ -319,8 +327,45 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
       }),
     );
 
+    // Date-only expiry on the only admin grant also fails closed.
+    const dateOnlyAdmin = [makeGrant({ capabilities: ["admin"], expires_at: "2027-01-01" })];
+    expectNotAuthorized(
+      validateGrantIssuance(dateOnlyAdmin, GRANTEE, SPACE, NOW, issued(["capture"])),
+    );
+
     // Malformed revoked_at on the only admin grant also fails closed.
     const revokedAdmin = [makeGrant({ capabilities: ["admin"], revoked_at: "garbage" })];
     expectNotAuthorized(validateGrantIssuance(revokedAdmin, GRANTEE, SPACE, NOW, issued(["capture"])));
+  });
+
+  it("rejects non-finite issued expiries before the bound comparison", () => {
+    const granter = [makeGrant({ capabilities: ["admin"], expires_at: "2027-01-01T00:00:00Z" })];
+
+    expectNotAuthorized(
+      validateGrantIssuance(granter, GRANTEE, SPACE, NOW, {
+        ...issued(["capture"]),
+        expiresAt: Number.NaN,
+      }),
+    );
+    expectNotAuthorized(
+      validateGrantIssuance(granter, GRANTEE, SPACE, NOW, {
+        ...issued(["capture"]),
+        expiresAt: Number.POSITIVE_INFINITY,
+      }),
+    );
+
+    // Valid equal and earlier expiries remain accepted.
+    expect(
+      validateGrantIssuance(granter, GRANTEE, SPACE, NOW, {
+        ...issued(["capture"]),
+        expiresAt: Date.parse("2027-01-01T00:00:00Z"),
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateGrantIssuance(granter, GRANTEE, SPACE, NOW, {
+        ...issued(["capture"]),
+        expiresAt: NOW + 30 * 24 * 60 * 60 * 1000,
+      }).ok,
+    ).toBe(true);
   });
 });

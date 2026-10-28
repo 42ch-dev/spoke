@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-exports-get-request.schema.json",
+  "title": "MemoryExportsGetRequest",
+  "description": "Fetch one export chunk. Callers fetch chunks 0..chunk_count-1 and verify chunk_digest per chunk and bundle_digest on reassembly (§6.13). Grant: transfer (same coverage as creation). Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "export_id",
+    "chunk_ordinal"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "export_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "chunk_ordinal": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Chunk ordinal to fetch; 0-based, below chunk_count."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

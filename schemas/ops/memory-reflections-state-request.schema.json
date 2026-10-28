@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-reflections-state-request.schema.json",
+  "title": "MemoryReflectionsStateRequest",
+  "description": "Read the reflection state digest and sufficiency verdict for a pinned selection/filter. state_digest commits to selection, filter, the authorized record ID+revision set, profile kinds+revisions and engine_policy_version; it is the CAS token for generation (§7.27). Grant: reflect or admin covering the selection/filter. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id",
+    "selection"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selection": {
+      "$ref": "https://spoke42.invalid/schemas/data/read-selection.schema.json"
+    },
+    "filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

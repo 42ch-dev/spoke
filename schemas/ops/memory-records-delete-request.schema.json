@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-delete-request.schema.json",
+  "title": "MemoryRecordsDeleteRequest",
+  "description": "Delete a record: content is removed, the tombstone is retained, and the record leaves recall and default export (MEM-R014, MEM-R022). Receipts are unaffected because they are content-free. Grant: records_write covering the placement. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "record_id",
+    "expected_revision",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optimistic-concurrency precondition (MEM-R007)."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Optional human-readable reason recorded on the tombstone."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Caller-chosen; unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

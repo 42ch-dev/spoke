@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-reflections-generate-request.schema.json",
+  "title": "MemoryReflectionsGenerateRequest",
+  "description": "Explicit, cost-bearing generation (MEM-R012). Admission fails closed: missing required profile kinds → PROFILE_INCOMPLETE, insufficient data → INSUFFICIENT_DATA, stale expected_state_digest → REVISION_CONFLICT. Completion is publish-pinned: a moved basis still publishes with its pinned basis and immediately reads stale (MEM-R013). Grant: reflect covering the selection/filter. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id",
+    "selection",
+    "expected_state_digest",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selection": {
+      "$ref": "https://spoke42.invalid/schemas/data/read-selection.schema.json"
+    },
+    "filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json"
+    },
+    "expected_state_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "CAS token from memory.reflections.state (§7.25)."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Caller-chosen; unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

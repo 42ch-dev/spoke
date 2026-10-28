@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-get-response.schema.json",
+  "title": "MemorySubjectsGetResponse",
+  "description": "Success payload for memory.subjects.get (§7.6). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.subjects.get (§7.6): NOT_FOUND, NOT_AUTHORIZED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "subject"
+      ],
+      "properties": {
+        "subject": {
+          "$ref": "https://spoke42.invalid/schemas/data/subject.schema.json"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-capture-response.schema.json",
+  "title": "MemoryCaptureResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"candidate_ids\": string[], \"classified\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.capture (§7.11): NOT_AUTHORIZED, SPACE_FROZEN, SUBJECT_FENCED, INVALID_INPUT, IDEMPOTENCY_CONFLICT, OUTCOME_UNCERTAIN. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099",
+      "op": "memory.capture",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_host_local",
+      "idempotency_key": "cap-9182-1400-mira",
+      "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
+      "status": "committed",
+      "result": {
+        "candidate_ids": [
+          "cand_01J8ZQ9X7P0EXAMPLE0000101"
+        ],
+        "classified": 1
+      },
+      "created_at": "2026-10-28T09:20:01Z",
+      "completed_at": "2026-10-28T09:20:01Z",
+      "extensions": {}
+    }
+  ]
+}

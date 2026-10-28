@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-recall-request.schema.json",
+  "title": "MemoryRecallRequest",
+  "description": "Authorized, ranked, budgeted read for execution-time context (MEM-R011). Authorization filters first (MEM-R006), then provider ranking, then budget; truncated is true whenever the budget cut the authorized set. Candidates and tombstoned records never appear (MEM-R004). Grant: recall covering the selection. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id",
+    "selection",
+    "budget"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selection": {
+      "$ref": "https://spoke42.invalid/schemas/data/read-selection.schema.json"
+    },
+    "filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json",
+      "description": "Optional provenance filter; combines with selection by AND."
+    },
+    "query": {
+      "type": "string",
+      "description": "Optional ranking hint only; never an authorization input."
+    },
+    "budget": {
+      "type": "object",
+      "required": [
+        "max_items"
+      ],
+      "properties": {
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Required; at least 1 and at most max_page_size."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional hard UTF-8 byte budget (§9)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "§9 budget applied after authorization and ranking."
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque pagination cursor bound to principal, space, subject, selection/filter, snapshot marker and engine_policy_version. Any state or grant change invalidates it with CURSOR_INVALID (§7.0.7, MEM-R026)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "selection": {
+        "mode": "selected_contexts",
+        "context_ids": [
+          "bnd_mira_harbor_run_7"
+        ],
+        "include_shared": true
+      },
+      "query": "Where is the gate key?",
+      "budget": {
+        "max_items": 8,
+        "max_bytes": 16384
+      }
+    }
+  ]
+}

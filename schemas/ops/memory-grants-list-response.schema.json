@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-grants-list-response.schema.json",
+  "title": "MemoryGrantsListResponse",
+  "description": "Success payload for memory.grants.list (§7.8). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.grants.list (§7.8): No page-specific codes are documented; pagination invalidation uses CURSOR_INVALID (§7.0.7).. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "grants"
+      ],
+      "properties": {
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-grant.schema.json"
+          }
+        },
+        "next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absent = end of results (§7.0.7)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

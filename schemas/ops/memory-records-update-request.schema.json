@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-update-request.schema.json",
+  "title": "MemoryRecordsUpdateRequest",
+  "description": "Update record content and/or kind. At least one of content/kind is required. Placement changes are not an update — use memory.records.promote. Reflection invalidation commits in the same transaction (MEM-R013). Grant: records_write covering the current placement. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "record_id",
+    "expected_revision",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optimistic-concurrency precondition (MEM-R007)."
+    },
+    "content": {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open record-kind vocabulary."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Caller-chosen; unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "required": [
+            "content"
+          ]
+        },
+        {
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-fence-request.schema.json",
+  "title": "MemorySubjectsFenceRequest",
+  "description": "Provider-enforced subject- or context-scoped lifecycle fencing across all clients (MEM-R017, MEM-R024). Subject: active→fenced, fenced→active, active|fenced→archived (terminal). Context: fence/unfence of one placement context. Grant: admin. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id",
+    "target",
+    "action",
+    "expected_revision",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "subject",
+            "context"
+          ],
+          "description": "Fence scope."
+        },
+        "context_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required iff type = \"context\"; MUST be omitted when type = \"subject\"."
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "context"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "context_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "subject"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "context_id"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Target selector: the whole subject or one placement context."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "fence",
+        "unfence",
+        "archive"
+      ],
+      "description": "archive is subject-only and terminal; on a context target it fails INVALID_INPUT."
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optimistic-concurrency precondition (MEM-R007)."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Caller-chosen; unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

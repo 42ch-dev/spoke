@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-candidates-review-request.schema.json",
+  "title": "MemoryCandidatesReviewRequest",
+  "description": "Formal review decision; the only path from candidate to retained records. Created records inherit the candidate capture_scope verbatim — a decision carries no placement fields and cannot cross the admitted capture scope. Atomic (MEM-R009): consumption scrub, record inserts and receipt commit together. Grant: review plus records_write, both covering the candidate capture_scope. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "candidate_id",
+    "expected_revision",
+    "decision",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optimistic-concurrency precondition (MEM-R007)."
+    },
+    "decision": {
+      "type": "object",
+      "description": "Exactly one decision action (§7.15): promote, fragment, or drop.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "const": "promote"
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional kind override; defaults to the candidate kind."
+            },
+            "content_override": {
+              "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
+              "description": "Optional content override; defaults to the candidate content."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "action",
+            "fragments"
+          ],
+          "properties": {
+            "action": {
+              "const": "fragment"
+            },
+            "fragments": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "content"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "const": "drop"
+            },
+            "rationale": {
+              "type": "string",
+              "description": "Optional human-readable rationale."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Caller-chosen; unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "space_id": "spc_local_default",
+      "candidate_id": "cand_01J8ZQ9X7P0EXAMPLE0000101",
+      "expected_revision": 1,
+      "decision": {
+        "action": "fragment",
+        "fragments": [
+          {
+            "kind": "fact",
+            "content": {
+              "text": "The gate key is hidden under the third barrel."
+            }
+          },
+          {
+            "kind": "event",
+            "content": {
+              "text": "Mira revealed the key location to Bo."
+            }
+          }
+        ]
+      },
+      "idempotency_key": "rev-cand-01J8ZQ9X7P-1"
+    }
+  ]
+}

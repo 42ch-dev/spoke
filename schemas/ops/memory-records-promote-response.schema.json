@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-promote-response.schema.json",
+  "title": "MemoryRecordsPromoteResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"record_id\": string, \"revision\": int, \"scope\": PlacementScope }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.records.promote (§7.21): REVISION_CONFLICT, NOT_FOUND, NOT_AUTHORIZED, INVALID_INPUT, SPACE_FROZEN, SUBJECT_FENCED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

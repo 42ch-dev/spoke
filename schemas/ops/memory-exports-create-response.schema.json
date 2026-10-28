@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-exports-create-response.schema.json",
+  "title": "MemoryExportsCreateResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"export_id\": string, \"chunk_count\": int, \"total_bytes\": int, \"bundle_digest\": string, \"counts\": { \"subjects\": int, \"records\": int, \"candidates\": int, \"profiles\": int, \"reflections\": int, \"receipt_summaries\": int } }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.exports.create (§7.29): NOT_AUTHORIZED, NOT_FOUND, INVALID_INPUT, IDEMPOTENCY_CONFLICT. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+          "description": "Failure: shared error envelope."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZR6C3S0EXAMPLE0000401",
+      "op": "memory.exports.create",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_cli_operator",
+      "idempotency_key": "exp-2026-10-28T10:00Z",
+      "payload_digest": "58c03d12c3e307e4483a49f144efb87a81f4c1b16724ac8fefe8b1c173e3e136",
+      "status": "pending",
+      "created_at": "2026-10-28T10:00:00Z",
+      "extensions": {}
+    }
+  ]
+}

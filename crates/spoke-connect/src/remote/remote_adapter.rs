@@ -34,7 +34,8 @@ use serde_json::{json, Map, Value};
 use spoke_operations::{
     from_error_envelope, parse_tool_capability_id, spoke_ok, spoke_reject, to_error_envelope,
     ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort, KnowledgeEntryPort,
-    RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
+    MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
@@ -45,8 +46,30 @@ use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, ExtractResponse, Finding,
-    HostCapabilityManifest, KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
-    TimelineEvent,
+    HostCapabilityManifest, KnowledgeEntry, MemoryCandidatesDismissRequest,
+    MemoryCandidatesDismissResponse, MemoryCandidatesGetRequest, MemoryCandidatesGetResponse,
+    MemoryCandidatesListRequest, MemoryCandidatesListResponse, MemoryCandidatesReviewRequest,
+    MemoryCandidatesReviewResponse, MemoryCaptureRequest, MemoryCaptureResponse,
+    MemoryDescribeRequest, MemoryDescribeResponse, MemoryExportsCreateRequest,
+    MemoryExportsCreateResponse, MemoryExportsGetRequest, MemoryExportsGetResponse,
+    MemoryGrantsGrantRequest, MemoryGrantsGrantResponse, MemoryGrantsListRequest,
+    MemoryGrantsListResponse, MemoryGrantsRevokeRequest, MemoryGrantsRevokeResponse,
+    MemoryImportsActivateRequest, MemoryImportsActivateResponse, MemoryImportsDiscardRequest,
+    MemoryImportsDiscardResponse, MemoryImportsStageRequest, MemoryImportsStageResponse,
+    MemoryProfileGetRequest, MemoryProfileGetResponse, MemoryProfileUpdateRequest,
+    MemoryProfileUpdateResponse, MemoryRecallRequest, MemoryRecallResponse,
+    MemoryReceiptsGetRequest, MemoryReceiptsGetResponse, MemoryRecordsCreateRequest,
+    MemoryRecordsCreateResponse, MemoryRecordsDeleteRequest, MemoryRecordsDeleteResponse,
+    MemoryRecordsGetRequest, MemoryRecordsGetResponse, MemoryRecordsListRequest,
+    MemoryRecordsListResponse, MemoryRecordsPromoteRequest, MemoryRecordsPromoteResponse,
+    MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse, MemoryReflectionsGenerateRequest,
+    MemoryReflectionsGenerateResponse, MemoryReflectionsListRequest, MemoryReflectionsListResponse,
+    MemoryReflectionsStateRequest, MemoryReflectionsStateResponse, MemorySpacesFreezeRequest,
+    MemorySpacesFreezeResponse, MemorySpacesListRequest, MemorySpacesListResponse,
+    MemorySpacesUnfreezeRequest, MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest,
+    MemorySubjectsEnsureResponse, MemorySubjectsFenceRequest, MemorySubjectsFenceResponse,
+    MemorySubjectsGetRequest, MemorySubjectsGetResponse, Principal, ProjectRequest,
+    ProjectResponse, Relation, Rule, Scope, TimelineEvent,
 };
 
 use crate::core::{
@@ -1544,6 +1567,309 @@ impl HostManifestPort for RemoteAdapter {
 // The blanket impl in spoke-operations lifts the six traits above into
 // `BaselinePorts`, so `RemoteAdapter` is a drop-in for
 // `orchestrate_upsert(remote, req)` etc.
+
+/// Client `MemoryPort` over the session (memory protocol §13): one method per
+/// op, each sending the op's request object as the invoke payload and
+/// decoding the op's response object — the same `invoke_mapped` shape as the
+/// `port.*` catalogue. Rows mirror the dispatch table
+/// (`core::required_capability`): the responder's gate is the only authority,
+/// there is no local pre-gate (an unnegotiated family answers
+/// `capability_missing`, mapped to `CAPABILITY_PORT_MISSING` with
+/// `details.wire_code`).
+///
+/// The `principal` parameter is the LOCAL admission context: over the wire
+/// the serving host admits the authenticated peer as the requester's
+/// principal (MEM-R003), so it is never transmitted and cannot be forged by a
+/// payload.
+#[async_trait]
+impl MemoryPort for RemoteAdapter {
+    async fn describe(
+        &self,
+        _principal: &Principal,
+        request: MemoryDescribeRequest,
+    ) -> SpokeResult<MemoryDescribeResponse> {
+        self.invoke_mapped("memory.describe", json!(request)).await
+    }
+
+    async fn list_spaces(
+        &self,
+        _principal: &Principal,
+        request: MemorySpacesListRequest,
+    ) -> SpokeResult<MemorySpacesListResponse> {
+        self.invoke_mapped("memory.spaces.list", json!(request)).await
+    }
+
+    async fn freeze_space(
+        &self,
+        _principal: &Principal,
+        request: MemorySpacesFreezeRequest,
+    ) -> SpokeResult<MemorySpacesFreezeResponse> {
+        self.invoke_mapped("memory.spaces.freeze", json!(request))
+            .await
+    }
+
+    async fn unfreeze_space(
+        &self,
+        _principal: &Principal,
+        request: MemorySpacesUnfreezeRequest,
+    ) -> SpokeResult<MemorySpacesUnfreezeResponse> {
+        self.invoke_mapped("memory.spaces.unfreeze", json!(request))
+            .await
+    }
+
+    async fn ensure_subject(
+        &self,
+        _principal: &Principal,
+        request: MemorySubjectsEnsureRequest,
+    ) -> SpokeResult<MemorySubjectsEnsureResponse> {
+        self.invoke_mapped("memory.subjects.ensure", json!(request))
+            .await
+    }
+
+    async fn get_subject(
+        &self,
+        _principal: &Principal,
+        request: MemorySubjectsGetRequest,
+    ) -> SpokeResult<MemorySubjectsGetResponse> {
+        self.invoke_mapped("memory.subjects.get", json!(request))
+            .await
+    }
+
+    async fn fence_subject(
+        &self,
+        _principal: &Principal,
+        request: MemorySubjectsFenceRequest,
+    ) -> SpokeResult<MemorySubjectsFenceResponse> {
+        self.invoke_mapped("memory.subjects.fence", json!(request))
+            .await
+    }
+
+    async fn list_grants(
+        &self,
+        _principal: &Principal,
+        request: MemoryGrantsListRequest,
+    ) -> SpokeResult<MemoryGrantsListResponse> {
+        self.invoke_mapped("memory.grants.list", json!(request)).await
+    }
+
+    async fn grant(
+        &self,
+        _principal: &Principal,
+        request: MemoryGrantsGrantRequest,
+    ) -> SpokeResult<MemoryGrantsGrantResponse> {
+        self.invoke_mapped("memory.grants.grant", json!(request)).await
+    }
+
+    async fn revoke_grant(
+        &self,
+        _principal: &Principal,
+        request: MemoryGrantsRevokeRequest,
+    ) -> SpokeResult<MemoryGrantsRevokeResponse> {
+        self.invoke_mapped("memory.grants.revoke", json!(request))
+            .await
+    }
+
+    async fn capture(
+        &self,
+        _principal: &Principal,
+        request: MemoryCaptureRequest,
+    ) -> SpokeResult<MemoryCaptureResponse> {
+        self.invoke_mapped("memory.capture", json!(request)).await
+    }
+
+    async fn list_candidates(
+        &self,
+        _principal: &Principal,
+        request: MemoryCandidatesListRequest,
+    ) -> SpokeResult<MemoryCandidatesListResponse> {
+        self.invoke_mapped("memory.candidates.list", json!(request))
+            .await
+    }
+
+    async fn get_candidate(
+        &self,
+        _principal: &Principal,
+        request: MemoryCandidatesGetRequest,
+    ) -> SpokeResult<MemoryCandidatesGetResponse> {
+        self.invoke_mapped("memory.candidates.get", json!(request))
+            .await
+    }
+
+    async fn dismiss_candidate(
+        &self,
+        _principal: &Principal,
+        request: MemoryCandidatesDismissRequest,
+    ) -> SpokeResult<MemoryCandidatesDismissResponse> {
+        self.invoke_mapped("memory.candidates.dismiss", json!(request))
+            .await
+    }
+
+    async fn review_candidate(
+        &self,
+        _principal: &Principal,
+        request: MemoryCandidatesReviewRequest,
+    ) -> SpokeResult<MemoryCandidatesReviewResponse> {
+        self.invoke_mapped("memory.candidates.review", json!(request))
+            .await
+    }
+
+    async fn create_record(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecordsCreateRequest,
+    ) -> SpokeResult<MemoryRecordsCreateResponse> {
+        self.invoke_mapped("memory.records.create", json!(request))
+            .await
+    }
+
+    async fn get_record(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecordsGetRequest,
+    ) -> SpokeResult<MemoryRecordsGetResponse> {
+        self.invoke_mapped("memory.records.get", json!(request)).await
+    }
+
+    async fn update_record(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecordsUpdateRequest,
+    ) -> SpokeResult<MemoryRecordsUpdateResponse> {
+        self.invoke_mapped("memory.records.update", json!(request))
+            .await
+    }
+
+    async fn delete_record(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecordsDeleteRequest,
+    ) -> SpokeResult<MemoryRecordsDeleteResponse> {
+        self.invoke_mapped("memory.records.delete", json!(request))
+            .await
+    }
+
+    async fn list_records(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecordsListRequest,
+    ) -> SpokeResult<MemoryRecordsListResponse> {
+        self.invoke_mapped("memory.records.list", json!(request))
+            .await
+    }
+
+    async fn promote_record(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecordsPromoteRequest,
+    ) -> SpokeResult<MemoryRecordsPromoteResponse> {
+        self.invoke_mapped("memory.records.promote", json!(request))
+            .await
+    }
+
+    async fn recall(
+        &self,
+        _principal: &Principal,
+        request: MemoryRecallRequest,
+    ) -> SpokeResult<MemoryRecallResponse> {
+        self.invoke_mapped("memory.recall", json!(request)).await
+    }
+
+    async fn get_profile(
+        &self,
+        _principal: &Principal,
+        request: MemoryProfileGetRequest,
+    ) -> SpokeResult<MemoryProfileGetResponse> {
+        self.invoke_mapped("memory.profile.get", json!(request)).await
+    }
+
+    async fn update_profile(
+        &self,
+        _principal: &Principal,
+        request: MemoryProfileUpdateRequest,
+    ) -> SpokeResult<MemoryProfileUpdateResponse> {
+        self.invoke_mapped("memory.profile.update", json!(request))
+            .await
+    }
+
+    async fn get_reflection_state(
+        &self,
+        _principal: &Principal,
+        request: MemoryReflectionsStateRequest,
+    ) -> SpokeResult<MemoryReflectionsStateResponse> {
+        self.invoke_mapped("memory.reflections.state", json!(request))
+            .await
+    }
+
+    async fn list_reflections(
+        &self,
+        _principal: &Principal,
+        request: MemoryReflectionsListRequest,
+    ) -> SpokeResult<MemoryReflectionsListResponse> {
+        self.invoke_mapped("memory.reflections.list", json!(request))
+            .await
+    }
+
+    async fn generate_reflection(
+        &self,
+        _principal: &Principal,
+        request: MemoryReflectionsGenerateRequest,
+    ) -> SpokeResult<MemoryReflectionsGenerateResponse> {
+        self.invoke_mapped("memory.reflections.generate", json!(request))
+            .await
+    }
+
+    async fn get_receipt(
+        &self,
+        _principal: &Principal,
+        request: MemoryReceiptsGetRequest,
+    ) -> SpokeResult<MemoryReceiptsGetResponse> {
+        self.invoke_mapped("memory.receipts.get", json!(request)).await
+    }
+
+    async fn create_export(
+        &self,
+        _principal: &Principal,
+        request: MemoryExportsCreateRequest,
+    ) -> SpokeResult<MemoryExportsCreateResponse> {
+        self.invoke_mapped("memory.exports.create", json!(request))
+            .await
+    }
+
+    async fn get_export(
+        &self,
+        _principal: &Principal,
+        request: MemoryExportsGetRequest,
+    ) -> SpokeResult<MemoryExportsGetResponse> {
+        self.invoke_mapped("memory.exports.get", json!(request)).await
+    }
+
+    async fn stage_import(
+        &self,
+        _principal: &Principal,
+        request: MemoryImportsStageRequest,
+    ) -> SpokeResult<MemoryImportsStageResponse> {
+        self.invoke_mapped("memory.imports.stage", json!(request))
+            .await
+    }
+
+    async fn activate_import(
+        &self,
+        _principal: &Principal,
+        request: MemoryImportsActivateRequest,
+    ) -> SpokeResult<MemoryImportsActivateResponse> {
+        self.invoke_mapped("memory.imports.activate", json!(request))
+            .await
+    }
+
+    async fn discard_import(
+        &self,
+        _principal: &Principal,
+        request: MemoryImportsDiscardRequest,
+    ) -> SpokeResult<MemoryImportsDiscardResponse> {
+        self.invoke_mapped("memory.imports.discard", json!(request))
+            .await
+    }
+}
 
 /// Dial a remote peer over `transport`: perform the signed hello exchange +
 /// session snapshot, then return an `Established` adapter. Errors on any

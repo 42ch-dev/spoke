@@ -12,7 +12,11 @@
  * imported here.
  */
 
-export { connectRemoteAdapter, RemoteAdapter } from "./remote-adapter.js";
+export {
+  connectRemoteAdapter,
+  MEMORY_OPS,
+  RemoteAdapter,
+} from "./remote-adapter.js";
 export type {
   RemoteAdapterOptions,
   RemoteAdapterState,
@@ -25,6 +29,7 @@ export type {
   ConnectResponderOptions,
   ConnectResponderState,
   RemoteExtractService,
+  RemoteMemoryService,
 } from "./responder.js";
 
 export { connectMultiPeerRouter, MultiPeerRouter } from "./multi-peer-router.js";

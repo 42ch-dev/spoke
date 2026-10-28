@@ -9,11 +9,7 @@
  */
 export type MemoryExportsCreateResponse = OneOf | OneOf1;
 export type OneOf =
-  (MemoryReceipt & AllOf & AllOf1) | (MemoryReceipt & AllOf2 & AllOf3) | (MemoryReceipt & AllOf4 & AllOf5);
-/**
- * Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3). Expressed as closed committed/pending/failed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.10 lifecycle exactly: result is present iff committed, error is present iff failed, completed_at is present iff status is not pending.
- */
-export type MemoryReceipt = CommittedReceipt | PendingReceipt | FailedReceipt;
+  (CommittedReceipt & AllOf & AllOf1) | (PendingReceipt & AllOf2 & AllOf3) | (FailedReceipt & AllOf4 & AllOf5);
 /**
  * Provider-assigned.
  */
@@ -36,6 +32,10 @@ export type IdempotencyKey = string;
  */
 export type PayloadDigest = string;
 export type Status = "committed";
+export type Op1 = "memory.exports.create";
+export type Status1 = "committed";
+export type ExportId = string;
+export type BundleDigest = string;
 /**
  * Provider-assigned.
  */
@@ -43,12 +43,14 @@ export type ReceiptId1 = string;
 /**
  * The op string that produced this receipt.
  */
-export type Op1 = string;
+export type Op2 = string;
 export type SpaceId1 = string;
 export type RequesterPrincipalId1 = string;
 export type IdempotencyKey1 = string;
 export type PayloadDigest1 = string;
-export type Status1 = "pending";
+export type Status2 = "pending";
+export type Op3 = "memory.exports.create";
+export type Status3 = "pending";
 /**
  * Provider-assigned.
  */
@@ -56,12 +58,12 @@ export type ReceiptId2 = string;
 /**
  * The op string that produced this receipt.
  */
-export type Op2 = string;
+export type Op4 = string;
 export type SpaceId2 = string;
 export type RequesterPrincipalId2 = string;
 export type IdempotencyKey2 = string;
 export type PayloadDigest2 = string;
-export type Status2 = "failed";
+export type Status4 = "failed";
 /**
  * Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2).
  */
@@ -108,12 +110,6 @@ export type RetryClass17 = "terminal";
 export type RetryClass18 = "uncertain";
 export type RetryClass19 = "retryable";
 export type RetryClass20 = "retryable" | "terminal" | "uncertain";
-export type Op3 = "memory.exports.create";
-export type Status3 = "committed";
-export type ExportId = string;
-export type BundleDigest = string;
-export type Op4 = "memory.exports.create";
-export type Status4 = "pending";
 export type Op5 = "memory.exports.create";
 export type Status5 = "failed";
 /**
@@ -178,6 +174,33 @@ export interface ExtensionValue {
   [k: string]: unknown | undefined;
 }
 /**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
+export interface AllOf {
+  op: Op1;
+  [k: string]: unknown | undefined;
+}
+export interface AllOf1 {
+  status: Status1;
+  result: Result;
+  [k: string]: unknown | undefined;
+}
+export interface Result {
+  export_id: ExportId;
+  chunk_count: number;
+  total_bytes: number;
+  bundle_digest: BundleDigest;
+  counts: Counts;
+}
+export interface Counts {
+  subjects: number;
+  records: number;
+  candidates: number;
+  profiles: number;
+  reflections: number;
+  receipt_summaries: number;
+}
+/**
  * Asynchronous op admitted, completion observed via memory.receipts.get (§7.0.3). result, error and completed_at are deliberately absent (§6.10).
  */
 export interface PendingReceipt {
@@ -186,17 +209,25 @@ export interface PendingReceipt {
    */
   schema_version: number;
   receipt_id: ReceiptId1;
-  op: Op1;
+  op: Op2;
   space_id: SpaceId1;
   requester_principal_id: RequesterPrincipalId1;
   idempotency_key?: IdempotencyKey1;
   payload_digest: PayloadDigest1;
-  status: Status1;
+  status: Status2;
   /**
    * RFC 3339 UTC datetime string.
    */
   created_at: string;
   extensions: ExtensionMap;
+}
+export interface AllOf2 {
+  op: Op3;
+  [k: string]: unknown | undefined;
+}
+export interface AllOf3 {
+  status: Status3;
+  [k: string]: unknown | undefined;
 }
 /**
  * Failed op; may carry content-free cost facts (§14.3). result is deliberately absent: present iff committed (§6.10).
@@ -207,12 +238,12 @@ export interface FailedReceipt {
    */
   schema_version: number;
   receipt_id: ReceiptId2;
-  op: Op2;
+  op: Op4;
   space_id: SpaceId2;
   requester_principal_id: RequesterPrincipalId2;
   idempotency_key?: IdempotencyKey2;
   payload_digest: PayloadDigest2;
-  status: Status2;
+  status: Status4;
   error: MemoryErrorEnvelope;
   /**
    * RFC 3339 UTC datetime string.
@@ -564,41 +595,6 @@ export interface UnknownErrorCode {
  */
 export interface ErrorDetails21 {
   retry_class: RetryClass20;
-  [k: string]: unknown | undefined;
-}
-/**
- * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
- */
-export interface AllOf {
-  op: Op3;
-  [k: string]: unknown | undefined;
-}
-export interface AllOf1 {
-  status: Status3;
-  result: Result;
-  [k: string]: unknown | undefined;
-}
-export interface Result {
-  export_id: ExportId;
-  chunk_count: number;
-  total_bytes: number;
-  bundle_digest: BundleDigest;
-  counts: Counts;
-}
-export interface Counts {
-  subjects: number;
-  records: number;
-  candidates: number;
-  profiles: number;
-  reflections: number;
-  receipt_summaries: number;
-}
-export interface AllOf2 {
-  op: Op4;
-  [k: string]: unknown | undefined;
-}
-export interface AllOf3 {
-  status: Status4;
   [k: string]: unknown | undefined;
 }
 export interface AllOf4 {

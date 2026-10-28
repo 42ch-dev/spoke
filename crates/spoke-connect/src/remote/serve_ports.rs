@@ -8,7 +8,9 @@
 //! dyn-availability probe convention (`ComputablePorts` / `ForkPorts`). The
 //! core `extract` op is served through the separate optional
 //! [`RemoteExtractService`] face, probed with
-//! [`RemoteServePorts::as_extract`]; it is a service, not a port method.
+//! [`RemoteServePorts::as_extract`]; it is a service, not a port method. The
+//! memory family is served the same way through the optional
+//! [`RemoteMemoryService`] face ([`RemoteServePorts::as_memory`]).
 //! Serving order is gate → probe → serve/deny: after the capability gate
 //! passes, the responder probes the injected face; a `None` probe means the
 //! host declared a family it does not provide (host misconfiguration) and
@@ -20,16 +22,21 @@
 //! manual trait impls, opting into extraction with
 //! [`RemoteServePortsComposite::with_extract`].
 
+use std::future::Future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use serde_json::Value;
 use spoke_operations::{
-    BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort, HostManifestPort,
-    KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort, SpokeResult,
+    spoke_reject, BaselinePorts, ComputablePort, FindingPort, ForkTimelineQueryPort,
+    HostManifestPort, KnowledgeEntryPort, MemoryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::{
-    ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest, KnowledgeEntry, Relation,
-    Rule, Scope, TimelineEvent,
+    ExtractRequest, ExtractResponse, Finding, HostCapabilityManifest, KnowledgeEntry, Principal,
+    Relation, Rule, Scope, TimelineEvent,
 };
 
 /// Connect-owned service face for the core `extract` op: the serving host
@@ -49,6 +56,198 @@ pub trait RemoteExtractService: Send + Sync {
     async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse>;
 }
 
+/// Connect-owned service face for the memory family (`memory.*`, protocol
+/// §13): the serving host owns the provider — the `spoke_operations::MemoryPort`
+/// implementation — the admission context that turns the authenticated peer
+/// into a `Principal` (MEM-R003: never payload-asserted), and the mapping of
+/// each op onto its typed port call.
+///
+/// One callable serves every `memory.*` op instead of a second 33-method
+/// trait: `MemoryPort` already owns the typed per-op contract. `payload` is
+/// the op's request object and the returned value is its response object
+/// (same no-wrapper rule as `extract`).
+#[async_trait]
+pub trait RemoteMemoryService: Send + Sync {
+    /// Serve one `memory.*` op for the authenticated `peer_id`.
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value>;
+}
+
+/// Admission context: maps the authenticated connect peer to the memory
+/// `Principal` the provider admits. The principal never comes from the
+/// payload (MEM-R003).
+pub type MemoryAdmission = Arc<dyn Fn(&str) -> SpokeResult<Principal> + Send + Sync>;
+
+/// [`RemoteMemoryService`] over a provider [`MemoryPort`]: the 33 `memory.*`
+/// op names map onto their typed port methods, so a host attaches an existing
+/// provider with
+/// `RemoteServePortsComposite::new(..).with_memory(Arc::new(MemoryPortService::new(port, admission)))`
+/// instead of hand-writing the wire mapping per host.
+pub struct MemoryPortService {
+    port: Arc<dyn MemoryPort + Send + Sync>,
+    admission: MemoryAdmission,
+}
+
+impl MemoryPortService {
+    #[must_use]
+    pub fn new(port: Arc<dyn MemoryPort + Send + Sync>, admission: MemoryAdmission) -> Self {
+        Self { port, admission }
+    }
+}
+
+#[async_trait]
+impl RemoteMemoryService for MemoryPortService {
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value> {
+        let principal = match (self.admission)(peer_id) {
+            SpokeResult::Ok(principal) => principal,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        let port = self.port.as_ref();
+        match op {
+            "memory.describe" => serve(payload, |request| port.describe(&principal, request)).await,
+            "memory.spaces.list" => {
+                serve(payload, |request| port.list_spaces(&principal, request)).await
+            }
+            "memory.spaces.freeze" => {
+                serve(payload, |request| port.freeze_space(&principal, request)).await
+            }
+            "memory.spaces.unfreeze" => {
+                serve(payload, |request| port.unfreeze_space(&principal, request)).await
+            }
+            "memory.subjects.ensure" => {
+                serve(payload, |request| port.ensure_subject(&principal, request)).await
+            }
+            "memory.subjects.get" => {
+                serve(payload, |request| port.get_subject(&principal, request)).await
+            }
+            "memory.subjects.fence" => {
+                serve(payload, |request| port.fence_subject(&principal, request)).await
+            }
+            "memory.grants.list" => {
+                serve(payload, |request| port.list_grants(&principal, request)).await
+            }
+            "memory.grants.grant" => serve(payload, |request| port.grant(&principal, request)).await,
+            "memory.grants.revoke" => {
+                serve(payload, |request| port.revoke_grant(&principal, request)).await
+            }
+            "memory.capture" => serve(payload, |request| port.capture(&principal, request)).await,
+            "memory.candidates.list" => {
+                serve(payload, |request| port.list_candidates(&principal, request)).await
+            }
+            "memory.candidates.get" => {
+                serve(payload, |request| port.get_candidate(&principal, request)).await
+            }
+            "memory.candidates.dismiss" => {
+                serve(payload, |request| port.dismiss_candidate(&principal, request)).await
+            }
+            "memory.candidates.review" => {
+                serve(payload, |request| port.review_candidate(&principal, request)).await
+            }
+            "memory.records.create" => {
+                serve(payload, |request| port.create_record(&principal, request)).await
+            }
+            "memory.records.get" => {
+                serve(payload, |request| port.get_record(&principal, request)).await
+            }
+            "memory.records.update" => {
+                serve(payload, |request| port.update_record(&principal, request)).await
+            }
+            "memory.records.delete" => {
+                serve(payload, |request| port.delete_record(&principal, request)).await
+            }
+            "memory.records.list" => {
+                serve(payload, |request| port.list_records(&principal, request)).await
+            }
+            "memory.records.promote" => {
+                serve(payload, |request| port.promote_record(&principal, request)).await
+            }
+            "memory.recall" => serve(payload, |request| port.recall(&principal, request)).await,
+            "memory.profile.get" => {
+                serve(payload, |request| port.get_profile(&principal, request)).await
+            }
+            "memory.profile.update" => {
+                serve(payload, |request| port.update_profile(&principal, request)).await
+            }
+            "memory.reflections.state" => {
+                serve(payload, |request| port.get_reflection_state(&principal, request)).await
+            }
+            "memory.reflections.list" => {
+                serve(payload, |request| port.list_reflections(&principal, request)).await
+            }
+            "memory.reflections.generate" => {
+                serve(payload, |request| port.generate_reflection(&principal, request)).await
+            }
+            "memory.receipts.get" => {
+                serve(payload, |request| port.get_receipt(&principal, request)).await
+            }
+            "memory.exports.create" => {
+                serve(payload, |request| port.create_export(&principal, request)).await
+            }
+            "memory.exports.get" => {
+                serve(payload, |request| port.get_export(&principal, request)).await
+            }
+            "memory.imports.stage" => {
+                serve(payload, |request| port.stage_import(&principal, request)).await
+            }
+            "memory.imports.activate" => {
+                serve(payload, |request| port.activate_import(&principal, request)).await
+            }
+            "memory.imports.discard" => {
+                serve(payload, |request| port.discard_import(&principal, request)).await
+            }
+            other => spoke_reject(
+                SpokeRejectCode::InternalError,
+                format!("{other} is not a memory op"),
+                None,
+            ),
+        }
+    }
+}
+
+/// Decode the op's request object, call the provider once, re-encode its
+/// response object. The decode is the trust boundary: an invalid payload is
+/// `INVALID_INPUT` before the provider runs (same rule as `extract`).
+async fn serve<Req, Resp, Fut>(payload: serde_json::Value, call: impl FnOnce(Req) -> Fut) -> SpokeResult<Value>
+where
+    Req: DeserializeOwned,
+    Resp: Serialize,
+    Fut: Future<Output = SpokeResult<Resp>>,
+{
+    let request: Req = match serde_json::from_value(payload) {
+        Ok(request) => request,
+        Err(error) => {
+            // §14.2: a memory-boundary validation failure is `terminal`.
+            let mut details = serde_json::Map::new();
+            details.insert("retry_class".into(), Value::String("terminal".into()));
+            return spoke_reject(
+                SpokeRejectCode::InvalidInput,
+                format!("invalid memory payload: {error}"),
+                Some(details),
+            );
+        }
+    };
+    match call(request).await {
+        SpokeResult::Ok(response) => match serde_json::to_value(response) {
+            Ok(value) => SpokeResult::Ok(value),
+            Err(error) => spoke_reject(
+                SpokeRejectCode::InternalError,
+                format!("memory response serialize failed: {error}"),
+                None,
+            ),
+        },
+        SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+    }
+}
+
 /// Responder ports face (D4 catalogue): baseline six + optional families,
 /// capability-gated. `Option` probes mirror the operations-crate
 /// `ComputablePorts` / `ForkPorts` availability convention.
@@ -63,6 +262,18 @@ pub trait RemoteServePorts: BaselinePorts {
     /// optional absence (a host that does not serve extraction), not a stub
     /// service — the responder answers the dispatch-deny branch.
     fn as_extract(&self) -> Option<&dyn RemoteExtractService>;
+
+    /// Optional memory service face, when provided. Absent means the host
+    /// declared `spoke-memory` without providing the service — the responder
+    /// answers the dispatch-deny branch.
+    ///
+    /// Defaults to `None`, so adding this optional family stays additive:
+    /// every existing `RemoteServePorts` implementation compiles unchanged
+    /// and hosts opt in by overriding it (as
+    /// [`RemoteServePortsComposite::with_memory`] does).
+    fn as_memory(&self) -> Option<&dyn RemoteMemoryService> {
+        None
+    }
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
@@ -97,6 +308,7 @@ pub struct RemoteServePortsComposite {
     computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     extract: Option<Arc<dyn RemoteExtractService>>,
+    memory: Option<Arc<dyn RemoteMemoryService>>,
 }
 
 impl RemoteServePortsComposite {
@@ -115,6 +327,7 @@ impl RemoteServePortsComposite {
             computable,
             fork,
             extract: None,
+            memory: None,
         }
     }
 
@@ -122,6 +335,13 @@ impl RemoteServePortsComposite {
     #[must_use]
     pub fn with_extract(mut self, extract: Arc<dyn RemoteExtractService>) -> Self {
         self.extract = Some(extract);
+        self
+    }
+
+    /// Attach the optional memory service face (consuming builder).
+    #[must_use]
+    pub fn with_memory(mut self, memory: Arc<dyn RemoteMemoryService>) -> Self {
+        self.memory = Some(memory);
         self
     }
 }
@@ -215,5 +435,11 @@ impl RemoteServePorts for RemoteServePortsComposite {
         self.extract
             .as_ref()
             .map(|extract| extract.as_ref() as &dyn RemoteExtractService)
+    }
+
+    fn as_memory(&self) -> Option<&dyn RemoteMemoryService> {
+        self.memory
+            .as_ref()
+            .map(|memory| memory.as_ref() as &dyn RemoteMemoryService)
     }
 }

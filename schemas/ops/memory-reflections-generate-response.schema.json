@@ -7,7 +7,7 @@
     "CommittedReceipt": {
       "allOf": [
         {
-          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/CommittedReceipt"
         },
         {
           "properties": {
@@ -85,7 +85,7 @@
         {
           "allOf": [
             {
-              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/PendingReceipt"
             },
             {
               "properties": {
@@ -118,7 +118,7 @@
         {
           "allOf": [
             {
-              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/FailedReceipt"
             },
             {
               "properties": {

@@ -932,7 +932,7 @@ Normative mirror of the Spoke Protocol Research canvas `TYPE_MAP`. Integrators c
 - **ComputableFieldMap** — open object for `body.state` and `body.computable` under `l2-computable`
 - **BodyAttribute** — scalar trait item in `body.attributes[]` (`trait_type` + `value`; optional `display_type`, `max_value`)
 - **ComputableLogEntry** — Moment-scale presentation on `TimelineEvent.computable_logs` (not Finding)
-- **World KB / Author Memory** — product-local stores; mapped via adapters in a later iteration, not redefined here
+- **World KB / Author Memory** — World KB stays a product-local store mapped via adapters. Author Memory is standardized as the optional `spoke-memory` capability family: thirteen models in `schemas/data/` (reusing `SourceAnchor` and the common primitives) and 33 `memory.*` ops, documented in [`spoke-memory.md`](spoke-memory.md) rather than duplicated here. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through KnowledgeEntry, `modules.*`, `Scope.viewpoint`, or `port.*` ops (`MEM-R019`); memory grants are self-contained and never consult `ke-ownership` (`MEM-R020`)
 - **Finding** — checker output, not a KnowledgeEntry body
 - **HostCapabilityManifest** — in-process adapter self-description (`host_id`, `roles`, `capabilities`, `namespaces`); distinct from KnowledgeEntry
 - **Host role** — open string in `HostCapabilityManifest.roles[]`; core vocabulary: `data-store`, `input-source`, `checker`, `assembler`, `computable-engine`

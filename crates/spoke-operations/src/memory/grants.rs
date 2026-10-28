@@ -142,14 +142,24 @@ fn not_authorized(reason: &str) -> SpokeResult<()> {
     )
 }
 
-/// §7.9 non-amplification: issuance requires **one** applicable `admin`
-/// grant whose coverage subsumes the issued grant's subject scope, context
-/// restriction, and `shared_access` together (§6.5 single-grant coverage —
-/// coverage from multiple grants is never combined). The expiry bound is
-/// global across all applicable admin grants: an issued `expires_at` must
-/// be ≤ the earliest applicable admin expiry, and a non-expiring issuance
-/// requires that no applicable admin grant expires. All failures reject
-/// `NOT_AUTHORIZED`.
+/// §7.9 non-amplification, two stages:
+///
+/// 1. **Applicability** — a valid (unrevoked, unexpired) `admin` grant for
+///    the principal and space whose coverage matches the issued grant's
+///    facets: subject scope (space-wide issuance needs a space-wide admin
+///    grant; subject-scoped issuance needs a space-wide or same-subject
+///    grant), context scope (unrestricted issuance needs unrestricted
+///    granter coverage; restricted issuance needs coverage of every issued
+///    context), and the `shared_access` facet. Empty applicable set →
+///    `NOT_AUTHORIZED`; the matching grant is the single-grant coverage §6.5
+///    requires (disjoint grants are never unioned).
+/// 2. **Expiry bound** — computed over the *applicable* set only: the
+///    issued `expires_at` must be ≤ the earliest applicable admin expiry,
+///    and a non-expiring issuance requires that no applicable admin grant
+///    expires. Unrelated grants (different subject, disjoint contexts)
+///    never enter the bound.
+///
+/// All failures reject `NOT_AUTHORIZED`.
 pub fn validate_grant_issuance(
     granter_grants: &[MemoryGrant],
     principal_id: &str,
@@ -157,67 +167,52 @@ pub fn validate_grant_issuance(
     now: DateTime<Utc>,
     issued: &IssuedGrant<'_>,
 ) -> SpokeResult<()> {
-    // §7.9 Grant: `admin`. Only valid, applicable admin grants can issue.
-    let admin_grants: Vec<GrantView<'_>> = granter_grants
+    // Stage 1: applicable admin grants.
+    let applicable: Vec<GrantView<'_>> = granter_grants
         .iter()
         .map(view_of)
         .filter(|view| view.principal_id == principal_id && view.space_id == space_id)
         .filter(|view| view.revoked_at.is_none())
         .filter(|view| view.expires_at.is_none_or(|expires_at| expires_at > now))
         .filter(|view| view.capabilities.iter().any(|capability| capability == "admin"))
+        .filter(|view| {
+            let subject_ok = match issued.subject_id {
+                None => view.subject_id.is_none(),
+                Some(subject) => {
+                    view.subject_id.is_none() || view.subject_id == Some(subject)
+                }
+            };
+            let contexts_ok = if issued.context_ids.is_empty() {
+                view.context_ids.is_empty()
+            } else {
+                view.context_ids.is_empty()
+                    || issued
+                        .context_ids
+                        .iter()
+                        .all(|context| view.context_ids.contains(context))
+            };
+            let shared_ok =
+                !issued.shared_access || view.context_ids.is_empty() || view.shared_access;
+            subject_ok && contexts_ok && shared_ok
+        })
         .collect();
-
-    // Expiry bound is computed across ALL applicable admin grants (§7.9: a
-    // granter whose grants expire cannot issue longer-lived or non-expiring
-    // grants): issued expires_at must be ≤ the earliest applicable admin
-    // expiry, and a non-expiring issuance requires that no applicable admin
-    // grant expires.
-    let earliest_applicable_expiry = admin_grants.iter().filter_map(|view| view.expires_at).min();
-    match (issued.expires_at, earliest_applicable_expiry) {
-        (Some(issued_expiry), Some(earliest)) if issued_expiry > earliest => {
-            return not_authorized(
-                "expires_at is later than the granter's earliest applicable admin expiry",
-            );
-        }
-        (None, Some(_)) => {
-            return not_authorized(
-                "non-expiring issuance requires that no applicable admin grant expires",
-            );
-        }
-        _ => {}
+    if applicable.is_empty() {
+        return not_authorized(
+            "no applicable admin grant matches the issued subject, contexts, and shared_access",
+        );
     }
 
-    // One grant must cover every remaining issued facet simultaneously
-    // (§6.5 single-grant coverage; disjoint grants are not unioned).
-    let covers_issuance = |view: &GrantView<'_>| {
-        let subject_ok = match issued.subject_id {
-            // Space-wide issuance requires a space-wide admin grant.
-            None => view.subject_id.is_none(),
-            Some(subject) => view.subject_id.is_none() || view.subject_id == Some(subject),
-        };
-        let contexts_ok = if issued.context_ids.is_empty() {
-            // Unrestricted issuance requires unrestricted-context coverage
-            // — a restricted granter can never issue an unrestricted grant.
-            view.context_ids.is_empty()
-        } else {
-            view.context_ids.is_empty()
-                || issued
-                    .context_ids
-                    .iter()
-                    .all(|context| view.context_ids.contains(context))
-        };
-        let shared_ok = !issued.shared_access
-            || view.context_ids.is_empty()
-            || view.shared_access;
-        subject_ok && contexts_ok && shared_ok
-    };
-
-    if admin_grants.iter().any(covers_issuance) {
-        spoke_ok(())
-    } else {
-        not_authorized(
-            "no single applicable admin grant subsumes the issued grant (subject, contexts, shared_access, expiry)",
-        )
+    // Stage 2: expiry bound over the applicable set only (§7.9 earliest
+    // *applicable* grant expiry).
+    let earliest_applicable_expiry = applicable.iter().filter_map(|view| view.expires_at).min();
+    match (issued.expires_at, earliest_applicable_expiry) {
+        (Some(issued_expiry), Some(earliest)) if issued_expiry > earliest => not_authorized(
+            "expires_at is later than the earliest applicable admin grant expiry",
+        ),
+        (None, Some(_)) => {
+            not_authorized("non-expiring issuance requires a non-expiring applicable admin grant")
+        }
+        _ => spoke_ok(()),
     }
 }
 
@@ -602,6 +597,87 @@ mod tests {
         // grant expires, even though a 2028-expiring grant also covers.
         let non_expiring = issued(&["capture"]);
         match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &non_expiring) {
+            SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
+            SpokeResult::Ok(_) => panic!("expected reject"),
+        }
+    }
+
+    #[test]
+    fn issuance_expiry_bound_ignores_inapplicable_subject_scoped_grants() {
+        // An expiring admin grant for s1 must not bound an s2 issuance.
+        let granter = vec![
+            make_grant(json!({"capabilities": ["admin"], "subject_id": "s2"})),
+            make_grant(json!({
+                "capabilities": ["admin"],
+                "subject_id": "s1",
+                "expires_at": "2027-01-01T00:00:00Z",
+            })),
+        ];
+
+        let s2_non_expiring = IssuedGrant { subject_id: Some("s2"), ..issued(&["capture"]) };
+        assert!(
+            validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &s2_non_expiring).is_ok()
+        );
+
+        let expiry_2028: DateTime<Utc> = DateTime::parse_from_rfc3339("2028-01-01T00:00:00Z")
+            .expect("date")
+            .with_timezone(&Utc);
+        let s2_at_2028 = IssuedGrant {
+            subject_id: Some("s2"),
+            expires_at: Some(expiry_2028),
+            ..issued(&["capture"])
+        };
+        assert!(
+            validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &s2_at_2028).is_ok()
+        );
+
+        // The s1 issuance IS bounded by the s1 grant.
+        let s1_non_expiring = IssuedGrant { subject_id: Some("s1"), ..issued(&["capture"]) };
+        match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &s1_non_expiring) {
+            SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
+            SpokeResult::Ok(_) => panic!("expected reject"),
+        }
+    }
+
+    #[test]
+    fn issuance_expiry_bound_ignores_context_disjoint_grants() {
+        // An expiring admin grant restricted to c1 must not bound a c2
+        // issuance.
+        let granter = vec![
+            make_grant(json!({"capabilities": ["admin"], "context_ids": ["c2"]})),
+            make_grant(json!({
+                "capabilities": ["admin"],
+                "context_ids": ["c1"],
+                "expires_at": "2027-01-01T00:00:00Z",
+            })),
+        ];
+
+        let c2_non_expiring = IssuedGrant {
+            context_ids: &["c2".to_owned()],
+            ..issued(&["capture"])
+        };
+        assert!(
+            validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &c2_non_expiring).is_ok()
+        );
+
+        let expiry_2028: DateTime<Utc> = DateTime::parse_from_rfc3339("2028-01-01T00:00:00Z")
+            .expect("date")
+            .with_timezone(&Utc);
+        let c2_at_2028 = IssuedGrant {
+            context_ids: &["c2".to_owned()],
+            expires_at: Some(expiry_2028),
+            ..issued(&["capture"])
+        };
+        assert!(
+            validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &c2_at_2028).is_ok()
+        );
+
+        // The c1 issuance IS bounded by the c1 grant.
+        let c1_non_expiring = IssuedGrant {
+            context_ids: &["c1".to_owned()],
+            ..issued(&["capture"])
+        };
+        match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &c1_non_expiring) {
             SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
             SpokeResult::Ok(_) => panic!("expected reject"),
         }

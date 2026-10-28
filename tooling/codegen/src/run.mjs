@@ -3,6 +3,7 @@
  * SPOKE codegen orchestrator — json-schema-to-typescript + typify (Rust).
  */
 import { compileFromFile } from "json-schema-to-typescript";
+import { hoistDeepRefs } from "./deep-ref-hoist.mjs";
 import $RefParser from "@apidevtools/json-schema-ref-parser";
 import { glob } from "glob";
 import { execSync } from "node:child_process";
@@ -174,59 +175,6 @@ async function buildLocalizedSchemaTree() {
   }
 
   return schemaPaths;
-}
-
-function resolveJsonPointer(doc, pointer) {
-  let cur = doc;
-  for (const raw of pointer.split("/").filter(Boolean)) {
-    // Bundle pointers may traverse a $ref node; follow intra-document refs.
-    while (cur !== null && typeof cur === "object" && typeof cur.$ref === "string" && cur.$ref.startsWith("#/")) {
-      cur = resolveJsonPointer(doc, cur.$ref.slice(1));
-    }
-    const key = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
-    if (cur === null || typeof cur !== "object" || !(key in cur)) {
-      throw new Error(`bundle pointer "${pointer}" does not resolve`);
-    }
-    cur = cur[key];
-  }
-  return cur;
-}
-
-/**
- * ref-parser bundle dedups repeated subschemas by pointing at deep paths such as
- * "#/definitions/X/properties/y". typify only resolves "#/definitions/<name>" refs,
- * so hoist every deep pointer into a real (content-deduplicated) definition.
- */
-function hoistDeepRefs(bundled) {
-  const defs = (bundled.definitions ??= {});
-  const byHash = new Map(Object.entries(defs).map(([name, sub]) => [JSON.stringify(sub), name]));
-  let hoistCount = 0;
-  const visit = (node) => {
-    if (Array.isArray(node)) return node.forEach(visit);
-    if (node === null || typeof node !== "object") return;
-    if (
-      typeof node.$ref === "string" &&
-      node.$ref.startsWith("#/") &&
-      !/^#\/definitions\/[^/]+$/.test(node.$ref)
-    ) {
-      const target = resolveJsonPointer(bundled, node.$ref.slice(1));
-      const hash = JSON.stringify(target);
-      let name = byHash.get(hash);
-      if (name === undefined) {
-        name = `Shared${hoistCount++}`;
-        defs[name] = target;
-        byHash.set(hash, name);
-      }
-      node.$ref = `#/definitions/${name}`;
-    }
-    Object.values(node).forEach(visit);
-  };
-  visit(bundled);
-  // Hoisted definitions may themselves contain deep pointers.
-  for (const [name, sub] of Object.entries(defs)) {
-    if (name.startsWith("Shared")) continue;
-    visit(sub);
-  }
 }
 
 async function buildDereferencedSchemaTree(schemaPaths) {

@@ -569,6 +569,9 @@ export interface ErrorDetails21 {
   retry_class: RetryClass20;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf {
   op: Op3;
   [k: string]: unknown | undefined;

@@ -720,6 +720,9 @@ export interface ErrorDetails21 {
   retry_class: RetryClass20;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf {
   op: Op3;
   [k: string]: unknown | undefined;
@@ -742,6 +745,9 @@ export interface AllOf3 {
   status: Status5;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf4 {
   op: Op5;
   [k: string]: unknown | undefined;
@@ -787,6 +793,9 @@ export interface AllOf11 {
   status: Status11;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf12 {
   op: Op9;
   [k: string]: unknown | undefined;
@@ -810,6 +819,9 @@ export interface AllOf15 {
   status: Status14;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf16 {
   op: Op11;
   [k: string]: unknown | undefined;
@@ -831,6 +843,9 @@ export interface AllOf19 {
   status: Status16;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf20 {
   op: Op13;
   [k: string]: unknown | undefined;
@@ -852,6 +867,9 @@ export interface AllOf23 {
   status: Status18;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf24 {
   op: Op15;
   [k: string]: unknown | undefined;
@@ -874,6 +892,9 @@ export interface AllOf27 {
   status: Status20;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf28 {
   op: Op17;
   [k: string]: unknown | undefined;
@@ -895,6 +916,9 @@ export interface AllOf31 {
   status: Status22;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf32 {
   op: Op19;
   [k: string]: unknown | undefined;
@@ -916,6 +940,9 @@ export interface AllOf35 {
   status: Status24;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf36 {
   op: Op21;
   [k: string]: unknown | undefined;
@@ -937,6 +964,9 @@ export interface AllOf39 {
   status: Status26;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf40 {
   op: Op23;
   [k: string]: unknown | undefined;
@@ -958,6 +988,9 @@ export interface AllOf43 {
   status: Status28;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf44 {
   op: Op25;
   [k: string]: unknown | undefined;
@@ -979,6 +1012,9 @@ export interface AllOf47 {
   status: Status30;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf48 {
   op: Op27;
   [k: string]: unknown | undefined;
@@ -1014,6 +1050,9 @@ export interface AllOf51 {
   status: Status32;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf52 {
   op: Op29;
   [k: string]: unknown | undefined;
@@ -1035,6 +1074,9 @@ export interface AllOf55 {
   status: Status34;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf56 {
   op: Op31;
   [k: string]: unknown | undefined;
@@ -1068,6 +1110,9 @@ export interface AllOf61 {
   status: Status37;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf62 {
   op: Op34;
   [k: string]: unknown | undefined;
@@ -1108,6 +1153,9 @@ export interface AllOf67 {
   status: Status40;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf68 {
   op: Op37;
   [k: string]: unknown | undefined;
@@ -1177,6 +1225,9 @@ export interface AllOf73 {
   status: Status43;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf74 {
   op: Op40;
   [k: string]: unknown | undefined;
@@ -1215,6 +1266,9 @@ export interface AllOf79 {
   status: Status46;
   [k: string]: unknown | undefined;
 }
+/**
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
+ */
 export interface AllOf80 {
   op: Op43;
   [k: string]: unknown | undefined;

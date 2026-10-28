@@ -18,9 +18,11 @@
             }
           },
           "required": [
-            "op"
+            "op",
+            "idempotency_key"
           ],
-          "title": "AllOf"
+          "title": "AllOf",
+          "description": "Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt)."
         },
         {
           "properties": {

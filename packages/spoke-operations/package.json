@@ -32,7 +32,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@42ch/spoke-schemas": "workspace:*"
+    "@42ch/spoke-schemas": "workspace:*",
+    "@noble/hashes": "^2.2.0",
+    "canonicalize": "3.0.0"
   },
   "devDependencies": {
     "typescript": "^5.3.0",

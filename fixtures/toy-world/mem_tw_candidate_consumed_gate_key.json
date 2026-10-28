@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "candidate_id": "cand_tw_gate_key_0001",
+  "space_id": "spc_tw_harbor",
+  "subject_id": "toy:character:mira",
+  "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+  "proposed": { "kind": "fact" },
+  "provenance": {
+    "source_context_ids": ["ctx_tw_customs_gate"],
+    "anchors": [],
+    "captured_by": "prn_tw_host_primary",
+    "captured_at": "2026-07-23T06:05:00Z"
+  },
+  "classification": {
+    "disposition": "fragment",
+    "rationale_codes": ["fact_and_event"]
+  },
+  "status": "consumed",
+  "consumed_by": {
+    "op": "memory.candidates.review",
+    "receipt_id": "rcpt_tw_review_0002",
+    "outcome": "fragmented",
+    "record_ids": ["rec_tw_gate_key_fact", "rec_tw_gate_key_event"]
+  },
+  "content_digest": "ff087c41e39e57602c1190289863c9dbc107dbbc8ef32b9a6e020bcf78da3bd4",
+  "occurred_at": "2026-07-23T06:05:00Z",
+  "created_at": "2026-07-23T06:05:01Z",
+  "revision": 2,
+  "extensions": {}
+}

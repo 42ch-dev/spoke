@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "grant_id": "grt_tw_operator_admin_0002",
+  "space_id": "spc_tw_harbor",
+  "principal_id": "prn_tw_cli_operator",
+  "capabilities": ["admin"],
+  "created_at": "2026-07-23T05:36:00Z",
+  "revision": 1,
+  "extensions": {}
+}

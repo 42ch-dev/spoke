@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "grant_id": "grt_tw_mira_context_0001",
+  "space_id": "spc_tw_harbor",
+  "subject_id": "toy:character:mira",
+  "principal_id": "prn_tw_host_primary",
+  "capabilities": ["capture", "review", "records_write", "recall"],
+  "context_ids": ["ctx_tw_customs_gate"],
+  "shared_access": true,
+  "created_at": "2026-07-23T05:35:00Z",
+  "revision": 1,
+  "extensions": {}
+}

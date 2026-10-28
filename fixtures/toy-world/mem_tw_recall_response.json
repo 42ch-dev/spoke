@@ -1,0 +1,53 @@
+{
+  "records": [
+    {
+      "schema_version": 1,
+      "record_id": "rec_tw_gate_key_fact",
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "kind": "fact",
+      "content": {
+        "text": "The gate key is hidden under the third barrel.",
+        "structured": { "certainty": "stated" }
+      },
+      "scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+      "provenance": {
+        "source_context_ids": ["ctx_tw_customs_gate"],
+        "anchors": [],
+        "captured_by": "prn_tw_host_primary",
+        "captured_at": "2026-07-23T06:05:00Z"
+      },
+      "occurred_at": "2026-07-23T06:05:00Z",
+      "created_at": "2026-07-23T06:06:12Z",
+      "updated_at": "2026-07-23T06:06:12Z",
+      "revision": 1,
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "record_id": "rec_tw_bo_promise",
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "kind": "event",
+      "content": {
+        "text": "Mira promised the harbor master she would return before dawn."
+      },
+      "scope": { "visibility": "shared" },
+      "provenance": {
+        "source_context_ids": ["ctx_tw_dawn_arrival"],
+        "anchors": [],
+        "captured_by": "prn_tw_host_primary",
+        "captured_at": "2026-07-23T05:45:00Z"
+      },
+      "occurred_at": "2026-07-23T05:44:00Z",
+      "created_at": "2026-07-23T05:45:01Z",
+      "updated_at": "2026-07-23T05:45:01Z",
+      "revision": 1,
+      "extensions": {}
+    }
+  ],
+  "total_authorized": 3,
+  "truncated": true,
+  "overflow_record_id": "rec_tw_gate_key_event",
+  "engine_policy_version": "spoke-memory/1.0.0-deterministic"
+}

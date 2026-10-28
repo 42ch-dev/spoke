@@ -47,6 +47,29 @@ Committed `conn_tw_*` JSON demonstrates a two-host connect exchange between the 
 
 Dual identity: each hello carries an opaque `peer_id` (network identity, trust root) distinct from the embedded manifest's `host_id` (application identity). Embedded manifests are adapted from the committed `host_tw_*` hosts with the optional `spoke-connect` capability added — the standalone manifests stay baseline. Hello `signature` fields are **structural test vectors only**: valid-shaped base64url strings (no padding, non-cryptographic) for schema conformance; JCS canonicalization and cryptographic verification belong to the reference stack. Invoke responses echo `session_id` / `sequence` / `request_id` from the request; the error branch echoes a second, malformed invoke (`req_tw_check_0002`).
 
+## Memory protocol samples (optional `spoke-memory`)
+
+Committed `mem_tw_*` JSON traces one Harbor Town memory slice in space `spc_tw_harbor` (authority `host_tw_primary`) for subjects `toy:character:mira` and `toy:character:bo`:
+
+| Fixture | Envelope | Story |
+|---------|----------|-------|
+| `mem_tw_space_harbor.json` | MemorySpace | Active space, generation 1, drained (`pending_receipts: 0`) |
+| `mem_tw_subject_mira.json` | Subject | Mira, `kind: { ns: "toy", id: "character" }`, no fenced contexts |
+| `mem_tw_subject_bo.json` | Subject | Bo, same kind, no fenced contexts |
+| `mem_tw_grant_mira_context.json` | MemoryGrant (RestrictedGrant) | `recall`/`capture`/`review`/`records_write` narrowed to `ctx_tw_customs_gate` with `shared_access: true` |
+| `mem_tw_grant_operator_admin.json` | MemoryGrant (UnrestrictedGrant) | Space-wide operator `admin`; `context_ids`/`shared_access` deliberately absent |
+| `mem_tw_capture_request.json` | MemoryCaptureRequest | Placement `ctx_tw_customs_gate` + provenance claims (anchor over `manuscript:tw-ch1`) |
+| `mem_tw_capture_response.json` | MemoryCaptureResponse (committed) | Receipt whose `payload_digest` is the JCS SHA-256 of the capture request |
+| `mem_tw_candidate_pending_bo.json` | MemoryCandidate (PendingCandidate) | Bo's belief in `ctx_tw_market_square`, awaiting review |
+| `mem_tw_candidate_consumed_gate_key.json` | MemoryCandidate (ConsumedCandidate) | Gate-key candidate after fragment review: content scrubbed, `content_digest` kept |
+| `mem_tw_review_promote_request.json` | MemoryCandidatesReviewRequest | `promote` decision on the pending Bo candidate |
+| `mem_tw_review_fragment_request.json` | MemoryCandidatesReviewRequest | `fragment` decision producing the fact + event records |
+| `mem_tw_recall_request.json` | MemoryRecallRequest | `selected_contexts` over `ctx_tw_customs_gate` with `include_shared`, budget `max_items: 2` |
+| `mem_tw_recall_response.json` | MemoryRecallResponse | Budget-cut page (`truncated: true`, `total_authorized: 3`, `overflow_record_id`) |
+| `mem_tw_export_bundle.json` | MemoryExportBundle | Whole-space export: subjects, records, candidate shells, receipt summaries, redacted grant summaries, JCS digest |
+
+Digests are real: `payload_digest`, `content_digest` and the bundle `digest` are SHA-256 over RFC 8785 JCS canonicalization (§6.1) and are pinned by `tests/toy-world-memory.test.ts`, which also drives the P2 helpers (`validateMemoryCapture`, `validateMemoryCandidatesReview`, `validateMemoryRecall`, `grantCovers`, `validateGrantIssuance`) over the same samples.
+
 ## Integrator path (TypeScript)
 
 One adapter type implements the port families, then call `orchestrate*` from `@42ch/spoke-operations`:
@@ -140,6 +163,20 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `conn_tw_invoke_check_request.json` | ConnectInvokeRequest (remote `check`) | `sess_tw_connect_0001` / `req_tw_check_0001` |
 | `conn_tw_invoke_check_response.json` | ConnectInvokeResponse (success branch) | `sess_tw_connect_0001` / `req_tw_check_0001` |
 | `conn_tw_invoke_error_response.json` | ConnectInvokeResponse (error branch, `INVALID_INPUT`) | `sess_tw_connect_0001` / `req_tw_check_0002` |
+| `mem_tw_space_harbor.json` | MemorySpace | `spc_tw_harbor` |
+| `mem_tw_subject_mira.json` | Subject | `toy:character:mira` |
+| `mem_tw_subject_bo.json` | Subject | `toy:character:bo` |
+| `mem_tw_grant_mira_context.json` | MemoryGrant (RestrictedGrant, `shared_access: true`) | `grt_tw_mira_context_0001` |
+| `mem_tw_grant_operator_admin.json` | MemoryGrant (UnrestrictedGrant, `admin`) | `grt_tw_operator_admin_0002` |
+| `mem_tw_capture_request.json` | MemoryCaptureRequest | `cap-tw-gate-key-0001` |
+| `mem_tw_capture_response.json` | MemoryCaptureResponse (committed receipt) | `rcpt_tw_capture_0001` / `cand_tw_gate_key_0001` |
+| `mem_tw_candidate_pending_bo.json` | MemoryCandidate (PendingCandidate) | `cand_tw_bo_belief_0002` |
+| `mem_tw_candidate_consumed_gate_key.json` | MemoryCandidate (ConsumedCandidate, content scrubbed) | `cand_tw_gate_key_0001` |
+| `mem_tw_review_promote_request.json` | MemoryCandidatesReviewRequest (`promote`) | `cand_tw_bo_belief_0002` |
+| `mem_tw_review_fragment_request.json` | MemoryCandidatesReviewRequest (`fragment`) | `cand_tw_gate_key_0001` |
+| `mem_tw_recall_request.json` | MemoryRecallRequest (budgeted `selected_contexts`) | `spc_tw_harbor` / `toy:character:mira` |
+| `mem_tw_recall_response.json` | MemoryRecallResponse (budget-cut page) | `rec_tw_gate_key_fact` / `rec_tw_bo_promise` |
+| `mem_tw_export_bundle.json` | MemoryExportBundle (JCS `digest`) | `exp_tw_harbor_0001` |
 
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).
 

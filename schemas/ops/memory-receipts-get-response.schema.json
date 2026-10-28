@@ -32,7 +32,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -73,7 +74,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -155,7 +157,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -196,7 +199,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -237,7 +241,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -278,7 +283,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -319,7 +325,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -360,7 +367,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -401,7 +409,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -442,7 +451,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -483,7 +493,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -524,7 +535,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -565,7 +577,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -606,7 +619,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -639,7 +653,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -680,7 +695,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -713,7 +729,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -754,7 +771,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -787,7 +805,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -828,7 +847,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -861,7 +881,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },
@@ -902,7 +923,8 @@
                         }
                       },
                       "required": [
-                        "op"
+                        "op",
+                        "idempotency_key"
                       ],
                       "title": "AllOf"
                     },

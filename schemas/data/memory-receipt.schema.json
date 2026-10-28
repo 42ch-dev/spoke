@@ -236,7 +236,7 @@
     },
     "MemoryErrorEnvelope": {
       "title": "MemoryErrorEnvelope",
-      "description": "Shared ErrorEnvelope intersected with the memory §14.1–14.2 contract, schema-enforced: details.retry_class is required and the code→retry_class mapping is expressed as closed oneOf branches (§14.2). Terminal codes per §14.2; op_unsupported / capability_missing are the Connect dispatch codes; INTERNAL_ERROR admits retryable (clean no-effect failure) or uncertain. details otherwise stays open for op-specific keys.",
+      "description": "Shared ErrorEnvelope intersected with the memory §14.1–14.2 contract, schema-enforced: details.retry_class is required and the code→retry_class mapping is expressed as closed oneOf branches (§14.2). 18 terminal codes per §14.2 (including the Connect dispatch codes op_unsupported / capability_missing), OUTCOME_UNCERTAIN → uncertain, INTERNAL_ERROR → retryable (uncertain outcomes use OUTCOME_UNCERTAIN), plus a not-enum-guarded fallback admitting unknown/extension codes with any §14.2 retry class. details otherwise stays open for op-specific keys.",
       "oneOf": [
         {
           "allOf": [
@@ -948,16 +948,77 @@
                     "retry_class": {
                       "type": "string",
                       "title": "RetryClass",
-                      "enum": [
-                        "retryable",
-                        "uncertain"
-                      ]
+                      "const": "retryable"
                     }
                   },
                   "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
                 }
               },
-              "description": "§14.2: INTERNAL_ERROR is retryable only when the provider asserts no effect committed; otherwise the provider returns OUTCOME_UNCERTAIN."
+              "description": "§14.2: INTERNAL_ERROR is retryable only when the provider asserts no effect committed; otherwise the provider returns OUTCOME_UNCERTAIN (uncertain)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "UnknownErrorCodePins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "title": "UnknownErrorCode",
+                  "not": {
+                    "enum": [
+                      "INVALID_INPUT",
+                      "NOT_AUTHORIZED",
+                      "GRANT_REVOKED",
+                      "CANDIDATE_CONSUMED",
+                      "PROFILE_INCOMPLETE",
+                      "INSUFFICIENT_DATA",
+                      "IDEMPOTENCY_CONFLICT",
+                      "EXPORT_EXPIRED",
+                      "IMPORT_CONFLICT",
+                      "RECEIPT_EXPIRED",
+                      "CURSOR_INVALID",
+                      "REVISION_CONFLICT",
+                      "INVALID_STATUS_TRANSITION",
+                      "SPACE_FROZEN",
+                      "SUBJECT_FENCED",
+                      "NOT_FOUND",
+                      "op_unsupported",
+                      "capability_missing",
+                      "OUTCOME_UNCERTAIN",
+                      "INTERNAL_ERROR"
+                    ]
+                  },
+                  "description": "Any code outside the 20 pinned mappings (future or extension codes)."
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "enum": [
+                        "retryable",
+                        "terminal",
+                        "uncertain"
+                      ]
+                    }
+                  },
+                  "description": "details.retry_class required and one of the §14.2 classes for unknown codes; op-specific keys stay open."
+                }
+              },
+              "description": "Fallback branch: unknown/extension codes validate with any §14.2 retry class. The not-enum guard keeps this branch exclusive with the 20 pinned branches."
             }
           ]
         }

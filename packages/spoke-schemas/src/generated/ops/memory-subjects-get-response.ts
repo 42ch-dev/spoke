@@ -31,7 +31,8 @@ export type MemoryErrorEnvelope =
   | (ErrorEnvelope & MemoryErrorPins16)
   | (ErrorEnvelope & MemoryErrorPins17)
   | (ErrorEnvelope & MemoryErrorPins18)
-  | (ErrorEnvelope & MemoryErrorPins19);
+  | (ErrorEnvelope & MemoryErrorPins19)
+  | (ErrorEnvelope & UnknownErrorCodePins);
 export type RetryClass = "terminal";
 export type RetryClass1 = "terminal";
 export type RetryClass2 = "terminal";
@@ -51,7 +52,8 @@ export type RetryClass15 = "terminal";
 export type RetryClass16 = "terminal";
 export type RetryClass17 = "terminal";
 export type RetryClass18 = "uncertain";
-export type RetryClass19 = "retryable" | "uncertain";
+export type RetryClass19 = "retryable";
+export type RetryClass20 = "retryable" | "terminal" | "uncertain";
 
 export interface OneOf {
   subject: Subject;
@@ -424,7 +426,7 @@ export interface ErrorDetails19 {
   [k: string]: unknown | undefined;
 }
 /**
- * §14.2: INTERNAL_ERROR is retryable only when the provider asserts no effect committed; otherwise the provider returns OUTCOME_UNCERTAIN.
+ * §14.2: INTERNAL_ERROR is retryable only when the provider asserts no effect committed; otherwise the provider returns OUTCOME_UNCERTAIN (uncertain).
  */
 export interface MemoryErrorPins19 {
   code?: "INTERNAL_ERROR";
@@ -436,6 +438,27 @@ export interface MemoryErrorPins19 {
  */
 export interface ErrorDetails20 {
   retry_class: RetryClass19;
+  [k: string]: unknown | undefined;
+}
+/**
+ * Fallback branch: unknown/extension codes validate with any §14.2 retry class. The not-enum guard keeps this branch exclusive with the 20 pinned branches.
+ */
+export interface UnknownErrorCodePins {
+  code?: UnknownErrorCode;
+  details: ErrorDetails21;
+  [k: string]: unknown | undefined;
+}
+/**
+ * Any code outside the 20 pinned mappings (future or extension codes).
+ */
+export interface UnknownErrorCode {
+  [k: string]: unknown | undefined;
+}
+/**
+ * details.retry_class required and one of the §14.2 classes for unknown codes; op-specific keys stay open.
+ */
+export interface ErrorDetails21 {
+  retry_class: RetryClass20;
   [k: string]: unknown | undefined;
 }
 /**

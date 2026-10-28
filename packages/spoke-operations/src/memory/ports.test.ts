@@ -9,23 +9,26 @@ import {
 } from "../index.js";
 
 describe("MemoryPort / MemoryPorts (TS parity with the Rust trait)", () => {
-  it("takes Principal as the explicit first parameter (type-level probe)", () => {
-    // Assignability probe: each representative method must accept a
-    // Principal-first signature and return an awaitable SpokeResult.
-    const describe: MemoryPort["describe"] = (
-      _principal: Principal,
-      _request: Parameters<MemoryPort["describe"]>[1],
-    ) => Promise.reject(new Error("unused"));
-    const capture: MemoryPort["capture"] = (
-      _principal: Principal,
-      _request: Parameters<MemoryPort["capture"]>[1],
-    ) => Promise.reject(new Error("unused"));
-    const discardImport: MemoryPort["discardImport"] = (
-      _principal: Principal,
-      _request: Parameters<MemoryPort["discardImport"]>[1],
-    ) => Promise.reject(new Error("unused"));
+  // Type-level probe: each representative method must accept a
+  // Principal-first signature and return an awaitable SpokeResult. The
+  // assignments below are the assertion — tsc rejects a mismatched shape.
+  const describe: MemoryPort["describe"] = (
+    _principal: Principal,
+    _request: Parameters<MemoryPort["describe"]>[1],
+  ) => Promise.reject(new Error("unused"));
+  const capture: MemoryPort["capture"] = (
+    _principal: Principal,
+    _request: Parameters<MemoryPort["capture"]>[1],
+  ) => Promise.reject(new Error("unused"));
+  const discardImport: MemoryPort["discardImport"] = (
+    _principal: Principal,
+    _request: Parameters<MemoryPort["discardImport"]>[1],
+  ) => Promise.reject(new Error("unused"));
 
-    expect([describe, capture, discardImport]).toHaveLength(3);
+  it("exposes the probed methods at runtime", () => {
+    expect(typeof describe).toBe("function");
+    expect(typeof capture).toBe("function");
+    expect(typeof discardImport).toBe("function");
   });
 
   it("probe defaults to undefined for adapters that do not serve memory", () => {

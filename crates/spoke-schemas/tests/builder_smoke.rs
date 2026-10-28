@@ -23,7 +23,13 @@ fn scope_extensions_round_trip_on_canonical_type() {
     let json = r#"{"scope_id":"world_1","extensions":{"nexus":{"branch_id":"br_a"}}}"#;
     let scope: spoke_schemas::Scope = serde_json::from_str(json).expect("deserialize Scope");
     assert_eq!(scope.scope_id, "world_1");
-    assert!(!scope.extensions.is_empty(), "extensions carried on canonical Scope");
+    assert!(
+        scope
+            .extensions
+            .as_ref()
+            .is_some_and(|extensions| !extensions.is_empty()),
+        "extensions carried on canonical Scope"
+    );
 
     let back = serde_json::to_string(&scope).expect("serialize Scope");
     assert!(back.contains("nexus"), "extensions survive round-trip");

@@ -1084,10 +1084,10 @@ impl EventLoop {
                                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                                         || match handler {
                                             DispatchHandler::V2(handler_v2) => {
-                                                handler_v2(peer, &request.op, request.payload.clone())
+                                                handler_v2(peer, &request.op, request.payload.clone().into())
                                             }
                                             DispatchHandler::V1(handler) => {
-                                                handler(&request.op, request.payload.clone())
+                                                handler(&request.op, request.payload.clone().into())
                                             }
                                         },
                                     ));

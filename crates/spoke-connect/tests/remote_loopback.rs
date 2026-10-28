@@ -64,7 +64,7 @@ use spoke_operations::{
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
-use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
+use spoke_schemas::host_capability_manifest::ExtensionKey;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
 use spoke_schemas::{
@@ -1816,7 +1816,7 @@ async fn multi_peer_router_composes_host_manifests_over_loopback_peers() {
             assert!(composed.authority.is_none());
             let router_ext = composed
                 .extensions
-                .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("key"))
+                .get(&ExtensionKey::try_from("router").expect("key"))
                 .expect("router extensions");
             let peers = router_ext
                 .get("peers")
@@ -4047,7 +4047,7 @@ async fn round_trips_project_over_the_loopback() {
             assert_eq!(entry_id.as_str(), "kb_tw_harbor");
             // The committed project fixture's computable view is echoed.
             assert_eq!(
-                Value::Object(computable),
+                Value::Object(computable.into()),
                 json!({ "tide_level": 2.4, "cargo_tons": 38 })
             );
         }
@@ -4095,7 +4095,7 @@ async fn round_trips_compute_over_the_loopback() {
             // The request computable is echoed and the settle response
             // carries the merged static state.
             assert_eq!(
-                Value::Object(computable),
+                Value::Object(computable.into()),
                 json!({ "tide_level": 2.5, "cargo_tons": 37 })
             );
             assert_eq!(
@@ -4343,7 +4343,7 @@ async fn responder_round_trips_project_while_baseline_serving_stays_green() {
             // proves the payload carried the request through the loopback
             // and the responder delegated it.
             assert_eq!(
-                Value::Object(computable),
+                Value::Object(computable.into()),
                 json!({ "tide_level": 2.4, "cargo_tons": 38 })
             );
         }
@@ -4378,7 +4378,7 @@ async fn responder_round_trips_compute_over_the_loopback() {
             // The request computable is echoed and the settle response
             // carries the merged static state.
             assert_eq!(
-                Value::Object(computable),
+                Value::Object(computable.into()),
                 json!({ "tide_level": 2.5, "cargo_tons": 37 })
             );
             assert_eq!(

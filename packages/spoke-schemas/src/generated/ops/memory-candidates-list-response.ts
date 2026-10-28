@@ -252,7 +252,7 @@ export interface ConsumedCandidate {
   space_id: SpaceId1;
   subject_id: SubjectId1;
   capture_scope: PlacementScope1;
-  proposed?: Proposed1;
+  proposed?: ConsumedProposed;
   provenance: Provenance;
   classification: Classification1;
   status: Status1;
@@ -275,7 +275,7 @@ export interface ConsumedCandidate {
 /**
  * Optional retained kind only; the content is scrubbed at consumption (§6.7) and must not be retained (§6.11 export shells).
  */
-export interface Proposed1 {
+export interface ConsumedProposed {
   kind: Kind1;
 }
 /**

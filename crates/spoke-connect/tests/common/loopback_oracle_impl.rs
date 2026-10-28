@@ -29,7 +29,7 @@ use spoke_operations::{
     ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::connect_hello::HostCapabilityManifest as ConnectHostCapabilityManifest;
-use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
+use spoke_schemas::host_capability_manifest::ExtensionKey;
 use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
 use spoke_schemas::connect::ConnectHello;
 use spoke_schemas::connect::ConnectSession;
@@ -721,7 +721,7 @@ impl HostInner {
             // a baseline-only fixture never reaches these cases (mirror of
             // the TS loopback host's gate → probe serving order).
             "port.computable.project" => {
-                let request = match serde_json::from_value::<ProjectRequest>(payload.clone()) {
+                let request = match serde_json::from_value::<ProjectRequest>(payload.clone().into()) {
                     Ok(request) => request,
                     Err(_) => {
                         return spoke_reject(
@@ -737,7 +737,7 @@ impl HostInner {
                 Self::map_result(computable.project(request).await)
             }
             "port.computable.compute" => {
-                let request = match serde_json::from_value::<ComputeRequest>(payload.clone()) {
+                let request = match serde_json::from_value::<ComputeRequest>(payload.clone().into()) {
                     Ok(request) => request,
                     Err(_) => {
                         return spoke_reject(

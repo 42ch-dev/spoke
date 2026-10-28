@@ -112,7 +112,7 @@ pub fn sign_hello_ed25519(
             .encode(signature.to_bytes())
             .parse()
             .expect("base64url signature parses"),
-        extensions: Default::default(),
+        extensions: spoke_schemas::connect::connect_hello::Shared1(Default::default()),
     })
 }
 

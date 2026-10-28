@@ -2859,6 +2859,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ryu"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
 name = "ryu-js"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3142,6 +3148,18 @@ dependencies = [
  "serde",
  "serde_json",
  "spoke-operations",
+ "spoke-schemas",
+]
+
+[[package]]
+name = "spoke-memory"
+version = "0.14.1"
+dependencies = [
+ "chrono",
+ "ryu",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "spoke-schemas",
 ]
 

@@ -65,10 +65,12 @@ use crate::core::error::CoreError;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
-use spoke_schemas::connect::connect_invoke_request::ConnectInvokeRequest;
+use spoke_schemas::connect::connect_invoke_request::{
+    ConnectInvokeRequest, Shared0 as InvokeRequestPayload,
+};
 use spoke_schemas::connect::connect_invoke_response::{
-    ConnectInvokeResponse, ConnectInvokeResponseVariant0ExtensionsKey,
-    ConnectInvokeResponseVariant1ExtensionsKey, ErrorEnvelope,
+    ConnectInvokeResponse, ErrorEnvelope, ExtensionKey as InvokeResponseExtensionKey,
+    Shared0 as InvokeResponseExtensions,
 };
 use spoke_schemas::connect::connect_session::ConnectSession;
 use std::collections::HashMap;
@@ -568,7 +570,7 @@ pub(crate) fn authenticate_invoke_request(
     Ok(ConnectInvokeRequest {
         auth: request.auth.clone(),
         op: request.op.parse().expect("non-empty op parses"),
-        payload: request.payload.clone(),
+        payload: InvokeRequestPayload(request.payload.clone()),
         request_id: request
             .request_id
             .parse()
@@ -656,9 +658,9 @@ pub(crate) fn authenticate_invoke_response(
                 request_id: request_id.clone(),
                 payload: payload.clone(),
                 signature: signature.parse().expect("86-char base64url signature parses"),
-                extensions: convert_extensions::<ConnectInvokeResponseVariant0ExtensionsKey>(
-                    extensions,
-                ),
+                extensions: InvokeResponseExtensions(convert_extensions::<
+                    InvokeResponseExtensionKey,
+                >(extensions)),
             })
         }
         InvokeResponseSignInput::Error {
@@ -682,9 +684,9 @@ pub(crate) fn authenticate_invoke_response(
                 request_id: request_id.clone(),
                 error: error.clone(),
                 signature: signature.parse().expect("86-char base64url signature parses"),
-                extensions: convert_extensions::<ConnectInvokeResponseVariant1ExtensionsKey>(
-                    extensions,
-                ),
+                extensions: InvokeResponseExtensions(convert_extensions::<
+                    InvokeResponseExtensionKey,
+                >(extensions)),
             })
         }
     }

@@ -103,6 +103,16 @@ Required for “SPOKE baseline” claims:
 
 Baseline compliance MUST NOT require any of these flags.
 
+### Memory family (optional `spoke-memory`)
+
+| Flag | Layer coverage | Meaning |
+|------|----------------|---------|
+| `spoke-memory` | Cross-layer family: L1/L2 records, L3 provenance, review decisions, L8-aligned read selection | Optional per-subject memory family: thirteen data models (`memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`) and 33 `memory.*` ops, with a standalone `MemoryPort` / `MemoryPorts` probe and the `spoke-memory` crate as pure reference engine. Adds no field to any baseline object, no baseline port family, and no core op. Normative contract: [`spoke-memory.md`](spoke-memory.md); capability decision: [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) |
+| `spoke-memory-reflection` | Memory family sub-flag | Optional `memory.reflections.state` / `.list` / `.generate`; requires `spoke-memory` |
+| `spoke-memory-transfer` | Memory family sub-flag | Optional `memory.exports.*` / `memory.imports.*`; requires `spoke-memory` |
+
+A provider that declares a memory sub-flag MUST also declare `spoke-memory`, and a provider that declares `spoke-memory` without a sub-flag rejects that sub-flag's ops with `capability_missing` before any handler runs. Memory authorization is self-contained: the family never consults `ke-ownership` / `Scope.viewpoint` disclosure semantics.
+
 ## Domain Profile
 
 **Domain Profile** is how a product or integration publishes its ontology mapping **without** closing the core protocol.
@@ -128,6 +138,7 @@ Baseline compliance MUST NOT require any of these flags.
 | **L6 Constraint** | `data/rule.schema.json` | `check-*` (`rule_refs` + embedded `rules[]`) | — (no Rule evaluation helper; wire gates only) |
 | **L7 Finding** | `data/finding.schema.json` | `check-*` response `findings[]` | `isValidFindingStatusTransition`, `transitionFindingStatus` |
 | **Host collaboration** | `data/host-capability-manifest.schema.json` | — | `HostManifestPort` (`getHostCapabilityManifest`, `listPeerHostCapabilityManifests`) |
+| **Memory family** (optional `spoke-memory`) | Thirteen models in `schemas/data/`: `memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk` (reuses `SourceAnchor` from `data/`) | 66 files in `schemas/ops/` — 33 `memory-*` request/response pairs | `MemoryPort` / `MemoryPorts` (`packages/spoke-operations`, `crates/spoke-operations`); validators, grant coverage, freeze allowlist, JCS digests (`memory/*` modules); reference engine `crates/spoke-memory` (`classify`, `recall`, `reflect`, `transfer`) |
 | **L8 Context** | `data/assemble-packet.schema.json` | `assemble-*` | `buildAssemblePacket`, `knowledgeEntryToAssembleEntry`; [injected orchestration](spoke-operations.md#injection-orchestration-normative) (`orchestrateAssemble` and peers) |
 
 ### Shared cross-layer defs (`schemas/common/common.schema.json`)
@@ -173,6 +184,8 @@ Field-level tables: [`spoke-data-model.md`](spoke-data-model.md) (Rule, Timeline
 | [`spoke-ops.md`](spoke-ops.md) | Ops wire + Scope + error envelope |
 | [`spoke-operations.md`](spoke-operations.md) | Hand-written lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — session ordering, auth model, discovery boundary (opt-in `spoke-connect`) |
+| [`spoke-memory.md`](spoke-memory.md) | `spoke-memory` family — capability flags, `MEM-R001`–`MEM-R027`, models, ops, errors, transfer |
+| [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) | Memory capability decision — optional family, authority model, engine/provider split |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | Scope, Domain Profile, TimelineEvent, Rule, HostCapabilityManifest vocabulary |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping handbook |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` (capability-flagged) |

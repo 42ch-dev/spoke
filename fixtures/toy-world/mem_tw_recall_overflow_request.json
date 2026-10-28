@@ -1,0 +1,12 @@
+{
+  "space_id": "spc_tw_harbor",
+  "subject_id": "toy:character:mira",
+  "selection": {
+    "mode": "selected_contexts",
+    "context_ids": ["ctx_tw_customs_gate"],
+    "include_shared": true
+  },
+  "query": "Where is the gate key?",
+  "budget": { "max_items": 8, "max_bytes": 8 },
+  "extensions": {}
+}

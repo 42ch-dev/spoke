@@ -48,6 +48,5 @@
   ],
   "total_authorized": 3,
   "truncated": true,
-  "overflow_record_id": "rec_tw_gate_key_event",
   "engine_policy_version": "spoke-memory/1.0.0-deterministic"
 }

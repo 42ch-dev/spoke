@@ -167,7 +167,9 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "mem_tw_review_promote_request.json": SCHEMA_IDS.memoryCandidatesReviewRequest,
   "mem_tw_review_fragment_request.json": SCHEMA_IDS.memoryCandidatesReviewRequest,
   "mem_tw_recall_request.json": SCHEMA_IDS.memoryRecallRequest,
+  "mem_tw_recall_overflow_request.json": SCHEMA_IDS.memoryRecallRequest,
   "mem_tw_recall_response.json": SCHEMA_IDS.memoryRecallResponse,
+  "mem_tw_recall_overflow_response.json": SCHEMA_IDS.memoryRecallResponse,
   "mem_tw_export_bundle.json": SCHEMA_IDS.memoryExportBundle,
 };
 

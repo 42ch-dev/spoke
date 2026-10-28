@@ -65,7 +65,9 @@ Committed `mem_tw_*` JSON traces one Harbor Town memory slice in space `spc_tw_h
 | `mem_tw_review_promote_request.json` | MemoryCandidatesReviewRequest | `promote` decision on the pending Bo candidate |
 | `mem_tw_review_fragment_request.json` | MemoryCandidatesReviewRequest | `fragment` decision producing the fact + event records |
 | `mem_tw_recall_request.json` | MemoryRecallRequest | `selected_contexts` over `ctx_tw_customs_gate` with `include_shared`, budget `max_items: 2` |
-| `mem_tw_recall_response.json` | MemoryRecallResponse | Budget-cut page (`truncated: true`, `total_authorized: 3`, `overflow_record_id`) |
+| `mem_tw_recall_response.json` | MemoryRecallResponse | `max_items`-cut page (`truncated: true`, `total_authorized: 3`, no `overflow_record_id`) |
+| `mem_tw_recall_overflow_request.json` | MemoryRecallRequest | Same selection with an 8-byte `max_bytes` budget |
+| `mem_tw_recall_overflow_response.json` | MemoryRecallResponse | §9 oversized-first-item page: one record returned whole with `overflow_record_id` |
 | `mem_tw_export_bundle.json` | MemoryExportBundle | Whole-space export: subjects, records, candidate shells, receipt summaries, redacted grant summaries, JCS digest |
 
 Digests are real: `payload_digest`, `content_digest` and the bundle `digest` are SHA-256 over RFC 8785 JCS canonicalization (§6.1) and are pinned by `tests/toy-world-memory.test.ts`, which also drives the P2 helpers (`validateMemoryCapture`, `validateMemoryCandidatesReview`, `validateMemoryRecall`, `grantCovers`, `validateGrantIssuance`) over the same samples.
@@ -175,7 +177,9 @@ Normative detail: [`.mstar/specs/spoke-operations.md`](../../.mstar/specs/spoke-
 | `mem_tw_review_promote_request.json` | MemoryCandidatesReviewRequest (`promote`) | `cand_tw_bo_belief_0002` |
 | `mem_tw_review_fragment_request.json` | MemoryCandidatesReviewRequest (`fragment`) | `cand_tw_gate_key_0001` |
 | `mem_tw_recall_request.json` | MemoryRecallRequest (budgeted `selected_contexts`) | `spc_tw_harbor` / `toy:character:mira` |
-| `mem_tw_recall_response.json` | MemoryRecallResponse (budget-cut page) | `rec_tw_gate_key_fact` / `rec_tw_bo_promise` |
+| `mem_tw_recall_response.json` | MemoryRecallResponse (`max_items`-cut page) | `rec_tw_gate_key_fact` / `rec_tw_bo_promise` |
+| `mem_tw_recall_overflow_request.json` | MemoryRecallRequest (8-byte `max_bytes`) | `spc_tw_harbor` / `toy:character:mira` |
+| `mem_tw_recall_overflow_response.json` | MemoryRecallResponse (§9 oversized first item) | `rec_tw_gate_key_fact` |
 | `mem_tw_export_bundle.json` | MemoryExportBundle (JCS `digest`) | `exp_tw_harbor_0001` |
 
 `kb_tw_mira` carries two distinct `extensions.<namespace>` bags with preserve-unknown keys (fixture namespaces are illustrative only).

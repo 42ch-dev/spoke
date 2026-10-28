@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  contentWireBytes,
   grantCovers,
   jcsSha256Hex,
   jcsSha256HexExcluding,
@@ -57,7 +58,7 @@ describe("fixtures/toy-world memory samples", () => {
   const ajv = createSchemaValidator();
 
   it("covers the memory sample family", () => {
-    expect(MEMORY_FIXTURES.length).toBe(14);
+    expect(MEMORY_FIXTURES.length).toBe(16);
   });
 
   it.each(MEMORY_FIXTURES)("validates %s against its memory schema", (filename) => {
@@ -236,7 +237,33 @@ describe("memory.recall scenario", () => {
     expect(page.records).toHaveLength(request.budget.max_items);
     expect(page.total_authorized).toBeGreaterThan(page.records.length);
     expect(page.truncated).toBe(true);
-    expect(page.overflow_record_id).toBeDefined();
+  });
+
+  it("defers the max_items overflow without an overflow_record_id", () => {
+    // §9: overflow_record_id marks an oversized first item on an otherwise
+    // empty page, never an item deferred by the max_items cap.
+    expect(page).not.toHaveProperty("overflow_record_id");
+  });
+
+  it("surfaces an oversized first item whole on an empty page", () => {
+    const overflowRequest = loadFixture<MemoryRecallRequest>(
+      "mem_tw_recall_overflow_request.json",
+    );
+    const overflowPage = loadFixture<RecallPage>(
+      "mem_tw_recall_overflow_response.json",
+    );
+
+    expect(validateMemoryRecall(overflowRequest, MAX_PAGE_SIZE)).toEqual({ ok: true });
+    expect(overflowPage.records).toHaveLength(1);
+
+    const [surfaced] = overflowPage.records;
+    const content: { text: string; structured?: unknown } = surfaced!.content;
+    const contentBytes = contentWireBytes(content.text, content.structured);
+
+    expect(contentBytes).toBeGreaterThan(overflowRequest.budget.max_bytes!);
+    expect(overflowPage.overflow_record_id).toBe(surfaced!.record_id);
+    expect(overflowPage.truncated).toBe(true);
+    expect(overflowPage.total_authorized).toBeGreaterThan(1);
   });
 
   it("returns only records the selection authorizes", () => {

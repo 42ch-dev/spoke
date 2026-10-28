@@ -25,7 +25,8 @@ pub struct RecallRequest<'a> {
     pub query: Option<&'a str>,
     /// Hard item cap.
     pub max_items: usize,
-    /// Hard UTF-8 budget over returned `content` fields.
+    /// Hard UTF-8 budget over the serialized `content` values of returned
+    /// records (§9).
     pub max_bytes: Option<usize>,
 }
 
@@ -116,15 +117,22 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
-/// §9 budget unit: UTF-8 bytes of `content.text` plus the compact
-/// serialization of `content.structured` when present (the same measurement as
-/// `spoke-operations`' `content_wire_bytes`, re-implemented here because the
-/// engine must not depend on that crate).
+/// §9 budget unit: UTF-8 byte length of the **complete serialized `content`
+/// value** — field name, quotes, escaping, and `structured` included, e.g.
+/// `{"text":"abcd"}` is 15 bytes.
+///
+/// This deliberately differs from `spoke-operations`' `content_wire_bytes`
+/// (text bytes + raw `structured` serialization), which serves the §7.1
+/// `max_content_bytes` limit. Issue I-000023 tracks unifying the two
+/// measurements; until then the engine measures the wire form on its own
+/// because it must not depend on `spoke-operations`.
+///
+/// `Content` is a `String` plus an optional `serde_json::Value`, so
+/// serialization cannot fail.
 fn content_wire_bytes(content: &Content) -> usize {
-    content.text.len()
-        + content.structured.as_ref().map_or(0, |value| {
-            serde_json::to_vec(value).map_or(0, |bytes| bytes.len())
-        })
+    serde_json::to_vec(content)
+        .expect("Content serializes to JSON by construction")
+        .len()
 }
 
 #[cfg(test)]
@@ -198,16 +206,76 @@ mod tests {
             record("rec_a", "fact", "abcd", "2026-10-01T00:00:00Z"),
             record("rec_b", "fact", "efgh", "2026-10-02T00:00:00Z"),
         ];
-        let page = recall(
+        // §9 measures the serialized content value: {"text":"abcd"} = 15 bytes.
+        assert_eq!(
+            serde_json::to_vec(&records[0].content)
+                .expect("content serializes")
+                .len(),
+            15
+        );
+        let exact = recall(
             &records,
             &RecallRequest {
                 query: None,
                 max_items: 5,
-                max_bytes: Some(8),
+                max_bytes: Some(30),
             },
         );
-        assert_eq!(ids(&page), vec!["rec_b", "rec_a"]);
-        assert!(!page.truncated);
+        assert_eq!(ids(&exact), vec!["rec_b", "rec_a"]);
+        assert!(!exact.truncated);
+
+        let one_byte_short = recall(
+            &records,
+            &RecallRequest {
+                query: None,
+                max_items: 5,
+                max_bytes: Some(29),
+            },
+        );
+        assert_eq!(ids(&one_byte_short), vec!["rec_b"]);
+        assert!(one_byte_short.truncated);
+    }
+
+    #[test]
+    fn serialized_escaping_and_overhead_count_against_the_budget() {
+        let tricky = "quote \" and newline \n and unicode — dash";
+        let records = vec![
+            record("rec_esc", "fact", tricky, "2026-10-02T00:00:00Z"),
+            record("rec_plain", "fact", "hello", "2026-10-01T00:00:00Z"),
+        ];
+        let esc_wire = serde_json::to_vec(&records[0].content)
+            .expect("content serializes")
+            .len();
+        let plain_wire = serde_json::to_vec(&records[1].content)
+            .expect("content serializes")
+            .len();
+        assert!(
+            esc_wire > tricky.len(),
+            "escaping and JSON overhead are counted"
+        );
+        assert_eq!(plain_wire, 16, "{{\"text\":\"hello\"}} is 16 bytes");
+
+        let exact = recall(
+            &records,
+            &RecallRequest {
+                query: None,
+                max_items: 5,
+                max_bytes: Some(esc_wire + plain_wire),
+            },
+        );
+        assert_eq!(ids(&exact), vec!["rec_esc", "rec_plain"]);
+        assert!(!exact.truncated);
+
+        let short = recall(
+            &records,
+            &RecallRequest {
+                query: None,
+                max_items: 5,
+                max_bytes: Some(esc_wire + plain_wire - 1),
+            },
+        );
+        assert_eq!(ids(&short), vec!["rec_esc"]);
+        assert!(short.truncated);
     }
 
     #[test]
@@ -222,7 +290,7 @@ mod tests {
             &RecallRequest {
                 query: None,
                 max_items: 5,
-                max_bytes: Some(8),
+                max_bytes: Some(30),
             },
         );
         assert_eq!(ids(&page), vec!["rec_c", "rec_b"]);

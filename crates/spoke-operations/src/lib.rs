@@ -78,9 +78,19 @@ pub use adapter::{
     FullAdapter, FullPorts, HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort,
     ScopeQueryPort,
 };
+pub use memory::{
+    content_wire_bytes, grant_covers, is_freeze_allowlisted, jcs_sha256_hex,
+    jcs_sha256_hex_excluding, validate_grant_issuance, validate_memory_candidates_list,
+    validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
+    validate_memory_grants_list, validate_memory_imports_stage, validate_memory_recall,
+    validate_memory_records_create, validate_memory_records_list, validate_memory_records_update,
+    validate_memory_reflections_generate, validate_memory_reflections_list,
+    validate_memory_reflections_state, validate_memory_spaces_list,
+    validate_memory_subjects_fence, GrantRequirement, IssuedGrant,
+};
 pub use adapter::orchestrate::orchestrate_extract;
 pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
-pub use adapter::ports::{MemoryPort, MemoryPorts};
+pub use adapter::{MemoryPort, MemoryPorts};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

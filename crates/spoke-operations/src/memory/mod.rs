@@ -1,5 +1,29 @@
-//! Memory-system pure helpers (validators, grant coverage, digests) — P2 Task 2.
-//! Task 1 seeds this module with the memory port / reject-code contract tests.
+//! Memory-system pure helpers — per-op request validators, selection
+//! invariants, grant-coverage evaluation, freeze-allowlist predicate, and
+//! JCS/SHA-256 digest helpers (spoke-memory protocol §§6.5–6.13, 7, 8.2).
+//!
+//! The generated wire types already enforce everything JSON Schema can
+//! express (field presence, `minItems`, string patterns, `oneOf` shapes,
+//! `NonZeroU64` bounds). These helpers cover the residual conditional rules
+//! the codegen toolchain cannot derive (draft-07 `if`/`then`/`else`) plus the
+//! pure policy predicates providers evaluate at admission.
+
+pub mod digests;
+pub mod grants;
+pub mod validate;
+
+pub use digests::{jcs_sha256_hex, jcs_sha256_hex_excluding};
+pub use grants::{grant_covers, validate_grant_issuance, GrantRequirement, IssuedGrant};
+pub use validate::{
+    content_wire_bytes, is_freeze_allowlisted, validate_memory_candidates_list,
+    validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
+    validate_memory_grants_list, validate_memory_imports_stage, validate_memory_recall,
+    validate_memory_records_create,
+    validate_memory_records_list, validate_memory_records_update,
+    validate_memory_reflections_generate, validate_memory_reflections_list,
+    validate_memory_reflections_state, validate_memory_spaces_list,
+    validate_memory_subjects_fence,
+};
 
 #[cfg(test)]
 mod tests {

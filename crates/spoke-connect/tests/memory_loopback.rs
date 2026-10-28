@@ -211,6 +211,25 @@ impl Store {
         state.grants.push(grant);
     }
 
+    /// Seed a pending candidate the provider owns (`None` = shared placement).
+    fn seed_candidate(&self, context: Option<&str>) -> String {
+        let mut state = self.state.lock().expect("state lock");
+        let id = format!("cand_seed_{:02}", state.candidates.len() + 1);
+        let scope = context.map_or_else(
+            || json!({ "visibility": "shared" }),
+            |context| json!({ "visibility": "context", "context_id": context }),
+        );
+        state.candidates.push(Candidate {
+            id: id.clone(),
+            revision: 1,
+            consumed: false,
+            space_id: SPACE.to_string(),
+            subject_id: SUBJECT.to_string(),
+            scope,
+        });
+        id
+    }
+
     fn seed_record(&self, space: &str, context: &str, kind: &str, text: &str) {
         let mut state = self.state.lock().expect("state lock");
         state.issued_records += 1;
@@ -424,8 +443,19 @@ impl Store {
                 candidate.consumed,
             )
         };
-        // The candidate's own space is authoritative: a grant elsewhere never
-        // authorizes consuming it (the request's `space_id` is not consulted).
+        // §7.0.1/§7.15: the addressed space is part of the operation identity.
+        // A request naming another space never silently resolves to this
+        // candidate — it is rejected before any state changes.
+        let addressed_space = request["space_id"].as_str().unwrap_or_default();
+        if addressed_space != space_id {
+            return reject(
+                SpokeRejectCode::NotAuthorized,
+                format!(
+                    "review addresses space {addressed_space} but candidate {candidate_id} lives in {space_id}"
+                ),
+            );
+        }
+        // Authorization runs against the candidate's space (never the request's).
         let shared = scope["visibility"].as_str() == Some("shared");
         let contexts: Vec<String> = scope["context_id"]
             .as_str()
@@ -1510,13 +1540,13 @@ async fn memory_loopback_denies_unnegotiated_and_unserved_memory_ops() {
 }
 
 #[tokio::test]
-async fn memory_loopback_authorizes_review_in_the_candidate_space_and_rechecks_on_replay() {
+async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay() {
     let host = Arc::new(MemoryHost {
         store: Arc::new(Store::default()),
     });
     let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
-    // Capture + records_write in the candidate's space; review coverage only
-    // in another space.
+    // Capture + records_write in the candidate's space; review coverage in a
+    // different space (which must never consume a candidate of this space).
     host.store.add_grant(
         &principal_id,
         SPACE,
@@ -1555,6 +1585,7 @@ async fn memory_loopback_authorizes_review_in_the_candidate_space_and_rechecks_o
         .as_str()
         .unwrap_or_else(|| panic!("candidate id expected, got {captured}"))
         .to_owned();
+    let receipts_after_capture = host.store.state.lock().expect("state lock").receipts.len();
 
     let review_body = |space_id: &str, key: &str| {
         json!({
@@ -1571,8 +1602,9 @@ async fn memory_loopback_authorizes_review_in_the_candidate_space_and_rechecks_o
         })
     };
 
-    // A review grant in another space must not consume a candidate owned by
-    // the candidate's space.
+    // Addressing another space is a different operation (§7.0.1/§7.15): the
+    // candidate of this space is never silently resolved, even though the
+    // caller holds full review coverage there.
     let cross_space = invoke(
         &pair.client,
         &session_id,
@@ -1584,17 +1616,21 @@ async fn memory_loopback_authorizes_review_in_the_candidate_space_and_rechecks_o
     .await;
     assert_eq!(
         cross_space["error"]["code"], "NOT_AUTHORIZED",
-        "a grant outside the candidate's space must not consume it: {cross_space}"
+        "a review addressing another space must be rejected: {cross_space}"
     );
     {
         let state = host.store.state.lock().expect("state lock");
         assert!(!state.candidates[0].consumed, "denied review consumes nothing");
         assert_eq!(state.records.len(), 0, "denied review writes no record");
+        assert_eq!(
+            state.receipts.len(),
+            receipts_after_capture,
+            "denied review issues no receipt"
+        );
     }
 
-    // Positive control: review coverage in the candidate's space admits it,
-    // whatever `space_id` the request names (the candidate's space is
-    // authoritative).
+    // The mismatch is rejected on addressing alone: with review coverage now
+    // in the candidate's space too, the wrong address still fails.
     host.store.add_grant(
         &principal_id,
         SPACE,
@@ -1603,47 +1639,94 @@ async fn memory_loopback_authorizes_review_in_the_candidate_space_and_rechecks_o
         &[CONTEXT],
         false,
     );
-    let reviewed = invoke(
+    let still_mismatched = invoke(
         &pair.client,
         &session_id,
         2,
+        "review-space-mismatch",
+        "memory.candidates.review",
+        review_body(OTHER_SPACE, "review-space-mismatch"),
+    )
+    .await;
+    assert_eq!(
+        still_mismatched["error"]["code"], "NOT_AUTHORIZED",
+        "the addressed space is part of the operation identity: {still_mismatched}"
+    );
+    assert!(
+        !host.store.state.lock().expect("state lock").candidates[0].consumed,
+        "a mismatched address consumes nothing"
+    );
+
+    // Positive control: the request names the candidate's own space.
+    let reviewed = invoke(
+        &pair.client,
+        &session_id,
+        3,
         "review-in-space",
         "memory.candidates.review",
-        review_body(OTHER_SPACE, "review-in-space"),
+        review_body(SPACE, "review-in-space"),
     )
     .await;
     assert_eq!(reviewed["payload"]["status"], "committed", "{reviewed}");
     assert_eq!(reviewed["payload"]["space_id"], SPACE, "{reviewed}");
-    assert_eq!(
-        host.store.state.lock().expect("state lock").records[0].space_id,
-        SPACE,
-        "review outcomes land in the candidate's space"
+    {
+        let state = host.store.state.lock().expect("state lock");
+        assert!(state.candidates[0].consumed, "the addressed review consumes");
+        assert_eq!(state.records.len(), 1);
+        assert_eq!(state.records[0].space_id, SPACE);
+    }
+
+    // A second mutating op, issued before coverage is withdrawn.
+    let capture_body = capture_request(
+        "cap-revoked",
+        CONTEXT,
+        "Mira told Bo the gate key is hidden under the third barrel.",
     );
+    let captured = invoke(
+        &pair.client,
+        &session_id,
+        4,
+        "capture-revoked",
+        "memory.capture",
+        capture_body.clone(),
+    )
+    .await;
+    assert_eq!(captured["payload"]["status"], "committed", "{captured}");
 
     // Replay after coverage is withdrawn: the original receipt is never
     // disclosed to a caller who no longer has coverage (MEM-R021).
-    let issued_before = {
-        let state = host.store.state.lock().expect("state lock");
-        state.receipts.len()
-    };
     host.store.state.lock().expect("state lock").grants.clear();
-    let replayed = invoke(
+    let issued_before_replay = host.store.state.lock().expect("state lock").receipts.len();
+    let replayed_review = invoke(
         &pair.client,
         &session_id,
-        3,
+        5,
         "review-replay-revoked",
         "memory.candidates.review",
-        review_body(OTHER_SPACE, "review-in-space"),
+        review_body(SPACE, "review-in-space"),
     )
     .await;
     assert_eq!(
-        replayed["error"]["code"], "NOT_AUTHORIZED",
-        "replay without current coverage must deny, not disclose: {replayed}"
+        replayed_review["error"]["code"], "NOT_AUTHORIZED",
+        "review replay without current coverage must deny, not disclose: {replayed_review}"
+    );
+    let replayed_capture = invoke(
+        &pair.client,
+        &session_id,
+        6,
+        "capture-replay-revoked",
+        "memory.capture",
+        capture_body,
+    )
+    .await;
+    assert_eq!(
+        replayed_capture["error"]["code"], "NOT_AUTHORIZED",
+        "capture replay without current coverage must deny, not disclose: {replayed_capture}"
     );
     assert_eq!(
         host.store.state.lock().expect("state lock").receipts.len(),
-        issued_before,
-        "a denied replay issues no new receipt"
+        issued_before_replay,
+        "denied replays issue no new receipt"
     );
     responder.close();
 }
@@ -1654,19 +1737,21 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
         store: Arc::new(Store::default()),
     });
     let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
-    // Restricted grant with context placement coverage but no shared access.
+    // Restricted grant: non-empty context coverage, no shared access.
     host.store.add_grant(
         &principal_id,
         SPACE,
         Some(SUBJECT),
-        &["capture", "recall"],
+        &["capture", "review", "records_write", "recall"],
         &[CONTEXT],
         false,
     );
-    host.store
-        .seed_record(SPACE, "", "fact", "A shared note about the harbor.");
+    let shared_candidate = host.store.seed_candidate(None);
 
     let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
+
+    // Shared placement is denied on capture, review and read without
+    // `shared_access`.
     let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
     let session_id = handshake(&pair.client, &manifest).await;
     let denied_capture = invoke(
@@ -1675,16 +1760,46 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
         0,
         "shared-capture-denied",
         "memory.capture",
-        shared_capture_request("cap-shared", "Mira told Bo the gate key is hidden under the third barrel."),
+        shared_capture_request(
+            "cap-shared",
+            "Mira told Bo the gate key is hidden under the third barrel.",
+        ),
     )
     .await;
     assert_eq!(
         denied_capture["error"]["code"], "NOT_AUTHORIZED",
         "a shared placement needs shared access: {denied_capture}"
     );
+    let denied_review = invoke(
+        &pair.client,
+        &session_id,
+        1,
+        "shared-review-denied",
+        "memory.candidates.review",
+        json!({
+            "space_id": SPACE,
+            "candidate_id": shared_candidate,
+            "expected_revision": 1,
+            "decision": {
+                "action": "fragment",
+                "fragments": [
+                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
+                ],
+            },
+            "idempotency_key": "review-shared-denied",
+        }),
+    )
+    .await;
+    assert_eq!(
+        denied_review["error"]["code"], "NOT_AUTHORIZED",
+        "reviewing shared placement needs shared access: {denied_review}"
+    );
+    assert!(
+        !host.store.state.lock().expect("state lock").candidates[0].consumed,
+        "denied shared review consumes nothing"
+    );
     responder.close();
 
-    // The same grant cannot read shared placement either.
     let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
     let session_id = handshake(&pair.client, &manifest).await;
     let denied_recall = invoke(
@@ -1702,15 +1817,17 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
     );
     responder.close();
 
-    // A grant carrying shared access admits both directions.
+    // Corrected positive control: a restricted grant with non-empty context
+    // coverage AND shared access.
     host.store.add_grant(
         &principal_id,
         SPACE,
         Some(SUBJECT),
-        &["capture", "recall"],
-        &[],
+        &["capture", "review", "records_write", "recall"],
+        &[CONTEXT],
         true,
     );
+
     let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
     let session_id = handshake(&pair.client, &manifest).await;
     let captured = invoke(
@@ -1719,10 +1836,35 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
         0,
         "shared-capture",
         "memory.capture",
-        shared_capture_request("cap-shared", "Mira told Bo the gate key is hidden under the third barrel."),
+        shared_capture_request(
+            "cap-shared",
+            "Mira told Bo the gate key is hidden under the third barrel.",
+        ),
     )
     .await;
     assert_eq!(captured["payload"]["status"], "committed", "{captured}");
+    let reviewed = invoke(
+        &pair.client,
+        &session_id,
+        1,
+        "shared-review",
+        "memory.candidates.review",
+        json!({
+            "space_id": SPACE,
+            "candidate_id": shared_candidate,
+            "expected_revision": 1,
+            "decision": {
+                "action": "fragment",
+                "fragments": [
+                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
+                ],
+            },
+            "idempotency_key": "review-shared",
+        }),
+    )
+    .await;
+    assert_eq!(reviewed["payload"]["status"], "committed", "{reviewed}");
+    assert_eq!(reviewed["payload"]["result"]["outcome"], "fragmented", "{reviewed}");
     responder.close();
 
     let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;

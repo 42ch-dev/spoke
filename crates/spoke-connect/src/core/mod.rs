@@ -40,6 +40,7 @@ pub use correlate::{check_response_correlation, Correlation};
 pub use dispatch::{
     dispatch_allowed, required_capability, token_authorizes_op, CAPABILITY_KE_EXTRACTION,
     CAPABILITY_KE_OWNERSHIP, CAPABILITY_L2_COMPUTABLE, CAPABILITY_SPOKE_BASELINE,
+    CAPABILITY_SPOKE_MEMORY, CAPABILITY_SPOKE_MEMORY_REFLECTION, CAPABILITY_SPOKE_MEMORY_TRANSFER,
 };
 pub use error::{CoreError, CoreInvokeError};
 // Crate-private envelope-auth surface (contract §9 — NOT part of the

@@ -1293,6 +1293,20 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_typed
     assert_eq!(receipt["status"], "committed", "{receipt}");
     assert_eq!(receipt["op"], "memory.capture");
     assert_eq!(receipt["idempotency_key"], "cap-loopback-1");
+    // The provider admits the authenticated dialing peer as the requester; the
+    // payload never carries a principal (MEM-R003).
+    assert_eq!(
+        receipt["requester_principal_id"],
+        format!(
+            "prn_{}",
+            derive_peer_id_from_ed25519_pubkey(&pubkey_client())
+        ),
+        "the receipt names the authenticated peer, got {receipt}"
+    );
+    assert!(
+        request.get("requester_principal_id").is_none(),
+        "the capture payload carries no principal"
+    );
     assert_eq!(receipt["result"]["classified"], 1, "{receipt}");
     // §6.1: the digest is SHA-256 over the JCS canonicalization of the whole
     // request object (idempotency_key included) — recomputed here

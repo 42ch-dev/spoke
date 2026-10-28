@@ -31,6 +31,7 @@ import type {
   MemoryCaptureRequest,
   MemoryDescribeRequest,
   MemoryExportsGetRequest,
+  MemoryImportsStageRequest,
   MemoryReceiptsGetRequest,
   ComputeRequest,
   ConnectHello,
@@ -2916,6 +2917,7 @@ const MEMORY_VECTOR_OPS = [
   "memory.capture",
   "memory.candidates.review",
   "memory.exports.get",
+  "memory.imports.stage",
   "memory.receipts.get",
 ] as const;
 
@@ -2987,6 +2989,12 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
             result = await client.getExport(
               principal,
               request as unknown as MemoryExportsGetRequest,
+            );
+            break;
+          case "memory.imports.stage":
+            result = await client.stageImport(
+              principal,
+              request as unknown as MemoryImportsStageRequest,
             );
             break;
           case "memory.receipts.get":

@@ -8,7 +8,9 @@
 //! dyn-availability probe convention (`ComputablePorts` / `ForkPorts`). The
 //! core `extract` op is served through the separate optional
 //! [`RemoteExtractService`] face, probed with
-//! [`RemoteServePorts::as_extract`]; it is a service, not a port method.
+//! [`RemoteServePorts::as_extract`]; it is a service, not a port method. The
+//! memory family is served the same way through the optional
+//! [`RemoteMemoryService`] face ([`RemoteServePorts::as_memory`]).
 //! Serving order is gate → probe → serve/deny: after the capability gate
 //! passes, the responder probes the injected face; a `None` probe means the
 //! host declared a family it does not provide (host misconfiguration) and
@@ -49,6 +51,27 @@ pub trait RemoteExtractService: Send + Sync {
     async fn extract(&self, request: ExtractRequest) -> SpokeResult<ExtractResponse>;
 }
 
+/// Connect-owned service face for the memory family (`memory.*`, protocol
+/// §13): the serving host owns the provider — the `spoke_operations::MemoryPort`
+/// implementation — the admission context that turns the authenticated peer
+/// into a `Principal` (MEM-R003: never payload-asserted), and the mapping of
+/// each op onto its typed port call.
+///
+/// One callable serves every `memory.*` op instead of a second 33-method
+/// trait: `MemoryPort` already owns the typed per-op contract. `payload` is
+/// the op's request object and the returned value is its response object
+/// (same no-wrapper rule as `extract`).
+#[async_trait]
+pub trait RemoteMemoryService: Send + Sync {
+    /// Serve one `memory.*` op for the authenticated `peer_id`.
+    async fn invoke(
+        &self,
+        peer_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+    ) -> SpokeResult<serde_json::Value>;
+}
+
 /// Responder ports face (D4 catalogue): baseline six + optional families,
 /// capability-gated. `Option` probes mirror the operations-crate
 /// `ComputablePorts` / `ForkPorts` availability convention.
@@ -63,6 +86,11 @@ pub trait RemoteServePorts: BaselinePorts {
     /// optional absence (a host that does not serve extraction), not a stub
     /// service — the responder answers the dispatch-deny branch.
     fn as_extract(&self) -> Option<&dyn RemoteExtractService>;
+
+    /// Optional memory service face, when provided. Absent means the host
+    /// declared `spoke-memory` without providing the service — the responder
+    /// answers the dispatch-deny branch.
+    fn as_memory(&self) -> Option<&dyn RemoteMemoryService>;
 }
 
 /// Blanket impl: a provider carrying the baseline six + both optional faces
@@ -85,6 +113,10 @@ where
     fn as_extract(&self) -> Option<&dyn RemoteExtractService> {
         None
     }
+
+    fn as_memory(&self) -> Option<&dyn RemoteMemoryService> {
+        None
+    }
 }
 
 /// Composite responder ports face: a baseline provider plus optional
@@ -97,6 +129,7 @@ pub struct RemoteServePortsComposite {
     computable: Option<Arc<dyn ComputablePort + Send + Sync>>,
     fork: Option<Arc<dyn ForkTimelineQueryPort + Send + Sync>>,
     extract: Option<Arc<dyn RemoteExtractService>>,
+    memory: Option<Arc<dyn RemoteMemoryService>>,
 }
 
 impl RemoteServePortsComposite {
@@ -115,6 +148,7 @@ impl RemoteServePortsComposite {
             computable,
             fork,
             extract: None,
+            memory: None,
         }
     }
 
@@ -122,6 +156,13 @@ impl RemoteServePortsComposite {
     #[must_use]
     pub fn with_extract(mut self, extract: Arc<dyn RemoteExtractService>) -> Self {
         self.extract = Some(extract);
+        self
+    }
+
+    /// Attach the optional memory service face (consuming builder).
+    #[must_use]
+    pub fn with_memory(mut self, memory: Arc<dyn RemoteMemoryService>) -> Self {
+        self.memory = Some(memory);
         self
     }
 }
@@ -215,5 +256,11 @@ impl RemoteServePorts for RemoteServePortsComposite {
         self.extract
             .as_ref()
             .map(|extract| extract.as_ref() as &dyn RemoteExtractService)
+    }
+
+    fn as_memory(&self) -> Option<&dyn RemoteMemoryService> {
+        self.memory
+            .as_ref()
+            .map(|memory| memory.as_ref() as &dyn RemoteMemoryService)
     }
 }

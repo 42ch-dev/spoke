@@ -378,8 +378,10 @@ mod tests {
 
     #[test]
     fn unnegotiated_memory_op_denies_while_unknown_memory_op_stays_unsupported() {
-        // `memory.capture` has a row, so the boundary answers
+        // `memory.capture` has a row, so the responder boundary answers
         // `capability_missing` (requirement known, capability not negotiated).
+        // The wire code is not asserted here — this gate only knows the
+        // requirement; `tests/memory_loopback.rs` covers the served deny.
         assert_eq!(
             required_capability("memory.capture"),
             Some(CAPABILITY_SPOKE_MEMORY)

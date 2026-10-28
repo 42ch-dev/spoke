@@ -121,7 +121,10 @@ describe("memory family", () => {
   });
 
   it("unnegotiated memory op denies while unknown memory op stays unsupported", () => {
-    // `memory.capture` has a row, so the boundary answers `capability_missing`.
+    // `memory.capture` has a row, so the responder boundary answers
+    // `capability_missing` (requirement known, capability not negotiated).
+    // The wire code is not asserted here — this gate only knows the
+    // requirement; the Rust `tests/memory_loopback.rs` covers the served deny.
     expect(requiredCapability("memory.capture")).toBe(CAPABILITY_SPOKE_MEMORY);
     expect(dispatchAllowed("memory.capture", [])).toBe(false);
     expect(

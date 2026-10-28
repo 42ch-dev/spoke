@@ -30,12 +30,16 @@
 //!   branch), the core `extract` op runs the optional injected
 //!   [`RemoteExtractService`](crate::remote::RemoteExtractService)
 //!   (a host that declares `ke-extraction` without providing the service
-//!   takes the same dispatch-deny branch), and unknown ops are denied. A
-//!   Scope-bearing `port.*` request additionally passes the supplementary
-//!   `ke-ownership` gate and Scope validation before the provider is probed.
-//!   Every served `port.*` provider call and the whole `extract` service
-//!   call are bounded by the responder's local serve-wait budget
-//!   (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
+//!   takes the same dispatch-deny branch), `memory.*` ops run the optional
+//!   injected [`RemoteMemoryService`](crate::remote::RemoteMemoryService)
+//!   under the same probe rule — a known memory op that was not negotiated
+//!   is denied `capability_missing` at the gate, before any probe — and
+//!   unknown ops are denied. A Scope-bearing `port.*` request additionally
+//!   passes the supplementary `ke-ownership` gate and Scope validation
+//!   before the provider is probed.
+//!   Every served `port.*` provider call and the whole `extract` /
+//!   `memory.*` service call are bounded by the responder's local serve-wait
+//!   budget (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
 //!   `INTERNAL_ERROR` with `details.kind = "timeout"` and leaves the session
 //!   Established (bounded wait, not forced host-work termination). The bound
 //!   starts after the payload validation, and a close aborts the in-flight
@@ -75,10 +79,10 @@ use spoke_schemas::{
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed,
-    is_allowlisted, sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth,
-    verify_invoke_response_auth, Correlation, EnvelopeAuthError, InboundSequence,
-    InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence, SessionSignInput,
-    CAPABILITY_KE_OWNERSHIP,
+    is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
+    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
+    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
+    SessionSignInput, CAPABILITY_KE_OWNERSHIP,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -1057,9 +1061,18 @@ impl ConnectResponder {
         // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
+            // A `memory.*` op with a core-table row is a capability gap: the
+            // gate evaluates negotiated capabilities only, so a known op that
+            // was not negotiated answers `capability_missing` (protocol §4.1).
+            // An op with no row at all stays `op_unsupported`.
+            let code = if op.starts_with("memory.") && required_capability(op).is_some() {
+                "capability_missing"
+            } else {
+                "op_unsupported"
+            };
             self.send_reverse_error_envelope(
                 doc,
-                "op_unsupported",
+                code,
                 &format!("op {op} is not authorized by this session"),
                 None,
             )
@@ -1068,6 +1081,12 @@ impl ConnectResponder {
         }
         if op.starts_with("tools.") {
             self.dispatch_tool_invoke(doc).await?;
+            return Ok(());
+        }
+        // `memory.*` ops are served by the optional injected
+        // [`RemoteMemoryService`](crate::remote::RemoteMemoryService) face.
+        if op.starts_with("memory.") {
+            self.dispatch_memory_invoke(doc).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1336,6 +1355,84 @@ impl ConnectResponder {
                     SpokeRejectCode::InternalError.as_str(),
                     &format!("{op} response serialize failed: {error}"),
                     None,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve a `memory.*` invoke through the injected
+    /// [`RemoteMemoryService`](crate::remote::RemoteMemoryService) (protocol
+    /// §13). The static capability gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`] — a known memory op that was
+    /// not negotiated never reaches here (`capability_missing`). The rest of
+    /// the order is probe → call the service once → signed response; an
+    /// absent face is the documented dispatch-deny branch (the host declared
+    /// `spoke-memory` without providing the service).
+    ///
+    /// The service owns the provider port, the admission context (the
+    /// authenticated peer → `Principal`) and the per-op wire mapping; this
+    /// end forwards the op string and its payload object unchanged.
+    async fn dispatch_memory_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_memory()) else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no memory service configured for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        // The admitted principal derives from the authenticated session peer
+        // (MEM-R003), never from the payload.
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no authenticated peer for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        let payload = doc.get("payload").cloned().unwrap_or_else(|| json!({}));
+        // Same serve bound as `extract`: the wait starts at provider
+        // invocation; a zero budget answers the signed timeout without
+        // starting the service.
+        let bounded = if self.invoke_timeout.is_zero() {
+            None
+        } else {
+            tokio::time::timeout(self.invoke_timeout, service.invoke(&peer_id, op, payload))
+                .await
+                .ok()
+        };
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
+        let Some(result) = bounded else {
+            let reject = serve_timeout_reject(self.invoke_timeout);
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
+        match result {
+            SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
                 )
                 .await?;
             }

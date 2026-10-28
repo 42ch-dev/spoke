@@ -3121,6 +3121,7 @@ dependencies = [
  "serde_json",
  "snow",
  "spoke-fixture-toy-world",
+ "spoke-memory",
  "spoke-operations",
  "spoke-schemas",
  "thiserror 2.0.19",

@@ -31,11 +31,7 @@ export type Receipt =
   | OneOf19
   | OneOf20
   | OneOf21;
-export type OneOf1 = (MemoryReceipt & AllOf & AllOf1) | (MemoryReceipt & AllOf2 & AllOf3);
-/**
- * Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3). Expressed as closed committed/pending/failed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.10 lifecycle exactly: result is present iff committed, error is present iff failed, completed_at is present iff status is not pending.
- */
-export type MemoryReceipt = CommittedReceipt | PendingReceipt | FailedReceipt;
+export type OneOf1 = (CommittedReceipt & AllOf & AllOf1) | (FailedReceipt & AllOf2 & AllOf3);
 /**
  * Provider-assigned.
  */
@@ -58,6 +54,9 @@ export type IdempotencyKey = string;
  */
 export type PayloadDigest = string;
 export type Status = "committed";
+export type Op1 = "memory.spaces.freeze";
+export type Status1 = "committed";
+export type Status2 = "frozen";
 /**
  * Provider-assigned.
  */
@@ -65,25 +64,12 @@ export type ReceiptId1 = string;
 /**
  * The op string that produced this receipt.
  */
-export type Op1 = string;
+export type Op2 = string;
 export type SpaceId1 = string;
 export type RequesterPrincipalId1 = string;
 export type IdempotencyKey1 = string;
 export type PayloadDigest1 = string;
-export type Status1 = "pending";
-/**
- * Provider-assigned.
- */
-export type ReceiptId2 = string;
-/**
- * The op string that produced this receipt.
- */
-export type Op2 = string;
-export type SpaceId2 = string;
-export type RequesterPrincipalId2 = string;
-export type IdempotencyKey2 = string;
-export type PayloadDigest2 = string;
-export type Status2 = "failed";
+export type Status3 = "failed";
 /**
  * Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2).
  */
@@ -131,81 +117,78 @@ export type RetryClass18 = "uncertain";
 export type RetryClass19 = "retryable";
 export type RetryClass20 = "retryable" | "terminal" | "uncertain";
 export type Op3 = "memory.spaces.freeze";
-export type Status3 = "committed";
-export type Status4 = "frozen";
-export type Op4 = "memory.spaces.freeze";
-export type Status5 = "failed";
-export type OneOf2 = (MemoryReceipt & AllOf4 & AllOf5) | (MemoryReceipt & AllOf6 & AllOf7);
+export type Status4 = "failed";
+export type OneOf2 = (CommittedReceipt & AllOf4 & AllOf5) | (FailedReceipt & AllOf6 & AllOf7);
+export type Op4 = "memory.spaces.unfreeze";
+export type Status5 = "committed";
+export type Status6 = "active";
 export type Op5 = "memory.spaces.unfreeze";
-export type Status6 = "committed";
-export type Status7 = "active";
-export type Op6 = "memory.spaces.unfreeze";
-export type Status8 = "failed";
-export type OneOf3 = (MemoryReceipt & AllOf8 & AllOf9) | (MemoryReceipt & AllOf10 & AllOf11);
-export type Op7 = "memory.subjects.ensure";
-export type Status9 = "committed";
+export type Status7 = "failed";
+export type OneOf3 = (CommittedReceipt & AllOf8 & AllOf9) | (FailedReceipt & AllOf10 & AllOf11);
+export type Op6 = "memory.subjects.ensure";
+export type Status8 = "committed";
 export type SubjectId = string;
-export type Status10 = "active" | "fenced" | "archived";
-export type Op8 = "memory.subjects.ensure";
-export type Status11 = "failed";
-export type OneOf4 = (MemoryReceipt & AllOf12 & AllOf13) | (MemoryReceipt & AllOf14 & AllOf15);
-export type Op9 = "memory.subjects.fence";
-export type Status12 = "committed";
+export type Status9 = "active" | "fenced" | "archived";
+export type Op7 = "memory.subjects.ensure";
+export type Status10 = "failed";
+export type OneOf4 = (CommittedReceipt & AllOf12 & AllOf13) | (FailedReceipt & AllOf14 & AllOf15);
+export type Op8 = "memory.subjects.fence";
+export type Status11 = "committed";
 export type SubjectId1 = string;
-export type Status13 = "active" | "fenced" | "archived";
-export type Op10 = "memory.subjects.fence";
-export type Status14 = "failed";
-export type OneOf5 = (MemoryReceipt & AllOf16 & AllOf17) | (MemoryReceipt & AllOf18 & AllOf19);
-export type Op11 = "memory.grants.grant";
-export type Status15 = "committed";
+export type Status12 = "active" | "fenced" | "archived";
+export type Op9 = "memory.subjects.fence";
+export type Status13 = "failed";
+export type OneOf5 = (CommittedReceipt & AllOf16 & AllOf17) | (FailedReceipt & AllOf18 & AllOf19);
+export type Op10 = "memory.grants.grant";
+export type Status14 = "committed";
 export type GrantId = string;
-export type Op12 = "memory.grants.grant";
-export type Status16 = "failed";
-export type OneOf6 = (MemoryReceipt & AllOf20 & AllOf21) | (MemoryReceipt & AllOf22 & AllOf23);
-export type Op13 = "memory.records.update";
-export type Status17 = "committed";
+export type Op11 = "memory.grants.grant";
+export type Status15 = "failed";
+export type OneOf6 = (CommittedReceipt & AllOf20 & AllOf21) | (FailedReceipt & AllOf22 & AllOf23);
+export type Op12 = "memory.records.update";
+export type Status16 = "committed";
 export type RecordId = string;
-export type Op14 = "memory.records.update";
-export type Status18 = "failed";
-export type OneOf7 = (MemoryReceipt & AllOf24 & AllOf25) | (MemoryReceipt & AllOf26 & AllOf27);
-export type Op15 = "memory.grants.revoke";
-export type Status19 = "committed";
+export type Op13 = "memory.records.update";
+export type Status17 = "failed";
+export type OneOf7 = (CommittedReceipt & AllOf24 & AllOf25) | (FailedReceipt & AllOf26 & AllOf27);
+export type Op14 = "memory.grants.revoke";
+export type Status18 = "committed";
 export type GrantId1 = string;
-export type Op16 = "memory.grants.revoke";
-export type Status20 = "failed";
-export type OneOf8 = (MemoryReceipt & AllOf28 & AllOf29) | (MemoryReceipt & AllOf30 & AllOf31);
+export type Op15 = "memory.grants.revoke";
+export type Status19 = "failed";
+export type OneOf8 = (CommittedReceipt & AllOf28 & AllOf29) | (FailedReceipt & AllOf30 & AllOf31);
+export type Op16 = "memory.capture";
+export type Status20 = "committed";
 export type Op17 = "memory.capture";
-export type Status21 = "committed";
-export type Op18 = "memory.capture";
-export type Status22 = "failed";
-export type OneOf9 = (MemoryReceipt & AllOf32 & AllOf33) | (MemoryReceipt & AllOf34 & AllOf35);
-export type Op19 = "memory.candidates.dismiss";
-export type Status23 = "committed";
+export type Status21 = "failed";
+export type OneOf9 = (CommittedReceipt & AllOf32 & AllOf33) | (FailedReceipt & AllOf34 & AllOf35);
+export type Op18 = "memory.candidates.dismiss";
+export type Status22 = "committed";
 export type CandidateId = string;
 export type Outcome = "dismissed";
-export type Op20 = "memory.candidates.dismiss";
-export type Status24 = "failed";
-export type OneOf10 = (MemoryReceipt & AllOf36 & AllOf37) | (MemoryReceipt & AllOf38 & AllOf39);
-export type Op21 = "memory.candidates.review";
-export type Status25 = "committed";
+export type Op19 = "memory.candidates.dismiss";
+export type Status23 = "failed";
+export type OneOf10 = (CommittedReceipt & AllOf36 & AllOf37) | (FailedReceipt & AllOf38 & AllOf39);
+export type Op20 = "memory.candidates.review";
+export type Status24 = "committed";
 export type Outcome1 = "promoted" | "fragmented" | "dropped";
-export type Op22 = "memory.candidates.review";
-export type Status26 = "failed";
-export type OneOf11 = (MemoryReceipt & AllOf40 & AllOf41) | (MemoryReceipt & AllOf42 & AllOf43);
-export type Op23 = "memory.records.create";
-export type Status27 = "committed";
+export type Op21 = "memory.candidates.review";
+export type Status25 = "failed";
+export type OneOf11 = (CommittedReceipt & AllOf40 & AllOf41) | (FailedReceipt & AllOf42 & AllOf43);
+export type Op22 = "memory.records.create";
+export type Status26 = "committed";
 export type RecordId1 = string;
-export type Op24 = "memory.records.create";
-export type Status28 = "failed";
-export type OneOf12 = (MemoryReceipt & AllOf44 & AllOf45) | (MemoryReceipt & AllOf46 & AllOf47);
-export type Op25 = "memory.records.delete";
-export type Status29 = "committed";
+export type Op23 = "memory.records.create";
+export type Status27 = "failed";
+export type OneOf12 = (CommittedReceipt & AllOf44 & AllOf45) | (FailedReceipt & AllOf46 & AllOf47);
+export type Op24 = "memory.records.delete";
+export type Status28 = "committed";
 export type RecordId2 = string;
-export type Op26 = "memory.records.delete";
-export type Status30 = "failed";
-export type OneOf13 = (MemoryReceipt & AllOf48 & AllOf49) | (MemoryReceipt & AllOf50 & AllOf51);
-export type Op27 = "memory.records.promote";
-export type Status31 = "committed";
+export type Op25 = "memory.records.delete";
+export type Status29 = "failed";
+export type OneOf13 = (CommittedReceipt & AllOf48 & AllOf49) | (FailedReceipt & AllOf50 & AllOf51);
+export type Op26 = "memory.records.promote";
+export type Status30 = "committed";
 export type RecordId3 = string;
 /**
  * Write placement (§6.6): context_id is required iff visibility = "context" and MUST be omitted when visibility = "shared". Changed only by memory.records.promote.
@@ -214,26 +197,39 @@ export type PlacementScope = OneOf14 | OneOf15;
 export type Visibility = "shared";
 export type Visibility1 = "context";
 export type ContextId = string;
-export type Op28 = "memory.records.promote";
-export type Status32 = "failed";
-export type OneOf16 = (MemoryReceipt & AllOf52 & AllOf53) | (MemoryReceipt & AllOf54 & AllOf55);
-export type Op29 = "memory.profile.update";
-export type Status33 = "committed";
+export type Op27 = "memory.records.promote";
+export type Status31 = "failed";
+export type OneOf16 = (CommittedReceipt & AllOf52 & AllOf53) | (FailedReceipt & AllOf54 & AllOf55);
+export type Op28 = "memory.profile.update";
+export type Status32 = "committed";
 export type ProfileKind = string;
-export type Op30 = "memory.profile.update";
-export type Status34 = "failed";
+export type Op29 = "memory.profile.update";
+export type Status33 = "failed";
 export type OneOf17 =
-  (MemoryReceipt & AllOf56 & AllOf57) | (MemoryReceipt & AllOf58 & AllOf59) | (MemoryReceipt & AllOf60 & AllOf61);
-export type Op31 = "memory.reflections.generate";
-export type Status35 = "committed";
+  (CommittedReceipt & AllOf56 & AllOf57) | (PendingReceipt & AllOf58 & AllOf59) | (FailedReceipt & AllOf60 & AllOf61);
+export type Op30 = "memory.reflections.generate";
+export type Status34 = "committed";
 export type ReflectionId = string;
 export type UnitKind = string;
+/**
+ * Provider-assigned.
+ */
+export type ReceiptId2 = string;
+/**
+ * The op string that produced this receipt.
+ */
+export type Op31 = string;
+export type SpaceId2 = string;
+export type RequesterPrincipalId2 = string;
+export type IdempotencyKey2 = string;
+export type PayloadDigest2 = string;
+export type Status35 = "pending";
 export type Op32 = "memory.reflections.generate";
 export type Status36 = "pending";
 export type Op33 = "memory.reflections.generate";
 export type Status37 = "failed";
 export type OneOf18 =
-  (MemoryReceipt & AllOf62 & AllOf63) | (MemoryReceipt & AllOf64 & AllOf65) | (MemoryReceipt & AllOf66 & AllOf67);
+  (CommittedReceipt & AllOf62 & AllOf63) | (PendingReceipt & AllOf64 & AllOf65) | (FailedReceipt & AllOf66 & AllOf67);
 export type Op34 = "memory.exports.create";
 export type Status38 = "committed";
 export type ExportId = string;
@@ -243,7 +239,7 @@ export type Status39 = "pending";
 export type Op36 = "memory.exports.create";
 export type Status40 = "failed";
 export type OneOf19 =
-  (MemoryReceipt & AllOf68 & AllOf69) | (MemoryReceipt & AllOf70 & AllOf71) | (MemoryReceipt & AllOf72 & AllOf73);
+  (CommittedReceipt & AllOf68 & AllOf69) | (PendingReceipt & AllOf70 & AllOf71) | (FailedReceipt & AllOf72 & AllOf73);
 export type Op37 = "memory.imports.stage";
 export type Status41 = "committed";
 export type ImportId = string;
@@ -252,7 +248,7 @@ export type Status42 = "pending";
 export type Op39 = "memory.imports.stage";
 export type Status43 = "failed";
 export type OneOf20 =
-  (MemoryReceipt & AllOf74 & AllOf75) | (MemoryReceipt & AllOf76 & AllOf77) | (MemoryReceipt & AllOf78 & AllOf79);
+  (CommittedReceipt & AllOf74 & AllOf75) | (PendingReceipt & AllOf76 & AllOf77) | (FailedReceipt & AllOf78 & AllOf79);
 export type Op40 = "memory.imports.activate";
 export type Status44 = "committed";
 export type ImportId1 = string;
@@ -260,7 +256,7 @@ export type Op41 = "memory.imports.activate";
 export type Status45 = "pending";
 export type Op42 = "memory.imports.activate";
 export type Status46 = "failed";
-export type OneOf21 = (MemoryReceipt & AllOf80 & AllOf81) | (MemoryReceipt & AllOf82 & AllOf83);
+export type OneOf21 = (CommittedReceipt & AllOf80 & AllOf81) | (FailedReceipt & AllOf82 & AllOf83);
 export type Op43 = "memory.imports.discard";
 export type Status47 = "committed";
 export type ImportId2 = string;
@@ -332,25 +328,21 @@ export interface ExtensionValue {
   [k: string]: unknown | undefined;
 }
 /**
- * Asynchronous op admitted, completion observed via memory.receipts.get (§7.0.3). result, error and completed_at are deliberately absent (§6.10).
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
-export interface PendingReceipt {
-  /**
-   * Wire schema version (integer >= 1).
-   */
-  schema_version: number;
-  receipt_id: ReceiptId1;
+export interface AllOf {
   op: Op1;
-  space_id: SpaceId1;
-  requester_principal_id: RequesterPrincipalId1;
-  idempotency_key?: IdempotencyKey1;
-  payload_digest: PayloadDigest1;
+  [k: string]: unknown | undefined;
+}
+export interface AllOf1 {
   status: Status1;
-  /**
-   * RFC 3339 UTC datetime string.
-   */
-  created_at: string;
-  extensions: ExtensionMap;
+  result: Result;
+  [k: string]: unknown | undefined;
+}
+export interface Result {
+  status: Status2;
+  pending_receipts: number;
+  revision: number;
 }
 /**
  * Failed op; may carry content-free cost facts (§14.3). result is deliberately absent: present iff committed (§6.10).
@@ -360,13 +352,13 @@ export interface FailedReceipt {
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
-  receipt_id: ReceiptId2;
+  receipt_id: ReceiptId1;
   op: Op2;
-  space_id: SpaceId2;
-  requester_principal_id: RequesterPrincipalId2;
-  idempotency_key?: IdempotencyKey2;
-  payload_digest: PayloadDigest2;
-  status: Status2;
+  space_id: SpaceId1;
+  requester_principal_id: RequesterPrincipalId1;
+  idempotency_key?: IdempotencyKey1;
+  payload_digest: PayloadDigest1;
+  status: Status3;
   error: MemoryErrorEnvelope;
   /**
    * RFC 3339 UTC datetime string.
@@ -720,114 +712,97 @@ export interface ErrorDetails21 {
   retry_class: RetryClass20;
   [k: string]: unknown | undefined;
 }
-/**
- * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
- */
-export interface AllOf {
+export interface AllOf2 {
   op: Op3;
   [k: string]: unknown | undefined;
 }
-export interface AllOf1 {
-  status: Status3;
-  result: Result;
-  [k: string]: unknown | undefined;
-}
-export interface Result {
-  status: Status4;
-  pending_receipts: number;
-  revision: number;
-}
-export interface AllOf2 {
-  op: Op4;
-  [k: string]: unknown | undefined;
-}
 export interface AllOf3 {
-  status: Status5;
+  status: Status4;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf4 {
-  op: Op5;
+  op: Op4;
   [k: string]: unknown | undefined;
 }
 export interface AllOf5 {
-  status: Status6;
+  status: Status5;
   result: Result1;
   [k: string]: unknown | undefined;
 }
 export interface Result1 {
-  status: Status7;
+  status: Status6;
   pending_receipts: number;
   revision: number;
 }
 export interface AllOf6 {
-  op: Op6;
+  op: Op5;
   [k: string]: unknown | undefined;
 }
 export interface AllOf7 {
-  status: Status8;
+  status: Status7;
   [k: string]: unknown | undefined;
 }
 export interface AllOf8 {
-  op: Op7;
+  op: Op6;
   [k: string]: unknown | undefined;
 }
 export interface AllOf9 {
-  status: Status9;
+  status: Status8;
   result: Result2;
   [k: string]: unknown | undefined;
 }
 export interface Result2 {
   subject_id: SubjectId;
   created: boolean;
-  status: Status10;
+  status: Status9;
   revision: number;
 }
 export interface AllOf10 {
-  op: Op8;
+  op: Op7;
   [k: string]: unknown | undefined;
 }
 export interface AllOf11 {
-  status: Status11;
+  status: Status10;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf12 {
-  op: Op9;
+  op: Op8;
   [k: string]: unknown | undefined;
 }
 export interface AllOf13 {
-  status: Status12;
+  status: Status11;
   result: Result3;
   [k: string]: unknown | undefined;
 }
 export interface Result3 {
   subject_id: SubjectId1;
-  status: Status13;
+  status: Status12;
   fenced_contexts: string[];
   revision: number;
 }
 export interface AllOf14 {
-  op: Op10;
+  op: Op9;
   [k: string]: unknown | undefined;
 }
 export interface AllOf15 {
-  status: Status14;
+  status: Status13;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf16 {
-  op: Op11;
+  op: Op10;
   [k: string]: unknown | undefined;
 }
 export interface AllOf17 {
-  status: Status15;
+  status: Status14;
   result: Result4;
   [k: string]: unknown | undefined;
 }
@@ -836,22 +811,22 @@ export interface Result4 {
   revision: number;
 }
 export interface AllOf18 {
-  op: Op12;
+  op: Op11;
   [k: string]: unknown | undefined;
 }
 export interface AllOf19 {
-  status: Status16;
+  status: Status15;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf20 {
-  op: Op13;
+  op: Op12;
   [k: string]: unknown | undefined;
 }
 export interface AllOf21 {
-  status: Status17;
+  status: Status16;
   result: Result5;
   [k: string]: unknown | undefined;
 }
@@ -860,22 +835,22 @@ export interface Result5 {
   revision: number;
 }
 export interface AllOf22 {
-  op: Op14;
+  op: Op13;
   [k: string]: unknown | undefined;
 }
 export interface AllOf23 {
-  status: Status18;
+  status: Status17;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf24 {
-  op: Op15;
+  op: Op14;
   [k: string]: unknown | undefined;
 }
 export interface AllOf25 {
-  status: Status19;
+  status: Status18;
   result: Result6;
   [k: string]: unknown | undefined;
 }
@@ -885,22 +860,22 @@ export interface Result6 {
   revision: number;
 }
 export interface AllOf26 {
-  op: Op16;
+  op: Op15;
   [k: string]: unknown | undefined;
 }
 export interface AllOf27 {
-  status: Status20;
+  status: Status19;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf28 {
-  op: Op17;
+  op: Op16;
   [k: string]: unknown | undefined;
 }
 export interface AllOf29 {
-  status: Status21;
+  status: Status20;
   result: Result7;
   [k: string]: unknown | undefined;
 }
@@ -909,22 +884,22 @@ export interface Result7 {
   classified: number;
 }
 export interface AllOf30 {
-  op: Op18;
+  op: Op17;
   [k: string]: unknown | undefined;
 }
 export interface AllOf31 {
-  status: Status22;
+  status: Status21;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf32 {
-  op: Op19;
+  op: Op18;
   [k: string]: unknown | undefined;
 }
 export interface AllOf33 {
-  status: Status23;
+  status: Status22;
   result: Result8;
   [k: string]: unknown | undefined;
 }
@@ -933,22 +908,22 @@ export interface Result8 {
   outcome: Outcome;
 }
 export interface AllOf34 {
-  op: Op20;
+  op: Op19;
   [k: string]: unknown | undefined;
 }
 export interface AllOf35 {
-  status: Status24;
+  status: Status23;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf36 {
-  op: Op21;
+  op: Op20;
   [k: string]: unknown | undefined;
 }
 export interface AllOf37 {
-  status: Status25;
+  status: Status24;
   result: Result9;
   [k: string]: unknown | undefined;
 }
@@ -957,22 +932,22 @@ export interface Result9 {
   record_ids: string[];
 }
 export interface AllOf38 {
-  op: Op22;
+  op: Op21;
   [k: string]: unknown | undefined;
 }
 export interface AllOf39 {
-  status: Status26;
+  status: Status25;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf40 {
-  op: Op23;
+  op: Op22;
   [k: string]: unknown | undefined;
 }
 export interface AllOf41 {
-  status: Status27;
+  status: Status26;
   result: Result10;
   [k: string]: unknown | undefined;
 }
@@ -981,22 +956,22 @@ export interface Result10 {
   revision: number;
 }
 export interface AllOf42 {
-  op: Op24;
+  op: Op23;
   [k: string]: unknown | undefined;
 }
 export interface AllOf43 {
-  status: Status28;
+  status: Status27;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf44 {
-  op: Op25;
+  op: Op24;
   [k: string]: unknown | undefined;
 }
 export interface AllOf45 {
-  status: Status29;
+  status: Status28;
   result: Result11;
   [k: string]: unknown | undefined;
 }
@@ -1005,22 +980,22 @@ export interface Result11 {
   tombstoned: true;
 }
 export interface AllOf46 {
-  op: Op26;
+  op: Op25;
   [k: string]: unknown | undefined;
 }
 export interface AllOf47 {
-  status: Status30;
+  status: Status29;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf48 {
-  op: Op27;
+  op: Op26;
   [k: string]: unknown | undefined;
 }
 export interface AllOf49 {
-  status: Status31;
+  status: Status30;
   result: Result12;
   [k: string]: unknown | undefined;
 }
@@ -1043,22 +1018,22 @@ export interface OneOf15 {
   context_id: ContextId;
 }
 export interface AllOf50 {
-  op: Op28;
+  op: Op27;
   [k: string]: unknown | undefined;
 }
 export interface AllOf51 {
-  status: Status32;
+  status: Status31;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf52 {
-  op: Op29;
+  op: Op28;
   [k: string]: unknown | undefined;
 }
 export interface AllOf53 {
-  status: Status33;
+  status: Status32;
   result: Result13;
   [k: string]: unknown | undefined;
 }
@@ -1067,22 +1042,22 @@ export interface Result13 {
   revision: number;
 }
 export interface AllOf54 {
-  op: Op30;
+  op: Op29;
   [k: string]: unknown | undefined;
 }
 export interface AllOf55 {
-  status: Status34;
+  status: Status33;
   [k: string]: unknown | undefined;
 }
 /**
  * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
 export interface AllOf56 {
-  op: Op31;
+  op: Op30;
   [k: string]: unknown | undefined;
 }
 export interface AllOf57 {
-  status: Status35;
+  status: Status34;
   result: Result14;
   [k: string]: unknown | undefined;
 }
@@ -1093,6 +1068,27 @@ export interface Result14 {
 export interface Cost {
   units: number;
   unit_kind: UnitKind;
+}
+/**
+ * Asynchronous op admitted, completion observed via memory.receipts.get (§7.0.3). result, error and completed_at are deliberately absent (§6.10).
+ */
+export interface PendingReceipt {
+  /**
+   * Wire schema version (integer >= 1).
+   */
+  schema_version: number;
+  receipt_id: ReceiptId2;
+  op: Op31;
+  space_id: SpaceId2;
+  requester_principal_id: RequesterPrincipalId2;
+  idempotency_key?: IdempotencyKey2;
+  payload_digest: PayloadDigest2;
+  status: Status35;
+  /**
+   * RFC 3339 UTC datetime string.
+   */
+  created_at: string;
+  extensions: ExtensionMap;
 }
 export interface AllOf58 {
   op: Op32;

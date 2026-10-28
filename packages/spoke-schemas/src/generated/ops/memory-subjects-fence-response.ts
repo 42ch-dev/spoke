@@ -8,11 +8,7 @@
  * Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { "subject_id": string, "status": string, "fenced_contexts": string[], "revision": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.subjects.fence (§7.7): INVALID_STATUS_TRANSITION, INVALID_INPUT, REVISION_CONFLICT, NOT_FOUND, NOT_AUTHORIZED, SPACE_FROZEN. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.
  */
 export type MemorySubjectsFenceResponse = OneOf | OneOf1;
-export type OneOf = (MemoryReceipt & AllOf & AllOf1) | (MemoryReceipt & AllOf2 & AllOf3);
-/**
- * Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3). Expressed as closed committed/pending/failed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.10 lifecycle exactly: result is present iff committed, error is present iff failed, completed_at is present iff status is not pending.
- */
-export type MemoryReceipt = CommittedReceipt | PendingReceipt | FailedReceipt;
+export type OneOf = (CommittedReceipt & AllOf & AllOf1) | (FailedReceipt & AllOf2 & AllOf3);
 /**
  * Provider-assigned.
  */
@@ -35,6 +31,10 @@ export type IdempotencyKey = string;
  */
 export type PayloadDigest = string;
 export type Status = "committed";
+export type Op1 = "memory.subjects.fence";
+export type Status1 = "committed";
+export type SubjectId = string;
+export type Status2 = "active" | "fenced" | "archived";
 /**
  * Provider-assigned.
  */
@@ -42,25 +42,12 @@ export type ReceiptId1 = string;
 /**
  * The op string that produced this receipt.
  */
-export type Op1 = string;
+export type Op2 = string;
 export type SpaceId1 = string;
 export type RequesterPrincipalId1 = string;
 export type IdempotencyKey1 = string;
 export type PayloadDigest1 = string;
-export type Status1 = "pending";
-/**
- * Provider-assigned.
- */
-export type ReceiptId2 = string;
-/**
- * The op string that produced this receipt.
- */
-export type Op2 = string;
-export type SpaceId2 = string;
-export type RequesterPrincipalId2 = string;
-export type IdempotencyKey2 = string;
-export type PayloadDigest2 = string;
-export type Status2 = "failed";
+export type Status3 = "failed";
 /**
  * Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2).
  */
@@ -108,11 +95,7 @@ export type RetryClass18 = "uncertain";
 export type RetryClass19 = "retryable";
 export type RetryClass20 = "retryable" | "terminal" | "uncertain";
 export type Op3 = "memory.subjects.fence";
-export type Status3 = "committed";
-export type SubjectId = string;
-export type Status4 = "active" | "fenced" | "archived";
-export type Op4 = "memory.subjects.fence";
-export type Status5 = "failed";
+export type Status4 = "failed";
 /**
  * Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2).
  */
@@ -175,25 +158,22 @@ export interface ExtensionValue {
   [k: string]: unknown | undefined;
 }
 /**
- * Asynchronous op admitted, completion observed via memory.receipts.get (§7.0.3). result, error and completed_at are deliberately absent (§6.10).
+ * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
  */
-export interface PendingReceipt {
-  /**
-   * Wire schema version (integer >= 1).
-   */
-  schema_version: number;
-  receipt_id: ReceiptId1;
+export interface AllOf {
   op: Op1;
-  space_id: SpaceId1;
-  requester_principal_id: RequesterPrincipalId1;
-  idempotency_key?: IdempotencyKey1;
-  payload_digest: PayloadDigest1;
+  [k: string]: unknown | undefined;
+}
+export interface AllOf1 {
   status: Status1;
-  /**
-   * RFC 3339 UTC datetime string.
-   */
-  created_at: string;
-  extensions: ExtensionMap;
+  result: Result;
+  [k: string]: unknown | undefined;
+}
+export interface Result {
+  subject_id: SubjectId;
+  status: Status2;
+  fenced_contexts: string[];
+  revision: number;
 }
 /**
  * Failed op; may carry content-free cost facts (§14.3). result is deliberately absent: present iff committed (§6.10).
@@ -203,13 +183,13 @@ export interface FailedReceipt {
    * Wire schema version (integer >= 1).
    */
   schema_version: number;
-  receipt_id: ReceiptId2;
+  receipt_id: ReceiptId1;
   op: Op2;
-  space_id: SpaceId2;
-  requester_principal_id: RequesterPrincipalId2;
-  idempotency_key?: IdempotencyKey2;
-  payload_digest: PayloadDigest2;
-  status: Status2;
+  space_id: SpaceId1;
+  requester_principal_id: RequesterPrincipalId1;
+  idempotency_key?: IdempotencyKey1;
+  payload_digest: PayloadDigest1;
+  status: Status3;
   error: MemoryErrorEnvelope;
   /**
    * RFC 3339 UTC datetime string.
@@ -563,30 +543,12 @@ export interface ErrorDetails21 {
   retry_class: RetryClass20;
   [k: string]: unknown | undefined;
 }
-/**
- * Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt).
- */
-export interface AllOf {
+export interface AllOf2 {
   op: Op3;
   [k: string]: unknown | undefined;
 }
-export interface AllOf1 {
-  status: Status3;
-  result: Result;
-  [k: string]: unknown | undefined;
-}
-export interface Result {
-  subject_id: SubjectId;
-  status: Status4;
-  fenced_contexts: string[];
-  revision: number;
-}
-export interface AllOf2 {
-  op: Op4;
-  [k: string]: unknown | undefined;
-}
 export interface AllOf3 {
-  status: Status5;
+  status: Status4;
   [k: string]: unknown | undefined;
 }
 export interface OneOf1 {

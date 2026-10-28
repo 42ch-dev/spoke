@@ -192,7 +192,7 @@
           },
           "additionalProperties": false,
           "description": "Optional retained kind only; the content is scrubbed at consumption (§6.7) and must not be retained (§6.11 export shells).",
-          "title": "Proposed"
+          "title": "ConsumedProposed"
         },
         "provenance": {
           "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"

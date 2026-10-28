@@ -5,7 +5,219 @@
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"import_id\": string, \"chunks_received\": int, \"staged_report\": { \"counts\": {...}, \"subject_id_map\": {...}, \"record_id_map\": {...}, \"candidate_id_map\": {...}, \"grants_adopted\": int, \"grants_dropped\": int, \"verification\": { \"bundle_digest_ok\": bool, \"errors\": string[] } }? }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.imports.stage (§7.31): INVALID_INPUT, IMPORT_CONFLICT, NOT_AUTHORIZED, IDEMPOTENCY_CONFLICT. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
   "oneOf": [
     {
-      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.imports.stage"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "committed"
+                },
+                "result": {
+                  "type": "object",
+                  "required": [
+                    "import_id",
+                    "chunks_received"
+                  ],
+                  "properties": {
+                    "import_id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "chunks_received": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "staged_report": {
+                      "type": "object",
+                      "required": [
+                        "counts",
+                        "subject_id_map",
+                        "record_id_map",
+                        "candidate_id_map",
+                        "grants_adopted",
+                        "grants_dropped",
+                        "verification"
+                      ],
+                      "properties": {
+                        "counts": {
+                          "type": "object",
+                          "required": [
+                            "subjects",
+                            "records",
+                            "candidates",
+                            "profiles",
+                            "reflections",
+                            "receipt_summaries"
+                          ],
+                          "properties": {
+                            "subjects": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "records": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "candidates": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "profiles": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "reflections": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "receipt_summaries": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "subject_id_map": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Opaque source-to-target id map."
+                        },
+                        "record_id_map": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Opaque source-to-target id map."
+                        },
+                        "candidate_id_map": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "description": "Opaque source-to-target id map."
+                        },
+                        "grants_adopted": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "grants_dropped": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "verification": {
+                          "type": "object",
+                          "required": [
+                            "bundle_digest_ok",
+                            "errors"
+                          ],
+                          "properties": {
+                            "bundle_digest_ok": {
+                              "type": "boolean"
+                            },
+                            "errors": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "status",
+                "result"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.imports.stage"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "pending"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "not": {
+                "required": [
+                  "result"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.imports.stage"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                },
+                "error": {
+                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                }
+              },
+              "required": [
+                "status",
+                "error"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "type": "object",
@@ -14,8 +226,8 @@
       ],
       "properties": {
         "error": {
-          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
-          "description": "Failure: shared error envelope."
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

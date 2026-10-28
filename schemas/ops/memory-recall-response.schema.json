@@ -57,8 +57,8 @@
       ],
       "properties": {
         "error": {
-          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
-          "description": "Failure: shared error envelope."
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

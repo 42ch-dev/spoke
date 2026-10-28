@@ -5,7 +5,50 @@
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"record_id\": string, \"revision\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.records.update (§7.18): REVISION_CONFLICT, NOT_FOUND, NOT_AUTHORIZED, INVALID_INPUT, SUBJECT_FENCED, SPACE_FROZEN. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
   "oneOf": [
     {
-      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.records.update"
+            }
+          },
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed"
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "record_id",
+                "revision"
+              ],
+              "properties": {
+                "record_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ]
+        }
+      ]
     },
     {
       "type": "object",
@@ -14,8 +57,8 @@
       ],
       "properties": {
         "error": {
-          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
-          "description": "Failure: shared error envelope."
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

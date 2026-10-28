@@ -58,8 +58,8 @@
       "description": "Content-free op summary: IDs, revisions, counts, outcome enums, digests, cost facts. Present iff committed. Never contains record/candidate/profile/reflection bodies."
     },
     "error": {
-      "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
-      "description": "Present iff failed."
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+      "description": "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."
     },
     "created_at": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
@@ -109,6 +109,56 @@
       "else": { "required": ["completed_at"] }
     }
   ],
+  "definitions": {
+    "MemoryErrorEnvelope": {
+      "allOf": [
+        { "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json" },
+        {
+          "properties": {
+            "details": {
+              "type": "object",
+              "required": ["retry_class"],
+              "properties": {
+                "retry_class": {
+                  "type": "string",
+                  "enum": ["retryable", "terminal", "uncertain"],
+                  "description": "§14.2 retry class: retryable (safe to retry), terminal (fix request/authorization), uncertain (commit state unknown — poll memory.receipts.get or replay the same idempotency_key)."
+                }
+              },
+              "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+            }
+          },
+          "required": ["details"]
+        },
+        {
+          "if": { "properties": { "code": { "const": "OUTCOME_UNCERTAIN" } }, "required": ["code"] },
+          "then": { "properties": { "details": { "properties": { "retry_class": { "const": "uncertain" } } } } }
+        },
+        {
+          "if": { "properties": { "code": { "const": "INTERNAL_ERROR" } }, "required": ["code"] },
+          "then": { "properties": { "details": { "properties": { "retry_class": { "const": "retryable" } } } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "INVALID_INPUT", "NOT_AUTHORIZED", "GRANT_REVOKED", "CANDIDATE_CONSUMED",
+                  "PROFILE_INCOMPLETE", "INSUFFICIENT_DATA", "IDEMPOTENCY_CONFLICT",
+                  "EXPORT_EXPIRED", "IMPORT_CONFLICT", "RECEIPT_EXPIRED", "CURSOR_INVALID",
+                  "REVISION_CONFLICT", "INVALID_STATUS_TRANSITION", "SPACE_FROZEN",
+                  "SUBJECT_FENCED", "NOT_FOUND", "op_unsupported", "capability_missing"
+                ]
+              }
+            },
+            "required": ["code"]
+          },
+          "then": { "properties": { "details": { "properties": { "retry_class": { "const": "terminal" } } } } }
+        }
+      ],
+      "description": "Shared ErrorEnvelope intersected with the memory §14.1–14.2 contract: required details.retry_class with the documented code-to-class mapping; details otherwise stays open for op-specific keys."
+    }
+  },
   "examples": [
     {
       "schema_version": 1,

@@ -18,24 +18,8 @@
       "minLength": 1
     },
     "kind": {
-      "type": "object",
-      "required": [
-        "ns",
-        "id"
-      ],
-      "properties": {
-        "ns": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9_-]*$",
-          "description": "Namespace key in ExtensionMap key form."
-        },
-        "id": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "additionalProperties": false,
-      "description": "Optional namespaced kind metadata, set only on creation. Never a closed enum; never authorization input."
+      "$ref": "https://spoke42.invalid/schemas/data/subject.schema.json#/properties/kind",
+      "description": "Optional namespaced kind metadata, set only on creation; reuses the Subject.kind definition."
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

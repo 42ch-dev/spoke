@@ -11,59 +11,12 @@
       ],
       "properties": {
         "receipt": {
-          "description": "Polled receipt constrained to the emitting op contract: one branch per mutating op keyed on the op string, reusing the per-op result shapes (§7.0.3, §7.28). Sync op receipts admit committed/failed; the four §7.0.3 async op receipts admit committed/pending/failed.",
+          "description": "Polled receipt constrained to the emitting op contract: one branch per mutating op keyed on the op string, referencing that op response definitions.CommittedReceipt via absolute URI (single source of truth for the per-op result shape). Sync op receipts admit committed/failed; the four §7.0.3 async op receipts admit committed/pending/failed; failed receipts carry the memory error envelope.",
           "oneOf": [
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.spaces.freeze"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "status",
-                            "pending_receipts",
-                            "revision"
-                          ],
-                          "properties": {
-                            "status": {
-                              "const": "frozen"
-                            },
-                            "pending_receipts": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-freeze-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -102,54 +55,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.spaces.unfreeze"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "status",
-                            "pending_receipts",
-                            "revision"
-                          ],
-                          "properties": {
-                            "status": {
-                              "const": "active"
-                            },
-                            "pending_receipts": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-unfreeze-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -188,63 +94,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.subjects.ensure"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "subject_id",
-                            "created",
-                            "status",
-                            "revision"
-                          ],
-                          "properties": {
-                            "subject_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "created": {
-                              "type": "boolean"
-                            },
-                            "status": {
-                              "type": "string",
-                              "enum": [
-                                "active",
-                                "fenced",
-                                "archived"
-                              ]
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -283,66 +133,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.subjects.fence"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "subject_id",
-                            "status",
-                            "fenced_contexts",
-                            "revision"
-                          ],
-                          "properties": {
-                            "subject_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "status": {
-                              "type": "string",
-                              "enum": [
-                                "active",
-                                "fenced",
-                                "archived"
-                              ]
-                            },
-                            "fenced_contexts": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-fence-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -381,50 +172,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.grants.grant"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "grant_id",
-                            "revision"
-                          ],
-                          "properties": {
-                            "grant_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-grants-grant-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -463,54 +211,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.grants.revoke"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "grant_id",
-                            "revoked",
-                            "revision"
-                          ],
-                          "properties": {
-                            "grant_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "revoked": {
-                              "const": true
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-grants-revoke-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -549,52 +250,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.capture"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "candidate_ids",
-                            "classified"
-                          ],
-                          "properties": {
-                            "candidate_ids": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            },
-                            "classified": {
-                              "type": "integer",
-                              "minimum": 0
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-capture-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -633,49 +289,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.candidates.dismiss"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "candidate_id",
-                            "outcome"
-                          ],
-                          "properties": {
-                            "candidate_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "outcome": {
-                              "const": "dismissed"
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -714,56 +328,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.candidates.review"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "outcome",
-                            "record_ids"
-                          ],
-                          "properties": {
-                            "outcome": {
-                              "type": "string",
-                              "enum": [
-                                "promoted",
-                                "fragmented",
-                                "dropped"
-                              ]
-                            },
-                            "record_ids": {
-                              "type": "array",
-                              "items": {
-                                "type": "string"
-                              }
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-review-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -802,50 +367,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.records.create"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "record_id",
-                            "revision"
-                          ],
-                          "properties": {
-                            "record_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -884,50 +406,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.records.update"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "record_id",
-                            "revision"
-                          ],
-                          "properties": {
-                            "record_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-update-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -966,49 +445,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.records.delete"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "record_id",
-                            "tombstoned"
-                          ],
-                          "properties": {
-                            "record_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "tombstoned": {
-                              "const": true
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-delete-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1047,54 +484,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.records.promote"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "record_id",
-                            "revision",
-                            "scope"
-                          ],
-                          "properties": {
-                            "record_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            },
-                            "scope": {
-                              "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope"
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-promote-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1133,50 +523,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.profile.update"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "profile_kind",
-                            "revision"
-                          ],
-                          "properties": {
-                            "profile_kind": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "revision": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-profile-update-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1215,63 +562,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.reflections.generate"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "reflection_id"
-                          ],
-                          "properties": {
-                            "reflection_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "cost": {
-                              "type": "object",
-                              "required": [
-                                "units",
-                                "unit_kind"
-                              ],
-                              "properties": {
-                                "units": {
-                                  "type": "number",
-                                  "minimum": 0
-                                },
-                                "unit_kind": {
-                                  "type": "string",
-                                  "minLength": 1
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-reflections-generate-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1342,99 +633,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.exports.create"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "export_id",
-                            "chunk_count",
-                            "total_bytes",
-                            "bundle_digest",
-                            "counts"
-                          ],
-                          "properties": {
-                            "export_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "chunk_count": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "total_bytes": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "bundle_digest": {
-                              "type": "string",
-                              "pattern": "^[0-9a-f]{64}$"
-                            },
-                            "counts": {
-                              "type": "object",
-                              "required": [
-                                "subjects",
-                                "records",
-                                "candidates",
-                                "profiles",
-                                "reflections",
-                                "receipt_summaries"
-                              ],
-                              "properties": {
-                                "subjects": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "records": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "candidates": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "profiles": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "reflections": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "receipt_summaries": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-exports-create-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1505,151 +704,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.imports.stage"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "import_id",
-                            "chunks_received"
-                          ],
-                          "properties": {
-                            "import_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "chunks_received": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "staged_report": {
-                              "type": "object",
-                              "required": [
-                                "counts",
-                                "subject_id_map",
-                                "record_id_map",
-                                "candidate_id_map",
-                                "grants_adopted",
-                                "grants_dropped",
-                                "verification"
-                              ],
-                              "properties": {
-                                "counts": {
-                                  "type": "object",
-                                  "required": [
-                                    "subjects",
-                                    "records",
-                                    "candidates",
-                                    "profiles",
-                                    "reflections",
-                                    "receipt_summaries"
-                                  ],
-                                  "properties": {
-                                    "subjects": {
-                                      "type": "integer",
-                                      "minimum": 0
-                                    },
-                                    "records": {
-                                      "type": "integer",
-                                      "minimum": 0
-                                    },
-                                    "candidates": {
-                                      "type": "integer",
-                                      "minimum": 0
-                                    },
-                                    "profiles": {
-                                      "type": "integer",
-                                      "minimum": 0
-                                    },
-                                    "reflections": {
-                                      "type": "integer",
-                                      "minimum": 0
-                                    },
-                                    "receipt_summaries": {
-                                      "type": "integer",
-                                      "minimum": 0
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                },
-                                "subject_id_map": {
-                                  "type": "object",
-                                  "additionalProperties": {
-                                    "type": "string"
-                                  },
-                                  "description": "Opaque source-to-target id map."
-                                },
-                                "record_id_map": {
-                                  "type": "object",
-                                  "additionalProperties": {
-                                    "type": "string"
-                                  },
-                                  "description": "Opaque source-to-target id map."
-                                },
-                                "candidate_id_map": {
-                                  "type": "object",
-                                  "additionalProperties": {
-                                    "type": "string"
-                                  },
-                                  "description": "Opaque source-to-target id map."
-                                },
-                                "grants_adopted": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "grants_dropped": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "verification": {
-                                  "type": "object",
-                                  "required": [
-                                    "bundle_digest_ok",
-                                    "errors"
-                                  ],
-                                  "properties": {
-                                    "bundle_digest_ok": {
-                                      "type": "boolean"
-                                    },
-                                    "errors": {
-                                      "type": "array",
-                                      "items": {
-                                        "type": "string"
-                                      }
-                                    }
-                                  },
-                                  "additionalProperties": false
-                                }
-                              },
-                              "additionalProperties": false
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-stage-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1720,89 +775,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.imports.activate"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "import_id",
-                            "activated",
-                            "authority_generation"
-                          ],
-                          "properties": {
-                            "import_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "activated": {
-                              "type": "object",
-                              "required": [
-                                "subjects",
-                                "records",
-                                "candidates",
-                                "profiles",
-                                "reflections",
-                                "receipt_summaries"
-                              ],
-                              "properties": {
-                                "subjects": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "records": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "candidates": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "profiles": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "reflections": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                },
-                                "receipt_summaries": {
-                                  "type": "integer",
-                                  "minimum": 0
-                                }
-                              },
-                              "additionalProperties": false
-                            },
-                            "authority_generation": {
-                              "type": "integer",
-                              "minimum": 1
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-activate-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [
@@ -1873,49 +846,7 @@
             {
               "oneOf": [
                 {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.imports.discard"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "committed"
-                        },
-                        "result": {
-                          "type": "object",
-                          "required": [
-                            "import_id",
-                            "discarded"
-                          ],
-                          "properties": {
-                            "import_id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "discarded": {
-                              "const": true
-                            }
-                          },
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "result"
-                      ]
-                    }
-                  ]
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-discard-response.schema.json#/definitions/CommittedReceipt"
                 },
                 {
                   "allOf": [

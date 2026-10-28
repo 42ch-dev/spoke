@@ -3,8 +3,8 @@
   "$id": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json",
   "title": "MemoryRecordsCreateResponse",
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"record_id\": string, \"revision\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.records.create (§7.16): NOT_AUTHORIZED, INVALID_INPUT, SPACE_FROZEN, SUBJECT_FENCED, IDEMPOTENCY_CONFLICT. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
-  "oneOf": [
-    {
+  "definitions": {
+    "CommittedReceipt": {
       "allOf": [
         {
           "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
@@ -46,6 +46,47 @@
           "required": [
             "status",
             "result"
+          ]
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.records.create"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                },
+                "error": {
+                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                }
+              },
+              "required": [
+                "status",
+                "error"
+              ]
+            }
           ]
         }
       ]

@@ -3,8 +3,8 @@
   "$id": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-response.schema.json",
   "title": "MemoryCandidatesDismissResponse",
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"candidate_id\": string, \"outcome\": \"dismissed\" }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.candidates.dismiss (§7.14): CANDIDATE_CONSUMED, REVISION_CONFLICT, NOT_FOUND, NOT_AUTHORIZED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
-  "oneOf": [
-    {
+  "definitions": {
+    "CommittedReceipt": {
       "allOf": [
         {
           "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
@@ -45,6 +45,47 @@
           "required": [
             "status",
             "result"
+          ]
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.candidates.dismiss"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                },
+                "error": {
+                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                }
+              },
+              "required": [
+                "status",
+                "error"
+              ]
+            }
           ]
         }
       ]

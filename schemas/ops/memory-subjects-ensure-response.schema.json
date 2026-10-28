@@ -3,8 +3,8 @@
   "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-response.schema.json",
   "title": "MemorySubjectsEnsureResponse",
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"subject_id\": string, \"created\": bool, \"status\": string, \"revision\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.subjects.ensure (§7.5): SPACE_FROZEN, SUBJECT_FENCED, NOT_AUTHORIZED, INVALID_INPUT. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
-  "oneOf": [
-    {
+  "definitions": {
+    "CommittedReceipt": {
       "allOf": [
         {
           "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
@@ -59,6 +59,47 @@
           "required": [
             "status",
             "result"
+          ]
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.subjects.ensure"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                },
+                "error": {
+                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                }
+              },
+              "required": [
+                "status",
+                "error"
+              ]
+            }
           ]
         }
       ]

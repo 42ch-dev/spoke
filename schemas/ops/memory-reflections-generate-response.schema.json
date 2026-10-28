@@ -3,67 +3,72 @@
   "$id": "https://spoke42.invalid/schemas/ops/memory-reflections-generate-response.schema.json",
   "title": "MemoryReflectionsGenerateResponse",
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"reflection_id\": string, \"cost\": { \"units\": number, \"unit_kind\": string }? }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.reflections.generate (§7.27): PROFILE_INCOMPLETE, INSUFFICIENT_DATA, REVISION_CONFLICT, NOT_AUTHORIZED, SPACE_FROZEN, SUBJECT_FENCED, OUTCOME_UNCERTAIN. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
-  "oneOf": [
-    {
-      "oneOf": [
+  "definitions": {
+    "CommittedReceipt": {
+      "allOf": [
         {
-          "allOf": [
-            {
-              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.reflections.generate"
+            }
+          },
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed"
             },
-            {
-              "properties": {
-                "op": {
-                  "const": "memory.reflections.generate"
-                }
-              },
+            "result": {
+              "type": "object",
               "required": [
-                "op"
-              ]
-            },
-            {
+                "reflection_id"
+              ],
               "properties": {
-                "status": {
-                  "const": "committed"
+                "reflection_id": {
+                  "type": "string",
+                  "minLength": 1
                 },
-                "result": {
+                "cost": {
                   "type": "object",
                   "required": [
-                    "reflection_id"
+                    "units",
+                    "unit_kind"
                   ],
                   "properties": {
-                    "reflection_id": {
+                    "units": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "unit_kind": {
                       "type": "string",
                       "minLength": 1
-                    },
-                    "cost": {
-                      "type": "object",
-                      "required": [
-                        "units",
-                        "unit_kind"
-                      ],
-                      "properties": {
-                        "units": {
-                          "type": "number",
-                          "minimum": 0
-                        },
-                        "unit_kind": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
                 }
               },
-              "required": [
-                "status",
-                "result"
-              ]
+              "additionalProperties": false
             }
+          },
+          "required": [
+            "status",
+            "result"
           ]
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-reflections-generate-response.schema.json#/definitions/CommittedReceipt"
         },
         {
           "allOf": [

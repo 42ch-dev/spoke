@@ -3,8 +3,8 @@
   "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-fence-response.schema.json",
   "title": "MemorySubjectsFenceResponse",
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"subject_id\": string, \"status\": string, \"fenced_contexts\": string[], \"revision\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.subjects.fence (§7.7): INVALID_STATUS_TRANSITION, INVALID_INPUT, REVISION_CONFLICT, NOT_FOUND, NOT_AUTHORIZED, SPACE_FROZEN. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
-  "oneOf": [
-    {
+  "definitions": {
+    "CommittedReceipt": {
       "allOf": [
         {
           "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
@@ -62,6 +62,47 @@
           "required": [
             "status",
             "result"
+          ]
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-fence-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.subjects.fence"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                },
+                "error": {
+                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                }
+              },
+              "required": [
+                "status",
+                "error"
+              ]
+            }
           ]
         }
       ]

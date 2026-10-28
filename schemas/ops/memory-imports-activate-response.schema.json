@@ -3,93 +3,98 @@
   "$id": "https://spoke42.invalid/schemas/ops/memory-imports-activate-response.schema.json",
   "title": "MemoryImportsActivateResponse",
   "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"import_id\": string, \"activated\": Counts, \"authority_generation\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.imports.activate (§7.32): IMPORT_CONFLICT, NOT_FOUND, NOT_AUTHORIZED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "definitions": {
+    "CommittedReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.imports.activate"
+            }
+          },
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed"
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "import_id",
+                "activated",
+                "authority_generation"
+              ],
+              "properties": {
+                "import_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "activated": {
+                  "type": "object",
+                  "required": [
+                    "subjects",
+                    "records",
+                    "candidates",
+                    "profiles",
+                    "reflections",
+                    "receipt_summaries"
+                  ],
+                  "properties": {
+                    "subjects": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "records": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "candidates": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "profiles": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "reflections": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "receipt_summaries": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "authority_generation": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ]
+        }
+      ]
+    }
+  },
   "oneOf": [
     {
       "oneOf": [
         {
-          "allOf": [
-            {
-              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-            },
-            {
-              "properties": {
-                "op": {
-                  "const": "memory.imports.activate"
-                }
-              },
-              "required": [
-                "op"
-              ]
-            },
-            {
-              "properties": {
-                "status": {
-                  "const": "committed"
-                },
-                "result": {
-                  "type": "object",
-                  "required": [
-                    "import_id",
-                    "activated",
-                    "authority_generation"
-                  ],
-                  "properties": {
-                    "import_id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "activated": {
-                      "type": "object",
-                      "required": [
-                        "subjects",
-                        "records",
-                        "candidates",
-                        "profiles",
-                        "reflections",
-                        "receipt_summaries"
-                      ],
-                      "properties": {
-                        "subjects": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "records": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "candidates": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "profiles": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "reflections": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "receipt_summaries": {
-                          "type": "integer",
-                          "minimum": 0
-                        }
-                      },
-                      "additionalProperties": false
-                    },
-                    "authority_generation": {
-                      "type": "integer",
-                      "minimum": 1
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "required": [
-                "status",
-                "result"
-              ]
-            }
-          ]
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-activate-response.schema.json#/definitions/CommittedReceipt"
         },
         {
           "allOf": [

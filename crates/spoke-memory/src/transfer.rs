@@ -10,7 +10,7 @@
 //! engine works on their JSON projection. Reflection inputs stay typed
 //! (`ReadSelection`, `ProvenanceFilter`) because they are pure value objects.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde_json::{json, Map, Value};
@@ -27,8 +27,9 @@ pub const BUNDLE_ARRAY_FIELDS: [&str; 7] = [
     "grants",
 ];
 
-/// Logical bundle scalars carried in the ordinal-0 header (§6.13).
-pub const BUNDLE_HEADER_FIELDS: [&str; 8] = [
+/// Logical bundle scalars carried in the ordinal-0 header, including the sealed
+/// `digest` (§6.13 header fields) and `extensions` (decision D8).
+pub const BUNDLE_HEADER_FIELDS: [&str; 9] = [
     "schema_version",
     "bundle_format_version",
     "memory_protocol_version",
@@ -36,7 +37,31 @@ pub const BUNDLE_HEADER_FIELDS: [&str; 8] = [
     "space_id",
     "created_at",
     "source",
+    "digest",
     "extensions",
+];
+
+/// Header fields a chunk cannot be emitted without (§6.13 header schema).
+const REQUIRED_HEADER_FIELDS: [&str; 8] = [
+    "schema_version",
+    "bundle_format_version",
+    "memory_protocol_version",
+    "export_id",
+    "space_id",
+    "created_at",
+    "source",
+    "digest",
+];
+
+/// Closed `counts` shape of `memory.imports.stage` (§7.31): grant totals live in
+/// `grants_adopted`/`grants_dropped`, never in `counts`.
+pub const STAGED_COUNT_FIELDS: [&str; 6] = [
+    "subjects",
+    "records",
+    "candidates",
+    "profiles",
+    "reflections",
+    "receipt_summaries",
 ];
 
 /// Transfer-policy failures. They are provider-independent observations about
@@ -51,7 +76,9 @@ pub enum TransferError {
     OrdinalSequence { expected: u64, found: u64 },
     ChunkMetadataMismatch(&'static str),
     ChunkDigestMismatch(u64),
+    UnexpectedHeader(u64),
     BundleDigestMismatch,
+    MissingMapping { kind: &'static str, id: String },
 }
 
 impl fmt::Display for TransferError {
@@ -79,8 +106,17 @@ impl fmt::Display for TransferError {
             Self::ChunkDigestMismatch(ordinal) => {
                 write!(formatter, "chunk {ordinal} digest does not verify")
             }
+            Self::UnexpectedHeader(ordinal) => {
+                write!(
+                    formatter,
+                    "chunk {ordinal} carries a header; only ordinal 0 may"
+                )
+            }
             Self::BundleDigestMismatch => {
                 write!(formatter, "reassembled bundle digest does not verify")
+            }
+            Self::MissingMapping { kind, id } => {
+                write!(formatter, "{kind} {id} has no target assignment")
             }
         }
     }
@@ -151,13 +187,9 @@ fn write_canonical_string(text: &str, out: &mut String) {
     out.push('"');
 }
 
+/// RFC 8785 §3.2.2.3: every JSON number is an IEEE-754 double serialized with
+/// ECMAScript `Number::toString` semantics, integers included.
 fn canonical_number(number: &serde_json::Number) -> Result<String, TransferError> {
-    if let Some(value) = number.as_i64() {
-        return Ok(value.to_string());
-    }
-    if let Some(value) = number.as_u64() {
-        return Ok(value.to_string());
-    }
     let value = number.as_f64().ok_or(TransferError::NonFiniteNumber)?;
     if !value.is_finite() {
         return Err(TransferError::NonFiniteNumber);
@@ -169,7 +201,9 @@ fn canonical_number(number: &serde_json::Number) -> Result<String, TransferError
 }
 
 /// ECMAScript `Number::toString` (RFC 8785 §3.2.2.3): shortest round-trip
-/// digits, plain decimal for `1e-6 <= |x| < 1e21`, exponential otherwise.
+/// digits (Rust's `{:e}`), plain decimal for `1e-6 <= |x| < 1e21`, exponential
+/// with an explicit sign otherwise; `9007199254740993` becomes
+/// `9007199254740992` because it parses to that double.
 fn ecmascript_number(value: f64) -> String {
     let negative = value < 0.0;
     let formatted = format!("{:e}", value.abs());
@@ -182,7 +216,7 @@ fn ecmascript_number(value: f64) -> String {
         .collect();
     let exponent: i32 = exponent.parse().expect("{:e} writes a decimal exponent");
     let length = digits.len() as i32;
-    // `n` is the position of the decimal point relative to the digit string.
+    // `point` is the decimal point position relative to the digit string.
     let point = exponent + 1;
 
     let mut out = String::new();
@@ -255,6 +289,9 @@ fn digest_without(
 /// §6.13 partitioning: element-atomic slices in the fixed field order, header
 /// only on ordinal 0, never splitting an element even when it exceeds the limit.
 ///
+/// Presence is preserved: an array that is present but empty is emitted as `[]`
+/// on ordinal 0, while an absent array is never emitted.
+///
 /// Sizing uses the canonical serialized chunk with a placeholder `chunk_count`
 /// of the widest possible digit count, so a final chunk's `bytes` never exceeds
 /// the measured value.
@@ -267,20 +304,37 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
         .and_then(Value::as_str)
         .ok_or(TransferError::MissingField("export_id"))?
         .to_string();
-    let bundle_digest = bundle_digest(bundle)?;
+
+    let recomputed_digest = bundle_digest(bundle)?;
+    if let Some(declared) = object.get("digest") {
+        if declared.as_str() != Some(recomputed_digest.as_str()) {
+            return Err(TransferError::BundleDigestMismatch);
+        }
+    }
+    for field in REQUIRED_HEADER_FIELDS {
+        if !object.contains_key(field) {
+            return Err(TransferError::MissingField(field));
+        }
+    }
+
     let header: Map<String, Value> = BUNDLE_HEADER_FIELDS
         .iter()
         .filter_map(|field| {
-            object
-                .get(*field)
-                .map(|value| ((*field).to_string(), value.clone()))
+            let value = if *field == "digest" {
+                json!(recomputed_digest)
+            } else {
+                object.get(*field)?.clone()
+            };
+            Some(((*field).to_string(), value))
         })
         .collect();
 
     let mut stream: Vec<(&'static str, &Value)> = Vec::new();
+    let mut empty_present: Vec<&'static str> = Vec::new();
     for field in BUNDLE_ARRAY_FIELDS {
         match object.get(field) {
             None => {}
+            Some(Value::Array(items)) if items.is_empty() => empty_present.push(field),
             Some(Value::Array(items)) => {
                 stream.extend(items.iter().map(|item| (field, item)));
             }
@@ -298,8 +352,9 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
         if current.len() > 1 {
             let measured = build_chunk(
                 &export_id,
-                &bundle_digest,
+                &recomputed_digest,
                 &header,
+                &empty_present,
                 groups.len() as u64,
                 count_placeholder,
                 &current,
@@ -321,8 +376,9 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
         .map(|(ordinal, group)| {
             build_chunk(
                 &export_id,
-                &bundle_digest,
+                &recomputed_digest,
                 &header,
+                &empty_present,
                 ordinal as u64,
                 count,
                 group,
@@ -335,6 +391,7 @@ fn build_chunk(
     export_id: &str,
     bundle_digest: &str,
     header: &Map<String, Value>,
+    empty_present: &[&'static str],
     ordinal: u64,
     count: u64,
     group: &[(&'static str, &Value)],
@@ -355,6 +412,8 @@ fn build_chunk(
             .collect();
         if !items.is_empty() {
             chunk.insert(field.to_string(), Value::Array(items));
+        } else if ordinal == 0 && empty_present.contains(&field) {
+            chunk.insert(field.to_string(), Value::Array(Vec::new()));
         }
     }
     // A fixed-width placeholder keeps the digest field's contribution to the
@@ -376,97 +435,167 @@ fn build_chunk(
     Ok(Value::Object(chunk))
 }
 
-/// Reassemble verified chunks into the logical bundle (§6.13, §6.11).
-pub fn reassemble(chunks: &[Value]) -> Result<Value, TransferError> {
-    if chunks.is_empty() {
-        return Err(TransferError::MissingField("chunks"));
-    }
-    let mut ordered: Vec<&Value> = chunks.iter().collect();
-    ordered.sort_by_key(|chunk| {
-        chunk
-            .get("chunk_ordinal")
-            .and_then(Value::as_u64)
-            .unwrap_or(u64::MAX)
-    });
+/// Outcome of the verified reassembly path: the reassembled bundle (when the
+/// header allowed building one), whether its digest matched, and every failure.
+struct Reassembly {
+    bundle: Option<Value>,
+    bundle_digest_ok: bool,
+    errors: Vec<TransferError>,
+}
 
-    let declared = ordered[0]
-        .get("chunk_count")
-        .and_then(Value::as_u64)
-        .ok_or(TransferError::MissingField("chunk_count"))?;
-    if declared != ordered.len() as u64 {
-        return Err(TransferError::ChunkCountMismatch {
-            declared,
-            actual: ordered.len() as u64,
-        });
+fn reassemble_verified(chunks: &[Value]) -> Reassembly {
+    let mut errors = Vec::new();
+    if chunks.is_empty() {
+        errors.push(TransferError::MissingField("chunks"));
+        return Reassembly {
+            bundle: None,
+            bundle_digest_ok: false,
+            errors,
+        };
     }
-    let export_id = ordered[0]
-        .get("export_id")
-        .and_then(Value::as_str)
-        .ok_or(TransferError::MissingField("export_id"))?
-        .to_string();
-    let declared_digest = ordered[0]
-        .get("bundle_digest")
-        .and_then(Value::as_str)
-        .ok_or(TransferError::MissingField("bundle_digest"))?
-        .to_string();
+
+    let mut ordered: Vec<(u64, &Value)> = chunks
+        .iter()
+        .map(|chunk| {
+            let ordinal = chunk
+                .get("chunk_ordinal")
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::MAX);
+            (ordinal, chunk)
+        })
+        .collect();
+    ordered.sort_by_key(|(ordinal, _)| *ordinal);
+    let total = ordered.len() as u64;
+    for (index, (ordinal, _)) in ordered.iter().enumerate() {
+        if *ordinal != index as u64 {
+            errors.push(TransferError::OrdinalSequence {
+                expected: index as u64,
+                found: *ordinal,
+            });
+        }
+    }
 
     let mut header: Option<Map<String, Value>> = None;
+    let mut present: BTreeSet<&'static str> = BTreeSet::new();
     let mut slices: BTreeMap<&'static str, Vec<Value>> = BUNDLE_ARRAY_FIELDS
         .iter()
         .map(|field| (*field, Vec::new()))
         .collect();
-    for (index, chunk) in ordered.iter().enumerate() {
-        let object = chunk
-            .as_object()
-            .ok_or(TransferError::NotAnObject("chunk"))?;
-        let ordinal = object
-            .get("chunk_ordinal")
-            .and_then(Value::as_u64)
-            .ok_or(TransferError::MissingField("chunk_ordinal"))?;
-        if ordinal != index as u64 {
-            return Err(TransferError::OrdinalSequence {
-                expected: index as u64,
-                found: ordinal,
-            });
+
+    for (index, (ordinal, chunk)) in ordered.iter().enumerate() {
+        let Some(object) = chunk.as_object() else {
+            errors.push(TransferError::NotAnObject("chunk"));
+            continue;
+        };
+        match object.get("chunk_count").and_then(Value::as_u64) {
+            Some(declared) if declared != total => {
+                errors.push(TransferError::ChunkCountMismatch {
+                    declared,
+                    actual: total,
+                });
+            }
+            Some(_) => {}
+            None => errors.push(TransferError::MissingField("chunk_count")),
         }
-        if object.get("export_id").and_then(Value::as_str) != Some(export_id.as_str()) {
-            return Err(TransferError::ChunkMetadataMismatch("export_id"));
+        match chunk_digest(chunk) {
+            Ok(expected) => {
+                let recorded = object
+                    .get("chunk_digest")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if recorded != expected {
+                    errors.push(TransferError::ChunkDigestMismatch(*ordinal));
+                }
+            }
+            Err(error) => errors.push(error),
         }
-        if object.get("bundle_digest").and_then(Value::as_str) != Some(declared_digest.as_str()) {
-            return Err(TransferError::ChunkMetadataMismatch("bundle_digest"));
-        }
-        if index == 0 {
-            header = Some(
-                object
-                    .get("header")
-                    .and_then(Value::as_object)
-                    .ok_or(TransferError::MissingField("header"))?
-                    .clone(),
-            );
+        match (index, object.get("header")) {
+            (0, Some(Value::Object(fields))) => header = Some(fields.clone()),
+            (0, Some(_)) => errors.push(TransferError::UnexpectedType("header")),
+            (0, None) => errors.push(TransferError::MissingField("header")),
+            (_, Some(_)) => errors.push(TransferError::UnexpectedHeader(*ordinal)),
+            (_, None) => {}
         }
         for field in BUNDLE_ARRAY_FIELDS {
             if let Some(items) = object.get(field) {
-                let items = items
-                    .as_array()
-                    .ok_or(TransferError::UnexpectedType(field))?;
-                slices
-                    .get_mut(field)
-                    .expect("every array field is tracked")
-                    .extend(items.iter().cloned());
+                present.insert(field);
+                match items.as_array() {
+                    Some(items) => slices
+                        .get_mut(field)
+                        .expect("every array field is tracked")
+                        .extend(items.iter().cloned()),
+                    None => errors.push(TransferError::UnexpectedType(field)),
+                }
             }
         }
     }
 
-    let mut bundle = header.ok_or(TransferError::MissingField("header"))?;
+    let Some(header) = header else {
+        return Reassembly {
+            bundle: None,
+            bundle_digest_ok: false,
+            errors,
+        };
+    };
+    let header_export_id = header.get("export_id").and_then(Value::as_str);
+    let header_digest = header
+        .get("digest")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    for (_, chunk) in &ordered {
+        if chunk.get("export_id").and_then(Value::as_str) != header_export_id {
+            errors.push(TransferError::ChunkMetadataMismatch("export_id"));
+        }
+        if chunk.get("bundle_digest").and_then(Value::as_str) != header_digest.as_deref() {
+            errors.push(TransferError::ChunkMetadataMismatch("bundle_digest"));
+        }
+    }
+
+    let mut bundle = header;
     for (field, items) in slices {
-        bundle.insert(field.to_string(), Value::Array(items));
+        if present.contains(field) {
+            bundle.insert(field.to_string(), Value::Array(items));
+        }
     }
-    bundle.insert("digest".to_string(), json!(declared_digest));
     let bundle = Value::Object(bundle);
-    if bundle_digest(&bundle)? != declared_digest {
-        return Err(TransferError::BundleDigestMismatch);
+    let bundle_digest_ok = match (header_digest, bundle_digest(&bundle)) {
+        (Some(declared), Ok(recomputed)) => {
+            if declared == recomputed {
+                true
+            } else {
+                errors.push(TransferError::BundleDigestMismatch);
+                false
+            }
+        }
+        (Some(_), Err(error)) => {
+            errors.push(error);
+            false
+        }
+        (None, _) => {
+            errors.push(TransferError::MissingField("header.digest"));
+            false
+        }
+    };
+
+    Reassembly {
+        bundle: Some(bundle),
+        bundle_digest_ok,
+        errors,
     }
-    Ok(bundle)
+}
+
+/// Reassemble the logical bundle from verified chunks (§6.13, §6.11).
+///
+/// Every per-chunk digest, the shared `chunk_count`, ordinal continuity, header
+/// placement (ordinal 0 only) and the header's sealed `digest` are checked; the
+/// first failure is returned. Use [`verify_reassembly`] when all failures are
+/// needed.
+pub fn reassemble(chunks: &[Value]) -> Result<Value, TransferError> {
+    let Reassembly { bundle, errors, .. } = reassemble_verified(chunks);
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error);
+    }
+    bundle.ok_or(TransferError::MissingField("header"))
 }
 
 /// Outcome of chunk verification (§7.31 `staged_report.verification`).
@@ -475,90 +604,107 @@ pub struct Verification {
     pub errors: Vec<String>,
 }
 
-/// Verify per-chunk digests and the reassembled bundle digest; never panics on
-/// malformed input — every failure becomes a message in `errors`.
+/// Verify per-chunk digests, chunk structure and the reassembled bundle digest;
+/// never panics on malformed input — every failure becomes a message in
+/// `errors`. Acceptance requires both `bundle_digest_ok` and an empty `errors`.
 pub fn verify_reassembly(chunks: &[Value]) -> Verification {
-    let mut errors = Vec::new();
-    for (index, chunk) in chunks.iter().enumerate() {
-        let ordinal = chunk
-            .get("chunk_ordinal")
-            .and_then(Value::as_u64)
-            .unwrap_or(index as u64);
-        match chunk_digest(chunk) {
-            Ok(expected) => {
-                let recorded = chunk
-                    .get("chunk_digest")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                if recorded != expected {
-                    errors.push(TransferError::ChunkDigestMismatch(ordinal).to_string());
-                }
-            }
-            Err(error) => errors.push(format!("chunk {ordinal}: {error}")),
-        }
-    }
-    let bundle_digest_ok = match reassemble(chunks) {
-        Ok(_) => true,
-        Err(error) => {
-            errors.push(error.to_string());
-            false
-        }
-    };
+    let reassembly = reassemble_verified(chunks);
     Verification {
-        bundle_digest_ok,
-        errors,
+        bundle_digest_ok: reassembly.bundle_digest_ok,
+        errors: reassembly.errors.iter().map(ToString::to_string).collect(),
     }
 }
 
 /// §7.31 reference translation maps (source id → target id).
+#[derive(Debug, Default, Clone)]
 pub struct TranslationMaps {
     pub subject_id_map: BTreeMap<String, String>,
     pub record_id_map: BTreeMap<String, String>,
     pub candidate_id_map: BTreeMap<String, String>,
 }
 
-/// Build the translation maps for a reassembled bundle. Unlisted subjects keep
-/// their id (subject ids are preserved unless renamed); unlisted records and
-/// candidates also keep theirs — the provider decides assignments.
+/// Build the translation maps for a reassembled bundle (§7.31, §12.3).
+///
+/// Subject ids are preserved unless renamed. Record and candidate ids are
+/// reassigned by the target, so a missing assignment is reported as an error
+/// and left out of the map — source ids are never presented as target ids.
 pub fn build_translation_maps(
     bundle: &Value,
     subject_renames: &BTreeMap<String, String>,
     record_ids: &BTreeMap<String, String>,
     candidate_ids: &BTreeMap<String, String>,
-) -> Result<TranslationMaps, TransferError> {
-    Ok(TranslationMaps {
-        subject_id_map: identity_map(bundle, "subjects", "subject_id", subject_renames)?,
-        record_id_map: identity_map(bundle, "records", "record_id", record_ids)?,
-        candidate_id_map: identity_map(bundle, "candidates", "candidate_id", candidate_ids)?,
-    })
+) -> (TranslationMaps, Vec<TransferError>) {
+    let mut errors = Vec::new();
+    let maps = TranslationMaps {
+        subject_id_map: identity_map(
+            bundle,
+            "subjects",
+            "subject_id",
+            "subject",
+            subject_renames,
+            false,
+            &mut errors,
+        ),
+        record_id_map: identity_map(
+            bundle,
+            "records",
+            "record_id",
+            "record",
+            record_ids,
+            true,
+            &mut errors,
+        ),
+        candidate_id_map: identity_map(
+            bundle,
+            "candidates",
+            "candidate_id",
+            "candidate",
+            candidate_ids,
+            true,
+            &mut errors,
+        ),
+    };
+    (maps, errors)
 }
 
 fn identity_map(
     bundle: &Value,
     field: &'static str,
     id_field: &'static str,
+    kind: &'static str,
     overrides: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, String>, TransferError> {
+    require_assignment: bool,
+    errors: &mut Vec<TransferError>,
+) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     let items = bundle
         .get(field)
         .and_then(Value::as_array)
         .map_or(&[][..], Vec::as_slice);
     for item in items {
-        let source = item
-            .get(id_field)
-            .and_then(Value::as_str)
-            .ok_or(TransferError::MissingField(id_field))?;
-        let target = overrides
-            .get(source)
-            .cloned()
-            .unwrap_or_else(|| source.to_string());
-        map.insert(source.to_string(), target);
+        let Some(source) = item.get(id_field).and_then(Value::as_str) else {
+            errors.push(TransferError::MissingField(id_field));
+            continue;
+        };
+        match overrides.get(source) {
+            Some(target) => {
+                map.insert(source.to_string(), target.clone());
+            }
+            None if require_assignment => errors.push(TransferError::MissingMapping {
+                kind,
+                id: source.to_string(),
+            }),
+            None => {
+                map.insert(source.to_string(), source.to_string());
+            }
+        }
     }
-    Ok(map)
+    map
 }
 
 /// Remap a candidate's `consumed_by.record_ids` through the record map (§7.31).
+/// A reference without a target assignment is rejected, never left pointing at
+/// a source id.
 pub fn remap_candidate_consumed_by(
     candidate: &Value,
     maps: &TranslationMaps,
@@ -581,11 +727,13 @@ pub fn remap_candidate_consumed_by(
                     let source = item
                         .as_str()
                         .ok_or(TransferError::UnexpectedType("record_ids"))?;
-                    Ok(json!(maps
-                        .record_id_map
-                        .get(source)
-                        .cloned()
-                        .unwrap_or_else(|| source.to_string())))
+                    match maps.record_id_map.get(source) {
+                        Some(target) => Ok(json!(target)),
+                        None => Err(TransferError::MissingMapping {
+                            kind: "record",
+                            id: source.to_string(),
+                        }),
+                    }
                 })
                 .collect::<Result<_, TransferError>>()?;
             *record_ids = Value::Array(remapped);
@@ -617,8 +765,45 @@ pub fn adopt_grants(bundle: &Value, adopt: &[&str]) -> Result<(Vec<Value>, usize
     Ok((adopted, dropped))
 }
 
-/// §7.31 staged report: counts, translation maps, grant adoption totals, and
-/// the verification outcome.
+/// §7.31 staged outcome: the reassembled bundle (when structure allowed it), the
+/// reference translation maps, and one verification record covering chunk,
+/// bundle and translation failures.
+pub struct StagedOutcome {
+    pub bundle: Option<Value>,
+    pub maps: TranslationMaps,
+    pub verification: Verification,
+}
+
+/// Verify staged chunks and reference translation in one pass.
+pub fn verify_staging(
+    chunks: &[Value],
+    subject_renames: &BTreeMap<String, String>,
+    record_ids: &BTreeMap<String, String>,
+    candidate_ids: &BTreeMap<String, String>,
+) -> StagedOutcome {
+    let reassembly = reassemble_verified(chunks);
+    let mut errors: Vec<String> = reassembly.errors.iter().map(ToString::to_string).collect();
+    let maps = match &reassembly.bundle {
+        Some(bundle) => {
+            let (maps, translation_errors) =
+                build_translation_maps(bundle, subject_renames, record_ids, candidate_ids);
+            errors.extend(translation_errors.iter().map(ToString::to_string));
+            maps
+        }
+        None => TranslationMaps::default(),
+    };
+    StagedOutcome {
+        bundle: reassembly.bundle,
+        maps,
+        verification: Verification {
+            bundle_digest_ok: reassembly.bundle_digest_ok,
+            errors,
+        },
+    }
+}
+
+/// §7.31 staged report: the closed six-property `counts` shape, translation
+/// maps, grant adoption totals, and the verification outcome.
 pub fn staged_report(
     bundle: &Value,
     maps: &TranslationMaps,
@@ -629,7 +814,7 @@ pub fn staged_report(
     let object = bundle
         .as_object()
         .ok_or(TransferError::NotAnObject("bundle"))?;
-    let counts: Map<String, Value> = BUNDLE_ARRAY_FIELDS
+    let counts: Map<String, Value> = STAGED_COUNT_FIELDS
         .iter()
         .map(|field| {
             let count = object
@@ -690,8 +875,17 @@ mod tests {
         })
     }
 
+    fn seal(mut bundle: Value) -> Value {
+        let digest = bundle_digest(&bundle).expect("bundle digest computes");
+        bundle
+            .as_object_mut()
+            .expect("bundle is an object")
+            .insert("digest".to_string(), Value::String(digest));
+        bundle
+    }
+
     fn sealed_bundle() -> Value {
-        let mut bundle = json!({
+        seal(json!({
             "schema_version": 1,
             "bundle_format_version": 1,
             "memory_protocol_version": 1,
@@ -756,20 +950,55 @@ mod tests {
                 },
             ],
             "extensions": {"spoke_note": {"build": 7}},
-        });
-        let digest = bundle_digest(&bundle).expect("bundle digest computes");
-        bundle
-            .as_object_mut()
-            .expect("bundle is an object")
-            .insert("digest".to_string(), Value::String(digest));
-        bundle
+        }))
+    }
+
+    fn complete_assignments() -> (BTreeMap<String, String>, BTreeMap<String, String>) {
+        let mut records = BTreeMap::new();
+        records.insert("rec_a".to_string(), "rec_a_target".to_string());
+        records.insert("rec_b".to_string(), "rec_b_target".to_string());
+        records.insert("rec_c".to_string(), "rec_c_target".to_string());
+        let mut candidates = BTreeMap::new();
+        candidates.insert("cand_1".to_string(), "cand_1_target".to_string());
+        (records, candidates)
+    }
+
+    /// Locate the closed `Counts` definition inside the consumer schema.
+    fn schema_counts(value: &Value) -> Option<(Vec<String>, Vec<String>)> {
+        match value {
+            Value::Object(fields) => {
+                if fields.get("title").and_then(Value::as_str) == Some("Counts") {
+                    let required = fields
+                        .get("required")
+                        .and_then(Value::as_array)
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut properties = fields
+                        .get("properties")
+                        .and_then(Value::as_object)
+                        .map(|properties| properties.keys().cloned().collect::<Vec<_>>())
+                        .unwrap_or_default();
+                    properties.sort();
+                    return Some((required, properties));
+                }
+                fields.values().find_map(schema_counts)
+            }
+            Value::Array(items) => items.iter().find_map(schema_counts),
+            _ => None,
+        }
     }
 
     #[test]
-    fn canonical_json_matches_rfc8785_rules() {
+    fn canonical_json_sorts_keys_and_escapes_strings() {
         let value = json!({
             "b": 1,
-            "a": [1e21, 0.000001, 1e-7, 1e-27, true, null],
+            "a": [true, null],
             "z": {"é": 1, "e": 2},
             "\u{1}": 0,
         });
@@ -777,12 +1006,9 @@ mod tests {
             .expect("canonical form is UTF-8");
         assert_eq!(
             canonical,
-            r#"{"\u0001":0,"a":[1e+21,0.000001,1e-7,1e-27,true,null],"b":1,"z":{"e":2,"é":1}}"#
+            r#"{"\u0001":0,"a":[true,null],"b":1,"z":{"e":2,"é":1}}"#
         );
-    }
 
-    #[test]
-    fn canonical_json_escapes_strings_minimally() {
         let value = json!({"s": "quote\" back\\slash\ttab\nnewline\u{1f}"});
         let canonical = String::from_utf8(canonical_json_bytes(&value).expect("canonicalizes"))
             .expect("canonical form is UTF-8");
@@ -793,12 +1019,61 @@ mod tests {
     }
 
     #[test]
+    fn canonical_json_matches_rfc8785_number_vectors() {
+        // RFC 8785 Appendix B sample numbers and the §3.2.2.3 boundary cases.
+        let value = json!([
+            333333333.33333329,
+            1e30,
+            4.50,
+            2e-3,
+            0.000000000000000000000000001,
+            1e21,
+            1e-6,
+            1e-7,
+            1e20,
+            1e-27
+        ]);
+        let canonical = String::from_utf8(canonical_json_bytes(&value).expect("canonicalizes"))
+            .expect("canonical form is UTF-8");
+        assert_eq!(
+            canonical,
+            "[333333333.3333333,1e+30,4.5,0.002,1e-27,1e+21,0.000001,1e-7,100000000000000000000,1e-27]"
+        );
+        // sha256 of the canonical string above, computed independently in Python
+        // with an ECMAScript number formatter.
+        assert_eq!(
+            sha256_hex(canonical.as_bytes()),
+            "66ffdccf28e737e8a4d685c1a3ef0ea0cfe0446f1869aff90619e0929b3c3501"
+        );
+    }
+
+    #[test]
+    fn canonical_json_serializes_integers_as_ecmascript_doubles() {
+        let value = json!([
+            9007199254740993u64,
+            9007199254740992u64,
+            9007199254740994u64
+        ]);
+        let canonical = String::from_utf8(canonical_json_bytes(&value).expect("canonicalizes"))
+            .expect("canonical form is UTF-8");
+        assert_eq!(
+            canonical,
+            "[9007199254740992,9007199254740992,9007199254740994]"
+        );
+        // sha256 of the canonical string above, computed independently in Python.
+        assert_eq!(
+            sha256_hex(canonical.as_bytes()),
+            "a3c9dc6fdb3c0601d1a989d64ffe6391e4f045dea47d2befeff7733892e95f8c"
+        );
+    }
+
+    #[test]
     fn chunk_round_trip_preserves_the_bundle() {
         let bundle = sealed_bundle();
         let chunks = partition_bundle(&bundle, 900).expect("partitions");
         assert!(chunks.len() > 1, "fixture must span multiple chunks");
         assert_eq!(chunks[0]["chunk_ordinal"], json!(0));
-        assert!(chunks[0].get("header").is_some());
+        assert_eq!(chunks[0]["header"]["digest"], bundle["digest"]);
         assert_eq!(chunks[0]["chunk_count"], json!(chunks.len() as u64));
         for (ordinal, chunk) in chunks.iter().enumerate().skip(1) {
             assert_eq!(chunk["chunk_ordinal"], json!(ordinal as u64));
@@ -815,7 +1090,35 @@ mod tests {
     }
 
     #[test]
-    fn verification_detects_tampering() {
+    fn absent_arrays_stay_absent_and_present_empty_arrays_stay_present() {
+        let mut bundle = sealed_bundle();
+        bundle
+            .as_object_mut()
+            .expect("bundle is an object")
+            .remove("reflections");
+        let bundle = seal(bundle);
+        let rebuilt =
+            reassemble(&partition_bundle(&bundle, 900).expect("partitions")).expect("reassembles");
+        assert!(
+            rebuilt.get("reflections").is_none(),
+            "an absent optional array must not be injected"
+        );
+        assert_eq!(rebuilt, bundle);
+
+        let bundle = sealed_bundle();
+        assert_eq!(bundle["reflections"], json!([]));
+        let rebuilt =
+            reassemble(&partition_bundle(&bundle, 900).expect("partitions")).expect("reassembles");
+        assert_eq!(
+            rebuilt["reflections"],
+            json!([]),
+            "a present empty array must round-trip as present"
+        );
+        assert_eq!(rebuilt, bundle);
+    }
+
+    #[test]
+    fn verification_detects_payload_and_chunk_tampering() {
         let bundle = sealed_bundle();
         let mut chunks = partition_bundle(&bundle, 900).expect("partitions");
 
@@ -851,21 +1154,62 @@ mod tests {
     }
 
     #[test]
+    fn reassembly_rejects_inconsistent_chunk_structure() {
+        let bundle = sealed_bundle();
+        let chunks = partition_bundle(&bundle, 900).expect("partitions");
+        assert!(chunks.len() > 2, "fixture must have tail chunks");
+
+        // A contradictory chunk_count on a tail chunk.
+        let mut broken = chunks.clone();
+        broken[1]
+            .as_object_mut()
+            .expect("chunk is an object")
+            .insert("chunk_count".to_string(), json!(chunks.len() as u64 + 1));
+        let verification = verify_reassembly(&broken);
+        assert!(verification
+            .errors
+            .iter()
+            .any(|error| error.contains("chunk_count")));
+        assert!(reassemble(&broken).is_err());
+
+        // A header on a chunk other than ordinal 0.
+        let mut broken = chunks.clone();
+        let header = broken[0]["header"].clone();
+        broken[1]
+            .as_object_mut()
+            .expect("chunk is an object")
+            .insert("header".to_string(), header);
+        let verification = verify_reassembly(&broken);
+        assert!(verification
+            .errors
+            .iter()
+            .any(|error| error.contains("only ordinal 0")));
+
+        // A contradictory sealed digest in the header.
+        let mut broken = chunks.clone();
+        broken[0]["header"]
+            .as_object_mut()
+            .expect("header is an object")
+            .insert("digest".to_string(), json!("f".repeat(64)));
+        let verification = verify_reassembly(&broken);
+        assert!(!verification.bundle_digest_ok);
+        assert!(verification
+            .errors
+            .iter()
+            .any(|error| error.contains("bundle digest")));
+    }
+
+    #[test]
     fn oversized_element_gets_its_own_chunk() {
         let mut bundle = sealed_bundle();
-        let big = record("rec_big", &"x".repeat(4000));
         bundle
             .as_object_mut()
             .expect("bundle is an object")
             .get_mut("records")
             .and_then(Value::as_array_mut)
             .expect("records is an array")
-            .push(big);
-        let digest = bundle_digest(&bundle).expect("bundle digest computes");
-        bundle
-            .as_object_mut()
-            .expect("bundle is an object")
-            .insert("digest".to_string(), Value::String(digest));
+            .push(record("rec_big", &"x".repeat(4000)));
+        let bundle = seal(bundle);
 
         let limit = 900;
         let chunks = partition_bundle(&bundle, limit).expect("partitions");
@@ -877,8 +1221,14 @@ mod tests {
                 })
             })
             .expect("the oversized record's chunk exists");
-        let records = big_chunk["records"].as_array().expect("records array");
-        assert_eq!(records.len(), 1, "the oversized element is never split");
+        assert_eq!(
+            big_chunk["records"]
+                .as_array()
+                .expect("records array")
+                .len(),
+            1,
+            "the oversized element is never split"
+        );
         assert!(
             big_chunk["bytes"].as_u64().expect("bytes is an integer") > limit as u64,
             "the oversized chunk flags itself through bytes"
@@ -891,17 +1241,14 @@ mod tests {
         let bundle = sealed_bundle();
         let mut renames = BTreeMap::new();
         renames.insert("subj_ghost".to_string(), "subj_ghost_target".to_string());
-        let mut record_ids = BTreeMap::new();
-        record_ids.insert("rec_a".to_string(), "rec_a_target".to_string());
-        let mut candidate_ids = BTreeMap::new();
-        candidate_ids.insert("cand_1".to_string(), "cand_1_target".to_string());
+        let (records, candidates) = complete_assignments();
 
-        let maps = build_translation_maps(&bundle, &renames, &record_ids, &candidate_ids)
-            .expect("maps build");
+        let (maps, errors) = build_translation_maps(&bundle, &renames, &records, &candidates);
+        assert!(errors.is_empty(), "complete assignments are accepted");
         assert_eq!(maps.subject_id_map["subj_mira"], "subj_mira");
         assert_eq!(maps.subject_id_map["subj_ghost"], "subj_ghost_target");
         assert_eq!(maps.record_id_map["rec_a"], "rec_a_target");
-        assert_eq!(maps.record_id_map["rec_b"], "rec_b");
+        assert_eq!(maps.record_id_map["rec_b"], "rec_b_target");
         assert_eq!(maps.candidate_id_map["cand_1"], "cand_1_target");
 
         let candidate = &bundle["candidates"][0];
@@ -910,6 +1257,60 @@ mod tests {
             remapped["consumed_by"]["record_ids"],
             json!(["rec_a_target"])
         );
+    }
+
+    #[test]
+    fn missing_translations_are_reported_never_patched() {
+        let bundle = sealed_bundle();
+        let mut records = BTreeMap::new();
+        records.insert("rec_a".to_string(), "rec_a_target".to_string());
+        let (_, candidates) = complete_assignments();
+
+        let (maps, errors) =
+            build_translation_maps(&bundle, &BTreeMap::new(), &records, &candidates);
+        assert_eq!(maps.record_id_map.len(), 1);
+        assert!(
+            !maps.record_id_map.contains_key("rec_b"),
+            "an unassigned record id must not fall back to its source id"
+        );
+        assert!(errors.iter().any(|error| *error
+            == TransferError::MissingMapping {
+                kind: "record",
+                id: "rec_b".to_string()
+            }));
+        assert!(errors.iter().any(|error| *error
+            == TransferError::MissingMapping {
+                kind: "record",
+                id: "rec_c".to_string()
+            }));
+
+        // A reference translation through an incomplete map is rejected.
+        let mut shallow = bundle["candidates"][0].clone();
+        shallow["consumed_by"]["record_ids"] = json!(["rec_b"]);
+        assert!(remap_candidate_consumed_by(&shallow, &maps).is_err());
+    }
+
+    #[test]
+    fn verify_staging_collects_translation_failures() {
+        let bundle = sealed_bundle();
+        let chunks = partition_bundle(&bundle, 900).expect("partitions");
+        let mut records = BTreeMap::new();
+        records.insert("rec_a".to_string(), "rec_a_target".to_string());
+        let (_, candidates) = complete_assignments();
+
+        let outcome = verify_staging(&chunks, &BTreeMap::new(), &records, &candidates);
+        assert!(outcome.verification.bundle_digest_ok);
+        assert!(outcome
+            .verification
+            .errors
+            .iter()
+            .any(|error| error.contains("record rec_b")));
+        assert!(outcome.bundle.is_some());
+
+        let (all_records, all_candidates) = complete_assignments();
+        let outcome = verify_staging(&chunks, &BTreeMap::new(), &all_records, &all_candidates);
+        assert!(outcome.verification.bundle_digest_ok);
+        assert!(outcome.verification.errors.is_empty());
     }
 
     #[test]
@@ -922,32 +1323,51 @@ mod tests {
     }
 
     #[test]
-    fn staged_report_has_the_section_7_31_shape() {
+    fn staged_report_matches_the_consumer_schema() {
         let bundle = sealed_bundle();
-        let maps = build_translation_maps(
+        let (maps, errors) = build_translation_maps(
             &bundle,
             &BTreeMap::new(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        )
-        .expect("maps build");
+            &complete_assignments().0,
+            &complete_assignments().1,
+        );
+        assert!(errors.is_empty());
         let verification = verify_reassembly(&partition_bundle(&bundle, 900).expect("partitions"));
         let report = staged_report(&bundle, &maps, 1, 1, &verification).expect("report builds");
+
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../schemas/ops/memory-imports-stage-response.schema.json"
+        ))
+        .expect("consumer schema parses");
+        let (required, properties) =
+            schema_counts(&schema).expect("schema declares a Counts shape");
+
+        let counts = report["counts"].as_object().expect("counts is an object");
+        let mut produced: Vec<String> = counts.keys().cloned().collect();
+        produced.sort();
         assert_eq!(
-            report["counts"],
-            json!({
-                "subjects": 2,
-                "records": 3,
-                "profiles": 0,
-                "reflections": 0,
-                "candidates": 1,
-                "receipt_summaries": 1,
-                "grants": 2,
-            })
+            produced, properties,
+            "counts exposes exactly the schema's properties"
         );
-        assert_eq!(report["subject_id_map"]["subj_mira"], json!("subj_mira"));
-        assert_eq!(report["record_id_map"]["rec_a"], json!("rec_a"));
-        assert_eq!(report["candidate_id_map"]["cand_1"], json!("cand_1"));
+        let mut required_sorted = required;
+        required_sorted.sort();
+        assert_eq!(
+            produced, required_sorted,
+            "every schema-required count is present"
+        );
+        assert_eq!(
+            counts["subjects"],
+            json!(2),
+            "counts report the bundled element totals"
+        );
+        assert_eq!(counts["records"], json!(3));
+        assert_eq!(counts["candidates"], json!(1));
+        assert_eq!(counts["receipt_summaries"], json!(1));
+        assert!(
+            !counts.contains_key("grants"),
+            "grant totals are separate fields"
+        );
+
         assert_eq!(report["grants_adopted"], json!(1));
         assert_eq!(report["grants_dropped"], json!(1));
         assert_eq!(report["verification"]["bundle_digest_ok"], json!(true));

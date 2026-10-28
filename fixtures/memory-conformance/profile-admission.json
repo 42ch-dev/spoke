@@ -1,0 +1,79 @@
+{
+  "id": "profile-admission",
+  "title": "Profile-admission three-state distinguishability (capability_missing / PROFILE_INCOMPLETE / honest-empty)",
+  "protocol_refs": ["§4.1", "§7.24", "§7.27", "MEM-R020", "prototype design-r3 acceptance addendum"],
+  "cases": [
+    {
+      "id": "admission-capability-missing",
+      "invariant": "§4.1",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "an unnegotiated memory capability is distinguishable from profile state",
+      "requires": ["peer negotiated capabilities without spoke-memory"],
+      "op": "memory.reflections.generate",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_customs_gate"],
+          "include_shared": true
+        },
+        "expected_state_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "idempotency_key": "gen-tw-admission-0001"
+      },
+      "expect": { "error_code": "capability_missing" }
+    },
+    {
+      "id": "admission-profile-incomplete",
+      "invariant": "MEM-R020",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a required profile kind that is absent is an admission rejection, not an empty result",
+      "requires": [
+        "space configured with required_profile_kinds [personality]",
+        "toy:character:bo has no personality profile"
+      ],
+      "op": "memory.reflections.generate",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:bo",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_market_square"],
+          "include_shared": false
+        },
+        "expected_state_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+        "idempotency_key": "gen-tw-admission-0002"
+      },
+      "expect": { "error_code": "PROFILE_INCOMPLETE" }
+    },
+    {
+      "id": "admission-honest-empty",
+      "invariant": "MEM-R020",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "an absent optional profile kind yields an honest empty result, never an error",
+      "requires": [
+        "space configured with required_profile_kinds [personality]",
+        "toy:character:mira has a personality profile and an empty optional preferences profile",
+        "no authorized basis records exist for the selection"
+      ],
+      "op": "memory.reflections.list",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_dawn_arrival"],
+          "include_shared": false
+        },
+        "limit": 10
+      },
+      "expect": {
+        "success": true,
+        "state": [{ "path": "reflections", "equals": [] }]
+      }
+    }
+  ]
+}

@@ -16,3 +16,6 @@ serde_json.workspace = true
 chrono.workspace = true
 sha2 = "0.10"
 ryu = "1"
+
+[dev-dependencies]
+spoke-operations = { version = "0.14.1", path = "../spoke-operations" }

@@ -1,0 +1,176 @@
+{
+  "id": "cursor-invalidation",
+  "title": "Recall cursors are invalidated by state and grant changes",
+  "protocol_refs": ["MEM-R026", "§7.0.7"],
+  "cases": [
+    {
+      "id": "recall-cursor-invalid-after-grant-revoke",
+      "invariant": "MEM-R026",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "revoking a grant invalidates a cursor issued under it",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "The gate key is hidden under the third barrel." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-cursor-0001"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": { "action": "promote" },
+            "idempotency_key": "rev-tw-cursor-0002"
+          }
+        },
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "Mira promised the harbor master she would return before dawn." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-cursor-0003"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:2.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": { "action": "promote" },
+            "idempotency_key": "rev-tw-cursor-0004"
+          }
+        },
+        {
+          "op": "memory.recall",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "selection": {
+              "mode": "selected_contexts",
+              "context_ids": ["ctx_tw_customs_gate"],
+              "include_shared": false
+            },
+            "budget": { "max_items": 1 }
+          }
+        },
+        {
+          "op": "memory.grants.revoke",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "grant_id": "grt_tw_mira_context_0001",
+            "expected_revision": 1,
+            "idempotency_key": "revk-tw-cursor-0005"
+          }
+        }
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_customs_gate"],
+          "include_shared": false
+        },
+        "budget": { "max_items": 1 },
+        "cursor": "$ref:4.next_cursor"
+      },
+      "expect": { "error_code": "CURSOR_INVALID" }
+    },
+    {
+      "id": "recall-cursor-invalid-after-write",
+      "invariant": "MEM-R026",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a state change invalidates the cursor issued against the earlier snapshot",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "The gate key is hidden under the third barrel." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-cursor-0011"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": { "action": "promote" },
+            "idempotency_key": "rev-tw-cursor-0012"
+          }
+        },
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "Mira promised the harbor master she would return before dawn." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-cursor-0013"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:2.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": { "action": "promote" },
+            "idempotency_key": "rev-tw-cursor-0014"
+          }
+        },
+        {
+          "op": "memory.recall",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "selection": {
+              "mode": "selected_contexts",
+              "context_ids": ["ctx_tw_customs_gate"],
+              "include_shared": false
+            },
+            "budget": { "max_items": 1 }
+          }
+        },
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "The customs bell rang a third time before noon." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-cursor-0015"
+          }
+        }
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_customs_gate"],
+          "include_shared": false
+        },
+        "budget": { "max_items": 1 },
+        "cursor": "$ref:4.next_cursor"
+      },
+      "expect": { "error_code": "CURSOR_INVALID" }
+    }
+  ]
+}

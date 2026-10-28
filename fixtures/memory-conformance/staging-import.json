@@ -1,0 +1,120 @@
+{
+  "id": "staging-import",
+  "title": "Staged-import verification report, explicit-only grant adoption, translation maps",
+  "protocol_refs": ["§7.31", "§12.3", "MEM-R025"],
+  "cases": [
+    {
+      "id": "staged-report-counts-and-no-implicit-grants",
+      "invariant": "§7.31",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "the staged report carries the closed six counts shape and adopts no grant implicitly",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        },
+        "candidate_ids": { "cand_tw_gate_key_0001": "cand_target_gate_key" }
+      },
+      "expect": {
+        "verification_ok": true,
+        "counts": {
+          "subjects": 2,
+          "records": 3,
+          "candidates": 1,
+          "profiles": 0,
+          "reflections": 0,
+          "receipt_summaries": 1
+        },
+        "grants_adopted": 0,
+        "grants_dropped": 2
+      }
+    },
+    {
+      "id": "adopt-grants-explicit-only",
+      "invariant": "MEM-R025",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "naming one grant adopts exactly that grant and drops the rest",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": ["grt_tw_mira_context_0001"],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        },
+        "candidate_ids": { "cand_tw_gate_key_0001": "cand_target_gate_key" }
+      },
+      "expect": {
+        "verification_ok": true,
+        "grants_adopted": 1,
+        "grants_dropped": 1
+      }
+    },
+    {
+      "id": "subject-ids-are-preserved",
+      "invariant": "§12.3",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "subject ids survive translation unchanged unless an explicit rename is supplied",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        },
+        "candidate_ids": { "cand_tw_gate_key_0001": "cand_target_gate_key" }
+      },
+      "expect": {
+        "verification_ok": true,
+        "subject_id_map": {
+          "toy:character:mira": "toy:character:mira",
+          "toy:character:bo": "toy:character:bo"
+        },
+        "record_id_map": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        }
+      }
+    },
+    {
+      "id": "missing-record-mapping-rejected",
+      "invariant": "§7.31",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a record without a target assignment fails staging instead of reusing its source id",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event"
+        },
+        "candidate_ids": { "cand_tw_gate_key_0001": "cand_target_gate_key" }
+      },
+      "expect": {
+        "verification_ok": false,
+        "errors_contain": "has no target assignment"
+      }
+    }
+  ]
+}

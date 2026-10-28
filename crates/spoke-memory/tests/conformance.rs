@@ -1,0 +1,793 @@
+//! Conformance-vector corpus runner (memory protocol §17).
+//!
+//! Loads every `fixtures/memory-conformance/*.json` vector file, checks the
+//! corpus envelope, and executes the `surface: "engine"` cases through the
+//! reference engine policy surfaces (plus the P2 pure helpers). Cases marked
+//! `surface: "wire"` declare provider/transaction expectations that only the
+//! Connect loopback runner can execute; they are carried here so both runners
+//! share one vector set.
+//!
+//! The corpus is never silently skipped: an engine case whose scenario has no
+//! handler fails the run, and every minimum-set scenario must be present.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use chrono::{DateTime, Utc};
+use serde_json::{json, Value};
+use spoke_memory::classify::{classify_candidate, CandidateMaterial};
+use spoke_memory::recall::{recall, RecallRecord, RecallRequest};
+use spoke_memory::reflect::{is_stale, ReflectionBasis, SourceRef};
+use spoke_memory::transfer::{
+    adopt_grants, partition_bundle, reassemble, staged_report, verify_reassembly, verify_staging,
+};
+use spoke_operations::{
+    grant_covers, is_freeze_allowlisted, jcs_sha256_hex, validate_grant_issuance,
+    validate_memory_subjects_fence, GrantRequirement, IssuedGrant, SpokeRejectCode, SpokeResult,
+};
+use spoke_schemas::data::provenance_filter::ProvenanceFilter;
+use spoke_schemas::data::read_selection::ReadSelection;
+use spoke_schemas::data::retained_record::Content;
+use spoke_schemas::ops::memory_subjects_fence_request::MemorySubjectsFenceRequest;
+use spoke_schemas::MemoryGrant;
+
+/// Minimum-set scenarios the plan's Global Constraints and the prototype r3
+/// addendum require. Each must appear in the corpus.
+const REQUIRED_SCENARIOS: [&str; 13] = [
+    "candidate-consumption",
+    "cas-conflict",
+    "classification",
+    "cursor-invalidation",
+    "grant-coverage",
+    "idempotency-replay",
+    "profile-admission",
+    "recall-budget",
+    "reflection-staleness",
+    "space-freeze",
+    "staging-import",
+    "subject-fencing",
+    "transfer-chunks",
+];
+
+/// Scenarios with an engine handler; `run_engine_case` panics otherwise.
+const ENGINE_SCENARIOS: [&str; 9] = [
+    "candidate-consumption",
+    "classification",
+    "grant-coverage",
+    "recall-budget",
+    "reflection-staleness",
+    "space-freeze",
+    "staging-import",
+    "subject-fencing",
+    "transfer-chunks",
+];
+
+/// Closed `expect` key set for wire cases (interpreted by the loopback runner).
+const WIRE_EXPECT_KEYS: [&str; 6] = [
+    "error_code",
+    "success",
+    "state",
+    "absent",
+    "receipt_status",
+    "same_receipt_as",
+];
+
+/// Dispatch-layer codes that appear at the Connect boundary (§4.1).
+const DISPATCH_CODES: [&str; 2] = ["capability_missing", "op_unsupported"];
+
+struct Scenario {
+    id: String,
+    value: Value,
+}
+
+struct Case<'a> {
+    id: String,
+    scenario: &'a str,
+    value: &'a Value,
+}
+
+fn corpus_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/memory-conformance")
+}
+
+fn load_scenarios() -> Vec<Scenario> {
+    let root = corpus_root();
+    let mut files: Vec<PathBuf> = fs::read_dir(&root)
+        .unwrap_or_else(|error| panic!("conformance corpus at {}: {error}", root.display()))
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension()?.to_str()? == "json").then_some(path)
+        })
+        .collect();
+    files.sort();
+
+    files
+        .into_iter()
+        .map(|path| {
+            let raw = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            let value: Value = serde_json::from_str(&raw)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            let id = value["id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{}: scenario id", path.display()))
+                .to_string();
+            Scenario { id, value }
+        })
+        .collect()
+}
+
+fn engine_cases(scenarios: &[Scenario]) -> Vec<Case<'_>> {
+    scenarios
+        .iter()
+        .flat_map(|scenario| {
+            scenario.value["cases"]
+                .as_array()
+                .map(|cases| {
+                    cases
+                        .iter()
+                        .filter(|case| case["surface"] == "engine")
+                        .map(|case| Case {
+                            id: case["id"].as_str().unwrap_or("<missing id>").to_string(),
+                            scenario: scenario.id.as_str(),
+                            value: case,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
+fn load_asset(relative: &str) -> Value {
+    let path = corpus_root().join(relative);
+    let raw = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("asset {}: {error}", path.display()));
+    serde_json::from_str(&raw).unwrap_or_else(|error| panic!("asset {}: {error}", path.display()))
+}
+
+fn parse_timestamp(raw: &str) -> DateTime<Utc> {
+    raw.parse::<DateTime<Utc>>()
+        .unwrap_or_else(|error| panic!("timestamp {raw}: {error}"))
+}
+
+fn string_list(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| item.as_str().expect("string list item").to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn string_map(value: Option<&Value>) -> BTreeMap<String, String> {
+    value
+        .and_then(Value::as_object)
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.clone(),
+                        value.as_str().expect("string map value").to_string(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Walking setter for `dotted.paths[0]`-style vector tamper targets.
+fn set_path(value: &mut Value, path: &str, new_value: Value) {
+    let (head, rest) = match path.split_once('.') {
+        Some((head, rest)) => (head.to_string(), Some(rest)),
+        None => (path.to_string(), None),
+    };
+    match value {
+        Value::Object(entries) => match rest {
+            Some(rest) => set_path(
+                entries
+                    .get_mut(&head)
+                    .unwrap_or_else(|| panic!("tamper path {path}: no {head}")),
+                rest,
+                new_value,
+            ),
+            None => {
+                entries.insert(head, new_value);
+            }
+        },
+        Value::Array(items) => {
+            let index: usize = head
+                .parse()
+                .unwrap_or_else(|error| panic!("tamper path {path}: {error}"));
+            let item = items
+                .get_mut(index)
+                .unwrap_or_else(|| panic!("tamper path {path}: no index {index}"));
+            match rest {
+                Some(rest) => set_path(item, rest, new_value),
+                None => *item = new_value,
+            }
+        }
+        other => panic!("tamper path {path}: {other} is not traversable"),
+    }
+}
+
+/// `{"$repeat": {"unit": "...", "times": n}}` keeps oversized-content vectors
+/// readable; plain strings pass through unchanged.
+fn expand_text(value: &Value) -> String {
+    if let Some(repeat) = value.get("$repeat") {
+        let unit = repeat["unit"].as_str().expect("$repeat.unit");
+        let times = repeat["times"].as_u64().expect("$repeat.times") as usize;
+        return unit.repeat(times);
+    }
+    value.as_str().expect("material text").to_string()
+}
+
+fn with_basis<T>(spec: &Value, run: impl FnOnce(&ReflectionBasis<'_>) -> T) -> T {
+    let selection: ReadSelection =
+        serde_json::from_value(spec["selection"].clone()).expect("basis selection");
+    let filter: Option<ProvenanceFilter> = match spec.get("filter") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(serde_json::from_value(value.clone()).expect("basis filter")),
+    };
+    let sources_json = spec["sources"].as_array().expect("basis sources");
+    let source_ids: Vec<String> = sources_json
+        .iter()
+        .map(|source| {
+            source["record_id"]
+                .as_str()
+                .expect("source record_id")
+                .to_string()
+        })
+        .collect();
+    let revisions: Vec<u64> = sources_json
+        .iter()
+        .map(|source| source["revision"].as_u64().expect("source revision"))
+        .collect();
+    let refs: Vec<SourceRef<'_>> = source_ids
+        .iter()
+        .zip(&revisions)
+        .map(|(record_id, revision)| SourceRef {
+            record_id,
+            revision: *revision,
+        })
+        .collect();
+    let profiles: Vec<(String, u64)> = spec["profile_revisions"]
+        .as_object()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(kind, revision)| {
+                    (kind.clone(), revision.as_u64().expect("profile revision"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let profile_refs: Vec<(&str, u64)> = profiles
+        .iter()
+        .map(|(kind, revision)| (kind.as_str(), *revision))
+        .collect();
+    let basis = ReflectionBasis {
+        selection: &selection,
+        filter: filter.as_ref(),
+        sources: &refs,
+        profile_revisions: &profile_refs,
+    };
+    run(&basis)
+}
+
+fn run_engine_case(case: &Case<'_>) {
+    match case.scenario {
+        "grant-coverage" => run_grant_coverage(case),
+        "space-freeze" => run_space_freeze(case),
+        "subject-fencing" => run_subject_fencing(case),
+        "candidate-consumption" => run_candidate_consumption(case),
+        "transfer-chunks" => run_transfer_chunks(case),
+        "staging-import" => run_staging_import(case),
+        "reflection-staleness" => run_reflection_staleness(case),
+        "classification" => run_classification(case),
+        "recall-budget" => run_recall_budget(case),
+        other => panic!("case {}: no engine handler for scenario {other}", case.id),
+    }
+}
+
+fn run_grant_coverage(case: &Case<'_>) {
+    let input = &case.value["input"];
+    let expect = &case.value["expect"];
+    let principal = input["principal_id"].as_str().expect("principal_id");
+    let space = input["space_id"].as_str().expect("space_id");
+    let now = parse_timestamp(input["now"].as_str().expect("now"));
+
+    match input["kind"].as_str().expect("grant case kind") {
+        "covers" => {
+            let grant: MemoryGrant = serde_json::from_value(input["grant"].clone()).expect("grant");
+            let requirement_json = &input["requirement"];
+            let requirement = GrantRequirement {
+                capability: requirement_json["capability"].as_str().expect("capability"),
+                subject_id: requirement_json["subject_id"].as_str(),
+                context_ids: string_list(&requirement_json["context_ids"]),
+                reads_shared: requirement_json["reads_shared"]
+                    .as_bool()
+                    .expect("reads_shared"),
+                subject_all: requirement_json["subject_all"]
+                    .as_bool()
+                    .expect("subject_all"),
+            };
+            let covers = grant_covers(&grant, principal, space, now, &requirement);
+            assert_eq!(
+                covers,
+                expect["covers"].as_bool().expect("expect.covers"),
+                "case {}: coverage",
+                case.id
+            );
+        }
+        "issuance" => {
+            let grants: Vec<MemoryGrant> =
+                serde_json::from_value(input["granter_grants"].clone()).expect("granter_grants");
+            let issued_json = &input["issued"];
+            let capability_strings = string_list(&issued_json["capabilities"]);
+            let capabilities: Vec<&str> = capability_strings.iter().map(String::as_str).collect();
+            let context_ids = string_list(&issued_json["context_ids"]);
+            let issued = IssuedGrant {
+                capabilities: &capabilities,
+                subject_id: issued_json["subject_id"].as_str(),
+                context_ids: &context_ids,
+                shared_access: issued_json["shared_access"].as_bool().unwrap_or(false),
+                expires_at: issued_json["expires_at"].as_str().map(parse_timestamp),
+            };
+            let result = validate_grant_issuance(&grants, principal, space, now, &issued);
+            let expect_ok = expect["ok"].as_bool().expect("expect.ok");
+            assert_eq!(result.is_ok(), expect_ok, "case {}: issuance", case.id);
+            if let Some(code) = expect["error_code"].as_str() {
+                match result {
+                    SpokeResult::Reject(reject) => {
+                        assert_eq!(reject.code.as_str(), code, "case {}: reject code", case.id)
+                    }
+                    SpokeResult::Ok(()) => panic!("case {}: expected reject {code}", case.id),
+                }
+            }
+        }
+        other => panic!("case {}: unknown grant case kind {other}", case.id),
+    }
+}
+
+fn run_space_freeze(case: &Case<'_>) {
+    let op = case.value["input"]["op"].as_str().expect("op");
+    let expected = case.value["expect"]["allowlisted"]
+        .as_bool()
+        .expect("expect.allowlisted");
+    assert_eq!(
+        is_freeze_allowlisted(op),
+        expected,
+        "case {}: allowlist for {op}",
+        case.id
+    );
+}
+
+fn run_subject_fencing(case: &Case<'_>) {
+    let request: MemorySubjectsFenceRequest =
+        serde_json::from_value(case.value["input"]["request"].clone()).expect("fence request");
+    let expect = &case.value["expect"];
+    let result = validate_memory_subjects_fence(&request);
+    assert_eq!(
+        result.is_ok(),
+        expect["ok"].as_bool().expect("expect.ok"),
+        "case {}: fence validation",
+        case.id
+    );
+    if let Some(code) = expect["error_code"].as_str() {
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code.as_str(), code, "case {}: reject code", case.id)
+            }
+            SpokeResult::Ok(()) => panic!("case {}: expected reject {code}", case.id),
+        }
+    }
+}
+
+fn run_candidate_consumption(case: &Case<'_>) {
+    let content = &case.value["input"]["proposed_content"];
+    let digest = match jcs_sha256_hex(content) {
+        SpokeResult::Ok(digest) => digest,
+        SpokeResult::Reject(reject) => panic!("case {}: {}", case.id, reject.message),
+    };
+    assert_eq!(
+        digest,
+        case.value["expect"]["content_digest"]
+            .as_str()
+            .expect("expect.content_digest"),
+        "case {}: content_digest",
+        case.id
+    );
+}
+
+fn run_transfer_chunks(case: &Case<'_>) {
+    let input = &case.value["input"];
+    let expect = &case.value["expect"];
+    let bundle = load_asset(input["bundle_file"].as_str().expect("bundle_file"));
+    let limit = input["chunk_limit"].as_u64().expect("chunk_limit") as usize;
+    let mut chunks = partition_bundle(&bundle, limit).expect("partition bundle");
+
+    if let Some(tamper) = input.get("tamper") {
+        let ordinal = tamper["chunk_ordinal"].as_u64().expect("chunk_ordinal") as usize;
+        let chunk = chunks
+            .get_mut(ordinal)
+            .unwrap_or_else(|| panic!("case {}: no chunk {ordinal}", case.id));
+        set_path(
+            chunk,
+            tamper["path"].as_str().expect("tamper path"),
+            tamper["value"].clone(),
+        );
+    }
+
+    let verification = verify_reassembly(&chunks);
+    let verified = verification.bundle_digest_ok && verification.errors.is_empty();
+    assert_eq!(
+        verified,
+        expect["verification_ok"]
+            .as_bool()
+            .expect("expect.verification_ok"),
+        "case {}: errors {:?}",
+        case.id,
+        verification.errors
+    );
+
+    if let Some(minimum) = expect["min_chunk_count"].as_u64() {
+        assert!(
+            chunks.len() as u64 >= minimum,
+            "case {}: {} chunks, expected at least {minimum}",
+            case.id,
+            chunks.len()
+        );
+    }
+    if let Some(maximum) = expect["max_chunk_count"].as_u64() {
+        assert!(
+            chunks.len() as u64 <= maximum,
+            "case {}: {} chunks, expected at most {maximum}",
+            case.id,
+            chunks.len()
+        );
+    }
+    if let Some(needle) = expect["errors_contain"].as_str() {
+        assert!(
+            verification
+                .errors
+                .iter()
+                .any(|error| error.contains(needle)),
+            "case {}: no error contains {needle:?}: {:?}",
+            case.id,
+            verification.errors
+        );
+    }
+    if let Some(expected) = expect["reassembled_equals_input"].as_bool() {
+        let reassembled = reassemble(&chunks).expect("reassemble");
+        assert_eq!(
+            reassembled == bundle,
+            expected,
+            "case {}: reassembled bundle",
+            case.id
+        );
+    }
+}
+
+fn run_staging_import(case: &Case<'_>) {
+    let input = &case.value["input"];
+    let expect = &case.value["expect"];
+    assert_eq!(
+        input["kind"].as_str(),
+        Some("staged-report"),
+        "case {}: staging kind",
+        case.id
+    );
+
+    let bundle = load_asset(input["bundle_file"].as_str().expect("bundle_file"));
+    let limit = input["chunk_limit"].as_u64().expect("chunk_limit") as usize;
+    let chunks = partition_bundle(&bundle, limit).expect("partition bundle");
+    let renames = string_map(input.get("subject_renames"));
+    let record_ids = string_map(input.get("record_ids"));
+    let candidate_ids = string_map(input.get("candidate_ids"));
+
+    let outcome = verify_staging(&chunks, &renames, &record_ids, &candidate_ids);
+    let adopt_strings = string_list(&input["adopt_grants"]);
+    let adopt: Vec<&str> = adopt_strings.iter().map(String::as_str).collect();
+    let (adopted, dropped) = adopt_grants(&bundle, &adopt).expect("adopt_grants");
+    let reassembled = outcome
+        .bundle
+        .as_ref()
+        .unwrap_or_else(|| panic!("case {}: staging produced no bundle", case.id));
+    let report = staged_report(
+        reassembled,
+        &outcome.maps,
+        adopted.len(),
+        dropped,
+        &outcome.verification,
+    )
+    .expect("staged report");
+
+    let verified = outcome.verification.bundle_digest_ok && outcome.verification.errors.is_empty();
+    assert_eq!(
+        verified,
+        expect["verification_ok"]
+            .as_bool()
+            .expect("expect.verification_ok"),
+        "case {}: errors {:?}",
+        case.id,
+        outcome.verification.errors
+    );
+    if let Some(needle) = expect["errors_contain"].as_str() {
+        assert!(
+            outcome
+                .verification
+                .errors
+                .iter()
+                .any(|error| error.contains(needle)),
+            "case {}: no error contains {needle:?}: {:?}",
+            case.id,
+            outcome.verification.errors
+        );
+    }
+    if let Some(counts) = expect.get("counts") {
+        assert_eq!(report["counts"], *counts, "case {}: counts", case.id);
+    }
+    if let Some(expected) = expect["grants_adopted"].as_u64() {
+        assert_eq!(
+            report["grants_adopted"].as_u64(),
+            Some(expected),
+            "case {}: grants_adopted",
+            case.id
+        );
+    }
+    if let Some(expected) = expect["grants_dropped"].as_u64() {
+        assert_eq!(
+            report["grants_dropped"].as_u64(),
+            Some(expected),
+            "case {}: grants_dropped",
+            case.id
+        );
+    }
+    for field in ["subject_id_map", "record_id_map", "candidate_id_map"] {
+        if let Some(expected) = expect.get(field) {
+            assert_eq!(report[field], *expected, "case {}: {field}", case.id);
+        }
+    }
+}
+
+fn run_reflection_staleness(case: &Case<'_>) {
+    let input = &case.value["input"];
+    let stale = with_basis(&input["pinned"], |pinned| {
+        with_basis(&input["current"], |current| is_stale(pinned, current))
+    });
+    assert_eq!(
+        stale,
+        case.value["expect"]["stale"]
+            .as_bool()
+            .expect("expect.stale"),
+        "case {}: staleness",
+        case.id
+    );
+}
+
+fn run_classification(case: &Case<'_>) {
+    let material_json = &case.value["input"]["material"];
+    let text = expand_text(&material_json["text"]);
+    let material = CandidateMaterial {
+        kind: material_json["kind"].as_str().expect("kind"),
+        text: &text,
+        has_structured_content: material_json["has_structured_content"]
+            .as_bool()
+            .expect("has_structured_content"),
+        occurred_at: material_json["occurred_at"].as_str().map(parse_timestamp),
+        source_context_count: material_json["source_context_count"]
+            .as_u64()
+            .expect("source_context_count") as usize,
+        anchor_count: material_json["anchor_count"]
+            .as_u64()
+            .expect("anchor_count") as usize,
+    };
+    let wire = serde_json::to_value(classify_candidate(&material)).expect("classification wire");
+    let expect = &case.value["expect"];
+
+    assert_eq!(
+        wire["disposition"], expect["disposition"],
+        "case {}: disposition",
+        case.id
+    );
+    assert_eq!(
+        wire["rationale_codes"], expect["rationale_codes"],
+        "case {}: rationale_codes",
+        case.id
+    );
+    assert_eq!(
+        wire["confidence"], expect["confidence"],
+        "case {}: confidence",
+        case.id
+    );
+}
+
+fn run_recall_budget(case: &Case<'_>) {
+    let input = &case.value["input"];
+    let expect = &case.value["expect"];
+    let records: Vec<RecallRecord> = input["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .map(|record| RecallRecord {
+            record_id: record["record_id"].as_str().expect("record_id").to_string(),
+            kind: record["kind"].as_str().expect("kind").to_string(),
+            content: serde_json::from_value::<Content>(record["content"].clone())
+                .expect("record content"),
+            created_at: parse_timestamp(record["created_at"].as_str().expect("created_at")),
+        })
+        .collect();
+    let request_json = &input["request"];
+    let request = RecallRequest {
+        query: request_json["query"].as_str(),
+        max_items: request_json["max_items"].as_u64().expect("max_items") as usize,
+        max_bytes: request_json["max_bytes"]
+            .as_u64()
+            .map(|bytes| bytes as usize),
+    };
+
+    let page = recall(&records, &request);
+    let ids: Vec<&str> = page
+        .records
+        .iter()
+        .map(|record| record.record_id.as_str())
+        .collect();
+
+    assert_eq!(json!(ids), expect["record_ids"], "case {}: ids", case.id);
+    assert_eq!(
+        page.total_authorized as u64,
+        expect["total_authorized"]
+            .as_u64()
+            .expect("total_authorized"),
+        "case {}: total_authorized",
+        case.id
+    );
+    assert_eq!(
+        page.truncated,
+        expect["truncated"].as_bool().expect("truncated"),
+        "case {}: truncated",
+        case.id
+    );
+    assert_eq!(
+        page.overflow_record_id,
+        expect["overflow_record_id"].as_str(),
+        "case {}: overflow_record_id",
+        case.id
+    );
+}
+
+#[test]
+fn conformance_corpus_is_well_formed() {
+    let scenarios = load_scenarios();
+    let scenario_ids: BTreeSet<&str> = scenarios
+        .iter()
+        .map(|scenario| scenario.id.as_str())
+        .collect();
+
+    for required in REQUIRED_SCENARIOS {
+        assert!(
+            scenario_ids.contains(required),
+            "missing minimum-set scenario {required}"
+        );
+    }
+
+    let mut case_ids: BTreeSet<String> = BTreeSet::new();
+    let mut engine_count = 0usize;
+    let mut wire_count = 0usize;
+
+    for scenario in &scenarios {
+        assert!(
+            scenario.value["title"]
+                .as_str()
+                .is_some_and(|title| !title.is_empty()),
+            "scenario {}: title",
+            scenario.id
+        );
+        let refs = scenario.value["protocol_refs"]
+            .as_array()
+            .unwrap_or_else(|| panic!("scenario {}: protocol_refs", scenario.id));
+        assert!(!refs.is_empty(), "scenario {}: protocol_refs", scenario.id);
+
+        let cases = scenario.value["cases"]
+            .as_array()
+            .unwrap_or_else(|| panic!("scenario {}: cases", scenario.id));
+        assert!(!cases.is_empty(), "scenario {}: no cases", scenario.id);
+
+        for case in cases {
+            let id = case["id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("scenario {}: case id", scenario.id));
+            assert!(case_ids.insert(id.to_string()), "duplicate case id {id}");
+            assert!(
+                case["invariant"]
+                    .as_str()
+                    .is_some_and(|value| !value.is_empty()),
+                "case {id}: invariant"
+            );
+            assert!(
+                case["what"].as_str().is_some_and(|value| !value.is_empty()),
+                "case {id}: what"
+            );
+            assert!(
+                matches!(
+                    case["outcome"].as_str(),
+                    Some("identical") | Some("variable")
+                ),
+                "case {id}: outcome"
+            );
+
+            match case["surface"].as_str() {
+                Some("engine") => {
+                    assert!(
+                        ENGINE_SCENARIOS.contains(&scenario.id.as_str()),
+                        "case {id}: engine case in scenario {} without a handler",
+                        scenario.id
+                    );
+                    assert!(case["input"].is_object(), "case {id}: input");
+                    assert!(case["expect"].is_object(), "case {id}: expect");
+                    engine_count += 1;
+                }
+                Some("wire") => {
+                    assert!(case["op"].as_str().is_some(), "case {id}: op");
+                    assert!(case["request"].is_object(), "case {id}: request");
+                    let expect = case["expect"]
+                        .as_object()
+                        .unwrap_or_else(|| panic!("case {id}: expect"));
+                    assert!(!expect.is_empty(), "case {id}: empty expect");
+                    for key in expect.keys() {
+                        assert!(
+                            WIRE_EXPECT_KEYS.contains(&key.as_str()),
+                            "case {id}: unknown expect key {key}"
+                        );
+                    }
+                    if let Some(code) = expect.get("error_code").and_then(Value::as_str) {
+                        assert!(
+                            SpokeRejectCode::try_from_str(code).is_some()
+                                || DISPATCH_CODES.contains(&code),
+                            "case {id}: unknown error code {code}"
+                        );
+                    }
+                    if let Some(steps) = case.get("setup").and_then(Value::as_array) {
+                        for step in steps {
+                            assert!(step["op"].as_str().is_some(), "case {id}: setup op");
+                            assert!(step["request"].is_object(), "case {id}: setup request");
+                            if let Some(step_expect) = step.get("expect").and_then(Value::as_object)
+                            {
+                                for key in step_expect.keys() {
+                                    assert!(
+                                        WIRE_EXPECT_KEYS.contains(&key.as_str()),
+                                        "case {id}: unknown setup expect key {key}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    wire_count += 1;
+                }
+                other => panic!("case {id}: surface {other:?}"),
+            }
+        }
+    }
+
+    // Both halves of the corpus must stay populated: engine cases are executed
+    // here, wire cases are executed by the loopback runner.
+    assert!(engine_count >= 25, "engine cases: {engine_count}");
+    assert!(wire_count >= 15, "wire cases: {wire_count}");
+}
+
+#[test]
+fn conformance_engine_cases_pass() {
+    let scenarios = load_scenarios();
+    let cases = engine_cases(&scenarios);
+    assert!(!cases.is_empty(), "no engine cases found");
+
+    for case in &cases {
+        run_engine_case(case);
+    }
+}

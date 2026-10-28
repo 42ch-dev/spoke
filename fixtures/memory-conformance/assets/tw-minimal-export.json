@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "bundle_format_version": 1,
+  "memory_protocol_version": 1,
+  "export_id": "exp_tw_conformance_0001",
+  "space_id": "spc_tw_harbor",
+  "created_at": "2026-07-23T07:00:00Z",
+  "source": {
+    "authority_host_id": "host_tw_primary",
+    "authority_generation": 1,
+    "engine_policy_version": "spoke-memory/1.0.0-deterministic"
+  },
+  "subjects": [
+    {
+      "schema_version": 1,
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "kind": { "ns": "toy", "id": "character" },
+      "status": "active",
+      "fenced_contexts": [],
+      "created_at": "2026-07-23T05:31:00Z",
+      "revision": 1,
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:bo",
+      "kind": { "ns": "toy", "id": "character" },
+      "status": "active",
+      "fenced_contexts": [],
+      "created_at": "2026-07-23T05:32:00Z",
+      "revision": 1,
+      "extensions": {}
+    }
+  ],
+  "records": [
+    {
+      "schema_version": 1,
+      "record_id": "rec_tw_gate_key_fact",
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "kind": "fact",
+      "content": { "text": "The gate key is hidden under the third barrel." },
+      "scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+      "provenance": {
+        "source_context_ids": ["ctx_tw_customs_gate"],
+        "anchors": [],
+        "captured_by": "prn_tw_host_primary",
+        "captured_at": "2026-07-23T06:05:00Z"
+      },
+      "created_at": "2026-07-23T06:06:12Z",
+      "updated_at": "2026-07-23T06:06:12Z",
+      "revision": 1,
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "record_id": "rec_tw_gate_key_event",
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "kind": "event",
+      "content": { "text": "Mira revealed the key location to Bo." },
+      "scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+      "provenance": {
+        "source_context_ids": ["ctx_tw_customs_gate"],
+        "anchors": [],
+        "captured_by": "prn_tw_host_primary",
+        "captured_at": "2026-07-23T06:05:00Z"
+      },
+      "created_at": "2026-07-23T06:06:12Z",
+      "updated_at": "2026-07-23T06:06:12Z",
+      "revision": 1,
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "record_id": "rec_tw_bo_promise",
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "kind": "event",
+      "content": { "text": "Mira promised the harbor master she would return before dawn." },
+      "scope": { "visibility": "shared" },
+      "provenance": {
+        "source_context_ids": ["ctx_tw_dawn_arrival"],
+        "anchors": [],
+        "captured_by": "prn_tw_host_primary",
+        "captured_at": "2026-07-23T05:45:00Z"
+      },
+      "created_at": "2026-07-23T05:45:01Z",
+      "updated_at": "2026-07-23T05:45:01Z",
+      "revision": 1,
+      "extensions": {}
+    }
+  ],
+  "candidates": [
+    {
+      "schema_version": 1,
+      "candidate_id": "cand_tw_gate_key_0001",
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+      "proposed": { "kind": "fact" },
+      "provenance": {
+        "source_context_ids": ["ctx_tw_customs_gate"],
+        "anchors": [],
+        "captured_by": "prn_tw_host_primary",
+        "captured_at": "2026-07-23T06:05:00Z"
+      },
+      "classification": {
+        "disposition": "fragment",
+        "rationale_codes": ["fact_and_event"]
+      },
+      "status": "consumed",
+      "consumed_by": {
+        "op": "memory.candidates.review",
+        "receipt_id": "rcpt_tw_review_0002",
+        "outcome": "fragmented",
+        "record_ids": ["rec_tw_gate_key_fact", "rec_tw_gate_key_event"]
+      },
+      "content_digest": "ff087c41e39e57602c1190289863c9dbc107dbbc8ef32b9a6e020bcf78da3bd4",
+      "occurred_at": "2026-07-23T06:05:00Z",
+      "created_at": "2026-07-23T06:05:01Z",
+      "revision": 2,
+      "extensions": {}
+    }
+  ],
+  "profiles": [],
+  "receipt_summaries": [
+    {
+      "receipt_id": "rcpt_tw_capture_0001",
+      "op": "memory.capture",
+      "requester_principal_ref": "prn_tw_host_primary",
+      "idempotency_key": "cap-tw-gate-key-0001",
+      "payload_digest": "60bd03d8ff131b05ea8207347c1d8cda4bbf56e76518f29e835798a5dee1068b",
+      "status": "committed",
+      "created_at": "2026-07-23T06:05:01Z"
+    }
+  ],
+  "grants": [
+    {
+      "grant_id": "grt_tw_mira_context_0001",
+      "subject_id": "toy:character:mira",
+      "principal_ref": "prn_tw_host_primary",
+      "capabilities": ["capture", "review", "records_write", "recall"],
+      "context_ids": ["ctx_tw_customs_gate"],
+      "shared_access": true,
+      "revision": 1
+    },
+    {
+      "grant_id": "grt_tw_operator_admin_0002",
+      "principal_ref": "prn_tw_cli_operator",
+      "capabilities": ["admin"],
+      "revision": 1
+    }
+  ],
+  "digest": "b73321d00934f3a6317079a1e114b70a2d20b040f9798ffbf79421682df5af0f",
+  "extensions": {}
+}

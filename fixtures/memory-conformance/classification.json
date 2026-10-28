@@ -1,0 +1,166 @@
+{
+  "id": "classification",
+  "title": "Deterministic candidate classification dispositions (§6.7)",
+  "protocol_refs": ["§6.7", "§10"],
+  "cases": [
+    {
+      "id": "promote-core-kind-with-provenance",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "a sourced core-kind candidate is promoted with the observed rationale codes",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": "The gate key is hidden under the third barrel.",
+          "has_structured_content": false,
+          "occurred_at": "2026-07-23T06:05:00Z",
+          "source_context_count": 1,
+          "anchor_count": 1
+        }
+      },
+      "expect": {
+        "disposition": "promote",
+        "rationale_codes": [
+          "core_kind",
+          "sourced_anchor",
+          "provenance_context",
+          "occurred_at_known"
+        ],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "promote-product-kind-plain",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "a product-kind candidate without provenance is still promoted",
+      "input": {
+        "material": {
+          "kind": "belief",
+          "text": "Bo is sure the key is kept in the chest.",
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 0,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "promote",
+        "rationale_codes": ["product_kind"],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "drop-insufficient-text",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "text-only material below the minimum byte length is dropped",
+      "input": {
+        "material": {
+          "kind": "note",
+          "text": "short note",
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 0,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "drop",
+        "rationale_codes": ["insufficient_text", "core_kind"],
+        "confidence": 0.2
+      }
+    },
+    {
+      "id": "drop-empty-content",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "material with neither text nor structured content is dropped",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": "",
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 2,
+          "anchor_count": 1
+        }
+      },
+      "expect": {
+        "disposition": "drop",
+        "rationale_codes": ["empty_content"],
+        "confidence": 0.0
+      }
+    },
+    {
+      "id": "promote-structured-without-text",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "structured content alone is enough to promote",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": "",
+          "has_structured_content": true,
+          "occurred_at": null,
+          "source_context_count": 0,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "promote",
+        "rationale_codes": ["core_kind"],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "fragment-oversized-single-claim",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "oversized text is fragmented; a single sentence run adds no multiple_claims code",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": { "$repeat": { "unit": "mira ", "times": 210 } },
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 1,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "fragment",
+        "rationale_codes": ["oversized_content", "core_kind"],
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": "fragment-oversized-multi-claim",
+      "invariant": "§6.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "oversized multi-sentence text additionally reports multiple_claims",
+      "input": {
+        "material": {
+          "kind": "event",
+          "text": { "$repeat": { "unit": "Mira tallied the barrels. ", "times": 40 } },
+          "has_structured_content": false,
+          "occurred_at": "2026-07-23T06:00:00Z",
+          "source_context_count": 1,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "fragment",
+        "rationale_codes": ["oversized_content", "multiple_claims", "core_kind"],
+        "confidence": 0.6
+      }
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "id": "space-freeze",
+  "title": "Space freeze maintenance allowlist and the receipt drain barrier",
+  "protocol_refs": ["§8.2", "MEM-R023", "§7.3", "§12.1"],
+  "cases": [
+    {
+      "id": "allowlist-recall",
+      "invariant": "MEM-R011",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "reads stay available while the space is frozen",
+      "input": { "op": "memory.recall" },
+      "expect": { "allowlisted": true }
+    },
+    {
+      "id": "allowlist-records-get",
+      "invariant": "MEM-R011",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "by-id record reads stay available",
+      "input": { "op": "memory.records.get" },
+      "expect": { "allowlisted": true }
+    },
+    {
+      "id": "allowlist-unfreeze",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "unfreeze is the maintenance escape hatch",
+      "input": { "op": "memory.spaces.unfreeze" },
+      "expect": { "allowlisted": true }
+    },
+    {
+      "id": "allowlist-grants-revoke",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "revocation must work during a freeze",
+      "input": { "op": "memory.grants.revoke" },
+      "expect": { "allowlisted": true }
+    },
+    {
+      "id": "allowlist-transfer-ops",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "cutover transfer ops are allowlisted inside the freeze window",
+      "input": { "op": "memory.imports.activate" },
+      "expect": { "allowlisted": true }
+    },
+    {
+      "id": "deny-capture",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "capture is not a maintenance op",
+      "input": { "op": "memory.capture" },
+      "expect": { "allowlisted": false }
+    },
+    {
+      "id": "deny-review",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "candidate review is not a maintenance op",
+      "input": { "op": "memory.candidates.review" },
+      "expect": { "allowlisted": false }
+    },
+    {
+      "id": "deny-profile-update",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "profile writes are not maintenance ops",
+      "input": { "op": "memory.profile.update" },
+      "expect": { "allowlisted": false }
+    },
+    {
+      "id": "freeze-blocks-capture",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a frozen space rejects capture",
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": { "text": "Mira notes the tide gauge is running high." },
+        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+        "idempotency_key": "cap-tw-frozen-0002"
+      },
+      "expect": { "error_code": "SPACE_FROZEN" }
+    },
+    {
+      "id": "freeze-keeps-recall-available",
+      "invariant": "MEM-R011",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "recall still answers while the space is frozen",
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        }
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_customs_gate"],
+          "include_shared": true
+        },
+        "budget": { "max_items": 4 }
+      },
+      "expect": { "success": true }
+    },
+    {
+      "id": "drain-barrier-zero-before-cutover",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a drained space reports pending_receipts == 0 so cutover may proceed",
+      "setup": [
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": true,
+            "idempotency_key": "exp-tw-cutover-0003"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:0.receipt_id"
+          }
+        }
+      ],
+      "op": "memory.spaces.list",
+      "request": { "limit": 10 },
+      "expect": {
+        "success": true,
+        "state": [{ "path": "spaces.0.pending_receipts", "equals": 0 }]
+      }
+    },
+    {
+      "id": "drain-barrier-counts-pending",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a pending receipt is visible in pending_receipts, blocking the drain barrier",
+      "setup": [
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": true,
+            "idempotency_key": "exp-tw-cutover-0004"
+          }
+        }
+      ],
+      "op": "memory.spaces.list",
+      "request": { "limit": 10 },
+      "expect": {
+        "success": true,
+        "state": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
+      }
+    }
+  ]
+}

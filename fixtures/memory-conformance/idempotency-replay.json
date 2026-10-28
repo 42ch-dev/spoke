@@ -1,0 +1,108 @@
+{
+  "id": "idempotency-replay",
+  "title": "Idempotent replay, payload-digest conflict, and dedup-tombstone expiry",
+  "protocol_refs": ["MEM-R008", "MEM-R010", "MEM-R021", "MEM-R022", "§6.10", "§14.1"],
+  "cases": [
+    {
+      "id": "capture-first-commit",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the first capture with a new key commits synchronously",
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+        "source_context_ids": ["ctx_tw_customs_gate"],
+        "idempotency_key": "cap-tw-idem-0001"
+      },
+      "expect": { "receipt_status": "committed" }
+    },
+    {
+      "id": "capture-replay-returns-same-receipt",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "replaying the same key and payload returns the original receipt",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "source_context_ids": ["ctx_tw_customs_gate"],
+            "idempotency_key": "cap-tw-idem-0001"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+        "source_context_ids": ["ctx_tw_customs_gate"],
+        "idempotency_key": "cap-tw-idem-0001"
+      },
+      "expect": { "receipt_status": "committed", "same_receipt_as": 0 }
+    },
+    {
+      "id": "capture-key-reuse-different-payload",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a key replayed with a different payload digest is a conflict, not a replay",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-idem-0002"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": { "text": "Bo hid the gate key inside a coil of rope instead." },
+        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+        "idempotency_key": "cap-tw-idem-0002"
+      },
+      "expect": { "error_code": "IDEMPOTENCY_CONFLICT" }
+    },
+    {
+      "id": "receipt-expired-after-retention",
+      "invariant": "MEM-R022",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "an evicted receipt body reports RECEIPT_EXPIRED from its dedup tombstone",
+      "advance_seconds": 604800,
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "idempotency_key": "cap-tw-idem-0003"
+          }
+        }
+      ],
+      "op": "memory.receipts.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "receipt_id": "$ref:0.receipt_id"
+      },
+      "expect": { "error_code": "RECEIPT_EXPIRED" }
+    }
+  ]
+}

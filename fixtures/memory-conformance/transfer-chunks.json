@@ -1,0 +1,80 @@
+{
+  "id": "transfer-chunks",
+  "title": "Element-atomic chunking, header placement, and chunk/bundle digest verification",
+  "protocol_refs": ["§6.13", "§6.11", "MEM-R015"],
+  "cases": [
+    {
+      "id": "partition-and-reassemble-roundtrip",
+      "invariant": "MEM-R015",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a multi-chunk partition verifies and reassembles to the input bundle byte-for-byte",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 700
+      },
+      "expect": {
+        "min_chunk_count": 2,
+        "max_chunk_count": 12,
+        "verification_ok": true,
+        "reassembled_equals_input": true
+      }
+    },
+    {
+      "id": "element-atomic-under-tiny-limit",
+      "invariant": "MEM-R015",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a limit smaller than every element still splits between elements, never inside one",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 1
+      },
+      "expect": {
+        "min_chunk_count": 6,
+        "verification_ok": true,
+        "reassembled_equals_input": true
+      }
+    },
+    {
+      "id": "tampered-chunk-digest-detected",
+      "invariant": "§6.13",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a rewritten chunk_digest fails verification",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 700,
+        "tamper": {
+          "chunk_ordinal": 0,
+          "path": "chunk_digest",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "expect": {
+        "verification_ok": false,
+        "errors_contain": "digest does not verify"
+      }
+    },
+    {
+      "id": "tampered-element-detected",
+      "invariant": "§6.13",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "an element edited in transit breaks the chunk digest",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 700,
+        "tamper": {
+          "chunk_ordinal": 0,
+          "path": "header.created_at",
+          "value": "2026-07-24T07:00:00Z"
+        }
+      },
+      "expect": {
+        "verification_ok": false,
+        "errors_contain": "digest does not verify"
+      }
+    }
+  ]
+}

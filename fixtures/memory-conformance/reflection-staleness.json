@@ -1,0 +1,158 @@
+{
+  "id": "reflection-staleness",
+  "title": "Reflection basis digests and staleness triggers (profile update, import activation)",
+  "protocol_refs": ["MEM-R013", "§6.9", "§7.25", "prototype design-r3 acceptance addendum"],
+  "cases": [
+    {
+      "id": "unchanged-basis-is-not-stale",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "identical inputs keep the pinned digest valid",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [
+            { "record_id": "rec_tw_gate_key_fact", "revision": 1 },
+            { "record_id": "rec_tw_bo_promise", "revision": 1 }
+          ],
+          "profile_revisions": { "personality": 3 }
+        },
+        "current": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [
+            { "record_id": "rec_tw_bo_promise", "revision": 1 },
+            { "record_id": "rec_tw_gate_key_fact", "revision": 1 }
+          ],
+          "profile_revisions": { "personality": 3 }
+        }
+      },
+      "expect": { "stale": false }
+    },
+    {
+      "id": "profile-update-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a profile revision bump stales the pinned reflection",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 1 }],
+          "profile_revisions": { "personality": 3 }
+        },
+        "current": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 1 }],
+          "profile_revisions": { "personality": 4 }
+        }
+      },
+      "expect": { "stale": true }
+    },
+    {
+      "id": "import-activation-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "records added by an import activation stale the pinned reflection",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 1 }],
+          "profile_revisions": { "personality": 3 }
+        },
+        "current": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [
+            { "record_id": "rec_tw_gate_key_fact", "revision": 1 },
+            { "record_id": "rec_tw_imported_rope_key", "revision": 1 }
+          ],
+          "profile_revisions": { "personality": 3 }
+        }
+      },
+      "expect": { "stale": true }
+    },
+    {
+      "id": "record-revision-bump-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "editing a pinned source record stales the reflection",
+      "input": {
+        "pinned": {
+          "selection": { "mode": "subject_all" },
+          "filter": null,
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 1 }],
+          "profile_revisions": { "personality": 3 }
+        },
+        "current": {
+          "selection": { "mode": "subject_all" },
+          "filter": null,
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 2 }],
+          "profile_revisions": { "personality": 3 }
+        }
+      },
+      "expect": { "stale": true }
+    },
+    {
+      "id": "selection-change-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "widening the selection changes the digests and stales the reflection",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": false
+          },
+          "filter": { "source_context_ids": ["ctx_tw_customs_gate"] },
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 1 }],
+          "profile_revisions": { "personality": 3 }
+        },
+        "current": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": ["ctx_tw_customs_gate"],
+            "include_shared": true
+          },
+          "filter": { "source_context_ids": ["ctx_tw_customs_gate"] },
+          "sources": [{ "record_id": "rec_tw_gate_key_fact", "revision": 1 }],
+          "profile_revisions": { "personality": 3 }
+        }
+      },
+      "expect": { "stale": true }
+    }
+  ]
+}

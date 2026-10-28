@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-receipts-get-request.schema.json",
+  "title": "MemoryReceiptsGetRequest",
+  "description": "Read one receipt. The sole uncertainty-resolution channel (MEM-R010, §14.3) and the polling mechanism for pending receipts. Authorized as the receipt requester_principal_id, or admin in the space. Grant: current authorization as requester_principal_id, or admin. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "receipt_id"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "ReceiptId"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

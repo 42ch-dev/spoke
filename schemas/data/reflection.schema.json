@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/reflection.schema.json",
+  "title": "Reflection",
+  "description": "Derived subject text pinned to an exact authorized basis under the spoke-memory-reflection capability (§6.9, MEM-R013). Reflections referencing any tombstoned record are excluded from list and export.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "reflection_id",
+    "space_id",
+    "subject_id",
+    "selection",
+    "basis",
+    "body",
+    "stale",
+    "generator",
+    "created_at",
+    "revision",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "reflection_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider-assigned."
+    },
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selection": {
+      "$ref": "https://spoke42.invalid/schemas/data/read-selection.schema.json",
+      "description": "Pinned placement selection used for generation."
+    },
+    "filter": {
+      "$ref": "https://spoke42.invalid/schemas/data/provenance-filter.schema.json",
+      "description": "Pinned provenance filter; absent = none."
+    },
+    "basis": {
+      "type": "object",
+      "required": ["source_set_digest", "record_count", "profile_revisions", "state_digest"],
+      "properties": {
+        "source_set_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "64 hex over the authorized source record ID + revision set."
+        },
+        "record_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profile_revisions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Map of profile_kind to the profile revision pinned at generation."
+        },
+        "state_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "64 hex digest over the basis and generator policy (§7.25)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Pins the exact inputs and coverage of this reflection."
+    },
+    "body": {
+      "$ref": "https://spoke42.invalid/schemas/data/profile-document.schema.json#/definitions/Document",
+      "description": "Derived content; trusted only as to its pinned basis and generator."
+    },
+    "stale": {
+      "type": "boolean",
+      "description": "Authoritative value is computed at read time (§7.26); the stored flag is a write-time cache. True iff the current authorized basis differs from the pinned basis."
+    },
+    "generator": {
+      "type": "object",
+      "required": ["engine_policy_version"],
+      "properties": {
+        "engine_policy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "cost": {
+      "type": "object",
+      "required": ["units", "unit_kind"],
+      "properties": {
+        "units": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unit_kind": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "Content-free cost fact; survives failed generation without exposing input text (§14.3)."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false
+}

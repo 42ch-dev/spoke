@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json",
+  "title": "MemoryRecordsCreateResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"record_id\": string, \"revision\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.records.create (§7.16): REVISION_CONFLICT, NOT_FOUND, NOT_AUTHORIZED, INVALID_INPUT, SUBJECT_FENCED, SPACE_FROZEN. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "definitions": {
+    "CommittedReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.records.create",
+              "type": "string",
+              "title": "Op"
+            }
+          },
+          "required": [
+            "op",
+            "idempotency_key"
+          ],
+          "title": "AllOf",
+          "description": "Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt)."
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "record_id",
+                "revision"
+              ],
+              "properties": {
+                "record_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "title": "RecordId"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "title": "Result"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "title": "AllOf"
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.records.create",
+                  "type": "string",
+                  "title": "Op"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "title": "AllOf"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "AllOf"
+            }
+          ]
+        }
+      ],
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ]
+}

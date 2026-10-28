@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-update-request.schema.json",
+  "title": "MemoryRecordsUpdateRequest",
+  "description": "Update record content and/or kind. At least one of content/kind is required (§7.18); expressed as closed variants because draft-07 conditionals are not derivable by the codegen toolchain. Placement changes are not an update — use memory.records.promote. Reflection invalidation commits in the same transaction (MEM-R013). Grant: records_write covering the current placement. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "space_id",
+        "record_id",
+        "expected_revision",
+        "content",
+        "idempotency_key"
+      ],
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "RecordId"
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optimistic-concurrency precondition (MEM-R007)."
+        },
+        "content": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (§7.0.5).",
+          "title": "IdempotencyKey"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Content update. kind is deliberately absent; combine with content via the sibling variant.",
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "space_id",
+        "record_id",
+        "expected_revision",
+        "kind",
+        "idempotency_key"
+      ],
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "RecordId"
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optimistic-concurrency precondition (MEM-R007)."
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Open record-kind vocabulary.",
+          "title": "Kind"
+        },
+        "content": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (§7.0.5).",
+          "title": "IdempotencyKey"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Kind update; content may also be supplied in the same request.",
+      "title": "OneOf"
+    }
+  ]
+}

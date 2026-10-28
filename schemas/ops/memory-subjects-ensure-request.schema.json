@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-request.schema.json",
+  "title": "MemorySubjectsEnsureRequest",
+  "description": "Idempotent get-or-create of a subject. Sole idempotency_key exemption: get-or-create is naturally idempotent and its outcome is recoverable via memory.subjects.get (§7.0.5). kind is set only on creation; a mismatch on an existing subject is not an error. Grant: capture or admin. Mutating op without idempotency_key: the sole §7.0.5 exemption — get-or-create is naturally idempotent and recoverable via memory.subjects.get. The response is a MemoryReceipt.",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SubjectId"
+    },
+    "kind": {
+      "$ref": "https://spoke42.invalid/schemas/data/subject.schema.json#/properties/kind",
+      "description": "Optional namespaced kind metadata, set only on creation; reuses the Subject.kind definition."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

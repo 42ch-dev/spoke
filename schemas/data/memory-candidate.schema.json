@@ -1,0 +1,347 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-candidate.schema.json",
+  "title": "MemoryCandidate",
+  "description": "Pending review outcome from memory.capture, carrying the immutable admitted placement and advisory classification (§6.7). Expressed as closed pending/consumed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.7 lifecycle exactly: consumption scrubs the proposed content (kept only as content_digest) and keeps an audit shell (MEM-R025).",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-candidate.schema.json#/definitions/PendingCandidate"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-candidate.schema.json#/definitions/ConsumedCandidate"
+    }
+  ],
+  "definitions": {
+    "PendingCandidate": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "candidate_id",
+        "space_id",
+        "subject_id",
+        "capture_scope",
+        "proposed",
+        "classification",
+        "status",
+        "provenance",
+        "created_at",
+        "revision",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "CandidateId"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SubjectId"
+        },
+        "capture_scope": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",
+          "description": "Immutable admitted placement from memory.capture; the authorization fence for review outcomes."
+        },
+        "proposed": {
+          "type": "object",
+          "required": [
+            "kind",
+            "content"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Kind"
+            },
+            "content": {
+              "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Full proposed content; removed from the shell on consumption (§6.7 scrub).",
+          "title": "Proposed"
+        },
+        "provenance": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"
+        },
+        "classification": {
+          "type": "object",
+          "required": [
+            "disposition",
+            "rationale_codes"
+          ],
+          "properties": {
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "promote",
+                "fragment",
+                "drop"
+              ],
+              "title": "Disposition"
+            },
+            "rationale_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "May be empty."
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false,
+          "description": "Advisory deterministic classification. The reviewer decision is authoritative.",
+          "title": "Classification"
+        },
+        "status": {
+          "const": "pending",
+          "type": "string",
+          "title": "Status"
+        },
+        "occurred_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Optional: when the underlying event or datum occurred, persisted from memory.capture.occurred_at."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Optional provider policy. Expired pending candidates are excluded from lists, not consumed."
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Pending candidate awaiting review. consumed_by / content_digest are deliberately absent: a pending candidate cannot carry consumption data.",
+      "title": "PendingCandidate"
+    },
+    "ConsumedCandidate": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "candidate_id",
+        "space_id",
+        "subject_id",
+        "capture_scope",
+        "classification",
+        "status",
+        "provenance",
+        "consumed_by",
+        "content_digest",
+        "created_at",
+        "revision",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "CandidateId"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SubjectId"
+        },
+        "capture_scope": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",
+          "description": "Immutable admitted placement from memory.capture."
+        },
+        "proposed": {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Kind"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Optional retained kind only; the content is scrubbed at consumption (§6.7) and must not be retained (§6.11 export shells).",
+          "title": "Proposed"
+        },
+        "provenance": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"
+        },
+        "classification": {
+          "type": "object",
+          "required": [
+            "disposition",
+            "rationale_codes"
+          ],
+          "properties": {
+            "disposition": {
+              "type": "string",
+              "enum": [
+                "promote",
+                "fragment",
+                "drop"
+              ],
+              "title": "Disposition"
+            },
+            "rationale_codes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "May be empty."
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "additionalProperties": false,
+          "description": "Advisory deterministic classification. The reviewer decision is authoritative.",
+          "title": "Classification"
+        },
+        "status": {
+          "const": "consumed",
+          "type": "string",
+          "title": "Status"
+        },
+        "consumed_by": {
+          "type": "object",
+          "required": [
+            "op",
+            "receipt_id",
+            "outcome",
+            "record_ids"
+          ],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": [
+                "memory.candidates.review",
+                "memory.candidates.dismiss"
+              ],
+              "title": "Op"
+            },
+            "receipt_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "ReceiptId"
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "promoted",
+                "fragmented",
+                "dropped",
+                "dismissed"
+              ],
+              "title": "Outcome"
+            },
+            "record_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "May be empty."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Consumption outcome; present iff consumed (§6.7).",
+          "title": "ConsumedBy"
+        },
+        "content_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 over the JCS canonical proposed.content; set when content is scrubbed at consumption, retained for dedup/audit (MEM-R025).",
+          "title": "ContentDigest"
+        },
+        "occurred_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Consumed audit shell: content scrubbed, outcome and digest retained (§6.7). expires_at is deliberately absent: it applies only to pending candidates.",
+      "title": "ConsumedCandidate"
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "candidate_id": "cand_01J8ZQ9X7P0EXAMPLE0000101",
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "capture_scope": {
+        "visibility": "context",
+        "context_id": "bnd_mira_harbor_run_7"
+      },
+      "classification": {
+        "disposition": "promote",
+        "rationale_codes": [
+          "single_fact"
+        ]
+      },
+      "status": "consumed",
+      "consumed_by": {
+        "op": "memory.candidates.review",
+        "receipt_id": "rcpt_01J8ZR1D4T0EXAMPLE0000501",
+        "outcome": "promoted",
+        "record_ids": [
+          "rec_01J8ZR2E5U0EXAMPLE0000601"
+        ]
+      },
+      "provenance": {
+        "source_context_ids": [
+          "bnd_mira_harbor_run_7"
+        ],
+        "anchors": [],
+        "captured_by": "prn_nexus_host_local",
+        "captured_at": "2026-10-28T09:20:00Z"
+      },
+      "content_digest": "ff087c41e39e57602c1190289863c9dbc107dbbc8ef32b9a6e020bcf78da3bd4",
+      "created_at": "2026-10-28T09:20:01Z",
+      "revision": 2,
+      "extensions": {}
+    }
+  ]
+}

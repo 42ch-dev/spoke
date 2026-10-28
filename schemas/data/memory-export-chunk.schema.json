@@ -1,0 +1,249 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-export-chunk.schema.json",
+  "title": "MemoryExportChunk",
+  "description": "Bounded wire unit of a MemoryExportBundle (§6.13, MEM-R015). Expressed as closed header/tail variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.13 rule exactly: header is present iff chunk_ordinal = 0. Arrays are concatenated in the fixed field order subjects, records, profiles, reflections, candidates, receipt_summaries, grants and split into consecutive element runs; one element is never split across chunks. Reassembly concatenates the slices in ordinal order and field order; grants slices follow receipt_summaries so §7.31 can reassemble the §6.11 grant summaries.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-export-chunk.schema.json#/definitions/HeaderChunk"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-export-chunk.schema.json#/definitions/TailChunk"
+    }
+  ],
+  "definitions": {
+    "HeaderChunk": {
+      "type": "object",
+      "required": [
+        "export_id",
+        "chunk_ordinal",
+        "chunk_count",
+        "bundle_digest",
+        "chunk_digest",
+        "bytes",
+        "header"
+      ],
+      "properties": {
+        "export_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "ExportId"
+        },
+        "chunk_ordinal": {
+          "const": 0,
+          "description": "Strict order; chunk 0 carries the header.",
+          "type": "integer"
+        },
+        "chunk_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bundle_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Digest of the logical bundle this chunk belongs to.",
+          "title": "BundleDigest"
+        },
+        "chunk_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 over the JCS canonicalization of this chunk object minus chunk_digest.",
+          "title": "ChunkDigest"
+        },
+        "header": {
+          "type": "object",
+          "required": [
+            "schema_version",
+            "bundle_format_version",
+            "memory_protocol_version",
+            "export_id",
+            "space_id",
+            "created_at",
+            "source",
+            "digest"
+          ],
+          "properties": {
+            "schema_version": {
+              "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+            },
+            "bundle_format_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "memory_protocol_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "export_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "ExportId"
+            },
+            "space_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "SpaceId"
+            },
+            "created_at": {
+              "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+            },
+            "source": {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/Source"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Digest"
+            },
+            "extensions": {
+              "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+              "description": "Optional; may be an empty object. Carries the logical bundle's extensions (decision D8) so reassembly can write it back to MemoryExportBundle.extensions without changing the bundle digest."
+            }
+          },
+          "additionalProperties": false,
+          "description": "All scalar bundle fields (§6.13). extensions is optional (decision D8): reassembly writes it back to MemoryExportBundle.extensions.",
+          "title": "Header"
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/subject.schema.json"
+          }
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json"
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/profile-document.schema.json"
+          }
+        },
+        "reflections": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/reflection.schema.json"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-candidate.schema.json"
+          }
+        },
+        "receipt_summaries": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/ReceiptSummary"
+          }
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/GrantSummary"
+          }
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Serialized chunk size. At most export_chunk_bytes, except a single element larger than the limit, which occupies its own chunk (never split, never dropped)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Chunk with ordinal 0: header required (§6.13).",
+      "title": "HeaderChunk"
+    },
+    "TailChunk": {
+      "type": "object",
+      "required": [
+        "export_id",
+        "chunk_ordinal",
+        "chunk_count",
+        "bundle_digest",
+        "chunk_digest",
+        "bytes"
+      ],
+      "properties": {
+        "export_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "ExportId"
+        },
+        "chunk_ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Strict order; tail ordinals are >= 1."
+        },
+        "chunk_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bundle_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Digest of the logical bundle this chunk belongs to.",
+          "title": "BundleDigest"
+        },
+        "chunk_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 over the JCS canonicalization of this chunk object minus chunk_digest.",
+          "title": "ChunkDigest"
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/subject.schema.json"
+          }
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json"
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/profile-document.schema.json"
+          }
+        },
+        "reflections": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/reflection.schema.json"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-candidate.schema.json"
+          }
+        },
+        "receipt_summaries": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/ReceiptSummary"
+          }
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/GrantSummary"
+          }
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Serialized chunk size. At most export_chunk_bytes, except a single element larger than the limit, which occupies its own chunk (never split, never dropped)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Chunk with ordinal >= 1: header is deliberately absent (present iff chunk_ordinal = 0, §6.13).",
+      "title": "TailChunk"
+    }
+  }
+}

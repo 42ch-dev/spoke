@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-get-request.schema.json",
+  "title": "MemoryRecordsGetRequest",
+  "description": "Read one record; rechecks current authorization (MEM-R026). Tombstoned records are returned with their tombstone (audit visibility) only to admin; others get NOT_FOUND. Grant: records_read or recall covering the record placement. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "record_id"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "record_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "RecordId"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

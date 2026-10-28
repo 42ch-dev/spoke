@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-get-request.schema.json",
+  "title": "MemorySubjectsGetRequest",
+  "description": "Read one subject; rechecks current authorization (MEM-R026). Grant: any capability on the subject. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SubjectId"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

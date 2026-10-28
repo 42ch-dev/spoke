@@ -56,9 +56,8 @@ export interface Relation {
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
+}
+export interface ExtensionValue {
+  [k: string]: unknown | undefined;
 }

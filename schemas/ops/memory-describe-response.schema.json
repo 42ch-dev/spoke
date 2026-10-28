@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-describe-response.schema.json",
+  "title": "MemoryDescribeResponse",
+  "description": "Success payload for memory.describe (§7.1). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.describe (§7.1): INTERNAL_ERROR. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "memory_protocol_version",
+        "capabilities",
+        "limits",
+        "required_profile_kinds",
+        "engine_policy_version"
+      ],
+      "properties": {
+        "memory_protocol_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Protocol version served by this provider (§3)."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Subset of the §4.1 capability flags actually served. Core (documented, not enforced): spoke-memory, spoke-memory-reflection, spoke-memory-transfer."
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "max_content_bytes",
+            "max_candidates_per_capture",
+            "max_page_size",
+            "export_chunk_bytes",
+            "idempotency_retention_seconds",
+            "receipt_retention_seconds",
+            "dedup_retention_seconds",
+            "staged_import_ttl_seconds",
+            "export_retention_seconds"
+          ],
+          "properties": {
+            "max_content_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Largest accepted request field and stored content (§7.0.7)."
+            },
+            "max_candidates_per_capture": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Largest candidate count produced by one memory.capture."
+            },
+            "max_page_size": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Largest accepted limit and recall budget.max_items."
+            },
+            "export_chunk_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Largest serialized MemoryExportChunk (§6.13)."
+            },
+            "idempotency_retention_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retention of stored receipt bodies."
+            },
+            "receipt_retention_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retention of stored receipts."
+            },
+            "dedup_retention_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retention of dedup tombstones; at least idempotency_retention_seconds (MEM-R021)."
+            },
+            "staged_import_ttl_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retention of staged imports."
+            },
+            "export_retention_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Retention of stored export chunks."
+            }
+          },
+          "additionalProperties": false,
+          "description": "Op-only limits shape: all values are integers > 0. Exceeding a limit fails INVALID_INPUT with details.limit naming it (§7.0.7).",
+          "title": "Limits"
+        },
+        "required_profile_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Authored content kinds this provider requires before generation (§4.2)."
+        },
+        "engine_policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque engine/provider policy version stamped on recall and reflection bases.",
+          "title": "EnginePolicyVersion"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ],
+  "examples": [
+    {
+      "memory_protocol_version": 1,
+      "capabilities": [
+        "spoke-memory",
+        "spoke-memory-reflection",
+        "spoke-memory-transfer"
+      ],
+      "limits": {
+        "max_content_bytes": 65536,
+        "max_candidates_per_capture": 16,
+        "max_page_size": 100,
+        "export_chunk_bytes": 262144,
+        "idempotency_retention_seconds": 86400,
+        "receipt_retention_seconds": 604800,
+        "dedup_retention_seconds": 2592000,
+        "staged_import_ttl_seconds": 259200,
+        "export_retention_seconds": 86400
+      },
+      "required_profile_kinds": [
+        "personality"
+      ],
+      "engine_policy_version": "spoke-memory/1.0.0-deterministic"
+    }
+  ]
+}

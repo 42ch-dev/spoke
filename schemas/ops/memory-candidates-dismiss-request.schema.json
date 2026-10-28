@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-request.schema.json",
+  "title": "MemoryCandidatesDismissRequest",
+  "description": "Lightweight consumption without a review decision (queue removal). Applies the §6.7 consumption scrub atomically; dismissal is replayable (§7.0.5). Grant: review covering the candidate capture_scope. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "candidate_id",
+    "expected_revision",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "CandidateId"
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optimistic-concurrency precondition (MEM-R007)."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Optional human-readable reason."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

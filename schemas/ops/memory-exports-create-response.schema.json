@@ -1,0 +1,223 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-exports-create-response.schema.json",
+  "title": "MemoryExportsCreateResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"export_id\": string, \"chunk_count\": int, \"total_bytes\": int, \"bundle_digest\": string, \"counts\": { \"subjects\": int, \"records\": int, \"candidates\": int, \"profiles\": int, \"reflections\": int, \"receipt_summaries\": int } }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.exports.create (§7.29): NOT_AUTHORIZED, NOT_FOUND, INVALID_INPUT, IDEMPOTENCY_CONFLICT. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "definitions": {
+    "CommittedReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.exports.create",
+              "type": "string",
+              "title": "Op"
+            }
+          },
+          "required": [
+            "op",
+            "idempotency_key"
+          ],
+          "title": "AllOf",
+          "description": "Pins the emitting op, the committed status, the per-op result shape, and the idempotency_key echo (§6.10: keyed mutations echo the supplied key; memory.subjects.ensure is exempt)."
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "export_id",
+                "chunk_count",
+                "total_bytes",
+                "bundle_digest",
+                "counts"
+              ],
+              "properties": {
+                "export_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "title": "ExportId"
+                },
+                "chunk_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total_bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "title": "BundleDigest"
+                },
+                "counts": {
+                  "type": "object",
+                  "required": [
+                    "subjects",
+                    "records",
+                    "candidates",
+                    "profiles",
+                    "reflections",
+                    "receipt_summaries"
+                  ],
+                  "properties": {
+                    "subjects": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "records": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "candidates": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "profiles": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "reflections": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "receipt_summaries": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "title": "Counts"
+                }
+              },
+              "additionalProperties": false,
+              "title": "Result"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "title": "AllOf"
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-exports-create-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.exports.create",
+                  "type": "string",
+                  "title": "Op"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "title": "AllOf"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "pending",
+                  "type": "string",
+                  "title": "Status"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "AllOf"
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.exports.create",
+                  "type": "string",
+                  "title": "Op"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "title": "AllOf"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "AllOf"
+            }
+          ]
+        }
+      ],
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZR6C3S0EXAMPLE0000401",
+      "op": "memory.exports.create",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_cli_operator",
+      "idempotency_key": "exp-2026-10-28T10:00Z",
+      "payload_digest": "58c03d12c3e307e4483a49f144efb87a81f4c1b16724ac8fefe8b1c173e3e136",
+      "status": "pending",
+      "created_at": "2026-10-28T10:00:00Z",
+      "extensions": {}
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-describe-request.schema.json",
+  "title": "MemoryDescribeRequest",
+  "description": "Provider self-description: protocol version, served capabilities, limits, and engine policy version. Carries no space catalogue (§7.2 owns discovery). Grant: none (authenticated principal only). Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "properties": {
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

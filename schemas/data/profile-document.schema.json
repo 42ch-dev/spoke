@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/profile-document.schema.json",
+  "title": "ProfileDocument",
+  "description": "Trusted, author-maintained subject document, unique per (space, subject, profile_kind) (§6.8). Defines the shared Document shape reused by Reflection.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "space_id",
+    "subject_id",
+    "profile_kind",
+    "document",
+    "updated_by",
+    "created_at",
+    "updated_at",
+    "revision",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."
+    },
+    "document": {
+      "$ref": "https://spoke42.invalid/schemas/data/profile-document.schema.json#/definitions/Document",
+      "description": "Trusted author-maintained content (§10)."
+    },
+    "updated_by": {
+      "type": "string",
+      "minLength": 1,
+      "description": "principal_id; provider-populated from the authenticated context."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "updated_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Document": {
+      "type": "object",
+      "required": ["format", "body"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["markdown", "json"]
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "profile_kind": "personality",
+      "document": { "format": "markdown", "body": "# Mira\n\nGuarded, loyal, keeps promises." },
+      "updated_by": "prn_nexus_cli_operator",
+      "created_at": "2026-10-27T08:05:00Z",
+      "updated_at": "2026-10-27T08:05:00Z",
+      "revision": 1,
+      "extensions": {}
+    }
+  ]
+}

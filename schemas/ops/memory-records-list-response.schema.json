@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-list-response.schema.json",
+  "title": "MemoryRecordsListResponse",
+  "description": "Success payload for memory.records.list (§7.20). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.records.list (§7.20): No list-specific codes are documented; pagination invalidation uses CURSOR_INVALID (§7.0.7).. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "records",
+        "total_authorized"
+      ],
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json"
+          }
+        },
+        "total_authorized": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of records the principal may see (MEM-R006)."
+        },
+        "next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absent = end of results (§7.0.7).",
+          "title": "NextCursor"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ]
+}

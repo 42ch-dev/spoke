@@ -1,0 +1,979 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-receipts-get-response.schema.json",
+  "title": "MemoryReceiptsGetResponse",
+  "description": "Success payload for memory.receipts.get (§7.28). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.receipts.get (§7.28): NOT_FOUND, RECEIPT_EXPIRED, NOT_AUTHORIZED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "receipt"
+      ],
+      "properties": {
+        "receipt": {
+          "description": "Polled receipt constrained to the emitting op contract: one branch per mutating op keyed on the op string, referencing that op response definitions.CommittedReceipt via absolute URI (single source of truth for the per-op result shape). Sync op receipts admit committed/failed; the four §7.0.3 async op receipts admit committed/pending/failed; failed receipts carry the memory error envelope.",
+          "oneOf": [
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-freeze-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.spaces.freeze",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-spaces-unfreeze-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.spaces.unfreeze",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.subjects.ensure",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-fence-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.subjects.fence",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-grants-grant-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.grants.grant",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-update-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.records.update",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-grants-revoke-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.grants.revoke",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-capture-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.capture",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.candidates.dismiss",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-review-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.candidates.review",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.records.create",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-delete-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.records.delete",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-promote-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.records.promote",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-profile-update-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.profile.update",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-reflections-generate-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.reflections.generate",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.reflections.generate",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-exports-create-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.exports.create",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.exports.create",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-stage-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.imports.stage",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.imports.stage",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-activate-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.imports.activate",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.imports.activate",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-imports-discard-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.imports.discard",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "idempotency_key"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            }
+          ],
+          "title": "Receipt"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ]
+}

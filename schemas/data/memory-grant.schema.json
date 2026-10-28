@@ -1,0 +1,194 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-grant.schema.json",
+  "title": "MemoryGrant",
+  "description": "Capability grant from the space to a principal, optionally narrowed by subject, placement contexts, and expiry. Evaluation and non-amplification rules are §6.5 (MEM-R006, MEM-R017). Expressed as closed restricted/unrestricted variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.5 rule exactly: shared_access is meaningful only with context_ids and MUST be omitted when context_ids is omitted.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-grant.schema.json#/definitions/RestrictedGrant"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-grant.schema.json#/definitions/UnrestrictedGrant"
+    }
+  ],
+  "definitions": {
+    "RestrictedGrant": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "grant_id",
+        "space_id",
+        "principal_id",
+        "capabilities",
+        "context_ids",
+        "created_at",
+        "revision",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "grant_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "GrantId"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional subject narrowing; absence = space-wide grant.",
+          "title": "SubjectId"
+        },
+        "principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Grantee (target principal).",
+          "title": "PrincipalId"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Open capability vocabulary. Core (documented, not enforced): capture, review, records_read, records_write, recall, profile_write, reflect, promote, transfer, admin. admin implies grant management and all other capabilities within the grant's coverage."
+        },
+        "context_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Placement-context restriction: only the listed placement contexts, plus shared visibility iff shared_access is true."
+        },
+        "shared_access": {
+          "type": "boolean",
+          "description": "Optional; default false. Additionally covers shared-visibility data and shared_only / include_shared selections, still never subject_all."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Optional; absence = no expiry. Expired grants are treated as revoked."
+        },
+        "revoked_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Set by memory.grants.revoke; terminal."
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Context-restricted grant.",
+      "title": "RestrictedGrant"
+    },
+    "UnrestrictedGrant": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "grant_id",
+        "space_id",
+        "principal_id",
+        "capabilities",
+        "created_at",
+        "revision",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "grant_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "GrantId"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional subject narrowing; absence = space-wide grant.",
+          "title": "SubjectId"
+        },
+        "principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Grantee (target principal).",
+          "title": "PrincipalId"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Open capability vocabulary. Core (documented, not enforced): capture, review, records_read, records_write, recall, profile_write, reflect, promote, transfer, admin."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Optional; absence = no expiry. Expired grants are treated as revoked."
+        },
+        "revoked_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Set by memory.grants.revoke; terminal."
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Unrestricted grant within its subject/space scope (includes shared visibility and subject_all selection). context_ids and shared_access are deliberately absent: shared_access MUST be omitted when context_ids is omitted (§6.5).",
+      "title": "UnrestrictedGrant"
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "grant_id": "grt_01J8ZR0A1Q0EXAMPLE0000201",
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "principal_id": "prn_nexus_cli_operator",
+      "capabilities": [
+        "review",
+        "records_write",
+        "recall"
+      ],
+      "context_ids": [
+        "bnd_mira_harbor_run_7"
+      ],
+      "shared_access": true,
+      "created_at": "2026-10-28T09:10:00Z",
+      "revision": 1,
+      "extensions": {}
+    }
+  ]
+}

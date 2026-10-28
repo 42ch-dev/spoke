@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-imports-stage-request.schema.json",
+  "title": "MemoryImportsStageRequest",
+  "description": "Stage one export chunk, in strict ordinal order; accumulation is durable across provider crashes and staged data stays invisible to non-transfer ops. Out-of-order chunks fail INVALID_INPUT. Final-chunk verification failures reject IMPORT_CONFLICT with details.errors[] and stage nothing. Grant: transfer plus admin on the target space. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "space_id",
+        "chunk",
+        "conflict_policy",
+        "idempotency_key"
+      ],
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "chunk": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-export-chunk.schema.json#/definitions/HeaderChunk",
+          "description": "Header chunk (chunk_ordinal = 0) being staged."
+        },
+        "conflict_policy": {
+          "type": "string",
+          "enum": [
+            "fail",
+            "rename_subject"
+          ],
+          "title": "ConflictPolicy"
+        },
+        "adopt_grants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "grant_id",
+              "principal_id"
+            ],
+            "properties": {
+              "grant_id": {
+                "type": "string",
+                "minLength": 1,
+                "title": "GrantId"
+              },
+              "principal_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Target-space principal.",
+                "title": "PrincipalId"
+              }
+            },
+            "additionalProperties": false,
+            "title": "Items"
+          },
+          "description": "Chunk 0 only. Only listed grants are created on the target and only when the staging principal coverage subsumes them; unlisted grants are dropped and none is auto-activated (MEM-R025)."
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+          "title": "IdempotencyKey"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Staging request for the header chunk: conflict_policy required, adopt_grants allowed.",
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "space_id",
+        "chunk",
+        "idempotency_key"
+      ],
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "chunk": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-export-chunk.schema.json#/definitions/TailChunk",
+          "description": "Tail chunk (chunk_ordinal >= 1) being staged."
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+          "title": "IdempotencyKey"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Staging request for a tail chunk: conflict_policy and adopt_grants are deliberately absent (§7.31).",
+      "title": "OneOf"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-candidates-list-request.schema.json",
+  "title": "MemoryCandidatesListRequest",
+  "description": "List candidates. A context-restricted review grant sees only candidates whose capture_scope it covers, plus shared-placement candidates iff shared_access. Expired pending candidates are excluded. Grant: review. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SubjectId"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "consumed"
+      ],
+      "description": "Omitted = both statuses.",
+      "title": "Status"
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque pagination cursor bound to principal, space, subject, selection/filter, snapshot marker and engine_policy_version. Any state or grant change invalidates it with CURSOR_INVALID (§7.0.7, MEM-R026).",
+      "title": "Cursor"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Page size; at most max_page_size (§7.0.7)."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

@@ -3,6 +3,7 @@
  * SPOKE codegen orchestrator — json-schema-to-typescript + typify (Rust).
  */
 import { compileFromFile } from "json-schema-to-typescript";
+import { hoistDeepRefs } from "./deep-ref-hoist.mjs";
 import $RefParser from "@apidevtools/json-schema-ref-parser";
 import { glob } from "glob";
 import { execSync } from "node:child_process";
@@ -177,10 +178,20 @@ async function buildLocalizedSchemaTree() {
 }
 
 async function buildDereferencedSchemaTree(schemaPaths) {
+  // typify resolves intra-document $refs (and dedups shared definitions into a
+  // single type per $ref target), but not cross-document ones. Full dereferencing
+  // inlines every shared definition at every usage, which typify 0.3.0 then emits
+  // as duplicate same-named types. Bundling rewrites cross-file refs to internal
+  // "#/definitions/..." refs instead, keeping the shared types shared.
   fs.rmSync(DEREF_SCHEMAS_DIR, { recursive: true, force: true });
   for (const relSchema of schemaPaths) {
     const input = path.join(LOCAL_SCHEMAS_DIR, relSchema);
-    const bundled = await $RefParser.dereference(input);
+    const bundled = await $RefParser.bundle(input);
+    try {
+      hoistDeepRefs(bundled);
+    } catch (err) {
+      throw new Error(`hoist failed for ${relSchema}: ${err.message}`);
+    }
     const out = path.join(DEREF_SCHEMAS_DIR, relSchema);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, JSON.stringify(bundled, null, 2));

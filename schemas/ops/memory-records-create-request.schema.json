@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-records-create-request.schema.json",
+  "title": "MemoryRecordsCreateRequest",
+  "description": "Direct authored write bypassing capture/review. captured_by / captured_at are always provider-populated from the authenticated context and are never client-supplied (§6.6, §7.16). Grant: records_write covering the declared placement. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id",
+    "kind",
+    "content",
+    "scope",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SubjectId"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Open record-kind vocabulary. Core (documented, not enforced): event, fact, note.",
+      "title": "Kind"
+    },
+    "content": {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+    },
+    "scope": {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope"
+    },
+    "source_context_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional provenance claims."
+    },
+    "anchors": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json"
+      },
+      "description": "Optional provenance claims."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

@@ -11,7 +11,8 @@
 //!   §6.13) — non-empty `context_ids` / `source_context_ids` where the
 //!   generated types allow programmatically-built empty vectors;
 //! - `memory.subjects.fence` archive-on-context → `INVALID_INPUT` (§7.7);
-//! - `memory.grants.grant` restricted-shape `context_ids` minItems (§7.9);
+//! - `memory.grants.grant` `capabilities` minItems/uniqueItems and
+//!   restricted-shape `context_ids` minItems (§7.9);
 //! - `memory.candidates.review` fragment minItems (§7.15);
 //! - `memory.records.update` kind-update shape must not carry content (§7.18);
 //! - `memory.imports.stage` header chunk ordinal must be 0 (§7.31);
@@ -22,7 +23,11 @@
 //! Everything else — idempotency-key presence and 1–128 shape on keyed
 //! mutations (`subjects.ensure` exempt, §7.0.5), placement `context_id`
 //! conditionality (§6.6), oneOf request shapes for `exports.create` /
-//! `imports.stage` — is enforced by the generated types themselves.
+//! `imports.stage` — is type-enforced by the generated types. Note
+//! `minItems` / `uniqueItems` on plain `Vec<String>` fields are NOT enforced
+//! for programmatically constructed values; validators re-check them where
+//! the protocol requires (§7.9 `capabilities`, §6.12 `context_ids`, §6.13
+//! `source_context_ids`).
 
 use crate::result::{spoke_ok, spoke_reject, SpokeRejectCode, SpokeResult};
 use serde_json::{Map, Value};
@@ -41,10 +46,20 @@ fn invalid_input(field: &str, message: impl Into<String>) -> SpokeResult<()> {
     spoke_reject(SpokeRejectCode::InvalidInput, message, Some(details))
 }
 
+/// §7.0.7: limit violations fail `INVALID_INPUT` with `details.limit`
+/// naming the exceeded provider limit (`field` is kept for precision).
+fn invalid_limit(field: &str, limit: &str, message: impl Into<String>) -> SpokeResult<()> {
+    let mut details = Map::new();
+    details.insert("field".into(), Value::String(field.to_owned()));
+    details.insert("limit".into(), Value::String(limit.to_owned()));
+    spoke_reject(SpokeRejectCode::InvalidInput, message, Some(details))
+}
+
 fn check_page_limit(limit: Option<NonZeroU64>, max_page_size: NonZeroU64) -> SpokeResult<()> {
     if limit.is_some_and(|limit| limit > max_page_size) {
-        return invalid_input(
+        return invalid_limit(
             "limit",
+            "max_page_size",
             format!("limit exceeds the provider max_page_size ({max_page_size})"),
         );
     }
@@ -61,8 +76,9 @@ pub fn content_wire_bytes(text: &str, structured: Option<&Value>) -> usize {
 
 fn check_content_limit(byte_len: usize, max_content_bytes: usize) -> SpokeResult<()> {
     if byte_len > max_content_bytes {
-        return invalid_input(
+        return invalid_limit(
             "content",
+            "max_content_bytes",
             format!("content exceeds the provider max_content_bytes ({max_content_bytes})"),
         );
     }
@@ -152,15 +168,42 @@ pub fn validate_memory_capture(
     )
 }
 
-/// §7.9 `memory.grants.grant`: the restricted-shape `context_ids` must be
-/// non-empty (minItems 1). `shared_access` without `context_ids` is
-/// type-enforced (only the restricted shape carries the field).
+/// §7.9 `memory.grants.grant`: `capabilities` must be non-empty and unique
+/// (`minItems: 1`, `uniqueItems: true` — the generated `Vec<String>` fields
+/// do not enforce this for programmatically constructed values), and the
+/// restricted-shape `context_ids` must be non-empty. `shared_access` without
+/// `context_ids` is type-enforced (only the restricted shape carries the
+/// field).
 pub fn validate_memory_grants_grant(request: &MemoryGrantsGrantRequest) -> SpokeResult<()> {
-    match request {
-        MemoryGrantsGrantRequest::Variant0 { context_ids, .. } if context_ids.is_empty() => {
-            invalid_input("context_ids", "context_ids must be non-empty when present")
+    fn check_capabilities(capabilities: &[String]) -> SpokeResult<()> {
+        if capabilities.is_empty() {
+            return invalid_input("capabilities", "capabilities must be non-empty");
         }
-        _ => spoke_ok(()),
+        let unique = capabilities.iter().collect::<std::collections::HashSet<_>>().len();
+        if unique != capabilities.len() {
+            return invalid_input("capabilities", "capabilities must be unique");
+        }
+        spoke_ok(())
+    }
+    match request {
+        MemoryGrantsGrantRequest::Variant0 {
+            capabilities,
+            context_ids,
+            ..
+        } => {
+            match check_capabilities(capabilities) {
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+                SpokeResult::Ok(()) => {}
+            }
+            if context_ids.is_empty() {
+                return invalid_input(
+                    "context_ids",
+                    "context_ids must be non-empty when present",
+                );
+            }
+            spoke_ok(())
+        }
+        MemoryGrantsGrantRequest::Variant1 { capabilities, .. } => check_capabilities(capabilities),
     }
 }
 
@@ -260,8 +303,9 @@ pub fn validate_memory_recall(
         }
     }
     if request.budget.max_items > max_page_size {
-        return invalid_input(
+        return invalid_limit(
             "max_items",
+            "max_page_size",
             format!("budget.max_items exceeds the provider max_page_size ({max_page_size})"),
         );
     }
@@ -606,6 +650,95 @@ mod tests {
             MemoryGrantsGrantRequest::Variant1 { .. } => panic!("expected restricted shape"),
         }
         expect_invalid(validate_memory_grants_grant(&request), "context_ids");
+    }
+
+    #[test]
+    fn grants_grant_rejects_empty_or_duplicate_capabilities() {
+        // Restricted shape: empty and duplicate capabilities.
+        let mut empty_caps: MemoryGrantsGrantRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "principal_id": "p2",
+            "capabilities": ["capture"],
+            "context_ids": ["c1"],
+            "idempotency_key": "k1",
+        }))
+        .expect("valid restricted-shape request");
+        match &mut empty_caps {
+            MemoryGrantsGrantRequest::Variant0 { capabilities, .. } => capabilities.clear(),
+            MemoryGrantsGrantRequest::Variant1 { .. } => panic!("expected restricted shape"),
+        }
+        expect_invalid(validate_memory_grants_grant(&empty_caps), "capabilities");
+
+        let mut dup_caps: MemoryGrantsGrantRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "principal_id": "p2",
+            "capabilities": ["capture"],
+            "context_ids": ["c1"],
+            "idempotency_key": "k1",
+        }))
+        .expect("valid restricted-shape request");
+        match &mut dup_caps {
+            MemoryGrantsGrantRequest::Variant0 { capabilities, .. } => {
+                capabilities.push("capture".to_owned());
+            }
+            MemoryGrantsGrantRequest::Variant1 { .. } => panic!("expected restricted shape"),
+        }
+        expect_invalid(validate_memory_grants_grant(&dup_caps), "capabilities");
+
+        // Unrestricted shape: empty capabilities.
+        let mut unrestricted: MemoryGrantsGrantRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "principal_id": "p2",
+            "capabilities": ["capture"],
+            "idempotency_key": "k1",
+        }))
+        .expect("valid unrestricted-shape request");
+        match &mut unrestricted {
+            MemoryGrantsGrantRequest::Variant1 { capabilities, .. } => capabilities.clear(),
+            MemoryGrantsGrantRequest::Variant0 { .. } => panic!("expected unrestricted shape"),
+        }
+        expect_invalid(validate_memory_grants_grant(&unrestricted), "capabilities");
+    }
+
+    /// §7.0.7: provider-limit rejections carry `details.limit` naming the
+    /// exceeded limit.
+    fn expect_limit<T>(result: SpokeResult<T>, limit: &str) {
+        match result {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                assert_eq!(
+                    reject.details.as_ref().and_then(|d| d.get("limit")).and_then(|v| v.as_str()),
+                    Some(limit)
+                );
+            }
+            SpokeResult::Ok(_) => panic!("expected reject naming limit {limit}"),
+        }
+    }
+
+    #[test]
+    fn limit_rejections_name_the_exceeded_limit() {
+        let too_big: MemorySpacesListRequest =
+            serde_json::from_value(json!({"limit": 101})).expect("valid request");
+        expect_limit(validate_memory_spaces_list(&too_big, max_page()), "max_page_size");
+
+        let capture: MemoryCaptureRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "content": {"text": "x".repeat(2048)},
+            "capture_scope": {"visibility": "shared"},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid request");
+        expect_limit(validate_memory_capture(&capture, 1024), "max_content_bytes");
+
+        let recall: MemoryRecallRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "selection": {"mode": "shared_only"},
+            "budget": {"max_items": 101},
+        }))
+        .expect("valid request");
+        expect_limit(validate_memory_recall(&recall, max_page()), "max_page_size");
     }
 
     #[test]

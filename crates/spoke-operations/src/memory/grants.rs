@@ -9,7 +9,6 @@
 use crate::result::{spoke_ok, spoke_reject, SpokeRejectCode, SpokeResult};
 use chrono::{DateTime, Utc};
 use spoke_schemas::MemoryGrant;
-use std::collections::HashSet;
 
 /// What one op needs from a single grant (§6.5 evaluation rules, §7 tables).
 #[derive(Debug, Clone)]
@@ -85,10 +84,13 @@ pub fn grant_covers(
     if view.expires_at.is_some_and(|expires_at| expires_at <= now) {
         return false;
     }
-    if let Some(subject_id) = requirement.subject_id {
-        if view.subject_id.is_some_and(|grant_subject| grant_subject != subject_id) {
-            return false;
-        }
+    // Subject scope (§6.5): a subject-scoped grant never covers another
+    // subject, and never covers space-wide ops — a space-wide requirement
+    // needs a space-wide grant.
+    match (requirement.subject_id, view.subject_id) {
+        (Some(op_subject), Some(grant_subject)) if op_subject != grant_subject => return false,
+        (None, Some(_)) => return false,
+        _ => {}
     }
     let has_capability = view.capabilities.iter().any(|capability| {
         capability == requirement.capability || capability == "admin"
@@ -118,7 +120,9 @@ pub fn grant_covers(
 /// The grant being issued via `memory.grants.grant`.
 #[derive(Debug, Clone)]
 pub struct IssuedGrant<'a> {
-    /// Requested capabilities (minItems 1 is type-enforced).
+    /// Requested capabilities (§7.9 `minItems: 1`, `uniqueItems: true` —
+    /// callers validate; the protocol core vocabulary includes `admin`,
+    /// which implies all other capabilities within the grant's coverage).
     pub capabilities: &'a [&'a str],
     /// `Some` = subject-scoped issuance; `None` = space-wide.
     pub subject_id: Option<&'a str>,
@@ -138,11 +142,13 @@ fn not_authorized(reason: &str) -> SpokeResult<()> {
     )
 }
 
-/// §7.9 non-amplification: every `IssuedGrant` facet must be subsumed by the
-/// granter's effective coverage — capabilities, subject scope, context
-/// restriction, `shared_access`, and expiry (a granter whose grants expire
-/// cannot issue longer-lived or non-expiring grants). All failures reject
-/// `NOT_AUTHORIZED`.
+/// §7.9 non-amplification: issuance requires **one** applicable `admin`
+/// grant whose coverage subsumes the issued grant on every facet together —
+/// capabilities (an `admin` grant implies all capabilities within its
+/// coverage), subject scope, context restriction, `shared_access`, and
+/// expiry (a granter whose grants expire cannot issue longer-lived or
+/// non-expiring grants). Coverage from multiple grants is never combined.
+/// All failures reject `NOT_AUTHORIZED`.
 pub fn validate_grant_issuance(
     granter_grants: &[MemoryGrant],
     principal_id: &str,
@@ -150,85 +156,54 @@ pub fn validate_grant_issuance(
     now: DateTime<Utc>,
     issued: &IssuedGrant<'_>,
 ) -> SpokeResult<()> {
-    // Applicable: valid, and covering the issued subject scope (space-wide
-    // granter may issue subject-scoped; subject-scoped granter only the
-    // same subject).
-    let applicable: Vec<GrantView<'_>> = granter_grants
+    // §7.9 Grant: `admin`. Only valid, applicable admin grants can issue.
+    let admin_grants: Vec<GrantView<'_>> = granter_grants
         .iter()
         .map(view_of)
         .filter(|view| view.principal_id == principal_id && view.space_id == space_id)
         .filter(|view| view.revoked_at.is_none())
         .filter(|view| view.expires_at.is_none_or(|expires_at| expires_at > now))
-        .filter(|view| {
-            issued
-                .subject_id
-                .is_none_or(|subject| view.subject_id.is_none() || view.subject_id == Some(subject))
-        })
+        .filter(|view| view.capabilities.iter().any(|capability| capability == "admin"))
         .collect();
-    if applicable.is_empty() {
-        return not_authorized("no applicable grant for the issued subject scope");
-    }
 
-    let granter_admin = applicable
-        .iter()
-        .any(|view| view.capabilities.iter().any(|capability| capability == "admin"));
-    if !granter_admin {
-        let effective: HashSet<&str> = applicable
-            .iter()
-            .flat_map(|view| view.capabilities.iter().map(String::as_str))
-            .collect();
-        for capability in issued.capabilities {
-            if !effective.contains(capability) {
-                return not_authorized("capabilities exceed the granter's effective capabilities");
-            }
-        }
-    }
+    // One grant must cover every issued facet simultaneously (§6.5
+    // single-grant coverage; disjoint grants are not unioned).
+    let covers_issuance = |view: &GrantView<'_>| {
+        let subject_ok = match issued.subject_id {
+            // Space-wide issuance requires a space-wide admin grant.
+            None => view.subject_id.is_none(),
+            Some(subject) => view.subject_id.is_none() || view.subject_id == Some(subject),
+        };
+        let contexts_ok = if issued.context_ids.is_empty() {
+            // Unrestricted issuance requires unrestricted-context coverage
+            // — a restricted granter can never issue an unrestricted grant.
+            view.context_ids.is_empty()
+        } else {
+            view.context_ids.is_empty()
+                || issued
+                    .context_ids
+                    .iter()
+                    .all(|context| view.context_ids.contains(context))
+        };
+        let shared_ok = !issued.shared_access
+            || view.context_ids.is_empty()
+            || view.shared_access;
+        let expiry_ok = match (issued.expires_at, view.expires_at) {
+            (Some(issued_expiry), Some(granter_expiry)) => issued_expiry <= granter_expiry,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => true,
+        };
+        subject_ok && contexts_ok && shared_ok && expiry_ok
+    };
 
-    if issued.subject_id.is_none()
-        && !applicable.iter().any(|view| view.subject_id.is_none())
-    {
-        return not_authorized("space-wide issuance requires a space-wide granter grant");
+    if admin_grants.iter().any(covers_issuance) {
+        spoke_ok(())
+    } else {
+        not_authorized(
+            "no single applicable admin grant subsumes the issued grant (subject, contexts, shared_access, expiry)",
+        )
     }
-
-    let granter_unrestricted = applicable.iter().any(|view| view.context_ids.is_empty());
-    if !issued.context_ids.is_empty() && !granter_unrestricted {
-        let granter_contexts: HashSet<&str> = applicable
-            .iter()
-            .flat_map(|view| view.context_ids.iter().map(String::as_str))
-            .collect();
-        if !issued
-            .context_ids
-            .iter()
-            .all(|context| granter_contexts.contains(context.as_str()))
-        {
-            return not_authorized("context_ids exceed the granter's coverage");
-        }
-    }
-
-    if issued.shared_access
-        && !granter_unrestricted
-        && !applicable.iter().any(|view| view.shared_access)
-    {
-        return not_authorized("shared_access requires unrestricted coverage or granter shared_access");
-    }
-
-    let earliest_expiry = applicable
-        .iter()
-        .filter_map(|view| view.expires_at)
-        .min();
-    match (issued.expires_at, earliest_expiry) {
-        (Some(issued_expiry), Some(earliest)) if issued_expiry > earliest => {
-            not_authorized("expires_at is later than the granter's earliest applicable expiry")
-        }
-        (None, Some(_)) => {
-            not_authorized("non-expiring issuance requires non-expiring granter coverage")
-        }
-        _ => spoke_ok_unit(),
-    }
-}
-
-fn spoke_ok_unit() -> SpokeResult<()> {
-    spoke_ok(())
 }
 
 #[cfg(test)]
@@ -318,6 +293,17 @@ mod tests {
     }
 
     #[test]
+    fn grant_covers_space_wide_ops_require_space_wide_grants() {
+        // §6.5: a subject-scoped grant never covers space-wide operations.
+        let subject_grant = make_grant(json!({"subject_id": "s1"}));
+        let space_wide_op = requirement("capture");
+        assert!(!grant_covers(&subject_grant, GRANTEE, SPACE, now(), &space_wide_op));
+
+        let space_wide = make_grant(json!({}));
+        assert!(grant_covers(&space_wide, GRANTEE, SPACE, now(), &space_wide_op));
+    }
+
+    #[test]
     fn grant_covers_context_coverage() {
         let restricted = make_grant(json!({"context_ids": ["c1"]}));
         let op_c1 = GrantRequirement {
@@ -395,17 +381,15 @@ mod tests {
     }
 
     #[test]
-    fn issuance_rejects_capability_amplification() {
-        let granter = vec![make_grant(json!({"capabilities": ["capture"]}))];
-        let result = validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &issued(&["capture"]));
-        assert!(result.is_ok());
-
-        let amplified = issued(&["capture", "admin"]);
-        match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &amplified) {
+    fn issuance_requires_an_applicable_admin_grant() {
+        // §7.9 Grant: `admin`. A capture-only principal can never issue.
+        let capture_only = vec![make_grant(json!({"capabilities": ["capture"]}))];
+        match validate_grant_issuance(&capture_only, GRANTEE, SPACE, now(), &issued(&["capture"])) {
             SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
             SpokeResult::Ok(_) => panic!("expected reject"),
         }
 
+        // An admin grant implies every capability within its coverage.
         let admin_granter = vec![make_grant(json!({"capabilities": ["admin"]}))];
         assert!(
             validate_grant_issuance(&admin_granter, GRANTEE, SPACE, now(), &issued(&["recall"]))
@@ -416,7 +400,7 @@ mod tests {
     #[test]
     fn issuance_rejects_subject_scope_amplification() {
         let granter = vec![make_grant(json!({
-            "capabilities": ["capture"],
+            "capabilities": ["admin"],
             "subject_id": "s1",
         }))];
         let cross_subject = IssuedGrant { subject_id: Some("s2"), ..issued(&["capture"]) };
@@ -428,7 +412,7 @@ mod tests {
         let same_subject = IssuedGrant { subject_id: Some("s1"), ..issued(&["capture"]) };
         assert!(validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &same_subject).is_ok());
 
-        let space_wide_granter = vec![make_grant(json!({"capabilities": ["capture"]}))];
+        let space_wide_granter = vec![make_grant(json!({"capabilities": ["admin"]}))];
         assert!(
             validate_grant_issuance(&space_wide_granter, GRANTEE, SPACE, now(), &cross_subject)
                 .is_ok()
@@ -436,9 +420,9 @@ mod tests {
     }
 
     #[test]
-    fn issuance_rejects_context_amplification() {
+    fn issuance_rejects_context_amplification_and_unrestricted_escalation() {
         let granter = vec![make_grant(json!({
-            "capabilities": ["capture"],
+            "capabilities": ["admin"],
             "context_ids": ["c1"],
         }))];
         let wider = IssuedGrant {
@@ -450,29 +434,74 @@ mod tests {
             SpokeResult::Ok(_) => panic!("expected reject"),
         }
 
+        // Critical: a restricted granter can never issue an unrestricted
+        // (contexts omitted) grant — that would escalate to all contexts,
+        // shared visibility, and `subject_all`.
+        let unrestricted_issuance = issued(&["capture"]);
+        match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &unrestricted_issuance) {
+            SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
+            SpokeResult::Ok(_) => panic!("expected reject"),
+        }
+
         let same = IssuedGrant { context_ids: &["c1".to_owned()], ..issued(&["capture"]) };
         assert!(validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &same).is_ok());
 
-        let unrestricted_granter = vec![make_grant(json!({"capabilities": ["capture"]}))];
+        let unrestricted_granter = vec![make_grant(json!({"capabilities": ["admin"]}))];
         assert!(
             validate_grant_issuance(&unrestricted_granter, GRANTEE, SPACE, now(), &wider).is_ok()
         );
     }
 
     #[test]
+    fn issuance_never_unions_disjoint_grants() {
+        // §6.5/§7.9: one grant must subsume the issuance. Admin for c1 plus
+        // a capture grant for c2 cannot jointly authorize a c2 issuance.
+        let granter = vec![
+            make_grant(json!({"capabilities": ["admin"], "context_ids": ["c1"]})),
+            make_grant(json!({"capabilities": ["capture"], "context_ids": ["c2"]})),
+        ];
+        let issued_c2 = IssuedGrant {
+            context_ids: &["c2".to_owned()],
+            ..issued(&["capture"])
+        };
+        match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &issued_c2) {
+            SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
+            SpokeResult::Ok(_) => panic!("expected reject"),
+        }
+
+        // Two disjoint admin grants cannot jointly cover a wide issuance.
+        let disjoint_admins = vec![
+            make_grant(json!({"capabilities": ["admin"], "context_ids": ["c1"]})),
+            make_grant(json!({"capabilities": ["admin"], "context_ids": ["c2"]})),
+        ];
+        let issued_both = IssuedGrant {
+            context_ids: &["c1".to_owned(), "c2".to_owned()],
+            ..issued(&["capture"])
+        };
+        match validate_grant_issuance(&disjoint_admins, GRANTEE, SPACE, now(), &issued_both) {
+            SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
+            SpokeResult::Ok(_) => panic!("expected reject"),
+        }
+    }
+
+    #[test]
     fn issuance_rejects_shared_access_without_granter_shared_access() {
         let granter = vec![make_grant(json!({
-            "capabilities": ["records_read"],
+            "capabilities": ["admin"],
             "context_ids": ["c1"],
         }))];
-        let shared = IssuedGrant { shared_access: true, ..issued(&["records_read"]) };
+        let shared = IssuedGrant {
+            context_ids: &["c1".to_owned()],
+            shared_access: true,
+            ..issued(&["records_read"])
+        };
         match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &shared) {
             SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),
             SpokeResult::Ok(_) => panic!("expected reject"),
         }
 
         let granter_with_shared = vec![make_grant(json!({
-            "capabilities": ["records_read"],
+            "capabilities": ["admin"],
             "context_ids": ["c1"],
             "shared_access": true,
         }))];
@@ -484,7 +513,7 @@ mod tests {
     #[test]
     fn issuance_expiry_cannot_outlive_granter() {
         let granter = vec![make_grant(json!({
-            "capabilities": ["capture"],
+            "capabilities": ["admin"],
             "expires_at": "2027-01-01T00:00:00Z",
         }))];
 
@@ -512,7 +541,7 @@ mod tests {
         assert!(validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &shorter).is_ok());
 
         // Non-expiring granter may issue any expiry.
-        let eternal_granter = vec![make_grant(json!({"capabilities": ["capture"]}))];
+        let eternal_granter = vec![make_grant(json!({"capabilities": ["admin"]}))];
         assert!(
             validate_grant_issuance(&eternal_granter, GRANTEE, SPACE, now(), &too_long).is_ok()
         );
@@ -520,8 +549,8 @@ mod tests {
 
     #[test]
     fn issuance_ignores_other_principals_and_spaces() {
-        let other_principal = make_grant(json!({"principal_id": "p9"}));
-        let other_space = make_grant(json!({"space_id": "sp_9"}));
+        let other_principal = make_grant(json!({"principal_id": "p9", "capabilities": ["admin"]}));
+        let other_space = make_grant(json!({"space_id": "sp_9", "capabilities": ["admin"]}));
         let granter = vec![other_principal, other_space];
         match validate_grant_issuance(&granter, GRANTEE, SPACE, now(), &issued(&["capture"])) {
             SpokeResult::Reject(reject) => assert_eq!(reject.code, SpokeRejectCode::NotAuthorized),

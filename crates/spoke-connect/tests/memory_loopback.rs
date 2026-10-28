@@ -43,8 +43,8 @@ use spoke_memory::classify::{classify_candidate, CandidateMaterial};
 use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest};
 use spoke_memory::ENGINE_POLICY_VERSION;
 use spoke_operations::{
-    grant_covers, jcs_sha256_hex_excluding, spoke_reject, BaselinePorts, GrantRequirement,
-    MemoryPort, SpokeRejectCode, SpokeResult,
+    grant_covers, jcs_sha256_hex, spoke_reject, BaselinePorts, GrantRequirement, MemoryPort,
+    SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::{ConnectHello, ConnectSession};
 use spoke_schemas::data::memory_candidate::Disposition;
@@ -105,10 +105,12 @@ fn principal_id(principal: &Principal) -> &str {
     principal.principal_id.as_str()
 }
 
-/// `§6.10` payload digest over the request object without its idempotency
-/// key: the replay comparison is about payload identity, not the key itself.
+/// `§6.1` payload digest: SHA-256 over the JCS canonicalization of the whole
+/// request payload object, idempotency key included. The dedup namespace
+/// already binds `(space, principal, op, key)`, so the digest never excludes
+/// the key.
 fn payload_digest(request: &Value) -> String {
-    match jcs_sha256_hex_excluding(request, "idempotency_key") {
+    match jcs_sha256_hex(request) {
         SpokeResult::Ok(digest) => digest,
         SpokeResult::Reject(reject) => panic!("request digest: {reject:?}"),
     }
@@ -135,6 +137,9 @@ struct Candidate {
     id: String,
     revision: u64,
     consumed: bool,
+    /// The candidate lives in the space that admitted the capture; review
+    /// authorization runs against this, never the request's `space_id`.
+    space_id: String,
     subject_id: String,
     /// Immutable admitted placement (§6.7) — inherited by review outcomes.
     scope: Value,
@@ -161,27 +166,49 @@ struct IssuedReceipt {
 
 impl Store {
     fn with_grant(principal_id: &str, contexts: &[&str]) -> Arc<Self> {
-        let grant: MemoryGrant = serde_json::from_value(json!({
+        let store = Store::default();
+        store.add_grant(
+            principal_id,
+            SPACE,
+            Some(SUBJECT),
+            &["capture", "review", "records_write", "recall"],
+            contexts,
+            false,
+        );
+        Arc::new(store)
+    }
+
+    /// Seed a grant. `contexts` empty = unrestricted within the space;
+    /// `shared_access` is only meaningful on a restricted grant (§6.5).
+    fn add_grant(
+        &self,
+        principal_id: &str,
+        space: &str,
+        subject: Option<&str>,
+        capabilities: &[&str],
+        contexts: &[&str],
+        shared_access: bool,
+    ) {
+        let mut state = self.state.lock().expect("state lock");
+        let mut grant = json!({
             "schema_version": 1,
-            "grant_id": "grt_loopback",
-            "space_id": SPACE,
-            "subject_id": SUBJECT,
+            "grant_id": format!("grt_{:02}", state.grants.len() + 1),
+            "space_id": space,
             "principal_id": principal_id,
-            "capabilities": ["capture", "review", "records_write", "recall"],
+            "capabilities": capabilities,
             "context_ids": contexts,
             "created_at": CAPTURED_AT,
             "revision": 1,
             "extensions": {},
-        }))
-        .expect("valid grant");
-        let store = Store::default();
-        store
-            .state
-            .lock()
-            .expect("state lock")
-            .grants
-            .push(grant);
-        Arc::new(store)
+        });
+        if let Some(subject) = subject {
+            grant["subject_id"] = json!(subject);
+        }
+        if shared_access {
+            grant["shared_access"] = json!(true);
+        }
+        let grant: MemoryGrant = serde_json::from_value(grant).expect("valid grant");
+        state.grants.push(grant);
     }
 
     fn seed_record(&self, space: &str, context: &str, kind: &str, text: &str) {
@@ -292,29 +319,31 @@ impl Store {
         let principal_id = principal_id(principal).to_string();
         let space_id = request["space_id"].as_str().unwrap_or_default().to_string();
         let subject_id = request["subject_id"].as_str().unwrap_or_default().to_string();
-        let context_id = request["capture_scope"]["context_id"]
-            .as_str()
-            .map(str::to_string);
+        let scope = &request["capture_scope"];
+        let shared = scope["visibility"].as_str() == Some("shared");
+        let context_id = scope["context_id"].as_str().map(str::to_string);
         let key = request["idempotency_key"].as_str().unwrap_or_default();
         let digest = payload_digest(&request);
         let mut state = self.state.lock().expect("state lock");
-        if let Some(answer) =
-            Store::replay(&state, (&space_id, &principal_id, "memory.capture", key), &digest)
-        {
-            return answer;
-        }
+        // Authorization first: a replay must never disclose a receipt to a
+        // caller who is no longer covered (MEM-R021).
         let requirement = GrantRequirement {
             capability: "capture",
             subject_id: Some(&subject_id),
             context_ids: context_id.iter().cloned().collect(),
-            reads_shared: false,
+            reads_shared: shared,
             subject_all: false,
         };
         if !Store::authorized(&state, &principal_id, &space_id, &[requirement]) {
             return reject(
                 SpokeRejectCode::NotAuthorized,
-                format!("no capture grant covers {space_id}/{context_id:?}"),
+                format!("no capture grant covers {space_id}/{context_id:?} shared={shared}"),
             );
+        }
+        if let Some(answer) =
+            Store::replay(&state, (&space_id, &principal_id, "memory.capture", key), &digest)
+        {
+            return answer;
         }
         let text = request["content"]["text"].as_str().unwrap_or_default();
         let kind = request
@@ -342,6 +371,7 @@ impl Store {
                 id: id.clone(),
                 revision: 1,
                 consumed: false,
+                space_id: space_id.clone(),
                 subject_id: subject_id.clone(),
                 scope: request["capture_scope"].clone(),
             });
@@ -366,19 +396,14 @@ impl Store {
 
     fn review(&self, principal: &Principal, request: Value) -> SpokeResult<Value> {
         let principal_id = principal_id(principal).to_string();
-        let space_id = request["space_id"].as_str().unwrap_or_default().to_string();
-        let candidate_id = request["candidate_id"].as_str().unwrap_or_default().to_string();
+        let candidate_id = request["candidate_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         let expected_revision = request["expected_revision"].as_u64().unwrap_or(0);
         let key = request["idempotency_key"].as_str().unwrap_or_default();
         let digest = payload_digest(&request);
         let mut state = self.state.lock().expect("state lock");
-        if let Some(answer) = Store::replay(
-            &state,
-            (&space_id, &principal_id, "memory.candidates.review", key),
-            &digest,
-        ) {
-            return answer;
-        }
         let Some(index) = state
             .candidates
             .iter()
@@ -389,37 +414,54 @@ impl Store {
                 format!("candidate {candidate_id} not found"),
             );
         };
-        let (subject_id, scope, revision, consumed) = {
+        let (space_id, subject_id, scope, revision, consumed) = {
             let candidate = &state.candidates[index];
             (
+                candidate.space_id.clone(),
                 candidate.subject_id.clone(),
                 candidate.scope.clone(),
                 candidate.revision,
                 candidate.consumed,
             )
         };
-        let contexts: Vec<String> = scope["context_id"].as_str().map(str::to_string).into_iter().collect();
+        // The candidate's own space is authoritative: a grant elsewhere never
+        // authorizes consuming it (the request's `space_id` is not consulted).
+        let shared = scope["visibility"].as_str() == Some("shared");
+        let contexts: Vec<String> = scope["context_id"]
+            .as_str()
+            .map(str::to_string)
+            .into_iter()
+            .collect();
         let requirements = [
             GrantRequirement {
                 capability: "review",
                 subject_id: Some(&subject_id),
                 context_ids: contexts.clone(),
-                reads_shared: false,
+                reads_shared: shared,
                 subject_all: false,
             },
             GrantRequirement {
                 capability: "records_write",
                 subject_id: Some(&subject_id),
                 context_ids: contexts,
-                reads_shared: false,
+                reads_shared: shared,
                 subject_all: false,
             },
         ];
         if !Store::authorized(&state, &principal_id, &space_id, &requirements) {
             return reject(
                 SpokeRejectCode::NotAuthorized,
-                format!("no review/records_write grant covers candidate {candidate_id}"),
+                format!("no review/records_write grant covers candidate {candidate_id} in {space_id}"),
             );
+        }
+        // Replay after the authorization recheck (MEM-R021): a caller who lost
+        // coverage never gets the original receipt back.
+        if let Some(answer) = Store::replay(
+            &state,
+            (&space_id, &principal_id, "memory.candidates.review", key),
+            &digest,
+        ) {
+            return answer;
         }
         if consumed {
             return reject(
@@ -1058,6 +1100,26 @@ fn capture_request(idempotency_key: &str, context: &str, text: &str) -> Value {
     })
 }
 
+fn shared_capture_request(idempotency_key: &str, text: &str) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "content": { "text": text },
+        "capture_scope": { "visibility": "shared" },
+        "kind_hint": "fact",
+        "idempotency_key": idempotency_key,
+    })
+}
+
+fn shared_recall_request(max_items: u64) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "selection": { "mode": "shared_only" },
+        "budget": { "max_items": max_items },
+    })
+}
+
 fn recall_request(context: &str, query: &str, max_items: u64) -> Value {
     json!({
         "space_id": SPACE,
@@ -1092,13 +1154,18 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_port(
     let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
     let session_id = handshake(&pair.client, &manifest).await;
 
+    let request = capture_request(
+        "cap-loopback-1",
+        CONTEXT,
+        "Mira told Bo the gate key is hidden under the third barrel.",
+    );
     let captured = invoke(
         &pair.client,
         &session_id,
         0,
         "memory-capture",
         "memory.capture",
-        capture_request("cap-loopback-1", CONTEXT, "Mira told Bo the gate key is hidden under the third barrel."),
+        request.clone(),
     )
     .await;
     let receipt = captured
@@ -1115,11 +1182,16 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_port(
         )
     );
     assert_eq!(receipt["result"]["classified"], 1, "{captured}");
-    assert!(
-        receipt["payload_digest"]
-            .as_str()
-            .is_some_and(|digest| digest.len() == 64),
-        "receipt carries a sha-256 payload digest, got {captured}"
+    // §6.1: the digest is SHA-256 over the JCS canonicalization of the whole
+    // request object (idempotency_key included) — recomputed here
+    // independently of the fixture's receipt builder.
+    let expected_digest = match jcs_sha256_hex(&request) {
+        SpokeResult::Ok(digest) => digest,
+        SpokeResult::Reject(reject) => panic!("request digest: {reject:?}"),
+    };
+    assert_eq!(
+        receipt["payload_digest"], expected_digest,
+        "receipt payload_digest must be the §6.1 JCS digest of the request, got {captured}"
     );
     let candidate_id = receipt["result"]["candidate_ids"][0]
         .as_str()
@@ -1384,8 +1456,10 @@ async fn memory_loopback_enforces_grants_idempotency_and_selection_isolation() {
 #[tokio::test]
 async fn memory_loopback_denies_unnegotiated_and_unserved_memory_ops() {
     // Known op, capability not negotiated (both manifests omit the flags):
-    // `capability_missing` before any handler runs — zero side effects.
-    let (responder, pair) = start_host(Some(json_face(&granted_host())), &["spoke-baseline"]).await;
+    // `capability_missing` before any handler runs — zero side effects. The
+    // host outlives the denied invoke so its state can be inspected.
+    let host = granted_host();
+    let (responder, pair) = start_host(Some(json_face(&host)), &["spoke-baseline"]).await;
     let session_id =
         handshake(&pair.client, &memory_manifest("test-client", &["spoke-baseline"])).await;
     let denied = invoke(
@@ -1402,6 +1476,12 @@ async fn memory_loopback_denies_unnegotiated_and_unserved_memory_ops() {
         denied.get("payload").is_none(),
         "a capability deny carries no payload, got {denied}"
     );
+    {
+        let state = host.store.state.lock().expect("state lock");
+        assert_eq!(state.candidates.len(), 0, "a capability deny admits no candidate");
+        assert_eq!(state.receipts.len(), 0, "a capability deny issues no receipt");
+        assert_eq!(state.records.len(), 0, "a capability deny writes no record");
+    }
     responder.close();
 
     // Capability negotiated but the host provides no memory face: the
@@ -1426,5 +1506,240 @@ async fn memory_loopback_denies_unnegotiated_and_unserved_memory_ops() {
             .contains("no memory service configured"),
         "{unserved}"
     );
+    responder.close();
+}
+
+#[tokio::test]
+async fn memory_loopback_authorizes_review_in_the_candidate_space_and_rechecks_on_replay() {
+    let host = Arc::new(MemoryHost {
+        store: Arc::new(Store::default()),
+    });
+    let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
+    // Capture + records_write in the candidate's space; review coverage only
+    // in another space.
+    host.store.add_grant(
+        &principal_id,
+        SPACE,
+        Some(SUBJECT),
+        &["capture", "records_write"],
+        &[CONTEXT],
+        false,
+    );
+    host.store.add_grant(
+        &principal_id,
+        OTHER_SPACE,
+        Some(SUBJECT),
+        &["review", "records_write"],
+        &[CONTEXT],
+        false,
+    );
+
+    let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
+    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
+    let session_id = handshake(&pair.client, &manifest).await;
+
+    let captured = invoke(
+        &pair.client,
+        &session_id,
+        0,
+        "capture-cross-space",
+        "memory.capture",
+        capture_request(
+            "cap-cross-space",
+            CONTEXT,
+            "Mira told Bo the gate key is hidden under the third barrel.",
+        ),
+    )
+    .await;
+    let candidate_id = captured["payload"]["result"]["candidate_ids"][0]
+        .as_str()
+        .unwrap_or_else(|| panic!("candidate id expected, got {captured}"))
+        .to_owned();
+
+    let review_body = |space_id: &str, key: &str| {
+        json!({
+            "space_id": space_id,
+            "candidate_id": candidate_id,
+            "expected_revision": 1,
+            "decision": {
+                "action": "fragment",
+                "fragments": [
+                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
+                ],
+            },
+            "idempotency_key": key,
+        })
+    };
+
+    // A review grant in another space must not consume a candidate owned by
+    // the candidate's space.
+    let cross_space = invoke(
+        &pair.client,
+        &session_id,
+        1,
+        "review-cross-space",
+        "memory.candidates.review",
+        review_body(OTHER_SPACE, "review-cross-space"),
+    )
+    .await;
+    assert_eq!(
+        cross_space["error"]["code"], "NOT_AUTHORIZED",
+        "a grant outside the candidate's space must not consume it: {cross_space}"
+    );
+    {
+        let state = host.store.state.lock().expect("state lock");
+        assert!(!state.candidates[0].consumed, "denied review consumes nothing");
+        assert_eq!(state.records.len(), 0, "denied review writes no record");
+    }
+
+    // Positive control: review coverage in the candidate's space admits it,
+    // whatever `space_id` the request names (the candidate's space is
+    // authoritative).
+    host.store.add_grant(
+        &principal_id,
+        SPACE,
+        Some(SUBJECT),
+        &["review"],
+        &[CONTEXT],
+        false,
+    );
+    let reviewed = invoke(
+        &pair.client,
+        &session_id,
+        2,
+        "review-in-space",
+        "memory.candidates.review",
+        review_body(OTHER_SPACE, "review-in-space"),
+    )
+    .await;
+    assert_eq!(reviewed["payload"]["status"], "committed", "{reviewed}");
+    assert_eq!(reviewed["payload"]["space_id"], SPACE, "{reviewed}");
+    assert_eq!(
+        host.store.state.lock().expect("state lock").records[0].space_id,
+        SPACE,
+        "review outcomes land in the candidate's space"
+    );
+
+    // Replay after coverage is withdrawn: the original receipt is never
+    // disclosed to a caller who no longer has coverage (MEM-R021).
+    let issued_before = {
+        let state = host.store.state.lock().expect("state lock");
+        state.receipts.len()
+    };
+    host.store.state.lock().expect("state lock").grants.clear();
+    let replayed = invoke(
+        &pair.client,
+        &session_id,
+        3,
+        "review-replay-revoked",
+        "memory.candidates.review",
+        review_body(OTHER_SPACE, "review-in-space"),
+    )
+    .await;
+    assert_eq!(
+        replayed["error"]["code"], "NOT_AUTHORIZED",
+        "replay without current coverage must deny, not disclose: {replayed}"
+    );
+    assert_eq!(
+        host.store.state.lock().expect("state lock").receipts.len(),
+        issued_before,
+        "a denied replay issues no new receipt"
+    );
+    responder.close();
+}
+
+#[tokio::test]
+async fn memory_loopback_enforces_shared_placement_coverage() {
+    let host = Arc::new(MemoryHost {
+        store: Arc::new(Store::default()),
+    });
+    let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
+    // Restricted grant with context placement coverage but no shared access.
+    host.store.add_grant(
+        &principal_id,
+        SPACE,
+        Some(SUBJECT),
+        &["capture", "recall"],
+        &[CONTEXT],
+        false,
+    );
+    host.store
+        .seed_record(SPACE, "", "fact", "A shared note about the harbor.");
+
+    let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
+    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
+    let session_id = handshake(&pair.client, &manifest).await;
+    let denied_capture = invoke(
+        &pair.client,
+        &session_id,
+        0,
+        "shared-capture-denied",
+        "memory.capture",
+        shared_capture_request("cap-shared", "Mira told Bo the gate key is hidden under the third barrel."),
+    )
+    .await;
+    assert_eq!(
+        denied_capture["error"]["code"], "NOT_AUTHORIZED",
+        "a shared placement needs shared access: {denied_capture}"
+    );
+    responder.close();
+
+    // The same grant cannot read shared placement either.
+    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
+    let session_id = handshake(&pair.client, &manifest).await;
+    let denied_recall = invoke(
+        &pair.client,
+        &session_id,
+        0,
+        "shared-recall-denied",
+        "memory.recall",
+        shared_recall_request(8),
+    )
+    .await;
+    assert_eq!(
+        denied_recall["error"]["code"], "NOT_AUTHORIZED",
+        "a shared read needs shared access: {denied_recall}"
+    );
+    responder.close();
+
+    // A grant carrying shared access admits both directions.
+    host.store.add_grant(
+        &principal_id,
+        SPACE,
+        Some(SUBJECT),
+        &["capture", "recall"],
+        &[],
+        true,
+    );
+    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
+    let session_id = handshake(&pair.client, &manifest).await;
+    let captured = invoke(
+        &pair.client,
+        &session_id,
+        0,
+        "shared-capture",
+        "memory.capture",
+        shared_capture_request("cap-shared", "Mira told Bo the gate key is hidden under the third barrel."),
+    )
+    .await;
+    assert_eq!(captured["payload"]["status"], "committed", "{captured}");
+    responder.close();
+
+    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
+    let session_id = handshake(&pair.client, &manifest).await;
+    let recalled = invoke(
+        &pair.client,
+        &session_id,
+        0,
+        "shared-recall",
+        "memory.recall",
+        shared_recall_request(8),
+    )
+    .await;
+    let records = recalled["payload"]["records"]
+        .as_array()
+        .unwrap_or_else(|| panic!("shared recall must answer records, got {recalled}"));
+    assert_eq!(records.len(), 1, "{recalled}");
+    assert_eq!(records[0]["scope"], json!({ "visibility": "shared" }));
     responder.close();
 }

@@ -36,8 +36,8 @@ use spoke_connect::core::{derive_peer_id_from_ed25519_pubkey, sign_hello_ed25519
 use spoke_connect::remote::{
     connect_remote_adapter, connect_responder, loopback_transport_pair, ConnectResponder,
     ConnectResponderOptions, LoopbackTransport, LoopbackTransportPair, MemoryAdmission,
-    MemoryPortService, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity, RemoteServePorts,
-    RemoteServePortsComposite, Transport,
+    MemoryPortService, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity, RemoteMemoryService,
+    RemoteServePorts, RemoteServePortsComposite, Transport,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_memory::classify::{classify_candidate, CandidateMaterial};
@@ -350,6 +350,18 @@ impl Store {
             digest: digest.to_string(),
             receipt: receipt.clone(),
         });
+    }
+
+    fn has_receipt(&self, op: &str, key: &str) -> bool {
+        if key.is_empty() {
+            return false;
+        }
+        self.state
+            .lock()
+            .expect("state lock")
+            .receipts
+            .iter()
+            .any(|issued| issued.op == op && issued.idempotency_key == key)
     }
 
     fn authorized(
@@ -1066,6 +1078,14 @@ async fn start_host(
     memory: Option<Arc<dyn spoke_connect::remote::RemoteMemoryService>>,
     capabilities: &[&str],
 ) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
+    start_host_with_budget(memory, capabilities, None).await
+}
+
+async fn start_host_with_budget(
+    memory: Option<Arc<dyn spoke_connect::remote::RemoteMemoryService>>,
+    capabilities: &[&str],
+    serve_budget_ms: Option<u64>,
+) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
     let pair = loopback_transport_pair();
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
     let baseline: Arc<dyn BaselinePorts + Send + Sync> =
@@ -1082,7 +1102,7 @@ async fn start_host(
         allowlist: vec![peer_id_client.clone()],
         peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
         ports: Some(ports),
-        invoke_timeout_ms: None,
+        invoke_timeout_ms: serve_budget_ms,
     })
     .await;
     (responder, pair)
@@ -1893,6 +1913,15 @@ async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
         Some("capability_missing"),
         "{denied:?}"
     );
+    assert_eq!(
+        denied
+            .details
+            .as_ref()
+            .and_then(|details| details.get("retry_class"))
+            .and_then(Value::as_str),
+        Some("terminal"),
+        "§14.2: a memory-boundary deny is classified terminal: {denied:?}"
+    );
     {
         let state = host.store.state.lock().expect("state lock");
         assert_eq!(state.candidates.len(), 0, "a capability deny admits no candidate");
@@ -1928,6 +1957,15 @@ async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
         unserved.message.contains("no memory service configured"),
         "{unserved:?}"
     );
+    assert_eq!(
+        unserved
+            .details
+            .as_ref()
+            .and_then(|details| details.get("retry_class"))
+            .and_then(Value::as_str),
+        Some("terminal"),
+        "§14.2: an absent memory face is classified terminal: {unserved:?}"
+    );
     responder.close();
     client.close();
 
@@ -1954,10 +1992,14 @@ fn manifest_with(capabilities: &[&str]) -> HostCapabilityManifest {
     memory_manifest("test-client", capabilities)
 }
 
-fn granted_host() -> Arc<MemoryHost> {
+fn granted_store() -> Arc<Store> {
     let peer_id = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    Store::with_grant(&format!("prn_{peer_id}"), &[CONTEXT, OTHER_CONTEXT])
+}
+
+fn granted_host() -> Arc<MemoryHost> {
     Arc::new(MemoryHost {
-        store: Store::with_grant(&format!("prn_{peer_id}"), &[CONTEXT, OTHER_CONTEXT]),
+        store: granted_store(),
     })
 }
 
@@ -2062,6 +2104,385 @@ async fn memory_loopback_golden_vectors_round_trip_through_the_client_adapter() 
             "{op} response drifted from the golden vector"
         );
     }
+
+    responder.close();
+    client.close();
+}
+
+
+#[test]
+fn memory_port_service_classifies_a_malformed_payload_as_terminal() {
+    let port: Arc<dyn MemoryPort + Send + Sync> = granted_host();
+    let service = MemoryPortService::new(port, admission());
+    let outcome = futures::executor::block_on(service.invoke(
+        "peer-invalid",
+        "memory.capture",
+        json!({ "space_id": 1 }),
+    ));
+    let reject = expect_reject(outcome);
+    assert_eq!(reject.code, SpokeRejectCode::InvalidInput, "{reject:?}");
+    assert_eq!(
+        reject
+            .details
+            .as_ref()
+            .and_then(|details| details.get("retry_class"))
+            .and_then(Value::as_str),
+        Some("terminal"),
+        "§14.2: a memory-boundary validation failure is terminal: {reject:?}"
+    );
+}
+
+/// Provider fixture whose mutation commits asynchronously: the responder's
+/// budget expires while the commit is still in flight, which is exactly the
+/// uncertain-outcome case (the transport cannot know whether it committed).
+struct DelayedHost {
+    store: Arc<Store>,
+}
+
+#[async_trait]
+impl MemoryPort for DelayedHost {
+    async fn describe(
+        &self,
+        _principal: &Principal,
+        _request: MemoryDescribeRequest,
+    ) -> SpokeResult<MemoryDescribeResponse> {
+        not_served()
+    }
+
+    async fn list_spaces(
+        &self,
+        _principal: &Principal,
+        _request: MemorySpacesListRequest,
+    ) -> SpokeResult<MemorySpacesListResponse> {
+        not_served()
+    }
+
+    async fn freeze_space(
+        &self,
+        _principal: &Principal,
+        _request: MemorySpacesFreezeRequest,
+    ) -> SpokeResult<MemorySpacesFreezeResponse> {
+        not_served()
+    }
+
+    async fn unfreeze_space(
+        &self,
+        _principal: &Principal,
+        _request: MemorySpacesUnfreezeRequest,
+    ) -> SpokeResult<MemorySpacesUnfreezeResponse> {
+        not_served()
+    }
+
+    async fn ensure_subject(
+        &self,
+        _principal: &Principal,
+        _request: MemorySubjectsEnsureRequest,
+    ) -> SpokeResult<MemorySubjectsEnsureResponse> {
+        not_served()
+    }
+
+    async fn get_subject(
+        &self,
+        _principal: &Principal,
+        _request: MemorySubjectsGetRequest,
+    ) -> SpokeResult<MemorySubjectsGetResponse> {
+        not_served()
+    }
+
+    async fn fence_subject(
+        &self,
+        _principal: &Principal,
+        _request: MemorySubjectsFenceRequest,
+    ) -> SpokeResult<MemorySubjectsFenceResponse> {
+        not_served()
+    }
+
+    async fn list_grants(
+        &self,
+        _principal: &Principal,
+        _request: MemoryGrantsListRequest,
+    ) -> SpokeResult<MemoryGrantsListResponse> {
+        not_served()
+    }
+
+    async fn grant(
+        &self,
+        _principal: &Principal,
+        _request: MemoryGrantsGrantRequest,
+    ) -> SpokeResult<MemoryGrantsGrantResponse> {
+        not_served()
+    }
+
+    async fn revoke_grant(
+        &self,
+        _principal: &Principal,
+        _request: MemoryGrantsRevokeRequest,
+    ) -> SpokeResult<MemoryGrantsRevokeResponse> {
+        not_served()
+    }
+
+    async fn capture(
+        &self,
+        principal: &Principal,
+        request: MemoryCaptureRequest,
+    ) -> SpokeResult<MemoryCaptureResponse> {
+        let payload = wire(&request);
+        let key = payload["idempotency_key"].as_str().unwrap_or_default();
+        // A replay of an already-committed key answers from provider state
+        // immediately (MEM-R008: replay never re-executes).
+        if self.store.has_receipt("memory.capture", key) {
+            return match self.store.capture(principal, payload) {
+                SpokeResult::Ok(value) => match serde_json::from_value(value) {
+                    Ok(response) => SpokeResult::Ok(response),
+                    Err(error) => reject(
+                        SpokeRejectCode::InternalError,
+                        format!("capture response decode failed: {error}"),
+                    ),
+                },
+                SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+            };
+        }
+        let store = Arc::clone(&self.store);
+        let principal = principal.clone();
+        // Detached commit: the responder's budget may expire first, and the
+        // transport has no way to know the outcome.
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            let _ = store.capture(&principal, payload);
+        });
+        // Outlive the budget; this wait is dropped when the responder expires.
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        not_served()
+    }
+
+    async fn list_candidates(
+        &self,
+        _principal: &Principal,
+        _request: MemoryCandidatesListRequest,
+    ) -> SpokeResult<MemoryCandidatesListResponse> {
+        not_served()
+    }
+
+    async fn get_candidate(
+        &self,
+        _principal: &Principal,
+        _request: MemoryCandidatesGetRequest,
+    ) -> SpokeResult<MemoryCandidatesGetResponse> {
+        not_served()
+    }
+
+    async fn dismiss_candidate(
+        &self,
+        _principal: &Principal,
+        _request: MemoryCandidatesDismissRequest,
+    ) -> SpokeResult<MemoryCandidatesDismissResponse> {
+        not_served()
+    }
+
+    async fn review_candidate(
+        &self,
+        _principal: &Principal,
+        _request: MemoryCandidatesReviewRequest,
+    ) -> SpokeResult<MemoryCandidatesReviewResponse> {
+        not_served()
+    }
+
+    async fn create_record(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecordsCreateRequest,
+    ) -> SpokeResult<MemoryRecordsCreateResponse> {
+        not_served()
+    }
+
+    async fn get_record(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecordsGetRequest,
+    ) -> SpokeResult<MemoryRecordsGetResponse> {
+        not_served()
+    }
+
+    async fn update_record(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecordsUpdateRequest,
+    ) -> SpokeResult<MemoryRecordsUpdateResponse> {
+        not_served()
+    }
+
+    async fn delete_record(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecordsDeleteRequest,
+    ) -> SpokeResult<MemoryRecordsDeleteResponse> {
+        not_served()
+    }
+
+    async fn list_records(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecordsListRequest,
+    ) -> SpokeResult<MemoryRecordsListResponse> {
+        not_served()
+    }
+
+    async fn promote_record(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecordsPromoteRequest,
+    ) -> SpokeResult<MemoryRecordsPromoteResponse> {
+        not_served()
+    }
+
+    async fn recall(
+        &self,
+        _principal: &Principal,
+        _request: MemoryRecallRequest,
+    ) -> SpokeResult<MemoryRecallResponse> {
+        not_served()
+    }
+
+    async fn get_profile(
+        &self,
+        _principal: &Principal,
+        _request: MemoryProfileGetRequest,
+    ) -> SpokeResult<MemoryProfileGetResponse> {
+        not_served()
+    }
+
+    async fn update_profile(
+        &self,
+        _principal: &Principal,
+        _request: MemoryProfileUpdateRequest,
+    ) -> SpokeResult<MemoryProfileUpdateResponse> {
+        not_served()
+    }
+
+    async fn get_reflection_state(
+        &self,
+        _principal: &Principal,
+        _request: MemoryReflectionsStateRequest,
+    ) -> SpokeResult<MemoryReflectionsStateResponse> {
+        not_served()
+    }
+
+    async fn list_reflections(
+        &self,
+        _principal: &Principal,
+        _request: MemoryReflectionsListRequest,
+    ) -> SpokeResult<MemoryReflectionsListResponse> {
+        not_served()
+    }
+
+    async fn generate_reflection(
+        &self,
+        _principal: &Principal,
+        _request: MemoryReflectionsGenerateRequest,
+    ) -> SpokeResult<MemoryReflectionsGenerateResponse> {
+        not_served()
+    }
+
+    async fn get_receipt(
+        &self,
+        _principal: &Principal,
+        _request: MemoryReceiptsGetRequest,
+    ) -> SpokeResult<MemoryReceiptsGetResponse> {
+        not_served()
+    }
+
+    async fn create_export(
+        &self,
+        _principal: &Principal,
+        _request: MemoryExportsCreateRequest,
+    ) -> SpokeResult<MemoryExportsCreateResponse> {
+        not_served()
+    }
+
+    async fn get_export(
+        &self,
+        _principal: &Principal,
+        _request: MemoryExportsGetRequest,
+    ) -> SpokeResult<MemoryExportsGetResponse> {
+        not_served()
+    }
+
+    async fn stage_import(
+        &self,
+        _principal: &Principal,
+        _request: MemoryImportsStageRequest,
+    ) -> SpokeResult<MemoryImportsStageResponse> {
+        not_served()
+    }
+
+    async fn activate_import(
+        &self,
+        _principal: &Principal,
+        _request: MemoryImportsActivateRequest,
+    ) -> SpokeResult<MemoryImportsActivateResponse> {
+        not_served()
+    }
+
+    async fn discard_import(
+        &self,
+        _principal: &Principal,
+        _request: MemoryImportsDiscardRequest,
+    ) -> SpokeResult<MemoryImportsDiscardResponse> {
+        not_served()
+    }
+}
+
+#[tokio::test]
+async fn memory_loopback_reports_an_uncertain_outcome_and_recovers_on_replay() {
+    let store = granted_store();
+    let delayed_port: Arc<dyn MemoryPort + Send + Sync> = Arc::new(DelayedHost {
+        store: Arc::clone(&store),
+    });
+    let delayed: Arc<dyn RemoteMemoryService> =
+        Arc::new(MemoryPortService::new(delayed_port, admission()));
+    // Short responder budget: it expires while the provider's commit is still
+    // in flight.
+    let (responder, pair) =
+        start_host_with_budget(Some(delayed), &MEMORY_CAPABILITIES, Some(50)).await;
+    let client = dial(pair, &memory_manifest("test-client", &MEMORY_CAPABILITIES)).await;
+    let principal = client_principal();
+    let request = capture_request(
+        "cap-uncertain",
+        CONTEXT,
+        "Mira told Bo the gate key is hidden under the third barrel.",
+    );
+
+    let timed_out = expect_reject(
+        client
+            .capture(&principal, typed_capture(request.clone()))
+            .await,
+    );
+    assert_eq!(
+        timed_out.code,
+        SpokeRejectCode::OutcomeUncertain,
+        "§14.3: an expired memory budget after invocation is uncertain, not internal: {timed_out:?}"
+    );
+    assert_eq!(
+        timed_out
+            .details
+            .as_ref()
+            .and_then(|details| details.get("retry_class"))
+            .and_then(Value::as_str),
+        Some("uncertain"),
+        "{timed_out:?}"
+    );
+
+    // Let the provider's detached commit land, then recover via the same key.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let recovered = expect_ok(client.capture(&principal, typed_capture(request)).await);
+    let receipt = wire(&recovered);
+    assert_eq!(receipt["status"], "committed", "{receipt}");
+    assert_eq!(receipt["idempotency_key"], "cap-uncertain", "{receipt}");
+    assert_eq!(
+        store.state.lock().expect("state lock").receipts.len(),
+        1,
+        "the replay reuses the committed receipt instead of double-applying"
+    );
 
     responder.close();
     client.close();

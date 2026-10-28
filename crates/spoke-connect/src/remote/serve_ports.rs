@@ -225,10 +225,13 @@ where
     let request: Req = match serde_json::from_value(payload) {
         Ok(request) => request,
         Err(error) => {
+            // §14.2: a memory-boundary validation failure is `terminal`.
+            let mut details = serde_json::Map::new();
+            details.insert("retry_class".into(), Value::String("terminal".into()));
             return spoke_reject(
                 SpokeRejectCode::InvalidInput,
                 format!("invalid memory payload: {error}"),
-                None,
+                Some(details),
             );
         }
     };

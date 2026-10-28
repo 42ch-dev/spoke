@@ -1181,14 +1181,14 @@ export class ConnectResponder {
         // evaluates negotiated capabilities only, so an op with a dispatch row
         // that was not negotiated answers `capability_missing`. An op with no
         // row at all stays `op_unsupported`.
-        const code =
-          doc.op.startsWith("memory.") && requiredCapability(doc.op) !== undefined
-            ? "capability_missing"
-            : "op_unsupported";
+        const memoryDeny =
+          doc.op.startsWith("memory.") && requiredCapability(doc.op) !== undefined;
         await this.#sendReverseErrorEnvelope(doc, {
-          code,
+          code: memoryDeny ? "capability_missing" : "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
+          // §14.2: a memory-boundary denial is classified `terminal`.
+          ...(memoryDeny ? { details: { retry_class: "terminal" } } : {}),
         });
         return;
       }
@@ -1314,13 +1314,18 @@ export class ConnectResponder {
    * outlives the session), and a serve dispatch that resumes after a close
    * answers nothing.
    */
-  async #withServeBudget<T>(work: () => Promise<T>): Promise<T | SpokeReject> {
+  async #withServeBudget<T>(
+    work: () => Promise<T>,
+    expiryEnvelope?: SpokeReject,
+  ): Promise<T | SpokeReject> {
     const budgetMs = this.#invokeTimeoutMs;
-    const expiryReject = spokeReject(
-      SpokeRejectCode.INTERNAL_ERROR,
-      `serve wait exceeded the local budget of ${budgetMs}ms`,
-      { kind: "timeout" },
-    );
+    const expiryReject =
+      expiryEnvelope ??
+      spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        `serve wait exceeded the local budget of ${budgetMs}ms`,
+        { kind: "timeout" },
+      );
     if (budgetMs === 0) {
       return expiryReject;
     }
@@ -1460,16 +1465,33 @@ export class ConnectResponder {
         code: "op_unsupported",
         message: `no memory service configured for op ${doc.op}`,
         extensions: {},
+        // §14.2: a memory-boundary denial is classified `terminal`.
+        details: { retry_class: "terminal" },
       });
       return;
     }
     // The admitted principal derives from the authenticated session peer
     // (MEM-R003), never from the payload.
     const peerId = this.remotePeerId;
+    // A zero budget rejects before the service is invoked (baseline
+    // serve-timeout rejection stands). A non-zero budget that expires AFTER
+    // invocation means the mutation may have committed: that is
+    // `OUTCOME_UNCERTAIN`/`uncertain` (§14.2/§14.3), not a clean internal error.
+    // The provider promise is left running — nothing here claims cancellation
+    // or rollback of provider work.
+    const uncertainOnExpiry =
+      this.#invokeTimeoutMs === 0
+        ? undefined
+        : spokeReject(
+            SpokeRejectCode.OUTCOME_UNCERTAIN,
+            `memory serve wait exceeded the local budget of ${this.#invokeTimeoutMs}ms; the outcome is unknown — poll the receipt or replay the same idempotency key`,
+            { retry_class: "uncertain", kind: "timeout" },
+          );
     let result: SpokeResult<unknown>;
     try {
-      result = await this.#withServeBudget(() =>
-        invoke.call(ports, peerId, doc.op, doc.payload as Record<string, unknown>),
+      result = await this.#withServeBudget(
+        () => invoke.call(ports, peerId, doc.op, doc.payload as Record<string, unknown>),
+        uncertainOnExpiry,
       );
     } catch (error) {
       result = spokeReject(

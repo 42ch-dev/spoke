@@ -3052,8 +3052,72 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
       if (!result.ok) {
         expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
         expect(result.details?.wire_code).toBe("capability_missing");
+        // §14.2: a memory-boundary deny is classified terminal.
+        expect(result.details?.retry_class).toBe("terminal");
       }
       expect(calls).toBe(0);
+    } finally {
+      client.close();
+      responder.close();
+    }
+  });
+
+  it("reports OUTCOME_UNCERTAIN when the memory budget expires mid-service and recovers on replay", async () => {
+    const vector = memoryVectors().find((entry) => entry.op === "memory.capture");
+    expect(vector).toBeDefined();
+    const capture = vector as MemoryVector;
+    const request = {
+      ...capture.request,
+      idempotency_key: "cap-uncertain",
+    } as unknown as MemoryCaptureRequest;
+    const committed = { ...capture.response, idempotency_key: "cap-uncertain" };
+    let commits = 0;
+    const ports = {
+      ...asBaselineOnly(new ToyWorldAdapter()),
+      invoke: async (
+        _peerId: string,
+        op: string,
+        payload: Record<string, unknown>,
+      ): Promise<SpokeResult<unknown>> => {
+        expect(op).toBe("memory.capture");
+        expect(payload.idempotency_key).toBe("cap-uncertain");
+        if (commits === 0) {
+          // The provider commits after the responder's budget expires, so the
+          // transport cannot know whether the mutation landed.
+          await delay(150);
+          commits += 1;
+        }
+        return spokeOk(committed);
+      },
+    };
+    const { responder, client } = await dialWithResponder({
+      ports,
+      responderTimeoutMs: 30,
+      clientManifest: memoryManifest("test-client"),
+      responderManifest: memoryManifest("test-responder"),
+    });
+
+    try {
+      const timedOut = await client.capture(
+        { principal_id: "prn_local_caller", extensions: {} },
+        request,
+      );
+      expect(timedOut.ok).toBe(false);
+      if (!timedOut.ok) {
+        expect(timedOut.code).toBe(SpokeRejectCode.OUTCOME_UNCERTAIN);
+        expect(timedOut.details?.retry_class).toBe("uncertain");
+      }
+
+      // Let the provider's late commit land, then recover on the same key.
+      await delay(250);
+      const recovered = await client.capture(
+        { principal_id: "prn_local_caller", extensions: {} },
+        request,
+      );
+      expect(recovered.ok).toBe(true);
+      if (recovered.ok) {
+        expect(recovered.value).toEqual(committed);
+      }
     } finally {
       client.close();
       responder.close();

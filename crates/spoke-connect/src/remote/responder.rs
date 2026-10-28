@@ -207,6 +207,32 @@ fn serve_timeout_reject(budget: Duration) -> SpokeReject {
     }
 }
 
+/// §14.2 memory-boundary deny details: every dispatch-layer denial is
+/// `terminal` — retrying the same request unchanged fails again.
+fn memory_terminal_details() -> Map<String, Value> {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("terminal".into()));
+    details
+}
+
+/// §14.2/§14.3: the serve budget expired AFTER the memory service was
+/// invoked, so the transport has no evidence that nothing committed — the
+/// outcome is unknown. The response says so instead of claiming a clean
+/// failure; provider work is neither cancelled nor rolled back by this end.
+fn memory_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "memory serve wait exceeded the local budget of {}ms; the outcome is unknown — poll the receipt or replay the same idempotency key",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
+}
+
 /// One decoded `port.*` dispatch: the catalogue arm's validated arguments,
 /// produced by [`decode_port_call`] before the serve bound starts (B1 — a
 /// malformed payload keeps its `INVALID_INPUT` reject even at a zero budget).
@@ -1070,11 +1096,14 @@ impl ConnectResponder {
             } else {
                 "op_unsupported"
             };
+            // §14.2: a memory-boundary denial is classified `terminal`.
+            let memory_details = memory_terminal_details();
+            let details = (code == "capability_missing").then_some(&memory_details);
             self.send_reverse_error_envelope(
                 doc,
                 code,
                 &format!("op {op} is not authorized by this session"),
-                None,
+                details,
             )
             .await?;
             return Ok(());
@@ -1379,11 +1408,12 @@ impl ConnectResponder {
             return Ok(());
         };
         let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_memory()) else {
+            let details = memory_terminal_details();
             self.send_reverse_error_envelope(
                 doc,
                 "op_unsupported",
                 &format!("no memory service configured for op {op}"),
-                None,
+                Some(&details),
             )
             .await?;
             return Ok(());
@@ -1404,7 +1434,12 @@ impl ConnectResponder {
         // Same serve bound as `extract`: the wait starts at provider
         // invocation; a zero budget answers the signed timeout without
         // starting the service.
-        let bounded = if self.invoke_timeout.is_zero() {
+        // A zero budget rejects before the service is invoked (the baseline
+        // serve-timeout rejection stands). A non-zero budget that expires
+        // AFTER invocation means the mutation may have committed: that is
+        // `OUTCOME_UNCERTAIN`, not a clean internal error.
+        let zero_budget = self.invoke_timeout.is_zero();
+        let bounded = if zero_budget {
             None
         } else {
             tokio::time::timeout(self.invoke_timeout, service.invoke(&peer_id, op, payload))
@@ -1415,7 +1450,11 @@ impl ConnectResponder {
             return Ok(());
         }
         let Some(result) = bounded else {
-            let reject = serve_timeout_reject(self.invoke_timeout);
+            let reject = if zero_budget {
+                serve_timeout_reject(self.invoke_timeout)
+            } else {
+                memory_uncertain_reject(self.invoke_timeout)
+            };
             self.send_reverse_error_envelope(
                 doc,
                 reject.code.as_str(),

@@ -3146,6 +3146,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "spoke-memory"
+version = "0.14.1"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "spoke-schemas",
+]
+
+[[package]]
 name = "spoke-operations"
 version = "0.14.1"
 dependencies = [

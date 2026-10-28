@@ -48,7 +48,7 @@
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
     },
     "source": {
-      "$ref": "#/definitions/Source"
+      "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/Source"
     },
     "subjects": {
       "type": "array",
@@ -88,14 +88,14 @@
     "receipt_summaries": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/ReceiptSummary"
+        "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/ReceiptSummary"
       },
       "description": "Content-free dedup provenance enabling reimport/replay duplicate suppression without transferring live receipt state."
     },
     "grants": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/GrantSummary"
+        "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/GrantSummary"
       },
       "description": "Redacted grant summaries sufficient for explicit administrator adoption via adopt_grants; never auto-activated (MEM-R025)."
     },

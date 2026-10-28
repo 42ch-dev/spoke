@@ -51,7 +51,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Required for pending candidates. Removed from the shell on consumption (§6.7 scrub); a consumed shell may retain only the kind."
+      "description": "Pending candidates carry the full proposed content; consumption removes it (§6.7 scrub), so a consumed shell either omits proposed or retains only its kind."
     },
     "provenance": {
       "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"
@@ -145,10 +145,16 @@
       },
       "then": {
         "required": ["proposed"],
+        "properties": {
+          "proposed": { "required": ["content"] }
+        },
         "not": { "required": ["consumed_by"] }
       },
       "else": {
-        "required": ["consumed_by", "content_digest"]
+        "required": ["consumed_by", "content_digest"],
+        "properties": {
+          "proposed": { "not": { "required": ["content"] } }
+        }
       }
     }
   ],

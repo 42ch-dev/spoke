@@ -77,6 +77,10 @@
         "digest": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional; may be an empty object. Carries the logical bundle's extensions (decision D8) so reassembly can write it back to MemoryExportBundle.extensions without changing the bundle digest. MUST be omitted from non-header chunks."
         }
       },
       "additionalProperties": false,

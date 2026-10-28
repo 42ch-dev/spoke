@@ -34,7 +34,7 @@
       "description": "Open vocabulary of authored content kinds. Core (documented, not enforced): personality, preferences (§4.2)."
     },
     "document": {
-      "$ref": "#/definitions/Document",
+      "$ref": "https://spoke42.invalid/schemas/data/profile-document.schema.json#/definitions/Document",
       "description": "Trusted author-maintained content (§10)."
     },
     "updated_by": {

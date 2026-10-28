@@ -41,15 +41,15 @@
       "description": "Open vocabulary. Core (documented, not enforced): event, fact, note. Product-specific kinds are product policy, never protocol vocabulary."
     },
     "content": {
-      "$ref": "#/definitions/Content",
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
       "description": "Untrusted content (§10). A tombstoned record carries empty text and no structured value."
     },
     "scope": {
-      "$ref": "#/definitions/PlacementScope",
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",
       "description": "Write placement. Changed only by memory.records.promote."
     },
     "provenance": {
-      "$ref": "#/definitions/Provenance"
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"
     },
     "import_ref": {
       "type": "object",
@@ -110,6 +110,19 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "required": ["tombstone"] },
+      "then": {
+        "properties": {
+          "content": {
+            "properties": { "text": { "const": "" } },
+            "not": { "required": ["structured"] }
+          }
+        }
+      }
+    }
+  ],
   "definitions": {
     "Content": {
       "type": "object",

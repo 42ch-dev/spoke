@@ -100,6 +100,31 @@ export { orchestrateInvokeTool } from "./tools/orchestrate.js";
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {
+  contentWireBytes,
+  isFreezeAllowlisted,
+  validateMemoryCandidatesList,
+  validateMemoryCandidatesReview,
+  validateMemoryCapture,
+  validateMemoryGrantsGrant,
+  validateMemoryGrantsList,
+  validateMemoryImportsStage,
+  validateMemoryRecall,
+  validateMemoryRecordsCreate,
+  validateMemoryRecordsList,
+  validateMemoryRecordsUpdate,
+  validateMemoryReflectionsGenerate,
+  validateMemoryReflectionsList,
+  validateMemoryReflectionsState,
+  validateMemorySpacesList,
+  validateMemorySubjectsFence,
+} from "./memory/validate.js";
+
+export { grantCovers, validateGrantIssuance } from "./memory/grants.js";
+export type { GrantRequirement, IssuedGrant } from "./memory/grants.js";
+
+export { jcsSha256Hex, jcsSha256HexExcluding } from "./memory/digests.js";
+
+export {
   SpokeRejectCode,
   spokeOk,
   spokeReject,
@@ -130,6 +155,8 @@ export type {
   ExtractionResult,
   RunExtractor,
   OpaqueJson,
+  MemoryPort,
+  MemoryPorts,
 } from "./adapter/ports.js";
 
 export {

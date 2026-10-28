@@ -261,7 +261,7 @@ mod tests {
         let candidate = serde_json::from_value(serde_json::to_value(candidate).unwrap()).unwrap();
         let mut request = PromoteRequest {
             candidate,
-            extensions: HashMap::new(),
+            extensions: Some(spoke_schemas::promote_request::Shared2(HashMap::new())),
             target_entry_id: None,
         };
         overrides(&mut request);

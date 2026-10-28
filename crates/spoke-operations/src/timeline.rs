@@ -3,7 +3,7 @@
 use crate::result::{spoke_ok, spoke_reject, SpokeRejectCode, SpokeResult};
 use crate::util::trimmed_string_field;
 use serde_json::{json, Map, Value};
-use spoke_schemas::timeline_event::TimelineEventExtensionsKey;
+use spoke_schemas::timeline_event::ExtensionKey;
 use spoke_schemas::{Relation, TimelineEvent};
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +12,7 @@ fn is_non_empty_trimmed_string(value: &str) -> bool {
 }
 
 fn read_timeline_entry_id(event: &TimelineEvent) -> Option<String> {
-    let spoke_key = TimelineEventExtensionsKey::try_from("spoke").ok()?;
+    let spoke_key = ExtensionKey::try_from("spoke").ok()?;
     let spoke_map = event.extensions.get(&spoke_key)?;
     trimmed_string_field(&Value::Object(spoke_map.clone()), "timeline_entry_id")
 }
@@ -317,14 +317,14 @@ mod tests {
         event
     }
 
-    fn spoke_extension(timeline_entry_id: &str) -> HashMap<TimelineEventExtensionsKey, Map<String, Value>> {
+    fn spoke_extension(timeline_entry_id: &str) -> HashMap<ExtensionKey, Map<String, Value>> {
         let mut spoke_map = Map::new();
         spoke_map.insert(
             "timeline_entry_id".into(),
             Value::String(timeline_entry_id.into()),
         );
         HashMap::from([(
-            TimelineEventExtensionsKey::try_from("spoke").unwrap(),
+            ExtensionKey::try_from("spoke").unwrap(),
             spoke_map,
         )])
     }

@@ -8,8 +8,7 @@ use crate::util::{
 };
 use serde_json::{Map, Value};
 use spoke_schemas::assemble_packet::{
-    AssemblePacket, AssemblePacketEntriesItem, AssemblePacketEntriesItemCanonicalName,
-    AssemblePacketExtensionsKey,
+    AssembleEntry, AssembleEntryCanonicalName, AssemblePacket, ExtensionKey,
 };
 use spoke_schemas::knowledge_entry::KnowledgeEntry;
 use std::collections::HashMap;
@@ -99,8 +98,8 @@ fn validate_assemble_knowledge_entry(
 fn map_to_assemble_entry(
     knowledge_entry: &KnowledgeEntry,
     body_wire: &Value,
-) -> SpokeResult<AssemblePacketEntriesItem> {
-    let canonical_name = match AssemblePacketEntriesItemCanonicalName::try_from(
+) -> SpokeResult<AssembleEntry> {
+    let canonical_name = match AssembleEntryCanonicalName::try_from(
         knowledge_entry.canonical_name.to_string(),
     ) {
         Ok(name) => name,
@@ -119,7 +118,7 @@ fn map_to_assemble_entry(
         }
     };
 
-    let mut entry = AssemblePacketEntriesItem {
+    let mut entry = AssembleEntry {
         canonical_name,
         entry_id: knowledge_entry.entry_id.clone(),
         entry_type: knowledge_entry.entry_type.clone(),
@@ -136,7 +135,7 @@ fn map_to_assemble_entry(
 /// Map a KnowledgeEntry to a slim assemble entry per wire rules.
 pub fn knowledge_entry_to_assemble_entry(
     knowledge_entry: &KnowledgeEntryForAssemble,
-) -> SpokeResult<AssemblePacketEntriesItem> {
+) -> SpokeResult<AssembleEntry> {
     if let SpokeResult::Reject(reject) = validate_assemble_knowledge_entry(knowledge_entry) {
         return SpokeResult::Reject(reject);
     }
@@ -201,11 +200,11 @@ pub fn build_assemble_packet(
 
 fn extension_map_to_packet(
     extensions: &ExtensionMap,
-) -> SpokeResult<HashMap<AssemblePacketExtensionsKey, Map<String, Value>>> {
+) -> SpokeResult<HashMap<ExtensionKey, Map<String, Value>>> {
     let mut packet_extensions = HashMap::new();
 
     for (key, value) in extensions {
-        let typed_key = match AssemblePacketExtensionsKey::try_from(key.as_str()) {
+        let typed_key = match ExtensionKey::try_from(key.as_str()) {
             Ok(typed_key) => typed_key,
             Err(_) => {
                 let mut details = Map::new();
@@ -258,7 +257,7 @@ mod tests {
         }
     }
 
-    fn unwrap_assemble_entry(entry: &KnowledgeEntryForAssemble) -> AssemblePacketEntriesItem {
+    fn unwrap_assemble_entry(entry: &KnowledgeEntryForAssemble) -> AssembleEntry {
         match knowledge_entry_to_assemble_entry(entry) {
             SpokeResult::Ok(mapped) => mapped,
             SpokeResult::Reject(reject) => panic!("assemble entry: {reject:?}"),
@@ -456,7 +455,7 @@ mod tests {
 
         assert!(result.is_ok());
         if let SpokeResult::Ok(packet) = result {
-            let key = AssemblePacketExtensionsKey::try_from("nexus").unwrap();
+            let key = ExtensionKey::try_from("nexus").unwrap();
             assert_eq!(
                 packet.extensions.get(&key).and_then(|m| m.get("profile")),
                 Some(&json!("chat"))

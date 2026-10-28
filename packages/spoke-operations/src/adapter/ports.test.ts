@@ -115,7 +115,8 @@ describe("adapter port exports", () => {
     expect(SpokeRejectCode.CAPABILITY_PORT_MISSING).toBe(
       "CAPABILITY_PORT_MISSING",
     );
-    expect(Object.keys(SpokeRejectCode)).toHaveLength(23);
+    // 23 baseline codes + the 14 §14.1 memory codes.
+    expect(Object.keys(SpokeRejectCode)).toHaveLength(37);
   });
 
   it("BaselinePorts accepts an object implementing all six baseline families", () => {

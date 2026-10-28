@@ -200,24 +200,43 @@ fn canonical_number(number: &serde_json::Number) -> Result<String, TransferError
     Ok(ecmascript_number(value))
 }
 
-/// ECMAScript `Number::toString` (RFC 8785 §3.2.2.3): shortest round-trip
-/// digits (Rust's `{:e}`), plain decimal for `1e-6 <= |x| < 1e21`, exponential
-/// with an explicit sign otherwise; `9007199254740993` becomes
-/// `9007199254740992` because it parses to that double.
+/// ECMAScript `Number::toString` (RFC 8785 §3.2.2.3) over ryu's shortest
+/// round-trip digits: plain decimal for `1e-6 <= |x| < 1e21`, exponential with
+/// an explicit sign otherwise; `9007199254740993` becomes `9007199254740992`
+/// because it parses to that double; integer-valued doubles lose the `.0`.
+///
+/// ryu is used instead of `format!("{:e}")` because the standard library's
+/// shortest-digit tie-breaking differs from V8/ES6 (e.g.
+/// `f64::from_bits(4829166033435530498)` is `726354065216160.2` in ECMAScript,
+/// `726354065216160.3` through `{:e}`).
 fn ecmascript_number(value: f64) -> String {
     let negative = value < 0.0;
-    let formatted = format!("{:e}", value.abs());
-    let (mantissa, exponent) = formatted
-        .split_once('e')
-        .expect("{:e} always writes an exponent");
-    let digits: String = mantissa
-        .chars()
-        .filter(|character| *character != '.')
-        .collect();
-    let exponent: i32 = exponent.parse().expect("{:e} writes a decimal exponent");
+    let mut buffer = ryu::Buffer::new();
+    let formatted = buffer.format_finite(value.abs());
+    let (mantissa, exponent) = match formatted.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (
+            mantissa,
+            exponent
+                .parse::<i32>()
+                .expect("ryu writes a decimal exponent"),
+        ),
+        None => (formatted, 0),
+    };
+    let (whole, fraction) = match mantissa.split_once('.') {
+        Some((whole, fraction)) => (whole, fraction),
+        None => (mantissa, ""),
+    };
+    let mut digits: Vec<u8> = whole.bytes().chain(fraction.bytes()).collect();
+    let mut point = whole.len() as i32 + exponent;
+    while digits.first() == Some(&b'0') {
+        digits.remove(0);
+        point -= 1;
+    }
+    while digits.last() == Some(&b'0') {
+        digits.pop();
+    }
+    let digits = String::from_utf8(digits).expect("ryu writes ASCII digits");
     let length = digits.len() as i32;
-    // `point` is the decimal point position relative to the digit string.
-    let point = exponent + 1;
 
     let mut out = String::new();
     if negative {
@@ -1045,6 +1064,17 @@ mod tests {
             sha256_hex(canonical.as_bytes()),
             "66ffdccf28e737e8a4d685c1a3ef0ea0cfe0446f1869aff90619e0929b3c3501"
         );
+    }
+
+    #[test]
+    fn canonical_json_matches_es6_tie_breaking() {
+        // Differential vector: ECMAScript (and ryu) emit .2 where Rust's
+        // `{:e}` shortest path emitted .3.
+        let value = json!(f64::from_bits(4_829_166_033_435_530_498));
+        let canonical = String::from_utf8(canonical_json_bytes(&value).expect("canonicalizes"))
+            .expect("canonical form is UTF-8");
+        assert_eq!(canonical, "726354065216160.2");
+        assert!(canonical.contains(".2"));
     }
 
     #[test]

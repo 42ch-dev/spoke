@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "description": "Cross-language memory invoke vectors (memory protocol §13). Each vector is the op string plus the exact request and response payload objects on the wire: no wrapper, no extra fields. Both language harnesses consume this same file byte-for-byte; the representation is the generated typed request/response pair on each side.",
+  "vectors": [
+    {
+      "op": "memory.describe",
+      "method": "describe",
+      "request": {},
+      "response": {
+        "memory_protocol_version": 1,
+        "capabilities": [
+          "spoke-memory",
+          "spoke-memory-reflection",
+          "spoke-memory-transfer"
+        ],
+        "limits": {
+          "max_content_bytes": 65536,
+          "max_candidates_per_capture": 8,
+          "max_page_size": 100,
+          "export_chunk_bytes": 262144,
+          "idempotency_retention_seconds": 86400,
+          "receipt_retention_seconds": 86400,
+          "dedup_retention_seconds": 86400,
+          "staged_import_ttl_seconds": 3600,
+          "export_retention_seconds": 86400
+        },
+        "required_profile_kinds": ["personality"],
+        "engine_policy_version": "spoke-memory/1.0.0-deterministic",
+        "extensions": {}
+      }
+    },
+    {
+      "op": "memory.capture",
+      "method": "capture",
+      "request": {
+        "space_id": "spc_local_default",
+        "subject_id": "nexus:character:mira",
+        "content": {
+          "text": "Mira told Bo the gate key is hidden under the third barrel."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "bnd_mira_harbor_run_7"
+        },
+        "source_context_ids": ["bnd_mira_harbor_run_7"],
+        "kind_hint": "fact",
+        "occurred_at": "2026-10-28T09:20:00Z",
+        "idempotency_key": "cap-9182-1400-mira"
+      },
+      "response": {
+        "schema_version": 1,
+        "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099",
+        "op": "memory.capture",
+        "space_id": "spc_local_default",
+        "requester_principal_id": "prn_nexus_host_local",
+        "idempotency_key": "cap-9182-1400-mira",
+        "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
+        "status": "committed",
+        "result": {
+          "candidate_ids": ["cand_01J8ZQ9X7P0EXAMPLE0000101"],
+          "classified": 1
+        },
+        "created_at": "2026-10-28T09:20:01Z",
+        "completed_at": "2026-10-28T09:20:01Z",
+        "extensions": {}
+      }
+    },
+    {
+      "op": "memory.candidates.review",
+      "method": "reviewCandidate",
+      "request": {
+        "space_id": "spc_local_default",
+        "candidate_id": "cand_01J8ZQ9X7P0EXAMPLE0000101",
+        "expected_revision": 1,
+        "decision": {
+          "action": "fragment",
+          "fragments": [
+            {
+              "kind": "fact",
+              "content": {
+                "text": "The gate key is hidden under the third barrel."
+              }
+            },
+            {
+              "kind": "event",
+              "content": {
+                "text": "Mira revealed the key location to Bo."
+              }
+            }
+          ]
+        },
+        "idempotency_key": "rev-cand-01J8ZQ9X7P-1"
+      },
+      "response": {
+        "schema_version": 1,
+        "receipt_id": "rcpt_01J8ZQ9X800EXAMPLE0000120",
+        "op": "memory.candidates.review",
+        "space_id": "spc_local_default",
+        "requester_principal_id": "prn_nexus_host_local",
+        "idempotency_key": "rev-cand-01J8ZQ9X7P-1",
+        "payload_digest": "5d98f9f2b0ef3dd0d14a3a4bdc0b0c4a9f6b2f42b4d6c1ac1d0d3c6f2d6f0c11",
+        "status": "committed",
+        "result": {
+          "outcome": "fragmented",
+          "record_ids": [
+            "rec_01J8ZQ3K4M0EXAMPLE0000001",
+            "rec_01J8ZQ3K4M0EXAMPLE0000002"
+          ]
+        },
+        "created_at": "2026-10-28T09:20:02Z",
+        "completed_at": "2026-10-28T09:20:02Z",
+        "extensions": {}
+      }
+    },
+    {
+      "op": "memory.recall",
+      "method": "recall",
+      "request": {
+        "space_id": "spc_local_default",
+        "subject_id": "nexus:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["bnd_mira_harbor_run_7"],
+          "include_shared": true
+        },
+        "query": "Where is the gate key?",
+        "budget": { "max_items": 8, "max_bytes": 16384 }
+      },
+      "response": {
+        "records": [
+          {
+            "schema_version": 1,
+            "record_id": "rec_01J8ZQ3K4M0EXAMPLE0000001",
+            "space_id": "spc_local_default",
+            "subject_id": "nexus:character:mira",
+            "kind": "event",
+            "content": {
+              "text": "Mira promised the harbor master she would return before dawn.",
+              "structured": { "certainty": "stated" }
+            },
+            "scope": {
+              "visibility": "context",
+              "context_id": "bnd_mira_harbor_run_7"
+            },
+            "provenance": {
+              "source_context_ids": ["bnd_mira_harbor_run_7"],
+              "anchors": [],
+              "captured_by": "prn_nexus_host_local",
+              "captured_at": "2026-10-28T09:15:00Z"
+            },
+            "created_at": "2026-10-28T09:15:01Z",
+            "updated_at": "2026-10-28T09:15:01Z",
+            "revision": 1,
+            "extensions": {}
+          }
+        ],
+        "total_authorized": 1,
+        "truncated": false,
+        "engine_policy_version": "spoke-memory/1.0.0-deterministic"
+      }
+    },
+    {
+      "op": "memory.profile.update",
+      "method": "updateProfile",
+      "request": {
+        "space_id": "spc_local_default",
+        "subject_id": "nexus:character:mira",
+        "profile_kind": "preferences",
+        "expected_revision": 1,
+        "document": {
+          "format": "markdown",
+          "body": "Prefers short answers and Morse code."
+        },
+        "idempotency_key": "prof-mira-1"
+      },
+      "response": {
+        "schema_version": 1,
+        "receipt_id": "rcpt_01J8ZR1A0B0EXAMPLE0000210",
+        "op": "memory.profile.update",
+        "space_id": "spc_local_default",
+        "requester_principal_id": "prn_nexus_host_local",
+        "idempotency_key": "prof-mira-1",
+        "payload_digest": "7cb1f8b7a0f4e4dfa2a8b9b4d1e5c6a7f809132435465768798a9b0c1d2e3f41",
+        "status": "committed",
+        "result": { "profile_kind": "preferences", "revision": 2 },
+        "created_at": "2026-10-28T09:21:00Z",
+        "completed_at": "2026-10-28T09:21:00Z",
+        "extensions": {}
+      }
+    },
+    {
+      "op": "memory.exports.create",
+      "method": "createExport",
+      "request": {
+        "space_id": "spc_local_default",
+        "include_tombstoned": false,
+        "include_reflections": false,
+        "require_quiescent": false,
+        "idempotency_key": "exp-2026-10-28T10:00Z"
+      },
+      "response": {
+        "schema_version": 1,
+        "receipt_id": "rcpt_01J8ZR6C3S0EXAMPLE0000401",
+        "op": "memory.exports.create",
+        "space_id": "spc_local_default",
+        "requester_principal_id": "prn_nexus_cli_operator",
+        "idempotency_key": "exp-2026-10-28T10:00Z",
+        "payload_digest": "58c03d12c3e307e4483a49f144efb87a81f4c1b16724ac8fefe8b1c173e3e136",
+        "status": "pending",
+        "created_at": "2026-10-28T10:00:00Z",
+        "extensions": {}
+      }
+    },
+    {
+      "op": "memory.exports.get",
+      "method": "getExport",
+      "request": {
+        "space_id": "spc_local_default",
+        "export_id": "exp_01J8ZR6C3S0EXAMPLE0000401",
+        "chunk_ordinal": 1
+      },
+      "response": {
+        "chunk": {
+          "export_id": "exp_01J8ZR6C3S0EXAMPLE0000401",
+          "chunk_ordinal": 1,
+          "chunk_count": 2,
+          "bundle_digest": "9f2c1d0e3b4a5968778695a4b3c2d1e0f1a2b3c4d5e6f708192a3b4c5d6e7f80",
+          "chunk_digest": "1a2b3c4d5e6f708192a3b4c5d6e7f809a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "bytes": 2
+        }
+      }
+    },
+    {
+      "op": "memory.imports.stage",
+      "method": "stageImport",
+      "request": {
+        "space_id": "spc_local_default",
+        "chunk": {
+          "export_id": "exp_01J8ZR6C3S0EXAMPLE0000401",
+          "chunk_ordinal": 1,
+          "chunk_count": 2,
+          "bundle_digest": "9f2c1d0e3b4a5968778695a4b3c2d1e0f1a2b3c4d5e6f708192a3b4c5d6e7f80",
+          "chunk_digest": "1a2b3c4d5e6f708192a3b4c5d6e7f809a1b2c3d4e5f60718293a4b5c6d7e8f90",
+          "bytes": 2
+        },
+        "idempotency_key": "imp-1"
+      },
+      "response": {
+        "schema_version": 1,
+        "receipt_id": "rcpt_01J8ZR7D4T0EXAMPLE0000501",
+        "op": "memory.imports.stage",
+        "space_id": "spc_local_default",
+        "requester_principal_id": "prn_nexus_cli_operator",
+        "idempotency_key": "imp-1",
+        "payload_digest": "2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b",
+        "status": "committed",
+        "result": { "import_id": "imp_01J8ZR7D4T0EXAMPLE0000501", "chunks_received": 1 },
+        "created_at": "2026-10-28T10:05:00Z",
+        "completed_at": "2026-10-28T10:05:00Z",
+        "extensions": {}
+      }
+    },
+    {
+      "op": "memory.receipts.get",
+      "method": "getReceipt",
+      "request": {
+        "space_id": "spc_local_default",
+        "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099"
+      },
+      "response": {
+        "receipt": {
+          "schema_version": 1,
+          "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099",
+          "op": "memory.capture",
+          "space_id": "spc_local_default",
+          "requester_principal_id": "prn_nexus_host_local",
+          "idempotency_key": "cap-9182-1400-mira",
+          "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
+          "status": "committed",
+          "result": {
+            "candidate_ids": ["cand_01J8ZQ9X7P0EXAMPLE0000101"],
+            "classified": 1
+          },
+          "created_at": "2026-10-28T09:20:01Z",
+          "completed_at": "2026-10-28T09:20:01Z",
+          "extensions": {}
+        }
+      }
+    }
+  ]
+}

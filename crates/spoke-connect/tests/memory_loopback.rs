@@ -1,19 +1,18 @@
-//! Loopback test — the memory family served over Connect (`memory.*`).
+//! Loopback test — the memory family end-to-end over Connect (`memory.*`).
 //!
-//! Two faces of the same in-memory provider are exercised:
-//!
-//! - the **typed boundary**: the host is a `MemoryPort` implementation served
-//!   through `MemoryPortService` (the P2 port is the consumed boundary, and
-//!   `memory.recall` runs over it);
-//! - the **JSON seam**: capture / review ride `RemoteMemoryService` directly,
-//!   because their generated success types (`MemoryCaptureResponse`,
-//!   `MemoryCandidatesReviewResponse`) are empty-enum unions that cannot
-//!   represent a committed receipt — see the note in the report.
+//! The Rust **client** is the typed `MemoryPort` adapter on `RemoteAdapter`
+//! (`crates/spoke-connect/src/remote/remote_adapter.rs`); the **host** is an
+//! in-memory `MemoryPort` provider served through `MemoryPortService`. Both
+//! directions therefore ride the typed P2 boundary — no JSON-face shortcut.
 //!
 //! The provider enforces its own duties, independently of the engine: grant
 //! coverage (`spoke_operations::grant_covers`), idempotent replay with
-//! `IDEMPOTENCY_CONFLICT` on a changed payload digest, and space / selection /
-//! principal filtering before the records reach engine scoring.
+//! `IDEMPOTENCY_CONFLICT` on a changed payload digest, space addressing on
+//! review, and space / selection / principal filtering before the records
+//! reach engine scoring.
+//!
+//! The dispatch-deny rows and the unknown-op fallback are asserted on the raw
+//! wire (the typed client cannot express an unknown op).
 //!
 //! Gated on the `remote-adapter` feature; `cargo test -p spoke-connect`
 //! (default features) does not build it.
@@ -31,12 +30,14 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
+use serde::Serialize;
 use serde_json::{json, Value};
 use spoke_connect::core::{derive_peer_id_from_ed25519_pubkey, sign_hello_ed25519};
 use spoke_connect::remote::{
-    connect_responder, loopback_transport_pair, ConnectResponder, ConnectResponderOptions,
-    LoopbackTransport, LoopbackTransportPair, MemoryAdmission, MemoryPortService, RemoteIdentity,
-    RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite, Transport,
+    connect_remote_adapter, connect_responder, loopback_transport_pair, ConnectResponder,
+    ConnectResponderOptions, LoopbackTransport, LoopbackTransportPair, MemoryAdmission,
+    MemoryPortService, RemoteAdapter, RemoteAdapterOptions, RemoteIdentity, RemoteServePorts,
+    RemoteServePortsComposite, Transport,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_memory::classify::{classify_candidate, CandidateMaterial};
@@ -44,7 +45,7 @@ use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest}
 use spoke_memory::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     grant_covers, jcs_sha256_hex, spoke_reject, BaselinePorts, GrantRequirement, MemoryPort,
-    SpokeRejectCode, SpokeResult,
+    SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::connect::{ConnectHello, ConnectSession};
 use spoke_schemas::data::memory_candidate::Disposition;
@@ -94,7 +95,7 @@ fn reject<T>(code: SpokeRejectCode, message: impl Into<String>) -> SpokeResult<T
     spoke_reject(code, message, None)
 }
 
-fn not_served<T>() -> SpokeResult<T> {
+fn not_served<T: std::fmt::Debug>() -> SpokeResult<T> {
     reject(
         SpokeRejectCode::InternalError,
         "not served by the memory loopback host",
@@ -114,6 +115,33 @@ fn payload_digest(request: &Value) -> String {
         SpokeResult::Ok(digest) => digest,
         SpokeResult::Reject(reject) => panic!("request digest: {reject:?}"),
     }
+}
+
+fn expect_ok<T>(result: SpokeResult<T>) -> T {
+    match result {
+        SpokeResult::Ok(value) => value,
+        SpokeResult::Reject(reject) => panic!("expected success, got {reject:?}"),
+    }
+}
+
+fn expect_reject<T: std::fmt::Debug>(result: SpokeResult<T>) -> SpokeReject {
+    match result {
+        SpokeResult::Ok(value) => panic!("expected a rejection, got {value:?}"),
+        SpokeResult::Reject(reject) => reject,
+    }
+}
+
+fn wire<T: Serialize>(value: &T) -> Value {
+    serde_json::to_value(value).expect("wire value serializes")
+}
+
+fn reject_wire_code(reject: &SpokeReject) -> Option<String> {
+    reject
+        .details
+        .as_ref()
+        .and_then(|details| details.get("wire_code"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 // ── In-memory provider: storage + provider duties ─────────────────────────
@@ -138,7 +166,7 @@ struct Candidate {
     revision: u64,
     consumed: bool,
     /// The candidate lives in the space that admitted the capture; review
-    /// authorization runs against this, never the request's `space_id`.
+    /// authorization and the addressed space are checked against it.
     space_id: String,
     subject_id: String,
     /// Immutable admitted placement (§6.7) — inherited by review outcomes.
@@ -304,7 +332,12 @@ impl Store {
         }
     }
 
-    fn remember(state: &mut State, namespace: (&str, &str, &str, &str), digest: &str, receipt: &Value) {
+    fn remember(
+        state: &mut State,
+        namespace: (&str, &str, &str, &str),
+        digest: &str,
+        receipt: &Value,
+    ) {
         let (space_id, principal_id, op, key) = namespace;
         if key.is_empty() {
             return;
@@ -684,33 +717,14 @@ fn placement_selected(
     }
 }
 
-// ── The loopback host: JSON service face + typed `MemoryPort` face ────────
+// ── The loopback host: a typed `MemoryPort` provider ──────────────────────
 
 struct MemoryHost {
     store: Arc<Store>,
 }
 
-#[async_trait]
-impl RemoteMemoryService for MemoryHost {
-    async fn invoke(&self, peer_id: &str, op: &str, payload: Value) -> SpokeResult<Value> {
-        let principal = match principal_for(peer_id) {
-            SpokeResult::Ok(principal) => principal,
-            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
-        };
-        match op {
-            "memory.capture" => self.store.capture(&principal, payload),
-            "memory.candidates.review" => self.store.review(&principal, payload),
-            other => reject(
-                SpokeRejectCode::InternalError,
-                format!("{other} is not served on the JSON memory face"),
-            ),
-        }
-    }
-}
-
-/// The typed P2 boundary. `memory.recall` is real; the remaining ops are
-/// unserved here because this fixture only needs the recall path over the port
-/// (the mutating envelope ops are exercised on the JSON face).
+/// The provider answers the three ops the scenarios exercise; every other op
+/// is unserved by this fixture.
 #[async_trait]
 impl MemoryPort for MemoryHost {
     async fn describe(
@@ -795,10 +809,20 @@ impl MemoryPort for MemoryHost {
 
     async fn capture(
         &self,
-        _principal: &Principal,
-        _request: MemoryCaptureRequest,
+        principal: &Principal,
+        request: MemoryCaptureRequest,
     ) -> SpokeResult<MemoryCaptureResponse> {
-        not_served()
+        let value = match self.store.capture(principal, wire(&request)) {
+            SpokeResult::Ok(value) => value,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        match serde_json::from_value(value) {
+            Ok(response) => SpokeResult::Ok(response),
+            Err(error) => reject(
+                SpokeRejectCode::InternalError,
+                format!("capture response decode failed: {error}"),
+            ),
+        }
     }
 
     async fn list_candidates(
@@ -827,10 +851,20 @@ impl MemoryPort for MemoryHost {
 
     async fn review_candidate(
         &self,
-        _principal: &Principal,
-        _request: MemoryCandidatesReviewRequest,
+        principal: &Principal,
+        request: MemoryCandidatesReviewRequest,
     ) -> SpokeResult<MemoryCandidatesReviewResponse> {
-        not_served()
+        let value = match self.store.review(principal, wire(&request)) {
+            SpokeResult::Ok(value) => value,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        match serde_json::from_value(value) {
+            Ok(response) => SpokeResult::Ok(response),
+            Err(error) => reject(
+                SpokeRejectCode::InternalError,
+                format!("review response decode failed: {error}"),
+            ),
+        }
     }
 
     async fn create_record(
@@ -886,8 +920,7 @@ impl MemoryPort for MemoryHost {
         principal: &Principal,
         request: MemoryRecallRequest,
     ) -> SpokeResult<MemoryRecallResponse> {
-        let payload = serde_json::to_value(request).expect("recall request serializes");
-        let value = match self.store.recall(principal, payload) {
+        let value = match self.store.recall(principal, wire(&request)) {
             SpokeResult::Ok(value) => value,
             SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
         };
@@ -989,7 +1022,7 @@ impl MemoryPort for MemoryHost {
     }
 }
 
-// ── Wire client (raw signed envelopes) ────────────────────────────────────
+// ── Session plumbing ──────────────────────────────────────────────────────
 
 fn principal_for(peer_id: &str) -> SpokeResult<Principal> {
     match serde_json::from_value(json!({
@@ -1008,6 +1041,13 @@ fn admission() -> MemoryAdmission {
     Arc::new(|peer_id: &str| principal_for(peer_id))
 }
 
+/// The serving face: the typed `MemoryPort` adapter (the P2 boundary).
+fn memory_face(host: &Arc<MemoryHost>) -> Arc<dyn spoke_connect::remote::RemoteMemoryService> {
+    let host: Arc<MemoryHost> = Arc::clone(host);
+    let port: Arc<dyn MemoryPort + Send + Sync> = host;
+    Arc::new(MemoryPortService::new(port, admission()))
+}
+
 fn memory_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
     serde_json::from_value(json!({
         "schema_version": 1,
@@ -1019,6 +1059,139 @@ fn memory_manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManife
     }))
     .expect("valid manifest")
 }
+
+/// Start a responder whose ports face carries the memory service (when given)
+/// and whose manifest advertises `capabilities`.
+async fn start_host(
+    memory: Option<Arc<dyn spoke_connect::remote::RemoteMemoryService>>,
+    capabilities: &[&str],
+) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
+    let pair = loopback_transport_pair();
+    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    let baseline: Arc<dyn BaselinePorts + Send + Sync> =
+        Arc::new(ToyWorldAdapter::with_committed_fixtures());
+    let mut ports = RemoteServePortsComposite::new(baseline, None, None);
+    if let Some(memory) = memory {
+        ports = ports.with_memory(memory);
+    }
+    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(ports);
+    let responder = connect_responder(ConnectResponderOptions {
+        transport: Arc::new(pair.server.clone()),
+        identity: RemoteIdentity { seed: seed_host() },
+        manifest: memory_manifest("memory-loopback-host", capabilities),
+        allowlist: vec![peer_id_client.clone()],
+        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
+        ports: Some(ports),
+        invoke_timeout_ms: None,
+    })
+    .await;
+    (responder, pair)
+}
+
+/// Dial the typed client over the loopback pair.
+async fn dial(pair: LoopbackTransportPair, manifest: &HostCapabilityManifest) -> Arc<RemoteAdapter> {
+    let peer_id_host = derive_peer_id_from_ed25519_pubkey(&pubkey_host());
+    let _: Arc<dyn Transport> = Arc::new(pair.client.clone());
+    connect_remote_adapter(RemoteAdapterOptions {
+        transport: Arc::new(pair.client),
+        local_identity: RemoteIdentity {
+            seed: seed_client(),
+        },
+        local_manifest: manifest.clone(),
+        remote_pubkey: pubkey_host(),
+        allowlist: vec![peer_id_host],
+        invoke_timeout_ms: None,
+        capability_token: None,
+    })
+    .await
+    .expect("dial")
+}
+
+fn pubkey_host() -> [u8; 32] {
+    ed25519_dalek::SigningKey::from_bytes(&seed_host())
+        .verifying_key()
+        .to_bytes()
+}
+
+/// The local admission context of the dialing peer. Over the wire the host
+/// derives the principal from the authenticated peer, so this value is never
+/// transmitted (MEM-R003).
+fn client_principal() -> Principal {
+    expect_ok(principal_for(&derive_peer_id_from_ed25519_pubkey(
+        &pubkey_client(),
+    )))
+}
+
+// ── Typed request fixtures ────────────────────────────────────────────────
+
+fn capture_request(idempotency_key: &str, context: &str, text: &str) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "content": { "text": text },
+        "capture_scope": { "visibility": "context", "context_id": context },
+        "source_context_ids": [context],
+        "kind_hint": "fact",
+        "idempotency_key": idempotency_key,
+    })
+}
+
+fn shared_capture_request(idempotency_key: &str, text: &str) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "content": { "text": text },
+        "capture_scope": { "visibility": "shared" },
+        "kind_hint": "fact",
+        "idempotency_key": idempotency_key,
+    })
+}
+
+fn review_request(space_id: &str, candidate_id: &str, key: &str, text: &str) -> Value {
+    json!({
+        "space_id": space_id,
+        "candidate_id": candidate_id,
+        "expected_revision": 1,
+        "decision": {
+            "action": "fragment",
+            "fragments": [{ "kind": "fact", "content": { "text": text } }],
+        },
+        "idempotency_key": key,
+    })
+}
+
+fn recall_request(context: &str, query: &str, max_items: u64) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "selection": { "mode": "selected_contexts", "context_ids": [context] },
+        "query": query,
+        "budget": { "max_items": max_items },
+    })
+}
+
+fn shared_recall_request(max_items: u64) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "selection": { "mode": "shared_only" },
+        "budget": { "max_items": max_items },
+    })
+}
+
+fn typed_capture(request: Value) -> MemoryCaptureRequest {
+    serde_json::from_value(request).expect("valid memory.capture request")
+}
+
+fn typed_review(request: Value) -> MemoryCandidatesReviewRequest {
+    serde_json::from_value(request).expect("valid memory.candidates.review request")
+}
+
+fn typed_recall(request: Value) -> MemoryRecallRequest {
+    serde_json::from_value(request).expect("valid memory.recall request")
+}
+
+// ── Raw-wire client (unknown-op fallback only) ────────────────────────────
 
 fn sign_invoke_request(
     seed: [u8; 32],
@@ -1061,7 +1234,7 @@ async fn handshake(client: &LoopbackTransport, manifest: &HostCapabilityManifest
     session.session_id.to_string()
 }
 
-async fn invoke(
+async fn raw_invoke(
     client: &LoopbackTransport,
     session_id: &str,
     sequence: i64,
@@ -1077,141 +1250,31 @@ async fn invoke(
     serde_json::from_slice(&client.recv().await.expect("response recv")).expect("response decode")
 }
 
-/// Start a responder whose ports face carries `memory` (when given) and whose
-/// manifest advertises `capabilities`.
-async fn start_host(
-    memory: Option<Arc<dyn RemoteMemoryService>>,
-    capabilities: &[&str],
-) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
-    let pair = loopback_transport_pair();
-    let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
-    let baseline: Arc<dyn BaselinePorts + Send + Sync> =
-        Arc::new(ToyWorldAdapter::with_committed_fixtures());
-    let mut ports = RemoteServePortsComposite::new(baseline, None, None);
-    if let Some(memory) = memory {
-        ports = ports.with_memory(memory);
-    }
-    let ports: Arc<dyn RemoteServePorts + Send + Sync> = Arc::new(ports);
-    let responder = connect_responder(ConnectResponderOptions {
-        transport: Arc::new(pair.server.clone()),
-        identity: RemoteIdentity { seed: seed_host() },
-        manifest: memory_manifest("memory-loopback-host", capabilities),
-        allowlist: vec![peer_id_client.clone()],
-        peer_keys: HashMap::from([(peer_id_client, pubkey_client())]),
-        ports: Some(ports),
-        invoke_timeout_ms: None,
-    })
-    .await;
-    (responder, pair)
-}
-
-/// The typed face: the same host served through the `MemoryPort` adapter.
-fn typed_face(host: &Arc<MemoryHost>) -> Arc<dyn RemoteMemoryService> {
-    let host: Arc<MemoryHost> = Arc::clone(host);
-    let port: Arc<dyn MemoryPort + Send + Sync> = host;
-    Arc::new(MemoryPortService::new(port, admission()))
-}
-
-/// The JSON face: capture / review (their generated success types are not
-/// constructible — see the module note).
-fn json_face(host: &Arc<MemoryHost>) -> Arc<dyn RemoteMemoryService> {
-    Arc::clone(host) as Arc<dyn RemoteMemoryService>
-}
-
-fn capture_request(idempotency_key: &str, context: &str, text: &str) -> Value {
-    json!({
-        "space_id": SPACE,
-        "subject_id": SUBJECT,
-        "content": { "text": text },
-        "capture_scope": { "visibility": "context", "context_id": context },
-        "source_context_ids": [context],
-        "kind_hint": "fact",
-        "idempotency_key": idempotency_key,
-    })
-}
-
-fn shared_capture_request(idempotency_key: &str, text: &str) -> Value {
-    json!({
-        "space_id": SPACE,
-        "subject_id": SUBJECT,
-        "content": { "text": text },
-        "capture_scope": { "visibility": "shared" },
-        "kind_hint": "fact",
-        "idempotency_key": idempotency_key,
-    })
-}
-
-fn shared_recall_request(max_items: u64) -> Value {
-    json!({
-        "space_id": SPACE,
-        "subject_id": SUBJECT,
-        "selection": { "mode": "shared_only" },
-        "budget": { "max_items": max_items },
-    })
-}
-
-fn recall_request(context: &str, query: &str, max_items: u64) -> Value {
-    json!({
-        "space_id": SPACE,
-        "subject_id": SUBJECT,
-        "selection": { "mode": "selected_contexts", "context_ids": [context] },
-        "query": query,
-        "budget": { "max_items": max_items },
-    })
-}
-
-fn granted_host() -> Arc<MemoryHost> {
-    let peer_id = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
-    Arc::new(MemoryHost {
-        store: Store::with_grant(&format!("prn_{peer_id}"), &[CONTEXT, OTHER_CONTEXT]),
-    })
-}
-
-fn ungranted_host() -> Arc<MemoryHost> {
-    Arc::new(MemoryHost {
-        store: Arc::new(Store::default()),
-    })
-}
-
 // ── Tests ─────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn memory_loopback_round_trips_capture_review_and_recall_through_the_port() {
+async fn memory_loopback_round_trips_capture_review_and_recall_through_the_typed_port() {
     let host = granted_host();
-
-    // capture + review over the JSON service face.
-    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
+    let (responder, pair) = start_host(Some(memory_face(&host)), &MEMORY_CAPABILITIES).await;
     let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
-    let session_id = handshake(&pair.client, &manifest).await;
+    let client = dial(pair, &manifest).await;
+    let principal = client_principal();
 
     let request = capture_request(
         "cap-loopback-1",
         CONTEXT,
         "Mira told Bo the gate key is hidden under the third barrel.",
     );
-    let captured = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "memory-capture",
-        "memory.capture",
-        request.clone(),
-    )
-    .await;
-    let receipt = captured
-        .get("payload")
-        .unwrap_or_else(|| panic!("capture must answer a payload, got {captured}"));
-    assert_eq!(receipt["status"], "committed", "{captured}");
+    let captured = expect_ok(
+        client
+            .capture(&principal, typed_capture(request.clone()))
+            .await,
+    );
+    let receipt = wire(&captured);
+    assert_eq!(receipt["status"], "committed", "{receipt}");
     assert_eq!(receipt["op"], "memory.capture");
     assert_eq!(receipt["idempotency_key"], "cap-loopback-1");
-    assert_eq!(
-        receipt["requester_principal_id"],
-        format!(
-            "prn_{}",
-            derive_peer_id_from_ed25519_pubkey(&pubkey_client())
-        )
-    );
-    assert_eq!(receipt["result"]["classified"], 1, "{captured}");
+    assert_eq!(receipt["result"]["classified"], 1, "{receipt}");
     // §6.1: the digest is SHA-256 over the JCS canonicalization of the whole
     // request object (idempotency_key included) — recomputed here
     // independently of the fixture's receipt builder.
@@ -1221,322 +1284,211 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_port(
     };
     assert_eq!(
         receipt["payload_digest"], expected_digest,
-        "receipt payload_digest must be the §6.1 JCS digest of the request, got {captured}"
+        "receipt payload_digest must be the §6.1 JCS digest of the request, got {receipt}"
     );
     let candidate_id = receipt["result"]["candidate_ids"][0]
         .as_str()
-        .unwrap_or_else(|| panic!("candidate id expected, got {captured}"))
+        .unwrap_or_else(|| panic!("candidate id expected, got {receipt}"))
         .to_owned();
 
-    let reviewed = invoke(
-        &pair.client,
-        &session_id,
-        1,
-        "memory-review",
-        "memory.candidates.review",
-        json!({
-            "space_id": SPACE,
-            "candidate_id": candidate_id,
-            "expected_revision": 1,
-            "decision": {
-                "action": "fragment",
-                "fragments": [
-                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
-                    { "kind": "event", "content": { "text": "Mira revealed the key location to Bo." } },
-                ],
-            },
-            "idempotency_key": "review-cand-1",
-        }),
-    )
-    .await;
-    let review_receipt = reviewed
-        .get("payload")
-        .unwrap_or_else(|| panic!("review must answer a payload, got {reviewed}"));
-    assert_eq!(review_receipt["status"], "committed", "{reviewed}");
-    assert_eq!(review_receipt["result"]["outcome"], "fragmented", "{reviewed}");
-    assert_eq!(
-        review_receipt["result"]["record_ids"].as_array().map(Vec::len),
-        Some(2),
-        "{reviewed}"
+    let reviewed = expect_ok(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    SPACE,
+                    &candidate_id,
+                    "review-cand-1",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
     );
-    responder.close();
+    let review_receipt = wire(&reviewed);
+    assert_eq!(review_receipt["status"], "committed", "{review_receipt}");
+    assert_eq!(
+        review_receipt["result"]["outcome"], "fragmented",
+        "{review_receipt}"
+    );
+    assert_eq!(
+        review_receipt["result"]["record_ids"]
+            .as_array()
+            .map(Vec::len),
+        Some(1),
+        "{review_receipt}"
+    );
 
-    // recall over the TYPED boundary (`MemoryPortService` → `MemoryPort`).
-    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let recalled = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "memory-recall",
-        "memory.recall",
-        recall_request(CONTEXT, "Where is the gate key?", 8),
-    )
-    .await;
-    let page = recalled
-        .get("payload")
-        .unwrap_or_else(|| panic!("recall must answer a payload, got {recalled}"));
+    let recalled = expect_ok(
+        client
+            .recall(
+                &principal,
+                typed_recall(recall_request(CONTEXT, "Where is the gate key?", 8)),
+            )
+            .await,
+    );
+    let page = wire(&recalled);
     let records = page["records"].as_array().expect("records array");
-    assert_eq!(records.len(), 2, "{recalled}");
-    assert_eq!(page["total_authorized"], 2);
+    assert_eq!(records.len(), 1, "{page}");
+    assert_eq!(page["total_authorized"], 1);
     assert_eq!(page["truncated"], false);
     assert_eq!(page["engine_policy_version"], ENGINE_POLICY_VERSION);
-    // Ranking: the fact fragment matches the query tokens and outranks the
-    // event fragment (§9 policy: query overlap then kind weight).
-    assert_eq!(records[0]["kind"], "fact", "{recalled}");
-    assert_eq!(records[1]["kind"], "event", "{recalled}");
     // Placement inheritance: a review decision carries no placement field, so
-    // the recalled records carry the captured candidate's scope.
-    for record in records {
-        assert_eq!(
-            record["scope"],
-            json!({ "visibility": "context", "context_id": CONTEXT }),
-            "review outcomes inherit the candidate placement, got {record}"
-        );
-    }
+    // the recalled record carries the captured candidate's scope.
+    assert_eq!(
+        records[0]["scope"],
+        json!({ "visibility": "context", "context_id": CONTEXT }),
+        "review outcomes inherit the candidate placement, got {records:?}"
+    );
 
-    // Budget: a one-item cap truncates the same ranking.
-    let truncated = invoke(
-        &pair.client,
-        &session_id,
-        1,
-        "memory-recall-budget",
-        "memory.recall",
-        recall_request(CONTEXT, "Where is the gate key?", 1),
-    )
-    .await;
-    let page = truncated
-        .get("payload")
-        .unwrap_or_else(|| panic!("budgeted recall must answer a payload, got {truncated}"));
-    assert_eq!(page["records"].as_array().map(Vec::len), Some(1), "{truncated}");
-    assert_eq!(page["truncated"], true);
-    assert_eq!(page["total_authorized"], 2);
-
-    // An unknown `memory.*` op has no dispatch row: fail-closed
-    // `op_unsupported`, never a handler call.
-    let unknown = invoke(
-        &pair.client,
-        &session_id,
-        2,
-        "memory-unknown",
-        "memory.archive.purge",
-        json!({}),
-    )
-    .await;
-    assert_eq!(unknown["error"]["code"], "op_unsupported", "{unknown}");
     responder.close();
+    client.close();
 }
 
 #[tokio::test]
 async fn memory_loopback_enforces_grants_idempotency_and_selection_isolation() {
     // Denial: a provider state with no grant for the caller.
     let host = ungranted_host();
-    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
+    let (responder, pair) = start_host(Some(memory_face(&host)), &MEMORY_CAPABILITIES).await;
     let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
-    let session_id = handshake(&pair.client, &manifest).await;
-    let denied = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "capture-unauthorized",
-        "memory.capture",
-        capture_request("cap-denied", CONTEXT, "Mira told Bo the gate key is hidden under the third barrel."),
-    )
-    .await;
-    assert_eq!(
-        denied["error"]["code"], "NOT_AUTHORIZED",
-        "an ungranted capture must deny: {denied}"
-    );
-    assert_eq!(
-        host.store.state.lock().expect("state lock").candidates.len(),
-        0,
-        "a denied capture writes nothing"
-    );
-    responder.close();
+    let client = dial(pair, &manifest).await;
+    let principal = client_principal();
 
-    // The same absence on the read side, over the typed boundary.
-    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let denied = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "recall-unauthorized",
-        "memory.recall",
-        recall_request(CONTEXT, "Where is the gate key?", 8),
-    )
-    .await;
-    assert_eq!(
-        denied["error"]["code"], "NOT_AUTHORIZED",
-        "an ungranted recall must deny: {denied}"
+    let denied = expect_reject(
+        client
+            .capture(
+                &principal,
+                typed_capture(capture_request(
+                    "cap-denied",
+                    CONTEXT,
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
     );
+    assert_eq!(
+        denied.code,
+        SpokeRejectCode::NotAuthorized,
+        "an ungranted capture must deny: {denied:?}"
+    );
+    let denied = expect_reject(
+        client
+            .recall(
+                &principal,
+                typed_recall(recall_request(CONTEXT, "Where is the gate key?", 8)),
+            )
+            .await,
+    );
+    assert_eq!(
+        denied.code,
+        SpokeRejectCode::NotAuthorized,
+        "an ungranted recall must deny: {denied:?}"
+    );
+    {
+        let state = host.store.state.lock().expect("state lock");
+        assert_eq!(state.candidates.len(), 0, "denied captures write nothing");
+        assert_eq!(state.receipts.len(), 0, "denied ops issue no receipt");
+        assert_eq!(state.records.len(), 0);
+    }
     responder.close();
+    client.close();
 
-    // Granted provider: idempotent replay, digest conflict, selection +
-    // space isolation.
+    // Granted provider: idempotent replay, digest conflict, selection + space
+    // isolation.
     let host = granted_host();
-    host.store.seed_record(SPACE, OTHER_CONTEXT, "fact", "Bo sold rope at the market.");
     host.store
-        .seed_record(OTHER_SPACE, CONTEXT, "fact", "A copy of the run stored in another space.");
-    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
+        .seed_record(SPACE, OTHER_CONTEXT, "fact", "Bo sold rope at the market.");
+    host.store.seed_record(
+        OTHER_SPACE,
+        CONTEXT,
+        "fact",
+        "A copy of the run stored in another space.",
+    );
+    let (responder, pair) = start_host(Some(memory_face(&host)), &MEMORY_CAPABILITIES).await;
+    let client = dial(pair, &manifest).await;
+    let principal = client_principal();
 
     let request = capture_request(
         "cap-replay",
         CONTEXT,
         "Mira told Bo the gate key is hidden under the third barrel.",
     );
-    let first = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "capture-1",
-        "memory.capture",
-        request.clone(),
-    )
-    .await;
-    let replay = invoke(&pair.client, &session_id, 1, "capture-2", "memory.capture", request).await;
+    let first = expect_ok(
+        client
+            .capture(&principal, typed_capture(request.clone()))
+            .await,
+    );
+    let replay = expect_ok(client.capture(&principal, typed_capture(request.clone())).await);
     assert_eq!(
-        replay["payload"]["receipt_id"], first["payload"]["receipt_id"],
-        "same key + same payload replays the original receipt: {replay}"
+        wire(&replay)["receipt_id"],
+        wire(&first)["receipt_id"],
+        "same key + same payload replays the original receipt"
     );
     assert_eq!(
-        {
-            let state = host.store.state.lock().expect("state lock");
-            state.candidates.len()
-        },
+        host.store.state.lock().expect("state lock").candidates.len(),
         1,
         "replay must not double-apply"
     );
 
-    let conflict = invoke(
-        &pair.client,
-        &session_id,
-        2,
-        "capture-conflict",
-        "memory.capture",
-        capture_request("cap-replay", CONTEXT, "A different payload under the same idempotency key."),
-    )
-    .await;
+    let conflict = expect_reject(
+        client
+            .capture(
+                &principal,
+                typed_capture(capture_request(
+                    "cap-replay",
+                    CONTEXT,
+                    "A different payload under the same idempotency key.",
+                )),
+            )
+            .await,
+    );
     assert_eq!(
-        conflict["error"]["code"], "IDEMPOTENCY_CONFLICT",
-        "same key + different payload digest must conflict: {conflict}"
+        conflict.code,
+        SpokeRejectCode::IdempotencyConflict,
+        "same key + different payload digest must conflict: {conflict:?}"
     );
 
     // One retained record inside the selected context.
-    let candidate_id = first["payload"]["result"]["candidate_ids"][0]
+    let candidate_id = wire(&first)["result"]["candidate_ids"][0]
         .as_str()
-        .unwrap_or_else(|| panic!("candidate id expected, got {first}"))
+        .unwrap_or_else(|| panic!("candidate id expected, got {:?}", wire(&first)))
         .to_owned();
-    let reviewed = invoke(
-        &pair.client,
-        &session_id,
-        3,
-        "review-isolation",
-        "memory.candidates.review",
-        json!({
-            "space_id": SPACE,
-            "candidate_id": candidate_id,
-            "expected_revision": 1,
-            "decision": {
-                "action": "fragment",
-                "fragments": [
-                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
-                ],
-            },
-            "idempotency_key": "review-isolation",
-        }),
-    )
-    .await;
-    assert_eq!(
-        reviewed["payload"]["result"]["outcome"], "fragmented",
-        "{reviewed}"
+    expect_ok(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    SPACE,
+                    &candidate_id,
+                    "review-isolation",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
     );
-    responder.close();
 
     // Isolation: the seeded OTHER_CONTEXT and OTHER_SPACE records are
     // authorized state but outside the selection, so they never appear.
-    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let recalled = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "recall-isolation",
-        "memory.recall",
-        recall_request(CONTEXT, "", 8),
-    )
-    .await;
-    let records = recalled["payload"]["records"]
+    let recalled = expect_ok(
+        client
+            .recall(&principal, typed_recall(recall_request(CONTEXT, "", 8)))
+            .await,
+    );
+    let page = wire(&recalled);
+    let records = page["records"]
         .as_array()
-        .unwrap_or_else(|| panic!("recall must answer records, got {recalled}"));
+        .unwrap_or_else(|| panic!("recall must answer records, got {page}"));
     assert_eq!(
         records.len(),
         1,
-        "only the selected context in this space is authorized input: {recalled}"
+        "only the selected context in this space is authorized input: {page}"
     );
     assert_eq!(
         records[0]["scope"],
         json!({ "visibility": "context", "context_id": CONTEXT })
     );
-    assert_eq!(recalled["payload"]["total_authorized"], 1);
+    assert_eq!(page["total_authorized"], 1);
     responder.close();
-}
-
-#[tokio::test]
-async fn memory_loopback_denies_unnegotiated_and_unserved_memory_ops() {
-    // Known op, capability not negotiated (both manifests omit the flags):
-    // `capability_missing` before any handler runs — zero side effects. The
-    // host outlives the denied invoke so its state can be inspected.
-    let host = granted_host();
-    let (responder, pair) = start_host(Some(json_face(&host)), &["spoke-baseline"]).await;
-    let session_id =
-        handshake(&pair.client, &memory_manifest("test-client", &["spoke-baseline"])).await;
-    let denied = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "memory-unnegotiated",
-        "memory.capture",
-        capture_request("cap-denied", CONTEXT, "Mira told Bo the gate key is hidden under the third barrel."),
-    )
-    .await;
-    assert_eq!(denied["error"]["code"], "capability_missing", "{denied}");
-    assert!(
-        denied.get("payload").is_none(),
-        "a capability deny carries no payload, got {denied}"
-    );
-    {
-        let state = host.store.state.lock().expect("state lock");
-        assert_eq!(state.candidates.len(), 0, "a capability deny admits no candidate");
-        assert_eq!(state.receipts.len(), 0, "a capability deny issues no receipt");
-        assert_eq!(state.records.len(), 0, "a capability deny writes no record");
-    }
-    responder.close();
-
-    // Capability negotiated but the host provides no memory face: the
-    // dispatch-deny branch, `op_unsupported`.
-    let (responder, pair) = start_host(None, &MEMORY_CAPABILITIES).await;
-    let session_id =
-        handshake(&pair.client, &memory_manifest("test-client", &MEMORY_CAPABILITIES)).await;
-    let unserved = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "memory-unserved",
-        "memory.capture",
-        capture_request("cap-unserved", CONTEXT, "Mira told Bo the gate key is hidden under the third barrel."),
-    )
-    .await;
-    assert_eq!(unserved["error"]["code"], "op_unsupported", "{unserved}");
-    assert!(
-        unserved["error"]["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("no memory service configured"),
-        "{unserved}"
-    );
-    responder.close();
+    client.close();
 }
 
 #[tokio::test]
@@ -1545,8 +1497,6 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
         store: Arc::new(Store::default()),
     });
     let principal_id = format!("prn_{}", derive_peer_id_from_ed25519_pubkey(&pubkey_client()));
-    // Capture + records_write in the candidate's space; review coverage in a
-    // different space (which must never consume a candidate of this space).
     host.store.add_grant(
         &principal_id,
         SPACE,
@@ -1565,58 +1515,46 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
     );
 
     let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
-    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
+    let (responder, pair) = start_host(Some(memory_face(&host)), &MEMORY_CAPABILITIES).await;
+    let client = dial(pair, &manifest).await;
+    let principal = client_principal();
 
-    let captured = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "capture-cross-space",
-        "memory.capture",
-        capture_request(
-            "cap-cross-space",
-            CONTEXT,
-            "Mira told Bo the gate key is hidden under the third barrel.",
-        ),
-    )
-    .await;
-    let candidate_id = captured["payload"]["result"]["candidate_ids"][0]
+    let captured = expect_ok(
+        client
+            .capture(
+                &principal,
+                typed_capture(capture_request(
+                    "cap-cross-space",
+                    CONTEXT,
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    let candidate_id = wire(&captured)["result"]["candidate_ids"][0]
         .as_str()
-        .unwrap_or_else(|| panic!("candidate id expected, got {captured}"))
+        .expect("candidate id")
         .to_owned();
     let receipts_after_capture = host.store.state.lock().expect("state lock").receipts.len();
 
-    let review_body = |space_id: &str, key: &str| {
-        json!({
-            "space_id": space_id,
-            "candidate_id": candidate_id,
-            "expected_revision": 1,
-            "decision": {
-                "action": "fragment",
-                "fragments": [
-                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
-                ],
-            },
-            "idempotency_key": key,
-        })
-    };
-
-    // Addressing another space is a different operation (§7.0.1/§7.15): the
-    // candidate of this space is never silently resolved, even though the
-    // caller holds full review coverage there.
-    let cross_space = invoke(
-        &pair.client,
-        &session_id,
-        1,
-        "review-cross-space",
-        "memory.candidates.review",
-        review_body(OTHER_SPACE, "review-cross-space"),
-    )
-    .await;
+    // Addressing another space is a different operation (§7.0.1/§7.15).
+    let cross_space = expect_reject(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    OTHER_SPACE,
+                    &candidate_id,
+                    "review-cross-space",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
     assert_eq!(
-        cross_space["error"]["code"], "NOT_AUTHORIZED",
-        "a review addressing another space must be rejected: {cross_space}"
+        cross_space.code,
+        SpokeRejectCode::NotAuthorized,
+        "a review addressing another space must be rejected: {cross_space:?}"
     );
     {
         let state = host.store.state.lock().expect("state lock");
@@ -1629,8 +1567,7 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
         );
     }
 
-    // The mismatch is rejected on addressing alone: with review coverage now
-    // in the candidate's space too, the wrong address still fails.
+    // The mismatch is rejected on addressing alone.
     host.store.add_grant(
         &principal_id,
         SPACE,
@@ -1639,18 +1576,23 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
         &[CONTEXT],
         false,
     );
-    let still_mismatched = invoke(
-        &pair.client,
-        &session_id,
-        2,
-        "review-space-mismatch",
-        "memory.candidates.review",
-        review_body(OTHER_SPACE, "review-space-mismatch"),
-    )
-    .await;
+    let still_mismatched = expect_reject(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    OTHER_SPACE,
+                    &candidate_id,
+                    "review-space-mismatch",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
     assert_eq!(
-        still_mismatched["error"]["code"], "NOT_AUTHORIZED",
-        "the addressed space is part of the operation identity: {still_mismatched}"
+        still_mismatched.code,
+        SpokeRejectCode::NotAuthorized,
+        "the addressed space is part of the operation identity: {still_mismatched:?}"
     );
     assert!(
         !host.store.state.lock().expect("state lock").candidates[0].consumed,
@@ -1658,17 +1600,22 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
     );
 
     // Positive control: the request names the candidate's own space.
-    let reviewed = invoke(
-        &pair.client,
-        &session_id,
-        3,
-        "review-in-space",
-        "memory.candidates.review",
-        review_body(SPACE, "review-in-space"),
-    )
-    .await;
-    assert_eq!(reviewed["payload"]["status"], "committed", "{reviewed}");
-    assert_eq!(reviewed["payload"]["space_id"], SPACE, "{reviewed}");
+    let reviewed = expect_ok(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    SPACE,
+                    &candidate_id,
+                    "review-in-space",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    let receipt = wire(&reviewed);
+    assert_eq!(receipt["status"], "committed", "{receipt}");
+    assert_eq!(receipt["space_id"], SPACE, "{receipt}");
     {
         let state = host.store.state.lock().expect("state lock");
         assert!(state.candidates[0].consumed, "the addressed review consumes");
@@ -1682,46 +1629,43 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
         CONTEXT,
         "Mira told Bo the gate key is hidden under the third barrel.",
     );
-    let captured = invoke(
-        &pair.client,
-        &session_id,
-        4,
-        "capture-revoked",
-        "memory.capture",
-        capture_body.clone(),
-    )
-    .await;
-    assert_eq!(captured["payload"]["status"], "committed", "{captured}");
+    expect_ok(
+        client
+            .capture(&principal, typed_capture(capture_body.clone()))
+            .await,
+    );
 
     // Replay after coverage is withdrawn: the original receipt is never
     // disclosed to a caller who no longer has coverage (MEM-R021).
     host.store.state.lock().expect("state lock").grants.clear();
     let issued_before_replay = host.store.state.lock().expect("state lock").receipts.len();
-    let replayed_review = invoke(
-        &pair.client,
-        &session_id,
-        5,
-        "review-replay-revoked",
-        "memory.candidates.review",
-        review_body(SPACE, "review-in-space"),
-    )
-    .await;
-    assert_eq!(
-        replayed_review["error"]["code"], "NOT_AUTHORIZED",
-        "review replay without current coverage must deny, not disclose: {replayed_review}"
+    let replayed_review = expect_reject(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    SPACE,
+                    &candidate_id,
+                    "review-in-space",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
     );
-    let replayed_capture = invoke(
-        &pair.client,
-        &session_id,
-        6,
-        "capture-replay-revoked",
-        "memory.capture",
-        capture_body,
-    )
-    .await;
     assert_eq!(
-        replayed_capture["error"]["code"], "NOT_AUTHORIZED",
-        "capture replay without current coverage must deny, not disclose: {replayed_capture}"
+        replayed_review.code,
+        SpokeRejectCode::NotAuthorized,
+        "review replay without current coverage must deny, not disclose: {replayed_review:?}"
+    );
+    let replayed_capture = expect_reject(
+        client
+            .capture(&principal, typed_capture(capture_body))
+            .await,
+    );
+    assert_eq!(
+        replayed_capture.code,
+        SpokeRejectCode::NotAuthorized,
+        "capture replay without current coverage must deny, not disclose: {replayed_capture:?}"
     );
     assert_eq!(
         host.store.state.lock().expect("state lock").receipts.len(),
@@ -1729,6 +1673,7 @@ async fn memory_loopback_rejects_mismatched_review_space_and_rechecks_on_replay(
         "denied replays issue no new receipt"
     );
     responder.close();
+    client.close();
 }
 
 #[tokio::test]
@@ -1749,73 +1694,60 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
     let shared_candidate = host.store.seed_candidate(None);
 
     let manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
+    let (responder, pair) = start_host(Some(memory_face(&host)), &MEMORY_CAPABILITIES).await;
+    let client = dial(pair, &manifest).await;
+    let principal = client_principal();
 
     // Shared placement is denied on capture, review and read without
     // `shared_access`.
-    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let denied_capture = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "shared-capture-denied",
-        "memory.capture",
-        shared_capture_request(
-            "cap-shared",
-            "Mira told Bo the gate key is hidden under the third barrel.",
-        ),
-    )
-    .await;
-    assert_eq!(
-        denied_capture["error"]["code"], "NOT_AUTHORIZED",
-        "a shared placement needs shared access: {denied_capture}"
+    let denied_capture = expect_reject(
+        client
+            .capture(
+                &principal,
+                typed_capture(shared_capture_request(
+                    "cap-shared",
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
     );
-    let denied_review = invoke(
-        &pair.client,
-        &session_id,
-        1,
-        "shared-review-denied",
-        "memory.candidates.review",
-        json!({
-            "space_id": SPACE,
-            "candidate_id": shared_candidate,
-            "expected_revision": 1,
-            "decision": {
-                "action": "fragment",
-                "fragments": [
-                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
-                ],
-            },
-            "idempotency_key": "review-shared-denied",
-        }),
-    )
-    .await;
     assert_eq!(
-        denied_review["error"]["code"], "NOT_AUTHORIZED",
-        "reviewing shared placement needs shared access: {denied_review}"
+        denied_capture.code,
+        SpokeRejectCode::NotAuthorized,
+        "a shared placement needs shared access: {denied_capture:?}"
+    );
+    let denied_review = expect_reject(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    SPACE,
+                    &shared_candidate,
+                    "review-shared-denied",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    assert_eq!(
+        denied_review.code,
+        SpokeRejectCode::NotAuthorized,
+        "reviewing shared placement needs shared access: {denied_review:?}"
     );
     assert!(
         !host.store.state.lock().expect("state lock").candidates[0].consumed,
         "denied shared review consumes nothing"
     );
-    responder.close();
-
-    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let denied_recall = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "shared-recall-denied",
-        "memory.recall",
-        shared_recall_request(8),
-    )
-    .await;
-    assert_eq!(
-        denied_recall["error"]["code"], "NOT_AUTHORIZED",
-        "a shared read needs shared access: {denied_recall}"
+    let denied_recall = expect_reject(
+        client
+            .recall(&principal, typed_recall(shared_recall_request(8)))
+            .await,
     );
-    responder.close();
+    assert_eq!(
+        denied_recall.code,
+        SpokeRejectCode::NotAuthorized,
+        "a shared read needs shared access: {denied_recall:?}"
+    );
 
     // Corrected positive control: a restricted grant with non-empty context
     // coverage AND shared access.
@@ -1827,61 +1759,149 @@ async fn memory_loopback_enforces_shared_placement_coverage() {
         &[CONTEXT],
         true,
     );
+    let captured = expect_ok(
+        client
+            .capture(
+                &principal,
+                typed_capture(shared_capture_request(
+                    "cap-shared",
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    assert_eq!(wire(&captured)["status"], "committed");
+    let reviewed = expect_ok(
+        client
+            .review_candidate(
+                &principal,
+                typed_review(review_request(
+                    SPACE,
+                    &shared_candidate,
+                    "review-shared",
+                    "The gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    assert_eq!(wire(&reviewed)["result"]["outcome"], "fragmented");
 
-    let (responder, pair) = start_host(Some(json_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let captured = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "shared-capture",
-        "memory.capture",
-        shared_capture_request(
-            "cap-shared",
-            "Mira told Bo the gate key is hidden under the third barrel.",
-        ),
-    )
-    .await;
-    assert_eq!(captured["payload"]["status"], "committed", "{captured}");
-    let reviewed = invoke(
-        &pair.client,
-        &session_id,
-        1,
-        "shared-review",
-        "memory.candidates.review",
-        json!({
-            "space_id": SPACE,
-            "candidate_id": shared_candidate,
-            "expected_revision": 1,
-            "decision": {
-                "action": "fragment",
-                "fragments": [
-                    { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
-                ],
-            },
-            "idempotency_key": "review-shared",
-        }),
-    )
-    .await;
-    assert_eq!(reviewed["payload"]["status"], "committed", "{reviewed}");
-    assert_eq!(reviewed["payload"]["result"]["outcome"], "fragmented", "{reviewed}");
-    responder.close();
-
-    let (responder, pair) = start_host(Some(typed_face(&host)), &MEMORY_CAPABILITIES).await;
-    let session_id = handshake(&pair.client, &manifest).await;
-    let recalled = invoke(
-        &pair.client,
-        &session_id,
-        0,
-        "shared-recall",
-        "memory.recall",
-        shared_recall_request(8),
-    )
-    .await;
-    let records = recalled["payload"]["records"]
+    let recalled = expect_ok(
+        client
+            .recall(&principal, typed_recall(shared_recall_request(8)))
+            .await,
+    );
+    let page = wire(&recalled);
+    let records = page["records"]
         .as_array()
-        .unwrap_or_else(|| panic!("shared recall must answer records, got {recalled}"));
-    assert_eq!(records.len(), 1, "{recalled}");
+        .unwrap_or_else(|| panic!("shared recall must answer records, got {page}"));
+    assert_eq!(records.len(), 1, "{page}");
     assert_eq!(records[0]["scope"], json!({ "visibility": "shared" }));
     responder.close();
+    client.close();
+}
+
+#[tokio::test]
+async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
+    // (a) Known op, capability not negotiated: `capability_missing` before any
+    // handler runs — zero side effects. The host outlives the denied invoke so
+    // its state can be inspected.
+    let host = granted_host();
+    let (responder, pair) = start_host(Some(memory_face(&host)), &["spoke-baseline"]).await;
+    let manifest = memory_manifest("test-client", &["spoke-baseline"]);
+    let client = dial(pair, &manifest).await;
+    let denied = expect_reject(
+        client
+            .capture(
+                &client_principal(),
+                typed_capture(capture_request(
+                    "cap-denied",
+                    CONTEXT,
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    assert_eq!(
+        denied.code,
+        SpokeRejectCode::CapabilityPortMissing,
+        "an unnegotiated memory op is a capability deny: {denied:?}"
+    );
+    assert_eq!(
+        reject_wire_code(&denied).as_deref(),
+        Some("capability_missing"),
+        "{denied:?}"
+    );
+    {
+        let state = host.store.state.lock().expect("state lock");
+        assert_eq!(state.candidates.len(), 0, "a capability deny admits no candidate");
+        assert_eq!(state.receipts.len(), 0, "a capability deny issues no receipt");
+        assert_eq!(state.records.len(), 0, "a capability deny writes no record");
+    }
+    responder.close();
+    client.close();
+
+    // (b) Capability negotiated but the host provides no memory face: the
+    // dispatch-deny branch, `op_unsupported`.
+    let (responder, pair) = start_host(None, &MEMORY_CAPABILITIES).await;
+    let client = dial(pair, &manifest_with(&MEMORY_CAPABILITIES)).await;
+    let unserved = expect_reject(
+        client
+            .capture(
+                &client_principal(),
+                typed_capture(capture_request(
+                    "cap-unserved",
+                    CONTEXT,
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    assert_eq!(unserved.code, SpokeRejectCode::CapabilityPortMissing);
+    assert_eq!(
+        reject_wire_code(&unserved).as_deref(),
+        Some("op_unsupported"),
+        "{unserved:?}"
+    );
+    assert!(
+        unserved.message.contains("no memory service configured"),
+        "{unserved:?}"
+    );
+    responder.close();
+    client.close();
+
+    // (c) Unknown `memory.*` op: no dispatch row, fail-closed `op_unsupported`.
+    // The typed client cannot express an unknown op, so this rides the raw
+    // wire (the client above moved the transport).
+    let (responder, pair) = start_host(Some(memory_face(&granted_host())), &MEMORY_CAPABILITIES).await;
+    let raw_manifest = memory_manifest("test-client", &MEMORY_CAPABILITIES);
+    let session_id = handshake(&pair.client, &raw_manifest).await;
+    let unknown = raw_invoke(
+        &pair.client,
+        &session_id,
+        0,
+        "memory-unknown",
+        "memory.archive.purge",
+        json!({}),
+    )
+    .await;
+    assert_eq!(unknown["error"]["code"], "op_unsupported", "{unknown}");
+    responder.close();
+}
+
+fn manifest_with(capabilities: &[&str]) -> HostCapabilityManifest {
+    memory_manifest("test-client", capabilities)
+}
+
+fn granted_host() -> Arc<MemoryHost> {
+    let peer_id = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
+    Arc::new(MemoryHost {
+        store: Store::with_grant(&format!("prn_{peer_id}"), &[CONTEXT, OTHER_CONTEXT]),
+    })
+}
+
+fn ungranted_host() -> Arc<MemoryHost> {
+    Arc::new(MemoryHost {
+        store: Arc::new(Store::default()),
+    })
 }

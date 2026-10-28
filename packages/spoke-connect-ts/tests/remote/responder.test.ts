@@ -23,9 +23,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import type {
   ExtractRequest,
+  MemoryCaptureRequest,
   ComputeRequest,
   ConnectHello,
   ConnectInvokeRequest,
@@ -82,6 +84,7 @@ import {
   type ConnectResponder,
   type ConnectResponderState,
   type RemoteExtractService,
+  type RemoteMemoryService,
 } from "@42ch/spoke-connect/remote";
 
 /** Fixture seed: base+i, all values within byte range for base ≤ 0xe0. */
@@ -145,7 +148,9 @@ function addHandler(calls: { args: Record<string, unknown> }[]): {
 interface DialResponderOptions {
   clientManifest?: HostCapabilityManifest;
   responderManifest?: HostCapabilityManifest;
-  ports?: BaselinePorts & Partial<RemoteExtractService>;
+  ports?: BaselinePorts &
+    Partial<RemoteExtractService> &
+    Partial<RemoteMemoryService>;
   /** Bounded wait for the RESPONDER's reverse-invoke waiters, ms. */
   responderTimeoutMs?: number;
   /** Bounded wait for the CLIENT's dial + invoke waiters, ms. */
@@ -2868,4 +2873,121 @@ describe("serve timeout (local serve budget)", () => {
     },
     15000,
   );
+});
+
+/** Manifest whose negotiated set carries the memory family (both ends). */
+function memoryManifest(hostId: string): HostCapabilityManifest {
+  const base = toolManifest(hostId);
+  return {
+    ...base,
+    capabilities: [
+      ...base.capabilities,
+      "spoke-memory",
+      "spoke-memory-reflection",
+      "spoke-memory-transfer",
+    ],
+  };
+}
+
+interface MemoryVector {
+  op: string;
+  method: string;
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
+}
+
+function memoryVectors(): MemoryVector[] {
+  const fixture = JSON.parse(
+    readFileSync(
+      new URL("../fixtures/memory-invoke-golden.json", import.meta.url),
+      "utf8",
+    ),
+  ) as { vectors: MemoryVector[] };
+  return fixture.vectors;
+}
+
+describe("connectResponder memory.* seam (protocol §13)", () => {
+  const captureVector = memoryVectors().find(
+    (vector) => vector.op === "memory.capture",
+  );
+
+  it("serves memory.* through the injected memory service with the authenticated peer", async () => {
+    expect(captureVector).toBeDefined();
+    const vector = captureVector as MemoryVector;
+    const invocations: {
+      peerId: string;
+      op: string;
+      payload: Record<string, unknown>;
+    }[] = [];
+
+    const ports = {
+      ...asBaselineOnly(new ToyWorldAdapter()),
+      invoke: async (
+        peerId: string,
+        op: string,
+        payload: Record<string, unknown>,
+      ): Promise<SpokeResult<unknown>> => {
+        invocations.push({ peerId, op, payload });
+        return spokeOk(vector.response);
+      },
+    };
+
+    const { responder, client, peerIdClient } = await dialWithResponder({
+      ports,
+      clientManifest: memoryManifest("test-client"),
+      responderManifest: memoryManifest("test-responder"),
+    });
+
+    try {
+      // The client-side `principal` is a local admission context: the host
+      // derives it from the authenticated peer, so it never rides the wire.
+      const result = await client.capture(
+        { principal_id: "prn_local_caller", extensions: {} },
+        vector.request as unknown as MemoryCaptureRequest,
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value).toEqual(vector.response);
+      }
+      expect(invocations).toHaveLength(1);
+      expect(invocations[0].op).toBe("memory.capture");
+      expect(invocations[0].peerId).toBe(peerIdClient);
+      expect(invocations[0].payload).toEqual(vector.request);
+      expect(invocations[0].payload.requester_principal_id).toBeUndefined();
+    } finally {
+      client.close();
+      responder.close();
+    }
+  });
+
+  it("answers capability_missing for an unnegotiated memory op without calling the service", async () => {
+    const vector = captureVector as MemoryVector;
+    let calls = 0;
+    const ports = {
+      ...asBaselineOnly(new ToyWorldAdapter()),
+      invoke: async (): Promise<SpokeResult<unknown>> => {
+        calls += 1;
+        return spokeOk(vector.response);
+      },
+    };
+    // Neither manifest declares the memory family: the gate denies before the
+    // service is probed.
+    const { responder, client } = await dialWithResponder({ ports });
+
+    try {
+      const result = await client.capture(
+        { principal_id: "prn_local_caller", extensions: {} },
+        vector.request as unknown as MemoryCaptureRequest,
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(SpokeRejectCode.CAPABILITY_PORT_MISSING);
+        expect(result.details?.wire_code).toBe("capability_missing");
+      }
+      expect(calls).toBe(0);
+    } finally {
+      client.close();
+      responder.close();
+    }
+  });
 });

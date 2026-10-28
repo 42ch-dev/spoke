@@ -90,6 +90,7 @@ import {
   verifyInvokeRequestAuth,
   verifyInvokeResponseAuth,
 } from "../core/envelope-auth.js";
+import { requiredCapability } from "../core/dispatch.js";
 import { CoreError } from "../core/error.js";
 import { signHelloEd25519, verifyHelloEd25519 } from "../core/hello.js";
 import { generateNonce, NonceStore } from "../core/nonce.js";
@@ -533,6 +534,22 @@ export interface RemoteExtractService {
   extract(request: ExtractRequest): Promise<SpokeResult<ExtractResponse>>;
 }
 
+/**
+ * Remote-only memory service seam (memory protocol §13): the serving host
+ * owns the provider, the admission context that turns the authenticated peer
+ * into a `Principal` (MEM-R003) and the per-op wire mapping. One callable
+ * serves every `memory.*` op; `payload` is the op's request object and the
+ * returned value is its response object (Rust parity:
+ * `RemoteMemoryService` in `crates/spoke-connect/src/remote/serve_ports.rs`).
+ */
+export interface RemoteMemoryService {
+  invoke(
+    peerId: string,
+    op: string,
+    payload: Record<string, unknown>,
+  ): Promise<SpokeResult<unknown>>;
+}
+
 const OPTIONAL_PORT_METHODS: Readonly<Record<string, string>> = {
   "port.computable.project": "project",
   "port.computable.compute": "compute",
@@ -652,7 +669,9 @@ export interface ConnectResponderOptions {
    * catalogue. Absent `ports` still answers `port.*` invokes with the
    * dispatch-deny branch (documented behavior).
    */
-  ports?: BaselinePorts & Partial<RemoteExtractService>;
+  ports?: BaselinePorts &
+    Partial<RemoteExtractService> &
+    Partial<RemoteMemoryService>;
   /**
    * Bounded-wait deadline for each reverse-invoke waiter AND the local
    * serve-wait budget bounding every served `port.*` provider call and the
@@ -697,7 +716,9 @@ export class ConnectResponder {
   readonly #manifest: HostCapabilityManifest;
   readonly #allowlist: readonly string[];
   readonly #peerKeys: Readonly<Record<string, Uint8Array>>;
-  readonly #ports: (BaselinePorts & Partial<RemoteExtractService>) | undefined;
+  readonly #ports:
+    | (BaselinePorts & Partial<RemoteExtractService> & Partial<RemoteMemoryService>)
+    | undefined;
   readonly #invokeTimeoutMs: number;
   readonly #nonceStore = new NonceStore();
 
@@ -1156,8 +1177,16 @@ export class ConnectResponder {
       // `negotiated_capabilities` (never a raw requirements-map composition,
       // which would deny the self-describing tools family).
       if (!this.#gateAllows(doc.op, session)) {
+        // A known `memory.*` op is a capability gap (protocol §4.1): the gate
+        // evaluates negotiated capabilities only, so an op with a dispatch row
+        // that was not negotiated answers `capability_missing`. An op with no
+        // row at all stays `op_unsupported`.
+        const code =
+          doc.op.startsWith("memory.") && requiredCapability(doc.op) !== undefined
+            ? "capability_missing"
+            : "op_unsupported";
         await this.#sendReverseErrorEnvelope(doc, {
-          code: "op_unsupported",
+          code,
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
         });
@@ -1169,6 +1198,10 @@ export class ConnectResponder {
       }
       if (doc.op.startsWith("tools.")) {
         await this.#dispatchToolInvoke(doc);
+        return;
+      }
+      if (doc.op.startsWith("memory.")) {
+        await this.#dispatchMemoryInvoke(doc);
         return;
       }
       await this.#dispatchPortInvoke(doc);
@@ -1411,6 +1444,48 @@ export class ConnectResponder {
       return;
     }
     await this.#sendOkResponse(doc, response);
+  }
+
+  /**
+   * Serve a `memory.*` invoke through the optional memory service seam
+   * (protocol §13). The capability gate already passed: a known memory op that
+   * was not negotiated never reaches here (`capability_missing`). An absent
+   * face is the documented dispatch-deny branch.
+   */
+  async #dispatchMemoryInvoke(doc: ConnectInvokeRequest): Promise<void> {
+    const ports = this.#ports;
+    const invoke = ports?.invoke;
+    if (ports === undefined || typeof invoke !== "function") {
+      await this.#sendReverseErrorEnvelope(doc, {
+        code: "op_unsupported",
+        message: `no memory service configured for op ${doc.op}`,
+        extensions: {},
+      });
+      return;
+    }
+    // The admitted principal derives from the authenticated session peer
+    // (MEM-R003), never from the payload.
+    const peerId = this.remotePeerId;
+    let result: SpokeResult<unknown>;
+    try {
+      result = await this.#withServeBudget(() =>
+        invoke.call(ports, peerId, doc.op, doc.payload as Record<string, unknown>),
+      );
+    } catch (error) {
+      result = spokeReject(
+        SpokeRejectCode.INTERNAL_ERROR,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    // A close during the bounded wait answers nothing afterwards.
+    if (this.#stateInternal === "Closed") {
+      return;
+    }
+    if (!result.ok) {
+      await this.#sendReverseErrorEnvelope(doc, toErrorEnvelope(result));
+      return;
+    }
+    await this.#sendOkResponse(doc, result.value);
   }
 
   /** Serve a `port.*` invoke through the D4 catalogue (or dispatch-deny). */

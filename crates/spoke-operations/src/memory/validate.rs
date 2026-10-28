@@ -233,9 +233,11 @@ pub fn validate_memory_records_create(
     )
 }
 
-/// §7.18 `memory.records.update`: the kind-update shape must not carry
-/// content (oneOf is deliberate per shape); the content-update shape is
-/// bounds-checked against `max_content_bytes`.
+/// §7.18 `memory.records.update`: at least one of `content` / `kind` is
+/// required — a combined update carrying both is valid (placement is the
+/// only forbidden change). The generated oneOf already guarantees at least
+/// one (both-absent is unparseable), so this validator only bounds content
+/// when present, on either request shape.
 pub fn validate_memory_records_update(
     request: &MemoryRecordsUpdateRequest,
     max_content_bytes: usize,
@@ -245,10 +247,13 @@ pub fn validate_memory_records_update(
             content_wire_bytes(&content.text, content.structured.as_ref()),
             max_content_bytes,
         ),
-        MemoryRecordsUpdateRequest::Variant1 { content: Some(_), .. } => {
-            invalid_input("content", "content is not valid on a kind-update request")
+        MemoryRecordsUpdateRequest::Variant1 { content: Some(content), .. } => {
+            check_content_limit(
+                content_wire_bytes(&content.text, content.structured.as_ref()),
+                max_content_bytes,
+            )
         }
-        MemoryRecordsUpdateRequest::Variant1 { .. } => spoke_ok(()),
+        MemoryRecordsUpdateRequest::Variant1 { content: None, .. } => spoke_ok(()),
     }
 }
 
@@ -759,21 +764,58 @@ mod tests {
     }
 
     #[test]
-    fn records_update_rejects_content_on_kind_update_shape() {
+    fn records_update_accepts_combined_kind_and_content() {
+        // §7.18: at least one of content/kind — a combined update is valid.
         let request: MemoryRecordsUpdateRequest = serde_json::from_value(json!({
             "space_id": "sp_1",
             "record_id": "r1",
             "expected_revision": 1,
             "kind": "note",
-            "content": {"text": "must not ride a kind update"},
+            "content": {"text": "combined update"},
             "idempotency_key": "k1",
         }))
-        .expect("valid kind-update-shape request");
+        .expect("valid combined-update request");
         match &request {
             MemoryRecordsUpdateRequest::Variant1 { content: Some(_), .. } => {}
-            other => panic!("expected kind-update shape carrying content, got {other:?}"),
+            other => panic!("expected kind-shape carrying content, got {other:?}"),
         }
-        expect_invalid(validate_memory_records_update(&request, 1024), "content");
+        assert!(validate_memory_records_update(&request, 1024).is_ok());
+
+        // Kind-only remains valid.
+        let kind_only: MemoryRecordsUpdateRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "record_id": "r1",
+            "expected_revision": 1,
+            "kind": "note",
+            "idempotency_key": "k1",
+        }))
+        .expect("valid kind-only request");
+        assert!(validate_memory_records_update(&kind_only, 1024).is_ok());
+
+        // Content still rides the provider byte limit on the combined shape.
+        let oversize: MemoryRecordsUpdateRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "record_id": "r1",
+            "expected_revision": 1,
+            "kind": "note",
+            "content": {"text": "x".repeat(2048)},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid combined-update request");
+        match validate_memory_records_update(&oversize, 1024) {
+            SpokeResult::Reject(reject) => {
+                assert_eq!(reject.code, SpokeRejectCode::InvalidInput);
+                assert_eq!(
+                    reject
+                        .details
+                        .as_ref()
+                        .and_then(|d| d.get("limit"))
+                        .and_then(|v| v.as_str()),
+                    Some("max_content_bytes")
+                );
+            }
+            SpokeResult::Ok(_) => panic!("expected limit reject"),
+        }
     }
 
     #[test]

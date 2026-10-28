@@ -39,12 +39,28 @@ interface GrantView {
   spaceId: string;
 }
 
+/**
+ * `null` = absent; `NaN` = present but malformed. Malformed values fail
+ * closed: an unparseable `expires_at` is treated as already expired and an
+ * unparseable `revoked_at` as revoked, so a malformed grant never authorizes
+ * anything (Rust's typed timestamp cannot represent this state, so the guard
+ * exists only on the TS side).
+ */
 function parseTimestamp(value: string | undefined): number | null {
   if (value === undefined) {
     return null;
   }
   const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? null : parsed;
+  return Number.isNaN(parsed) ? Number.NaN : parsed;
+}
+
+function isLive(view: GrantView, now: number): boolean {
+  // Revoked (incl. malformed `revoked_at`) → never live.
+  if (view.revokedAt !== null) {
+    return false;
+  }
+  // Expired (incl. malformed `expires_at`) → never live.
+  return view.expiresAt === null || view.expiresAt > now;
 }
 
 function viewOf(grant: MemoryGrant): GrantView {
@@ -75,10 +91,7 @@ export function grantCovers(
   if (view.principalId !== principalId || view.spaceId !== spaceId) {
     return false;
   }
-  if (view.revokedAt !== null) {
-    return false;
-  }
-  if (view.expiresAt !== null && view.expiresAt <= now) {
+  if (!isLive(view, now)) {
     return false;
   }
   // Subject scope (§6.5): a subject-scoped grant never covers another
@@ -160,8 +173,7 @@ export function validateGrantIssuance(
       (view) =>
         view.principalId === principalId &&
         view.spaceId === spaceId &&
-        view.revokedAt === null &&
-        (view.expiresAt === null || view.expiresAt > now) &&
+        isLive(view, now) &&
         view.capabilities.includes("admin"),
     )
     .filter((view) => {
@@ -185,10 +197,14 @@ export function validateGrantIssuance(
     );
   }
 
-  // Stage 2: expiry bound over the applicable set only.
+  // Stage 2: expiry bound over the applicable set only (malformed expiries
+  // were already excluded from applicability by `isLive`).
   const expiries = applicable
     .map((view) => view.expiresAt)
-    .filter((expiresAt): expiresAt is number => expiresAt !== null);
+    .filter(
+      (expiresAt): expiresAt is number =>
+        expiresAt !== null && Number.isFinite(expiresAt),
+    );
   const earliestApplicableExpiry = expiries.length === 0 ? null : Math.min(...expiries);
   if (issued.expiresAt !== null) {
     if (earliestApplicableExpiry !== null && issued.expiresAt > earliestApplicableExpiry) {

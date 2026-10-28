@@ -296,4 +296,31 @@ describe("validateGrantIssuance (§7.9, fix-round semantics)", () => {
     ];
     expectNotAuthorized(validateGrantIssuance(granter, GRANTEE, SPACE, NOW, issued(["capture"])));
   });
+
+  it("fails closed on malformed grant timestamps", () => {
+    // Malformed expires_at → treated as expired → coverage denied.
+    const badExpiry = makeGrant({ expires_at: "not-a-date" });
+    expect(grantCovers(badExpiry, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
+
+    // Malformed revoked_at → treated as revoked → coverage denied.
+    const badRevoked = makeGrant({ revoked_at: "not-a-date" });
+    expect(grantCovers(badRevoked, GRANTEE, SPACE, NOW, requirement("capture"))).toBe(false);
+
+    // Admin grant with malformed expiry is excluded from applicability, so
+    // issuance fails NOT_AUTHORIZED (no silent unbounded coverage).
+    const malformedAdmin = [makeGrant({ capabilities: ["admin"], expires_at: "garbage" })];
+    expectNotAuthorized(
+      validateGrantIssuance(malformedAdmin, GRANTEE, SPACE, NOW, issued(["capture"])),
+    );
+    expectNotAuthorized(
+      validateGrantIssuance(malformedAdmin, GRANTEE, SPACE, NOW, {
+        ...issued(["capture"]),
+        expiresAt: Date.parse("2027-01-01T00:00:00Z"),
+      }),
+    );
+
+    // Malformed revoked_at on the only admin grant also fails closed.
+    const revokedAdmin = [makeGrant({ capabilities: ["admin"], revoked_at: "garbage" })];
+    expectNotAuthorized(validateGrantIssuance(revokedAdmin, GRANTEE, SPACE, NOW, issued(["capture"])));
+  });
 });

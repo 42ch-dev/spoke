@@ -230,23 +230,28 @@ export function validateMemoryRecordsCreate(
 }
 
 /**
- * §7.18 `memory.records.update`: the kind-update shape must not carry
- * content (parity with the Rust validator); the content-update shape is
- * bounds-checked against `max_content_bytes`.
+ * §7.18 `memory.records.update`: at least one of `content` / `kind` is
+ * required — a combined update carrying both is valid (placement is the
+ * only forbidden change). Runtime callers can bypass the generated oneOf,
+ * so absence of both is rejected here; content is bounds-checked whenever
+ * present.
  */
 export function validateMemoryRecordsUpdate(
   request: MemoryRecordsUpdateRequest,
   maxContentBytes: number,
 ): SpokeResult<void> {
-  const update = request as { kind?: string; content?: { text: string; structured?: unknown } };
-  if (update.kind !== undefined) {
-    if (update.content !== undefined) {
-      return invalidInput("content", "content is not valid on a kind-update request");
-    }
+  const update = request as {
+    kind?: string;
+    content?: { text: string; structured?: unknown };
+  };
+  if (update.kind === undefined && update.content === undefined) {
+    return invalidInput("content", "records.update requires content or kind");
+  }
+  if (update.content === undefined) {
     return spokeOk();
   }
   return checkContentLimit(
-    contentWireBytes(update.content?.text ?? "", update.content?.structured),
+    contentWireBytes(update.content.text, update.content.structured),
     maxContentBytes,
   );
 }

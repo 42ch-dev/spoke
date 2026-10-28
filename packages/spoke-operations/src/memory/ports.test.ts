@@ -1,110 +1,79 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  MemoryCandidatesDismissRequest,
-  MemoryCandidatesGetRequest,
-  MemoryCandidatesListRequest,
-  MemoryCandidatesReviewRequest,
-  MemoryCaptureRequest,
-  MemoryDescribeRequest,
-  MemoryExportsCreateRequest,
-  MemoryExportsGetRequest,
-  MemoryGrantsGrantRequest,
-  MemoryGrantsListRequest,
-  MemoryGrantsRevokeRequest,
-  MemoryImportsActivateRequest,
-  MemoryImportsDiscardRequest,
-  MemoryImportsStageRequest,
-  MemoryProfileGetRequest,
-  MemoryProfileUpdateRequest,
-  MemoryRecallRequest,
-  MemoryReceiptsGetRequest,
-  MemoryRecordsCreateRequest,
-  MemoryRecordsDeleteRequest,
-  MemoryRecordsGetRequest,
-  MemoryRecordsListRequest,
-  MemoryRecordsPromoteRequest,
-  MemoryRecordsUpdateRequest,
-  MemoryReflectionsGenerateRequest,
-  MemoryReflectionsListRequest,
-  MemoryReflectionsStateRequest,
-  MemorySpacesFreezeRequest,
-  MemorySpacesListRequest,
-  MemorySpacesUnfreezeRequest,
-  MemorySubjectsEnsureRequest,
-  MemorySubjectsFenceRequest,
-  MemorySubjectsGetRequest,
-  Principal,
-} from "@42ch/spoke-schemas";
+import type { Principal } from "@42ch/spoke-schemas";
 
 import {
   SpokeRejectCode,
   type MemoryPort,
   type MemoryPorts,
-  type SpokeResult,
 } from "../index.js";
 
-const PRINCIPAL: Principal = {
-  principal_id: "p1",
-  extensions: {},
-};
-
-/** A structural smoke: every one of the 33 methods is callable via the type. */
-function methodArity(port: MemoryPort): number {
-  return [
-    port.describe,
-    port.listSpaces,
-    port.freezeSpace,
-    port.unfreezeSpace,
-    port.ensureSubject,
-    port.getSubject,
-    port.fenceSubject,
-    port.listGrants,
-    port.grant,
-    port.revokeGrant,
-    port.capture,
-    port.listCandidates,
-    port.getCandidate,
-    port.dismissCandidate,
-    port.reviewCandidate,
-    port.createRecord,
-    port.getRecord,
-    port.updateRecord,
-    port.deleteRecord,
-    port.listRecords,
-    port.promoteRecord,
-    port.recall,
-    port.getProfile,
-    port.updateProfile,
-    port.getReflectionState,
-    port.listReflections,
-    port.generateReflection,
-    port.getReceipt,
-    port.createExport,
-    port.getExport,
-    port.stageImport,
-    port.activateImport,
-    port.discardImport,
-  ].length;
-}
+/** Every method name of the port contract, type-checked as `keyof MemoryPort`. */
+const MEMORY_PORT_METHODS: (keyof MemoryPort)[] = [
+  "describe",
+  "listSpaces",
+  "freezeSpace",
+  "unfreezeSpace",
+  "ensureSubject",
+  "getSubject",
+  "fenceSubject",
+  "listGrants",
+  "grant",
+  "revokeGrant",
+  "capture",
+  "listCandidates",
+  "getCandidate",
+  "dismissCandidate",
+  "reviewCandidate",
+  "createRecord",
+  "getRecord",
+  "updateRecord",
+  "deleteRecord",
+  "listRecords",
+  "promoteRecord",
+  "recall",
+  "getProfile",
+  "updateProfile",
+  "getReflectionState",
+  "listReflections",
+  "generateReflection",
+  "getReceipt",
+  "createExport",
+  "getExport",
+  "stageImport",
+  "activateImport",
+  "discardImport",
+];
 
 describe("MemoryPort / MemoryPorts (TS parity with the Rust trait)", () => {
-  it("exposes 33 methods taking Principal as the explicit first parameter", () => {
-    const port: MemoryPort = new Proxy({} as MemoryPort, {
-      get: (_target, property) => {
-        if (property === "then") {
-          return undefined;
-        }
-        return (_principal: Principal, _request: unknown): Promise<SpokeResult<never>> =>
-          Promise.reject(new Error(`unexpected call: ${String(property)}`));
-      },
-    });
-    expect(methodArity(port)).toBe(33);
+  it("declares exactly the 33 op methods (§7.1–7.33)", () => {
+    expect(MEMORY_PORT_METHODS).toHaveLength(33);
+    expect(new Set(MEMORY_PORT_METHODS).size).toBe(33);
+  });
+
+  it("takes Principal as the explicit first parameter (type-level probe)", () => {
+    // Assignability probe: each representative method must accept a
+    // Principal-first signature and return an awaitable SpokeResult.
+    const describe: MemoryPort["describe"] = (
+      _principal: Principal,
+      _request: Parameters<MemoryPort["describe"]>[1],
+    ) => Promise.reject(new Error("unused"));
+    const capture: MemoryPort["capture"] = (
+      _principal: Principal,
+      _request: Parameters<MemoryPort["capture"]>[1],
+    ) => Promise.reject(new Error("unused"));
+    const discardImport: MemoryPort["discardImport"] = (
+      _principal: Principal,
+      _request: Parameters<MemoryPort["discardImport"]>[1],
+    ) => Promise.reject(new Error("unused"));
+
+    expect([describe, capture, discardImport]).toHaveLength(3);
   });
 
   it("probe defaults to undefined for adapters that do not serve memory", () => {
     const adapter: MemoryPorts = {};
-    expect(adapter.asMemory?.()).toBeUndefined();
+    const probe: MemoryPort | undefined = adapter.asMemory?.();
+    expect(probe).toBeUndefined();
   });
 
   it("carries the 14 §14.1 memory reject codes", () => {
@@ -130,40 +99,3 @@ describe("MemoryPort / MemoryPorts (TS parity with the Rust trait)", () => {
     }
   });
 });
-
-// Type-only imports must stay in sync with the Rust trait surface.
-type _RequestTypes = [
-  MemoryDescribeRequest,
-  MemorySpacesListRequest,
-  MemorySpacesFreezeRequest,
-  MemorySpacesUnfreezeRequest,
-  MemorySubjectsEnsureRequest,
-  MemorySubjectsGetRequest,
-  MemorySubjectsFenceRequest,
-  MemoryGrantsListRequest,
-  MemoryGrantsGrantRequest,
-  MemoryGrantsRevokeRequest,
-  MemoryCaptureRequest,
-  MemoryCandidatesListRequest,
-  MemoryCandidatesGetRequest,
-  MemoryCandidatesDismissRequest,
-  MemoryCandidatesReviewRequest,
-  MemoryRecordsCreateRequest,
-  MemoryRecordsGetRequest,
-  MemoryRecordsUpdateRequest,
-  MemoryRecordsDeleteRequest,
-  MemoryRecordsListRequest,
-  MemoryRecordsPromoteRequest,
-  MemoryRecallRequest,
-  MemoryProfileGetRequest,
-  MemoryProfileUpdateRequest,
-  MemoryReflectionsStateRequest,
-  MemoryReflectionsListRequest,
-  MemoryReflectionsGenerateRequest,
-  MemoryReceiptsGetRequest,
-  MemoryExportsCreateRequest,
-  MemoryExportsGetRequest,
-  MemoryImportsStageRequest,
-  MemoryImportsActivateRequest,
-  MemoryImportsDiscardRequest,
-];

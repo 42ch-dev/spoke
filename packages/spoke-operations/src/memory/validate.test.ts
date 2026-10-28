@@ -282,25 +282,50 @@ describe("per-op conditionals", () => {
     expectInvalid(validateMemoryCandidatesReview(request), "decision.fragments");
   });
 
-  it("records.update rejects content on the kind-update shape (§7.18)", () => {
-    const request = {
+  it("records.update accepts kind-only, content-only, and combined (§7.18)", () => {
+    const combined = {
       space_id: "sp_1",
       record_id: "r1",
       expected_revision: 1,
       kind: "note",
-      content: { text: "must not ride a kind update" },
+      content: { text: "combined update" },
       idempotency_key: "k1",
     } as MemoryRecordsUpdateRequest;
-    expectInvalid(validateMemoryRecordsUpdate(request, 1024), "content");
+    expect(validateMemoryRecordsUpdate(combined, 1024).ok).toBe(true);
 
-    const contentUpdate = {
+    const kindOnly = {
+      space_id: "sp_1",
+      record_id: "r1",
+      expected_revision: 1,
+      kind: "note",
+      idempotency_key: "k1",
+    } as MemoryRecordsUpdateRequest;
+    expect(validateMemoryRecordsUpdate(kindOnly, 1024).ok).toBe(true);
+
+    const contentOnly = {
       space_id: "sp_1",
       record_id: "r1",
       expected_revision: 1,
       content: { text: "fine" },
       idempotency_key: "k1",
     } as MemoryRecordsUpdateRequest;
-    expect(validateMemoryRecordsUpdate(contentUpdate, 1024).ok).toBe(true);
+    expect(validateMemoryRecordsUpdate(contentOnly, 1024).ok).toBe(true);
+
+    // Neither present (runtime bypass of the generated oneOf) → reject.
+    const neither = {
+      space_id: "sp_1",
+      record_id: "r1",
+      expected_revision: 1,
+      idempotency_key: "k1",
+    } as unknown as MemoryRecordsUpdateRequest;
+    expectInvalid(validateMemoryRecordsUpdate(neither, 1024), "content");
+
+    // Content still rides the provider byte limit on the combined shape.
+    const oversize = {
+      ...combined,
+      content: { text: "x".repeat(2048) },
+    } as MemoryRecordsUpdateRequest;
+    expectLimit(validateMemoryRecordsUpdate(oversize, 1024), "max_content_bytes");
   });
 
   it("imports.stage rejects non-zero header chunk ordinal (§7.31)", () => {

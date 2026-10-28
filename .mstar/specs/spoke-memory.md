@@ -144,7 +144,7 @@ Anchors `MEM-R###` are the conformance reference points referenced by conformanc
 | MEM-R022 | `MemoryReceipt.result` MUST contain only identifiers, revisions, counts, outcome enums, digests, and cost facts. Record, candidate, profile, and reflection bodies MUST NOT appear in a receipt. |
 | MEM-R023 | A frozen space MUST admit exactly the §8.2 allowlist. Quiescent export and cutover MUST require the drain barrier (`pending_receipts == 0`). |
 | MEM-R024 | A context-scoped fence MUST reject writes that place into the fenced context across all clients while sibling contexts remain usable. |
-| MEM-R025 | Export/import MUST preserve candidates (as content-scrubbed shells with `content_digest`), content-free receipt/dedup summaries, and all reference maps. Grants MUST NOT be activated on import except those listed in `adopt_grants`. Imported reflections MUST enter `stale: true`. |
+| MEM-R025 | Export/import MUST preserve every candidate: a consumed candidate transfers as its content-scrubbed shell carrying `content_digest`, and a pending candidate transfers in full with its `proposed` content, so unreviewed material survives transfer. Content-free receipt and dedup summaries and all reference maps MUST be preserved. Grants MUST NOT be activated on import except those listed in `adopt_grants`. Imported reflections MUST enter `stale: true`. |
 | MEM-R026 | Every cursor MUST bind principal, space, subject, selection/filter, snapshot marker, and `engine_policy_version`; any state or grant change MUST invalidate it with `CURSOR_INVALID`. Every by-id read MUST recheck current authorization. |
 | MEM-R027 | Exactly one authority MUST exist through cutover and rollback: the old provider MUST stay frozen and reject writes. Once the target has accepted writes, rollback MUST require verified reverse transfer (delta reconciliation) before the source reopens. Two providers MUST NOT accept writes at once, and target-written history MUST NOT be deleted. |
 
@@ -452,7 +452,10 @@ The family defines 33 ops: 25 core (`spoke-memory`), 3 reflection (`spoke-memory
 
 ### 7.0 Common operation contract
 
-**7.0.1 Requests.** Every op request names `space_id`; subject-scoped ops also name `subject_id`. Requests are closed JSON objects (`additionalProperties: false`); each carries optional top-level `extensions` for transport metadata. The requester's principal never appears in the payload (§6.4).
+**7.0.1 Requests.** Requests are closed JSON objects (`additionalProperties: false`); each carries optional top-level `extensions` for transport metadata. The requester's principal never appears in the payload (§6.4). Two op classes exist:
+
+- **Space-scoped ops** name `space_id`; subject-scoped ops also name `subject_id`.
+- **Unscoped ops** carry no space or subject selector: `memory.describe` sends `{}` plus optional `extensions` (it describes the provider itself, §7.1), and `memory.spaces.list` sends only `cursor` / `limit` / `extensions` (it discovers spaces, §7.2). A client MUST NOT add `space_id` to either request — both schemas are closed and would reject it.
 
 **7.0.2 Responses.** Read ops return their payload directly. Mutating ops return a `MemoryReceipt` (§6.10) — `CommittedReceipt` or `PendingReceipt` — whose `result` is a content-free summary (`MEM-R022`); callers obtain live objects through read ops, which always re-check current authorization (`MEM-R026`). Read responses are snapshots: they are not CAS tokens and carry no freshness guarantee beyond their creation instant. Every response schema also admits the failure branch `{ "error": MemoryErrorEnvelope, "extensions"?: ExtensionMap }`.
 
@@ -831,7 +834,8 @@ Cutover is an operator-coordinated procedure, not a local configuration edit: al
 
 ## 13. Wire/transport mapping
 
-- Memory ops ride the existing Connect envelope: `ConnectInvokeRequest.op` carries the exact op string (e.g. `memory.capture`) and `payload` carries the op's request object — the same wrapping rule as the core `extract` op. Chunked export/import keeps every invoke payload within `export_chunk_bytes` (§6.13).
+- Memory ops ride the existing Connect envelope: `ConnectInvokeRequest.op` carries the exact op string (e.g. `memory.capture`) and `payload` carries the op's request object — the same wrapping rule as the core `extract` op.
+- **Payload sizing (two bounds, neither of them an envelope bound).** Ordinary requests are bounded by the applicable `memory.describe.limits` entry (`max_content_bytes`, `max_candidates_per_capture`, §7.1). A chunk-bearing payload (`memory.exports.get` response, `memory.imports.stage` request) is bounded by `Chunk.bytes` reported against `export_chunk_bytes` (§6.13), with the contract's stated exception: a single element larger than the limit occupies its own chunk, so that chunk's `bytes` exceeds the limit and is never split or dropped. The Connect invoke envelope wrapping a payload (op string, correlation identity, and other envelope fields) is outside both bounds; transfer correctness does not depend on an envelope size ceiling, because every chunk digest and the reassembled `bundle_digest` are verified on receipt (§6.13, `crates/spoke-memory/src/transfer.rs`).
 - **Dispatch gate:** every `memory.*` op has a `required_capability` row mapping it to `spoke-memory` or the sub-flag per §4.1 (`crates/spoke-connect/src/core/dispatch.rs`, mirrored in the TypeScript dispatch tests). Unknown ops keep failing closed with `op_unsupported`; unnegotiated memory ops fail `capability_missing` before any handler runs, with zero side effects.
 - **Serving seam:** `RemoteMemoryService` in `crates/spoke-connect/src/remote/serve_ports.rs`; `MemoryPortService` adapts a provider `MemoryPort` to it, mapping the authenticated connect peer to a `Principal` through an admission context (`MemoryAdmission`). One callable serves every `memory.*` op — the typed per-op contract already lives on `MemoryPort`, so no second 33-method serving trait exists.
 - **Client seam:** remote adapters map each `MemoryPort` method to its `memory.*` op — Rust `crates/spoke-connect/src/remote/remote_adapter.rs`, TypeScript `packages/spoke-connect-ts/src/remote/remote-adapter.ts` (method → op table exported for parity tests).
@@ -939,7 +943,9 @@ An authored soul document (`SOUL.md` in products that keep one) lands as `Profil
 
 Soul narrative and experience aggregation land as **Reflection** (derived). A reflection's scope is `ReadSelection` AND `ProvenanceFilter{source_context_ids}` — two independent axes (a per-scope projection is a provenance filter; a binding scope is placement/visibility). The basis pins selection + filter + authorized source-set digest + source revisions + `engine_policy_version`; `state_digest` commits to all of it.
 
-Physical storage (soul files, narrative tables) stays product-side; the protocol never prescribes storage shape. An upstream "soul experience only" review action is not a protocol capability: the family ships `memory.profile.*` and `memory.reflections.*` access surfaces, and reflection generation is gated only by §4.2 admission and `MEM-R005`.
+Physical storage (soul files, narrative tables) stays product-side; the protocol never prescribes storage shape.
+
+`TriggerSoulExperienceOnly` is the upstream product action that projects soul narrative and experience material into memory. It is a product-side action — currently runtime-skipped upstream, so it is unsupported in practice — and it is neither a protocol capability nor implemented in this repository. This family ships only the access surfaces: `memory.profile.*` and `memory.reflections.*`, with reflection generation gated exclusively by §4.2 profile admission and `MEM-R005`.
 
 ### 16.7 Personality memory is three layers
 

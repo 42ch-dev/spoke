@@ -107,11 +107,11 @@ Baseline compliance MUST NOT require any of these flags.
 
 | Flag | Layer coverage | Meaning |
 |------|----------------|---------|
-| `spoke-memory` | Cross-layer family: L1/L2 records, L3 provenance, review decisions, L8-aligned read selection | Optional per-subject memory family: thirteen data models (`memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`) and 33 `memory.*` ops, with a standalone `MemoryPort` / `MemoryPorts` probe and the `spoke-memory` crate as pure reference engine. Adds no field to any baseline object, no baseline port family, and no core op. Normative contract: [`spoke-memory.md`](spoke-memory.md); capability decision: [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) |
-| `spoke-memory-reflection` | Memory family sub-flag | Optional `memory.reflections.state` / `.list` / `.generate`; requires `spoke-memory` |
-| `spoke-memory-transfer` | Memory family sub-flag | Optional `memory.exports.*` / `memory.imports.*`; requires `spoke-memory` |
+| `spoke-memory` | Cross-layer family: L1/L2 records, L3 provenance, review decisions, L8-aligned read selection | Optional per-subject memory family: thirteen data models (`memory-space`, `subject`, `principal`, `memory-grant`, `retained-record`, `memory-candidate`, `profile-document`, `reflection`, `memory-receipt`, `read-selection`, `provenance-filter`, `memory-export-bundle`, `memory-export-chunk`) and the 25 core `memory.*` ops, with a standalone `MemoryPort` / `MemoryPorts` probe and the `spoke-memory` crate as pure reference engine. Adds no field to any baseline object, no baseline port family, and no core op. Normative contract: [`spoke-memory.md`](spoke-memory.md); capability decision: [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) |
+| `spoke-memory-reflection` | Memory family sub-flag | Optional 3 reflection ops — `memory.reflections.state` / `.list` / `.generate`; requires `spoke-memory` |
+| `spoke-memory-transfer` | Memory family sub-flag | Optional 5 transfer ops — `memory.exports.create` / `.get`, `memory.imports.stage` / `.activate` / `.discard`; requires `spoke-memory` |
 
-A provider that declares a memory sub-flag MUST also declare `spoke-memory`, and a provider that declares `spoke-memory` without a sub-flag rejects that sub-flag's ops with `capability_missing` before any handler runs. Memory authorization is self-contained: the family never consults `ke-ownership` / `Scope.viewpoint` disclosure semantics.
+The family totals **33** ops: **25** core (`spoke-memory`) + **3** reflection (`spoke-memory-reflection`) + **5** transfer (`spoke-memory-transfer`). A provider that declares a memory sub-flag MUST also declare `spoke-memory`, and a provider that declares `spoke-memory` without a sub-flag rejects that sub-flag's ops with `capability_missing` before any handler runs. Memory authorization is self-contained: the family never consults `ke-ownership` / `Scope.viewpoint` disclosure semantics.
 
 ## Domain Profile
 

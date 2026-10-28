@@ -196,25 +196,19 @@ fn failed_capture_receipt_round_trips() {
         serde_json::to_value(&parsed).expect("failed receipt serializes"),
         value(FAILED_CAPTURE)
     );
-    // The pins stay closed: a committed receipt document never parses as the
-    // failed branch and vice versa (one receipt shape per op branch).
-    assert!(serde_json::from_value::<MemoryCaptureResponse>(json!({
-        "schema_version": 1,
-        "receipt_id": "rcpt_x",
-        "op": "memory.capture",
-        "space_id": "spc_local_default",
-        "requester_principal_id": "prn_nexus_host_local",
-        "payload_digest": "2222222222222222222222222222222222222222222222222222222222222222",
-        "status": "committed",
-        "error": {
-            "code": "INVALID_INPUT",
-            "message": "m",
-            "details": {"retry_class": "terminal"},
-            "extensions": {}
-        },
-        "created_at": "2026-10-28T09:20:01Z",
-        "completed_at": "2026-10-28T09:20:01Z",
+    // §6.10: `result` is present iff committed, `error` iff failed. The
+    // prohibition is isolated by starting from the VALID committed fixture and
+    // adding only a valid error envelope: nothing else is missing, so a failure
+    // can only come from the committed branch refusing `error`.
+    let mut committed_with_error = value(COMMITTED_CAPTURE);
+    committed_with_error["error"] = json!({
+        "code": "INVALID_INPUT",
+        "message": "capture content is empty",
+        "details": {"retry_class": "terminal"},
         "extensions": {}
-    }))
-    .is_err());
+    });
+    assert!(
+        serde_json::from_value::<MemoryCaptureResponse>(committed_with_error).is_err(),
+        "a committed receipt must not carry an error envelope"
+    );
 }

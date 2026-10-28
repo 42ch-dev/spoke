@@ -22,11 +22,47 @@ export type NextCursor = string;
 /**
  * Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2).
  */
-export type MemoryErrorEnvelope = ErrorEnvelope & MemoryErrorRequirement;
-/**
- * §14.2 retry class.
- */
-export type RetryClass = "retryable" | "terminal" | "uncertain";
+export type MemoryErrorEnvelope =
+  | (ErrorEnvelope & MemoryErrorPins)
+  | (ErrorEnvelope & MemoryErrorPins1)
+  | (ErrorEnvelope & MemoryErrorPins2)
+  | (ErrorEnvelope & MemoryErrorPins3)
+  | (ErrorEnvelope & MemoryErrorPins4)
+  | (ErrorEnvelope & MemoryErrorPins5)
+  | (ErrorEnvelope & MemoryErrorPins6)
+  | (ErrorEnvelope & MemoryErrorPins7)
+  | (ErrorEnvelope & MemoryErrorPins8)
+  | (ErrorEnvelope & MemoryErrorPins9)
+  | (ErrorEnvelope & MemoryErrorPins10)
+  | (ErrorEnvelope & MemoryErrorPins11)
+  | (ErrorEnvelope & MemoryErrorPins12)
+  | (ErrorEnvelope & MemoryErrorPins13)
+  | (ErrorEnvelope & MemoryErrorPins14)
+  | (ErrorEnvelope & MemoryErrorPins15)
+  | (ErrorEnvelope & MemoryErrorPins16)
+  | (ErrorEnvelope & MemoryErrorPins17)
+  | (ErrorEnvelope & MemoryErrorPins18)
+  | (ErrorEnvelope & MemoryErrorPins19);
+export type RetryClass = "terminal";
+export type RetryClass1 = "terminal";
+export type RetryClass2 = "terminal";
+export type RetryClass3 = "terminal";
+export type RetryClass4 = "terminal";
+export type RetryClass5 = "terminal";
+export type RetryClass6 = "terminal";
+export type RetryClass7 = "terminal";
+export type RetryClass8 = "terminal";
+export type RetryClass9 = "terminal";
+export type RetryClass10 = "terminal";
+export type RetryClass11 = "terminal";
+export type RetryClass12 = "terminal";
+export type RetryClass13 = "terminal";
+export type RetryClass14 = "terminal";
+export type RetryClass15 = "terminal";
+export type RetryClass16 = "terminal";
+export type RetryClass17 = "terminal";
+export type RetryClass18 = "uncertain";
+export type RetryClass19 = "retryable" | "uncertain";
 
 export interface OneOf {
   reflections: Reflection[];
@@ -178,25 +214,303 @@ export interface ErrorDetails {
   [k: string]: unknown | undefined;
 }
 /**
- * Memory-specific envelope requirements: details.retry_class required (§14.1–14.2). Field shapes mirror the shared ErrorEnvelope so the allOf merge closes cleanly.
+ * §14.2: INVALID_INPUT → terminal (fix request/authorization).
  */
-export interface MemoryErrorRequirement {
-  /**
-   * Machine-readable error code.
-   */
-  code?: string;
-  /**
-   * Human-readable error message.
-   */
-  message?: string;
+export interface MemoryErrorPins {
+  code?: "INVALID_INPUT";
   details: ErrorDetails1;
-  extensions?: ExtensionMap;
+  [k: string]: unknown | undefined;
 }
 /**
- * §14.2 requires details.retry_class. The code-to-class mapping (§14.2) is a spec-level invariant enforced by validation helpers — draft-07 conditionals are not derivable by the codegen toolchain. Op-specific keys stay open.
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
  */
 export interface ErrorDetails1 {
   retry_class: RetryClass;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: NOT_AUTHORIZED → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins1 {
+  code?: "NOT_AUTHORIZED";
+  details: ErrorDetails2;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails2 {
+  retry_class: RetryClass1;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: GRANT_REVOKED → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins2 {
+  code?: "GRANT_REVOKED";
+  details: ErrorDetails3;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails3 {
+  retry_class: RetryClass2;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: CANDIDATE_CONSUMED → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins3 {
+  code?: "CANDIDATE_CONSUMED";
+  details: ErrorDetails4;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails4 {
+  retry_class: RetryClass3;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: PROFILE_INCOMPLETE → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins4 {
+  code?: "PROFILE_INCOMPLETE";
+  details: ErrorDetails5;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails5 {
+  retry_class: RetryClass4;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: INSUFFICIENT_DATA → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins5 {
+  code?: "INSUFFICIENT_DATA";
+  details: ErrorDetails6;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails6 {
+  retry_class: RetryClass5;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: IDEMPOTENCY_CONFLICT → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins6 {
+  code?: "IDEMPOTENCY_CONFLICT";
+  details: ErrorDetails7;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails7 {
+  retry_class: RetryClass6;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: EXPORT_EXPIRED → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins7 {
+  code?: "EXPORT_EXPIRED";
+  details: ErrorDetails8;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails8 {
+  retry_class: RetryClass7;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: IMPORT_CONFLICT → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins8 {
+  code?: "IMPORT_CONFLICT";
+  details: ErrorDetails9;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails9 {
+  retry_class: RetryClass8;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: RECEIPT_EXPIRED → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins9 {
+  code?: "RECEIPT_EXPIRED";
+  details: ErrorDetails10;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails10 {
+  retry_class: RetryClass9;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: CURSOR_INVALID → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins10 {
+  code?: "CURSOR_INVALID";
+  details: ErrorDetails11;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails11 {
+  retry_class: RetryClass10;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: REVISION_CONFLICT → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins11 {
+  code?: "REVISION_CONFLICT";
+  details: ErrorDetails12;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails12 {
+  retry_class: RetryClass11;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: INVALID_STATUS_TRANSITION → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins12 {
+  code?: "INVALID_STATUS_TRANSITION";
+  details: ErrorDetails13;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails13 {
+  retry_class: RetryClass12;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: SPACE_FROZEN → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins13 {
+  code?: "SPACE_FROZEN";
+  details: ErrorDetails14;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails14 {
+  retry_class: RetryClass13;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: SUBJECT_FENCED → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins14 {
+  code?: "SUBJECT_FENCED";
+  details: ErrorDetails15;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails15 {
+  retry_class: RetryClass14;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: NOT_FOUND → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins15 {
+  code?: "NOT_FOUND";
+  details: ErrorDetails16;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails16 {
+  retry_class: RetryClass15;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: op_unsupported → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins16 {
+  code?: "op_unsupported";
+  details: ErrorDetails17;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails17 {
+  retry_class: RetryClass16;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: capability_missing → terminal (fix request/authorization).
+ */
+export interface MemoryErrorPins17 {
+  code?: "capability_missing";
+  details: ErrorDetails18;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails18 {
+  retry_class: RetryClass17;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: OUTCOME_UNCERTAIN → uncertain (poll memory.receipts.get or replay the same idempotency_key).
+ */
+export interface MemoryErrorPins18 {
+  code?: "OUTCOME_UNCERTAIN";
+  details: ErrorDetails19;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails19 {
+  retry_class: RetryClass18;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2: INTERNAL_ERROR is retryable only when the provider asserts no effect committed; otherwise the provider returns OUTCOME_UNCERTAIN.
+ */
+export interface MemoryErrorPins19 {
+  code?: "INTERNAL_ERROR";
+  details: ErrorDetails20;
+  [k: string]: unknown | undefined;
+}
+/**
+ * §14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open.
+ */
+export interface ErrorDetails20 {
+  retry_class: RetryClass19;
   [k: string]: unknown | undefined;
 }
 /**

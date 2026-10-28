@@ -11,7 +11,30 @@ use crate::result::SpokeResult;
 use serde_json::Value;
 use spoke_schemas::{
     ComputeRequest, ComputeResponse, ExtractRequest, Finding, HostCapabilityManifest,
-    KnowledgeEntry, ProjectRequest, ProjectResponse, Relation, Rule, Scope, TimelineEvent,
+    KnowledgeEntry, MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse,
+    MemoryCandidatesGetRequest, MemoryCandidatesGetResponse, MemoryCandidatesListRequest,
+    MemoryCandidatesListResponse, MemoryCandidatesReviewRequest, MemoryCandidatesReviewResponse,
+    MemoryCaptureRequest, MemoryCaptureResponse, MemoryDescribeRequest, MemoryDescribeResponse,
+    MemoryExportsCreateRequest, MemoryExportsCreateResponse, MemoryExportsGetRequest,
+    MemoryExportsGetResponse, MemoryGrantsGrantRequest, MemoryGrantsGrantResponse,
+    MemoryGrantsListRequest, MemoryGrantsListResponse, MemoryGrantsRevokeRequest,
+    MemoryGrantsRevokeResponse, MemoryImportsActivateRequest, MemoryImportsActivateResponse,
+    MemoryImportsDiscardRequest, MemoryImportsDiscardResponse, MemoryImportsStageRequest,
+    MemoryImportsStageResponse, MemoryProfileGetRequest, MemoryProfileGetResponse,
+    MemoryProfileUpdateRequest, MemoryProfileUpdateResponse, MemoryRecallRequest,
+    MemoryRecallResponse, MemoryReceiptsGetRequest, MemoryReceiptsGetResponse,
+    MemoryRecordsCreateRequest, MemoryRecordsCreateResponse, MemoryRecordsDeleteRequest,
+    MemoryRecordsDeleteResponse, MemoryRecordsGetRequest, MemoryRecordsGetResponse,
+    MemoryRecordsListRequest, MemoryRecordsListResponse, MemoryRecordsPromoteRequest,
+    MemoryRecordsPromoteResponse, MemoryRecordsUpdateRequest, MemoryRecordsUpdateResponse,
+    MemoryReflectionsGenerateRequest, MemoryReflectionsGenerateResponse,
+    MemoryReflectionsListRequest, MemoryReflectionsListResponse, MemoryReflectionsStateRequest,
+    MemoryReflectionsStateResponse, MemorySpacesFreezeRequest, MemorySpacesFreezeResponse,
+    MemorySpacesListRequest, MemorySpacesListResponse, MemorySpacesUnfreezeRequest,
+    MemorySpacesUnfreezeResponse, MemorySubjectsEnsureRequest, MemorySubjectsEnsureResponse,
+    MemorySubjectsFenceRequest, MemorySubjectsFenceResponse, MemorySubjectsGetRequest,
+    MemorySubjectsGetResponse, Principal, ProjectRequest, ProjectResponse, Relation, Rule, Scope,
+    TimelineEvent,
 };
 
 /// Knowledge entry persistence — get / put by entry id.
@@ -213,6 +236,321 @@ pub struct ExtractionResult {
     /// [`serde_json::Value::Null`] both mean "no hint"; any other JSON value is
     /// retained verbatim.
     pub coverage_hint: Option<Value>,
+}
+
+/// Optional `spoke-memory` family — the injected product boundary for the
+/// memory-system operations (§7 of the memory protocol).
+///
+/// Standalone like [`ExtractionPort`]: `MemoryPort` is NOT part of
+/// [`BaselinePorts`] / [`FullPorts`] or the adapter aliases. One method per op
+/// (33); every method takes the authenticated [`Principal`] as an explicit
+/// admission-context parameter — it is never payload-asserted (MEM-R003). The
+/// library contains no memory storage or enforcement; providers implement the
+/// port and own storage, transactions, and every enforcement duty.
+///
+/// Common contract (§7.0): mutating ops require `idempotency_key` except
+/// [`MemoryPort::ensure_subject`]; dedup namespace is `(space_id,
+/// requester_principal_id, op, idempotency_key)`; list/recall ops paginate by
+/// `cursor` + `limit`. Grant capabilities below are the minimum per op — an
+/// `admin` grant with sufficient coverage also satisfies capability
+/// requirements (§6.5).
+#[async_trait]
+pub trait MemoryPort {
+    /// §7.1 `memory.describe` — provider self-description. **Grant:** none;
+    /// authenticated principal only. Read-only.
+    async fn describe(
+        &self,
+        principal: &Principal,
+        request: MemoryDescribeRequest,
+    ) -> SpokeResult<MemoryDescribeResponse>;
+
+    /// §7.2 `memory.spaces.list` — visible spaces; also the drain-barrier read.
+    /// **Grant:** any valid grant in the space, or provider-configured
+    /// visibility. Read-only.
+    async fn list_spaces(
+        &self,
+        principal: &Principal,
+        request: MemorySpacesListRequest,
+    ) -> SpokeResult<MemorySpacesListResponse>;
+
+    /// §7.3 `memory.spaces.freeze` — freeze a space (§8.2 maintenance
+    /// allowlist applies). **Grant:** `admin`. Idempotency key required.
+    async fn freeze_space(
+        &self,
+        principal: &Principal,
+        request: MemorySpacesFreezeRequest,
+    ) -> SpokeResult<MemorySpacesFreezeResponse>;
+
+    /// §7.4 `memory.spaces.unfreeze` — reverse of [`MemoryPort::freeze_space`];
+    /// always allowed on a frozen space. **Grant:** `admin`.
+    async fn unfreeze_space(
+        &self,
+        principal: &Principal,
+        request: MemorySpacesUnfreezeRequest,
+    ) -> SpokeResult<MemorySpacesUnfreezeResponse>;
+
+    /// §7.5 `memory.subjects.ensure` — idempotent get-or-create; sole
+    /// `idempotency_key` exemption (§7.0.5). **Grant:** `capture` (an `admin`
+    /// grant with coverage also satisfies this, §6.5).
+    async fn ensure_subject(
+        &self,
+        principal: &Principal,
+        request: MemorySubjectsEnsureRequest,
+    ) -> SpokeResult<MemorySubjectsEnsureResponse>;
+
+    /// §7.6 `memory.subjects.get`. **Grant:** any capability on the subject.
+    /// Read-only.
+    async fn get_subject(
+        &self,
+        principal: &Principal,
+        request: MemorySubjectsGetRequest,
+    ) -> SpokeResult<MemorySubjectsGetResponse>;
+
+    /// §7.7 `memory.subjects.fence` — subject/context lifecycle fencing.
+    /// **Grant:** `admin`.
+    async fn fence_subject(
+        &self,
+        principal: &Principal,
+        request: MemorySubjectsFenceRequest,
+    ) -> SpokeResult<MemorySubjectsFenceResponse>;
+
+    /// §7.8 `memory.grants.list`. **Grant:** `admin` for full/filtered views;
+    /// self-view limited to exactly the caller's own grants. Read-only.
+    async fn list_grants(
+        &self,
+        principal: &Principal,
+        request: MemoryGrantsListRequest,
+    ) -> SpokeResult<MemoryGrantsListResponse>;
+
+    /// §7.9 `memory.grants.grant`. **Grant:** `admin`; the issued grant must be
+    /// non-amplifying relative to the granter's coverage (§6.5).
+    async fn grant(
+        &self,
+        principal: &Principal,
+        request: MemoryGrantsGrantRequest,
+    ) -> SpokeResult<MemoryGrantsGrantResponse>;
+
+    /// §7.10 `memory.grants.revoke` — allowed during freeze (§8.2 allowlist).
+    /// **Grant:** `admin`.
+    async fn revoke_grant(
+        &self,
+        principal: &Principal,
+        request: MemoryGrantsRevokeRequest,
+    ) -> SpokeResult<MemoryGrantsRevokeResponse>;
+
+    /// §7.11 `memory.capture` — raw capture; produces zero or more pending
+    /// candidates, never retained records. **Grant:** `capture` covering the
+    /// declared `capture_scope`.
+    async fn capture(
+        &self,
+        principal: &Principal,
+        request: MemoryCaptureRequest,
+    ) -> SpokeResult<MemoryCaptureResponse>;
+
+    /// §7.12 `memory.candidates.list`. **Grant:** `review` covering
+    /// `capture_scope` (context-restricted grants see only covered candidates).
+    /// Read-only.
+    async fn list_candidates(
+        &self,
+        principal: &Principal,
+        request: MemoryCandidatesListRequest,
+    ) -> SpokeResult<MemoryCandidatesListResponse>;
+
+    /// §7.13 `memory.candidates.get`. **Grant:** `review` covering the
+    /// candidate's `capture_scope`. Read-only.
+    async fn get_candidate(
+        &self,
+        principal: &Principal,
+        request: MemoryCandidatesGetRequest,
+    ) -> SpokeResult<MemoryCandidatesGetResponse>;
+
+    /// §7.14 `memory.candidates.dismiss` — consumption without a review
+    /// decision. **Grant:** `review` covering the candidate's `capture_scope`.
+    async fn dismiss_candidate(
+        &self,
+        principal: &Principal,
+        request: MemoryCandidatesDismissRequest,
+    ) -> SpokeResult<MemoryCandidatesDismissResponse>;
+
+    /// §7.15 `memory.candidates.review` — the only candidate → record path.
+    /// **Grant:** `review` + `records_write`, both covering `capture_scope`.
+    async fn review_candidate(
+        &self,
+        principal: &Principal,
+        request: MemoryCandidatesReviewRequest,
+    ) -> SpokeResult<MemoryCandidatesReviewResponse>;
+
+    /// §7.16 `memory.records.create` — direct authored write. **Grant:**
+    /// `records_write` covering the declared placement.
+    async fn create_record(
+        &self,
+        principal: &Principal,
+        request: MemoryRecordsCreateRequest,
+    ) -> SpokeResult<MemoryRecordsCreateResponse>;
+
+    /// §7.17 `memory.records.get`. **Grant:** `records_read` or `recall`
+    /// covering placement; tombstoned reads require `admin`. Read-only.
+    async fn get_record(
+        &self,
+        principal: &Principal,
+        request: MemoryRecordsGetRequest,
+    ) -> SpokeResult<MemoryRecordsGetResponse>;
+
+    /// §7.18 `memory.records.update` — placement changes are NOT updates (see
+    /// [`MemoryPort::promote_record`]). **Grant:** `records_write` covering the
+    /// current placement.
+    async fn update_record(
+        &self,
+        principal: &Principal,
+        request: MemoryRecordsUpdateRequest,
+    ) -> SpokeResult<MemoryRecordsUpdateResponse>;
+
+    /// §7.19 `memory.records.delete` — tombstone retained, receipts unaffected.
+    /// **Grant:** `records_write` covering the placement.
+    async fn delete_record(
+        &self,
+        principal: &Principal,
+        request: MemoryRecordsDeleteRequest,
+    ) -> SpokeResult<MemoryRecordsDeleteResponse>;
+
+    /// §7.20 `memory.records.list`. **Grant:** `records_read` or `recall`
+    /// covering the selection/filter; `include_tombstoned` requires `admin`.
+    /// Read-only.
+    async fn list_records(
+        &self,
+        principal: &Principal,
+        request: MemoryRecordsListRequest,
+    ) -> SpokeResult<MemoryRecordsListResponse>;
+
+    /// §7.21 `memory.records.promote` — explicit placement change. **Grant:**
+    /// `promote` + `records_write`, both covering source and target placements.
+    async fn promote_record(
+        &self,
+        principal: &Principal,
+        request: MemoryRecordsPromoteRequest,
+    ) -> SpokeResult<MemoryRecordsPromoteResponse>;
+
+    /// §7.22 `memory.recall` — authorized, ranked, budgeted read. **Grant:**
+    /// `recall` covering the selection/filter. Read-only.
+    async fn recall(
+        &self,
+        principal: &Principal,
+        request: MemoryRecallRequest,
+    ) -> SpokeResult<MemoryRecallResponse>;
+
+    /// §7.23 `memory.profile.get` — absent kinds are honest-empty (§4.2).
+    /// **Grant:** any capability on the subject with shared access or
+    /// unrestricted coverage. Read-only.
+    async fn get_profile(
+        &self,
+        principal: &Principal,
+        request: MemoryProfileGetRequest,
+    ) -> SpokeResult<MemoryProfileGetResponse>;
+
+    /// §7.24 `memory.profile.update`. **Grant:** `profile_write`.
+    async fn update_profile(
+        &self,
+        principal: &Principal,
+        request: MemoryProfileUpdateRequest,
+    ) -> SpokeResult<MemoryProfileUpdateResponse>;
+
+    /// §7.25 `memory.reflections.state` — capability `spoke-memory-reflection`.
+    /// **Grant:** `reflect` covering the selection/filter. Read-only.
+    async fn get_reflection_state(
+        &self,
+        principal: &Principal,
+        request: MemoryReflectionsStateRequest,
+    ) -> SpokeResult<MemoryReflectionsStateResponse>;
+
+    /// §7.26 `memory.reflections.list` — capability `spoke-memory-reflection`.
+    /// **Grant:** `reflect` covering the selection/filter. Read-only.
+    async fn list_reflections(
+        &self,
+        principal: &Principal,
+        request: MemoryReflectionsListRequest,
+    ) -> SpokeResult<MemoryReflectionsListResponse>;
+
+    /// §7.27 `memory.reflections.generate` — explicit cost-bearing generation;
+    /// may complete asynchronously (§7.0.3). Capability
+    /// `spoke-memory-reflection`. **Grant:** `reflect` covering the
+    /// selection/filter.
+    async fn generate_reflection(
+        &self,
+        principal: &Principal,
+        request: MemoryReflectionsGenerateRequest,
+    ) -> SpokeResult<MemoryReflectionsGenerateResponse>;
+
+    /// §7.28 `memory.receipts.get` — sole uncertainty-resolution and pending
+    /// polling channel. **Grant:** current authorization as the receipt's
+    /// `requester_principal_id`, or `admin` in the space. Read-only.
+    async fn get_receipt(
+        &self,
+        principal: &Principal,
+        request: MemoryReceiptsGetRequest,
+    ) -> SpokeResult<MemoryReceiptsGetResponse>;
+
+    /// §7.29 `memory.exports.create` — capability `spoke-memory-transfer`;
+    /// may complete asynchronously; never fails `SPACE_FROZEN` (§8.2
+    /// allowlist). **Grant:** `transfer` covering the export scope;
+    /// `include_tombstoned` requires `admin`.
+    async fn create_export(
+        &self,
+        principal: &Principal,
+        request: MemoryExportsCreateRequest,
+    ) -> SpokeResult<MemoryExportsCreateResponse>;
+
+    /// §7.30 `memory.exports.get` — capability `spoke-memory-transfer`.
+    /// **Grant:** `transfer` covering the export scope; `include_tombstoned`
+    /// requires `admin`. Read-only.
+    async fn get_export(
+        &self,
+        principal: &Principal,
+        request: MemoryExportsGetRequest,
+    ) -> SpokeResult<MemoryExportsGetResponse>;
+
+    /// §7.31 `memory.imports.stage` — per-chunk staging, strict ordinal order.
+    /// Capability `spoke-memory-transfer`. **Grant:** `transfer` + `admin` on
+    /// the target space.
+    async fn stage_import(
+        &self,
+        principal: &Principal,
+        request: MemoryImportsStageRequest,
+    ) -> SpokeResult<MemoryImportsStageResponse>;
+
+    /// §7.32 `memory.imports.activate` — atomic visibility flip. Capability
+    /// `spoke-memory-transfer`. **Grant:** `transfer` + `admin`.
+    async fn activate_import(
+        &self,
+        principal: &Principal,
+        request: MemoryImportsActivateRequest,
+    ) -> SpokeResult<MemoryImportsActivateResponse>;
+
+    /// §7.33 `memory.imports.discard` — pre-activation rollback. Capability
+    /// `spoke-memory-transfer`. **Grant:** `transfer` + `admin`.
+    async fn discard_import(
+        &self,
+        principal: &Principal,
+        request: MemoryImportsDiscardRequest,
+    ) -> SpokeResult<MemoryImportsDiscardResponse>;
+}
+
+/// Availability probe for the standalone `spoke-memory` family, mirroring
+/// [`ComputablePorts`]: types that implement [`MemoryPort`] get the blanket
+/// `Some(self)` probe, while dynamically assembled boundaries MAY implement
+/// this trait with the default `None` (parity with TS `requirePortMethod`).
+pub trait MemoryPorts {
+    fn as_memory(&self) -> Option<&dyn MemoryPort> {
+        None
+    }
+}
+
+impl<T> MemoryPorts for T
+where
+    T: MemoryPort,
+{
+    fn as_memory(&self) -> Option<&dyn MemoryPort> {
+        Some(self)
+    }
 }
 
 #[cfg(test)]

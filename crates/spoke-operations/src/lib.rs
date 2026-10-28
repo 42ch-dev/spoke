@@ -8,6 +8,7 @@ mod extensions;
 mod error;
 mod finding;
 mod knowledge_entry;
+mod memory;
 mod mind_state;
 mod occ;
 mod promote;
@@ -79,6 +80,7 @@ pub use adapter::{
 };
 pub use adapter::orchestrate::orchestrate_extract;
 pub use adapter::ports::{ExtractRunInput, ExtractionPort, ExtractionResult};
+pub use adapter::ports::{MemoryPort, MemoryPorts};
 
 /// Re-export wire types for integrator convenience.
 pub use spoke_schemas;

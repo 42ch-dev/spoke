@@ -11,7 +11,8 @@ pub use orchestrate::{
 pub use ports::{
     BaselineAdapter, BaselinePorts, ComputableAdapter, ComputablePort, ComputablePorts,
     FindingPort, ForkAdapter, ForkPorts, ForkTimelineQueryPort, FullAdapter, FullPorts,
-    HostManifestPort, KnowledgeEntryPort, RelationPort, RuleQueryPort, ScopeQueryPort,
+    HostManifestPort, KnowledgeEntryPort, MemoryPort, MemoryPorts, RelationPort, RuleQueryPort,
+    ScopeQueryPort,
 };
 
 /// Parity export checklist — mirrors TS `adapter/ports.test.ts` "adapter port exports"

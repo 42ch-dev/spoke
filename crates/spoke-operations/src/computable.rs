@@ -275,7 +275,7 @@ mod tests {
     use crate::result::SpokeResult;
     use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
     use serde_json::json;
-    use spoke_schemas::ComputableLogEntryChangesItem;
+    use spoke_schemas::ComputableLogChange;
     use std::collections::HashMap;
 
     fn is_parseable_date_time(value: &str) -> bool {
@@ -431,13 +431,13 @@ mod tests {
 
     fn valid_log_entry() -> ComputableLogEntry {
         ComputableLogEntry {
-            changes: vec![ComputableLogEntryChangesItem {
-                next: Some(json!(2.4)),
+            changes: vec![ComputableLogChange {
+                next: Some(spoke_schemas::OpaqueJson(json!(2.4))),
                 path: "tide_level".into(),
-                previous: Some(json!(2.1)),
+                previous: Some(spoke_schemas::OpaqueJson(json!(2.1))),
             }],
             entry_id: "kb_tw_harbor".into(),
-            logged_at: Utc.with_ymd_and_hms(2026, 7, 23, 5, 50, 0).unwrap(),
+            logged_at: spoke_schemas::Timestamp(Utc.with_ymd_and_hms(2026, 7, 23, 5, 50, 0).unwrap()),
             message: Some("Tide updated.".into()),
             session_id: Some("sess_tw_dawn_arrival".into()),
         }
@@ -491,7 +491,7 @@ mod tests {
     #[test]
     fn validate_computable_log_entry_rejects_change_without_path() {
         let mut entry = valid_log_entry();
-        entry.changes = vec![ComputableLogEntryChangesItem {
+        entry.changes = vec![ComputableLogChange {
             next: None,
             path: String::new(),
             previous: None,

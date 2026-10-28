@@ -32,6 +32,44 @@ pub enum SpokeRejectCode {
     /// the 4xx validation codes above; hosts raise it for storage or runtime
     /// errors that are not the caller's fault.
     InternalError,
+    // Memory-system vocabulary (spoke-memory, §14.1 of the memory protocol).
+    /// Memory op target does not exist (or is hidden from the principal).
+    NotFound,
+    /// Principal lacks coverage for the op; also used when the provider
+    /// declines to reveal existence.
+    NotAuthorized,
+    /// The principal presented a specific grant that exists but is
+    /// revoked/expired (distinct from coverage-absence `NOT_AUTHORIZED`).
+    GrantRevoked,
+    /// Space is frozen for maintenance/migration; op is outside the §8.2
+    /// maintenance allowlist.
+    SpaceFrozen,
+    /// Subject (or context) is fenced; writes are rejected, reads allowed.
+    SubjectFenced,
+    /// Candidate was already consumed (§8.1 terminal state).
+    CandidateConsumed,
+    /// Reflection generation admission failed: a required profile kind is
+    /// absent or empty (`details.missing`).
+    ProfileIncomplete,
+    /// Reflection generation admission failed: provider/engine data-
+    /// sufficiency policy gate.
+    InsufficientData,
+    /// Same idempotency key replayed with a different payload digest.
+    IdempotencyConflict,
+    /// Provider cannot determine whether a mutating op committed (§14.3);
+    /// resolve via same-key replay or `memory.receipts.get`.
+    OutcomeUncertain,
+    /// Export bundle is past `export_retention_seconds`.
+    ExportExpired,
+    /// Staged import verification failed, or the import left the staged
+    /// state (activated/expired/discarded) before the op required it.
+    ImportConflict,
+    /// Receipt body was evicted; `details.last_known_status` from the dedup
+    /// tombstone.
+    ReceiptExpired,
+    /// Pagination cursor is invalid — state or grant change invalidated it
+    /// (§7.0.7).
+    CursorInvalid,
 }
 
 impl SpokeRejectCode {
@@ -64,6 +102,20 @@ impl SpokeRejectCode {
             Self::RelationAlreadyExists => "RELATION_ALREADY_EXISTS",
             Self::CapabilityPortMissing => "CAPABILITY_PORT_MISSING",
             Self::InternalError => "INTERNAL_ERROR",
+            Self::NotFound => "NOT_FOUND",
+            Self::NotAuthorized => "NOT_AUTHORIZED",
+            Self::GrantRevoked => "GRANT_REVOKED",
+            Self::SpaceFrozen => "SPACE_FROZEN",
+            Self::SubjectFenced => "SUBJECT_FENCED",
+            Self::CandidateConsumed => "CANDIDATE_CONSUMED",
+            Self::ProfileIncomplete => "PROFILE_INCOMPLETE",
+            Self::InsufficientData => "INSUFFICIENT_DATA",
+            Self::IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
+            Self::OutcomeUncertain => "OUTCOME_UNCERTAIN",
+            Self::ExportExpired => "EXPORT_EXPIRED",
+            Self::ImportConflict => "IMPORT_CONFLICT",
+            Self::ReceiptExpired => "RECEIPT_EXPIRED",
+            Self::CursorInvalid => "CURSOR_INVALID",
         }
     }
 
@@ -96,6 +148,20 @@ impl SpokeRejectCode {
             "RELATION_ALREADY_EXISTS" => Some(Self::RelationAlreadyExists),
             "CAPABILITY_PORT_MISSING" => Some(Self::CapabilityPortMissing),
             "INTERNAL_ERROR" => Some(Self::InternalError),
+            "NOT_FOUND" => Some(Self::NotFound),
+            "NOT_AUTHORIZED" => Some(Self::NotAuthorized),
+            "GRANT_REVOKED" => Some(Self::GrantRevoked),
+            "SPACE_FROZEN" => Some(Self::SpaceFrozen),
+            "SUBJECT_FENCED" => Some(Self::SubjectFenced),
+            "CANDIDATE_CONSUMED" => Some(Self::CandidateConsumed),
+            "PROFILE_INCOMPLETE" => Some(Self::ProfileIncomplete),
+            "INSUFFICIENT_DATA" => Some(Self::InsufficientData),
+            "IDEMPOTENCY_CONFLICT" => Some(Self::IdempotencyConflict),
+            "OUTCOME_UNCERTAIN" => Some(Self::OutcomeUncertain),
+            "EXPORT_EXPIRED" => Some(Self::ExportExpired),
+            "IMPORT_CONFLICT" => Some(Self::ImportConflict),
+            "RECEIPT_EXPIRED" => Some(Self::ReceiptExpired),
+            "CURSOR_INVALID" => Some(Self::CursorInvalid),
             _ => None,
         }
     }

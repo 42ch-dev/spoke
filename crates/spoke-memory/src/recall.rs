@@ -47,6 +47,10 @@ const QUERY_MATCH_WEIGHT: u32 = 4;
 /// `score` desc, then `created_at` desc, then `record_id` asc — total and
 /// independent of input order, so identical state/request/policy version
 /// yields identical pages.
+///
+/// Budget: the returned page is always a prefix of the ranking, so a provider
+/// cursor (MEM-R026) resumes at `records.len()`; a record deferred at the byte
+/// boundary keeps its rank and is never displaced by a smaller lower-ranked one.
 pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> RecallPage<'a> {
     let query_tokens = tokenize(request.query.unwrap_or(""));
     let mut ranked: Vec<(u32, &'a RecallRecord)> = records
@@ -70,14 +74,17 @@ pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> R
         let item_bytes = content_wire_bytes(&record.content);
         if let Some(limit) = request.max_bytes {
             if bytes + item_bytes > limit {
-                // §9 progress rule: an oversized first item is surfaced whole;
-                // later items are deferred rather than silently skipped.
+                // §9 progress rule: an oversized first item is surfaced whole and
+                // flags `overflow_record_id`. Once the page is non-empty, the item
+                // is deferred and the traversal stops, so the page is always a
+                // prefix of the ranking: a cursor continuation resumes exactly at
+                // the deferred item, and lower-ranked records never displace it.
                 if page.is_empty() {
                     page.push(record);
                     bytes += item_bytes;
                     overflow_record_id = Some(record.record_id.as_str());
                 }
-                continue;
+                break;
             }
         }
         page.push(record);
@@ -297,6 +304,49 @@ mod tests {
         assert_eq!(page.total_authorized, 3);
         assert!(page.truncated);
         assert_eq!(page.overflow_record_id, None);
+    }
+
+    #[test]
+    fn deferred_tail_is_not_displaced_by_lower_ranked_records() {
+        let records = vec![
+            record("rec_a", "fact", "abcd", "2026-10-03T00:00:00Z"),
+            record(
+                "rec_b",
+                "fact",
+                "abcdefghijklmnopqrs",
+                "2026-10-02T00:00:00Z",
+            ),
+            record("rec_c", "fact", "efgh", "2026-10-01T00:00:00Z"),
+        ];
+        // Identical kind and score → descending created_at ranks A, B, C.
+        for (record, expected) in records.iter().zip([15usize, 30, 15]) {
+            assert_eq!(
+                serde_json::to_vec(&record.content)
+                    .expect("content serializes")
+                    .len(),
+                expected
+            );
+        }
+        let request = RecallRequest {
+            query: None,
+            max_items: 3,
+            max_bytes: Some(30),
+        };
+
+        let first = recall(&records, &request);
+        assert_eq!(ids(&first), vec!["rec_a"]);
+        assert!(first.truncated);
+        assert_eq!(first.overflow_record_id, None);
+
+        // Cursor continuation resumes at the deferred item, which keeps its rank
+        // even though the smaller record C would have fit in the same budget.
+        let second = recall(&records[1..], &request);
+        assert_eq!(ids(&second), vec!["rec_b"]);
+        assert!(second.truncated);
+
+        let third = recall(&records[2..], &request);
+        assert_eq!(ids(&third), vec!["rec_c"]);
+        assert!(!third.truncated);
     }
 
     #[test]

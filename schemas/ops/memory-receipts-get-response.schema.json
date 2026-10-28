@@ -53,7 +53,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "SpacesFreezePollBranch"
             },
             {
               "oneOf": [
@@ -95,7 +95,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "SpacesUnfreezePollBranch"
             },
             {
               "oneOf": [
@@ -136,7 +136,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "SubjectsEnsurePollBranch"
             },
             {
               "oneOf": [
@@ -178,7 +178,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "SubjectsFencePollBranch"
             },
             {
               "oneOf": [
@@ -220,7 +220,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "GrantsGrantPollBranch"
             },
             {
               "oneOf": [
@@ -262,7 +262,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "RecordsUpdatePollBranch"
             },
             {
               "oneOf": [
@@ -304,7 +304,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "GrantsRevokePollBranch"
             },
             {
               "oneOf": [
@@ -346,7 +346,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "CapturePollBranch"
             },
             {
               "oneOf": [
@@ -388,7 +388,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "CandidatesDismissPollBranch"
             },
             {
               "oneOf": [
@@ -430,7 +430,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "CandidatesReviewPollBranch"
             },
             {
               "oneOf": [
@@ -472,7 +472,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "RecordsCreatePollBranch"
             },
             {
               "oneOf": [
@@ -514,7 +514,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "RecordsDeletePollBranch"
             },
             {
               "oneOf": [
@@ -556,7 +556,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "RecordsPromotePollBranch"
             },
             {
               "oneOf": [
@@ -598,7 +598,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "ProfileUpdatePollBranch"
             },
             {
               "oneOf": [
@@ -674,7 +674,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "ReflectionsGeneratePollBranch"
             },
             {
               "oneOf": [
@@ -750,7 +750,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "ExportsCreatePollBranch"
             },
             {
               "oneOf": [
@@ -826,7 +826,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "ImportsStagePollBranch"
             },
             {
               "oneOf": [
@@ -902,7 +902,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "ImportsActivatePollBranch"
             },
             {
               "oneOf": [
@@ -944,7 +944,7 @@
                   ]
                 }
               ],
-              "title": "OneOf"
+              "title": "ImportsDiscardPollBranch"
             }
           ],
           "title": "Receipt"

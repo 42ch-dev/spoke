@@ -27,7 +27,11 @@ import { readFileSync } from "node:fs";
 
 import type {
   ExtractRequest,
+  MemoryCandidatesReviewRequest,
   MemoryCaptureRequest,
+  MemoryDescribeRequest,
+  MemoryExportsGetRequest,
+  MemoryReceiptsGetRequest,
   ComputeRequest,
   ConnectHello,
   ConnectInvokeRequest,
@@ -2906,14 +2910,22 @@ function memoryVectors(): MemoryVector[] {
   return fixture.vectors;
 }
 
-describe("connectResponder memory.* seam (protocol §13)", () => {
-  const captureVector = memoryVectors().find(
-    (vector) => vector.op === "memory.capture",
-  );
+/** Ops exercised end-to-end through the adapter + responder seam. */
+const MEMORY_VECTOR_OPS = [
+  "memory.describe",
+  "memory.capture",
+  "memory.candidates.review",
+  "memory.exports.get",
+  "memory.receipts.get",
+] as const;
 
-  it("serves memory.* through the injected memory service with the authenticated peer", async () => {
-    expect(captureVector).toBeDefined();
-    const vector = captureVector as MemoryVector;
+describe("connectResponder memory.* seam (protocol §13)", () => {
+  it("serves the representative golden vectors through the injected memory service", async () => {
+    const vectors = memoryVectors().filter((vector) =>
+      (MEMORY_VECTOR_OPS as readonly string[]).includes(vector.op),
+    );
+    expect(vectors).toHaveLength(MEMORY_VECTOR_OPS.length);
+    const byOp = new Map(vectors.map((vector) => [vector.op, vector]));
     const invocations: {
       peerId: string;
       op: string;
@@ -2928,6 +2940,13 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
         payload: Record<string, unknown>,
       ): Promise<SpokeResult<unknown>> => {
         invocations.push({ peerId, op, payload });
+        const vector = byOp.get(op);
+        if (vector === undefined) {
+          return spokeReject(
+            SpokeRejectCode.INTERNAL_ERROR,
+            `no golden vector for ${op}`,
+          );
+        }
         return spokeOk(vector.response);
       },
     };
@@ -2937,23 +2956,61 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
       clientManifest: memoryManifest("test-client"),
       responderManifest: memoryManifest("test-responder"),
     });
+    // The client-side `principal` is a local admission context: the host
+    // derives it from the authenticated peer, so it never rides the wire.
+    const principal = { principal_id: "prn_local_caller", extensions: {} };
 
     try {
-      // The client-side `principal` is a local admission context: the host
-      // derives it from the authenticated peer, so it never rides the wire.
-      const result = await client.capture(
-        { principal_id: "prn_local_caller", extensions: {} },
-        vector.request as unknown as MemoryCaptureRequest,
-      );
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.value).toEqual(vector.response);
+      for (const vector of vectors) {
+        const request = vector.request;
+        let result: SpokeResult<unknown>;
+        switch (vector.op) {
+          case "memory.describe":
+            result = await client.describe(
+              principal,
+              request as unknown as MemoryDescribeRequest,
+            );
+            break;
+          case "memory.capture":
+            result = await client.capture(
+              principal,
+              request as unknown as MemoryCaptureRequest,
+            );
+            break;
+          case "memory.candidates.review":
+            result = await client.reviewCandidate(
+              principal,
+              request as unknown as MemoryCandidatesReviewRequest,
+            );
+            break;
+          case "memory.exports.get":
+            result = await client.getExport(
+              principal,
+              request as unknown as MemoryExportsGetRequest,
+            );
+            break;
+          case "memory.receipts.get":
+            result = await client.getReceipt(
+              principal,
+              request as unknown as MemoryReceiptsGetRequest,
+            );
+            break;
+          default:
+            throw new Error(`no adapter arm for ${vector.op}`);
+        }
+        expect(result.ok, `${vector.op} must succeed`).toBe(true);
+        if (result.ok) {
+          expect(result.value, `${vector.op} response`).toEqual(vector.response);
+        }
       }
-      expect(invocations).toHaveLength(1);
-      expect(invocations[0].op).toBe("memory.capture");
-      expect(invocations[0].peerId).toBe(peerIdClient);
-      expect(invocations[0].payload).toEqual(vector.request);
-      expect(invocations[0].payload.requester_principal_id).toBeUndefined();
+
+      expect(invocations).toHaveLength(vectors.length);
+      for (const [index, vector] of vectors.entries()) {
+        expect(invocations[index].op).toBe(vector.op);
+        expect(invocations[index].peerId).toBe(peerIdClient);
+        expect(invocations[index].payload).toEqual(vector.request);
+        expect(invocations[index].payload.requester_principal_id).toBeUndefined();
+      }
     } finally {
       client.close();
       responder.close();
@@ -2961,6 +3018,10 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
   });
 
   it("answers capability_missing for an unnegotiated memory op without calling the service", async () => {
+    const captureVector = memoryVectors().find(
+      (vector) => vector.op === "memory.capture",
+    );
+    expect(captureVector).toBeDefined();
     const vector = captureVector as MemoryVector;
     let calls = 0;
     const ports = {

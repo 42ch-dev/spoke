@@ -1160,6 +1160,25 @@ fn review_request(space_id: &str, candidate_id: &str, key: &str, text: &str) -> 
     })
 }
 
+fn fragmented_review_request(
+    space_id: &str,
+    candidate_id: &str,
+    key: &str,
+    fragments: &[(&str, &str)],
+) -> Value {
+    let fragments: Vec<Value> = fragments
+        .iter()
+        .map(|(kind, text)| json!({ "kind": kind, "content": { "text": text } }))
+        .collect();
+    json!({
+        "space_id": space_id,
+        "candidate_id": candidate_id,
+        "expected_revision": 1,
+        "decision": { "action": "fragment", "fragments": fragments },
+        "idempotency_key": key,
+    })
+}
+
 fn recall_request(context: &str, query: &str, max_items: u64) -> Value {
     json!({
         "space_id": SPACE,
@@ -1295,11 +1314,17 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_typed
         client
             .review_candidate(
                 &principal,
-                typed_review(review_request(
+                typed_review(fragmented_review_request(
                     SPACE,
                     &candidate_id,
                     "review-cand-1",
-                    "The gate key is hidden under the third barrel.",
+                    &[
+                        (
+                            "fact",
+                            "The gate key is hidden under the third barrel.",
+                        ),
+                        ("event", "Mira revealed the key location to Bo."),
+                    ],
                 )),
             )
             .await,
@@ -1314,7 +1339,7 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_typed
         review_receipt["result"]["record_ids"]
             .as_array()
             .map(Vec::len),
-        Some(1),
+        Some(2),
         "{review_receipt}"
     );
 
@@ -1328,17 +1353,39 @@ async fn memory_loopback_round_trips_capture_review_and_recall_through_the_typed
     );
     let page = wire(&recalled);
     let records = page["records"].as_array().expect("records array");
-    assert_eq!(records.len(), 1, "{page}");
-    assert_eq!(page["total_authorized"], 1);
+    assert_eq!(records.len(), 2, "{page}");
+    assert_eq!(page["total_authorized"], 2);
     assert_eq!(page["truncated"], false);
     assert_eq!(page["engine_policy_version"], ENGINE_POLICY_VERSION);
+    // Ranking (§9 policy: query overlap then kind weight): the fact fragment
+    // matches the query tokens and outranks the event fragment.
+    assert_eq!(records[0]["kind"], "fact", "{page}");
+    assert_eq!(records[1]["kind"], "event", "{page}");
     // Placement inheritance: a review decision carries no placement field, so
-    // the recalled record carries the captured candidate's scope.
-    assert_eq!(
-        records[0]["scope"],
-        json!({ "visibility": "context", "context_id": CONTEXT }),
-        "review outcomes inherit the candidate placement, got {records:?}"
+    // the recalled records carry the captured candidate's scope.
+    for record in records {
+        assert_eq!(
+            record["scope"],
+            json!({ "visibility": "context", "context_id": CONTEXT }),
+            "review outcomes inherit the candidate placement, got {record}"
+        );
+    }
+
+    // Budget: a one-item cap truncates the same ranking and keeps the totals.
+    let truncated = expect_ok(
+        client
+            .recall(
+                &principal,
+                typed_recall(recall_request(CONTEXT, "Where is the gate key?", 1)),
+            )
+            .await,
     );
+    let page = wire(&truncated);
+    let records = page["records"].as_array().expect("records array");
+    assert_eq!(records.len(), 1, "{page}");
+    assert_eq!(page["truncated"], true);
+    assert_eq!(page["total_authorized"], 2);
+    assert_eq!(records[0]["kind"], "fact", "{page}");
 
     responder.close();
     client.close();
@@ -1904,4 +1951,104 @@ fn ungranted_host() -> Arc<MemoryHost> {
     Arc::new(MemoryHost {
         store: Arc::new(Store::default()),
     })
+}
+
+// ── Golden vectors driven through the client adapter ──────────────────────
+
+/// Echoes the shared golden vector for every `memory.*` op it is asked for and
+/// asserts the client encoded exactly the vector's request object.
+struct VectorHost {
+    vectors: Arc<Vec<Value>>,
+}
+
+#[async_trait]
+impl spoke_connect::remote::RemoteMemoryService for VectorHost {
+    async fn invoke(&self, _peer_id: &str, op: &str, payload: Value) -> SpokeResult<Value> {
+        let vector = self
+            .vectors
+            .iter()
+            .find(|vector| vector["op"] == op)
+            .unwrap_or_else(|| panic!("no golden vector for {op}"));
+        assert_eq!(
+            payload, vector["request"],
+            "{op} client payload drifted from the golden vector"
+        );
+        SpokeResult::Ok(vector["response"].clone())
+    }
+}
+
+fn req<T: serde::de::DeserializeOwned>(vector: &Value) -> T {
+    serde_json::from_value(vector["request"].clone())
+        .unwrap_or_else(|error| panic!("{} request does not decode: {error}", vector["op"]))
+}
+
+#[tokio::test]
+async fn memory_loopback_golden_vectors_round_trip_through_the_client_adapter() {
+    let fixture: Value = serde_json::from_str(include_str!("fixtures/memory-invoke-golden.json"))
+        .expect("golden fixture parses");
+    let vectors = fixture["vectors"]
+        .as_array()
+        .expect("fixture carries vectors")
+        .clone();
+    assert!(vectors.len() >= 8, "the shared vector set is representative");
+
+    let host = Arc::new(VectorHost {
+        vectors: Arc::new(vectors.clone()),
+    });
+    let (responder, pair) = start_host(Some(host), &MEMORY_CAPABILITIES).await;
+    let client = dial(pair, &memory_manifest("test-client", &MEMORY_CAPABILITIES)).await;
+    let principal = client_principal();
+
+    for vector in &vectors {
+        let op = vector["op"].as_str().expect("vector op");
+        let response = match op {
+            "memory.describe" => wire(&expect_ok(
+                client.describe(&principal, req::<MemoryDescribeRequest>(vector)).await,
+            )),
+            "memory.capture" => wire(&expect_ok(
+                client.capture(&principal, req::<MemoryCaptureRequest>(vector)).await,
+            )),
+            "memory.candidates.review" => wire(&expect_ok(
+                client
+                    .review_candidate(&principal, req::<MemoryCandidatesReviewRequest>(vector))
+                    .await,
+            )),
+            "memory.recall" => wire(&expect_ok(
+                client.recall(&principal, req::<MemoryRecallRequest>(vector)).await,
+            )),
+            "memory.profile.update" => wire(&expect_ok(
+                client
+                    .update_profile(&principal, req::<MemoryProfileUpdateRequest>(vector))
+                    .await,
+            )),
+            "memory.exports.create" => wire(&expect_ok(
+                client
+                    .create_export(&principal, req::<MemoryExportsCreateRequest>(vector))
+                    .await,
+            )),
+            "memory.exports.get" => wire(&expect_ok(
+                client
+                    .get_export(&principal, req::<MemoryExportsGetRequest>(vector))
+                    .await,
+            )),
+            "memory.imports.stage" => wire(&expect_ok(
+                client
+                    .stage_import(&principal, req::<MemoryImportsStageRequest>(vector))
+                    .await,
+            )),
+            "memory.receipts.get" => wire(&expect_ok(
+                client
+                    .get_receipt(&principal, req::<MemoryReceiptsGetRequest>(vector))
+                    .await,
+            )),
+            other => panic!("vector {other} has no adapter arm"),
+        };
+        assert_eq!(
+            response, vector["response"],
+            "{op} response drifted from the golden vector"
+        );
+    }
+
+    responder.close();
+    client.close();
 }

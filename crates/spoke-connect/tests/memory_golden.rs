@@ -102,31 +102,14 @@ fn vectors_round_trip_through_the_generated_types() {
                 round_trip::<spoke_schemas::MemoryImportsStageRequest>(op, request),
                 round_trip::<spoke_schemas::MemoryImportsStageResponse>(op, response),
             ),
-            // `memory.receipts.get` polls a receipt: the request round-trips
-            // through its generated type, and the polled receipt is verified
-            // against the data-layer `MemoryReceipt` union. The op-response
-            // wrapper's `Receipt` union is still name-collapsed by typify (19
-            // branches emitted as one `OneOf` type), so only one op's receipt
-            // shape is representable there — recorded as a residual.
             "memory.receipts.get" => (
                 round_trip::<spoke_schemas::MemoryReceiptsGetRequest>(op, request),
-                round_trip::<spoke_schemas::data::memory_receipt::MemoryReceipt>(
-                    op,
-                    &response["receipt"],
-                ),
+                round_trip::<spoke_schemas::MemoryReceiptsGetResponse>(op, response),
             ),
             other => panic!("vector {other} has no typed round-trip arm"),
         };
 
         assert_eq!(&request_wire, request, "{op} request changed shape");
-        if op == "memory.receipts.get" {
-            assert_eq!(
-                &response_wire,
-                &response["receipt"],
-                "{op} receipt changed shape"
-            );
-        } else {
-            assert_eq!(&response_wire, response, "{op} response changed shape");
-        }
+        assert_eq!(&response_wire, response, "{op} response changed shape");
     }
 }

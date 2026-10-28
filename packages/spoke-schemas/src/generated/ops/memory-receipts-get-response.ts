@@ -7,31 +7,31 @@
 /**
  * Success payload for memory.receipts.get (§7.28). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.receipts.get (§7.28): NOT_FOUND, RECEIPT_EXPIRED, NOT_AUTHORIZED. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.
  */
-export type MemoryReceiptsGetResponse = OneOf | OneOf22;
+export type MemoryReceiptsGetResponse = OneOf | OneOf3;
 /**
  * Polled receipt constrained to the emitting op contract: one branch per mutating op keyed on the op string, referencing that op response definitions.CommittedReceipt via absolute URI (single source of truth for the per-op result shape). Sync op receipts admit committed/failed; the four §7.0.3 async op receipts admit committed/pending/failed; failed receipts carry the memory error envelope.
  */
 export type Receipt =
-  | OneOf1
-  | OneOf2
-  | OneOf3
-  | OneOf4
-  | OneOf5
-  | OneOf6
-  | OneOf7
-  | OneOf8
-  | OneOf9
-  | OneOf10
-  | OneOf11
-  | OneOf12
-  | OneOf13
-  | OneOf16
-  | OneOf17
-  | OneOf18
-  | OneOf19
-  | OneOf20
-  | OneOf21;
-export type OneOf1 = (CommittedReceipt & AllOf & AllOf1) | (FailedReceipt & AllOf2 & AllOf3);
+  | SpacesFreezePollBranch
+  | SpacesUnfreezePollBranch
+  | SubjectsEnsurePollBranch
+  | SubjectsFencePollBranch
+  | GrantsGrantPollBranch
+  | RecordsUpdatePollBranch
+  | GrantsRevokePollBranch
+  | CapturePollBranch
+  | CandidatesDismissPollBranch
+  | CandidatesReviewPollBranch
+  | RecordsCreatePollBranch
+  | RecordsDeletePollBranch
+  | RecordsPromotePollBranch
+  | ProfileUpdatePollBranch
+  | ReflectionsGeneratePollBranch
+  | ExportsCreatePollBranch
+  | ImportsStagePollBranch
+  | ImportsActivatePollBranch
+  | ImportsDiscardPollBranch;
+export type SpacesFreezePollBranch = (CommittedReceipt & AllOf & AllOf1) | (FailedReceipt & AllOf2 & AllOf3);
 /**
  * Provider-assigned.
  */
@@ -118,94 +118,94 @@ export type RetryClass19 = "retryable";
 export type RetryClass20 = "retryable" | "terminal" | "uncertain";
 export type Op3 = "memory.spaces.freeze";
 export type Status4 = "failed";
-export type OneOf2 = (CommittedReceipt & AllOf4 & AllOf5) | (FailedReceipt & AllOf6 & AllOf7);
+export type SpacesUnfreezePollBranch = (CommittedReceipt & AllOf4 & AllOf5) | (FailedReceipt & AllOf6 & AllOf7);
 export type Op4 = "memory.spaces.unfreeze";
 export type Status5 = "committed";
 export type Status6 = "active";
 export type Op5 = "memory.spaces.unfreeze";
 export type Status7 = "failed";
-export type OneOf3 = (CommittedReceipt & AllOf8 & AllOf9) | (FailedReceipt & AllOf10 & AllOf11);
+export type SubjectsEnsurePollBranch = (CommittedReceipt & AllOf8 & AllOf9) | (FailedReceipt & AllOf10 & AllOf11);
 export type Op6 = "memory.subjects.ensure";
 export type Status8 = "committed";
 export type SubjectId = string;
 export type Status9 = "active" | "fenced" | "archived";
 export type Op7 = "memory.subjects.ensure";
 export type Status10 = "failed";
-export type OneOf4 = (CommittedReceipt & AllOf12 & AllOf13) | (FailedReceipt & AllOf14 & AllOf15);
+export type SubjectsFencePollBranch = (CommittedReceipt & AllOf12 & AllOf13) | (FailedReceipt & AllOf14 & AllOf15);
 export type Op8 = "memory.subjects.fence";
 export type Status11 = "committed";
 export type SubjectId1 = string;
 export type Status12 = "active" | "fenced" | "archived";
 export type Op9 = "memory.subjects.fence";
 export type Status13 = "failed";
-export type OneOf5 = (CommittedReceipt & AllOf16 & AllOf17) | (FailedReceipt & AllOf18 & AllOf19);
+export type GrantsGrantPollBranch = (CommittedReceipt & AllOf16 & AllOf17) | (FailedReceipt & AllOf18 & AllOf19);
 export type Op10 = "memory.grants.grant";
 export type Status14 = "committed";
 export type GrantId = string;
 export type Op11 = "memory.grants.grant";
 export type Status15 = "failed";
-export type OneOf6 = (CommittedReceipt & AllOf20 & AllOf21) | (FailedReceipt & AllOf22 & AllOf23);
+export type RecordsUpdatePollBranch = (CommittedReceipt & AllOf20 & AllOf21) | (FailedReceipt & AllOf22 & AllOf23);
 export type Op12 = "memory.records.update";
 export type Status16 = "committed";
 export type RecordId = string;
 export type Op13 = "memory.records.update";
 export type Status17 = "failed";
-export type OneOf7 = (CommittedReceipt & AllOf24 & AllOf25) | (FailedReceipt & AllOf26 & AllOf27);
+export type GrantsRevokePollBranch = (CommittedReceipt & AllOf24 & AllOf25) | (FailedReceipt & AllOf26 & AllOf27);
 export type Op14 = "memory.grants.revoke";
 export type Status18 = "committed";
 export type GrantId1 = string;
 export type Op15 = "memory.grants.revoke";
 export type Status19 = "failed";
-export type OneOf8 = (CommittedReceipt & AllOf28 & AllOf29) | (FailedReceipt & AllOf30 & AllOf31);
+export type CapturePollBranch = (CommittedReceipt & AllOf28 & AllOf29) | (FailedReceipt & AllOf30 & AllOf31);
 export type Op16 = "memory.capture";
 export type Status20 = "committed";
 export type Op17 = "memory.capture";
 export type Status21 = "failed";
-export type OneOf9 = (CommittedReceipt & AllOf32 & AllOf33) | (FailedReceipt & AllOf34 & AllOf35);
+export type CandidatesDismissPollBranch = (CommittedReceipt & AllOf32 & AllOf33) | (FailedReceipt & AllOf34 & AllOf35);
 export type Op18 = "memory.candidates.dismiss";
 export type Status22 = "committed";
 export type CandidateId = string;
 export type Outcome = "dismissed";
 export type Op19 = "memory.candidates.dismiss";
 export type Status23 = "failed";
-export type OneOf10 = (CommittedReceipt & AllOf36 & AllOf37) | (FailedReceipt & AllOf38 & AllOf39);
+export type CandidatesReviewPollBranch = (CommittedReceipt & AllOf36 & AllOf37) | (FailedReceipt & AllOf38 & AllOf39);
 export type Op20 = "memory.candidates.review";
 export type Status24 = "committed";
 export type Outcome1 = "promoted" | "fragmented" | "dropped";
 export type Op21 = "memory.candidates.review";
 export type Status25 = "failed";
-export type OneOf11 = (CommittedReceipt & AllOf40 & AllOf41) | (FailedReceipt & AllOf42 & AllOf43);
+export type RecordsCreatePollBranch = (CommittedReceipt & AllOf40 & AllOf41) | (FailedReceipt & AllOf42 & AllOf43);
 export type Op22 = "memory.records.create";
 export type Status26 = "committed";
 export type RecordId1 = string;
 export type Op23 = "memory.records.create";
 export type Status27 = "failed";
-export type OneOf12 = (CommittedReceipt & AllOf44 & AllOf45) | (FailedReceipt & AllOf46 & AllOf47);
+export type RecordsDeletePollBranch = (CommittedReceipt & AllOf44 & AllOf45) | (FailedReceipt & AllOf46 & AllOf47);
 export type Op24 = "memory.records.delete";
 export type Status28 = "committed";
 export type RecordId2 = string;
 export type Op25 = "memory.records.delete";
 export type Status29 = "failed";
-export type OneOf13 = (CommittedReceipt & AllOf48 & AllOf49) | (FailedReceipt & AllOf50 & AllOf51);
+export type RecordsPromotePollBranch = (CommittedReceipt & AllOf48 & AllOf49) | (FailedReceipt & AllOf50 & AllOf51);
 export type Op26 = "memory.records.promote";
 export type Status30 = "committed";
 export type RecordId3 = string;
 /**
  * Write placement (§6.6): context_id is required iff visibility = "context" and MUST be omitted when visibility = "shared". Changed only by memory.records.promote.
  */
-export type PlacementScope = OneOf14 | OneOf15;
+export type PlacementScope = OneOf1 | OneOf2;
 export type Visibility = "shared";
 export type Visibility1 = "context";
 export type ContextId = string;
 export type Op27 = "memory.records.promote";
 export type Status31 = "failed";
-export type OneOf16 = (CommittedReceipt & AllOf52 & AllOf53) | (FailedReceipt & AllOf54 & AllOf55);
+export type ProfileUpdatePollBranch = (CommittedReceipt & AllOf52 & AllOf53) | (FailedReceipt & AllOf54 & AllOf55);
 export type Op28 = "memory.profile.update";
 export type Status32 = "committed";
 export type ProfileKind = string;
 export type Op29 = "memory.profile.update";
 export type Status33 = "failed";
-export type OneOf17 =
+export type ReflectionsGeneratePollBranch =
   (CommittedReceipt & AllOf56 & AllOf57) | (PendingReceipt & AllOf58 & AllOf59) | (FailedReceipt & AllOf60 & AllOf61);
 export type Op30 = "memory.reflections.generate";
 export type Status34 = "committed";
@@ -228,7 +228,7 @@ export type Op32 = "memory.reflections.generate";
 export type Status36 = "pending";
 export type Op33 = "memory.reflections.generate";
 export type Status37 = "failed";
-export type OneOf18 =
+export type ExportsCreatePollBranch =
   (CommittedReceipt & AllOf62 & AllOf63) | (PendingReceipt & AllOf64 & AllOf65) | (FailedReceipt & AllOf66 & AllOf67);
 export type Op34 = "memory.exports.create";
 export type Status38 = "committed";
@@ -238,7 +238,7 @@ export type Op35 = "memory.exports.create";
 export type Status39 = "pending";
 export type Op36 = "memory.exports.create";
 export type Status40 = "failed";
-export type OneOf19 =
+export type ImportsStagePollBranch =
   (CommittedReceipt & AllOf68 & AllOf69) | (PendingReceipt & AllOf70 & AllOf71) | (FailedReceipt & AllOf72 & AllOf73);
 export type Op37 = "memory.imports.stage";
 export type Status41 = "committed";
@@ -247,7 +247,7 @@ export type Op38 = "memory.imports.stage";
 export type Status42 = "pending";
 export type Op39 = "memory.imports.stage";
 export type Status43 = "failed";
-export type OneOf20 =
+export type ImportsActivatePollBranch =
   (CommittedReceipt & AllOf74 & AllOf75) | (PendingReceipt & AllOf76 & AllOf77) | (FailedReceipt & AllOf78 & AllOf79);
 export type Op40 = "memory.imports.activate";
 export type Status44 = "committed";
@@ -256,7 +256,7 @@ export type Op41 = "memory.imports.activate";
 export type Status45 = "pending";
 export type Op42 = "memory.imports.activate";
 export type Status46 = "failed";
-export type OneOf21 = (CommittedReceipt & AllOf80 & AllOf81) | (FailedReceipt & AllOf82 & AllOf83);
+export type ImportsDiscardPollBranch = (CommittedReceipt & AllOf80 & AllOf81) | (FailedReceipt & AllOf82 & AllOf83);
 export type Op43 = "memory.imports.discard";
 export type Status47 = "committed";
 export type ImportId2 = string;
@@ -1007,13 +1007,13 @@ export interface Result12 {
 /**
  * Shared visibility: no context_id (§6.6).
  */
-export interface OneOf14 {
+export interface OneOf1 {
   visibility: Visibility;
 }
 /**
  * Context placement: context_id required (§6.6).
  */
-export interface OneOf15 {
+export interface OneOf2 {
   visibility: Visibility1;
   context_id: ContextId;
 }
@@ -1292,7 +1292,7 @@ export interface AllOf83 {
 export interface ExtensionMap1 {
   [k: string]: ExtensionValue | undefined;
 }
-export interface OneOf22 {
+export interface OneOf3 {
   error: MemoryErrorEnvelope1;
   extensions?: ExtensionMap2;
 }

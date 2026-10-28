@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/read-selection.schema.json",
+  "title": "ReadSelection",
+  "description": "Placement selection for reads, recall, reflections, and subject exports (§6.12). No mode is expressed by null/empty-array overloading.",
+  "type": "object",
+  "required": ["mode"],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["subject_all", "shared_only", "selected_contexts"],
+      "description": "subject_all = every record of the subject regardless of placement or provenance (requires an unrestricted grant); shared_only = scope.visibility shared only (requires shared access); selected_contexts = records placed in context_ids, plus shared records iff include_shared."
+    },
+    "context_ids": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "description": "Required iff mode = \"selected_contexts\"; MUST be omitted otherwise."
+    },
+    "include_shared": {
+      "type": "boolean",
+      "description": "Allowed only with mode = \"selected_contexts\"; omission there means false. MUST be omitted for other modes."
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "mode": { "const": "selected_contexts" } },
+        "required": ["mode"]
+      },
+      "then": { "required": ["context_ids"] },
+      "else": { "not": { "required": ["context_ids"] } }
+    },
+    {
+      "if": {
+        "properties": { "mode": { "enum": ["subject_all", "shared_only"] } },
+        "required": ["mode"]
+      },
+      "then": { "not": { "required": ["include_shared"] } }
+    }
+  ],
+  "examples": [
+    {
+      "mode": "selected_contexts",
+      "context_ids": ["bnd_mira_harbor_run_7"],
+      "include_shared": true
+    },
+    {
+      "mode": "subject_all"
+    }
+  ]
+}

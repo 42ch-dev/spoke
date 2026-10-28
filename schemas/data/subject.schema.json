@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/subject.schema.json",
+  "title": "Subject",
+  "description": "Memory subject identified by a product-chosen stable id, with lifecycle status and context fences (§8.3, MEM-R024). Subjects stay flat: there is no about_subject_ids[].",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "space_id",
+    "subject_id",
+    "status",
+    "fenced_contexts",
+    "created_at",
+    "revision",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Product-chosen stable opaque ID."
+    },
+    "kind": {
+      "type": "object",
+      "required": ["ns", "id"],
+      "properties": {
+        "ns": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$",
+          "description": "Namespace key in ExtensionMap key form."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "description": "Optional namespaced kind metadata. Absence = kind unspecified. Never a closed enum; never authorization input."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "fenced", "archived"],
+      "description": "archived is terminal decommission; products with reversible archive semantics map them to fence/unfence."
+    },
+    "fenced_contexts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Currently context-fenced placement IDs (may be empty; MEM-R024)."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-object optimistic-concurrency counter (MEM-R007). Bumped by any fence/unfence/archive transition."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": 1,
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "kind": { "ns": "nexus", "id": "character" },
+      "status": "active",
+      "fenced_contexts": [],
+      "created_at": "2026-10-27T08:00:00Z",
+      "revision": 3,
+      "extensions": {}
+    }
+  ]
+}

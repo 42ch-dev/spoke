@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-space.schema.json",
+  "title": "MemorySpace",
+  "description": "Provider-managed memory space: single-writer authority binding, freeze status, and the receipt-drain counter (MEM-R001, MEM-R023).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "space_id",
+    "authority_host_id",
+    "authority_generation",
+    "status",
+    "pending_receipts",
+    "created_at",
+    "revision",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider-assigned at operator provisioning."
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Optional human label; absence = unnamed."
+    },
+    "authority_host_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "host_id of the single authoritative provider (MEM-R001)."
+    },
+    "authority_generation": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Increments on each cutover (import activation into the space) and on each operator re-open after rollback. Client bindings pin (authority_host_id, authority_generation)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "frozen"],
+      "description": "A frozen space admits only the maintenance allowlist (§8.2)."
+    },
+    "pending_receipts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Computed at read time: count of receipts with status pending. The drain barrier (MEM-R023)."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-object optimistic-concurrency counter (MEM-R007). Bumped by freeze/unfreeze and cutover."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false
+}

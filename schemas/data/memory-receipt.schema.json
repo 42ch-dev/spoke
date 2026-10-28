@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json",
+  "title": "MemoryReceipt",
+  "description": "Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "op",
+    "space_id",
+    "requester_principal_id",
+    "payload_digest",
+    "status",
+    "created_at",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider-assigned."
+    },
+    "op": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The op string that produced this receipt (e.g. memory.capture)."
+    },
+    "space_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requester_principal_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Requester identity for receipt-read authorization."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Echo when supplied — always, except memory.subjects.ensure."
+    },
+    "payload_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 over the JCS canonicalization of the request payload object (MEM-R008)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["committed", "pending", "failed"]
+    },
+    "result": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+      "description": "Content-free op summary: IDs, revisions, counts, outcome enums, digests, cost facts. Present iff committed. Never contains record/candidate/profile/reflection bodies."
+    },
+    "error": {
+      "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json",
+      "description": "Present iff failed."
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "completed_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+      "description": "Present iff status is not pending."
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "committed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["result"],
+        "not": { "required": ["error"] }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "failed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"],
+        "not": { "required": ["result"] }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "pending" } },
+        "required": ["status"]
+      },
+      "then": {
+        "not": { "required": ["completed_at"] },
+        "allOf": [
+          { "not": { "required": ["result"] } },
+          { "not": { "required": ["error"] } }
+        ]
+      },
+      "else": { "required": ["completed_at"] }
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099",
+      "op": "memory.capture",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_host_local",
+      "idempotency_key": "cap-9182-1400-mira",
+      "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
+      "status": "committed",
+      "result": { "candidate_ids": ["cand_01J8ZQ9X7P0EXAMPLE0000101"], "classified": 1 },
+      "created_at": "2026-10-28T09:20:01Z",
+      "completed_at": "2026-10-28T09:20:01Z",
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZR6C3S0EXAMPLE0000401",
+      "op": "memory.exports.create",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_cli_operator",
+      "idempotency_key": "exp-2026-10-28T10:00Z",
+      "payload_digest": "58c03d12c3e307e4483a49f144efb87a81f4c1b16724ac8fefe8b1c173e3e136",
+      "status": "pending",
+      "created_at": "2026-10-28T10:00:00Z",
+      "extensions": {}
+    }
+  ]
+}

@@ -2,81 +2,129 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/ops/memory-grants-grant-request.schema.json",
   "title": "MemoryGrantsGrantRequest",
-  "description": "Issue a grant. Non-amplification: every issued dimension must be a subset of the granter effective coverage, otherwise NOT_AUTHORIZED (§6.5). Grant: admin with coverage subsuming the issued grant. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "description": "Issue a grant. Non-amplification: every issued dimension must be a subset of the granter effective coverage, otherwise NOT_AUTHORIZED (§6.5). Grant: admin with coverage subsuming the issued grant. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2). Expressed as closed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.5 rule exactly: shared_access is meaningful only with context_ids and MUST be omitted when context_ids is omitted.",
   "type": "object",
-  "required": [
-    "space_id",
-    "principal_id",
-    "capabilities",
-    "idempotency_key"
-  ],
-  "properties": {
-    "space_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "subject_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Optional subject scope; absence = space-wide."
-    },
-    "principal_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Target grantee — a selector, never requester identity (§6.4)."
-    },
-    "capabilities": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {
-        "type": "string"
-      },
-      "description": "Open capability vocabulary. Core (documented, not enforced): capture, review, records_read, records_write, recall, profile_write, reflect, promote, transfer, admin."
-    },
-    "context_ids": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string"
-      },
-      "description": "Optional placement-context restriction. Omitted = unrestricted; present = only the listed contexts plus shared visibility iff shared_access is true."
-    },
-    "shared_access": {
-      "type": "boolean",
-      "description": "Meaningful only with context_ids; MUST be omitted when context_ids is omitted (§6.5)."
-    },
-    "expires_at": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
-    },
-    "idempotency_key": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
-    },
-    "extensions": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
-      "description": "Optional transport metadata."
-    }
-  },
-  "additionalProperties": false,
-  "allOf": [
+  "oneOf": [
     {
-      "if": {
-        "not": {
-          "required": [
-            "context_ids"
-          ]
+      "type": "object",
+      "required": [
+        "space_id",
+        "principal_id",
+        "capabilities",
+        "context_ids",
+        "idempotency_key"
+      ],
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional subject scope; absence = space-wide.",
+          "title": "SubjectId"
+        },
+        "principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target grantee — a selector, never requester identity (§6.4).",
+          "title": "PrincipalId"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Open capability vocabulary. Core (documented, not enforced): capture, review, records_read, records_write, recall, profile_write, reflect, promote, transfer, admin. Non-amplification: must be a subset of the granter effective coverage (§6.5)."
+        },
+        "context_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Placement-context restriction: only the listed contexts, plus shared visibility iff shared_access is true."
+        },
+        "shared_access": {
+          "type": "boolean",
+          "description": "Optional; default false. Only meaningful with context_ids (§6.5)."
+        },
+        "expires_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+          "title": "IdempotencyKey"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
         }
       },
-      "then": {
-        "not": {
-          "required": [
-            "shared_access"
-          ]
+      "additionalProperties": false,
+      "description": "Context-restricted grant request.",
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "space_id",
+        "principal_id",
+        "capabilities",
+        "idempotency_key"
+      ],
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional subject scope; absence = space-wide.",
+          "title": "SubjectId"
+        },
+        "principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target grantee — a selector, never requester identity (§6.4).",
+          "title": "PrincipalId"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Open capability vocabulary. Core (documented, not enforced): capture, review, records_read, records_write, recall, profile_write, reflect, promote, transfer, admin."
+        },
+        "expires_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+          "title": "IdempotencyKey"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
         }
-      }
+      },
+      "additionalProperties": false,
+      "description": "Unrestricted grant request. context_ids and shared_access are deliberately absent: shared_access MUST be omitted when context_ids is omitted (§6.5).",
+      "title": "OneOf"
     }
   ]
 }

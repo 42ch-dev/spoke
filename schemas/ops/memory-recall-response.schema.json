@@ -31,24 +31,28 @@
         "overflow_record_id": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional first record cut by the budget (§9)."
+          "description": "Optional first record cut by the budget (§9).",
+          "title": "OverflowRecordId"
         },
         "next_cursor": {
           "type": "string",
           "minLength": 1,
-          "description": "Absent = end of results (§7.0.7)."
+          "description": "Absent = end of results (§7.0.7).",
+          "title": "NextCursor"
         },
         "engine_policy_version": {
           "type": "string",
           "minLength": 1,
-          "description": "Policy version that produced this ordering; ordering is stable per (provider state, request, engine_policy_version)."
+          "description": "Policy version that produced this ordering; ordering is stable per (provider state, request, engine_policy_version).",
+          "title": "EnginePolicyVersion"
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -65,7 +69,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ],
   "examples": [

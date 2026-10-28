@@ -176,11 +176,74 @@ async function buildLocalizedSchemaTree() {
   return schemaPaths;
 }
 
+function resolveJsonPointer(doc, pointer) {
+  let cur = doc;
+  for (const raw of pointer.split("/").filter(Boolean)) {
+    // Bundle pointers may traverse a $ref node; follow intra-document refs.
+    while (cur !== null && typeof cur === "object" && typeof cur.$ref === "string" && cur.$ref.startsWith("#/")) {
+      cur = resolveJsonPointer(doc, cur.$ref.slice(1));
+    }
+    const key = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
+    if (cur === null || typeof cur !== "object" || !(key in cur)) {
+      throw new Error(`bundle pointer "${pointer}" does not resolve`);
+    }
+    cur = cur[key];
+  }
+  return cur;
+}
+
+/**
+ * ref-parser bundle dedups repeated subschemas by pointing at deep paths such as
+ * "#/definitions/X/properties/y". typify only resolves "#/definitions/<name>" refs,
+ * so hoist every deep pointer into a real (content-deduplicated) definition.
+ */
+function hoistDeepRefs(bundled) {
+  const defs = (bundled.definitions ??= {});
+  const byHash = new Map(Object.entries(defs).map(([name, sub]) => [JSON.stringify(sub), name]));
+  let hoistCount = 0;
+  const visit = (node) => {
+    if (Array.isArray(node)) return node.forEach(visit);
+    if (node === null || typeof node !== "object") return;
+    if (
+      typeof node.$ref === "string" &&
+      node.$ref.startsWith("#/") &&
+      !/^#\/definitions\/[^/]+$/.test(node.$ref)
+    ) {
+      const target = resolveJsonPointer(bundled, node.$ref.slice(1));
+      const hash = JSON.stringify(target);
+      let name = byHash.get(hash);
+      if (name === undefined) {
+        name = `Shared${hoistCount++}`;
+        defs[name] = target;
+        byHash.set(hash, name);
+      }
+      node.$ref = `#/definitions/${name}`;
+    }
+    Object.values(node).forEach(visit);
+  };
+  visit(bundled);
+  // Hoisted definitions may themselves contain deep pointers.
+  for (const [name, sub] of Object.entries(defs)) {
+    if (name.startsWith("Shared")) continue;
+    visit(sub);
+  }
+}
+
 async function buildDereferencedSchemaTree(schemaPaths) {
+  // typify resolves intra-document $refs (and dedups shared definitions into a
+  // single type per $ref target), but not cross-document ones. Full dereferencing
+  // inlines every shared definition at every usage, which typify 0.3.0 then emits
+  // as duplicate same-named types. Bundling rewrites cross-file refs to internal
+  // "#/definitions/..." refs instead, keeping the shared types shared.
   fs.rmSync(DEREF_SCHEMAS_DIR, { recursive: true, force: true });
   for (const relSchema of schemaPaths) {
     const input = path.join(LOCAL_SCHEMAS_DIR, relSchema);
-    const bundled = await $RefParser.dereference(input);
+    const bundled = await $RefParser.bundle(input);
+    try {
+      hoistDeepRefs(bundled);
+    } catch (err) {
+      throw new Error(`hoist failed for ${relSchema}: ${err.message}`);
+    }
     const out = path.join(DEREF_SCHEMAS_DIR, relSchema);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, JSON.stringify(bundled, null, 2));

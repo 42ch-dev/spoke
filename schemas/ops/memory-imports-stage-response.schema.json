@@ -12,17 +12,22 @@
         {
           "properties": {
             "op": {
-              "const": "memory.imports.stage"
+              "const": "memory.imports.stage",
+              "type": "string",
+              "title": "Op"
             }
           },
           "required": [
             "op"
-          ]
+          ],
+          "title": "AllOf"
         },
         {
           "properties": {
             "status": {
-              "const": "committed"
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
             },
             "result": {
               "type": "object",
@@ -33,7 +38,8 @@
               "properties": {
                 "import_id": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "title": "ImportId"
                 },
                 "chunks_received": {
                   "type": "integer",
@@ -87,28 +93,32 @@
                           "minimum": 0
                         }
                       },
-                      "additionalProperties": false
+                      "additionalProperties": false,
+                      "title": "Counts"
                     },
                     "subject_id_map": {
                       "type": "object",
                       "additionalProperties": {
                         "type": "string"
                       },
-                      "description": "Opaque source-to-target id map."
+                      "description": "Opaque source-to-target id map.",
+                      "title": "SubjectIdMap"
                     },
                     "record_id_map": {
                       "type": "object",
                       "additionalProperties": {
                         "type": "string"
                       },
-                      "description": "Opaque source-to-target id map."
+                      "description": "Opaque source-to-target id map.",
+                      "title": "RecordIdMap"
                     },
                     "candidate_id_map": {
                       "type": "object",
                       "additionalProperties": {
                         "type": "string"
                       },
-                      "description": "Opaque source-to-target id map."
+                      "description": "Opaque source-to-target id map.",
+                      "title": "CandidateIdMap"
                     },
                     "grants_adopted": {
                       "type": "integer",
@@ -135,19 +145,23 @@
                           }
                         }
                       },
-                      "additionalProperties": false
+                      "additionalProperties": false,
+                      "title": "Verification"
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "title": "StagedReport"
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "title": "Result"
             }
           },
           "required": [
             "status",
             "result"
-          ]
+          ],
+          "title": "AllOf"
         }
       ]
     }
@@ -166,27 +180,28 @@
             {
               "properties": {
                 "op": {
-                  "const": "memory.imports.stage"
+                  "const": "memory.imports.stage",
+                  "type": "string",
+                  "title": "Op"
                 }
               },
               "required": [
                 "op"
-              ]
+              ],
+              "title": "AllOf"
             },
             {
               "properties": {
                 "status": {
-                  "const": "pending"
+                  "const": "pending",
+                  "type": "string",
+                  "title": "Status"
                 }
               },
               "required": [
                 "status"
               ],
-              "not": {
-                "required": [
-                  "result"
-                ]
-              }
+              "title": "AllOf"
             }
           ]
         },
@@ -198,31 +213,33 @@
             {
               "properties": {
                 "op": {
-                  "const": "memory.imports.stage"
+                  "const": "memory.imports.stage",
+                  "type": "string",
+                  "title": "Op"
                 }
               },
               "required": [
                 "op"
-              ]
+              ],
+              "title": "AllOf"
             },
             {
               "properties": {
                 "status": {
-                  "const": "failed"
-                },
-                "error": {
-                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
                 }
               },
               "required": [
-                "status",
-                "error"
-              ]
+                "status"
+              ],
+              "title": "AllOf"
             }
           ]
         }
-      ]
+      ],
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -239,7 +256,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ]
 }

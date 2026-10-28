@@ -14,11 +14,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "subject_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SubjectId"
     },
     "content": {
       "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
@@ -45,7 +47,8 @@
     "kind_hint": {
       "type": "string",
       "minLength": 1,
-      "description": "Optional advisory kind hint; classification remains advisory (§6.7)."
+      "description": "Optional advisory kind hint; classification remains advisory (§6.7).",
+      "title": "KindHint"
     },
     "occurred_at": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
@@ -54,7 +57,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

@@ -14,11 +14,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "candidate_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "CandidateId"
     },
     "expected_revision": {
       "type": "integer",
@@ -36,19 +38,23 @@
           ],
           "properties": {
             "action": {
-              "const": "promote"
+              "const": "promote",
+              "type": "string",
+              "title": "Action"
             },
             "kind": {
               "type": "string",
               "minLength": 1,
-              "description": "Optional kind override; defaults to the candidate kind."
+              "description": "Optional kind override; defaults to the candidate kind.",
+              "title": "Kind"
             },
             "content_override": {
               "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
               "description": "Optional content override; defaults to the candidate content."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "title": "OneOf"
         },
         {
           "type": "object",
@@ -58,7 +64,9 @@
           ],
           "properties": {
             "action": {
-              "const": "fragment"
+              "const": "fragment",
+              "type": "string",
+              "title": "Action"
             },
             "fragments": {
               "type": "array",
@@ -72,17 +80,20 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "title": "Kind"
                   },
                   "content": {
                     "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "title": "Items"
               }
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "title": "OneOf"
         },
         {
           "type": "object",
@@ -91,22 +102,27 @@
           ],
           "properties": {
             "action": {
-              "const": "drop"
+              "const": "drop",
+              "type": "string",
+              "title": "Action"
             },
             "rationale": {
               "type": "string",
               "description": "Optional human-readable rationale."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "title": "OneOf"
         }
-      ]
+      ],
+      "title": "Decision"
     },
     "idempotency_key": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

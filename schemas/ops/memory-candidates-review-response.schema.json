@@ -12,17 +12,22 @@
         {
           "properties": {
             "op": {
-              "const": "memory.candidates.review"
+              "const": "memory.candidates.review",
+              "type": "string",
+              "title": "Op"
             }
           },
           "required": [
             "op"
-          ]
+          ],
+          "title": "AllOf"
         },
         {
           "properties": {
             "status": {
-              "const": "committed"
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
             },
             "result": {
               "type": "object",
@@ -37,7 +42,8 @@
                     "promoted",
                     "fragmented",
                     "dropped"
-                  ]
+                  ],
+                  "title": "Outcome"
                 },
                 "record_ids": {
                   "type": "array",
@@ -46,13 +52,15 @@
                   }
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "title": "Result"
             }
           },
           "required": [
             "status",
             "result"
-          ]
+          ],
+          "title": "AllOf"
         }
       ]
     }
@@ -71,31 +79,33 @@
             {
               "properties": {
                 "op": {
-                  "const": "memory.candidates.review"
+                  "const": "memory.candidates.review",
+                  "type": "string",
+                  "title": "Op"
                 }
               },
               "required": [
                 "op"
-              ]
+              ],
+              "title": "AllOf"
             },
             {
               "properties": {
                 "status": {
-                  "const": "failed"
-                },
-                "error": {
-                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
                 }
               },
               "required": [
-                "status",
-                "error"
-              ]
+                "status"
+              ],
+              "title": "AllOf"
             }
           ]
         }
-      ]
+      ],
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -112,7 +122,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ]
 }

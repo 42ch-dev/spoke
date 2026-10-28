@@ -51,11 +51,10 @@ export interface SPOKECommonTypes {
  * via the `definition` "ExtensionMap".
  */
 export interface ExtensionMap {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
+}
+export interface ExtensionValue {
+  [k: string]: unknown | undefined;
 }
 /**
  * Cross-product functional-dialect bag (modules.*). Namespace keys are functional-dialect ids matching ^[a-z][a-z0-9_-]*$ (e.g. activation, placement, activation_trace). Values are structured JSON — object (e.g. modules.activation) or array (e.g. modules.placement) — inner shapes are handbook-defined, not hard-coded here. Adapters MUST round-trip unknown module namespaces verbatim.
@@ -130,11 +129,7 @@ export interface Scope {
  * Optional product-scoped scope/query metadata (ExtensionMap). Consumers layer product filters here (e.g. branch/search limits). Protocol matchers ignore extensions; adapters round-trip unknown namespaces verbatim.
  */
 export interface ExtensionMap1 {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
 }
 /**
  * ERC721-style trait item for KnowledgeEntry body.attributes. Duplicate trait_type allowed at array level.

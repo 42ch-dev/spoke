@@ -26,31 +26,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.spaces.freeze"
+                          "const": "memory.spaces.freeze",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -65,31 +67,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.spaces.unfreeze"
+                          "const": "memory.spaces.unfreeze",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -104,31 +108,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.subjects.ensure"
+                          "const": "memory.subjects.ensure",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -143,31 +149,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.subjects.fence"
+                          "const": "memory.subjects.fence",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -182,226 +190,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.grants.grant"
+                          "const": "memory.grants.grant",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
-            },
-            {
-              "oneOf": [
-                {
-                  "$ref": "https://spoke42.invalid/schemas/ops/memory-grants-revoke-response.schema.json#/definitions/CommittedReceipt"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.grants.revoke"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "error"
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "oneOf": [
-                {
-                  "$ref": "https://spoke42.invalid/schemas/ops/memory-capture-response.schema.json#/definitions/CommittedReceipt"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.capture"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "error"
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "oneOf": [
-                {
-                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-response.schema.json#/definitions/CommittedReceipt"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.candidates.dismiss"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "error"
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "oneOf": [
-                {
-                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-review-response.schema.json#/definitions/CommittedReceipt"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.candidates.review"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "error"
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              "oneOf": [
-                {
-                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json#/definitions/CommittedReceipt"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
-                    },
-                    {
-                      "properties": {
-                        "op": {
-                          "const": "memory.records.create"
-                        }
-                      },
-                      "required": [
-                        "op"
-                      ]
-                    },
-                    {
-                      "properties": {
-                        "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
-                        }
-                      },
-                      "required": [
-                        "status",
-                        "error"
-                      ]
-                    }
-                  ]
-                }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -416,31 +231,238 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.records.update"
+                          "const": "memory.records.update",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-grants-revoke-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.grants.revoke",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-capture-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.capture",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-dismiss-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.candidates.dismiss",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-candidates-review-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.candidates.review",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
+            },
+            {
+              "oneOf": [
+                {
+                  "$ref": "https://spoke42.invalid/schemas/ops/memory-records-create-response.schema.json#/definitions/CommittedReceipt"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json"
+                    },
+                    {
+                      "properties": {
+                        "op": {
+                          "const": "memory.records.create",
+                          "type": "string",
+                          "title": "Op"
+                        }
+                      },
+                      "required": [
+                        "op"
+                      ],
+                      "title": "AllOf"
+                    },
+                    {
+                      "properties": {
+                        "status": {
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "title": "AllOf"
+                    }
+                  ]
+                }
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -455,31 +477,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.records.delete"
+                          "const": "memory.records.delete",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -494,31 +518,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.records.promote"
+                          "const": "memory.records.promote",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -533,31 +559,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.profile.update"
+                          "const": "memory.profile.update",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -572,27 +600,28 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.reflections.generate"
+                          "const": "memory.reflections.generate",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "pending"
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
                         "status"
                       ],
-                      "not": {
-                        "required": [
-                          "result"
-                        ]
-                      }
+                      "title": "AllOf"
                     }
                   ]
                 },
@@ -604,31 +633,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.reflections.generate"
+                          "const": "memory.reflections.generate",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -643,27 +674,28 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.exports.create"
+                          "const": "memory.exports.create",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "pending"
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
                         "status"
                       ],
-                      "not": {
-                        "required": [
-                          "result"
-                        ]
-                      }
+                      "title": "AllOf"
                     }
                   ]
                 },
@@ -675,31 +707,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.exports.create"
+                          "const": "memory.exports.create",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -714,27 +748,28 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.imports.stage"
+                          "const": "memory.imports.stage",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "pending"
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
                         "status"
                       ],
-                      "not": {
-                        "required": [
-                          "result"
-                        ]
-                      }
+                      "title": "AllOf"
                     }
                   ]
                 },
@@ -746,31 +781,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.imports.stage"
+                          "const": "memory.imports.stage",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -785,27 +822,28 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.imports.activate"
+                          "const": "memory.imports.activate",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "pending"
+                          "const": "pending",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
                         "status"
                       ],
-                      "not": {
-                        "required": [
-                          "result"
-                        ]
-                      }
+                      "title": "AllOf"
                     }
                   ]
                 },
@@ -817,31 +855,33 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.imports.activate"
+                          "const": "memory.imports.activate",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             },
             {
               "oneOf": [
@@ -856,40 +896,44 @@
                     {
                       "properties": {
                         "op": {
-                          "const": "memory.imports.discard"
+                          "const": "memory.imports.discard",
+                          "type": "string",
+                          "title": "Op"
                         }
                       },
                       "required": [
                         "op"
-                      ]
+                      ],
+                      "title": "AllOf"
                     },
                     {
                       "properties": {
                         "status": {
-                          "const": "failed"
-                        },
-                        "error": {
-                          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                          "const": "failed",
+                          "type": "string",
+                          "title": "Status"
                         }
                       },
                       "required": [
-                        "status",
-                        "error"
-                      ]
+                        "status"
+                      ],
+                      "title": "AllOf"
                     }
                   ]
                 }
-              ]
+              ],
+              "title": "OneOf"
             }
-          ]
+          ],
+          "title": "Receipt"
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -906,7 +950,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ]
 }

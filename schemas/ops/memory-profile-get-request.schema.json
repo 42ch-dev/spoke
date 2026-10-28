@@ -11,11 +11,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "subject_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SubjectId"
     },
     "profile_kinds": {
       "type": "array",

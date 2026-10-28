@@ -87,7 +87,8 @@
             }
           },
           "additionalProperties": false,
-          "description": "Op-only limits shape: all values are integers > 0. Exceeding a limit fails INVALID_INPUT with details.limit naming it (§7.0.7)."
+          "description": "Op-only limits shape: all values are integers > 0. Exceeding a limit fails INVALID_INPUT with details.limit naming it (§7.0.7).",
+          "title": "Limits"
         },
         "required_profile_kinds": {
           "type": "array",
@@ -99,14 +100,16 @@
         "engine_policy_version": {
           "type": "string",
           "minLength": 1,
-          "description": "Opaque engine/provider policy version stamped on recall and reflection bases."
+          "description": "Opaque engine/provider policy version stamped on recall and reflection bases.",
+          "title": "EnginePolicyVersion"
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -123,7 +126,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ],
   "examples": [

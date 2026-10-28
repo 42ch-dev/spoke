@@ -15,72 +15,57 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "subject_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SubjectId"
     },
     "target": {
-      "type": "object",
-      "required": [
-        "type"
-      ],
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "subject",
-            "context"
+      "description": "Fence target: the whole subject or one placement context (§7.7). Closed variants: context_id is required iff type = \"context\" and MUST be omitted when type = \"subject\".",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
           ],
-          "description": "Fence scope."
-        },
-        "context_id": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Required iff type = \"context\"; MUST be omitted when type = \"subject\"."
-        }
-      },
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "context"
-              }
-            },
-            "required": [
-              "type"
-            ]
-          },
-          "then": {
-            "required": [
-              "context_id"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "subject"
-              }
-            },
-            "required": [
-              "type"
-            ]
-          },
-          "then": {
-            "not": {
-              "required": [
-                "context_id"
-              ]
+          "properties": {
+            "type": {
+              "const": "subject",
+              "type": "string",
+              "title": "Type"
             }
-          }
+          },
+          "additionalProperties": false,
+          "description": "Fence the whole subject.",
+          "title": "OneOf"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "context_id"
+          ],
+          "properties": {
+            "type": {
+              "const": "context",
+              "type": "string",
+              "title": "Type"
+            },
+            "context_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "ContextId"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Fence one placement context.",
+          "title": "OneOf"
         }
       ],
-      "description": "Target selector: the whole subject or one placement context."
+      "title": "Target"
     },
     "action": {
       "type": "string",
@@ -89,7 +74,8 @@
         "unfence",
         "archive"
       ],
-      "description": "archive is subject-only and terminal; on a context target it fails INVALID_INPUT."
+      "description": "archive is subject-only and terminal; on a context target it fails INVALID_INPUT.",
+      "title": "Action"
     },
     "expected_revision": {
       "type": "integer",
@@ -100,7 +86,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5)."
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

@@ -12,17 +12,22 @@
         {
           "properties": {
             "op": {
-              "const": "memory.imports.activate"
+              "const": "memory.imports.activate",
+              "type": "string",
+              "title": "Op"
             }
           },
           "required": [
             "op"
-          ]
+          ],
+          "title": "AllOf"
         },
         {
           "properties": {
             "status": {
-              "const": "committed"
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
             },
             "result": {
               "type": "object",
@@ -34,7 +39,8 @@
               "properties": {
                 "import_id": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "title": "ImportId"
                 },
                 "activated": {
                   "type": "object",
@@ -72,20 +78,23 @@
                       "minimum": 0
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "title": "Activated"
                 },
                 "authority_generation": {
                   "type": "integer",
                   "minimum": 1
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "title": "Result"
             }
           },
           "required": [
             "status",
             "result"
-          ]
+          ],
+          "title": "AllOf"
         }
       ]
     }
@@ -104,27 +113,28 @@
             {
               "properties": {
                 "op": {
-                  "const": "memory.imports.activate"
+                  "const": "memory.imports.activate",
+                  "type": "string",
+                  "title": "Op"
                 }
               },
               "required": [
                 "op"
-              ]
+              ],
+              "title": "AllOf"
             },
             {
               "properties": {
                 "status": {
-                  "const": "pending"
+                  "const": "pending",
+                  "type": "string",
+                  "title": "Status"
                 }
               },
               "required": [
                 "status"
               ],
-              "not": {
-                "required": [
-                  "result"
-                ]
-              }
+              "title": "AllOf"
             }
           ]
         },
@@ -136,31 +146,33 @@
             {
               "properties": {
                 "op": {
-                  "const": "memory.imports.activate"
+                  "const": "memory.imports.activate",
+                  "type": "string",
+                  "title": "Op"
                 }
               },
               "required": [
                 "op"
-              ]
+              ],
+              "title": "AllOf"
             },
             {
               "properties": {
                 "status": {
-                  "const": "failed"
-                },
-                "error": {
-                  "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-                  "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
                 }
               },
               "required": [
-                "status",
-                "error"
-              ]
+                "status"
+              ],
+              "title": "AllOf"
             }
           ]
         }
-      ]
+      ],
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -177,7 +189,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ]
 }

@@ -12,11 +12,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "subject_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SubjectId"
     },
     "selection": {
       "$ref": "https://spoke42.invalid/schemas/data/read-selection.schema.json"

@@ -2,50 +2,75 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/read-selection.schema.json",
   "title": "ReadSelection",
-  "description": "Placement selection for reads, recall, reflections, and subject exports (§6.12). No mode is expressed by null/empty-array overloading.",
-  "type": "object",
-  "required": ["mode"],
-  "properties": {
-    "mode": {
-      "type": "string",
-      "enum": ["subject_all", "shared_only", "selected_contexts"],
-      "description": "subject_all = every record of the subject regardless of placement or provenance (requires an unrestricted grant); shared_only = scope.visibility shared only (requires shared access); selected_contexts = records placed in context_ids, plus shared records iff include_shared."
-    },
-    "context_ids": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "string"
-      },
-      "description": "Required iff mode = \"selected_contexts\"; MUST be omitted otherwise."
-    },
-    "include_shared": {
-      "type": "boolean",
-      "description": "Allowed only with mode = \"selected_contexts\"; omission there means false. MUST be omitted for other modes."
-    }
-  },
-  "additionalProperties": false,
-  "allOf": [
+  "description": "Placement selection for reads, recall, reflections, and subject exports (§6.12). Expressed as closed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.12 conditional requirements exactly. No mode is expressed by null/empty-array overloading.",
+  "oneOf": [
     {
-      "if": {
-        "properties": { "mode": { "const": "selected_contexts" } },
-        "required": ["mode"]
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "const": "subject_all",
+          "type": "string",
+          "title": "Mode"
+        }
       },
-      "then": { "required": ["context_ids"] },
-      "else": { "not": { "required": ["context_ids"] } }
+      "additionalProperties": false,
+      "description": "Every record of the subject regardless of placement or provenance. Requires an unrestricted grant (§6.5).",
+      "title": "OneOf"
     },
     {
-      "if": {
-        "properties": { "mode": { "enum": ["subject_all", "shared_only"] } },
-        "required": ["mode"]
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "const": "shared_only",
+          "type": "string",
+          "title": "Mode"
+        }
       },
-      "then": { "not": { "required": ["include_shared"] } }
+      "additionalProperties": false,
+      "description": "Only scope.visibility = shared records. Requires shared access.",
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "mode",
+        "context_ids"
+      ],
+      "properties": {
+        "mode": {
+          "const": "selected_contexts",
+          "type": "string",
+          "title": "Mode"
+        },
+        "context_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "include_shared": {
+          "type": "boolean",
+          "description": "Optional; omission means false. Adds shared-visibility records to the selection."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Records whose placement context_id is in context_ids, plus shared records iff include_shared. Requires coverage of every listed context (shared access when include_shared).",
+      "title": "OneOf"
     }
   ],
   "examples": [
     {
       "mode": "selected_contexts",
-      "context_ids": ["bnd_mira_harbor_run_7"],
+      "context_ids": [
+        "bnd_mira_harbor_run_7"
+      ],
       "include_shared": true
     },
     {

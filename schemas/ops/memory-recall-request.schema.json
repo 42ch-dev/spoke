@@ -13,11 +13,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "subject_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SubjectId"
     },
     "selection": {
       "$ref": "https://spoke42.invalid/schemas/data/read-selection.schema.json"
@@ -48,12 +50,14 @@
         }
       },
       "additionalProperties": false,
-      "description": "§9 budget applied after authorization and ranking."
+      "description": "§9 budget applied after authorization and ranking.",
+      "title": "Budget"
     },
     "cursor": {
       "type": "string",
       "minLength": 1,
-      "description": "Opaque pagination cursor bound to principal, space, subject, selection/filter, snapshot marker and engine_policy_version. Any state or grant change invalidates it with CURSOR_INVALID (§7.0.7, MEM-R026)."
+      "description": "Opaque pagination cursor bound to principal, space, subject, selection/filter, snapshot marker and engine_policy_version. Any state or grant change invalidates it with CURSOR_INVALID (§7.0.7, MEM-R026).",
+      "title": "Cursor"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

@@ -23,6 +23,19 @@ schemas/
 │   ├── mind-state.schema.json          # L5 temporal mental-state record (l5-mind)
 │   ├── host-capability-manifest.schema.json  # host roles, capabilities, namespaces
 │   └── tool-descriptor.schema.json     # declared tool ABI (tools.<ns>.<tool_id>)
+│   ├── memory-space.schema.json
+│   ├── subject.schema.json
+│   ├── principal.schema.json
+│   ├── memory-grant.schema.json
+│   ├── retained-record.schema.json
+│   ├── memory-candidate.schema.json
+│   ├── profile-document.schema.json
+│   ├── reflection.schema.json
+│   ├── memory-receipt.schema.json
+│   ├── memory-export-bundle.schema.json
+│   ├── memory-export-chunk.schema.json
+│   ├── read-selection.schema.json
+│   ├── provenance-filter.schema.json
 └── ops/
     ├── upsert-request.schema.json
     ├── upsert-response.schema.json
@@ -40,6 +53,72 @@ schemas/
     ├── compute-response.schema.json
     ├── extract-request.schema.json       # ke-extraction — referenced-source input
     └── extract-response.schema.json      # ke-extraction — provisional candidates + run
+    ├── memory-describe-request.schema.json   # spoke-memory memory.describe
+    ├── memory-spaces-list-request.schema.json   # spoke-memory memory.spaces.list
+    ├── memory-spaces-freeze-request.schema.json   # spoke-memory memory.spaces.freeze
+    ├── memory-spaces-unfreeze-request.schema.json   # spoke-memory memory.spaces.unfreeze
+    ├── memory-subjects-ensure-request.schema.json   # spoke-memory memory.subjects.ensure
+    ├── memory-subjects-get-request.schema.json   # spoke-memory memory.subjects.get
+    ├── memory-subjects-fence-request.schema.json   # spoke-memory memory.subjects.fence
+    ├── memory-grants-list-request.schema.json   # spoke-memory memory.grants.list
+    ├── memory-grants-grant-request.schema.json   # spoke-memory memory.grants.grant
+    ├── memory-grants-revoke-request.schema.json   # spoke-memory memory.grants.revoke
+    ├── memory-capture-request.schema.json   # spoke-memory memory.capture
+    ├── memory-candidates-list-request.schema.json   # spoke-memory memory.candidates.list
+    ├── memory-candidates-get-request.schema.json   # spoke-memory memory.candidates.get
+    ├── memory-candidates-dismiss-request.schema.json   # spoke-memory memory.candidates.dismiss
+    ├── memory-candidates-review-request.schema.json   # spoke-memory memory.candidates.review
+    ├── memory-records-create-request.schema.json   # spoke-memory memory.records.create
+    ├── memory-records-get-request.schema.json   # spoke-memory memory.records.get
+    ├── memory-records-update-request.schema.json   # spoke-memory memory.records.update
+    ├── memory-records-delete-request.schema.json   # spoke-memory memory.records.delete
+    ├── memory-records-list-request.schema.json   # spoke-memory memory.records.list
+    ├── memory-records-promote-request.schema.json   # spoke-memory memory.records.promote
+    ├── memory-recall-request.schema.json   # spoke-memory memory.recall
+    ├── memory-profile-get-request.schema.json   # spoke-memory memory.profile.get
+    ├── memory-profile-update-request.schema.json   # spoke-memory memory.profile.update
+    ├── memory-reflections-state-request.schema.json   # spoke-memory memory.reflections.state
+    ├── memory-reflections-list-request.schema.json   # spoke-memory memory.reflections.list
+    ├── memory-reflections-generate-request.schema.json   # spoke-memory memory.reflections.generate
+    ├── memory-receipts-get-request.schema.json   # spoke-memory memory.receipts.get
+    ├── memory-exports-create-request.schema.json   # spoke-memory memory.exports.create
+    ├── memory-exports-get-request.schema.json   # spoke-memory memory.exports.get
+    ├── memory-imports-stage-request.schema.json   # spoke-memory memory.imports.stage
+    ├── memory-imports-activate-request.schema.json   # spoke-memory memory.imports.activate
+    ├── memory-imports-discard-request.schema.json   # spoke-memory memory.imports.discard
+    ├── memory-describe-response.schema.json  # spoke-memory memory.describe
+    ├── memory-spaces-list-response.schema.json  # spoke-memory memory.spaces.list
+    ├── memory-spaces-freeze-response.schema.json  # spoke-memory memory.spaces.freeze
+    ├── memory-spaces-unfreeze-response.schema.json  # spoke-memory memory.spaces.unfreeze
+    ├── memory-subjects-ensure-response.schema.json  # spoke-memory memory.subjects.ensure
+    ├── memory-subjects-get-response.schema.json  # spoke-memory memory.subjects.get
+    ├── memory-subjects-fence-response.schema.json  # spoke-memory memory.subjects.fence
+    ├── memory-grants-list-response.schema.json  # spoke-memory memory.grants.list
+    ├── memory-grants-grant-response.schema.json  # spoke-memory memory.grants.grant
+    ├── memory-grants-revoke-response.schema.json  # spoke-memory memory.grants.revoke
+    ├── memory-capture-response.schema.json  # spoke-memory memory.capture
+    ├── memory-candidates-list-response.schema.json  # spoke-memory memory.candidates.list
+    ├── memory-candidates-get-response.schema.json  # spoke-memory memory.candidates.get
+    ├── memory-candidates-dismiss-response.schema.json  # spoke-memory memory.candidates.dismiss
+    ├── memory-candidates-review-response.schema.json  # spoke-memory memory.candidates.review
+    ├── memory-records-create-response.schema.json  # spoke-memory memory.records.create
+    ├── memory-records-get-response.schema.json  # spoke-memory memory.records.get
+    ├── memory-records-update-response.schema.json  # spoke-memory memory.records.update
+    ├── memory-records-delete-response.schema.json  # spoke-memory memory.records.delete
+    ├── memory-records-list-response.schema.json  # spoke-memory memory.records.list
+    ├── memory-records-promote-response.schema.json  # spoke-memory memory.records.promote
+    ├── memory-recall-response.schema.json  # spoke-memory memory.recall
+    ├── memory-profile-get-response.schema.json  # spoke-memory memory.profile.get
+    ├── memory-profile-update-response.schema.json  # spoke-memory memory.profile.update
+    ├── memory-reflections-state-response.schema.json  # spoke-memory memory.reflections.state
+    ├── memory-reflections-list-response.schema.json  # spoke-memory memory.reflections.list
+    ├── memory-reflections-generate-response.schema.json  # spoke-memory memory.reflections.generate
+    ├── memory-receipts-get-response.schema.json  # spoke-memory memory.receipts.get
+    ├── memory-exports-create-response.schema.json  # spoke-memory memory.exports.create
+    ├── memory-exports-get-response.schema.json  # spoke-memory memory.exports.get
+    ├── memory-imports-stage-response.schema.json  # spoke-memory memory.imports.stage
+    ├── memory-imports-activate-response.schema.json  # spoke-memory memory.imports.activate
+    └── memory-imports-discard-response.schema.json  # spoke-memory memory.imports.discard
 ```
 
 Plus the opt-in **connect** family (`spoke-connect` flag):
@@ -54,7 +133,7 @@ connect/
 └── connect-auth-response.schema.json  # method-specific proof
 ```
 
-**Total:** **34** hand-authored schema files (2 common + 10 data + 16 ops + 6 connect). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
+**Total:** **113** hand-authored schema files (2 common + 23 data + 82 ops + 6 connect). 79 new `spoke-memory` schemas (13 data + 66 ops). `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | error envelope. Optional `project` / `compute` ops under `l2-computable`; optional `extract` op under `ke-extraction`; `mind-state` under the opt-in `l5-mind` capability; connect envelopes under the opt-in `spoke-connect` capability. See [`spoke-protocol.md`](../.mstar/specs/spoke-protocol.md).
 
 ## Naming conventions
 
@@ -137,5 +216,84 @@ CI gate: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `verify-
 | 32 | `data/tool-descriptor.schema.json` | done |
 | 33 | `ops/extract-request.schema.json` | done |
 | 34 | `ops/extract-response.schema.json` | done |
+| 35 | `data/memory-space.schema.json` | done |
+| 36 | `data/subject.schema.json` | done |
+| 37 | `data/principal.schema.json` | done |
+| 38 | `data/memory-grant.schema.json` | done |
+| 39 | `data/retained-record.schema.json` | done |
+| 40 | `data/memory-candidate.schema.json` | done |
+| 41 | `data/profile-document.schema.json` | done |
+| 42 | `data/reflection.schema.json` | done |
+| 43 | `data/memory-receipt.schema.json` | done |
+| 44 | `data/memory-export-bundle.schema.json` | done |
+| 45 | `data/memory-export-chunk.schema.json` | done |
+| 46 | `data/read-selection.schema.json` | done |
+| 47 | `data/provenance-filter.schema.json` | done |
+| 48 | `ops/memory-describe-request.schema.json` | done |
+| 49 | `ops/memory-describe-response.schema.json` | done |
+| 50 | `ops/memory-spaces-list-request.schema.json` | done |
+| 51 | `ops/memory-spaces-list-response.schema.json` | done |
+| 52 | `ops/memory-spaces-freeze-request.schema.json` | done |
+| 53 | `ops/memory-spaces-freeze-response.schema.json` | done |
+| 54 | `ops/memory-spaces-unfreeze-request.schema.json` | done |
+| 55 | `ops/memory-spaces-unfreeze-response.schema.json` | done |
+| 56 | `ops/memory-subjects-ensure-request.schema.json` | done |
+| 57 | `ops/memory-subjects-ensure-response.schema.json` | done |
+| 58 | `ops/memory-subjects-get-request.schema.json` | done |
+| 59 | `ops/memory-subjects-get-response.schema.json` | done |
+| 60 | `ops/memory-subjects-fence-request.schema.json` | done |
+| 61 | `ops/memory-subjects-fence-response.schema.json` | done |
+| 62 | `ops/memory-grants-list-request.schema.json` | done |
+| 63 | `ops/memory-grants-list-response.schema.json` | done |
+| 64 | `ops/memory-grants-grant-request.schema.json` | done |
+| 65 | `ops/memory-grants-grant-response.schema.json` | done |
+| 66 | `ops/memory-grants-revoke-request.schema.json` | done |
+| 67 | `ops/memory-grants-revoke-response.schema.json` | done |
+| 68 | `ops/memory-capture-request.schema.json` | done |
+| 69 | `ops/memory-capture-response.schema.json` | done |
+| 70 | `ops/memory-candidates-list-request.schema.json` | done |
+| 71 | `ops/memory-candidates-list-response.schema.json` | done |
+| 72 | `ops/memory-candidates-get-request.schema.json` | done |
+| 73 | `ops/memory-candidates-get-response.schema.json` | done |
+| 74 | `ops/memory-candidates-dismiss-request.schema.json` | done |
+| 75 | `ops/memory-candidates-dismiss-response.schema.json` | done |
+| 76 | `ops/memory-candidates-review-request.schema.json` | done |
+| 77 | `ops/memory-candidates-review-response.schema.json` | done |
+| 78 | `ops/memory-records-create-request.schema.json` | done |
+| 79 | `ops/memory-records-create-response.schema.json` | done |
+| 80 | `ops/memory-records-get-request.schema.json` | done |
+| 81 | `ops/memory-records-get-response.schema.json` | done |
+| 82 | `ops/memory-records-update-request.schema.json` | done |
+| 83 | `ops/memory-records-update-response.schema.json` | done |
+| 84 | `ops/memory-records-delete-request.schema.json` | done |
+| 85 | `ops/memory-records-delete-response.schema.json` | done |
+| 86 | `ops/memory-records-list-request.schema.json` | done |
+| 87 | `ops/memory-records-list-response.schema.json` | done |
+| 88 | `ops/memory-records-promote-request.schema.json` | done |
+| 89 | `ops/memory-records-promote-response.schema.json` | done |
+| 90 | `ops/memory-recall-request.schema.json` | done |
+| 91 | `ops/memory-recall-response.schema.json` | done |
+| 92 | `ops/memory-profile-get-request.schema.json` | done |
+| 93 | `ops/memory-profile-get-response.schema.json` | done |
+| 94 | `ops/memory-profile-update-request.schema.json` | done |
+| 95 | `ops/memory-profile-update-response.schema.json` | done |
+| 96 | `ops/memory-reflections-state-request.schema.json` | done |
+| 97 | `ops/memory-reflections-state-response.schema.json` | done |
+| 98 | `ops/memory-reflections-list-request.schema.json` | done |
+| 99 | `ops/memory-reflections-list-response.schema.json` | done |
+| 100 | `ops/memory-reflections-generate-request.schema.json` | done |
+| 101 | `ops/memory-reflections-generate-response.schema.json` | done |
+| 102 | `ops/memory-receipts-get-request.schema.json` | done |
+| 103 | `ops/memory-receipts-get-response.schema.json` | done |
+| 104 | `ops/memory-exports-create-request.schema.json` | done |
+| 105 | `ops/memory-exports-create-response.schema.json` | done |
+| 106 | `ops/memory-exports-get-request.schema.json` | done |
+| 107 | `ops/memory-exports-get-response.schema.json` | done |
+| 108 | `ops/memory-imports-stage-request.schema.json` | done |
+| 109 | `ops/memory-imports-stage-response.schema.json` | done |
+| 110 | `ops/memory-imports-activate-request.schema.json` | done |
+| 111 | `ops/memory-imports-activate-response.schema.json` | done |
+| 112 | `ops/memory-imports-discard-request.schema.json` | done |
+| 113 | `ops/memory-imports-discard-response.schema.json` | done |
 
-**Total:** 34 schema files (mind-state + connect envelope families + tool-descriptor + ke-extraction `extract` landed).
+**Total:** 113 schema files (34 pre-existing + 79 spoke-memory: 13 data models + 33 op request/response pairs).

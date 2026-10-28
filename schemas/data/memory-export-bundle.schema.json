@@ -37,12 +37,14 @@
     },
     "export_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "ExportId"
     },
     "space_id": {
       "type": "string",
       "minLength": 1,
-      "description": "Source space."
+      "description": "Source space.",
+      "title": "SpaceId"
     },
     "created_at": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
@@ -102,7 +104,8 @@
     "digest": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "SHA-256 hex over the JCS canonicalization of the bundle object with the digest field removed."
+      "description": "SHA-256 hex over the JCS canonicalization of the bundle object with the digest field removed.",
+      "title": "Digest"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
@@ -112,11 +115,16 @@
   "definitions": {
     "Source": {
       "type": "object",
-      "required": ["authority_host_id", "authority_generation", "engine_policy_version"],
+      "required": [
+        "authority_host_id",
+        "authority_generation",
+        "engine_policy_version"
+      ],
       "properties": {
         "authority_host_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "title": "AuthorityHostId"
         },
         "authority_generation": {
           "type": "integer",
@@ -124,10 +132,12 @@
         },
         "engine_policy_version": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "title": "EnginePolicyVersion"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "Source"
     },
     "ReceiptSummary": {
       "type": "object",
@@ -142,52 +152,71 @@
       "properties": {
         "receipt_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "title": "ReceiptId"
         },
         "op": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "title": "Op"
         },
         "requester_principal_ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Opaque correlation label — never credentials or tokens."
+          "description": "Opaque correlation label — never credentials or tokens.",
+          "title": "RequesterPrincipalRef"
         },
         "idempotency_key": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "title": "IdempotencyKey"
         },
         "payload_digest": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "PayloadDigest"
         },
         "status": {
           "type": "string",
-          "enum": ["committed", "pending", "failed"]
+          "enum": [
+            "committed",
+            "pending",
+            "failed"
+          ],
+          "title": "Status"
         },
         "created_at": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "ReceiptSummary"
     },
     "GrantSummary": {
       "type": "object",
-      "required": ["grant_id", "principal_ref", "capabilities", "revision"],
+      "required": [
+        "grant_id",
+        "principal_ref",
+        "capabilities",
+        "revision"
+      ],
       "properties": {
         "grant_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "title": "GrantId"
         },
         "subject_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "title": "SubjectId"
         },
         "principal_ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Opaque correlation label — never credentials or tokens."
+          "description": "Opaque correlation label — never credentials or tokens.",
+          "title": "PrincipalRef"
         },
         "capabilities": {
           "type": "array",
@@ -212,7 +241,8 @@
           "minimum": 1
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "GrantSummary"
     }
   },
   "examples": [
@@ -233,7 +263,10 @@
           "schema_version": 1,
           "space_id": "spc_local_default",
           "subject_id": "nexus:character:mira",
-          "kind": { "ns": "nexus", "id": "character" },
+          "kind": {
+            "ns": "nexus",
+            "id": "character"
+          },
           "status": "active",
           "fenced_contexts": [],
           "created_at": "2026-10-27T08:00:00Z",
@@ -248,17 +281,29 @@
           "candidate_id": "cand_01J8ZQ9X7P0EXAMPLE0000101",
           "space_id": "spc_local_default",
           "subject_id": "nexus:character:mira",
-          "capture_scope": { "visibility": "context", "context_id": "bnd_mira_harbor_run_7" },
-          "classification": { "disposition": "promote", "rationale_codes": ["single_fact"] },
+          "capture_scope": {
+            "visibility": "context",
+            "context_id": "bnd_mira_harbor_run_7"
+          },
+          "classification": {
+            "disposition": "promote",
+            "rationale_codes": [
+              "single_fact"
+            ]
+          },
           "status": "consumed",
           "consumed_by": {
             "op": "memory.candidates.review",
             "receipt_id": "rcpt_01J8ZR1D4T0EXAMPLE0000501",
             "outcome": "promoted",
-            "record_ids": ["rec_01J8ZR2E5U0EXAMPLE0000601"]
+            "record_ids": [
+              "rec_01J8ZR2E5U0EXAMPLE0000601"
+            ]
           },
           "provenance": {
-            "source_context_ids": ["bnd_mira_harbor_run_7"],
+            "source_context_ids": [
+              "bnd_mira_harbor_run_7"
+            ],
             "anchors": [],
             "captured_by": "prn_nexus_host_local",
             "captured_at": "2026-10-28T09:20:00Z"
@@ -275,7 +320,10 @@
           "space_id": "spc_local_default",
           "subject_id": "nexus:character:mira",
           "profile_kind": "personality",
-          "document": { "format": "markdown", "body": "# Mira\n\nGuarded, loyal, keeps promises." },
+          "document": {
+            "format": "markdown",
+            "body": "# Mira\n\nGuarded, loyal, keeps promises."
+          },
           "updated_by": "prn_nexus_cli_operator",
           "created_at": "2026-10-27T08:05:00Z",
           "updated_at": "2026-10-27T08:05:00Z",
@@ -299,8 +347,14 @@
           "grant_id": "grt_01J8ZR0A1Q0EXAMPLE0000201",
           "subject_id": "nexus:character:mira",
           "principal_ref": "prn_nexus_cli_operator",
-          "capabilities": ["review", "records_write", "recall"],
-          "context_ids": ["bnd_mira_harbor_run_7"],
+          "capabilities": [
+            "review",
+            "records_write",
+            "recall"
+          ],
+          "context_ids": [
+            "bnd_mira_harbor_run_7"
+          ],
           "shared_access": true,
           "revision": 1
         }

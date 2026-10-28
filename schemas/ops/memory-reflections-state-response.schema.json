@@ -17,7 +17,8 @@
         "state_digest": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$",
-          "description": "64 lowercase hex over the state described above."
+          "description": "64 lowercase hex over the state described above.",
+          "title": "StateDigest"
         },
         "basis": {
           "type": "object",
@@ -39,7 +40,8 @@
               "description": "Profile kinds present for the subject."
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "title": "Basis"
         },
         "stale": {
           "type": "boolean"
@@ -47,7 +49,8 @@
         "last_reflection_id": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional most recent reflection id for this selection."
+          "description": "Optional most recent reflection id for this selection.",
+          "title": "LastReflectionId"
         },
         "missing_required_profile_kinds": {
           "type": "array",
@@ -62,14 +65,16 @@
             "sufficient",
             "insufficient"
           ],
-          "description": "Engine/provider policy verdict; the protocol defines no numeric thresholds."
+          "description": "Engine/provider policy verdict; the protocol defines no numeric thresholds.",
+          "title": "DataSufficiency"
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -86,7 +91,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ]
 }

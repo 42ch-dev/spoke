@@ -2,161 +2,289 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json",
   "title": "MemoryReceipt",
-  "description": "Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3).",
-  "type": "object",
-  "required": [
-    "schema_version",
-    "receipt_id",
-    "op",
-    "space_id",
-    "requester_principal_id",
-    "payload_digest",
-    "status",
-    "created_at",
-    "extensions"
-  ],
-  "properties": {
-    "schema_version": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
-    },
-    "receipt_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Provider-assigned."
-    },
-    "op": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The op string that produced this receipt (e.g. memory.capture)."
-    },
-    "space_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "requester_principal_id": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Requester identity for receipt-read authorization."
-    },
-    "idempotency_key": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "description": "Echo when supplied — always, except memory.subjects.ensure."
-    },
-    "payload_digest": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{64}$",
-      "description": "SHA-256 over the JCS canonicalization of the request payload object (MEM-R008)."
-    },
-    "status": {
-      "type": "string",
-      "enum": ["committed", "pending", "failed"]
-    },
-    "result": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
-      "description": "Content-free op summary: IDs, revisions, counts, outcome enums, digests, cost facts. Present iff committed. Never contains record/candidate/profile/reflection bodies."
-    },
-    "error": {
-      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
-      "description": "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."
-    },
-    "created_at": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
-    },
-    "completed_at": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
-      "description": "Present iff status is not pending."
-    },
-    "extensions": {
-      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
-    }
-  },
-  "additionalProperties": false,
-  "allOf": [
+  "description": "Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3). Expressed as closed committed/pending/failed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.10 lifecycle exactly: result is present iff committed, error is present iff failed, completed_at is present iff status is not pending.",
+  "oneOf": [
     {
-      "if": {
-        "properties": { "status": { "const": "committed" } },
-        "required": ["status"]
-      },
-      "then": {
-        "required": ["result"],
-        "not": { "required": ["error"] }
-      }
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/CommittedReceipt"
     },
     {
-      "if": {
-        "properties": { "status": { "const": "failed" } },
-        "required": ["status"]
-      },
-      "then": {
-        "required": ["error"],
-        "not": { "required": ["result"] }
-      }
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/PendingReceipt"
     },
     {
-      "if": {
-        "properties": { "status": { "const": "pending" } },
-        "required": ["status"]
-      },
-      "then": {
-        "not": { "required": ["completed_at"] },
-        "allOf": [
-          { "not": { "required": ["result"] } },
-          { "not": { "required": ["error"] } }
-        ]
-      },
-      "else": { "required": ["completed_at"] }
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/FailedReceipt"
     }
   ],
   "definitions": {
+    "CommittedReceipt": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "op",
+        "space_id",
+        "requester_principal_id",
+        "payload_digest",
+        "status",
+        "result",
+        "created_at",
+        "completed_at",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The op string that produced this receipt (e.g. memory.capture).",
+          "title": "Op"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "requester_principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Requester identity for receipt-read authorization.",
+          "title": "RequesterPrincipalId"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 over the JCS canonicalization of the request payload object (MEM-R008).",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "const": "committed",
+          "type": "string",
+          "title": "Status"
+        },
+        "result": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+          "description": "Content-free op summary: IDs, revisions, counts, outcome enums, digests, cost facts. Never contains record/candidate/profile/reflection bodies. Per-op shapes are narrowed by the emitting op response schema (§7.0.2)."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "completed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Synchronous commit. error is deliberately absent: present iff failed (§6.10).",
+      "title": "CommittedReceipt"
+    },
+    "PendingReceipt": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "op",
+        "space_id",
+        "requester_principal_id",
+        "payload_digest",
+        "status",
+        "created_at",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The op string that produced this receipt.",
+          "title": "Op"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "requester_principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "RequesterPrincipalId"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "const": "pending",
+          "type": "string",
+          "title": "Status"
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Asynchronous op admitted, completion observed via memory.receipts.get (§7.0.3). result, error and completed_at are deliberately absent (§6.10).",
+      "title": "PendingReceipt"
+    },
+    "FailedReceipt": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "op",
+        "space_id",
+        "requester_principal_id",
+        "payload_digest",
+        "status",
+        "error",
+        "created_at",
+        "completed_at",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The op string that produced this receipt.",
+          "title": "Op"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "requester_principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "RequesterPrincipalId"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "const": "failed",
+          "type": "string",
+          "title": "Status"
+        },
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "completed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Failed op; may carry content-free cost facts (§14.3). result is deliberately absent: present iff committed (§6.10).",
+      "title": "FailedReceipt"
+    },
     "MemoryErrorEnvelope": {
       "allOf": [
-        { "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json" },
         {
+          "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+        },
+        {
+          "type": "object",
+          "title": "MemoryErrorRequirement",
+          "required": [
+            "details"
+          ],
+          "additionalProperties": false,
           "properties": {
+            "code": {
+              "type": "string",
+              "description": "Machine-readable error code."
+            },
+            "message": {
+              "type": "string",
+              "description": "Human-readable error message."
+            },
             "details": {
+              "title": "ErrorDetails",
               "type": "object",
-              "required": ["retry_class"],
+              "required": [
+                "retry_class"
+              ],
               "properties": {
                 "retry_class": {
                   "type": "string",
-                  "enum": ["retryable", "terminal", "uncertain"],
-                  "description": "§14.2 retry class: retryable (safe to retry), terminal (fix request/authorization), uncertain (commit state unknown — poll memory.receipts.get or replay the same idempotency_key)."
+                  "title": "RetryClass",
+                  "enum": [
+                    "retryable",
+                    "terminal",
+                    "uncertain"
+                  ],
+                  "description": "§14.2 retry class."
                 }
               },
-              "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+              "additionalProperties": true,
+              "description": "§14.2 requires details.retry_class. The code-to-class mapping (§14.2) is a spec-level invariant enforced by validation helpers — draft-07 conditionals are not derivable by the codegen toolchain. Op-specific keys stay open."
+            },
+            "extensions": {
+              "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
             }
           },
-          "required": ["details"]
-        },
-        {
-          "if": { "properties": { "code": { "const": "OUTCOME_UNCERTAIN" } }, "required": ["code"] },
-          "then": { "properties": { "details": { "properties": { "retry_class": { "const": "uncertain" } } } } }
-        },
-        {
-          "if": { "properties": { "code": { "const": "INTERNAL_ERROR" } }, "required": ["code"] },
-          "then": { "properties": { "details": { "properties": { "retry_class": { "const": "retryable" } } } } }
-        },
-        {
-          "if": {
-            "properties": {
-              "code": {
-                "enum": [
-                  "INVALID_INPUT", "NOT_AUTHORIZED", "GRANT_REVOKED", "CANDIDATE_CONSUMED",
-                  "PROFILE_INCOMPLETE", "INSUFFICIENT_DATA", "IDEMPOTENCY_CONFLICT",
-                  "EXPORT_EXPIRED", "IMPORT_CONFLICT", "RECEIPT_EXPIRED", "CURSOR_INVALID",
-                  "REVISION_CONFLICT", "INVALID_STATUS_TRANSITION", "SPACE_FROZEN",
-                  "SUBJECT_FENCED", "NOT_FOUND", "op_unsupported", "capability_missing"
-                ]
-              }
-            },
-            "required": ["code"]
-          },
-          "then": { "properties": { "details": { "properties": { "retry_class": { "const": "terminal" } } } } }
+          "description": "Memory-specific envelope requirements: details.retry_class required (§14.1–14.2). Field shapes mirror the shared ErrorEnvelope so the allOf merge closes cleanly."
         }
       ],
-      "description": "Shared ErrorEnvelope intersected with the memory §14.1–14.2 contract: required details.retry_class with the documented code-to-class mapping; details otherwise stays open for op-specific keys."
+      "description": "Shared ErrorEnvelope intersected with the memory §14.1–14.2 contract: required details.retry_class; details otherwise stays open for op-specific keys.",
+      "title": "MemoryErrorEnvelope"
     }
   },
   "examples": [
@@ -169,7 +297,12 @@
       "idempotency_key": "cap-9182-1400-mira",
       "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
       "status": "committed",
-      "result": { "candidate_ids": ["cand_01J8ZQ9X7P0EXAMPLE0000101"], "classified": 1 },
+      "result": {
+        "candidate_ids": [
+          "cand_01J8ZQ9X7P0EXAMPLE0000101"
+        ],
+        "classified": 1
+      },
       "created_at": "2026-10-28T09:20:01Z",
       "completed_at": "2026-10-28T09:20:01Z",
       "extensions": {}

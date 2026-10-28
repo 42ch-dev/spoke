@@ -20,14 +20,16 @@
         "next_cursor": {
           "type": "string",
           "minLength": 1,
-          "description": "Absent = end of results (§7.0.7)."
+          "description": "Absent = end of results (§7.0.7).",
+          "title": "NextCursor"
         },
         "extensions": {
           "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     },
     {
       "type": "object",
@@ -44,7 +46,8 @@
           "description": "Optional transport metadata."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "title": "OneOf"
     }
   ]
 }

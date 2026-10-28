@@ -11,11 +11,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "candidate_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "CandidateId"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

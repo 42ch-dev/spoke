@@ -11,11 +11,13 @@
   "properties": {
     "space_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "SpaceId"
     },
     "receipt_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "title": "ReceiptId"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",

@@ -217,9 +217,10 @@ fn failed_capture_receipt_round_trips() {
 /// op. The poll union used to collapse all 19 branches into a single generated
 /// type (they shared the title `OneOf`), so a capture receipt could not decode.
 /// Distinct per-op titles now give 19 distinct variants; two different ops
-/// decoding through the same response type is the behavioural proof.
+/// decoding through the same response type is the behavioural proof. All three
+/// receipt statuses poll, so the untagged decode order is exercised end to end.
 #[test]
-fn receipts_get_polls_committed_and_pending_receipts() {
+fn receipts_get_polls_committed_pending_and_failed_receipts() {
     let capture_poll = json!({ "receipt": value(COMMITTED_CAPTURE) });
     let parsed: spoke_schemas::MemoryReceiptsGetResponse =
         serde_json::from_value(capture_poll.clone()).expect("a capture receipt polls");
@@ -234,5 +235,13 @@ fn receipts_get_polls_committed_and_pending_receipts() {
     assert_eq!(
         serde_json::to_value(&parsed).expect("polled receipt serializes"),
         export_poll
+    );
+
+    let failed_poll = json!({ "receipt": value(FAILED_CAPTURE) });
+    let parsed: spoke_schemas::MemoryReceiptsGetResponse =
+        serde_json::from_value(failed_poll.clone()).expect("a failed capture receipt polls");
+    assert_eq!(
+        serde_json::to_value(&parsed).expect("polled receipt serializes"),
+        failed_poll
     );
 }

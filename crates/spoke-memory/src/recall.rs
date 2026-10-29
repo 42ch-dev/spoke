@@ -83,7 +83,7 @@ pub fn recall<'a>(
         if page.len() >= request.max_items {
             break;
         }
-        let item_bytes = content_wire_bytes(&record.content)?;
+        let item_bytes = content_serialized_bytes(&record.content)?;
         if let Some(limit) = request.max_bytes {
             if bytes + item_bytes > limit {
                 // §9 progress rule: an oversized first item is surfaced whole and
@@ -163,17 +163,18 @@ impl std::error::Error for RecallError {}
 /// value** — field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
 ///
-/// This deliberately differs from `spoke-operations`' `content_wire_bytes`
-/// (text bytes + raw `structured` serialization), which serves the §7.1
-/// `max_content_bytes` limit. Issue I-000023 tracks unifying the two
-/// measurements; until then the engine measures the wire form on its own
-/// because it must not depend on `spoke-operations`.
+/// This is the same canonical measure as `spoke-operations`'
+/// `content_serialized_bytes` (the §7.1 `max_content_bytes` admission limit,
+/// I-000023): RFC 8785 JCS, so an explicit `null` member is skipped and
+/// numbers use the ECMAScript form (`1.0` → `1`, `1e2` → `100`), which is
+/// what `JSON.stringify` produces. It stays local because the engine must
+/// not depend on `spoke-operations`.
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
 /// float and rejects instead of panicking.
-fn content_wire_bytes(content: &Content) -> Result<usize, RecallError> {
-    serde_json::to_vec(content)
+fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
+    serde_jcs::to_vec(content)
         .map(|bytes| bytes.len())
         .map_err(|_| RecallError::NonFiniteContent)
 }
@@ -207,7 +208,7 @@ mod tests {
 
 
     /// Unwrap the engine Result for the ranking-focused unit tests; the
-    /// error path itself is covered by `content_wire_bytes` guard tests.
+    /// error path itself is covered by `content_serialized_bytes` guard tests.
     fn recall_checked<'a>(
         records: &'a [RecallRecord],
         request: &RecallRequest<'_>,
@@ -358,6 +359,54 @@ mod tests {
         );
         assert_eq!(ids(&one_byte_short), vec!["rec_b"]);
         assert!(one_byte_short.truncated);
+    }
+
+    #[test]
+    fn numeric_content_budget_uses_the_jcs_measure() {
+        // I-000023: recall budgets the same canonical form as admission, so
+        // ES6 numbers (`1.0` → `1`, `1e2` → `100`) count 40 bytes — the
+        // `serde_json` form would count 44 and defer content admission accepts.
+        let records = vec![RecallRecord {
+            record_id: "rec_numbers".to_string(),
+            kind: "fact".to_string(),
+            content: Content {
+                structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
+                text: String::new(),
+            },
+            created_at: at("2026-10-01T00:00:00Z"),
+        }];
+        assert_eq!(
+            content_serialized_bytes(&records[0].content).expect("finite content measures"),
+            40
+        );
+
+        let exact = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(40),
+            },
+        );
+        assert_eq!(ids(&exact), vec!["rec_numbers"]);
+        assert_eq!(exact.overflow_record_id, None);
+        assert!(!exact.truncated);
+
+        // One byte short keeps the unchanged overflow rule: a lone oversized
+        // first item is surfaced whole and flagged.
+        let short = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(39),
+            },
+        );
+        assert_eq!(ids(&short), vec!["rec_numbers"]);
+        assert_eq!(short.overflow_record_id, Some("rec_numbers"));
+        assert!(!short.truncated);
     }
 
     #[test]

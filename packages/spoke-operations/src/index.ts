@@ -100,7 +100,7 @@ export { orchestrateInvokeTool } from "./tools/orchestrate.js";
 export { toErrorEnvelope, fromErrorEnvelope } from "./error/envelope.js";
 
 export {
-  contentWireBytes,
+  contentSerializedBytes,
   isFreezeAllowlisted,
   validateMemoryCandidatesList,
   validateMemoryCandidatesReview,

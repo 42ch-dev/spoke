@@ -1371,16 +1371,58 @@ impl SqliteMemoryProvider {
                 .unwrap_or_default()
     }
 
-    /// Opaque cursor token pinned to the space's state epoch (MEM-R026).
-    fn cursor_token(space: &Space, offset: usize) -> String {
-        format!("c{}:{}", space.state_epoch, offset)
+    /// MEM-R026 binding: principal, space, subject, selection/filter, snapshot
+    /// marker (state epoch) and `engine_policy_version`. The offset is the
+    /// pagination position, never part of the binding.
+    fn cursor_binding(
+        space: &Space,
+        principal_id: &str,
+        subject_id: &str,
+        request: &Value,
+    ) -> Option<String> {
+        let bound = json!({
+            "principal_id": principal_id,
+            "space_id": space.space_id,
+            "subject_id": subject_id,
+            "selection": request["selection"].clone(),
+            "filter": request.get("filter").cloned().unwrap_or(Value::Null),
+            "state_epoch": space.state_epoch,
+            "engine_policy_version": ENGINE_POLICY_VERSION,
+        });
+        match jcs_sha256_hex(&bound) {
+            SpokeResult::Ok(digest) => Some(digest),
+            SpokeResult::Reject(_) => None,
+        }
     }
 
-    /// Cursor offset, or `None` when the epoch moved (invalidated cursor).
-    fn cursor_offset(space: &Space, cursor: &str) -> Option<usize> {
-        let (epoch, offset) = cursor.split_once(':')?;
+    /// Opaque cursor token carrying the pagination offset plus the MEM-R026
+    /// binding (the epoch prefix is the same snapshot marker, cheap to check).
+    fn cursor_token(
+        space: &Space,
+        principal_id: &str,
+        subject_id: &str,
+        request: &Value,
+        offset: usize,
+    ) -> Option<String> {
+        let binding = Self::cursor_binding(space, principal_id, subject_id, request)?;
+        Some(format!("c{}:{}:{}", space.state_epoch, offset, binding))
+    }
+
+    /// Cursor offset, or `None` when any bound input moved (invalidated cursor).
+    fn cursor_offset(
+        space: &Space,
+        principal_id: &str,
+        subject_id: &str,
+        request: &Value,
+        cursor: &str,
+    ) -> Option<usize> {
+        let (epoch, rest) = cursor.split_once(':')?;
+        let (offset, binding) = rest.split_once(':')?;
         let epoch: u64 = epoch.strip_prefix('c')?.parse().ok()?;
         if epoch != space.state_epoch {
+            return None;
+        }
+        if binding != Self::cursor_binding(space, principal_id, subject_id, request)? {
             return None;
         }
         offset.parse().ok()
@@ -3349,7 +3391,13 @@ impl MemoryPort for SqliteMemoryProvider {
             ));
             let offset = match cursor.as_deref() {
                 None => 0,
-                Some(cursor) => match Self::cursor_offset(space, cursor) {
+                Some(cursor) => match Self::cursor_offset(
+                    space,
+                    &principal_id,
+                    &subject_id,
+                    &request_value,
+                    cursor,
+                ) {
                     Some(offset) => offset,
                     None => {
                         return reject(
@@ -3417,7 +3465,15 @@ impl MemoryPort for SqliteMemoryProvider {
                 response["overflow_record_id"] = json!(overflow);
             }
             if page.truncated {
-                response["next_cursor"] = json!(Self::cursor_token(space, consumed));
+                let Some(token) =
+                    Self::cursor_token(space, &principal_id, &subject_id, &request_value, consumed)
+                else {
+                    return reject(
+                        SpokeRejectCode::InternalError,
+                        "recall cursor binding digest failed",
+                    );
+                };
+                response["next_cursor"] = json!(token);
             }
             reply(response)
         })

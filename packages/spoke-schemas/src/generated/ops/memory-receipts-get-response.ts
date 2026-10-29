@@ -1276,7 +1276,7 @@ export interface AllOf81 {
 }
 export interface Result18 {
   import_id: ImportId2;
-  discarded: true;
+  discarded: boolean;
 }
 export interface AllOf82 {
   op: Op44;

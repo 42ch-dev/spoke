@@ -96,7 +96,8 @@ title: 记忆（Memory）
 `MemoryPort` 是独立的可选边界 —— TypeScript 接口与 Rust trait，每个 `memory.*` 操作对应一个类型化方法，已认证主体显式传入。示意形状（请求/响应类型即生成的 `memory-*` 线上类型）：
 
 ```ts
-import type { MemoryPort, Principal } from "@42ch/spoke-operations";
+import type { MemoryPort } from "@42ch/spoke-operations";
+import type { Principal } from "@42ch/spoke-schemas";
 
 const port: MemoryPort = {
   describe(principal: Principal, request: MemoryDescribeRequest) { /* … */ },

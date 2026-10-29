@@ -96,7 +96,8 @@ Read ops return their payload; every mutating op returns a `MemoryReceipt`. Only
 `MemoryPort` is the standalone optional boundary — a TypeScript interface and a Rust trait, one typed method per `memory.*` op, with the authenticated principal passed explicitly. Illustrative shape (request/response types are the generated `memory-*` wire types):
 
 ```ts
-import type { MemoryPort, Principal } from "@42ch/spoke-operations";
+import type { MemoryPort } from "@42ch/spoke-operations";
+import type { Principal } from "@42ch/spoke-schemas";
 
 const port: MemoryPort = {
   describe(principal: Principal, request: MemoryDescribeRequest) { /* … */ },

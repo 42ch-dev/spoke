@@ -47,13 +47,13 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 
 ## 记忆与既定知识并列
 
-既定知识与主观记忆是两件不同的事，因此协议把它们放在两个族里。KnowledgeEntry 是其他主机可以 check、assemble 的共享、已审核节点；记忆记录则是某台主机为某个主体捕获的印象，经审核后才计入，并且只在调用方的授权范围内可读。
+既定知识与主观记忆是两件不同的事，因此协议把它们放在两个族里。KnowledgeEntry 是其他主机可以 check、assemble 的共享、已审核节点；保留记忆有两条准入路径：捕获的材料先成为 `MemoryCandidate`，经 `memory.candidates.review` 后才计入；`memory.records.create` 则直接写入保留记录，属于作者管理面向。读取遵循调用方的授权范围。
 
 | 方面 | KnowledgeEntry | 记忆记录 |
 |------|----------------|----------|
 | 角色 | 共享面上的既定知识节点 | 主机捕获的按主体印象 |
 | 主体 | 非按主体划分 | 恰好一个 `subject_id`（扁平主体） |
-| 准入 | `upsert`、`promote` | `memory.capture` → `MemoryCandidate` → `memory.candidates.review` |
+| 准入 | `upsert`、`promote` | 捕获：`memory.capture` → `MemoryCandidate` → `memory.candidates.review`。作者管理写入：`memory.records.create` |
 | 内容信任 | 信封携带 `ke-ownership` 披露字段 | 记录与候选内容是不受信数据；画像文档是受信作者材料 |
 | 忘却 | 状态生命周期（`deprecated`、`merged`、`deleted`） | 仅显式操作：drop/dismiss、墓碑删除、主体归档、导入丢弃 |
 | 读取轴 | 基于共享 `Scope` 的 `check` / `assemble` | `ReadSelection` 放置模式加 `ProvenanceFilter` |

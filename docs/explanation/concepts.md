@@ -47,13 +47,13 @@ The names stay separate so `check` / `assemble` selectors remain unambiguous.
 
 ## Memory beside knowledge
 
-Canonical knowledge and subjective memory are two different jobs, so the protocol keeps them in two families. A KnowledgeEntry is a shared, reviewed node other hosts can check and assemble; a memory record is an impression one host captured for one subject, gated by review before it counts and readable only under the caller's grants.
+Canonical knowledge and subjective memory are two different jobs, so the protocol keeps them in two families. A KnowledgeEntry is a shared, reviewed node other hosts can check and assemble; retained memory carries two admission paths: captured material becomes a `MemoryCandidate` and counts only after `memory.candidates.review`, while `memory.records.create` writes a retained record directly as an authored management write. Reads follow the caller's grants.
 
 | Aspect | KnowledgeEntry | Memory record |
 |--------|----------------|---------------|
 | Role | Canonical knowledge node on the shared surface | Per-subject impression captured by a host |
 | Subject | Not subject-scoped | Exactly one `subject_id` (flat subjects) |
-| Admission | `upsert`, `promote` | `memory.capture` → `MemoryCandidate` → `memory.candidates.review` |
+| Admission | `upsert`, `promote` | Captured: `memory.capture` → `MemoryCandidate` → `memory.candidates.review`. Authored management write: `memory.records.create` |
 | Content trust | Envelope carries `ke-ownership` disclosure fields | Record and candidate content is untrusted data; profile documents are trusted author material |
 | Forgetting | Status lifecycle (`deprecated`, `merged`, `deleted`) | Explicit operations only: drop/dismiss, tombstone delete, subject archive, import discard |
 | Read axis | `check` / `assemble` over shared `Scope` | `ReadSelection` placement modes plus `ProvenanceFilter` |

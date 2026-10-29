@@ -31,6 +31,7 @@ SPOKE 以**线上术语**定义词汇 —— 下面的每个概念都是协议�
 - **`ke-extraction`** —— 可选 `extract` 操作：被引用的源材料进、`provisional` 候选 KnowledgeEntry 出。
 - **`ke-ownership`** —— KnowledgeEntry 信封上的归属与披露，以及 `Scope.viewpoint` 读取方选择器。
 - **`spoke-connect`** —— 可选跨进程交互信封族。
+- **`spoke-memory`** —— 按主体记忆：十三个模型与 33 个 `memory.*` 操作，位于独立 `MemoryPort` 之后，另有可选的 `spoke-memory-reflection` 与 `spoke-memory-transfer` 子标志 —— 见 [记忆参考](/zh/reference/memory)。
 
 connect 家族的会话生命周期、信封认证与能力路由在 [Connect 架构](/zh/explanation/connect) 中说明。
 
@@ -43,6 +44,22 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 - 本体 `entry_type: "character"` / 画像 `mind` 标签与 L5 `MindState` 时间记录 —— 标签对知识节点分类；`MindState` 是持有者心智字段（`modules.mental` / `modules.belief` 为既定归宿）的严格派生快照 / 增量。
 
 名称保持分离，使 `check` / `assemble` 选择器保持无歧义。
+
+## 记忆与既定知识并列
+
+既定知识与主观记忆是两件不同的事，因此协议把它们放在两个族里。KnowledgeEntry 是其他主机可以 check、assemble 的共享、已审核节点；记忆记录则是某台主机为某个主体捕获的印象，经审核后才计入，并且只在调用方的授权范围内可读。
+
+| 方面 | KnowledgeEntry | 记忆记录 |
+|------|----------------|----------|
+| 角色 | 共享面上的既定知识节点 | 主机捕获的按主体印象 |
+| 主体 | 非按主体划分 | 恰好一个 `subject_id`（扁平主体） |
+| 准入 | `upsert`、`promote` | `memory.capture` → `MemoryCandidate` → `memory.candidates.review` |
+| 内容信任 | 信封携带 `ke-ownership` 披露字段 | 记录与候选内容是不受信数据；画像文档是受信作者材料 |
+| 忘却 | 状态生命周期（`deprecated`、`merged`、`deleted`） | 仅显式操作：drop/dismiss、墓碑删除、主体归档、导入丢弃 |
+| 读取轴 | 基于共享 `Scope` 的 `check` / `assemble` | `ReadSelection` 放置模式加 `ProvenanceFilter` |
+| 授权 | 基于 `Scope.viewpoint` 的 `ke-ownership` 披露谓词 | 自包含的 `MemoryGrant` |
+
+这一划分带来三个结果。情感以 `content.structured` 内部的不透明约定承载（例如 `{"affect":{"valence":0.6}}`），因此情绪分类学保持为产品策略。作者画像（`ProfileDocument`）承载精炼的作者基准，记录承载具体经历，反思则是跨记录的派生综合 —— 三层各司其职。提供方替换是一套线上流程：带版本与摘要的导出/导入，配以操作者定时的切换，全程保持单一权威。
 
 ## 开放词汇与 Domain Profile
 
@@ -64,3 +81,4 @@ connect 家族的会话生命周期、信封认证与能力路由在 [Connect �
 - [数据模型参考](/zh/reference/data-model) —— 每层对应的字段表。
 - [领域画像（Domain Profiles）](/zh/explanation/domain-profiles) —— 已发布的开放字符串词汇。
 - [MindState 参考](/zh/reference/mind-state) —— L5 时间心智状态记录（`l5-mind`）。
+- [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族，以及它如何与既定知识并列。

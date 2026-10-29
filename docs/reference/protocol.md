@@ -10,8 +10,8 @@ SPOKE is a shared **wire dialect** for narrative products: one set of JSON Schem
 
 | Column | Contents |
 |--------|----------|
-| **Data wire** | Ten data objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, MindState, ToolDescriptor ([`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)), plus shared definitions in [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) |
-| **Ops wire** | Five baseline operation families — upsert, extract→promote, relate, check, assemble — as transport-agnostic request/response envelopes ([`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)), plus optional `project` / `compute` under `l2-computable` and optional `extract` under `ke-extraction` |
+| **Data wire** | Ten data objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, HostCapabilityManifest, Rule, TimelineEvent, MindState, ToolDescriptor ([`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)), plus shared definitions in [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common); the optional `spoke-memory` family adds thirteen memory models under the same authoring rules |
+| **Ops wire** | Five baseline operation families — upsert, extract→promote, relate, check, assemble — as transport-agnostic request/response envelopes ([`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)), plus optional `project` / `compute` under `l2-computable`, optional `extract` under `ke-extraction`, and the 33-op `spoke-memory` family |
 | **Operations library** | Hand-written behavior over the generated wire types: pure lifecycle helpers, capability-sliced adapter ports, and injection orchestration (`@42ch/spoke-operations` TypeScript; `spoke-operations` Rust, lockstep SemVer) |
 
 ## Connect family (opt-in)
@@ -20,7 +20,7 @@ Six interaction envelopes ([`schemas/connect/`](https://github.com/42ch-dev/spok
 
 ## Schema inventory and codegen posture
 
-The wire inventory is **34 committed `*.schema.json` files**: 2 common + 10 data + 16 ops (10 baseline + 4 `l2-computable` + 2 `ke-extraction`) + 6 connect envelopes. Baseline integrators use **21** of those files (2 common + 9 data + 10 baseline ops): the nine baseline data schemas include `ToolDescriptor`, and `MindState` belongs to the optional `l5-mind` layer as the tenth data file. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` fails the build if the generated tree drifts from `schemas/`; schema changes and regenerated output land in the same commit.
+The wire inventory is **113 committed `*.schema.json` files**: 2 common + 23 data + 82 ops + 6 connect envelopes. The optional `spoke-memory` family contributes 79 of them (13 data models + 33 request/response pairs). Baseline integrators use **21** of those files (2 common + 9 data + 10 baseline ops): the nine baseline data schemas include `ToolDescriptor`, and `MindState` belongs to the optional `l5-mind` layer as the tenth data file. `schemas/` is the only hand-authored wire truth; generated TypeScript (`@42ch/spoke-schemas`) and Rust (`spoke-schemas`) output is committed and mirrors the schema tree. `pnpm run verify-codegen` fails the build if the generated tree drifts from `schemas/`; schema changes and regenerated output land in the same commit.
 
 ## Extensions contract
 
@@ -45,6 +45,7 @@ Placement rule: a **cross-product functional dialect** uses `modules.*`; **produ
 | `ke-extraction` | the optional `extract` op family — provisional `KnowledgeEntry` candidates from referenced source material — plus the standalone `ExtractionPort` and the `orchestrateExtract` boundary |
 | `ke-ownership` | `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` governance fields and the shared `Scope.viewpoint` reader selector |
 | `spoke-connect` | the opt-in interaction envelope family; hosts that speak it list the flag in `HostCapabilityManifest.capabilities` |
+| `spoke-memory` | the optional per-subject memory family: thirteen models and 33 `memory.*` ops with a standalone `MemoryPort`. Two optional sub-flags — `spoke-memory-reflection` (3 reflection ops) and `spoke-memory-transfer` (5 export/import ops) — each require `spoke-memory`. See [Memory reference](/reference/memory) |
 
 ## Repository layout
 
@@ -56,5 +57,6 @@ Placement rule: a **cross-product functional dialect** uses `modules.*`; **produ
 - [Ops wire reference](/reference/ops) — request/response envelopes, `Scope`, `ErrorEnvelope`.
 - [Connect reference](/reference/connect) — the opt-in envelope family.
 - [MindState reference](/reference/mind-state) — the L5 temporal mental-state record (`l5-mind`).
+- [Memory reference](/reference/memory) — the optional `spoke-memory` family: models, ops, capability flags, provider guidance.
 - [Concepts](/explanation/concepts) — the nine layers and how capabilities map onto them.
 - [`schemas/README.md`](https://github.com/42ch-dev/spoke/blob/main/schemas/README.md) — schema file inventory.

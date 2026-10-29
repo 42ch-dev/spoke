@@ -167,15 +167,22 @@
       "invariant": "§6.7",
       "surface": "wire",
       "outcome": "variable",
-      "what": "the same subject and the same capture request, run against the subject's restored initial state, is classified to the same advisory disposition within the provider; a zero-candidate capture or a harness without reset_subject is inconclusive",
+      "what": "the byte-identical capture request, re-executed after a full provider snapshot restore, is classified to the same advisory disposition within the provider; a zero-candidate capture or a harness without snapshot support is inconclusive",
       "inconclusive_when": [
         { "path": "op.result.candidate_ids", "isEmpty": true },
         { "path": "then.2.result.candidate_ids", "isEmpty": true }
       ],
       "requires": [
         "toy:character:mira is at its initial seeded state (same profile kinds and revisions, no pending candidates, no classification-relevant records)",
-        "the harness implements `harness.reset_subject` (restores the subject to its initial seeded state, removing candidates and receipts created by the case); if it does not, the case is recorded inconclusive",
+        "the harness implements `harness.save_snapshot` / `harness.restore_snapshot` (full provider snapshot and complete restore, including dedup/idempotency and receipt state); if it does not, the case is recorded inconclusive",
         "a zero-candidate capture is a documented inconclusive outcome (dedup is permitted by §7.11), never a failure and never a synthesized disposition"
+      ],
+      "setup": [
+        {
+          "op": "harness.save_snapshot",
+          "request": { "space_id": "spc_tw_harbor" },
+          "expect": { "success": true }
+        }
       ],
       "op": "memory.capture",
       "request": {
@@ -197,11 +204,8 @@
           "expect": { "success": true }
         },
         {
-          "op": "harness.reset_subject",
-          "request": {
-            "space_id": "spc_tw_harbor",
-            "subject_id": "toy:character:mira"
-          },
+          "op": "harness.restore_snapshot",
+          "request": { "space_id": "spc_tw_harbor" },
           "expect": { "success": true }
         },
         {
@@ -212,7 +216,7 @@
             "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
             "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
             "kind_hint": "fact",
-            "idempotency_key": "cap-tw-classify-0002"
+            "idempotency_key": "cap-tw-classify-0001"
           },
           "expect": { "receipt_status": "committed" }
         },

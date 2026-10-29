@@ -106,6 +106,9 @@ const WIRE_EXPECT_LISTS: [&str; 10] = [
 /// Cross-step response namespaces: `setup.<n>`, `op`, `then.<n>`.
 const RESPONSE_NAMESPACES: [&str; 3] = ["setup", "op", "then"];
 
+/// Harness capabilities a step may request instead of a protocol op.
+const HARNESS_OPS: [&str; 2] = ["harness.save_snapshot", "harness.restore_snapshot"];
+
 /// Resolves a `<namespace>[.<index>][.<path>]` reference, returning the path
 /// remainder (`""` for a bare step reference such as `setup.1` or `op`).
 fn split_step_reference<'a>(case_id: &str, reference: &'a str, setup_len: usize) -> &'a str {
@@ -769,14 +772,13 @@ fn validate_step(case_id: &str, step: &Value, setup_len: usize) {
         "case {case_id}: step op {op}"
     );
     if op.starts_with("harness.") {
-        assert_eq!(
-            op, "harness.reset_subject",
+        assert!(
+            HARNESS_OPS.contains(&op),
             "case {case_id}: unknown harness capability {op}"
         );
         assert!(
-            step["request"]["space_id"].as_str().is_some()
-                && step["request"]["subject_id"].as_str().is_some(),
-            "case {case_id}: {op} needs space_id and subject_id"
+            step["request"]["space_id"].as_str().is_some(),
+            "case {case_id}: {op} needs space_id"
         );
     }
     assert!(step["request"].is_object(), "case {case_id}: step request");
@@ -1049,6 +1051,27 @@ fn conformance_corpus_is_well_formed() {
                             pinned["inconclusive_on_mismatch"].as_bool(),
                             Some(true),
                             "case {id}: pinned_basis_check.inconclusive_on_mismatch"
+                        );
+                    }
+                    if let Some(policy) = case.get("policy_version_check") {
+                        validate_value_reference(
+                            id,
+                            policy["observed"].as_str().unwrap_or_else(|| {
+                                panic!("case {id}: policy_version_check.observed")
+                            }),
+                            setup_len,
+                        );
+                        validate_value_reference(
+                            id,
+                            policy["pinned"].as_str().unwrap_or_else(|| {
+                                panic!("case {id}: policy_version_check.pinned")
+                            }),
+                            setup_len,
+                        );
+                        assert_eq!(
+                            policy["inconclusive_on_mismatch"].as_bool(),
+                            Some(true),
+                            "case {id}: policy_version_check.inconclusive_on_mismatch"
                         );
                     }
                     for steps_key in ["setup", "then"] {

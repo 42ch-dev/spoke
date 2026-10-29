@@ -81,12 +81,13 @@ test rejects un-namespaced references anywhere in a request payload or directive
   - engine runner: every `variable` case is executed twice and the two
     observables must be identical;
   - loopback runner: a `variable` wire case is evaluated twice against
-    **identical state**. The classification case captures the content, records
-    the disposition, calls `harness.reset_subject` to restore the subject to its
-    initial seeded state, re-submits the *same* request (same subject, same
-    content, fresh idempotency key), and compares the two observed dispositions.
-    Either capture returning no candidate (§7.11 dedup is permitted) — or a
-    harness without `reset_subject` — makes the case **inconclusive** through
+    **identical state**. The classification case saves a full provider snapshot,
+    captures the content, records the disposition, restores the snapshot, and
+    re-executes the **byte-identical request** (same subject, same content, same
+    `idempotency_key` — a fresh execution because the restore erased the dedup
+    record), then compares the two observed dispositions. Either capture
+    returning no candidate (§7.11 dedup is permitted) — or a harness without
+    snapshot support — makes the case **inconclusive** through
     `inconclusive_when`, never a failure and never a synthesized disposition. No
     cross-provider ranking or disposition is imposed by any vector.
 
@@ -187,27 +188,44 @@ test rejects un-namespaced references anywhere in a request payload or directive
   recomputed `state_digest` with the reflection's `basis.state_digest`. The
   imported-staleness case is **PROVEN only** when all three hold:
   1. the provider-internal control passes — the same reflection on the source
-     space reads `stale: false` while its basis is unmoved (so this provider
-     computes staleness rather than hardcoding `true`);
+     space reads `stale: false` while its basis is unmoved. This step is a
+     required assertion, so a provider that hardcodes `stale: true` **fails** the
+     case rather than passing it;
   2. the recomputed target `state_digest` **equals** the pinned digest (the
      translated basis reproduces; the fixture pins every basis input at revision
      1 so a provider allocating fresh revisions from 1 can reproduce it);
   3. the imported reflection still reads `stale: true`.
 
   If (2) fails the case is recorded `inconclusive`
-  (`inconclusive_on_mismatch: true`) — never proven, never a failure, and the
-  coverage map marks it inconclusive-possible for that provider.
+  (`inconclusive_on_mismatch: true`) — never proven, never a failure.
+
+  **Black-box ceiling:** this is the strongest discrimination an outside observer
+  can reach without provider internals — a provider that both re-digests the
+  translated basis identically and still reports `stale: true` has demonstrated
+  the §7.31 rule, while a provider that cannot reproduce the digest stays
+  `inconclusive` rather than being falsely certified.
+- `policy_version_check` — `{ "observed": "<step reference>", "pinned": "<step reference>", "inconclusive_on_mismatch": true }`.
+  For the import case it compares the provider's `memory.describe`
+  `engine_policy_version` with the imported reflection's
+  `generator.engine_policy_version`: a provider that reports a different policy
+  version cannot reproduce the pinned digest, so the case is recorded
+  `inconclusive` with that reason instead of silently failing or passing.
 - `inconclusive_when` — array of `{ "path": "...", "isEmpty": true }`: if any
   named response value is an empty array, the case is recorded `inconclusive`
   and its remaining assertions are not counted. Used only where the protocol
   explicitly permits an empty outcome (for example a zero-candidate capture).
-- `harness.reset_subject` — a **harness capability step**, not a protocol op:
-  `{ "op": "harness.reset_subject", "request": { "space_id": …, "subject_id": … } }`
-  restores the subject to its initial seeded state (removing candidates and
-  receipts created by the case) so the next request runs against identical state.
-  The Task 3 harness must implement it; a harness that does not must record the
-  case `inconclusive` — never a failure and never a cross-request
-  rationalization. Steps may otherwise carry only `memory.*` ops.
+- `harness.save_snapshot` / `harness.restore_snapshot` — **harness capability
+  steps**, not protocol ops:
+  `{ "op": "harness.save_snapshot" | "harness.restore_snapshot", "request": { "space_id": … } }`.
+  `save_snapshot` captures the complete provider state (records, candidates,
+  receipts, dedup/idempotency records, profiles, reflections); `restore_snapshot`
+  restores it completely. Because the restore erases the dedup record, a request
+  repeated afterwards is a **fresh execution, not a replay**, which is what lets
+  a case re-run a byte-identical request — same `idempotency_key` included —
+  against genuinely identical state. The Task 3 harness must implement both; a
+  harness that does not must record the case `inconclusive` — never a failure and
+  never a cross-request rationalization. Steps may otherwise carry only
+  `memory.*` ops.
 - `requires` — declarative environment preconditions (negotiated capability set,
   configured `required_profile_kinds`, seeded grants/profiles/records, an unmoved
   source-space basis, a held-pending capable harness, the polling obligation that
@@ -233,7 +251,7 @@ test rejects un-namespaced references anywhere in a request payload or directive
 | Cursor invalidation (`CURSOR_INVALID`) | `cursor-invalidation.json` | wire |
 | Chunk round-trip + digest verification, per-chunk staging keys and replay | `transfer-chunks.json`, `staging-import.json` | engine (partition/digests) + wire (round-trip, staging) |
 | Staged-import verification report + explicit-only `adopt_grants` (verified after activation, alongside the staging principal's own grant) | `staging-import.json` | engine (report policy) + wire (staging, activation, adoption) |
-| Imported-reflection `stale: true` unconditionally — PROVEN only when the source-space control reads `stale: false`, the target recomputes the pinned `state_digest`, and the imported reflection still reads `stale: true`; otherwise recorded `inconclusive` | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
+| Imported-reflection `stale: true` unconditionally — `proven` only when the required source-space control reads `stale: false`, the target recomputes the pinned `state_digest`, and the imported reflection still reads `stale: true`; non-co-operative providers (different revision allocation or `engine_policy_version`) are recorded `inconclusive`, which is an honest outcome, never `proven` | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
 | Profile-admission three-state distinguishability | `profile-admission.json` | wire |
 | Profile-update ⇒ reflection-stale trigger | `reflection-staleness.json` | wire (+ engine digest policy) |
-| Classification/recall determinism per provider (classification requires `harness.reset_subject`, else inconclusive) | `classification.json` (`classification-stable-within-a-provider`), `recall-budget.json` | wire (+ engine repeat) |
+| Classification/recall determinism per provider (classification requires `harness.save_snapshot`/`restore_snapshot`, else inconclusive) | `classification.json` (`classification-stable-within-a-provider`), `recall-budget.json` | wire (+ engine repeat) |

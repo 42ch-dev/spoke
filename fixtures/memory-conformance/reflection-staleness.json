@@ -180,14 +180,24 @@
         "spc_tw_harbor holds refl_tw_gate_key_0001 with an unmoved basis: its pinned records at revision 1 and the personality profile at revision 1",
         "an empty target space spc_tw_import_target exists; its subject ids and local reflections are absent",
         "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
-        "the target provider allocates fresh revisions starting at 1 (the common convention), so the translated pinned basis can reproduce",
+        "co-operative provider: it allocates fresh target revisions starting at 1 and reports the source bundle's engine_policy_version (observed via memory.describe and the staged report); an unmet precondition surfaces as a mismatched digest or policy version and is recorded inconclusive with that reason, never silently passed",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
       "pinned_basis_check": {
         "reflection": "op.reflections.0",
         "inconclusive_on_mismatch": true
       },
+      "policy_version_check": {
+        "observed": "setup.0.engine_policy_version",
+        "pinned": "op.reflections.0.generator.engine_policy_version",
+        "inconclusive_on_mismatch": true
+      },
       "setup": [
+        {
+          "op": "memory.describe",
+          "request": {},
+          "expect": { "success": true }
+        },
         {
           "op": "memory.reflections.list",
           "request": {
@@ -239,7 +249,7 @@
           "op": "memory.imports.activate",
           "request": {
             "space_id": "spc_tw_import_target",
-            "import_id": "$ref:setup.3.result.import_id",
+            "import_id": "$ref:setup.4.result.import_id",
             "idempotency_key": "imp-tw-stale-0003"
           },
           "expect": { "receipt_status": "pending" }
@@ -248,7 +258,7 @@
           "op": "memory.receipts.get",
           "request": {
             "space_id": "spc_tw_import_target",
-            "receipt_id": "$ref:setup.4.receipt_id"
+            "receipt_id": "$ref:setup.5.receipt_id"
           },
           "expect": { "receipt_status": "committed" }
         }

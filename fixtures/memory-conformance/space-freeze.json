@@ -1,0 +1,310 @@
+{
+  "id": "space-freeze",
+  "title": "Space freeze maintenance allowlist and the receipt drain barrier",
+  "protocol_refs": [
+    "\u00a78.2",
+    "MEM-R023",
+    "\u00a77.3",
+    "\u00a712.1"
+  ],
+  "cases": [
+    {
+      "id": "allowlist-recall",
+      "invariant": "MEM-R011",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "reads stay available while the space is frozen",
+      "input": {
+        "op": "memory.recall"
+      },
+      "expect": {
+        "allowlisted": true
+      }
+    },
+    {
+      "id": "allowlist-records-get",
+      "invariant": "MEM-R011",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "by-id record reads stay available",
+      "input": {
+        "op": "memory.records.get"
+      },
+      "expect": {
+        "allowlisted": true
+      }
+    },
+    {
+      "id": "allowlist-unfreeze",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "unfreeze is the maintenance escape hatch",
+      "input": {
+        "op": "memory.spaces.unfreeze"
+      },
+      "expect": {
+        "allowlisted": true
+      }
+    },
+    {
+      "id": "allowlist-grants-revoke",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "revocation must work during a freeze",
+      "input": {
+        "op": "memory.grants.revoke"
+      },
+      "expect": {
+        "allowlisted": true
+      }
+    },
+    {
+      "id": "allowlist-transfer-ops",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "cutover transfer ops are allowlisted inside the freeze window",
+      "input": {
+        "op": "memory.imports.activate"
+      },
+      "expect": {
+        "allowlisted": true
+      }
+    },
+    {
+      "id": "deny-capture",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "capture is not a maintenance op",
+      "input": {
+        "op": "memory.capture"
+      },
+      "expect": {
+        "allowlisted": false
+      }
+    },
+    {
+      "id": "deny-review",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "candidate review is not a maintenance op",
+      "input": {
+        "op": "memory.candidates.review"
+      },
+      "expect": {
+        "allowlisted": false
+      }
+    },
+    {
+      "id": "deny-profile-update",
+      "invariant": "MEM-R023",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "profile writes are not maintenance ops",
+      "input": {
+        "op": "memory.profile.update"
+      },
+      "expect": {
+        "allowlisted": false
+      }
+    },
+    {
+      "id": "freeze-blocks-capture",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a frozen space rejects capture",
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira notes the tide gauge is running high."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "idempotency_key": "cap-tw-frozen-0002"
+      },
+      "expect": {
+        "error_code": "SPACE_FROZEN"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "freeze-keeps-recall-available",
+      "invariant": "MEM-R011",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "recall still answers while the space is frozen",
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        }
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
+          "include_shared": true
+        },
+        "budget": {
+          "max_items": 4
+        }
+      },
+      "expect": {
+        "success": true
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "quiescent-export-rejected-while-a-receipt-is-pending",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "with an independently held receipt pending in a frozen space, a quiescent export is refused",
+      "requires": [
+        "the harness can hold the queued async work of setup[1] uncommitted (`hold: pending`) and observe it in provider state"
+      ],
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        },
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-backup-0003"
+          },
+          "hold": "pending",
+          "expect": {
+            "receipt_status": "pending"
+          }
+        },
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "atLeast": [
+              {
+                "path": "spaces.0.pending_receipts",
+                "equals": 1
+              }
+            ]
+          }
+        }
+      ],
+      "op": "memory.exports.create",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "require_quiescent": true,
+        "idempotency_key": "exp-tw-quiescent-0004"
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "details": {
+          "reason": "space_not_drained"
+        }
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "quiescent-export-admitted-after-drain",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "releasing the held receipt drains the space, and the frozen space then admits a quiescent export",
+      "requires": [
+        "the harness can hold the queued async work of setup[1] uncommitted (`hold: pending`) and release it via `release`"
+      ],
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        },
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-backup-0005"
+          },
+          "hold": "pending",
+          "expect": {
+            "receipt_status": "pending"
+          }
+        },
+        {
+          "op": "memory.spaces.list",
+          "request": {
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "atLeast": [
+              {
+                "path": "spaces.0.pending_receipts",
+                "equals": 1
+              }
+            ]
+          }
+        }
+      ],
+      "release": [
+        "setup.1"
+      ],
+      "op": "memory.exports.create",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "require_quiescent": true,
+        "idempotency_key": "exp-tw-quiescent-0006"
+      },
+      "expect": {
+        "receipt_status": "pending"
+      },
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

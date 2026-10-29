@@ -1,0 +1,288 @@
+{
+  "id": "transfer-chunks",
+  "title": "Element-atomic chunking, chunk retrieval, and chunk/bundle digest verification",
+  "protocol_refs": [
+    "\u00a76.13",
+    "\u00a76.11",
+    "MEM-R015",
+    "\u00a77.29",
+    "\u00a77.30"
+  ],
+  "cases": [
+    {
+      "id": "partition-and-reassemble-roundtrip",
+      "invariant": "MEM-R015",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a multi-chunk partition verifies and reassembles to the input bundle byte-for-byte",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 700
+      },
+      "expect": {
+        "min_chunk_count": 2,
+        "max_chunk_count": 12,
+        "verification_ok": true,
+        "reassembled_equals_input": true
+      }
+    },
+    {
+      "id": "element-atomic-under-tiny-limit",
+      "invariant": "MEM-R015",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a limit smaller than every element still splits between elements, never inside one",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 1
+      },
+      "expect": {
+        "min_chunk_count": 6,
+        "verification_ok": true,
+        "reassembled_equals_input": true
+      }
+    },
+    {
+      "id": "tampered-chunk-digest-detected",
+      "invariant": "\u00a76.13",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a rewritten chunk_digest fails verification",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 700,
+        "tamper": {
+          "chunk_ordinal": 0,
+          "path": "chunk_digest",
+          "value": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "expect": {
+        "verification_ok": false,
+        "errors_contain": "digest does not verify"
+      }
+    },
+    {
+      "id": "tampered-element-detected",
+      "invariant": "\u00a76.13",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "an element edited in transit breaks the chunk digest",
+      "input": {
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 700,
+        "tamper": {
+          "chunk_ordinal": 0,
+          "path": "header.created_at",
+          "value": "2026-07-24T07:00:00Z"
+        }
+      },
+      "expect": {
+        "verification_ok": false,
+        "errors_contain": "digest does not verify"
+      }
+    },
+    {
+      "id": "export-chunk-zero-carries-header",
+      "invariant": "\u00a76.13",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the first fetched chunk carries the sealed header and its own digest",
+      "requires": [
+        "memory.receipts.get polls until the receipt is terminal before the next step"
+      ],
+      "setup": [
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-chunk-0001"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:setup.0.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.exports.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "export_id": "$ref:setup.1.result.export_id",
+        "chunk_ordinal": 0
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "chunk.chunk_ordinal",
+            "equals": 0
+          }
+        ],
+        "present": [
+          "chunk.header",
+          "chunk.header.digest",
+          "chunk.bundle_digest",
+          "chunk.chunk_digest",
+          "chunk.chunk_count",
+          "chunk.bytes"
+        ]
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "export-chunk-ordinal-out-of-range",
+      "invariant": "\u00a77.30",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "fetching beyond the export's chunk_count is INVALID_INPUT, never a silent empty chunk",
+      "requires": [
+        "memory.receipts.get polls until the receipt is terminal before the next step",
+        "the export's chunk_count is below 1000"
+      ],
+      "setup": [
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-chunk-0002"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:setup.0.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.exports.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "export_id": "$ref:setup.1.result.export_id",
+        "chunk_ordinal": 1000
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "export-expired-after-retention",
+      "invariant": "\u00a77.30",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a chunk fetched past export_retention_seconds is EXPORT_EXPIRED",
+      "advance": {
+        "instants": [
+          {
+            "from": "setup.0",
+            "path": "limits.export_retention_seconds",
+            "offset_seconds": 1
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "memory.describe",
+          "request": {},
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-chunk-0003"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:setup.1.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.exports.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "export_id": "$ref:setup.2.result.export_id",
+        "chunk_ordinal": 0
+      },
+      "expect": {
+        "error_code": "EXPORT_EXPIRED"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "export-roundtrip-verifies-advertised-digests",
+      "invariant": "\u00a76.13",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "fetching every chunk and reassembling reproduces each advertised chunk_digest and the advertised bundle digest; fabricated digests fail the case",
+      "requires": [
+        "memory.receipts.get polls until the receipt is terminal before the next step",
+        "the harness fetches the remaining ordinals through memory.exports.get and recomputes digests independently (engine verify path or JCS + SHA-256)"
+      ],
+      "setup": [
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-roundtrip-0007"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:setup.0.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.exports.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "export_id": "$ref:setup.1.result.export_id",
+        "chunk_ordinal": 0
+      },
+      "verify_export": {
+        "receipt": "setup.1"
+      },
+      "expect": {
+        "success": true,
+        "verified": {
+          "all_chunk_digests": true,
+          "chunk_metadata_consistent": true,
+          "bundle_digest_matches_receipt": true,
+          "reassembled_bundle_verifies": true
+        }
+      },
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

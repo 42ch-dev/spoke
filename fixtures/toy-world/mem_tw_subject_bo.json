@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "space_id": "spc_tw_harbor",
+  "subject_id": "toy:character:bo",
+  "kind": { "ns": "toy", "id": "character" },
+  "status": "active",
+  "fenced_contexts": [],
+  "created_at": "2026-07-23T05:32:00Z",
+  "revision": 1,
+  "extensions": {}
+}

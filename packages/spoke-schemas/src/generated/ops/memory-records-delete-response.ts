@@ -170,7 +170,7 @@ export interface AllOf1 {
 }
 export interface Result {
   record_id: RecordId;
-  tombstoned: true;
+  tombstoned: boolean;
 }
 /**
  * Failed op; may carry content-free cost facts (§14.3). result is deliberately absent: present iff committed (§6.10).

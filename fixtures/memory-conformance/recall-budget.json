@@ -1,0 +1,253 @@
+{
+  "id": "recall-budget",
+  "title": "Deterministic recall ranking and \u00a79 budget truncation",
+  "protocol_refs": [
+    "\u00a79",
+    "\u00a77.22",
+    "MEM-R011"
+  ],
+  "cases": [
+    {
+      "id": "max-items-caps-the-page",
+      "invariant": "\u00a79",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "max_items is a hard cap and truncation keeps a ranking prefix",
+      "input": {
+        "records": [
+          {
+            "record_id": "rec_a",
+            "kind": "fact",
+            "content": {
+              "text": "alpha"
+            },
+            "created_at": "2026-07-23T06:00:00Z"
+          },
+          {
+            "record_id": "rec_b",
+            "kind": "fact",
+            "content": {
+              "text": "bravo"
+            },
+            "created_at": "2026-07-23T06:01:00Z"
+          },
+          {
+            "record_id": "rec_c",
+            "kind": "fact",
+            "content": {
+              "text": "charlie"
+            },
+            "created_at": "2026-07-23T06:02:00Z"
+          }
+        ],
+        "request": {
+          "query": null,
+          "max_items": 2,
+          "max_bytes": null
+        }
+      },
+      "expect": {
+        "record_ids": [
+          "rec_c",
+          "rec_b"
+        ],
+        "total_authorized": 3,
+        "truncated": true,
+        "overflow_record_id": null
+      }
+    },
+    {
+      "id": "byte-budget-exact-fit",
+      "invariant": "\u00a79",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "the serialized content bytes fit the budget exactly",
+      "input": {
+        "records": [
+          {
+            "record_id": "rec_a",
+            "kind": "fact",
+            "content": {
+              "text": "abcd"
+            },
+            "created_at": "2026-07-23T06:00:00Z"
+          },
+          {
+            "record_id": "rec_b",
+            "kind": "fact",
+            "content": {
+              "text": "efgh"
+            },
+            "created_at": "2026-07-23T06:01:00Z"
+          }
+        ],
+        "request": {
+          "query": null,
+          "max_items": 5,
+          "max_bytes": 30
+        }
+      },
+      "expect": {
+        "record_ids": [
+          "rec_b",
+          "rec_a"
+        ],
+        "total_authorized": 2,
+        "truncated": false,
+        "overflow_record_id": null
+      }
+    },
+    {
+      "id": "byte-budget-defers-second-record",
+      "invariant": "\u00a79",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "one byte short of the second record defers it without an overflow marker",
+      "input": {
+        "records": [
+          {
+            "record_id": "rec_a",
+            "kind": "fact",
+            "content": {
+              "text": "abcd"
+            },
+            "created_at": "2026-07-23T06:00:00Z"
+          },
+          {
+            "record_id": "rec_b",
+            "kind": "fact",
+            "content": {
+              "text": "efgh"
+            },
+            "created_at": "2026-07-23T06:01:00Z"
+          }
+        ],
+        "request": {
+          "query": null,
+          "max_items": 5,
+          "max_bytes": 29
+        }
+      },
+      "expect": {
+        "record_ids": [
+          "rec_b"
+        ],
+        "total_authorized": 2,
+        "truncated": true,
+        "overflow_record_id": null
+      }
+    },
+    {
+      "id": "oversized-first-item-is-surfaced-whole",
+      "invariant": "\u00a79",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "an oversized first item is returned whole and flagged, never dropped",
+      "input": {
+        "records": [
+          {
+            "record_id": "rec_long",
+            "kind": "fact",
+            "content": {
+              "text": "the keeper listed every barrel by the customs gate"
+            },
+            "created_at": "2026-07-23T06:02:00Z"
+          },
+          {
+            "record_id": "rec_short",
+            "kind": "fact",
+            "content": {
+              "text": "abcd"
+            },
+            "created_at": "2026-07-23T06:01:00Z"
+          }
+        ],
+        "request": {
+          "query": null,
+          "max_items": 5,
+          "max_bytes": 20
+        }
+      },
+      "expect": {
+        "record_ids": [
+          "rec_long"
+        ],
+        "total_authorized": 2,
+        "truncated": true,
+        "overflow_record_id": "rec_long"
+      }
+    },
+    {
+      "id": "query-hint-outranks-kind-weight",
+      "invariant": "\u00a79",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "query overlap outweighs kind weight, and query is a hint, not a filter",
+      "input": {
+        "records": [
+          {
+            "record_id": "rec_plain",
+            "kind": "fact",
+            "content": {
+              "text": "harbor tide log"
+            },
+            "created_at": "2026-07-23T06:02:00Z"
+          },
+          {
+            "record_id": "rec_gate",
+            "kind": "event",
+            "content": {
+              "text": "the gate key rests under the barrel"
+            },
+            "created_at": "2026-07-23T06:00:00Z"
+          }
+        ],
+        "request": {
+          "query": "gate key",
+          "max_items": 5,
+          "max_bytes": null
+        }
+      },
+      "expect": {
+        "record_ids": [
+          "rec_gate",
+          "rec_plain"
+        ],
+        "total_authorized": 2,
+        "truncated": false,
+        "overflow_record_id": null
+      }
+    },
+    {
+      "id": "recall-page-stable-within-a-provider",
+      "invariant": "\u00a79",
+      "surface": "wire",
+      "outcome": "variable",
+      "what": "repeating the same recall against unchanged state returns an identical page (determinism, not a cross-provider ranking)",
+      "requires": [
+        "toy:character:mira has at least two authorized records in ctx_tw_customs_gate",
+        "the harness repeats the op twice against unchanged state and compares the responses"
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
+          "include_shared": false
+        },
+        "query": "gate key",
+        "budget": {
+          "max_items": 4
+        }
+      },
+      "expect": {
+        "success": true
+      },
+      "principal": "prn_tw_host_primary"
+    }
+  ]
+}

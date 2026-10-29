@@ -1,0 +1,447 @@
+{
+  "id": "reflection-staleness",
+  "title": "Reflection basis digests and the provider-enforced staleness triggers (profile update, import activation)",
+  "protocol_refs": [
+    "MEM-R013",
+    "\u00a76.9",
+    "\u00a77.25",
+    "\u00a77.31",
+    "prototype design-r3 acceptance addendum"
+  ],
+  "cases": [
+    {
+      "id": "unchanged-basis-is-not-stale",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "identical inputs keep the pinned digest valid, independent of source order",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": [
+              "ctx_tw_customs_gate"
+            ],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [
+            {
+              "record_id": "rec_tw_gate_key_fact",
+              "revision": 1
+            },
+            {
+              "record_id": "rec_tw_bo_promise",
+              "revision": 1
+            }
+          ],
+          "profile_revisions": {
+            "personality": 3
+          }
+        },
+        "current": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": [
+              "ctx_tw_customs_gate"
+            ],
+            "include_shared": true
+          },
+          "filter": null,
+          "sources": [
+            {
+              "record_id": "rec_tw_bo_promise",
+              "revision": 1
+            },
+            {
+              "record_id": "rec_tw_gate_key_fact",
+              "revision": 1
+            }
+          ],
+          "profile_revisions": {
+            "personality": 3
+          }
+        }
+      },
+      "expect": {
+        "stale": false
+      }
+    },
+    {
+      "id": "record-revision-bump-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "editing a pinned source record changes the state digest",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "subject_all"
+          },
+          "filter": null,
+          "sources": [
+            {
+              "record_id": "rec_tw_gate_key_fact",
+              "revision": 1
+            }
+          ],
+          "profile_revisions": {
+            "personality": 3
+          }
+        },
+        "current": {
+          "selection": {
+            "mode": "subject_all"
+          },
+          "filter": null,
+          "sources": [
+            {
+              "record_id": "rec_tw_gate_key_fact",
+              "revision": 2
+            }
+          ],
+          "profile_revisions": {
+            "personality": 3
+          }
+        }
+      },
+      "expect": {
+        "stale": true
+      }
+    },
+    {
+      "id": "selection-change-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "widening the selection changes the digests and stales the reflection",
+      "input": {
+        "pinned": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": [
+              "ctx_tw_customs_gate"
+            ],
+            "include_shared": false
+          },
+          "filter": {
+            "source_context_ids": [
+              "ctx_tw_customs_gate"
+            ]
+          },
+          "sources": [
+            {
+              "record_id": "rec_tw_gate_key_fact",
+              "revision": 1
+            }
+          ],
+          "profile_revisions": {
+            "personality": 3
+          }
+        },
+        "current": {
+          "selection": {
+            "mode": "selected_contexts",
+            "context_ids": [
+              "ctx_tw_customs_gate"
+            ],
+            "include_shared": true
+          },
+          "filter": {
+            "source_context_ids": [
+              "ctx_tw_customs_gate"
+            ]
+          },
+          "sources": [
+            {
+              "record_id": "rec_tw_gate_key_fact",
+              "revision": 1
+            }
+          ],
+          "profile_revisions": {
+            "personality": 3
+          }
+        }
+      },
+      "expect": {
+        "stale": true
+      }
+    },
+    {
+      "id": "profile-update-stales-reflection",
+      "invariant": "MEM-R013",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a profile revision bump makes the generated reflection read stale",
+      "requires": [
+        "spoke-memory-reflection negotiated; prn_tw_cli_operator holds reflect covering the selection",
+        "toy:character:mira has a personality profile at revision 1 and records in ctx_tw_customs_gate",
+        "memory.receipts.get polls until each receipt is terminal before the next step"
+      ],
+      "setup": [
+        {
+          "op": "memory.reflections.state",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "selection": {
+              "mode": "selected_contexts",
+              "context_ids": [
+                "ctx_tw_customs_gate"
+              ],
+              "include_shared": true
+            }
+          },
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "memory.reflections.generate",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "selection": {
+              "mode": "selected_contexts",
+              "context_ids": [
+                "ctx_tw_customs_gate"
+              ],
+              "include_shared": true
+            },
+            "expected_state_digest": "$ref:setup.0.state_digest",
+            "idempotency_key": "gen-tw-stale-0001"
+          },
+          "expect": {
+            "receipt_status": "pending"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:setup.1.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.profile.update",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "profile_kind": "personality",
+            "expected_revision": 1,
+            "document": {
+              "format": "markdown",
+              "body": "# Mira\n\nGuarded, loyal, keeps promises. Returns before dawn.\n"
+            },
+            "idempotency_key": "prof-tw-stale-0002"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.reflections.state",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
+          "include_shared": true
+        }
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "stale",
+            "equals": true
+          }
+        ]
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "import-activation-stales-reflection-unconditionally",
+      "invariant": "MEM-R025",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "cooperative provider: after activation an identity remap, revision-1 records and a matching policy version make the pinned basis exactly reproducible, so equality plus stale: true proves unconditional imported staleness \u2014 a policy violation or a basis mismatch under those conditions FAILS",
+      "provider_class": "cooperative",
+      "requires": [
+        "spc_tw_harbor holds refl_tw_gate_key_0001 with an unmoved basis: its pinned records at revision 1 and the personality profile at revision 1",
+        "an empty target space spc_tw_import_target exists; its subject ids and local reflections are absent",
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
+        "declared provider policy (cooperative class): identity remap on an empty target (target id == source id \u2014 \u00a77.31 requires reassignment, not a change of value), fresh target revisions starting at 1, and the source bundle's engine_policy_version; every check below is mandatory and a violation FAILS the case",
+        "memory.receipts.get polls until each receipt is terminal before the next step"
+      ],
+      "remap_policy_check": {
+        "report": "setup.4.result.staged_report",
+        "maps": [
+          "record_id_map",
+          "candidate_id_map"
+        ],
+        "expect_keys": {
+          "record_id_map": [
+            "rec_tw_gate_key_fact",
+            "rec_tw_gate_key_event",
+            "rec_tw_bo_promise"
+          ],
+          "candidate_id_map": [
+            "cand_tw_gate_key_0001"
+          ]
+        },
+        "policy": "identity",
+        "inconclusive_on_violation": false
+      },
+      "pinned_basis_check": {
+        "reflection": "op.reflections.0",
+        "inconclusive_on_mismatch": false
+      },
+      "policy_version_check": {
+        "observed": "setup.0.engine_policy_version",
+        "pinned": "op.reflections.0.generator.engine_policy_version",
+        "inconclusive_on_mismatch": false
+      },
+      "setup": [
+        {
+          "op": "memory.describe",
+          "request": {},
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "memory.reflections.list",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "sizes": [
+              {
+                "path": "reflections",
+                "equals": 1
+              }
+            ],
+            "state": [
+              {
+                "path": "reflections.0.stale",
+                "equals": false
+              }
+            ]
+          }
+        },
+        {
+          "op": "memory.subjects.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "subject_id": "toy:character:mira"
+          },
+          "expect": {
+            "error_code": "NOT_FOUND"
+          }
+        },
+        {
+          "op": "memory.reflections.list",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "subject_id": "toy:character:mira",
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "sizes": [
+              {
+                "path": "reflections",
+                "equals": 0
+              }
+            ]
+          }
+        },
+        {
+          "op": "memory.imports.stage",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "conflict_policy": "fail",
+            "adopt_grants": []
+          },
+          "stage_from": {
+            "asset": "assets/tw-minimal-export.json",
+            "chunk_limit": 4096,
+            "idempotency_key_pattern": "{export_id}:chunk:{ordinal}"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.imports.activate",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "import_id": "$ref:setup.4.result.import_id",
+            "idempotency_key": "imp-tw-stale-0003"
+          },
+          "expect": {
+            "receipt_status": "pending"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "receipt_id": "$ref:setup.5.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.records.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "record_id": "rec_tw_gate_key_fact"
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              {
+                "path": "record.revision",
+                "equals": 1
+              }
+            ]
+          }
+        }
+      ],
+      "op": "memory.reflections.list",
+      "request": {
+        "space_id": "spc_tw_import_target",
+        "subject_id": "toy:character:mira",
+        "limit": 10
+      },
+      "expect": {
+        "success": true,
+        "sizes": [
+          {
+            "path": "reflections",
+            "equals": 1
+          }
+        ],
+        "state": [
+          {
+            "path": "reflections.0.stale",
+            "equals": true
+          }
+        ]
+      },
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

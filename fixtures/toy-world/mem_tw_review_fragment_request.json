@@ -1,0 +1,24 @@
+{
+  "space_id": "spc_tw_harbor",
+  "candidate_id": "cand_tw_gate_key_0001",
+  "expected_revision": 1,
+  "decision": {
+    "action": "fragment",
+    "fragments": [
+      {
+        "kind": "fact",
+        "content": {
+          "text": "The gate key is hidden under the third barrel."
+        }
+      },
+      {
+        "kind": "event",
+        "content": {
+          "text": "Mira revealed the key location to Bo."
+        }
+      }
+    ]
+  },
+  "idempotency_key": "rev-tw-gate-key-0001-1",
+  "extensions": {}
+}

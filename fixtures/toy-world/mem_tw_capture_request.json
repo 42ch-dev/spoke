@@ -1,0 +1,23 @@
+{
+  "space_id": "spc_tw_harbor",
+  "subject_id": "toy:character:mira",
+  "content": {
+    "text": "Mira told Bo the gate key is hidden under the third barrel."
+  },
+  "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+  "source_context_ids": ["ctx_tw_customs_gate"],
+  "anchors": [
+    {
+      "schema_version": 1,
+      "source_id": "manuscript:tw-ch1",
+      "span": { "start": 1400, "end": 1463 },
+      "label": "customs gate exchange",
+      "mime_type": "text/plain",
+      "extensions": {}
+    }
+  ],
+  "kind_hint": "fact",
+  "occurred_at": "2026-07-23T06:05:00Z",
+  "idempotency_key": "cap-tw-gate-key-0001",
+  "extensions": {}
+}

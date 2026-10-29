@@ -2550,7 +2550,17 @@ impl MemoryPort for SqliteMemoryProvider {
                     format!("candidate revision is {revision}"),
                 );
             }
-            let receipt_id = Self::next_receipt_id(space);
+            // Allocate the receipt ONCE and write its id into consumed_by —
+            // never allocate separately from the receipt constructor.
+            let mut receipt = Self::receipt(
+                space,
+                now,
+                "memory.candidates.dismiss",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            let receipt_id = receipt["receipt_id"].clone();
             let content_digest = match jcs_sha256_hex(&candidate["proposed"]["content"]) {
                 SpokeResult::Ok(digest) => digest,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
@@ -2571,14 +2581,6 @@ impl MemoryPort for SqliteMemoryProvider {
             }
             space.candidates.insert(candidate_id.clone(), consumed);
             space.touch();
-            let mut receipt = Self::receipt(
-                space,
-                now,
-                "memory.candidates.dismiss",
-                &principal_id,
-                &digest,
-                &key,
-            );
             receipt["result"] = json!({ "candidate_id": candidate_id, "outcome": "dismissed" });
             Self::remember(
                 space,
@@ -2705,7 +2707,17 @@ impl MemoryPort for SqliteMemoryProvider {
             let proposed = candidate["proposed"].clone();
             let decision = request_value["decision"].clone();
             let action = decision["action"].as_str().unwrap_or("drop").to_string();
-            let receipt_id = Self::next_receipt_id(space);
+            // Allocate the receipt ONCE and write its id into consumed_by —
+            // never allocate separately from the receipt constructor.
+            let mut receipt = Self::receipt(
+                space,
+                now,
+                "memory.candidates.review",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            let receipt_id = receipt["receipt_id"].clone();
             let mut record_ids: Vec<String> = Vec::new();
             match action.as_str() {
                 "promote" => {
@@ -2786,14 +2798,6 @@ impl MemoryPort for SqliteMemoryProvider {
             }
             space.candidates.insert(candidate_id, consumed);
             space.touch();
-            let mut receipt = Self::receipt(
-                space,
-                now,
-                "memory.candidates.review",
-                &principal_id,
-                &digest,
-                &key,
-            );
             receipt["result"] = json!({ "outcome": outcome, "record_ids": record_ids });
             Self::remember(
                 space,

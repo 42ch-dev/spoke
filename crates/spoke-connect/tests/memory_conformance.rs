@@ -953,13 +953,22 @@ async fn verify_export_fetches(
     let recomputed = spoke_memory::transfer::bundle_digest(&reassembled)
         .map_err(|error| format!("bundle digest: {error}"))?;
     // The vector may pin an independently generated digest constant (Python
-    // JCS+sha256 of the deterministic sealed bundle); a mismatch is a hard
+    // JCS+sha256 of the deterministic sealed bundle). `provider_scope`
+    // restricts the assertion to the named provider leg — a differently
+    // scoped provider (e.g. the loopback harness) skips it instead of
+    // degrading to a silent mismatch. A mismatch on the scoped leg is a hard
     // failure, not an inconclusive.
-    if let Some(foreign) = directive["foreign_bundle_digest"].as_str() {
-        if recomputed != foreign {
-            return Err(format!(
-                "foreign bundle digest mismatch: recomputed {recomputed}, pinned {foreign}"
-            ));
+    let scoped_here = directive["provider_scope"]
+        .as_str()
+        .map(|scope| scope == "sqlite")
+        .unwrap_or(true);
+    if scoped_here {
+        if let Some(foreign) = directive["foreign_bundle_digest"].as_str() {
+            if recomputed != foreign {
+                return Err(format!(
+                    "foreign bundle digest mismatch: recomputed {recomputed}, pinned {foreign}"
+                ));
+            }
         }
     }
     let bundle_digest_matches_receipt = recomputed == advertised;
@@ -1289,10 +1298,18 @@ fn check_expect(
         let path = entry["path"].as_str().unwrap_or_default();
         let from = entry["from"].as_str().unwrap_or_default();
         let from_path = entry["from_path"].as_str().unwrap_or_default();
+        // Both compared values must EXIST: a missing path is a failure, never
+        // a vacuous None == None pass.
         let original = responses
             .get(from)
             .and_then(|value| walk(&value["payload"], from_path));
-        if walk(body, path) != original {
+        let Some(original) = original else {
+            return failed(format!("unchanged {path}: {from}.{from_path} does not exist"));
+        };
+        let Some(actual) = walk(body, path) else {
+            return failed(format!("unchanged {path}: does not exist in the response"));
+        };
+        if actual != original {
             return failed(format!("unchanged {path}: differs from {from}.{from_path}"));
         }
     }

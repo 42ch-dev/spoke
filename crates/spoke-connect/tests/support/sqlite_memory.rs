@@ -27,7 +27,7 @@
 //! request after a restore is a fresh execution, not a replay). Normalized tables
 //! are the production shape if this stops being a proof artifact.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -350,6 +350,9 @@ struct Space {
     /// Pinned record ids per reflection (provider-private; basis carries only
     /// digests on the wire).
     reflection_sources: BTreeMap<String, Vec<String>>,
+    /// Reflections activated from a staged import: §7.31 stale
+    /// unconditionally, regardless of whether the translated basis reproduces.
+    imported_reflections: BTreeSet<String>,
     /// Deferred work a pending receipt will complete on the next observation.
     pending: BTreeMap<String, PendingWork>,
     exports: BTreeMap<String, ExportState>,
@@ -1025,6 +1028,27 @@ impl SqliteMemoryProvider {
             .unwrap_or(false)
     }
 
+    /// §7.0.5: the dedup record outlives the receipt body (MEM-R022), so a
+    /// same-key replay after eviction answers RECEIPT_EXPIRED without
+    /// re-executing the op.
+    fn replay_expired(
+        space: &Space,
+        principal_id: &str,
+        op: &str,
+        key: &str,
+        digest: &str,
+    ) -> bool {
+        if key.is_empty() {
+            return false;
+        }
+        let namespace = format!("{principal_id}\u{1f}{op}\u{1f}{key}");
+        space
+            .dedup
+            .get(&namespace)
+            .map(|entry| entry.digest == digest)
+            .unwrap_or(false)
+    }
+
     fn remember(
         space: &mut Space,
         principal_id: &str,
@@ -1232,6 +1256,27 @@ impl SqliteMemoryProvider {
                 .cloned()
                 .collect::<Vec<_>>());
         }
+        // The typed Connect round-trip drops explicit empty arrays (the
+        // generated chunk types skip serializing them), which would break the
+        // sealed chunk digests over the wire. The sealed bundle therefore
+        // omits empty arrays: absence is §6.13-valid, and reassembly
+        // reproduces the sealed form exactly.
+        for field in [
+            "subjects",
+            "records",
+            "candidates",
+            "profiles",
+            "reflections",
+            "receipt_summaries",
+            "grants",
+        ] {
+            if bundle[field].as_array().is_some_and(Vec::is_empty) {
+                bundle
+                    .as_object_mut()
+                    .expect("bundle object")
+                    .remove(field);
+            }
+        }
         bundle
     }
 
@@ -1273,7 +1318,13 @@ impl SqliteMemoryProvider {
 
     /// `§6.9` staleness at read time: the current basis digest for the pinned
     /// selection differs from the reflection's pinned `basis.state_digest`.
+    /// Imported reflections are the §7.31 exception: stale unconditionally,
+    /// even when the translated basis reproduces exactly.
     fn reflection_stale(space: &Space, subject_id: &str, reflection: &Value) -> bool {
+        let reflection_id = reflection["reflection_id"].as_str().unwrap_or_default();
+        if space.imported_reflections.contains(reflection_id) {
+            return true;
+        }
         let Ok(selection) =
             serde_json::from_value::<ReadSelection>(reflection["selection"].clone())
         else {
@@ -2214,6 +2265,13 @@ impl MemoryPort for SqliteMemoryProvider {
                 Self::replay(space, &principal_id, "memory.capture", &key, &digest)
             {
                 return SpokeResult::Ok(receipt);
+            }
+            if Self::replay_expired(space, &principal_id, "memory.capture", &key, &digest) {
+                return reject_details(
+                    SpokeRejectCode::ReceiptExpired,
+                    "receipt body evicted; dedup tombstone retained (MEM-R022)",
+                    json!({ "last_known_status": "committed" }),
+                );
             }
             let content = request_value["content"].clone();
             let text = content["text"].as_str().unwrap_or_default().to_string();
@@ -4088,9 +4146,14 @@ impl MemoryPort for SqliteMemoryProvider {
                 let subject = rename(&text_field(&reflection, "subject_id"));
                 reflection["subject_id"] = json!(subject);
                 reflection["revision"] = json!(1);
-                // §7.31: imported reflections are stale unconditionally.
+                // §7.31: imported reflections are stale unconditionally. The
+                // stored flag is not enough: read-time staleness recomputes
+                // the basis, and a cooperative provider reproduces the
+                // translated basis exactly — the marker keeps imported
+                // reflections stale regardless.
                 reflection["stale"] = json!(true);
                 let reflection_id = text_field(&reflection, "reflection_id");
+                space.imported_reflections.insert(reflection_id.clone());
                 space.reflections.insert(reflection_id, reflection);
                 reflections += 1;
             }
@@ -4161,10 +4224,12 @@ impl MemoryPort for SqliteMemoryProvider {
                         )
                     }
                 }
-                let new_grant_id = format!("grt_sqlite_{:04}", space.grants.len() + 1);
+                // Adoption keeps the source grant id: the staged bundle names
+                // the grant (§7.31 adopts exactly that grant), and the target
+                // must hold the grant under the same id.
                 let mut grant = json!({
                     "schema_version": 1,
-                    "grant_id": new_grant_id,
+                    "grant_id": grant_id,
                     "space_id": space_id,
                     "principal_id": target_principal,
                     "capabilities": summary["capabilities"],

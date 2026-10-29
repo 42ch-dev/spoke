@@ -9,9 +9,13 @@
 //! so the interpreter needs no typed per-op dispatch. The expect vocabulary,
 //! `$ref` namespaces and directives follow `fixtures/memory-conformance/README.md`.
 //!
-//! Cases whose directives are not implemented in this round (staged imports and
-//! export chunk fetches that depend on byte-faithful typed chunk round-trips) are
-//! recorded as documented inconclusive with an explicit reason — never skipped.
+//! The `stage_from` directive partitions a sealed export asset into §6.13 chunks
+//! and stages them in ordinal order; `verify_export` fetches every remaining
+//! ordinal and recomputes the advertised chunk/bundle digests. Cooperative-class
+//! policy directives (`remap_policy_check`, `pinned_basis_check`,
+//! `policy_version_check`) are verified in-case: a violation fails the case,
+//! never a silent pass. Cases whose expectations are genuinely unreachable on
+//! this provider are recorded as documented inconclusive — never skipped.
 
 #![cfg(feature = "remote-adapter")]
 
@@ -35,8 +39,11 @@ use spoke_connect::remote::{
     RemoteMemoryService, RemoteServePorts, RemoteServePortsComposite, Transport,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
-use spoke_operations::MemoryPort;
-use spoke_schemas::{ConnectHello, ConnectSession, HostCapabilityManifest, Principal};
+use spoke_operations::{MemoryPort, SpokeResult};
+use spoke_schemas::{
+    ConnectHello, ConnectSession, HostCapabilityManifest, MemoryReflectionsStateRequest,
+    Principal,
+};
 use sqlite_memory::SqliteMemoryProvider;
 
 const HOST_ID: &str = "memory-conformance-host";
@@ -137,6 +144,7 @@ fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
 
 async fn start_host(
     memory: Arc<dyn RemoteMemoryService>,
+    capabilities: &[&str],
 ) -> (Arc<ConnectResponder>, LoopbackTransportPair) {
     let pair = loopback_transport_pair();
     let peer_id_client = derive_peer_id_from_ed25519_pubkey(&pubkey_client());
@@ -147,7 +155,7 @@ async fn start_host(
     let responder = connect_responder(ConnectResponderOptions {
         transport: Arc::new(pair.server.clone()),
         identity: RemoteIdentity { seed: seed_host() },
-        manifest: manifest(HOST_ID, &MEMORY_CAPABILITIES),
+        manifest: manifest(HOST_ID, capabilities),
         allowlist: vec![peer_id_client.clone()],
         peer_keys: std::collections::HashMap::from([(peer_id_client, pubkey_client())]),
         ports: Some(ports),
@@ -179,12 +187,12 @@ fn sign_invoke_request(
     Value::Object(wire)
 }
 
-async fn handshake(client: &LoopbackTransport) -> String {
+async fn handshake(client: &LoopbackTransport, capabilities: &[&str]) -> String {
     let nonce = "memory-conformance-nonce-0".to_owned();
     let hello = sign_hello_ed25519(
         &seed_client(),
         &nonce,
-        &connect_manifest(&manifest("conformance-client", &MEMORY_CAPABILITIES)),
+        &connect_manifest(&manifest("conformance-client", capabilities)),
         None,
     )
     .expect("hello sign");
@@ -320,6 +328,9 @@ fn has_path(value: &Value, path: &str) -> bool {
 enum Outcome {
     Pass,
     Inconclusive(String),
+    /// A cooperative-class policy violation or expectation mismatch: the case
+    /// is proven non-compliant and fails the run.
+    Fail(String),
 }
 
 struct Report {
@@ -397,7 +408,7 @@ fn record(
     })
 }
 
-fn seed(provider: &SqliteMemoryProvider) {
+async fn seed(provider: &SqliteMemoryProvider) {
     provider.provision_space(SPACE, "host_tw_primary", &["personality"]);
     provider.provision_space(TARGET_SPACE, "host_tw_primary", &["personality"]);
     provider.provision_subject(SPACE, MIRA, Some(("toy", "character")));
@@ -466,7 +477,7 @@ fn seed(provider: &SqliteMemoryProvider) {
         TARGET_SPACE,
         grant(
             TARGET_SPACE,
-            "grt_tw_import_admin",
+            "grt_tw_import_admin_0001",
             "prn_tw_cli_operator",
             &["admin"],
             None,
@@ -524,6 +535,33 @@ fn seed(provider: &SqliteMemoryProvider) {
             "extensions": {},
         }),
     );
+
+    // The source-space control reflection: pinned to the provider's own
+    // current basis (via `memory.reflections.state`), so it reads `stale:
+    // false` until its basis moves — the imported-staleness case's control
+    // assertion requires exactly that.
+    let operator: Principal = serde_json::from_value(json!({
+        "principal_id": "prn_tw_cli_operator",
+        "extensions": {},
+    }))
+    .expect("valid principal");
+    let state_request: MemoryReflectionsStateRequest = serde_json::from_value(json!({
+        "space_id": SPACE,
+        "subject_id": MIRA,
+        "selection": {
+            "mode": "selected_contexts",
+            "context_ids": [GATE],
+            "include_shared": true,
+        },
+    }))
+    .expect("valid reflections.state request");
+    let state = match provider.get_reflection_state(&operator, state_request).await {
+        SpokeResult::Ok(response) => serde_json::to_value(response).expect("state response"),
+        SpokeResult::Reject(reject) => panic!("seed reflections.state: {reject:?}"),
+    };
+    let mut control = load_asset("assets/tw-minimal-export.json")["reflections"][0].clone();
+    control["basis"]["state_digest"] = state["state_digest"].clone();
+    provider.provision_reflection(SPACE, control);
 }
 
 #[test]
@@ -543,23 +581,50 @@ fn corpus_interpreter_runs_against_the_sqlite_provider() {
                 .filter(|case| case["surface"] == "wire")
             {
                 let provider = Arc::new(SqliteMemoryProvider::in_memory());
-                seed(&provider);
-                let (responder, pair) = start_host(memory_face(Arc::clone(&provider))).await;
+                seed(&provider).await;
+                let (responder, pair) =
+                    start_host(memory_face(Arc::clone(&provider)), &MEMORY_CAPABILITIES).await;
                 let client = pair.client.clone();
-                let session_id = handshake(&client).await;
+                let session_id = handshake(&client, &MEMORY_CAPABILITIES).await;
                 let mut wire = Wire {
                     client,
                     session_id,
                     sequence: -1,
-                    provider,
+                    provider: Arc::clone(&provider),
                 };
-                let outcome = run_case(&mut wire, &scenario.id, case).await;
+                // `capability_missing` is unreachable on a fully-negotiated
+                // session: a case that expects it runs its op on a second
+                // session negotiated without `spoke-memory-reflection`.
+                let mut reduced = None;
+                let mut reduced_responder = None;
+                if expects_capability_missing(case) {
+                    let caps: Vec<&str> = MEMORY_CAPABILITIES
+                        .iter()
+                        .copied()
+                        .filter(|cap| *cap != "spoke-memory-reflection")
+                        .collect();
+                    let (responder, pair) =
+                        start_host(memory_face(Arc::clone(&provider)), &caps).await;
+                    let client = pair.client.clone();
+                    let session_id = handshake(&client, &caps).await;
+                    reduced = Some(Wire {
+                        client,
+                        session_id,
+                        sequence: -1,
+                        provider: Arc::clone(&provider),
+                    });
+                    reduced_responder = Some(responder);
+                }
+                let outcome = run_case(&mut wire, reduced.as_mut(), &scenario.id, case).await;
                 report.record(
                     &scenario.id,
                     case["id"].as_str().unwrap_or("<case>"),
                     outcome,
                 );
                 responder.close();
+                if let Some(responder) = reduced_responder {
+                    responder.close();
+                }
             }
         }
     });
@@ -570,20 +635,33 @@ fn corpus_interpreter_runs_against_the_sqlite_provider() {
         .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
         .count();
     println!(
-        "conformance: {} cases, {passed} pass, {} inconclusive",
+        "conformance: {} cases, {passed} pass, {} not passing",
         report.rows.len(),
         report.rows.len() - passed
     );
     for (scenario, case, outcome) in &report.rows {
-        if let Outcome::Inconclusive(reason) = outcome {
-            println!("INCONCLUSIVE {scenario}/{case}: {reason}");
+        match outcome {
+            Outcome::Inconclusive(reason) => println!("INCONCLUSIVE {scenario}/{case}: {reason}"),
+            Outcome::Fail(reason) => println!("FAIL {scenario}/{case}: {reason}"),
+            Outcome::Pass => {}
         }
     }
     assert_eq!(report.rows.len(), 44, "all wire cases are executed");
+    let failed = report
+        .rows
+        .iter()
+        .filter(|(_, _, outcome)| matches!(outcome, Outcome::Fail(_)))
+        .count();
+    assert_eq!(failed, 0, "cooperative-class policy violations fail their case");
 }
 
 /// Execute one case: setup → op → then, with the closed expect vocabulary.
-async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
+async fn run_case(
+    wire: &mut Wire,
+    mut reduced: Option<&mut Wire>,
+    scenario: &str,
+    case: &Value,
+) -> Outcome {
     let case_id = case["id"].as_str().unwrap_or("<case>");
     *CURRENT_PRINCIPAL.lock().expect("principal lock") = case["principal"]
         .as_str()
@@ -591,11 +669,6 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
         .to_string();
     let mut responses: BTreeMap<String, Value> = BTreeMap::new();
 
-    if case.get("stage_from").is_some() || case.get("verify_export").is_some() {
-        return Outcome::Inconclusive(format!(
-            "{scenario}/{case_id}: directive not implemented in this round"
-        ));
-    }
     for (index, step) in case["setup"]
         .as_array()
         .cloned()
@@ -603,34 +676,24 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
         .iter()
         .enumerate()
     {
-        let _ = index;
-        let op = step["op"].as_str().expect("step op");
-        if op.starts_with("harness.") {
-            let outcome = run_harness_step(&wire.provider, op);
-            responses.insert(format!("setup.{index}"), outcome.clone());
-            if let Some(expect) = step.get("expect") {
-                if let Err(failure) = check_expect(&outcome, expect, &responses) {
-                    return Outcome::Inconclusive(format!(
-                        "{scenario}/{case_id}: setup[{index}] {failure}"
-                    ));
-                }
+        let outcome = match invoke_step(wire, step, &responses).await {
+            Ok(value) => value,
+            Err(failure) => {
+                return Outcome::Inconclusive(format!(
+                    "{scenario}/{case_id}: setup[{index}] {failure}"
+                ))
             }
-            continue;
-        }
-        let request = resolve_refs(&step["request"], &responses);
-        let response = wire
-            .invoke(step["op"].as_str().expect("step op"), request)
-            .await;
-        responses.insert(format!("setup.{index}"), response.clone());
+        };
+        responses.insert(format!("setup.{index}"), outcome.clone());
         if let Some(expect) = step.get("expect") {
-            if let Err(failure) = check_expect(&response, expect, &responses) {
+            if let Err(failure) = check_expect(&outcome, expect, &responses) {
                 return Outcome::Inconclusive(format!(
                     "{scenario}/{case_id}: setup[{index}] {failure}"
                 ));
             }
-        } else if response.get("error").is_some() {
+        } else if outcome.get("error").is_some() {
             return Outcome::Inconclusive(format!(
-                "{scenario}/{case_id}: setup[{index}] unexpected error {response}"
+                "{scenario}/{case_id}: setup[{index}] unexpected error {outcome}"
             ));
         }
     }
@@ -680,12 +743,40 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
     }
 
     let op_request = resolve_refs(&case["request"], &responses);
-    let op_response = wire
-        .invoke(case["op"].as_str().expect("op"), op_request)
-        .await;
+    let op = case["op"].as_str().expect("op");
+    let mut op_response = if op == "memory.imports.stage" && case.get("stage_from").is_some() {
+        // The staging directive also appears on the op-under-test itself.
+        let mut op_step = serde_json::Map::new();
+        op_step.insert("op".into(), json!(op));
+        op_step.insert("request".into(), op_request.clone());
+        op_step.insert("stage_from".into(), case["stage_from"].clone());
+        match stage_from_asset(wire, &Value::Object(op_step), &responses).await {
+            Ok(response) => response,
+            Err(failure) => {
+                return Outcome::Inconclusive(format!("{scenario}/{case_id}: {failure}"))
+            }
+        }
+    } else {
+        match reduced.as_deref_mut() {
+            Some(reduced_wire) => reduced_wire.invoke(op, op_request.clone()).await,
+            None => wire.invoke(op, op_request.clone()).await,
+        }
+    };
+    if let Some(directive) = case.get("verify_export") {
+        match verify_export_fetches(wire, &directive, &responses, &op_request, &op_response).await
+        {
+            Ok(verified) => op_response["payload"]["verified"] = verified,
+            Err(failure) => {
+                return Outcome::Inconclusive(format!("{scenario}/{case_id}: {failure}"))
+            }
+        }
+    }
     responses.insert("op".to_string(), op_response.clone());
     if let Err(failure) = check_expect(&op_response, &case["expect"], &responses) {
         return Outcome::Inconclusive(format!("{scenario}/{case_id}: {failure}"));
+    }
+    if let Some(outcome) = check_policy_directives(wire, case, &responses, &op_request).await {
+        return outcome;
     }
 
     for (index, step) in case["then"]
@@ -695,16 +786,14 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
         .iter()
         .enumerate()
     {
-        let op = step["op"].as_str().expect("then op");
-        if op.starts_with("harness.") {
-            let outcome = run_harness_step(&wire.provider, op);
-            responses.insert(format!("then.{index}"), outcome);
-            continue;
-        }
-        let request = resolve_refs(&step["request"], &responses);
-        let response = wire
-            .invoke(step["op"].as_str().expect("then op"), request)
-            .await;
+        let response = match invoke_step(wire, step, &responses).await {
+            Ok(value) => value,
+            Err(failure) => {
+                return Outcome::Inconclusive(format!(
+                    "{scenario}/{case_id}: then[{index}] {failure}"
+                ))
+            }
+        };
         responses.insert(format!("then.{index}"), response.clone());
         if let Some(expect) = step.get("expect") {
             if let Err(failure) = check_expect(&response, expect, &responses) {
@@ -715,6 +804,270 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
         }
     }
     Outcome::Pass
+}
+
+/// A case expecting `capability_missing` must run on a session negotiated
+/// without the reflection sub-capability — the deny is unreachable on the
+/// fully-negotiated session.
+fn expects_capability_missing(case: &Value) -> bool {
+    case["expect"]
+        .get("error_code")
+        .and_then(Value::as_str)
+        .map(|code| code == "capability_missing")
+        .unwrap_or(false)
+}
+
+/// Invoke one case step. Harness capabilities drive the provider's snapshot
+/// surface; a `memory.imports.stage` step carrying `stage_from` partitions the
+/// asset and stages every chunk; anything else is one raw invoke.
+async fn invoke_step(
+    wire: &mut Wire,
+    step: &Value,
+    responses: &BTreeMap<String, Value>,
+) -> Result<Value, String> {
+    let op = step["op"].as_str().expect("step op");
+    if op.starts_with("harness.") {
+        return Ok(run_harness_step(&wire.provider, op));
+    }
+    if op == "memory.imports.stage" && step.get("stage_from").is_some() {
+        return stage_from_asset(wire, step, responses).await;
+    }
+    let request = resolve_refs(&step["request"], responses);
+    Ok(wire.invoke(op, request).await)
+}
+
+/// `stage_from` directive: partition the sealed asset into §6.13 chunks of at
+/// most `chunk_limit` bytes and stage them in ordinal order over the wire,
+/// expanding `idempotency_key_pattern` per chunk. `replay.chunk` re-sends that
+/// chunk with the identical key and asserts `result.chunks_received` does not
+/// double-count. The step's response is the final chunk's receipt.
+async fn stage_from_asset(
+    wire: &mut Wire,
+    step: &Value,
+    responses: &BTreeMap<String, Value>,
+) -> Result<Value, String> {
+    let directive = &step["stage_from"];
+    let asset = directive["asset"].as_str().unwrap_or_default();
+    let bundle = load_asset(asset);
+    let chunk_limit = directive["chunk_limit"].as_u64().unwrap_or(4096) as usize;
+    let pattern = directive["idempotency_key_pattern"]
+        .as_str()
+        .expect("stage_from idempotency_key_pattern");
+    let export_id = text(&bundle, "export_id");
+    let chunks = spoke_memory::transfer::partition_bundle(&bundle, chunk_limit)
+        .map_err(|error| format!("partition {asset}: {error}"))?;
+    let template = resolve_refs(&step["request"], responses);
+    let replay_chunk = directive["replay"]["chunk"].as_u64();
+    let mut last = Value::Null;
+    for chunk in &chunks {
+        let ordinal = chunk["chunk_ordinal"].as_u64().unwrap_or(0);
+        let mut request = template.clone();
+        request["chunk"] = chunk.clone();
+        request["idempotency_key"] = json!(pattern
+            .replace("{export_id}", &export_id)
+            .replace("{ordinal}", &ordinal.to_string()));
+        if ordinal > 0 {
+            // §7.31: tail chunks carry no op-level conflict_policy/adopt_grants.
+            let object = request.as_object_mut().expect("stage request object");
+            object.remove("conflict_policy");
+            object.remove("adopt_grants");
+        }
+        let response = wire.invoke("memory.imports.stage", request.clone()).await;
+        if let Some(error) = response["payload"].get("error").or_else(|| response.get("error")) {
+            return Err(format!("stage chunk {ordinal}: {error}"));
+        }
+        if replay_chunk == Some(ordinal) {
+            let replayed = wire.invoke("memory.imports.stage", request).await;
+            let first = response["payload"]["result"]["chunks_received"].clone();
+            let second = replayed["payload"]["result"]["chunks_received"].clone();
+            if first != second {
+                return Err(format!(
+                    "replay chunk {ordinal} double-counted: {first} then {second}"
+                ));
+            }
+        }
+        last = response;
+    }
+    Ok(last)
+}
+
+/// `verify_export` directive: the op response carries chunk ordinal 0; fetch
+/// every remaining ordinal from the referenced receipt's `result.export_id` /
+/// `result.chunk_count`, then recompute each `chunk_digest` (JCS of the chunk
+/// minus `chunk_digest`) and the reassembled bundle digest (JCS minus
+/// `digest`). Fabricated digests fail the case.
+async fn verify_export_fetches(
+    wire: &mut Wire,
+    directive: &Value,
+    responses: &BTreeMap<String, Value>,
+    request: &Value,
+    op_response: &Value,
+) -> Result<Value, String> {
+    let reference = directive["receipt"].as_str().unwrap_or_default();
+    let receipt_response = responses
+        .get(reference)
+        .ok_or_else(|| format!("verify_export: unknown receipt step {reference}"))?;
+    let payload = &receipt_response["payload"];
+    let lookup = |path: &str| walk(payload, path).or_else(|| walk(&payload["receipt"], path));
+    let export_id = lookup("result.export_id")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .ok_or("verify_export: receipt result.export_id unreadable")?;
+    let chunk_count = lookup("result.chunk_count")
+        .and_then(|value| value.as_u64())
+        .ok_or("verify_export: receipt result.chunk_count unreadable")? as usize;
+    let advertised = lookup("result.bundle_digest")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .ok_or("verify_export: receipt result.bundle_digest unreadable")?;
+    let mut chunks = vec![op_response["payload"]["chunk"].clone()];
+    for ordinal in 1..chunk_count {
+        let response = wire
+            .invoke(
+                "memory.exports.get",
+                json!({
+                    "space_id": request["space_id"],
+                    "export_id": export_id,
+                    "chunk_ordinal": ordinal,
+                }),
+            )
+            .await;
+        if let Some(error) = response["payload"].get("error").or_else(|| response.get("error")) {
+            return Err(format!("fetch chunk {ordinal}: {error}"));
+        }
+        chunks.push(response["payload"]["chunk"].clone());
+    }
+    let all_chunk_digests = chunks.iter().all(|chunk| {
+        spoke_memory::transfer::chunk_digest(chunk)
+            .map(|digest| Some(digest.as_str()) == chunk["chunk_digest"].as_str())
+            .unwrap_or(false)
+    });
+    let metadata = |field: &str| chunks[0][field].clone();
+    let chunk_metadata_consistent = chunks.iter().enumerate().all(|(index, chunk)| {
+        chunk["chunk_ordinal"].as_u64() == Some(index as u64)
+            && chunk["export_id"] == metadata("export_id")
+            && chunk["chunk_count"] == metadata("chunk_count")
+            && chunk["bundle_digest"] == metadata("bundle_digest")
+    });
+    let reassembled = spoke_memory::transfer::reassemble(&chunks)
+        .map_err(|error| format!("reassemble: {error}"))?;
+    let recomputed = spoke_memory::transfer::bundle_digest(&reassembled)
+        .map_err(|error| format!("bundle digest: {error}"))?;
+    let bundle_digest_matches_receipt = recomputed == advertised;
+    let reassembled_bundle_verifies =
+        reassembled.get("digest").and_then(Value::as_str) == Some(recomputed.as_str());
+    Ok(json!({
+        "all_chunk_digests": all_chunk_digests,
+        "chunk_metadata_consistent": chunk_metadata_consistent,
+        "bundle_digest_matches_receipt": bundle_digest_matches_receipt,
+        "reassembled_bundle_verifies": reassembled_bundle_verifies,
+    }))
+}
+
+/// Resolve a `<step>.<dotted.path>` reference against the recorded responses'
+/// payloads (polled receipts nest the op payload under `receipt`).
+fn reference_value(reference: &Value, responses: &BTreeMap<String, Value>) -> Value {
+    let reference = reference.as_str().unwrap_or_default();
+    let (step, path) = split_reference(reference);
+    responses
+        .get(&step)
+        .and_then(|response| {
+            walk(&response["payload"], &path)
+                .or_else(|| walk(&response["payload"]["receipt"], &path))
+        })
+        .unwrap_or(Value::Null)
+}
+
+/// Cooperative-class policy directives declared on the case. A violation
+/// returns `Some(Outcome::Fail)` (or `Inconclusive` when the case declares
+/// `inconclusive_on_*: true` for a third-party provider).
+async fn check_policy_directives(
+    wire: &mut Wire,
+    case: &Value,
+    responses: &BTreeMap<String, Value>,
+    op_request: &Value,
+) -> Option<Outcome> {
+    let case_id = case["id"].as_str().unwrap_or("<case>");
+    let verdict = |inconclusive: bool, reason: String| {
+        if inconclusive {
+            Outcome::Inconclusive(reason)
+        } else {
+            Outcome::Fail(reason)
+        }
+    };
+    if let Some(directive) = case.get("remap_policy_check") {
+        if let Err(violation) = check_remap_policy(&directive, responses) {
+            let inconclusive = directive["inconclusive_on_violation"].as_bool() == Some(true);
+            return Some(verdict(
+                inconclusive,
+                format!("{case_id}: remap policy: {violation}"),
+            ));
+        }
+    }
+    if let Some(directive) = case.get("policy_version_check") {
+        let observed = reference_value(&directive["observed"], responses);
+        let pinned = reference_value(&directive["pinned"], responses);
+        if observed != pinned {
+            let inconclusive = directive["inconclusive_on_mismatch"].as_bool() == Some(true);
+            return Some(verdict(
+                inconclusive,
+                format!("{case_id}: policy version mismatch: observed {observed}, pinned {pinned}"),
+            ));
+        }
+    }
+    if let Some(directive) = case.get("pinned_basis_check") {
+        let reflection = reference_value(&directive["reflection"], responses);
+        let mut request = json!({
+            "space_id": op_request["space_id"],
+            "subject_id": reflection["subject_id"],
+            "selection": reflection["selection"],
+        });
+        if let Some(filter) = reflection.get("filter").filter(|value| !value.is_null()) {
+            request["filter"] = filter.clone();
+        }
+        let state = wire
+            .invoke("memory.reflections.state", request)
+            .await;
+        let recomputed = state["payload"]["state_digest"].clone();
+        let pinned = reflection["basis"]["state_digest"].clone();
+        if recomputed != pinned {
+            let inconclusive = directive["inconclusive_on_mismatch"].as_bool() == Some(true);
+            return Some(verdict(
+                inconclusive,
+                format!("{case_id}: pinned basis mismatch: recomputed {recomputed}, pinned {pinned}"),
+            ));
+        }
+    }
+    None
+}
+
+/// `remap_policy_check`: every named translation map holds exactly the declared
+/// source ids, each mapped to itself (§7.31 reassigns, never renames).
+fn check_remap_policy(
+    directive: &Value,
+    responses: &BTreeMap<String, Value>,
+) -> Result<(), String> {
+    let report = reference_value(&directive["report"], responses);
+    for map_name in directive["maps"].as_array().cloned().unwrap_or_default() {
+        let map_name = map_name.as_str().unwrap_or_default();
+        let expected: BTreeSet<&str> = directive["expect_keys"][map_name]
+            .as_array()
+            .map(|keys| keys.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let actual = report[map_name]
+            .as_object()
+            .ok_or_else(|| format!("{map_name}: missing from the staged report"))?;
+        let actual_keys: BTreeSet<&str> = actual.keys().map(String::as_str).collect();
+        if actual_keys != expected {
+            return Err(format!(
+                "{map_name}: keys {actual_keys:?} != declared {expected:?}"
+            ));
+        }
+        for (key, value) in actual {
+            if value.as_str() != Some(key) {
+                return Err(format!("{map_name}: {key} maps to {value}, not itself"));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Evaluate the closed expect vocabulary against a response.
@@ -735,6 +1088,16 @@ fn check_expect(
     }
     if expect["success"].as_bool() == Some(true) && body.get("error").is_some() {
         return failed(format!("expected success, got {body}"));
+    }
+    if let Some(verified) = expect.get("verified") {
+        // Harness-computed booleans (the `verify_export` directive injects
+        // them into the op payload before this check).
+        if body.get("verified") != Some(verified) {
+            return failed(format!(
+                "verified: expected {verified}, got {:?}",
+                body.get("verified")
+            ));
+        }
     }
     if let Some(status) = expect.get("receipt_status").and_then(Value::as_str) {
         let receipt = if body.get("receipt").is_some() {

@@ -665,7 +665,7 @@ async fn run_case(
     let case_id = case["id"].as_str().unwrap_or("<case>");
     *CURRENT_PRINCIPAL.lock().expect("principal lock") = case["principal"]
         .as_str()
-        .unwrap_or("prn_tw_host_prrimary")
+        .unwrap_or("prn_tw_host_primary")
         .to_string();
     let mut responses: BTreeMap<String, Value> = BTreeMap::new();
 
@@ -797,9 +797,10 @@ async fn run_case(
         responses.insert(format!("then.{index}"), response.clone());
         if let Some(expect) = step.get("expect") {
             if let Err(failure) = check_expect(&response, expect, &responses) {
-                return Outcome::Inconclusive(format!(
-                    "{scenario}/{case_id}: then[{index}] {failure}"
-                ));
+                // A then step's expect is an assertion, not a probe: a
+                // differing observable FAILS the case (for example the
+                // recall-page stability repeat).
+                return Outcome::Fail(format!("{scenario}/{case_id}: then[{index}] {failure}"));
             }
         }
     }
@@ -951,6 +952,16 @@ async fn verify_export_fetches(
         .map_err(|error| format!("reassemble: {error}"))?;
     let recomputed = spoke_memory::transfer::bundle_digest(&reassembled)
         .map_err(|error| format!("bundle digest: {error}"))?;
+    // The vector may pin an independently generated digest constant (Python
+    // JCS+sha256 of the deterministic sealed bundle); a mismatch is a hard
+    // failure, not an inconclusive.
+    if let Some(foreign) = directive["foreign_bundle_digest"].as_str() {
+        if recomputed != foreign {
+            return Err(format!(
+                "foreign bundle digest mismatch: recomputed {recomputed}, pinned {foreign}"
+            ));
+        }
+    }
     let bundle_digest_matches_receipt = recomputed == advertised;
     let reassembled_bundle_verifies =
         reassembled.get("digest").and_then(Value::as_str) == Some(recomputed.as_str());

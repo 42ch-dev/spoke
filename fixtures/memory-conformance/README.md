@@ -200,7 +200,10 @@ test rejects un-namespaced references anywhere in a request payload or directive
   `result.export_id` / `result.chunk_count`, recomputes each `chunk_digest` (JCS
   of the chunk minus `chunk_digest`) and the reassembled bundle digest (JCS minus
   `digest`), and reports the `verified` booleans. Fabricated digests therefore
-  fail the case.
+  fail the case. Optional `foreign_bundle_digest` pins an independently
+  generated digest constant (Python JCS+sha256 of the deterministic sealed
+  bundle): the harness asserts the recomputed bundle digest against it in
+  addition to the engine recomputation, and a mismatch fails the case.
 - **Provider classes** — a case carrying a declared-policy directive
   (`remap_policy_check`, `pinned_basis_check`, `policy_version_check`) must
   declare `provider_class`:

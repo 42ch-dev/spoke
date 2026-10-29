@@ -977,7 +977,7 @@ export interface AllOf45 {
 }
 export interface Result11 {
   record_id: RecordId2;
-  tombstoned: true;
+  tombstoned: boolean;
 }
 export interface AllOf46 {
   op: Op25;

@@ -1423,6 +1423,128 @@ async fn recall_cursor_walks_every_page_without_gaps_or_repeats() {
 }
 
 #[tokio::test]
+async fn recall_cursor_binds_every_mem_r026_input() {
+    // MEM-R026: a cursor binds principal, space, subject, selection/filter,
+    // snapshot marker and engine_policy_version. Reusing one across any of
+    // those is CURSOR_INVALID even when the state epoch has not moved. The
+    // probe principal is the space-wide admin, so every reused request clears
+    // authorization and only the binding can reject it.
+    let provider = provider();
+    const OTHER_SUBJECT: &str = "toy:character:bo";
+    provider.provision_subject(SPACE, OTHER_SUBJECT, Some(("toy", "character")));
+    for index in 0..3 {
+        provider.provision_record(
+            SPACE,
+            json!({
+                "schema_version": 1,
+                "record_id": format!("rec_binding_{index}"),
+                "space_id": SPACE,
+                "subject_id": SUBJECT,
+                "kind": "fact",
+                "content": { "text": format!("barrel tally {index}") },
+                "scope": { "visibility": "context", "context_id": CONTEXT },
+                "provenance": {
+                    "source_context_ids": [CONTEXT],
+                    "anchors": [],
+                    "captured_by": OPERATOR,
+                    "captured_at": "2026-07-23T06:00:00Z",
+                },
+                "created_at": "2026-07-23T06:00:00Z",
+                "updated_at": "2026-07-23T06:00:00Z",
+                "revision": 1,
+                "extensions": {},
+            }),
+        );
+    }
+    let request = |overrides: Value| {
+        let mut request = json!({
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "selection": { "mode": "selected_contexts", "context_ids": [CONTEXT] },
+            "budget": { "max_items": 1 },
+        });
+        for (key, value) in overrides.as_object().expect("overrides object") {
+            request[key] = value.clone();
+        }
+        request
+    };
+
+    let first = expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                serde_json::from_value(request(json!({}))).expect("recall request"),
+            )
+            .await,
+    );
+    let cursor = wire(&first)["next_cursor"]
+        .as_str()
+        .expect("next cursor is an opaque string")
+        .to_string();
+
+    // The same bound request still pages: the offset is the pagination
+    // position, not part of the binding.
+    let second = expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                serde_json::from_value(request(json!({ "cursor": cursor })))
+                    .expect("recall request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&second)["records"].as_array().expect("records").len(),
+        1,
+        "the bound cursor serves the next page"
+    );
+    assert_ne!(
+        wire(&second)["records"], wire(&first)["records"],
+        "the offset survived the binding"
+    );
+
+    for (label, principal_id, overrides) in [
+        (
+            "selection",
+            OPERATOR,
+            json!({ "cursor": cursor, "selection": { "mode": "subject_all" } }),
+        ),
+        (
+            "filter",
+            OPERATOR,
+            json!({ "cursor": cursor, "filter": { "source_context_ids": [CONTEXT] } }),
+        ),
+        // The query ranks the page, so a cursor taken without one must not
+        // resume a differently ranked list at the same offset.
+        (
+            "query",
+            OPERATOR,
+            json!({ "cursor": cursor, "query": "a different ranking" }),
+        ),
+        (
+            "subject",
+            OPERATOR,
+            json!({ "cursor": cursor, "subject_id": OTHER_SUBJECT }),
+        ),
+        ("principal", READER, json!({ "cursor": cursor })),
+    ] {
+        let rejected = expect_reject(
+            provider
+                .recall(
+                    &principal(principal_id),
+                    serde_json::from_value(request(overrides)).expect("recall request"),
+                )
+                .await,
+        );
+        assert_eq!(
+            rejected,
+            SpokeRejectCode::CursorInvalid,
+            "a cursor reused across a different {label} must be invalid"
+        );
+    }
+}
+
+#[tokio::test]
 async fn polling_a_receipt_does_not_change_stored_state() {
     // MEM-R011: the read path never writes. Polling a pending receipt
     // observes it unchanged; only the separate provider worker settles it.

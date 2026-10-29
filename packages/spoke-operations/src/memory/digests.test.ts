@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import canonicalize from "canonicalize";
 
 import { jcsSha256Hex, jcsSha256HexExcluding } from "./digests.js";
 import type { SpokeReject, SpokeResult } from "../result.js";
@@ -33,6 +34,18 @@ describe("memory digests (RFC 8785 JCS + SHA-256)", () => {
         }),
       ),
     ).toBe("fcd9991ad91f6c352701dd3cd819b0633b16e65757773973e7683318c11626f0");
+  });
+
+  it("sorts non-BMP member names by UTF-16 code units like Rust", () => {
+    // RFC 8785 §3.2.3 sorts member names by UTF-16 code units. U+1F600
+    // encodes as the surrogate pair D83D DE00, so it orders BEFORE the BMP
+    // key U+FF61 — the opposite of Unicode-scalar order (which would put
+    // U+FF61 first). The Rust test pins the same canonical bytes and digest.
+    const value = { "\u{1F600}": 1, "\u{FF61}": 2 };
+    expect(canonicalize(value)).toBe('{"\u{1F600}":1,"\u{FF61}":2}');
+    expect(unwrap(jcsSha256Hex(value))).toBe(
+      "88954a1c73177a8dd8c59046f982693fbcfb908d08fbe5b06e82868052487feb",
+    );
   });
 
   it("emits 64 lowercase hex", () => {

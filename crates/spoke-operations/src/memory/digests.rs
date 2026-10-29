@@ -98,6 +98,22 @@ mod tests {
     }
 
     #[test]
+    fn jcs_sha256_sorts_non_bmp_keys_by_utf16_code_units() {
+        // RFC 8785 §3.2.3 sorts member names by UTF-16 code units. U+1F600
+        // encodes as the surrogate pair D83D DE00, so it orders BEFORE the
+        // BMP key U+FF61 — the opposite of Unicode-scalar order (which would
+        // put U+FF61 first). The TS test pins the same canonical bytes and
+        // digest.
+        let value = json!({"😀": 1, "｡": 2});
+        let canonical = serde_jcs::to_vec(&value).expect("canonical bytes");
+        assert_eq!(canonical, "{\"😀\":1,\"｡\":2}".as_bytes());
+        assert_eq!(
+            digest_of(&value),
+            "88954a1c73177a8dd8c59046f982693fbcfb908d08fbe5b06e82868052487feb"
+        );
+    }
+
+    #[test]
     fn jcs_sha256_output_is_64_lowercase_hex() {
         let digest = digest_of(&json!({"a": 1}));
         assert_eq!(digest.len(), 64);

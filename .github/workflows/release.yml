@@ -146,6 +146,9 @@ jobs:
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          # verify-codegen runs `rustfmt` on the generated memory types.
+          components: rustfmt
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
@@ -426,6 +429,11 @@ jobs:
 
       - name: Publish spoke-operations crate
         run: ./tooling/release/publish-crate.sh spoke-operations
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+
+      - name: Publish spoke-memory crate
+        run: ./tooling/release/publish-crate.sh spoke-memory
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 

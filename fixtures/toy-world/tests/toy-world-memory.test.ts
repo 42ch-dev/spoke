@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  contentWireBytes,
+  contentSerializedBytes,
   grantCovers,
   jcsSha256Hex,
   jcsSha256HexExcluding,
@@ -258,7 +258,7 @@ describe("memory.recall scenario", () => {
 
     const [surfaced] = overflowPage.records;
     const content: { text: string; structured?: unknown } = surfaced!.content;
-    const contentBytes = contentWireBytes(content.text, content.structured);
+    const contentBytes = contentSerializedBytes(content);
 
     expect(contentBytes).toBeGreaterThan(overflowRequest.budget.max_bytes!);
     expect(overflowPage.overflow_record_id).toBe(surfaced!.record_id);

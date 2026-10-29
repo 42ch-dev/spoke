@@ -1421,6 +1421,18 @@ impl ConnectResponder {
     /// end forwards the op string and its payload object unchanged.
     async fn dispatch_memory_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
         let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            // Defensive: the dispatch gate routes only string ops here, so a
+            // non-string op means a caller bypassed it. Fail closed with the
+            // terminal memory-boundary reject instead of silently swallowing
+            // the invoke (which would leave the sender waiting).
+            let details = memory_terminal_details();
+            self.send_reverse_error_envelope(
+                doc,
+                SpokeRejectCode::InvalidInput.as_str(),
+                "invalid memory invoke: op must be a string",
+                Some(&details),
+            )
+            .await?;
             return Ok(());
         };
         let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_memory()) else {
@@ -2140,4 +2152,66 @@ pub async fn connect_responder(options: ConnectResponderOptions) -> Arc<ConnectR
         runner.run().await;
     });
     responder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remote::transport::loopback_transport_pair;
+
+    fn test_manifest() -> HostCapabilityManifest {
+        serde_json::from_value(json!({
+            "schema_version": 1,
+            "host_id": "test-host",
+            "roles": ["data-store"],
+            "capabilities": ["spoke-memory"],
+            "namespaces": ["toy_world"],
+            "extensions": {},
+        }))
+        .expect("valid manifest")
+    }
+
+    /// Direct regression for the defensive non-string-op arm: the dispatch
+    /// gate routes only string ops here, so a caller that bypasses it must
+    /// still get a terminal `INVALID_INPUT` response — never the silent drop
+    /// that leaves the sender waiting.
+    #[tokio::test]
+    async fn dispatch_memory_invoke_answers_invalid_input_for_a_non_string_op() {
+        let pair = loopback_transport_pair();
+        let responder = Arc::new(ConnectResponder::new(ConnectResponderOptions {
+            transport: Arc::new(pair.server),
+            identity: RemoteIdentity { seed: [0x11; 32] },
+            manifest: test_manifest(),
+            allowlist: Vec::new(),
+            peer_keys: HashMap::new(),
+            ports: None,
+            invoke_timeout_ms: None,
+        }));
+        let doc = json!({
+            "session_id": "test-session",
+            "sequence": 0,
+            "request_id": "test-request",
+            "op": 42,
+            "payload": {},
+        });
+        responder
+            .dispatch_memory_invoke(&doc)
+            .await
+            .expect("non-string op dispatch answers");
+        let frame = pair.client.recv().await.expect("error frame");
+        let response: Value = serde_json::from_slice(&frame).expect("response json");
+        assert_eq!(response["error"]["code"], "INVALID_INPUT", "{response}");
+        assert_eq!(
+            response["error"]["details"]["retry_class"], "terminal",
+            "§14.2: the defensive memory reject is classified terminal: {response}"
+        );
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("op must be a string"),
+            "{response}"
+        );
+        responder.close();
+    }
 }

@@ -43,6 +43,9 @@ jobs:
       - name: Setup Rust toolchain
         # dtolnay/rust-toolchain@stable (2026-07-16)
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          # verify-codegen runs `rustfmt` on the generated memory types.
+          components: rustfmt
 
       - name: Cache Rust dependencies
         # Swatinem/rust-cache@v2.9.1
@@ -161,6 +164,9 @@ jobs:
 
       - name: Test spoke-operations crate
         run: cargo test -p spoke-operations
+
+      - name: Test spoke-memory crate
+        run: cargo test -p spoke-memory
 
       - name: Test spoke-fixture-toy-world crate
         run: cargo test -p spoke-fixture-toy-world

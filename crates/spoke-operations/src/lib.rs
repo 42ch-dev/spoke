@@ -79,7 +79,7 @@ pub use adapter::{
     ScopeQueryPort,
 };
 pub use memory::{
-    content_wire_bytes, grant_covers, is_freeze_allowlisted, jcs_sha256_hex,
+    content_serialized_bytes, grant_covers, is_freeze_allowlisted, jcs_sha256_hex,
     jcs_sha256_hex_excluding, validate_grant_issuance, validate_memory_candidates_list,
     validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
     validate_memory_grants_list, validate_memory_imports_stage, validate_memory_recall,

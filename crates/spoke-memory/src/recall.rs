@@ -83,7 +83,7 @@ pub fn recall<'a>(
         if page.len() >= request.max_items {
             break;
         }
-        let item_bytes = content_wire_bytes(&record.content)?;
+        let item_bytes = content_serialized_bytes(&record.content)?;
         if let Some(limit) = request.max_bytes {
             if bytes + item_bytes > limit {
                 // §9 progress rule: an oversized first item is surfaced whole and
@@ -136,10 +136,10 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Recall-ranking failure: the §9 byte budget needs the serialized `content`
-/// wire form, which has no RFC 8785 representation when it holds a
-/// non-finite float. `serde_json::Value` cannot hold one by construction, so
-/// this is a defensive guard kept at parity with the spoke-operations digest
+/// Recall-ranking failure: the §9.3 byte budget serializes the `content` wire
+/// form, which has no JSON representation when it holds a non-finite float.
+/// `serde_json::Value` cannot hold one by construction, so this is a
+/// defensive guard kept at parity with the spoke-operations digest
 /// helpers — it rejects instead of panicking if the invariant ever moves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecallError {
@@ -151,7 +151,7 @@ impl std::fmt::Display for RecallError {
         match self {
             Self::NonFiniteContent => write!(
                 formatter,
-                "record content is not serializable: non-finite floats have no RFC 8785 form"
+                "record content is not serializable: non-finite floats have no JSON form"
             ),
         }
     }
@@ -159,21 +159,37 @@ impl std::fmt::Display for RecallError {
 
 impl std::error::Error for RecallError {}
 
-/// §9 budget unit: UTF-8 byte length of the **complete serialized `content`
-/// value** — field name, quotes, escaping, and `structured` included, e.g.
+/// §9.3 page-budget unit: UTF-8 byte length of the **complete serialized
+/// `content` value exactly as the page emits it** (`serde_json::to_vec`) —
+/// field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
 ///
-/// This deliberately differs from `spoke-operations`' `content_wire_bytes`
-/// (text bytes + raw `structured` serialization), which serves the §7.1
-/// `max_content_bytes` limit. Issue I-000023 tracks unifying the two
-/// measurements; until then the engine measures the wire form on its own
-/// because it must not depend on `spoke-operations`.
+/// The §7.1 `max_content_bytes` admission limit and this §9.3 page budget are
+/// two distinct budgets: admission measures RFC 8785 JCS
+/// (`spoke-operations::memory::digests`, because it is compared against the
+/// TypeScript `JSON.stringify` form), while this one measures the wire form so
+/// the budget counts literally the bytes the response emits. Both drop
+/// top-level explicit `null` members — a deserialized `null` becomes
+/// `Option::None` and a constructed `Some(Value::Null)` is stripped here — so
+/// the two agree on which members exist and differ only in number
+/// formatting. Nested `null`s are content and stay. It stays local because the
+/// engine must not depend on `spoke-operations`.
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
 /// float and rejects instead of panicking.
-fn content_wire_bytes(content: &Content) -> Result<usize, RecallError> {
-    serde_json::to_vec(content)
+fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
+    let value = match serde_json::to_value(content) {
+        Ok(serde_json::Value::Object(members)) => serde_json::Value::Object(
+            members
+                .into_iter()
+                .filter(|(_, member)| !member.is_null())
+                .collect(),
+        ),
+        Ok(other) => other,
+        Err(_) => return Err(RecallError::NonFiniteContent),
+    };
+    serde_json::to_vec(&value)
         .map(|bytes| bytes.len())
         .map_err(|_| RecallError::NonFiniteContent)
 }
@@ -207,7 +223,7 @@ mod tests {
 
 
     /// Unwrap the engine Result for the ranking-focused unit tests; the
-    /// error path itself is covered by `content_wire_bytes` guard tests.
+    /// error path itself is covered by `content_serialized_bytes` guard tests.
     fn recall_checked<'a>(
         records: &'a [RecallRecord],
         request: &RecallRequest<'_>,
@@ -218,7 +234,7 @@ mod tests {
     #[test]
     fn non_finite_guard_rejects_instead_of_panicking() {
         // The guard path: a serialization failure surfaces as a typed
-        // reject carrying the RFC 8785 reason, never a panic. serde_json
+        // reject carrying the non-finite reason, never a panic. serde_json
         // Values cannot hold non-finite floats by construction, so the
         // reachable assertions cover the finite edge shapes the guard must
         // keep accepting, and the error variant round-trips through Display.
@@ -239,7 +255,7 @@ mod tests {
         assert_eq!(page.records.len(), 2);
         assert_eq!(
             RecallError::NonFiniteContent.to_string(),
-            "record content is not serializable: non-finite floats have no RFC 8785 form"
+            "record content is not serializable: non-finite floats have no JSON form"
         );
     }
 
@@ -358,6 +374,101 @@ mod tests {
         );
         assert_eq!(ids(&one_byte_short), vec!["rec_b"]);
         assert!(one_byte_short.truncated);
+    }
+
+    #[test]
+    fn numeric_content_budget_uses_the_wire_measure() {
+        // I-000035: the §9.3 page budget counts the bytes the page emits, so
+        // numbers keep the `serde_json` form (`1.0`, `100.0`) and count 44
+        // bytes; the RFC 8785 §7.1 admission form would count 40.
+        let records = vec![RecallRecord {
+            record_id: "rec_numbers".to_string(),
+            kind: "fact".to_string(),
+            content: Content {
+                structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
+                text: String::new(),
+            },
+            created_at: at("2026-10-01T00:00:00Z"),
+        }];
+        assert_eq!(
+            content_serialized_bytes(&records[0].content).expect("finite content measures"),
+            44
+        );
+
+        let exact = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(44),
+            },
+        );
+        assert_eq!(ids(&exact), vec!["rec_numbers"]);
+        assert_eq!(exact.overflow_record_id, None);
+        assert!(!exact.truncated);
+
+        // One byte short keeps the unchanged overflow rule: a lone oversized
+        // first item is surfaced whole and flagged.
+        let short = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(43),
+            },
+        );
+        assert_eq!(ids(&short), vec!["rec_numbers"]);
+        assert_eq!(short.overflow_record_id, Some("rec_numbers"));
+        assert!(!short.truncated);
+    }
+
+    #[test]
+    fn constructed_null_content_budgets_like_admission() {
+        // I-000031: a caller-built `Some(Value::Null)` is the same logical
+        // content as a deserialized `null`; both normalize to
+        // `{"text":""}` = 11 bytes in either form, so recall and admission
+        // budget identically.
+        let records = vec![RecallRecord {
+            record_id: "rec_null".to_string(),
+            kind: "fact".to_string(),
+            content: Content {
+                structured: Some(serde_json::Value::Null),
+                text: String::new(),
+            },
+            created_at: at("2026-10-01T00:00:00Z"),
+        }];
+        assert_eq!(
+            content_serialized_bytes(&records[0].content).expect("finite content measures"),
+            11
+        );
+
+        let exact = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(11),
+            },
+        );
+        assert_eq!(ids(&exact), vec!["rec_null"]);
+        assert_eq!(exact.overflow_record_id, None);
+
+        // One byte short: the measure really is 11, not the 28-byte
+        // `{"structured":null,"text":""}` form.
+        let short = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(10),
+            },
+        );
+        assert_eq!(ids(&short), vec!["rec_null"]);
+        assert_eq!(short.overflow_record_id, Some("rec_null"));
     }
 
     #[test]

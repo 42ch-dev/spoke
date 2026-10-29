@@ -15,7 +15,7 @@ pub mod validate;
 pub use digests::{jcs_sha256_hex, jcs_sha256_hex_excluding};
 pub use grants::{grant_covers, validate_grant_issuance, GrantRequirement, IssuedGrant};
 pub use validate::{
-    content_wire_bytes, is_freeze_allowlisted, validate_memory_candidates_list,
+    content_serialized_bytes, is_freeze_allowlisted, validate_memory_candidates_list,
     validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
     validate_memory_grants_list, validate_memory_imports_stage, validate_memory_recall,
     validate_memory_records_create,

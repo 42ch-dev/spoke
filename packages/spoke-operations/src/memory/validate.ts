@@ -59,16 +59,29 @@ function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeRe
   return spokeOk();
 }
 
+// TextEncoder is stateless; one instance serves every measure call.
+const utf8Encoder = new TextEncoder();
+
 /**
  * Byte size of a `Content` request field against `max_content_bytes`
- * (§7.1): UTF-8 bytes of `text` plus the compact serialization of
- * `structured` when present.
+ * (§7.1): UTF-8 bytes of the compact serialization of the complete
+ * `content` value — field name, quotes, escaping, and `structured` included.
+ *
+ * Canonical form: a member explicitly `null` is absent, matching the Rust
+ * generated serializer (`Option::None` is skipped). Numbers use
+ * `JSON.stringify`'s ECMAScript form, which the Rust measure shares through
+ * RFC 8785 JCS.
  */
-export function contentWireBytes(text: string, structured?: unknown): number {
-  const encoder = new TextEncoder();
-  const structuredBytes =
-    structured === undefined ? 0 : encoder.encode(JSON.stringify(structured)).length;
-  return encoder.encode(text).length + structuredBytes;
+export function contentSerializedBytes(content: Content): number {
+  const canonical = Object.fromEntries(
+    Object.entries(content).filter(([, value]) => value !== null),
+  );
+  return utf8Encoder.encode(JSON.stringify(canonical)).length;
+}
+
+interface Content {
+  text: string;
+  structured?: unknown;
 }
 
 function checkContentLimit(byteLen: number, maxContentBytes: number): SpokeResult<void> {
@@ -181,7 +194,7 @@ export function validateMemoryCapture(
   maxContentBytes: number,
 ): SpokeResult<void> {
   return checkContentLimit(
-    contentWireBytes(request.content.text, request.content.structured),
+    contentSerializedBytes(request.content),
     maxContentBytes,
   );
 }
@@ -234,7 +247,7 @@ export function validateMemoryRecordsCreate(
   maxContentBytes: number,
 ): SpokeResult<void> {
   return checkContentLimit(
-    contentWireBytes(request.content.text, request.content.structured),
+    contentSerializedBytes(request.content),
     maxContentBytes,
   );
 }
@@ -261,7 +274,7 @@ export function validateMemoryRecordsUpdate(
     return spokeOk();
   }
   return checkContentLimit(
-    contentWireBytes(update.content.text, update.content.structured),
+    contentSerializedBytes(update.content),
     maxContentBytes,
   );
 }

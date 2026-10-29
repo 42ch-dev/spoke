@@ -21,7 +21,7 @@ import type {
 } from "@42ch/spoke-schemas";
 
 import {
-  contentWireBytes,
+  contentSerializedBytes,
   isFreezeAllowlisted,
   validateMemoryCandidatesList,
   validateMemoryCandidatesReview,
@@ -383,11 +383,36 @@ describe("per-op conditionals", () => {
 });
 
 describe("content byte limits (§7.1)", () => {
-  it("contentWireBytes counts text and structured", () => {
-    expect(contentWireBytes("héllo", undefined)).toBe(6);
-    const structured = { a: 1 };
-    const structuredBytes = new TextEncoder().encode(JSON.stringify(structured)).length;
-    expect(contentWireBytes("ab", structured)).toBe(2 + structuredBytes);
+  it("contentSerializedBytes pins the shared known vectors", () => {
+    // Same explicit byte values are pinned by the Rust parity test.
+    expect(contentSerializedBytes({ text: "héllo" })).toBe(17);
+    expect(contentSerializedBytes({ text: "ab", structured: { nested: [true, null] } })).toBe(49);
+    expect(contentSerializedBytes({ text: "" })).toBe(11);
+  });
+
+  it("contentSerializedBytes canonicalizes explicit null like Rust", () => {
+    // Rust deserializes `structured: null` to `None` and skips it; both
+    // languages measure `{"text":""}` = 11.
+    expect(contentSerializedBytes({ text: "", structured: null })).toBe(11);
+  });
+
+  it("contentSerializedBytes pins the ECMAScript number form like Rust", () => {
+    // Rust measures through RFC 8785 JCS: `1.0` → `1`, `1e2` → `100`.
+    expect(contentSerializedBytes({ text: "", structured: { n: 1.0, e: 1e2 } })).toBe(40);
+  });
+
+  it("capture admits explicit null content at the exact boundary", () => {
+    // `{"text":"","structured":null}` canonicalizes to `{"text":""}`,
+    // 11 bytes; the Rust parity test pins the same pair.
+    const request = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      content: { text: "", structured: null },
+      capture_scope: { visibility: "shared" },
+      idempotency_key: "k1",
+    } as MemoryCaptureRequest;
+    expect(validateMemoryCapture(request, 11).ok).toBe(true);
+    expectLimit(validateMemoryCapture(request, 10), "max_content_bytes");
   });
 
   it("capture rejects oversize content with details.limit", () => {
@@ -406,6 +431,19 @@ describe("content byte limits (§7.1)", () => {
       capture_scope: { visibility: "context", context_id: "c1" },
     } as MemoryCaptureRequest;
     expect(validateMemoryCapture(small, 1024).ok).toBe(true);
+  });
+
+  it("capture accepts the exact content byte boundary", () => {
+    // `{"text":"fine"}` is exactly 15 bytes under the serialized measure.
+    const request = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      content: { text: "fine" },
+      capture_scope: { visibility: "shared" },
+      idempotency_key: "k1",
+    } as MemoryCaptureRequest;
+    expect(validateMemoryCapture(request, 15).ok).toBe(true);
+    expectLimit(validateMemoryCapture(request, 14), "max_content_bytes");
   });
 
   it("records.create rejects oversize content", () => {

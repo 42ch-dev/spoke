@@ -59,6 +59,9 @@ function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeRe
   return spokeOk();
 }
 
+// TextEncoder is stateless; one instance serves every measure call.
+const utf8Encoder = new TextEncoder();
+
 /**
  * Byte size of a `Content` request field against `max_content_bytes`
  * (§7.1): UTF-8 bytes of the compact serialization of the complete
@@ -73,7 +76,7 @@ export function contentSerializedBytes(content: Content): number {
   const canonical = Object.fromEntries(
     Object.entries(content).filter(([, value]) => value !== null),
   );
-  return new TextEncoder().encode(JSON.stringify(canonical)).length;
+  return utf8Encoder.encode(JSON.stringify(canonical)).length;
 }
 
 interface Content {

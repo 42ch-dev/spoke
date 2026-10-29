@@ -369,25 +369,63 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
     let widest_count = ((stream.len() as u64) + 1).to_string().len() as u32;
     let count_placeholder = 10u64.pow(widest_count).saturating_sub(1);
 
-    let mut groups: Vec<Vec<(&'static str, &Value)>> = Vec::new();
-    let mut current: Vec<(&'static str, &Value)> = Vec::new();
-    for element in stream {
-        current.push(element);
-        if current.len() > 1 {
-            let measured = build_chunk(
+    // Each element's canonical length is measured once and reused across every
+    // candidate group. The frame (scalars, header, empty arrays, placeholder
+    // `chunk_count`) is measured once per ordinal digit width: a chunk's
+    // ordinal is serialized into the frame, so reusing a one-digit frame for a
+    // multi-digit ordinal would under-measure it. A candidate's size is then
+    // the frame plus its elements and separators, so appending one element no
+    // longer re-serializes the whole candidate chunk.
+    let element_bytes = stream
+        .iter()
+        .map(|(_, element)| canonical_json_bytes(element).map(|bytes| bytes.len()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let widest_ordinal = decimal_digits(stream.len() as u64);
+    let frames = (0..=widest_ordinal)
+        .map(|width| {
+            // Ordinal 0 carries the header; every other class is represented by
+            // its smallest ordinal, which has the same digit width.
+            let ordinal = if width == 0 {
+                0
+            } else {
+                10u64.pow(width as u32 - 1)
+            };
+            measured_frame(
                 &export_id,
                 &recomputed_digest,
                 &header,
                 &empty_present,
-                groups.len() as u64,
+                ordinal,
                 count_placeholder,
-                &current,
-            )?;
-            let bytes = measured["bytes"].as_u64().unwrap_or(u64::MAX);
-            if bytes > chunk_limit as u64 {
-                let last = current.pop().expect("the current chunk is non-empty");
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut groups: Vec<Vec<(&'static str, &Value)>> = Vec::new();
+    let mut current: Vec<(&'static str, &Value)> = Vec::new();
+    let mut field_counts = [0usize; BUNDLE_ARRAY_FIELDS.len()];
+    let mut field_bytes = [0usize; BUNDLE_ARRAY_FIELDS.len()];
+    for (element, element_len) in stream.into_iter().zip(element_bytes) {
+        let (field, _) = element;
+        let index = array_field_index(field);
+        current.push(element);
+        field_counts[index] += 1;
+        field_bytes[index] += element_len;
+        if current.len() > 1 {
+            let ordinal = groups.len() as u64;
+            let frame = frames[if ordinal == 0 {
+                0
+            } else {
+                decimal_digits(ordinal) as usize
+            }];
+            if measured_chunk_bytes(frame, &field_counts, &field_bytes) > chunk_limit as u64 {
+                current.pop();
                 groups.push(std::mem::take(&mut current));
-                current.push(last);
+                field_counts = [0; BUNDLE_ARRAY_FIELDS.len()];
+                field_bytes = [0; BUNDLE_ARRAY_FIELDS.len()];
+                field_counts[index] = 1;
+                field_bytes[index] = element_len;
+                current.push(element);
             }
         }
     }
@@ -409,6 +447,61 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
             )
         })
         .collect()
+}
+
+/// Canonical byte length of a chunk frame — scalars, the ordinal-0 header and
+/// empty arrays, and the placeholder `chunk_count` — with its own `bytes` digits
+/// excluded; `measured_chunk_bytes` settles those digits per candidate group.
+fn measured_frame(
+    export_id: &str,
+    bundle_digest: &str,
+    header: &Map<String, Value>,
+    empty_present: &[&'static str],
+    ordinal: u64,
+    count: u64,
+) -> Result<usize, TransferError> {
+    let frame = build_chunk(export_id, bundle_digest, header, empty_present, ordinal, count, &[])?;
+    let settled = frame["bytes"].as_u64().expect("build_chunk writes bytes");
+    Ok(settled as usize - decimal_digits(settled) as usize)
+}
+
+/// Canonical byte length of the chunk a candidate group would produce, from the
+/// frame length and per-field element totals, without rebuilding the chunk.
+/// Every present array adds `,"field":[` + its elements joined by `,` + `]`;
+/// the `bytes` digits settle exactly like `build_chunk`'s fixed-point loop.
+fn measured_chunk_bytes(frame: usize, field_counts: &[usize], field_bytes: &[usize]) -> u64 {
+    let mut base = frame;
+    for (index, field) in BUNDLE_ARRAY_FIELDS.iter().enumerate() {
+        if field_counts[index] == 0 {
+            continue;
+        }
+        base += field.len() + 3 + field_bytes[index] + field_counts[index] + 2;
+    }
+    let mut bytes = 0u64;
+    loop {
+        let length = base as u64 + decimal_digits(bytes);
+        if length == bytes {
+            return bytes;
+        }
+        bytes = length;
+    }
+}
+
+/// Decimal width of a canonicalized `bytes` value; `bytes` stays far below the
+/// ECMAScript plain-decimal threshold, so its canonical form is plain digits.
+fn decimal_digits(value: u64) -> u64 {
+    if value == 0 {
+        1
+    } else {
+        u64::from(value.ilog10()) + 1
+    }
+}
+
+fn array_field_index(field: &'static str) -> usize {
+    BUNDLE_ARRAY_FIELDS
+        .iter()
+        .position(|candidate| *candidate == field)
+        .expect("every stream element names a bundle array field")
 }
 
 fn build_chunk(
@@ -1128,6 +1221,231 @@ mod tests {
         let verification = verify_reassembly(&chunks);
         assert!(verification.bundle_digest_ok);
         assert!(verification.errors.is_empty());
+    }
+
+    /// The hardened partitioner sizes candidates from cached per-element
+    /// lengths; this pins the policy outcome against the reference chunk
+    /// builder: an accepted group fits the limit (unless it is a lone oversized
+    /// element), and adding the next element would have exceeded it.
+    #[test]
+    fn partition_boundaries_follow_the_measured_limit() {
+        let bundle = sealed_bundle();
+        let stream_len: usize = BUNDLE_ARRAY_FIELDS
+            .iter()
+            .map(|field| bundle[*field].as_array().map_or(0, Vec::len))
+            .sum();
+        let widest = (stream_len as u64 + 1).to_string().len() as u32;
+        let count_placeholder = 10u64.pow(widest).saturating_sub(1);
+        let export_id = bundle["export_id"].as_str().expect("export_id");
+        let bundle_digest = bundle["digest"].as_str().expect("digest");
+        let empty_present: Vec<&'static str> = BUNDLE_ARRAY_FIELDS
+            .iter()
+            .copied()
+            .filter(|field| bundle[*field].as_array().is_some_and(Vec::is_empty))
+            .collect();
+
+        for limit in [120usize, 300, 900, 5_000] {
+            let chunks = partition_bundle(&bundle, limit).expect("partitions");
+            let header = chunks[0]["header"]
+                .as_object()
+                .expect("ordinal 0 carries the header")
+                .clone();
+            let groups: Vec<Vec<(&'static str, &Value)>> = chunks
+                .iter()
+                .map(|chunk| {
+                    BUNDLE_ARRAY_FIELDS
+                        .iter()
+                        .flat_map(|field| {
+                            chunk[*field]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(move |item| (*field, item))
+                        })
+                        .collect()
+                })
+                .collect();
+            assert_eq!(
+                groups.iter().map(Vec::len).sum::<usize>(),
+                stream_len,
+                "limit {limit}: every element is emitted exactly once"
+            );
+
+            for (ordinal, group) in groups.iter().enumerate() {
+                let measured = build_chunk(
+                    export_id,
+                    bundle_digest,
+                    &header,
+                    &empty_present,
+                    ordinal as u64,
+                    count_placeholder,
+                    group,
+                )
+                .expect("candidate measures")["bytes"]
+                    .as_u64()
+                    .expect("bytes");
+                if group.len() > 1 {
+                    assert!(
+                        measured <= limit as u64,
+                        "limit {limit}: chunk {ordinal} measured {measured} after acceptance"
+                    );
+                }
+                if let Some(next) = groups.get(ordinal + 1) {
+                    let mut extended = group.clone();
+                    extended.push(next[0]);
+                    let extended_bytes = build_chunk(
+                        export_id,
+                        bundle_digest,
+                        &header,
+                        &empty_present,
+                        ordinal as u64,
+                        count_placeholder,
+                        &extended,
+                    )
+                    .expect("candidate measures")["bytes"]
+                        .as_u64()
+                        .expect("bytes");
+                    assert!(
+                        extended_bytes > limit as u64,
+                        "limit {limit}: chunk {ordinal} would still fit {extended_bytes} with the next element"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Reference partitioner from before the frame cache: every candidate is
+    /// rebuilt and measured with its own real ordinal.
+    fn reference_partition(bundle: &Value, limit: usize) -> Vec<Vec<(&'static str, &Value)>> {
+        let object = bundle.as_object().expect("bundle is an object");
+        let export_id = object["export_id"].as_str().expect("export_id");
+        let digest = bundle_digest(bundle).expect("bundle digest computes");
+        let header: Map<String, Value> = BUNDLE_HEADER_FIELDS
+            .iter()
+            .filter_map(|field| {
+                let value = if *field == "digest" {
+                    json!(digest)
+                } else {
+                    object.get(*field)?.clone()
+                };
+                Some(((*field).to_string(), value))
+            })
+            .collect();
+        let mut empty_present = Vec::new();
+        let mut stream: Vec<(&'static str, &Value)> = Vec::new();
+        for field in BUNDLE_ARRAY_FIELDS {
+            match object.get(field) {
+                None => {}
+                Some(Value::Array(items)) if items.is_empty() => empty_present.push(field),
+                Some(Value::Array(items)) => {
+                    stream.extend(items.iter().map(|item| (field, item)));
+                }
+                Some(_) => panic!("unexpected array type for {field}"),
+            }
+        }
+        let widest = decimal_digits(stream.len() as u64 + 1);
+        let count_placeholder = 10u64.pow(widest as u32).saturating_sub(1);
+        let mut groups: Vec<Vec<(&'static str, &Value)>> = Vec::new();
+        let mut current: Vec<(&'static str, &Value)> = Vec::new();
+        for element in stream {
+            current.push(element);
+            if current.len() > 1 {
+                let measured = build_chunk(
+                    export_id,
+                    &digest,
+                    &header,
+                    &empty_present,
+                    groups.len() as u64,
+                    count_placeholder,
+                    &current,
+                )
+                .expect("candidate measures")["bytes"]
+                    .as_u64()
+                    .expect("bytes");
+                if measured > limit as u64 {
+                    current.pop();
+                    groups.push(std::mem::take(&mut current));
+                    current.push(element);
+                }
+            }
+        }
+        groups.push(current);
+        groups
+    }
+
+    /// Regression: a one-digit frame used for every group under-measured the
+    /// groups at ordinal 10 and beyond, so their split boundaries drifted from
+    /// the reference builder's. Sweeping the limit makes that one-byte
+    /// difference land exactly on a boundary.
+    #[test]
+    fn partition_boundaries_follow_the_per_ordinal_width_frames() {
+        let mut bundle = json!({
+            "schema_version": 1,
+            "bundle_format_version": 1,
+            "memory_protocol_version": 1,
+            "export_id": "exp_multi_digit",
+            "space_id": "spc_local",
+            "created_at": "2026-10-28T09:00:00Z",
+            "source": {
+                "authority_host_id": "host_a",
+                "authority_generation": 3,
+                "engine_policy_version": "spoke-memory/1.0.0-deterministic",
+            },
+            "subjects": [subject("subj_mira")],
+            "profiles": [],
+            "reflections": [],
+            "extensions": {},
+        });
+        bundle["grants"] = json!((0..50)
+            .map(|index| json!({
+                "grant_id": format!("grt_{index:02}"),
+                "principal_ref": "prn_label",
+                "capabilities": ["read"],
+                "revision": 1,
+            }))
+            .collect::<Vec<_>>());
+        let bundle = seal(bundle);
+
+        let mut multi_digit_ordinal = false;
+        for limit in 100..=700 {
+            let chunks = partition_bundle(&bundle, limit).expect("partitions");
+            if chunks.len() > 10 {
+                multi_digit_ordinal = true;
+            }
+            let lengths: Vec<usize> = chunks
+                .iter()
+                .map(|chunk| {
+                    BUNDLE_ARRAY_FIELDS
+                        .iter()
+                        .map(|field| chunk[*field].as_array().map_or(0, Vec::len))
+                        .sum()
+                })
+                .collect();
+            let expected: Vec<usize> = reference_partition(&bundle, limit)
+                .iter()
+                .map(Vec::len)
+                .collect();
+            assert_eq!(
+                lengths, expected,
+                "limit {limit}: split boundaries differ from the per-ordinal reference"
+            );
+            for (ordinal, chunk) in chunks.iter().enumerate() {
+                let element_count: usize = BUNDLE_ARRAY_FIELDS
+                    .iter()
+                    .map(|field| chunk[*field].as_array().map_or(0, Vec::len))
+                    .sum();
+                if ordinal > 9 && element_count > 1 {
+                    assert!(
+                        chunk["bytes"].as_u64().expect("bytes") <= limit as u64,
+                        "limit {limit}: multi-element chunk {ordinal} exceeds the limit"
+                    );
+                }
+            }
+        }
+        assert!(
+            multi_digit_ordinal,
+            "the limit sweep must produce chunks at ordinal 10 or beyond"
+        );
     }
 
     #[test]

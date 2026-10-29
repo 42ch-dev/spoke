@@ -36,6 +36,7 @@ use memory_host::{MemoryHost, Store, StoredRecord};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -202,17 +203,18 @@ fn sign_invoke_request(
     Value::Object(wire)
 }
 
+/// Process-local handshake nonce source: one counter per test binary, so
+/// every hello nonce is distinct without reading a wall clock.
+fn next_nonce() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 async fn handshake(client: &LoopbackTransport, capabilities: &[&str]) -> String {
-    // A hello nonce is single-use by contract: derive it at runtime so no
-    // fixed value can be replayed across runs (and no hard-coded
-    // cryptographic value sits in the test source).
-    let nonce = format!(
-        "memory-conformance-nonce-{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock after the epoch")
-            .as_nanos()
-    );
+    // A hello nonce is single-use by contract: derive it from a process-local
+    // counter so every handshake in this binary is distinct and no
+    // hard-coded cryptographic value sits in the test source.
+    let nonce = format!("memory-conformance-nonce-{:x}", next_nonce());
     let hello = sign_hello_ed25519(
         &seed_client(),
         &nonce,
@@ -411,6 +413,21 @@ fn walk(value: &Value, path: &str) -> Option<Value> {
 
 fn has_path(value: &Value, path: &str) -> bool {
     walk(value, path).is_some()
+}
+
+/// The step's provider error: the wire error branch, or an inline
+/// `payload.error` body — a provider may answer the success branch with an
+/// error object, and reading that as success would hide the failure.
+fn response_error(response: &Value) -> Option<Value> {
+    response
+        .get("error")
+        .filter(|error| !error.is_null())
+        .or_else(|| {
+            response["payload"]
+                .get("error")
+                .filter(|error| !error.is_null())
+        })
+        .cloned()
 }
 
 // ── Outcome recording ─────────────────────────────────────────────────────
@@ -960,6 +977,40 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
     );
 }
 
+/// Drive the provider worker and poll one receipt until it is committed or
+/// failed (§7.0.3: completion is observed only through `memory.receipts.get`).
+/// Deferred work may span several worker runs, so a single poll is not
+/// enough; the bound keeps a stuck receipt a case failure, not a hang.
+async fn poll_receipt_terminal(wire: &mut Wire, receipt_id: &Value) -> Result<(), String> {
+    const MAX_RELEASE_POLLS: usize = 16;
+    for _ in 0..MAX_RELEASE_POLLS {
+        wire.provider.run_worker();
+        let response = wire
+            .invoke(
+                "memory.receipts.get",
+                json!({ "space_id": SPACE, "receipt_id": receipt_id }),
+            )
+            .await;
+        if let Some(error) = response_error(&response) {
+            return Err(format!("receipt poll failed: {error}"));
+        }
+        let payload = &response["payload"];
+        let receipt = if payload.get("receipt").is_some() {
+            &payload["receipt"]
+        } else {
+            payload
+        };
+        match receipt["status"].as_str() {
+            Some("committed" | "failed") => return Ok(()),
+            Some("pending") => continue,
+            other => return Err(format!("unexpected receipt status {other:?}: {response}")),
+        }
+    }
+    Err(format!(
+        "receipt {receipt_id} stayed pending after {MAX_RELEASE_POLLS} worker runs"
+    ))
+}
+
 /// Execute one case: setup → op → then, with the closed expect vocabulary.
 async fn run_case(
     wire: &mut Wire,
@@ -1006,9 +1057,9 @@ async fn run_case(
                     "{scenario}/{case_id}: setup[{index}] {failure}"
                 ));
             }
-        } else if outcome.get("error").is_some() {
+        } else if let Some(error) = response_error(&outcome) {
             return Outcome::Inconclusive(format!(
-                "{scenario}/{case_id}: setup[{index}] unexpected error {outcome}"
+                "{scenario}/{case_id}: setup[{index}] unexpected error {error}"
             ));
         }
     }
@@ -1042,22 +1093,22 @@ async fn run_case(
         wire.provider.advance_clock(chosen);
     }
 
-    // `release`: run the provider worker to complete the held setup
-    // receipts (poll them to terminal to observe the settled state).
+    // `release`: run the provider worker and poll every released receipt to
+    // a terminal state. A single poll does not settle deferred work (§7.0.3),
+    // so the case may only evaluate its release expectations once each
+    // receipt is committed or failed.
     for reference in case["release"].as_array().cloned().unwrap_or_default() {
         let step = reference.as_str().unwrap_or_default().to_string();
         let receipt_id = responses
             .get(&step)
             .map(|value| value["payload"]["receipt_id"].clone())
             .unwrap_or(Value::Null);
-        wire.provider.run_worker();
         held = false;
-        let _ = wire
-            .invoke(
-                "memory.receipts.get",
-                json!({ "space_id": SPACE, "receipt_id": receipt_id }),
-            )
-            .await;
+        if let Err(failure) = poll_receipt_terminal(wire, &receipt_id).await {
+            return Outcome::Inconclusive(format!(
+                "{scenario}/{case_id}: release {step} {failure}"
+            ));
+        }
     }
 
     let op_request = resolve_refs(&case["request"], &responses);
@@ -1454,6 +1505,262 @@ fn foreign_constant_scopes_to_the_active_provider_leg() {
     let plain = json!({ "receipt": "setup.1" });
     assert!(!foreign_constant_applies(&plain, ProviderKind::Sqlite));
     assert!(!foreign_constant_applies(&plain, ProviderKind::Loopback));
+}
+
+/// A scripted memory face: the harness regressions below need responses the
+/// providers cannot produce on demand (an inline `payload.error`, a receipt
+/// that needs several polls). It replaces the provider face entirely, so the
+/// interpreter is still driven over a real Connect session.
+struct ScriptedMemoryService {
+    respond: Box<dyn Fn(&str, &Value) -> Value + Send + Sync>,
+}
+
+#[async_trait::async_trait]
+impl RemoteMemoryService for ScriptedMemoryService {
+    async fn invoke(
+        &self,
+        _peer_id: &str,
+        op: &str,
+        payload: Value,
+    ) -> SpokeResult<Value> {
+        SpokeResult::Ok((self.respond)(op, &payload))
+    }
+}
+
+/// Build a `Wire` over `face` and return it with its responder (the caller
+/// closes the responder when done).
+async fn wire_over(face: Arc<dyn RemoteMemoryService>) -> (Wire, Arc<ConnectResponder>) {
+    let (responder, pair) = start_host(face, &MEMORY_CAPABILITIES).await;
+    let client = pair.client.clone();
+    let session_id = handshake(&client, &MEMORY_CAPABILITIES).await;
+    (
+        Wire {
+            client,
+            session_id,
+            sequence: -1,
+            provider: Provider::Loopback(Arc::new(Store::default())),
+        },
+        responder,
+    )
+}
+
+#[test]
+fn response_error_reads_both_branches_and_never_a_clean_payload() {
+    assert!(
+        response_error(&json!({ "error": { "code": "INTERNAL" } })).is_some(),
+        "the top-level transport-error branch stays checked"
+    );
+    assert!(
+        response_error(&json!({ "payload": { "error": { "code": "INTERNAL" } } })).is_some(),
+        "an inline payload.error is a provider error, not a success"
+    );
+    assert!(
+        response_error(&json!({ "payload": { "receipt_id": "rcpt_1" } })).is_none(),
+        "a clean payload carries no error"
+    );
+}
+
+#[test]
+fn setup_step_with_a_payload_error_is_not_mistaken_for_success() {
+    // Regression: a provider answering the success branch with an error body
+    // used to leave the setup guard quiet (it only read the top-level
+    // `error`), so the interpreter ran the case as if setup had succeeded.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
+            respond: Box::new(|op, _payload| match op {
+                "memory.spaces.list" => json!({
+                    "error": { "code": "INTERNAL", "message": "injected provider error" }
+                }),
+                _ => json!({}),
+            }),
+        });
+        let (mut wire, responder) = wire_over(face).await;
+        let case = json!({
+            "id": "setup-payload-error",
+            "setup": [
+                { "op": "memory.spaces.list", "request": { "limit": 10 } }
+            ],
+            "op": "memory.spaces.list",
+            "request": { "limit": 10 },
+            "expect": { "success": true },
+        });
+        let outcome = run_case(&mut wire, None, "regression", &case).await;
+        responder.close();
+        match outcome {
+            Outcome::Inconclusive(reason) => {
+                assert!(
+                    reason.contains("setup[0]") && reason.contains("unexpected error"),
+                    "the setup guard must name the failing step: {reason}"
+                );
+            }
+            other => panic!("a setup payload.error must not pass: {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn run_case_polls_released_receipts_to_terminal_before_the_operation() {
+    // Regression: the release path belongs to the interpreter. Two receipts are
+    // released and each needs three polls, so a run_case that polls a single
+    // receipt, or polls once, starts the operation before a receipt is terminal.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorder = Arc::clone(&events);
+        let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
+            respond: Box::new(move |op, payload| {
+                let mut events = recorder.lock().expect("event log");
+                if op != "memory.receipts.get" {
+                    let receipt_id = if op == "memory.exports.create" {
+                        "rcpt_1"
+                    } else {
+                        "rcpt_2"
+                    };
+                    events.push(op.to_string());
+                    return json!({ "receipt_id": receipt_id });
+                }
+                let receipt_id = payload["receipt_id"].as_str().unwrap_or_default();
+                events.push(format!("memory.receipts.get:{receipt_id}"));
+                let key = format!("memory.receipts.get:{receipt_id}");
+                let polls = events
+                    .iter()
+                    .filter(|event| event.as_str() == key.as_str())
+                    .count();
+                let status = if polls < 3 { "pending" } else { "committed" };
+                json!({ "receipt": { "receipt_id": receipt_id, "status": status } })
+            }),
+        });
+        let (mut wire, responder) = wire_over(face).await;
+        let case = json!({
+            "id": "release-both-to-terminal",
+            "setup": [
+                { "op": "memory.exports.create", "request": {}, "hold": "pending" },
+                { "op": "memory.imports.stage", "request": {}, "hold": "pending" }
+            ],
+            "release": ["setup.0", "setup.1"],
+            "op": "memory.spaces.list",
+            "request": { "limit": 10 },
+            "expect": { "success": true },
+        });
+        let outcome = run_case(&mut wire, None, "regression", &case).await;
+        responder.close();
+        assert_eq!(
+            outcome,
+            Outcome::Pass,
+            "the case may only read a receipt as released once it is terminal"
+        );
+        let events = events.lock().expect("event log");
+        let operation = events
+            .iter()
+            .position(|event| event.as_str() == "memory.spaces.list")
+            .expect("the operation runs after the release");
+        for receipt in ["rcpt_1", "rcpt_2"] {
+            let key = format!("memory.receipts.get:{receipt}");
+            let polls = events
+                .iter()
+                .enumerate()
+                .filter(|(_, event)| event.as_str() == key.as_str())
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                polls.len(),
+                3,
+                "every released receipt is polled to terminal: {events:?}"
+            );
+            assert!(
+                polls[2] < operation,
+                "{receipt} is terminal before the operation runs: {events:?}"
+            );
+        }
+    });
+}
+
+#[test]
+fn run_case_never_runs_the_operation_behind_a_receipt_that_never_settles() {
+    // Regression: the FIRST released receipt settles and the SECOND never does.
+    // A run_case that polls only the first receipt sees success and runs the
+    // operation, so the release must walk every receipt and stop on the stuck.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    runtime.block_on(async {
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorder = Arc::clone(&events);
+        let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
+            respond: Box::new(move |op, payload| {
+                let mut events = recorder.lock().expect("event log");
+                if op != "memory.receipts.get" {
+                    let receipt_id = if op == "memory.exports.create" {
+                        "rcpt_1"
+                    } else {
+                        "rcpt_2"
+                    };
+                    events.push(op.to_string());
+                    return json!({ "receipt_id": receipt_id });
+                }
+                let receipt_id = payload["receipt_id"].as_str().unwrap_or_default();
+                events.push(format!("memory.receipts.get:{receipt_id}"));
+                let status = if receipt_id == "rcpt_2" {
+                    "pending"
+                } else {
+                    "committed"
+                };
+                json!({ "receipt": { "receipt_id": receipt_id, "status": status } })
+            }),
+        });
+        let (mut wire, responder) = wire_over(face).await;
+        let case = json!({
+            "id": "release-second-never-settles",
+            "setup": [
+                { "op": "memory.exports.create", "request": {}, "hold": "pending" },
+                { "op": "memory.imports.stage", "request": {}, "hold": "pending" }
+            ],
+            "release": ["setup.0", "setup.1"],
+            "op": "memory.spaces.list",
+            "request": { "limit": 10 },
+            "expect": { "success": true },
+        });
+        let outcome = run_case(&mut wire, None, "regression", &case).await;
+        responder.close();
+        match outcome {
+            Outcome::Inconclusive(reason) => assert!(
+                reason.contains("release setup.1"),
+                "the unsettled second receipt is an inconclusive release: {reason}"
+            ),
+            other => panic!("a pending receipt must block the operation: {other:?}"),
+        }
+        let events = events.lock().expect("event log");
+        assert!(
+            !events
+                .iter()
+                .any(|event| event.as_str() == "memory.spaces.list"),
+            "the operation never runs behind an unsettled receipt: {events:?}"
+        );
+        let polls = |receipt: &str| {
+            events
+                .iter()
+                .filter(|event| event.as_str() == format!("memory.receipts.get:{receipt}"))
+                .count()
+        };
+        assert_eq!(
+            polls("rcpt_1"),
+            1,
+            "the settled first receipt is read once: {events:?}"
+        );
+        assert_eq!(
+            polls("rcpt_2"),
+            16,
+            "the second receipt polls to its bound instead of assuming settlement: {events:?}"
+        );
+    });
 }
 
 /// Evaluate the closed expect vocabulary against a response.

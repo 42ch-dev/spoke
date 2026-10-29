@@ -6,7 +6,7 @@ import { compileFromFile } from "json-schema-to-typescript";
 import { hoistDeepRefs } from "./deep-ref-hoist.mjs";
 import $RefParser from "@apidevtools/json-schema-ref-parser";
 import { glob } from "glob";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -246,6 +246,16 @@ async function generateTypeScript(schemaPaths) {
   log(`TypeScript: ${schemaPaths.length} schema file(s)`);
 }
 
+/**
+ * Rust files typify emits as single long lines. Formatted with stable rustfmt so
+ * local and CI output agree (nightly formatting rules must not diverge).
+ */
+const MEMORY_RUST_FILES = [
+  "memory_exports_get_response.rs",
+  "memory_imports_stage_request.rs",
+  "memory_receipts_get_response.rs",
+];
+
 function generateRust() {
   log("Generating Rust types (typify)...");
   const rustGenDir = path.join(REPO_ROOT, "tooling/codegen/rust-gen");
@@ -258,6 +268,17 @@ function generateRust() {
       SPOKE_SCHEMAS_DIR: DEREF_SCHEMAS_DIR,
     },
   });
+
+  const rustOutDir = path.join(
+    REPO_ROOT,
+    "crates/spoke-schemas/src/generated/ops",
+  );
+  log("Formatting generated memory types (rustfmt stable)...");
+  execFileSync(
+    "rustfmt",
+    ["+stable", "--edition", "2021", ...MEMORY_RUST_FILES],
+    { cwd: rustOutDir, stdio: "inherit", env: process.env },
+  );
 }
 
 async function main() {

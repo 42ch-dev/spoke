@@ -1,7 +1,10 @@
 {
   "id": "cas-conflict",
   "title": "Optimistic-concurrency preconditions reject stale revisions",
-  "protocol_refs": ["MEM-R007", "§14.1"],
+  "protocol_refs": [
+    "MEM-R007",
+    "\u00a714.1"
+  ],
   "cases": [
     {
       "id": "records-update-stale-revision",
@@ -15,8 +18,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "The gate key is hidden under the third barrel." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "The gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cas-0001"
           }
         },
@@ -26,7 +34,9 @@
             "space_id": "spc_tw_harbor",
             "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
-            "decision": { "action": "promote" },
+            "decision": {
+              "action": "promote"
+            },
             "idempotency_key": "rev-tw-cas-0002"
           }
         },
@@ -36,7 +46,9 @@
             "space_id": "spc_tw_harbor",
             "record_id": "$ref:setup.1.result.record_ids.0",
             "expected_revision": 1,
-            "content": { "text": "The gate key is hidden under the second barrel." },
+            "content": {
+              "text": "The gate key is hidden under the second barrel."
+            },
             "idempotency_key": "upd-tw-cas-0003"
           }
         }
@@ -46,10 +58,15 @@
         "space_id": "spc_tw_harbor",
         "record_id": "$ref:setup.1.result.record_ids.0",
         "expected_revision": 1,
-        "content": { "text": "The gate key is hidden under the first barrel." },
+        "content": {
+          "text": "The gate key is hidden under the first barrel."
+        },
         "idempotency_key": "upd-tw-cas-0004"
       },
-      "expect": { "error_code": "REVISION_CONFLICT" }
+      "expect": {
+        "error_code": "REVISION_CONFLICT"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "spaces-freeze-stale-revision",
@@ -73,7 +90,10 @@
         "expected_revision": 1,
         "idempotency_key": "freeze-tw-cas-0006"
       },
-      "expect": { "error_code": "REVISION_CONFLICT" }
+      "expect": {
+        "error_code": "REVISION_CONFLICT"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "candidate-review-stale-revision",
@@ -87,8 +107,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "Bo counted eleven crates on the customs quay." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "Bo counted eleven crates on the customs quay."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cas-0007"
           }
         }
@@ -98,10 +123,15 @@
         "space_id": "spc_tw_harbor",
         "candidate_id": "$ref:setup.0.result.candidate_ids.0",
         "expected_revision": 2,
-        "decision": { "action": "promote" },
+        "decision": {
+          "action": "promote"
+        },
         "idempotency_key": "rev-tw-cas-0008"
       },
-      "expect": { "error_code": "REVISION_CONFLICT" }
+      "expect": {
+        "error_code": "REVISION_CONFLICT"
+      },
+      "principal": "prn_tw_cli_operator"
     }
   ]
 }

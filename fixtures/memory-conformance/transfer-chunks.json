@@ -1,7 +1,13 @@
 {
   "id": "transfer-chunks",
   "title": "Element-atomic chunking, chunk retrieval, and chunk/bundle digest verification",
-  "protocol_refs": ["§6.13", "§6.11", "MEM-R015", "§7.29", "§7.30"],
+  "protocol_refs": [
+    "\u00a76.13",
+    "\u00a76.11",
+    "MEM-R015",
+    "\u00a77.29",
+    "\u00a77.30"
+  ],
   "cases": [
     {
       "id": "partition-and-reassemble-roundtrip",
@@ -38,7 +44,7 @@
     },
     {
       "id": "tampered-chunk-digest-detected",
-      "invariant": "§6.13",
+      "invariant": "\u00a76.13",
       "surface": "engine",
       "outcome": "identical",
       "what": "a rewritten chunk_digest fails verification",
@@ -58,7 +64,7 @@
     },
     {
       "id": "tampered-element-detected",
-      "invariant": "§6.13",
+      "invariant": "\u00a76.13",
       "surface": "engine",
       "outcome": "identical",
       "what": "an element edited in transit breaks the chunk digest",
@@ -78,7 +84,7 @@
     },
     {
       "id": "export-chunk-zero-carries-header",
-      "invariant": "§6.13",
+      "invariant": "\u00a76.13",
       "surface": "wire",
       "outcome": "identical",
       "what": "the first fetched chunk carries the sealed header and its own digest",
@@ -101,7 +107,9 @@
             "space_id": "spc_tw_harbor",
             "receipt_id": "$ref:setup.0.receipt_id"
           },
-          "expect": { "receipt_status": "committed" }
+          "expect": {
+            "receipt_status": "committed"
+          }
         }
       ],
       "op": "memory.exports.get",
@@ -112,7 +120,12 @@
       },
       "expect": {
         "success": true,
-        "state": [{ "path": "chunk.chunk_ordinal", "equals": 0 }],
+        "state": [
+          {
+            "path": "chunk.chunk_ordinal",
+            "equals": 0
+          }
+        ],
         "present": [
           "chunk.header",
           "chunk.header.digest",
@@ -121,11 +134,12 @@
           "chunk.chunk_count",
           "chunk.bytes"
         ]
-      }
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "export-chunk-ordinal-out-of-range",
-      "invariant": "§7.30",
+      "invariant": "\u00a77.30",
       "surface": "wire",
       "outcome": "identical",
       "what": "fetching beyond the export's chunk_count is INVALID_INPUT, never a silent empty chunk",
@@ -149,7 +163,9 @@
             "space_id": "spc_tw_harbor",
             "receipt_id": "$ref:setup.0.receipt_id"
           },
-          "expect": { "receipt_status": "committed" }
+          "expect": {
+            "receipt_status": "committed"
+          }
         }
       ],
       "op": "memory.exports.get",
@@ -158,11 +174,14 @@
         "export_id": "$ref:setup.1.result.export_id",
         "chunk_ordinal": 1000
       },
-      "expect": { "error_code": "INVALID_INPUT" }
+      "expect": {
+        "error_code": "INVALID_INPUT"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "export-expired-after-retention",
-      "invariant": "§7.30",
+      "invariant": "\u00a77.30",
       "surface": "wire",
       "outcome": "identical",
       "what": "a chunk fetched past export_retention_seconds is EXPORT_EXPIRED",
@@ -179,7 +198,9 @@
         {
           "op": "memory.describe",
           "request": {},
-          "expect": { "success": true }
+          "expect": {
+            "success": true
+          }
         },
         {
           "op": "memory.exports.create",
@@ -196,7 +217,9 @@
             "space_id": "spc_tw_harbor",
             "receipt_id": "$ref:setup.1.receipt_id"
           },
-          "expect": { "receipt_status": "committed" }
+          "expect": {
+            "receipt_status": "committed"
+          }
         }
       ],
       "op": "memory.exports.get",
@@ -205,11 +228,14 @@
         "export_id": "$ref:setup.2.result.export_id",
         "chunk_ordinal": 0
       },
-      "expect": { "error_code": "EXPORT_EXPIRED" }
+      "expect": {
+        "error_code": "EXPORT_EXPIRED"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "export-roundtrip-verifies-advertised-digests",
-      "invariant": "§6.13",
+      "invariant": "\u00a76.13",
       "surface": "wire",
       "outcome": "identical",
       "what": "fetching every chunk and reassembling reproduces each advertised chunk_digest and the advertised bundle digest; fabricated digests fail the case",
@@ -233,7 +259,9 @@
             "space_id": "spc_tw_harbor",
             "receipt_id": "$ref:setup.0.receipt_id"
           },
-          "expect": { "receipt_status": "committed" }
+          "expect": {
+            "receipt_status": "committed"
+          }
         }
       ],
       "op": "memory.exports.get",
@@ -242,7 +270,9 @@
         "export_id": "$ref:setup.1.result.export_id",
         "chunk_ordinal": 0
       },
-      "verify_export": { "receipt": "setup.1" },
+      "verify_export": {
+        "receipt": "setup.1"
+      },
       "expect": {
         "success": true,
         "verified": {
@@ -251,7 +281,8 @@
           "bundle_digest_matches_receipt": true,
           "reassembled_bundle_verifies": true
         }
-      }
+      },
+      "principal": "prn_tw_cli_operator"
     }
   ]
 }

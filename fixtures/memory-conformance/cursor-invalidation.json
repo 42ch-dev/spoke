@@ -1,7 +1,10 @@
 {
   "id": "cursor-invalidation",
   "title": "Recall cursors are invalidated by state and grant changes",
-  "protocol_refs": ["MEM-R026", "§7.0.7"],
+  "protocol_refs": [
+    "MEM-R026",
+    "\u00a77.0.7"
+  ],
   "cases": [
     {
       "id": "recall-cursor-invalid-after-grant-revoke",
@@ -15,8 +18,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "The gate key is hidden under the third barrel." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "The gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cursor-0001"
           }
         },
@@ -26,7 +34,9 @@
             "space_id": "spc_tw_harbor",
             "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
-            "decision": { "action": "promote" },
+            "decision": {
+              "action": "promote"
+            },
             "idempotency_key": "rev-tw-cursor-0002"
           }
         },
@@ -35,8 +45,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "Mira promised the harbor master she would return before dawn." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "Mira promised the harbor master she would return before dawn."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cursor-0003"
           }
         },
@@ -46,7 +61,9 @@
             "space_id": "spc_tw_harbor",
             "candidate_id": "$ref:setup.2.result.candidate_ids.0",
             "expected_revision": 1,
-            "decision": { "action": "promote" },
+            "decision": {
+              "action": "promote"
+            },
             "idempotency_key": "rev-tw-cursor-0004"
           }
         },
@@ -57,10 +74,14 @@
             "subject_id": "toy:character:mira",
             "selection": {
               "mode": "selected_contexts",
-              "context_ids": ["ctx_tw_customs_gate"],
+              "context_ids": [
+                "ctx_tw_customs_gate"
+              ],
               "include_shared": false
             },
-            "budget": { "max_items": 1 }
+            "budget": {
+              "max_items": 1
+            }
           }
         },
         {
@@ -79,13 +100,20 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": false
         },
-        "budget": { "max_items": 1 },
+        "budget": {
+          "max_items": 1
+        },
         "cursor": "$ref:setup.4.next_cursor"
       },
-      "expect": { "error_code": "CURSOR_INVALID" }
+      "expect": {
+        "error_code": "CURSOR_INVALID"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "recall-cursor-invalid-after-write",
@@ -99,8 +127,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "The gate key is hidden under the third barrel." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "The gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cursor-0011"
           }
         },
@@ -110,7 +143,9 @@
             "space_id": "spc_tw_harbor",
             "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
-            "decision": { "action": "promote" },
+            "decision": {
+              "action": "promote"
+            },
             "idempotency_key": "rev-tw-cursor-0012"
           }
         },
@@ -119,8 +154,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "Mira promised the harbor master she would return before dawn." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "Mira promised the harbor master she would return before dawn."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cursor-0013"
           }
         },
@@ -130,7 +170,9 @@
             "space_id": "spc_tw_harbor",
             "candidate_id": "$ref:setup.2.result.candidate_ids.0",
             "expected_revision": 1,
-            "decision": { "action": "promote" },
+            "decision": {
+              "action": "promote"
+            },
             "idempotency_key": "rev-tw-cursor-0014"
           }
         },
@@ -141,10 +183,14 @@
             "subject_id": "toy:character:mira",
             "selection": {
               "mode": "selected_contexts",
-              "context_ids": ["ctx_tw_customs_gate"],
+              "context_ids": [
+                "ctx_tw_customs_gate"
+              ],
               "include_shared": false
             },
-            "budget": { "max_items": 1 }
+            "budget": {
+              "max_items": 1
+            }
           }
         },
         {
@@ -152,8 +198,13 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "content": { "text": "The customs bell rang a third time before noon." },
-            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "content": {
+              "text": "The customs bell rang a third time before noon."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "idempotency_key": "cap-tw-cursor-0015"
           }
         }
@@ -164,13 +215,20 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": false
         },
-        "budget": { "max_items": 1 },
+        "budget": {
+          "max_items": 1
+        },
         "cursor": "$ref:setup.4.next_cursor"
       },
-      "expect": { "error_code": "CURSOR_INVALID" }
+      "expect": {
+        "error_code": "CURSOR_INVALID"
+      },
+      "principal": "prn_tw_cli_operator"
     }
   ]
 }

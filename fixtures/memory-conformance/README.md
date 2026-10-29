@@ -52,6 +52,25 @@ makes the imported-staleness case discriminating instead of merely plausible.
 It is not a vector file and is excluded from corpus loading (only top-level
 `*.json` files are vectors).
 
+## Principal selector
+
+Every wire case declares `principal` — the corpus principal whose authority the
+case depends on. Over Connect the acting principal is derived from the
+authenticated peer (MEM-R003: never transmitted), so the harness must run each
+case on a session whose `MemoryAdmission` maps the peer to that exact
+`principal_id`. A single harness run therefore allowlists several peer identities
+and dials as the one the case names.
+
+| Principal | Role in the corpus |
+|-----------|--------------------|
+| `prn_tw_host_primary` | Scoped, subject-bounded authority: capture/review/records/recall on `toy:character:mira` in `ctx_tw_customs_gate`, plus shared access. Default for cases without special authority needs |
+| `prn_tw_cli_operator` | Space-wide `admin` (implies every capability inside its coverage) — freeze, fence, grant issuance/revocation, transfer, profile writes |
+| `prn_tw_peer_reader` | Restricted grant **without** `shared_access`; also a non-admin granter |
+| `prn_tw_expired_reader` | Holder of an expired grant (treated as revoked) |
+
+The seeded grants each case's `requires` names are the harness's responsibility;
+this selector states *who acts*, not what the seed contains.
+
 ## Cross-step response namespaces
 
 A case's responses live in three namespaces, and every cross-step reference is

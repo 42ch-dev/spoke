@@ -1,28 +1,41 @@
 {
   "id": "profile-admission",
   "title": "Profile-admission three-state distinguishability (capability_missing / PROFILE_INCOMPLETE / honest-empty)",
-  "protocol_refs": ["§4.1", "§7.24", "§7.27", "MEM-R020", "prototype design-r3 acceptance addendum"],
+  "protocol_refs": [
+    "\u00a74.1",
+    "\u00a77.24",
+    "\u00a77.27",
+    "MEM-R020",
+    "prototype design-r3 acceptance addendum"
+  ],
   "cases": [
     {
       "id": "admission-capability-missing",
-      "invariant": "§4.1",
+      "invariant": "\u00a74.1",
       "surface": "wire",
       "outcome": "identical",
       "what": "an unnegotiated memory capability is distinguishable from profile state",
-      "requires": ["peer negotiated capabilities without spoke-memory"],
+      "requires": [
+        "peer negotiated capabilities without spoke-memory"
+      ],
       "op": "memory.reflections.generate",
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": true
         },
         "expected_state_digest": "0000000000000000000000000000000000000000000000000000000000000000",
         "idempotency_key": "gen-tw-admission-0001"
       },
-      "expect": { "error_code": "capability_missing" }
+      "expect": {
+        "error_code": "capability_missing"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "admission-profile-incomplete",
@@ -40,17 +53,22 @@
         "subject_id": "toy:character:bo",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_market_square"],
+          "context_ids": [
+            "ctx_tw_market_square"
+          ],
           "include_shared": false
         },
         "expected_state_digest": "0000000000000000000000000000000000000000000000000000000000000000",
         "idempotency_key": "gen-tw-admission-0002"
       },
-      "expect": { "error_code": "PROFILE_INCOMPLETE" }
+      "expect": {
+        "error_code": "PROFILE_INCOMPLETE"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "admission-honest-empty",
-      "invariant": "§4.2",
+      "invariant": "\u00a74.2",
       "surface": "wire",
       "outcome": "identical",
       "what": "an absent optional profile kind is returned as an empty profiles list, never an error or a fabricated document",
@@ -62,12 +80,20 @@
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
-        "profile_kinds": ["preferences"]
+        "profile_kinds": [
+          "preferences"
+        ]
       },
       "expect": {
         "success": true,
-        "state": [{ "path": "profiles", "equals": [] }]
-      }
+        "state": [
+          {
+            "path": "profiles",
+            "equals": []
+          }
+        ]
+      },
+      "principal": "prn_tw_cli_operator"
     }
   ]
 }

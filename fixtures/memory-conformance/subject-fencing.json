@@ -1,7 +1,11 @@
 {
   "id": "subject-fencing",
   "title": "Subject and context fencing, sibling contexts remain usable",
-  "protocol_refs": ["§8.3", "MEM-R024", "§7.7"],
+  "protocol_refs": [
+    "\u00a78.3",
+    "MEM-R024",
+    "\u00a77.7"
+  ],
   "cases": [
     {
       "id": "fence-context-target-accepted",
@@ -13,17 +17,22 @@
         "request": {
           "space_id": "spc_tw_harbor",
           "subject_id": "toy:character:mira",
-          "target": { "type": "context", "context_id": "ctx_tw_customs_gate" },
+          "target": {
+            "type": "context",
+            "context_id": "ctx_tw_customs_gate"
+          },
           "action": "fence",
           "expected_revision": 1,
           "idempotency_key": "fence-tw-gate-0001"
         }
       },
-      "expect": { "ok": true }
+      "expect": {
+        "ok": true
+      }
     },
     {
       "id": "fence-context-archive-rejected",
-      "invariant": "§7.7",
+      "invariant": "\u00a77.7",
       "surface": "engine",
       "outcome": "identical",
       "what": "archive is subject-only; a context target rejects it",
@@ -31,13 +40,19 @@
         "request": {
           "space_id": "spc_tw_harbor",
           "subject_id": "toy:character:mira",
-          "target": { "type": "context", "context_id": "ctx_tw_customs_gate" },
+          "target": {
+            "type": "context",
+            "context_id": "ctx_tw_customs_gate"
+          },
           "action": "archive",
           "expected_revision": 1,
           "idempotency_key": "fence-tw-gate-0002"
         }
       },
-      "expect": { "ok": false, "error_code": "INVALID_INPUT" }
+      "expect": {
+        "ok": false,
+        "error_code": "INVALID_INPUT"
+      }
     },
     {
       "id": "fence-blocks-write-in-context",
@@ -51,7 +66,10 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "target": { "type": "context", "context_id": "ctx_tw_customs_gate" },
+            "target": {
+              "type": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "action": "fence",
             "expected_revision": 1,
             "idempotency_key": "fence-tw-gate-0001"
@@ -62,11 +80,19 @@
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
-        "content": { "text": "Mira hides a second key under the customs bench." },
-        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+        "content": {
+          "text": "Mira hides a second key under the customs bench."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
         "idempotency_key": "cap-tw-fenced-0003"
       },
-      "expect": { "error_code": "SUBJECT_FENCED" }
+      "expect": {
+        "error_code": "SUBJECT_FENCED"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "fence-sibling-context-still-writable",
@@ -80,7 +106,10 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "target": { "type": "context", "context_id": "ctx_tw_customs_gate" },
+            "target": {
+              "type": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "action": "fence",
             "expected_revision": 1,
             "idempotency_key": "fence-tw-gate-0001"
@@ -91,11 +120,19 @@
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
-        "content": { "text": "Mira hears the market bell ring twice at noon." },
-        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_market_square" },
+        "content": {
+          "text": "Mira hears the market bell ring twice at noon."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_market_square"
+        },
         "idempotency_key": "cap-tw-sibling-0004"
       },
-      "expect": { "receipt_status": "committed" }
+      "expect": {
+        "receipt_status": "committed"
+      },
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "fence-keeps-reads-available",
@@ -109,7 +146,10 @@
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "target": { "type": "context", "context_id": "ctx_tw_customs_gate" },
+            "target": {
+              "type": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
             "action": "fence",
             "expected_revision": 1,
             "idempotency_key": "fence-tw-gate-0001"
@@ -122,12 +162,19 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": false
         },
-        "budget": { "max_items": 4 }
+        "budget": {
+          "max_items": 4
+        }
       },
-      "expect": { "success": true }
+      "expect": {
+        "success": true
+      },
+      "principal": "prn_tw_cli_operator"
     }
   ]
 }

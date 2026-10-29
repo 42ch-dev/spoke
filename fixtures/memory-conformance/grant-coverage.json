@@ -1,7 +1,13 @@
 {
   "id": "grant-coverage",
   "title": "Provider-enforced grant coverage, shared_access, subject_all, and issuance non-amplification",
-  "protocol_refs": ["§6.5", "MEM-R006", "MEM-R017", "§7.9", "§7.22"],
+  "protocol_refs": [
+    "\u00a76.5",
+    "MEM-R006",
+    "MEM-R017",
+    "\u00a77.9",
+    "\u00a77.22"
+  ],
   "cases": [
     {
       "id": "coverage-inside-granted-context",
@@ -19,12 +25,19 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": true
         },
-        "budget": { "max_items": 8 }
+        "budget": {
+          "max_items": 8
+        }
       },
-      "expect": { "success": true }
+      "expect": {
+        "success": true
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "coverage-context-outside-grant-denied",
@@ -41,12 +54,19 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_market_square"],
+          "context_ids": [
+            "ctx_tw_market_square"
+          ],
           "include_shared": false
         },
-        "budget": { "max_items": 8 }
+        "budget": {
+          "max_items": 8
+        }
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "coverage-shared-without-shared-access-denied",
@@ -63,12 +83,19 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": true
         },
-        "budget": { "max_items": 8 }
+        "budget": {
+          "max_items": 8
+        }
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_peer_reader"
     },
     {
       "id": "coverage-subject-all-denied-under-restricted-grant",
@@ -83,10 +110,17 @@
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
-        "selection": { "mode": "subject_all" },
-        "budget": { "max_items": 8 }
+        "selection": {
+          "mode": "subject_all"
+        },
+        "budget": {
+          "max_items": 8
+        }
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "coverage-subject-all-allowed-for-unrestricted-admin",
@@ -101,10 +135,17 @@
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
-        "selection": { "mode": "subject_all" },
-        "budget": { "max_items": 32 }
+        "selection": {
+          "mode": "subject_all"
+        },
+        "budget": {
+          "max_items": 32
+        }
       },
-      "expect": { "success": true }
+      "expect": {
+        "success": true
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "coverage-subject-mismatch-denied",
@@ -121,12 +162,19 @@
         "subject_id": "toy:character:bo",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": false
         },
-        "budget": { "max_items": 8 }
+        "budget": {
+          "max_items": 8
+        }
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "coverage-expired-grant-denied",
@@ -135,7 +183,7 @@
       "outcome": "identical",
       "what": "an expired grant is treated as revoked, so coverage is absent",
       "requires": [
-        "prn_tw_host_primary holds only an expired mira grant (expires_at in the past)"
+        "prn_tw_expired_reader holds only an expired mira grant (expires_at in the past)"
       ],
       "op": "memory.recall",
       "request": {
@@ -143,12 +191,19 @@
         "subject_id": "toy:character:mira",
         "selection": {
           "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_customs_gate"],
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
           "include_shared": false
         },
-        "budget": { "max_items": 8 }
+        "budget": {
+          "max_items": 8
+        }
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_expired_reader"
     },
     {
       "id": "issuance-within-admin-coverage",
@@ -156,18 +211,30 @@
       "surface": "wire",
       "outcome": "identical",
       "what": "a space-wide admin grant may issue the restricted mira grant",
-      "requires": ["prn_tw_cli_operator holds the space-wide grt_tw_operator_admin_0002"],
+      "requires": [
+        "prn_tw_cli_operator holds the space-wide grt_tw_operator_admin_0002"
+      ],
       "op": "memory.grants.grant",
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
         "principal_id": "prn_tw_host_primary",
-        "capabilities": ["capture", "review", "records_write", "recall"],
-        "context_ids": ["ctx_tw_customs_gate"],
+        "capabilities": [
+          "capture",
+          "review",
+          "records_write",
+          "recall"
+        ],
+        "context_ids": [
+          "ctx_tw_customs_gate"
+        ],
         "shared_access": true,
         "idempotency_key": "grant-tw-conformance-0001"
       },
-      "expect": { "receipt_status": "committed" }
+      "expect": {
+        "receipt_status": "committed"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "issuance-context-amplification-denied",
@@ -183,11 +250,18 @@
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
         "principal_id": "prn_tw_host_primary",
-        "capabilities": ["recall"],
-        "context_ids": ["ctx_tw_market_square"],
+        "capabilities": [
+          "recall"
+        ],
+        "context_ids": [
+          "ctx_tw_market_square"
+        ],
         "idempotency_key": "grant-tw-conformance-0002"
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "issuance-non-admin-granter-denied",
@@ -203,11 +277,18 @@
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
         "principal_id": "prn_tw_peer_reader",
-        "capabilities": ["recall"],
-        "context_ids": ["ctx_tw_customs_gate"],
+        "capabilities": [
+          "recall"
+        ],
+        "context_ids": [
+          "ctx_tw_customs_gate"
+        ],
         "idempotency_key": "grant-tw-conformance-0003"
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "issuance-expiry-beyond-granter-denied",
@@ -223,11 +304,16 @@
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
         "principal_id": "prn_tw_host_primary",
-        "capabilities": ["recall"],
+        "capabilities": [
+          "recall"
+        ],
         "expires_at": "2026-07-30T00:00:00Z",
         "idempotency_key": "grant-tw-conformance-0004"
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     },
     {
       "id": "issuance-space-wide-denied-for-subject-admin",
@@ -242,10 +328,15 @@
       "request": {
         "space_id": "spc_tw_harbor",
         "principal_id": "prn_tw_peer_reader",
-        "capabilities": ["recall"],
+        "capabilities": [
+          "recall"
+        ],
         "idempotency_key": "grant-tw-conformance-0005"
       },
-      "expect": { "error_code": "NOT_AUTHORIZED" }
+      "expect": {
+        "error_code": "NOT_AUTHORIZED"
+      },
+      "principal": "prn_tw_host_primary"
     }
   ]
 }

@@ -1,9 +1,12 @@
-//! Memory conformance over Connect — corpus interpreter and SQLite-provider run.
+//! Memory conformance over Connect — corpus interpreter over both providers.
 //!
-//! Loads the wire vectors from `fixtures/memory-conformance/`, drives them over a
-//! Connect loopback against the SQLite reference provider, and records one
-//! terminal outcome per case (pass / documented inconclusive / fail). The
-//! loopback harness provider joins in Task 6.
+//! Loads the wire vectors from `fixtures/memory-conformance/` and drives them
+//! over a Connect loopback once per provider leg: the SQLite reference
+//! provider and the loopback `MemoryHost` (`tests/support/memory_host.rs`,
+//! serving transfer). Each leg records one terminal outcome per case (pass /
+//! documented inconclusive / fail); both columns print and the test asserts
+//! both are terminal — SQLite 44/44 pass, the loopback column pass or
+//! documented inconclusive with its gap reason, never fail.
 //!
 //! One `invoke(op, payload) -> Value` driver: over Connect an invoke carries JSON,
 //! so the interpreter needs no typed per-op dispatch. The expect vocabulary,
@@ -26,6 +29,10 @@ use loopback_oracle::{connect_manifest, pubkey_client, seed_client, seed_host, s
 #[path = "support/sqlite_memory.rs"]
 mod sqlite_memory;
 
+#[path = "support/memory_host.rs"]
+mod memory_host;
+use memory_host::{MemoryHost, Store, StoredRecord};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,8 +48,8 @@ use spoke_connect::remote::{
 use spoke_fixture_toy_world::ToyWorldAdapter;
 use spoke_operations::{MemoryPort, SpokeResult};
 use spoke_schemas::{
-    ConnectHello, ConnectSession, HostCapabilityManifest, MemoryReflectionsStateRequest,
-    Principal,
+    ConnectHello, ConnectSession, HostCapabilityManifest, MemoryGrant,
+    MemoryReflectionsStateRequest, Principal,
 };
 use sqlite_memory::SqliteMemoryProvider;
 
@@ -108,9 +115,8 @@ fn principal_for(peer_id: &str) -> Principal {
         .expect("valid principal")
 }
 
-fn memory_face(provider: Arc<SqliteMemoryProvider>) -> Arc<dyn RemoteMemoryService> {
-    let port: Arc<dyn MemoryPort + Send + Sync> = provider;
-    let admission: MemoryAdmission = Arc::new(move |_peer_id: &str| {
+fn admission() -> MemoryAdmission {
+    Arc::new(move |_peer_id: &str| {
         // The harness sets the corpus principal for the case being executed.
         let principal_id = CURRENT_PRINCIPAL.lock().expect("principal lock").clone();
         match serde_json::from_value::<Principal>(json!({
@@ -124,8 +130,17 @@ fn memory_face(provider: Arc<SqliteMemoryProvider>) -> Arc<dyn RemoteMemoryServi
                 None,
             ),
         }
-    });
-    Arc::new(MemoryPortService::new(port, admission))
+    })
+}
+
+fn memory_face(provider: Arc<SqliteMemoryProvider>) -> Arc<dyn RemoteMemoryService> {
+    let port: Arc<dyn MemoryPort + Send + Sync> = provider;
+    Arc::new(MemoryPortService::new(port, admission()))
+}
+
+fn loopback_face(host: Arc<MemoryHost>) -> Arc<dyn RemoteMemoryService> {
+    let port: Arc<dyn MemoryPort + Send + Sync> = host;
+    Arc::new(MemoryPortService::new(port, admission()))
 }
 
 static CURRENT_PRINCIPAL: Mutex<String> = Mutex::new(String::new());
@@ -227,30 +242,64 @@ impl ProviderKind {
     }
 }
 
+/// The per-leg provider handle behind a `Wire`: the SQLite reference
+/// provider exposes the harness clock/snapshot surface; the loopback
+/// `MemoryHost` does not — those cases are pre-classified as documented
+/// inconclusive on its leg, so its clock/snapshot paths are unreachable.
+#[derive(Clone)]
+enum Provider {
+    Sqlite(Arc<SqliteMemoryProvider>),
+    Loopback(Arc<Store>),
+}
+
+impl Provider {
+    /// The active provider variant: `provider_scope` predicates compare
+    /// against THIS, never against a constant.
+    fn kind(&self) -> ProviderKind {
+        match self {
+            Provider::Sqlite(_) => ProviderKind::Sqlite,
+            Provider::Loopback(_) => ProviderKind::Loopback,
+        }
+    }
+
+    fn advance_clock(&self, seconds: i64) {
+        match self {
+            Provider::Sqlite(provider) => provider.advance_clock(seconds),
+            // Unreachable: every `advance` case needs `memory.describe` or
+            // retention windows the loopback leg pre-classifies as a gap.
+            Provider::Loopback(_store) => {}
+        }
+    }
+}
+
 /// The corpus driver: one raw invoke per step.
 struct Wire {
     client: LoopbackTransport,
     session_id: String,
     sequence: i64,
-    provider: Arc<SqliteMemoryProvider>,
-    /// The active provider variant: `provider_scope` predicates compare
-    /// against THIS, never against a constant.
-    kind: ProviderKind,
+    provider: Provider,
 }
 
 /// Harness capabilities are local by definition: they drive the provider's
 /// snapshot surface, not the wire.
-fn run_harness_step(provider: &SqliteMemoryProvider, op: &str) -> Value {
-    match op {
-        "harness.save_snapshot" => {
-            provider.save_snapshot();
-            json!({ "success": true })
-        }
-        "harness.restore_snapshot" => {
-            let restored = provider.restore_snapshot();
-            json!({ "success": restored })
-        }
-        other => panic!("unknown harness capability {other}"),
+fn run_harness_step(provider: &Provider, op: &str) -> Value {
+    match provider {
+        Provider::Sqlite(provider) => match op {
+            "harness.save_snapshot" => {
+                provider.save_snapshot();
+                json!({ "success": true })
+            }
+            "harness.restore_snapshot" => {
+                let restored = provider.restore_snapshot();
+                json!({ "success": restored })
+            }
+            other => panic!("unknown harness capability {other}"),
+        },
+        // Unreachable: the only snapshot case is pre-classified on the
+        // loopback leg (the MemoryHost has no snapshot surface).
+        Provider::Loopback(_store) => json!({
+            "error": { "code": "INTERNAL", "message": "the loopback MemoryHost has no snapshot surface" }
+        }),
     }
 }
 
@@ -585,97 +634,309 @@ async fn seed(provider: &SqliteMemoryProvider) {
     provider.provision_reflection(SPACE, control);
 }
 
-#[test]
-fn corpus_interpreter_runs_against_the_sqlite_provider() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
+/// Seed the loopback `MemoryHost` store with the corpus world: the same
+/// principals, grants (including the expired reader, which `add_grant`
+/// cannot express) and records the SQLite reference seed provisions.
+fn seed_loopback(store: &Store) {
+    store.add_grant(
+        "prn_tw_host_primary",
+        SPACE,
+        Some(MIRA),
+        &["capture", "review", "records_read", "records_write", "recall"],
+        &[GATE],
+        true,
+    );
+    store.add_grant("prn_tw_cli_operator", SPACE, None, &["admin"], &[], false);
+    store.add_grant(
+        "prn_tw_peer_reader",
+        SPACE,
+        Some(MIRA),
+        &["capture", "review", "records_read", "records_write", "recall"],
+        &[GATE],
+        false,
+    );
+    store.add_grant(
+        "prn_tw_cli_operator",
+        TARGET_SPACE,
+        None,
+        &["transfer", "admin"],
+        &[],
+        false,
+    );
+    // The expired reader: `add_grant` builds non-expiring grants, so push
+    // the grant directly — `grant_covers` rejects it via `expires_at`.
+    let mut expired = grant(
+        SPACE,
+        "grt_tw_expired_reader",
+        "prn_tw_expired_reader",
+        &["recall"],
+        Some(MIRA),
+        Some(&[GATE]),
+        Some(true),
+    );
+    expired["expires_at"] = json!("2026-07-22T00:00:00Z");
+    let expired: MemoryGrant = serde_json::from_value(expired).expect("valid grant");
+    store.state.lock().expect("state lock").grants.push(expired);
+
+    // `Store::seed_record` places everything under the fixture default
+    // subject; the corpus records live under Mira, so push them directly.
+    for (record_id, kind, text, context) in [
+        (
+            "rec_tw_gate_key_fact",
+            "fact",
+            "The gate key is hidden under the third barrel.",
+            Some(GATE),
+        ),
+        (
+            "rec_tw_gate_key_event",
+            "event",
+            "Mira revealed the key location to Bo.",
+            Some(GATE),
+        ),
+        (
+            "rec_tw_bo_promise",
+            "event",
+            "Mira promised the harbor master she would return before dawn.",
+            None,
+        ),
+    ] {
+        let scope = match context {
+            Some(context) => json!({ "visibility": "context", "context_id": context }),
+            None => json!({ "visibility": "shared" }),
+        };
+        store.state.lock().expect("state lock").records.push(StoredRecord {
+            space_id: SPACE.to_string(),
+            subject_id: MIRA.to_string(),
+            record_id: record_id.to_string(),
+            kind: kind.to_string(),
+            text: text.to_string(),
+            scope,
+            captured_by: "prn_tw_host_primary".to_string(),
+        });
+    }
+}
+
+/// The loopback `MemoryHost`'s served surface (see its module docs): the
+/// pure-move baseline (capture / candidates.review / recall) plus the
+/// §7.29–§7.33 transfer ops and receipt polling. Every other memory op is a
+/// documented serving gap on that provider.
+fn loopback_serves(op: &str) -> bool {
+    matches!(
+        op,
+        "memory.capture"
+            | "memory.candidates.review"
+            | "memory.recall"
+            | "memory.exports.create"
+            | "memory.exports.get"
+            | "memory.imports.stage"
+            | "memory.imports.activate"
+            | "memory.imports.discard"
+            | "memory.receipts.get"
+    )
+}
+
+/// A case whose expectations are genuinely unreachable on the loopback
+/// `MemoryHost` records its documented gap here — never a silent skip and
+/// never a wire run that can only fail.
+fn loopback_gap(case: &Value) -> Option<String> {
+    if case.get("advance").is_some() {
+        return Some(
+            "no harness clock control (grant expiry runs on Utc::now(), and \
+             `memory.describe` retention windows are unserved) — time-advanced \
+             expectations are unreachable"
+                .to_string(),
+        );
+    }
+    let mut steps: Vec<&Value> = case["setup"].as_array().into_iter().flatten().collect();
+    steps.push(case);
+    steps.extend(case["then"].as_array().into_iter().flatten());
+    for step in steps {
+        let op = step["op"].as_str().unwrap_or_default();
+        if op.starts_with("harness.") {
+            return Some(
+                "no snapshot surface — harness save/restore drives the SQLite \
+                 provider's snapshot only"
+                    .to_string(),
+            );
+        }
+        if !loopback_serves(op) {
+            return Some(format!(
+                "the loopback MemoryHost does not serve {op} (documented serving gap)"
+            ));
+        }
+        if op == "memory.recall" && step["request"].get("cursor").is_some() {
+            return Some(
+                "recall serves no cursor surface — cursor invalidation is a \
+                 SQLite-provider behavior the MemoryHost does not implement"
+                    .to_string(),
+            );
+        }
+    }
+    None
+}
+
+/// Which provider leg a corpus run drives.
+#[derive(Clone, Copy)]
+enum Leg {
+    Sqlite,
+    Loopback,
+}
+
+/// Run every wire case of the corpus against one provider leg and record one
+/// terminal outcome per case.
+async fn run_leg(leg: Leg) -> Report {
     let mut report = Report { rows: Vec::new() };
-    runtime.block_on(async {
-        // One provider (and one session) per case: the corpus cases assume a
-        // seeded, unfrozen space, so they must not inherit each other's state.
-        for scenario in load_scenarios() {
-            for case in scenario
-                .cases
-                .iter()
-                .filter(|case| case["surface"] == "wire")
-            {
-                let provider = Arc::new(SqliteMemoryProvider::in_memory());
-                seed(&provider).await;
-                let (responder, pair) =
-                    start_host(memory_face(Arc::clone(&provider)), &MEMORY_CAPABILITIES).await;
+    // One provider (and one session) per case: the corpus cases assume a
+    // seeded, unfrozen space, so they must not inherit each other's state.
+    for scenario in load_scenarios() {
+        for case in scenario
+            .cases
+            .iter()
+            .filter(|case| case["surface"] == "wire")
+        {
+            let case_id = case["id"].as_str().unwrap_or("<case>");
+            if let Leg::Loopback = leg {
+                if let Some(gap) = loopback_gap(case) {
+                    report.record(
+                        &scenario.id,
+                        case_id,
+                        Outcome::Inconclusive(format!("loopback MemoryHost: {gap}")),
+                    );
+                    continue;
+                }
+            }
+            // `capability_missing` is unreachable on a fully-negotiated
+            // session: a case that expects it runs its op on a second
+            // session negotiated without `spoke-memory-reflection`.
+            let mut reduced = None;
+            let mut reduced_responder = None;
+            let (provider, face): (Provider, Arc<dyn RemoteMemoryService>) = match leg {
+                Leg::Sqlite => {
+                    let provider = Arc::new(SqliteMemoryProvider::in_memory());
+                    seed(&provider).await;
+                    (
+                        Provider::Sqlite(Arc::clone(&provider)),
+                        memory_face(Arc::clone(&provider)),
+                    )
+                }
+                Leg::Loopback => {
+                    let store = Store::default();
+                    seed_loopback(&store);
+                    let host = Arc::new(MemoryHost {
+                        store: Arc::new(store),
+                    });
+                    let store = Arc::clone(&host.store);
+                    (Provider::Loopback(store), loopback_face(host))
+                }
+            };
+            let (responder, pair) = start_host(Arc::clone(&face), &MEMORY_CAPABILITIES).await;
+            let client = pair.client.clone();
+            let session_id = handshake(&client, &MEMORY_CAPABILITIES).await;
+            let mut wire = Wire {
+                client,
+                session_id,
+                sequence: -1,
+                provider: provider.clone(),
+            };
+            if expects_capability_missing(case) {
+                let caps: Vec<&str> = MEMORY_CAPABILITIES
+                    .iter()
+                    .copied()
+                    .filter(|cap| *cap != "spoke-memory-reflection")
+                    .collect();
+                let (responder, pair) = start_host(face, &caps).await;
                 let client = pair.client.clone();
-                let session_id = handshake(&client, &MEMORY_CAPABILITIES).await;
-                let mut wire = Wire {
+                let session_id = handshake(&client, &caps).await;
+                reduced = Some(Wire {
                     client,
                     session_id,
                     sequence: -1,
-                    provider: Arc::clone(&provider),
-                    kind: ProviderKind::Sqlite,
-                };
-                // `capability_missing` is unreachable on a fully-negotiated
-                // session: a case that expects it runs its op on a second
-                // session negotiated without `spoke-memory-reflection`.
-                let mut reduced = None;
-                let mut reduced_responder = None;
-                if expects_capability_missing(case) {
-                    let caps: Vec<&str> = MEMORY_CAPABILITIES
-                        .iter()
-                        .copied()
-                        .filter(|cap| *cap != "spoke-memory-reflection")
-                        .collect();
-                    let (responder, pair) =
-                        start_host(memory_face(Arc::clone(&provider)), &caps).await;
-                    let client = pair.client.clone();
-                    let session_id = handshake(&client, &caps).await;
-                    reduced = Some(Wire {
-                        client,
-                        session_id,
-                        sequence: -1,
-                        provider: Arc::clone(&provider),
-                        kind: ProviderKind::Sqlite,
-                    });
-                    reduced_responder = Some(responder);
-                }
-                let outcome = run_case(&mut wire, reduced.as_mut(), &scenario.id, case).await;
-                report.record(
-                    &scenario.id,
-                    case["id"].as_str().unwrap_or("<case>"),
-                    outcome,
-                );
+                    provider,
+                });
+                reduced_responder = Some(responder);
+            }
+            let outcome = run_case(&mut wire, reduced.as_mut(), &scenario.id, case).await;
+            report.record(&scenario.id, case_id, outcome);
+            responder.close();
+            if let Some(responder) = reduced_responder {
                 responder.close();
-                if let Some(responder) = reduced_responder {
-                    responder.close();
-                }
             }
         }
-    });
+    }
+    report
+}
 
+fn print_column(label: &str, report: &Report) {
     let passed = report
         .rows
         .iter()
         .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
         .count();
+    let inconclusive = report
+        .rows
+        .iter()
+        .filter(|(_, _, outcome)| matches!(outcome, Outcome::Inconclusive(_)))
+        .count();
+    let failed = report.rows.len() - passed - inconclusive;
     println!(
-        "conformance: {} cases, {passed} pass, {} not passing",
-        report.rows.len(),
-        report.rows.len() - passed
+        "conformance ({label}): {} cases, {passed} pass, {inconclusive} documented inconclusive, {failed} fail",
+        report.rows.len()
     );
     for (scenario, case, outcome) in &report.rows {
         match outcome {
-            Outcome::Inconclusive(reason) => println!("INCONCLUSIVE {scenario}/{case}: {reason}"),
-            Outcome::Fail(reason) => println!("FAIL {scenario}/{case}: {reason}"),
+            Outcome::Inconclusive(reason) => {
+                println!("INCONCLUSIVE [{label}] {scenario}/{case}: {reason}")
+            }
+            Outcome::Fail(reason) => println!("FAIL [{label}] {scenario}/{case}: {reason}"),
             Outcome::Pass => {}
         }
     }
-    assert_eq!(report.rows.len(), 44, "all wire cases are executed");
-    let failed = report
+}
+
+#[test]
+fn corpus_interpreter_runs_against_both_memory_providers() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let (sqlite, loopback) = runtime.block_on(async { (run_leg(Leg::Sqlite).await, run_leg(Leg::Loopback).await) });
+
+    print_column("sqlite", &sqlite);
+    print_column("loopback", &loopback);
+
+    assert_eq!(sqlite.rows.len(), 44, "all wire cases are executed");
+    let sqlite_passed = sqlite
+        .rows
+        .iter()
+        .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
+        .count();
+    assert_eq!(sqlite_passed, 44, "the SQLite reference column passes 44/44");
+    let sqlite_failed = sqlite
         .rows
         .iter()
         .filter(|(_, _, outcome)| matches!(outcome, Outcome::Fail(_)))
         .count();
-    assert_eq!(failed, 0, "cooperative-class policy violations fail their case");
+    assert_eq!(sqlite_failed, 0, "cooperative-class policy violations fail their case");
+
+    assert_eq!(loopback.rows.len(), 44, "the loopback column runs every wire case to a terminal outcome");
+    let loopback_failed = loopback
+        .rows
+        .iter()
+        .filter(|(_, _, outcome)| matches!(outcome, Outcome::Fail(_)))
+        .count();
+    assert_eq!(
+        loopback_failed, 0,
+        "the loopback column is pass or documented inconclusive — never fail"
+    );
+    let loopback_passed = loopback
+        .rows
+        .iter()
+        .filter(|(_, _, outcome)| *outcome == Outcome::Pass)
+        .count();
+    assert!(
+        loopback_passed >= 16,
+        "the loopback column must keep its served-surface coverage (got {loopback_passed})"
+    );
 }
 
 /// Execute one case: setup → op → then, with the closed expect vocabulary.
@@ -786,7 +1047,7 @@ async fn run_case(
         }
     };
     if let Some(directive) = case.get("verify_export") {
-        match verify_export_fetches(wire, wire.kind, &directive, &responses, &op_request, &op_response).await
+        match verify_export_fetches(wire, wire.provider.kind(), &directive, &responses, &op_request, &op_response).await
         {
             Ok(verified) => op_response["payload"]["verified"] = verified,
             Err(failure) => {

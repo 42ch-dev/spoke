@@ -636,6 +636,127 @@ async fn eviction_never_reissues_a_receipt_id() {
 }
 
 #[tokio::test]
+async fn consumption_receipt_id_matches_and_polls_for_dismiss_and_review() {
+    // QC1-004: dismiss/review allocate the receipt ONCE — the id written into
+    // candidate.consumed_by.receipt_id is the returned receipt's id, and that
+    // id is pollable via receipts.get.
+    let provider = provider();
+    let receipt_request = |receipt_id: &str| {
+        serde_json::from_value::<MemoryReceiptsGetRequest>(json!({
+            "space_id": SPACE,
+            "receipt_id": receipt_id,
+        }))
+        .expect("receipt request")
+    };
+
+    // Dismiss path.
+    let captured = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("A dismissable note.", "cap-rcpt-1"))
+                    .expect("capture request"),
+            )
+            .await,
+    );
+    let candidate_id = wire(&captured)["result"]["candidate_ids"][0]
+        .as_str()
+        .expect("candidate id")
+        .to_string();
+    let dismissed = expect_ok(
+        provider
+            .dismiss_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                    "expected_revision": 1,
+                    "idempotency_key": "dis-rcpt-1",
+                }))
+                .expect("dismiss request"),
+            )
+            .await,
+    );
+    let dismissed = wire(&dismissed);
+    let receipt_id = dismissed["receipt_id"].as_str().expect("receipt id");
+    let fetched = expect_ok(
+        provider
+            .get_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&fetched)["candidate"]["consumed_by"]["receipt_id"],
+        receipt_id
+    );
+    let polled = expect_ok(
+        provider
+            .get_receipt(&principal(READER), receipt_request(receipt_id))
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+
+    // Review path.
+    let captured = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("A promotable note.", "cap-rcpt-2"))
+                    .expect("capture request"),
+            )
+            .await,
+    );
+    let candidate_id = wire(&captured)["result"]["candidate_ids"][0]
+        .as_str()
+        .expect("candidate id")
+        .to_string();
+    let reviewed = expect_ok(
+        provider
+            .review_candidate(
+                &principal(READER),
+                serde_json::from_value(review_request(
+                    &candidate_id,
+                    1,
+                    "rev-rcpt-1",
+                    json!({ "action": "promote" }),
+                ))
+                .expect("review request"),
+            )
+            .await,
+    );
+    let reviewed = wire(&reviewed);
+    let receipt_id = reviewed["receipt_id"].as_str().expect("receipt id");
+    let fetched = expect_ok(
+        provider
+            .get_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&fetched)["candidate"]["consumed_by"]["receipt_id"],
+        receipt_id
+    );
+    let polled = expect_ok(
+        provider
+            .get_receipt(&principal(READER), receipt_request(receipt_id))
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+}
+
+#[tokio::test]
 async fn snapshot_restore_rolls_back_provider_state() {
     let provider = provider();
     provider.save_snapshot();

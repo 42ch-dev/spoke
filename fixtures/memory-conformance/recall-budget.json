@@ -226,7 +226,7 @@
       "what": "repeating the same recall against unchanged state returns an identical page (determinism, not a cross-provider ranking)",
       "requires": [
         "toy:character:mira has at least two authorized records in ctx_tw_customs_gate",
-        "the harness repeats the op as a then step re-invoking memory.recall with the first response's cursor ($ref:op.next_cursor) and asserts the consumer-visible page is unchanged; a differing second page FAILS the case"
+        "the harness repeats the ORIGINAL op as a then step (same request, same state - no cursor forwarding) and asserts the consumer-visible page (records, total_authorized) is unchanged; both compared values must exist, and a differing second page FAILS the case"
       ],
       "op": "memory.recall",
       "request": {
@@ -264,16 +264,20 @@
             "query": "gate key",
             "budget": {
               "max_items": 4
-            },
-            "cursor": "$ref:op.next_cursor"
+            }
           },
           "expect": {
             "success": true,
             "unchanged": [
               {
-                "path": "items",
+                "path": "records",
                 "from": "op",
-                "from_path": "items"
+                "from_path": "records"
+              },
+              {
+                "path": "total_authorized",
+                "from": "op",
+                "from_path": "total_authorized"
               }
             ]
           }

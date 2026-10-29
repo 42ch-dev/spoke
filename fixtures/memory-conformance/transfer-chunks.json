@@ -273,7 +273,8 @@
       },
       "verify_export": {
         "receipt": "setup.1",
-        "foreign_bundle_digest": "ffe6ac22186a61d9018b3c64d923ec3c30769529a5cc61d737f006b047d52ca4"
+        "foreign_bundle_digest": "ffe6ac22186a61d9018b3c64d923ec3c30769529a5cc61d737f006b047d52ca4",
+        "provider_scope": "sqlite"
       },
       "expect": {
         "success": true,

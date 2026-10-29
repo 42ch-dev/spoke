@@ -137,8 +137,8 @@
       },
       "updated_by": "prn_tw_cli_operator",
       "created_at": "2026-07-23T05:50:00Z",
-      "updated_at": "2026-07-23T06:30:00Z",
-      "revision": 3,
+      "updated_at": "2026-07-23T05:50:00Z",
+      "revision": 1,
       "extensions": {}
     }
   ],
@@ -151,13 +151,13 @@
       "selection": {
         "mode": "selected_contexts",
         "context_ids": ["ctx_tw_customs_gate"],
-        "include_shared": false
+        "include_shared": true
       },
       "basis": {
-        "source_set_digest": "bb74a29efcfbb5d47b7443fd5c93bf8bfa6b03628f9606cbcfe6d2c1e1be87fc",
-        "record_count": 2,
-        "profile_revisions": { "personality": 3 },
-        "state_digest": "b88eab904901abe0d6e10aee420613ad91238c25184c8b1ce8c7591a3584d6e2"
+        "source_set_digest": "0000632c01b4c98a57d4f7dec7352a6b4abc567201f761fa11ac489680e47e64",
+        "record_count": 3,
+        "profile_revisions": { "personality": 1 },
+        "state_digest": "9075378e7426f532f9d02e9bf0e4cee88b847f2de4c8dbfefd2998a4d46df65d"
       },
       "body": {
         "format": "markdown",
@@ -198,6 +198,6 @@
       "revision": 1
     }
   ],
-  "digest": "c822f13a0587206f3757983eaac1a5c0ff10207099f4dd0c8f89832e2db05a40",
+  "digest": "7d31421ff8fcc9b3ad5e4413be02fc971c6aba2464b69462793ffdbb8af6f028",
   "extensions": {}
 }

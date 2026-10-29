@@ -175,10 +175,12 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "after activation the imported reflection reads stale: true; when the target recomputes the identical state_digest for its pinned selection, unconditional revalidation is the only explanation",
+      "what": "control: the same reflection on the source space reads stale: false; then on the target, a reproducible pinned basis plus stale: true proves unconditional imported staleness",
       "requires": [
+        "spc_tw_harbor holds refl_tw_gate_key_0001 with an unmoved basis: its pinned records at revision 1 and the personality profile at revision 1",
         "an empty target space spc_tw_import_target exists; its subject ids and local reflections are absent",
         "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
+        "the target provider allocates fresh revisions starting at 1 (the common convention), so the translated pinned basis can reproduce",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
       "pinned_basis_check": {
@@ -186,6 +188,19 @@
         "inconclusive_on_mismatch": true
       },
       "setup": [
+        {
+          "op": "memory.reflections.list",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "limit": 10
+          },
+          "expect": {
+            "success": true,
+            "sizes": [{ "path": "reflections", "equals": 1 }],
+            "state": [{ "path": "reflections.0.stale", "equals": false }]
+          }
+        },
         {
           "op": "memory.subjects.get",
           "request": {
@@ -224,7 +239,7 @@
           "op": "memory.imports.activate",
           "request": {
             "space_id": "spc_tw_import_target",
-            "import_id": "$ref:setup.2.result.import_id",
+            "import_id": "$ref:setup.3.result.import_id",
             "idempotency_key": "imp-tw-stale-0003"
           },
           "expect": { "receipt_status": "pending" }
@@ -233,7 +248,7 @@
           "op": "memory.receipts.get",
           "request": {
             "space_id": "spc_tw_import_target",
-            "receipt_id": "$ref:setup.3.receipt_id"
+            "receipt_id": "$ref:setup.4.receipt_id"
           },
           "expect": { "receipt_status": "committed" }
         }

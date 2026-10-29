@@ -763,7 +763,22 @@ fn validate_step(case_id: &str, step: &Value, setup_len: usize) {
             "case {case_id}: unknown step key {key}"
         );
     }
-    assert!(step["op"].as_str().is_some(), "case {case_id}: step op");
+    let op = step["op"].as_str().expect("step op");
+    assert!(
+        op.starts_with("memory.") || op.starts_with("harness."),
+        "case {case_id}: step op {op}"
+    );
+    if op.starts_with("harness.") {
+        assert_eq!(
+            op, "harness.reset_subject",
+            "case {case_id}: unknown harness capability {op}"
+        );
+        assert!(
+            step["request"]["space_id"].as_str().is_some()
+                && step["request"]["subject_id"].as_str().is_some(),
+            "case {case_id}: {op} needs space_id and subject_id"
+        );
+    }
     assert!(step["request"].is_object(), "case {case_id}: step request");
     validate_request_refs(case_id, &step["request"], setup_len);
     if let Some(stage_from) = step.get("stage_from") {

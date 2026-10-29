@@ -369,25 +369,54 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
     let widest_count = ((stream.len() as u64) + 1).to_string().len() as u32;
     let count_placeholder = 10u64.pow(widest_count).saturating_sub(1);
 
+    // Each element's canonical length is measured once and reused across every
+    // candidate group; the frame (scalars, header, empty arrays, placeholder
+    // `chunk_count`) is measured once per ordinal class. A candidate's size is
+    // then the frame plus its elements and separators, so appending one element
+    // no longer re-serializes the whole candidate chunk.
+    let element_bytes = stream
+        .iter()
+        .map(|(_, element)| canonical_json_bytes(element).map(|bytes| bytes.len()))
+        .collect::<Result<Vec<_>, _>>()?;
+    let frames = [
+        measured_frame(
+            &export_id,
+            &recomputed_digest,
+            &header,
+            &empty_present,
+            0,
+            count_placeholder,
+        )?,
+        measured_frame(
+            &export_id,
+            &recomputed_digest,
+            &header,
+            &empty_present,
+            1,
+            count_placeholder,
+        )?,
+    ];
+
     let mut groups: Vec<Vec<(&'static str, &Value)>> = Vec::new();
     let mut current: Vec<(&'static str, &Value)> = Vec::new();
-    for element in stream {
+    let mut field_counts = [0usize; BUNDLE_ARRAY_FIELDS.len()];
+    let mut field_bytes = [0usize; BUNDLE_ARRAY_FIELDS.len()];
+    for (element, element_len) in stream.into_iter().zip(element_bytes) {
+        let (field, _) = element;
+        let index = array_field_index(field);
         current.push(element);
+        field_counts[index] += 1;
+        field_bytes[index] += element_len;
         if current.len() > 1 {
-            let measured = build_chunk(
-                &export_id,
-                &recomputed_digest,
-                &header,
-                &empty_present,
-                groups.len() as u64,
-                count_placeholder,
-                &current,
-            )?;
-            let bytes = measured["bytes"].as_u64().unwrap_or(u64::MAX);
-            if bytes > chunk_limit as u64 {
-                let last = current.pop().expect("the current chunk is non-empty");
+            let frame = frames[if groups.is_empty() { 0 } else { 1 }];
+            if measured_chunk_bytes(frame, &field_counts, &field_bytes) > chunk_limit as u64 {
+                current.pop();
                 groups.push(std::mem::take(&mut current));
-                current.push(last);
+                field_counts = [0; BUNDLE_ARRAY_FIELDS.len()];
+                field_bytes = [0; BUNDLE_ARRAY_FIELDS.len()];
+                field_counts[index] = 1;
+                field_bytes[index] = element_len;
+                current.push(element);
             }
         }
     }
@@ -409,6 +438,61 @@ pub fn partition_bundle(bundle: &Value, chunk_limit: usize) -> Result<Vec<Value>
             )
         })
         .collect()
+}
+
+/// Canonical byte length of a chunk frame — scalars, the ordinal-0 header and
+/// empty arrays, and the placeholder `chunk_count` — with its own `bytes` digits
+/// excluded; `measured_chunk_bytes` settles those digits per candidate group.
+fn measured_frame(
+    export_id: &str,
+    bundle_digest: &str,
+    header: &Map<String, Value>,
+    empty_present: &[&'static str],
+    ordinal: u64,
+    count: u64,
+) -> Result<usize, TransferError> {
+    let frame = build_chunk(export_id, bundle_digest, header, empty_present, ordinal, count, &[])?;
+    let settled = frame["bytes"].as_u64().expect("build_chunk writes bytes");
+    Ok(settled as usize - decimal_digits(settled) as usize)
+}
+
+/// Canonical byte length of the chunk a candidate group would produce, from the
+/// frame length and per-field element totals, without rebuilding the chunk.
+/// Every present array adds `,"field":[` + its elements joined by `,` + `]`;
+/// the `bytes` digits settle exactly like `build_chunk`'s fixed-point loop.
+fn measured_chunk_bytes(frame: usize, field_counts: &[usize], field_bytes: &[usize]) -> u64 {
+    let mut base = frame;
+    for (index, field) in BUNDLE_ARRAY_FIELDS.iter().enumerate() {
+        if field_counts[index] == 0 {
+            continue;
+        }
+        base += field.len() + 3 + field_bytes[index] + field_counts[index] + 2;
+    }
+    let mut bytes = 0u64;
+    loop {
+        let length = base as u64 + decimal_digits(bytes);
+        if length == bytes {
+            return bytes;
+        }
+        bytes = length;
+    }
+}
+
+/// Decimal width of a canonicalized `bytes` value; `bytes` stays far below the
+/// ECMAScript plain-decimal threshold, so its canonical form is plain digits.
+fn decimal_digits(value: u64) -> u64 {
+    if value == 0 {
+        1
+    } else {
+        u64::from(value.ilog10()) + 1
+    }
+}
+
+fn array_field_index(field: &'static str) -> usize {
+    BUNDLE_ARRAY_FIELDS
+        .iter()
+        .position(|candidate| *candidate == field)
+        .expect("every stream element names a bundle array field")
 }
 
 fn build_chunk(
@@ -1128,6 +1212,97 @@ mod tests {
         let verification = verify_reassembly(&chunks);
         assert!(verification.bundle_digest_ok);
         assert!(verification.errors.is_empty());
+    }
+
+    /// The hardened partitioner sizes candidates from cached per-element
+    /// lengths; this pins the policy outcome against the reference chunk
+    /// builder: an accepted group fits the limit (unless it is a lone oversized
+    /// element), and adding the next element would have exceeded it.
+    #[test]
+    fn partition_boundaries_follow_the_measured_limit() {
+        let bundle = sealed_bundle();
+        let stream_len: usize = BUNDLE_ARRAY_FIELDS
+            .iter()
+            .map(|field| bundle[*field].as_array().map_or(0, Vec::len))
+            .sum();
+        let widest = (stream_len as u64 + 1).to_string().len() as u32;
+        let count_placeholder = 10u64.pow(widest).saturating_sub(1);
+        let export_id = bundle["export_id"].as_str().expect("export_id");
+        let bundle_digest = bundle["digest"].as_str().expect("digest");
+        let empty_present: Vec<&'static str> = BUNDLE_ARRAY_FIELDS
+            .iter()
+            .copied()
+            .filter(|field| bundle[*field].as_array().is_some_and(Vec::is_empty))
+            .collect();
+
+        for limit in [120usize, 300, 900, 5_000] {
+            let chunks = partition_bundle(&bundle, limit).expect("partitions");
+            let header = chunks[0]["header"]
+                .as_object()
+                .expect("ordinal 0 carries the header")
+                .clone();
+            let groups: Vec<Vec<(&'static str, &Value)>> = chunks
+                .iter()
+                .map(|chunk| {
+                    BUNDLE_ARRAY_FIELDS
+                        .iter()
+                        .flat_map(|field| {
+                            chunk[*field]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .map(move |item| (*field, item))
+                        })
+                        .collect()
+                })
+                .collect();
+            assert_eq!(
+                groups.iter().map(Vec::len).sum::<usize>(),
+                stream_len,
+                "limit {limit}: every element is emitted exactly once"
+            );
+
+            for (ordinal, group) in groups.iter().enumerate() {
+                let measured = build_chunk(
+                    export_id,
+                    bundle_digest,
+                    &header,
+                    &empty_present,
+                    ordinal as u64,
+                    count_placeholder,
+                    group,
+                )
+                .expect("candidate measures")["bytes"]
+                    .as_u64()
+                    .expect("bytes");
+                if group.len() > 1 {
+                    assert!(
+                        measured <= limit as u64,
+                        "limit {limit}: chunk {ordinal} measured {measured} after acceptance"
+                    );
+                }
+                if let Some(next) = groups.get(ordinal + 1) {
+                    let mut extended = group.clone();
+                    extended.push(next[0]);
+                    let extended_bytes = build_chunk(
+                        export_id,
+                        bundle_digest,
+                        &header,
+                        &empty_present,
+                        ordinal as u64,
+                        count_placeholder,
+                        &extended,
+                    )
+                    .expect("candidate measures")["bytes"]
+                        .as_u64()
+                        .expect("bytes");
+                    assert!(
+                        extended_bytes > limit as u64,
+                        "limit {limit}: chunk {ordinal} would still fit {extended_bytes} with the next element"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

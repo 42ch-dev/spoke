@@ -66,6 +66,21 @@ fn check_page_limit(limit: Option<NonZeroU64>, max_page_size: NonZeroU64) -> Spo
     spoke_ok(())
 }
 
+/// Counts UTF-8 bytes without retaining them: the measure needs only the
+/// length, so the canonical serialization stays transient.
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0 += buffer.len();
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Byte size of a `Content` request field against `max_content_bytes`
 /// (§7.1): UTF-8 bytes of the compact serialization of the complete
 /// `content` value — field name, quotes, escaping, and `structured`
@@ -78,6 +93,9 @@ fn check_page_limit(limit: Option<NonZeroU64>, max_page_size: NonZeroU64) -> Spo
 /// value (the TS measure filters the same members). Nested `null`s are
 /// content and stay. Numbers use the ECMAScript form (`1.0` → `1`) that
 /// `JSON.stringify` produces, so the TS measure counts identical bytes.
+///
+/// The canonical bytes are counted through a writer instead of materialized
+/// as a `Vec`: admission only needs the length.
 #[must_use]
 pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
     let value = match serde_json::to_value(content) {
@@ -90,7 +108,11 @@ pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
         Ok(other) => other,
         Err(_) => return 0,
     };
-    serde_jcs::to_vec(&value).map_or(0, |bytes| bytes.len())
+    let mut counter = ByteCounter(0);
+    match serde_jcs::to_writer(&mut counter, &value) {
+        Ok(()) => counter.0,
+        Err(_) => 0,
+    }
 }
 
 fn check_content_limit(byte_len: usize, max_content_bytes: usize) -> SpokeResult<()> {

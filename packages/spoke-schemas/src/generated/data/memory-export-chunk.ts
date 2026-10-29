@@ -116,7 +116,7 @@ export type Outcome = "promoted" | "fragmented" | "dropped" | "dismissed";
  */
 export type ContentDigest = string;
 export type ReceiptId1 = string;
-export type Op1 = string;
+export type ReceiptSummaryOp = string;
 /**
  * Opaque correlation label — never credentials or tokens.
  */
@@ -666,7 +666,7 @@ export interface ConsumedBy {
 }
 export interface ReceiptSummary {
   receipt_id: ReceiptId1;
-  op: Op1;
+  op: ReceiptSummaryOp;
   requester_principal_ref: RequesterPrincipalRef;
   idempotency_key?: IdempotencyKey;
   payload_digest: PayloadDigest;

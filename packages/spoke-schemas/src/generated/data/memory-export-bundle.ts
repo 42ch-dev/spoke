@@ -105,7 +105,7 @@ export type Mode = "subject_all";
 export type Mode1 = "shared_only";
 export type Mode2 = "selected_contexts";
 export type ReceiptId1 = string;
-export type Op1 = string;
+export type ReceiptSummaryOp = string;
 /**
  * Opaque correlation label — never credentials or tokens.
  */
@@ -126,7 +126,7 @@ export type Digest = string;
 export type AuthorityHostId1 = string;
 export type EnginePolicyVersion1 = string;
 export type ReceiptId2 = string;
-export type Op2 = string;
+export type ReceiptSummaryOp1 = string;
 /**
  * Opaque correlation label — never credentials or tokens.
  */
@@ -670,7 +670,7 @@ export interface Document1 {
 }
 export interface ReceiptSummary {
   receipt_id: ReceiptId1;
-  op: Op1;
+  op: ReceiptSummaryOp;
   requester_principal_ref: RequesterPrincipalRef;
   idempotency_key?: IdempotencyKey;
   payload_digest: PayloadDigest;
@@ -710,7 +710,7 @@ export interface Source1 {
  */
 export interface ReceiptSummary1 {
   receipt_id: ReceiptId2;
-  op: Op2;
+  op: ReceiptSummaryOp1;
   requester_principal_ref: RequesterPrincipalRef1;
   idempotency_key?: IdempotencyKey1;
   payload_digest: PayloadDigest1;

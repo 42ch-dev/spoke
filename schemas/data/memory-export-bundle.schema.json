@@ -158,7 +158,7 @@
         "op": {
           "type": "string",
           "minLength": 1,
-          "title": "Op"
+          "title": "ReceiptSummaryOp"
         },
         "requester_principal_ref": {
           "type": "string",

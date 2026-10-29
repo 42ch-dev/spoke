@@ -856,7 +856,7 @@ export interface AllOf25 {
 }
 export interface Result6 {
   grant_id: GrantId1;
-  revoked: true;
+  revoked: boolean;
   revision: number;
 }
 export interface AllOf26 {

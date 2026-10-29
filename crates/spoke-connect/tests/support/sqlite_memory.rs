@@ -1192,9 +1192,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 Self::receipt(space, "memory.grants.revoke", &principal_id, &digest, &key);
             receipt["result"] = json!({
                 "grant_id": grant_id,
-                // `revoked` is `{const: true, type: number}` in the P1 schema
-                // (unsatisfiable); typify yields f64, so emit a number.
-                "revoked": 1,
+                "revoked": true,
                 "revision": revision + 1,
             });
             Self::remember(

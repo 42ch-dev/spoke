@@ -1047,10 +1047,42 @@ fn conformance_corpus_is_well_formed() {
                             }),
                             setup_len,
                         );
-                        assert_eq!(
-                            pinned["inconclusive_on_mismatch"].as_bool(),
-                            Some(true),
+                        assert!(
+                            pinned["inconclusive_on_mismatch"].as_bool().is_some(),
                             "case {id}: pinned_basis_check.inconclusive_on_mismatch"
+                        );
+                    }
+                    if let Some(remap) = case.get("remap_policy_check") {
+                        validate_value_reference(
+                            id,
+                            remap["report"]
+                                .as_str()
+                                .unwrap_or_else(|| panic!("case {id}: remap_policy_check.report")),
+                            setup_len,
+                        );
+                        assert_eq!(
+                            remap["policy"].as_str(),
+                            Some("identity"),
+                            "case {id}: remap_policy_check.policy"
+                        );
+                        let maps = remap["maps"]
+                            .as_array()
+                            .unwrap_or_else(|| panic!("case {id}: remap_policy_check.maps"));
+                        assert!(!maps.is_empty(), "case {id}: empty remap_policy_check.maps");
+                        for map in maps {
+                            let name = map
+                                .as_str()
+                                .unwrap_or_else(|| panic!("case {id}: remap map name"));
+                            assert!(
+                                ["record_id_map", "candidate_id_map", "subject_id_map"]
+                                    .contains(&name),
+                                "case {id}: unknown remap map {name}"
+                            );
+                        }
+                        assert_eq!(
+                            remap["inconclusive_on_violation"].as_bool(),
+                            Some(true),
+                            "case {id}: remap_policy_check.inconclusive_on_violation"
                         );
                     }
                     if let Some(policy) = case.get("policy_version_check") {

@@ -175,17 +175,23 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "control: the same reflection on the source space reads stale: false; then on the target, a reproducible pinned basis plus stale: true proves unconditional imported staleness",
+      "what": "control: the same reflection on the source space reads stale: false; on the target, an identity remap, revision-1 records and a matching policy version make the pinned basis reproducible, so equality plus stale: true proves unconditional imported staleness (a mismatch under those preconditions FAILS)",
       "requires": [
         "spc_tw_harbor holds refl_tw_gate_key_0001 with an unmoved basis: its pinned records at revision 1 and the personality profile at revision 1",
         "an empty target space spc_tw_import_target exists; its subject ids and local reflections are absent",
         "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
-        "co-operative provider: it allocates fresh target revisions starting at 1 and reports the source bundle's engine_policy_version (observed via memory.describe and the staged report); an unmet precondition surfaces as a mismatched digest or policy version and is recorded inconclusive with that reason, never silently passed",
+        "declared provider policy: identity remap on an empty target (target id == source id — §7.31 requires reassignment, not a change of value), fresh target revisions starting at 1, and the source bundle's engine_policy_version; each is verified below, and a failed policy check records inconclusive with that reason",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
+      "remap_policy_check": {
+        "report": "setup.4.result.staged_report",
+        "maps": ["record_id_map", "candidate_id_map"],
+        "policy": "identity",
+        "inconclusive_on_violation": true
+      },
       "pinned_basis_check": {
         "reflection": "op.reflections.0",
-        "inconclusive_on_mismatch": true
+        "inconclusive_on_mismatch": false
       },
       "policy_version_check": {
         "observed": "setup.0.engine_policy_version",
@@ -261,6 +267,17 @@
             "receipt_id": "$ref:setup.5.receipt_id"
           },
           "expect": { "receipt_status": "committed" }
+        },
+        {
+          "op": "memory.records.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "record_id": "rec_tw_gate_key_fact"
+          },
+          "expect": {
+            "success": true,
+            "state": [{ "path": "record.revision", "equals": 1 }]
+          }
         }
       ],
       "op": "memory.reflections.list",

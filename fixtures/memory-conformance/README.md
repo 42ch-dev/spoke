@@ -182,6 +182,13 @@ test rejects un-namespaced references anywhere in a request payload or directive
   of the chunk minus `chunk_digest`) and the reassembled bundle digest (JCS minus
   `digest`), and reports the `verified` booleans. Fabricated digests therefore
   fail the case.
+- `remap_policy_check` — `{ "report": "<step reference to staged_report>", "maps": ["record_id_map", "candidate_id_map"], "policy": "identity", "inconclusive_on_violation": true }`.
+  §7.31 requires the target to **reassign** record/candidate ids, not to change
+  their values, so a co-operative provider may adopt an identity remap on an
+  empty target space. The harness reads the staged report it already received
+  and verifies the declared policy: every entry of the named maps must satisfy
+  `value == key`. A violation records `inconclusive` with that reason (honest for
+  third parties) and stops the remaining assertions.
 - `pinned_basis_check` — after the op under test returns reflections, the harness
   calls `memory.reflections.state` for the same space/subject with the
   reflection's pinned `selection` (and `filter`, when present) and compares the
@@ -198,6 +205,16 @@ test rejects un-namespaced references anywhere in a request payload or directive
 
   If (2) fails the case is recorded `inconclusive`
   (`inconclusive_on_mismatch: true`) — never proven, never a failure.
+
+  For the imported-staleness case the policy is **declared**, so the rule is
+  stricter (`inconclusive_on_mismatch: false`): once the declared-policy checks
+  pass — identity remap verified from the staged report, the post-activation
+  record revision read back as 1, and the policy version equal — the translated
+  pinned basis is exactly reproducible and equality **must** hold. A mismatch
+  under those conditions means the provider is non-compliant with its own
+  declared policy, so the case **fails** rather than degrading to inconclusive.
+  Inconclusive remains only for third parties that declare no policy or fail a
+  precondition, and the coverage map states that distinction.
 
   **Black-box ceiling:** this is the strongest discrimination an outside observer
   can reach without provider internals — a provider that both re-digests the
@@ -251,7 +268,7 @@ test rejects un-namespaced references anywhere in a request payload or directive
 | Cursor invalidation (`CURSOR_INVALID`) | `cursor-invalidation.json` | wire |
 | Chunk round-trip + digest verification, per-chunk staging keys and replay | `transfer-chunks.json`, `staging-import.json` | engine (partition/digests) + wire (round-trip, staging) |
 | Staged-import verification report + explicit-only `adopt_grants` (verified after activation, alongside the staging principal's own grant) | `staging-import.json` | engine (report policy) + wire (staging, activation, adoption) |
-| Imported-reflection `stale: true` unconditionally — `proven` only when the required source-space control reads `stale: false`, the target recomputes the pinned `state_digest`, and the imported reflection still reads `stale: true`; non-co-operative providers (different revision allocation or `engine_policy_version`) are recorded `inconclusive`, which is an honest outcome, never `proven` | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
+| Imported-reflection `stale: true` unconditionally — `proven` deterministically for providers declaring the identity-remap / revision-1 / matching-policy contract (all three verified in-case; a digest mismatch under those preconditions fails as non-compliant); third parties that declare no policy or fail a precondition are recorded `inconclusive` with reason, never `proven` | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
 | Profile-admission three-state distinguishability | `profile-admission.json` | wire |
 | Profile-update ⇒ reflection-stale trigger | `reflection-staleness.json` | wire (+ engine digest policy) |
 | Classification/recall determinism per provider (classification requires `harness.save_snapshot`/`restore_snapshot`, else inconclusive) | `classification.json` (`classification-stable-within-a-provider`), `recall-budget.json` | wire (+ engine repeat) |

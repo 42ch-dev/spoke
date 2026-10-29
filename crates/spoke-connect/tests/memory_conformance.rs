@@ -209,12 +209,33 @@ async fn handshake(client: &LoopbackTransport, capabilities: &[&str]) -> String 
 
 use spoke_connect::core::sign_hello_ed25519;
 
+/// The provider variant a Wire drives: the conformance matrix runs the same
+/// interpreter against both providers, and directives may scope assertions
+/// to one leg (`provider_scope`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderKind {
+    Sqlite,
+    Loopback,
+}
+
+impl ProviderKind {
+    fn name(self) -> &'static str {
+        match self {
+            ProviderKind::Sqlite => "sqlite",
+            ProviderKind::Loopback => "loopback",
+        }
+    }
+}
+
 /// The corpus driver: one raw invoke per step.
 struct Wire {
     client: LoopbackTransport,
     session_id: String,
     sequence: i64,
     provider: Arc<SqliteMemoryProvider>,
+    /// The active provider variant: `provider_scope` predicates compare
+    /// against THIS, never against a constant.
+    kind: ProviderKind,
 }
 
 /// Harness capabilities are local by definition: they drive the provider's
@@ -591,6 +612,7 @@ fn corpus_interpreter_runs_against_the_sqlite_provider() {
                     session_id,
                     sequence: -1,
                     provider: Arc::clone(&provider),
+                    kind: ProviderKind::Sqlite,
                 };
                 // `capability_missing` is unreachable on a fully-negotiated
                 // session: a case that expects it runs its op on a second
@@ -612,6 +634,7 @@ fn corpus_interpreter_runs_against_the_sqlite_provider() {
                         session_id,
                         sequence: -1,
                         provider: Arc::clone(&provider),
+                        kind: ProviderKind::Sqlite,
                     });
                     reduced_responder = Some(responder);
                 }
@@ -763,7 +786,7 @@ async fn run_case(
         }
     };
     if let Some(directive) = case.get("verify_export") {
-        match verify_export_fetches(wire, &directive, &responses, &op_request, &op_response).await
+        match verify_export_fetches(wire, wire.kind, &directive, &responses, &op_request, &op_response).await
         {
             Ok(verified) => op_response["payload"]["verified"] = verified,
             Err(failure) => {
@@ -899,6 +922,7 @@ async fn stage_from_asset(
 /// `digest`). Fabricated digests fail the case.
 async fn verify_export_fetches(
     wire: &mut Wire,
+    kind: ProviderKind,
     directive: &Value,
     responses: &BTreeMap<String, Value>,
     request: &Value,
@@ -954,21 +978,18 @@ async fn verify_export_fetches(
         .map_err(|error| format!("bundle digest: {error}"))?;
     // The vector may pin an independently generated digest constant (Python
     // JCS+sha256 of the deterministic sealed bundle). `provider_scope`
-    // restricts the assertion to the named provider leg — a differently
-    // scoped provider (e.g. the loopback harness) skips it instead of
-    // degrading to a silent mismatch. A mismatch on the scoped leg is a hard
-    // failure, not an inconclusive.
-    let scoped_here = directive["provider_scope"]
-        .as_str()
-        .map(|scope| scope == "sqlite")
-        .unwrap_or(true);
-    if scoped_here {
-        if let Some(foreign) = directive["foreign_bundle_digest"].as_str() {
-            if recomputed != foreign {
-                return Err(format!(
-                    "foreign bundle digest mismatch: recomputed {recomputed}, pinned {foreign}"
-                ));
-            }
+    // restricts the assertion to one provider leg, compared against the
+    // ACTIVE provider variant — a differently scoped leg bypasses it
+    // (documented skip), never an Inconclusive. A mismatch on the active
+    // scoped leg is a hard failure.
+    if foreign_constant_applies(directive, kind) {
+        let foreign = directive["foreign_bundle_digest"]
+            .as_str()
+            .expect("foreign_bundle_digest checked by foreign_constant_applies");
+        if recomputed != foreign {
+            return Err(format!(
+                "foreign bundle digest mismatch: recomputed {recomputed}, pinned {foreign}"
+            ));
         }
     }
     let bundle_digest_matches_receipt = recomputed == advertised;
@@ -1088,6 +1109,46 @@ fn check_remap_policy(
         }
     }
     Ok(())
+}
+
+/// Whether the `foreign_bundle_digest` assertion applies on the active
+/// provider leg: the directive must pin a constant and either declare no
+/// `provider_scope` or scope it to the ACTIVE variant (`wire.kind`) — never
+/// a constant string.
+fn foreign_constant_applies(directive: &Value, kind: ProviderKind) -> bool {
+    directive["foreign_bundle_digest"].is_string()
+        && directive["provider_scope"]
+            .as_str()
+            .map(|scope| scope == kind.name())
+            .unwrap_or(true)
+}
+
+#[test]
+fn foreign_constant_scopes_to_the_active_provider_leg() {
+    // QC1-005 regression: the scoped assertion runs on the sqlite leg and is
+    // bypassed (documented skip, not Inconclusive) on the loopback leg;
+    // ordinary export verification stays active everywhere.
+    let scoped = json!({
+        "receipt": "setup.1",
+        "foreign_bundle_digest": "ab".repeat(32),
+        "provider_scope": "sqlite",
+    });
+    assert!(foreign_constant_applies(&scoped, ProviderKind::Sqlite));
+    assert!(
+        !foreign_constant_applies(&scoped, ProviderKind::Loopback),
+        "sqlite-scoped oracle must be bypassed on the loopback leg"
+    );
+
+    let unscoped = json!({
+        "receipt": "setup.1",
+        "foreign_bundle_digest": "ab".repeat(32),
+    });
+    assert!(foreign_constant_applies(&unscoped, ProviderKind::Sqlite));
+    assert!(foreign_constant_applies(&unscoped, ProviderKind::Loopback));
+
+    let plain = json!({ "receipt": "setup.1" });
+    assert!(!foreign_constant_applies(&plain, ProviderKind::Sqlite));
+    assert!(!foreign_constant_applies(&plain, ProviderKind::Loopback));
 }
 
 /// Evaluate the closed expect vocabulary against a response.

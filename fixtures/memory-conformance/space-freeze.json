@@ -131,59 +131,89 @@
       "expect": { "success": true }
     },
     {
-      "id": "drain-barrier-zero-before-cutover",
+      "id": "quiescent-export-rejected-while-a-receipt-is-pending",
       "invariant": "MEM-R023",
       "surface": "wire",
       "outcome": "identical",
-      "what": "a drained space reports pending_receipts == 0 so cutover may proceed",
+      "what": "a quiescent export is refused while another receipt is still pending, even in a frozen space",
+      "requires": [
+        "memory.receipts.get polls until the receipt is terminal before the next step"
+      ],
       "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        },
         {
           "op": "memory.exports.create",
           "request": {
             "space_id": "spc_tw_harbor",
             "subject_id": "toy:character:mira",
-            "require_quiescent": true,
-            "idempotency_key": "exp-tw-cutover-0003"
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-backup-0003"
+          }
+        }
+      ],
+      "op": "memory.exports.create",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "require_quiescent": true,
+        "idempotency_key": "exp-tw-quiescent-0004"
+      },
+      "expect": {
+        "error_code": "INVALID_INPUT",
+        "details": { "reason": "space_not_drained" }
+      }
+    },
+    {
+      "id": "quiescent-export-admitted-after-drain",
+      "invariant": "MEM-R023",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "once the prior receipt drains, the frozen space admits a quiescent export",
+      "requires": [
+        "memory.receipts.get polls until the receipt is terminal before the next step"
+      ],
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-harbor-0001"
+          }
+        },
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-backup-0005"
           }
         },
         {
           "op": "memory.receipts.get",
           "request": {
             "space_id": "spc_tw_harbor",
-            "receipt_id": "$ref:0.receipt_id"
-          }
+            "receipt_id": "$ref:1.receipt_id"
+          },
+          "expect": { "receipt_status": "committed" }
         }
       ],
-      "op": "memory.spaces.list",
-      "request": { "limit": 10 },
-      "expect": {
-        "success": true,
-        "state": [{ "path": "spaces.0.pending_receipts", "equals": 0 }]
-      }
-    },
-    {
-      "id": "drain-barrier-counts-pending",
-      "invariant": "MEM-R023",
-      "surface": "wire",
-      "outcome": "identical",
-      "what": "a pending receipt is visible in pending_receipts, blocking the drain barrier",
-      "setup": [
-        {
-          "op": "memory.exports.create",
-          "request": {
-            "space_id": "spc_tw_harbor",
-            "subject_id": "toy:character:mira",
-            "require_quiescent": true,
-            "idempotency_key": "exp-tw-cutover-0004"
-          }
-        }
-      ],
-      "op": "memory.spaces.list",
-      "request": { "limit": 10 },
-      "expect": {
-        "success": true,
-        "state": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
-      }
+      "op": "memory.exports.create",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "require_quiescent": true,
+        "idempotency_key": "exp-tw-quiescent-0006"
+      },
+      "expect": { "receipt_status": "pending" }
     }
   ]
 }

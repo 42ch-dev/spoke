@@ -50,29 +50,23 @@
     },
     {
       "id": "admission-honest-empty",
-      "invariant": "MEM-R020",
+      "invariant": "§4.2",
       "surface": "wire",
       "outcome": "identical",
-      "what": "an absent optional profile kind yields an honest empty result, never an error",
+      "what": "an absent optional profile kind is returned as an empty profiles list, never an error or a fabricated document",
       "requires": [
         "space configured with required_profile_kinds [personality]",
-        "toy:character:mira has a personality profile and an empty optional preferences profile",
-        "no authorized basis records exist for the selection"
+        "toy:character:mira has a personality profile and no preferences profile"
       ],
-      "op": "memory.reflections.list",
+      "op": "memory.profile.get",
       "request": {
         "space_id": "spc_tw_harbor",
         "subject_id": "toy:character:mira",
-        "selection": {
-          "mode": "selected_contexts",
-          "context_ids": ["ctx_tw_dawn_arrival"],
-          "include_shared": false
-        },
-        "limit": 10
+        "profile_kinds": ["preferences"]
       },
       "expect": {
         "success": true,
-        "state": [{ "path": "reflections", "equals": [] }]
+        "state": [{ "path": "profiles", "equals": [] }]
       }
     }
   ]

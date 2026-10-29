@@ -8,7 +8,9 @@
 //! share one vector set.
 //!
 //! The corpus is never silently skipped: an engine case whose scenario has no
-//! handler fails the run, and every minimum-set scenario must be present.
+//! handler fails the run, every minimum-set scenario must be present, and each
+//! `outcome: "variable"` case runs twice so a non-deterministic policy is
+//! caught instead of matching a fixed reference by luck.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -23,14 +25,13 @@ use spoke_memory::transfer::{
     adopt_grants, partition_bundle, reassemble, staged_report, verify_reassembly, verify_staging,
 };
 use spoke_operations::{
-    grant_covers, is_freeze_allowlisted, jcs_sha256_hex, validate_grant_issuance,
-    validate_memory_subjects_fence, GrantRequirement, IssuedGrant, SpokeRejectCode, SpokeResult,
+    is_freeze_allowlisted, jcs_sha256_hex, validate_memory_subjects_fence, SpokeRejectCode,
+    SpokeResult,
 };
 use spoke_schemas::data::provenance_filter::ProvenanceFilter;
 use spoke_schemas::data::read_selection::ReadSelection;
 use spoke_schemas::data::retained_record::Content;
 use spoke_schemas::ops::memory_subjects_fence_request::MemorySubjectsFenceRequest;
-use spoke_schemas::MemoryGrant;
 
 /// Minimum-set scenarios the plan's Global Constraints and the prototype r3
 /// addendum require. Each must appear in the corpus.
@@ -51,10 +52,12 @@ const REQUIRED_SCENARIOS: [&str; 13] = [
 ];
 
 /// Scenarios with an engine handler; `run_engine_case` panics otherwise.
-const ENGINE_SCENARIOS: [&str; 9] = [
+/// Scenarios whose expectations are provider-enforced (grants, CAS,
+/// idempotency, fencing enforcement, cursor invalidation, admission,
+/// staleness triggers, staging over the wire) deliberately have no handler.
+const ENGINE_SCENARIOS: [&str; 8] = [
     "candidate-consumption",
     "classification",
-    "grant-coverage",
     "recall-budget",
     "reflection-staleness",
     "space-freeze",
@@ -64,14 +67,20 @@ const ENGINE_SCENARIOS: [&str; 9] = [
 ];
 
 /// Closed `expect` key set for wire cases (interpreted by the loopback runner).
-const WIRE_EXPECT_KEYS: [&str; 6] = [
+const WIRE_EXPECT_KEYS: [&str; 9] = [
     "error_code",
+    "details",
     "success",
     "state",
     "absent",
+    "present",
+    "sizes",
     "receipt_status",
     "same_receipt_as",
 ];
+
+/// Closed key set of a `setup` / `then` step.
+const STEP_KEYS: [&str; 4] = ["op", "request", "expect", "stage_from"];
 
 /// Dispatch-layer codes that appear at the Connect boundary (§4.1).
 const DISPATCH_CODES: [&str; 2] = ["capability_missing", "op_unsupported"];
@@ -280,9 +289,8 @@ fn with_basis<T>(spec: &Value, run: impl FnOnce(&ReflectionBasis<'_>) -> T) -> T
     run(&basis)
 }
 
-fn run_engine_case(case: &Case<'_>) {
+fn run_engine_case(case: &Case<'_>) -> Value {
     match case.scenario {
-        "grant-coverage" => run_grant_coverage(case),
         "space-freeze" => run_space_freeze(case),
         "subject-fencing" => run_subject_fencing(case),
         "candidate-consumption" => run_candidate_consumption(case),
@@ -295,101 +303,42 @@ fn run_engine_case(case: &Case<'_>) {
     }
 }
 
-fn run_grant_coverage(case: &Case<'_>) {
-    let input = &case.value["input"];
-    let expect = &case.value["expect"];
-    let principal = input["principal_id"].as_str().expect("principal_id");
-    let space = input["space_id"].as_str().expect("space_id");
-    let now = parse_timestamp(input["now"].as_str().expect("now"));
-
-    match input["kind"].as_str().expect("grant case kind") {
-        "covers" => {
-            let grant: MemoryGrant = serde_json::from_value(input["grant"].clone()).expect("grant");
-            let requirement_json = &input["requirement"];
-            let requirement = GrantRequirement {
-                capability: requirement_json["capability"].as_str().expect("capability"),
-                subject_id: requirement_json["subject_id"].as_str(),
-                context_ids: string_list(&requirement_json["context_ids"]),
-                reads_shared: requirement_json["reads_shared"]
-                    .as_bool()
-                    .expect("reads_shared"),
-                subject_all: requirement_json["subject_all"]
-                    .as_bool()
-                    .expect("subject_all"),
-            };
-            let covers = grant_covers(&grant, principal, space, now, &requirement);
-            assert_eq!(
-                covers,
-                expect["covers"].as_bool().expect("expect.covers"),
-                "case {}: coverage",
-                case.id
-            );
-        }
-        "issuance" => {
-            let grants: Vec<MemoryGrant> =
-                serde_json::from_value(input["granter_grants"].clone()).expect("granter_grants");
-            let issued_json = &input["issued"];
-            let capability_strings = string_list(&issued_json["capabilities"]);
-            let capabilities: Vec<&str> = capability_strings.iter().map(String::as_str).collect();
-            let context_ids = string_list(&issued_json["context_ids"]);
-            let issued = IssuedGrant {
-                capabilities: &capabilities,
-                subject_id: issued_json["subject_id"].as_str(),
-                context_ids: &context_ids,
-                shared_access: issued_json["shared_access"].as_bool().unwrap_or(false),
-                expires_at: issued_json["expires_at"].as_str().map(parse_timestamp),
-            };
-            let result = validate_grant_issuance(&grants, principal, space, now, &issued);
-            let expect_ok = expect["ok"].as_bool().expect("expect.ok");
-            assert_eq!(result.is_ok(), expect_ok, "case {}: issuance", case.id);
-            if let Some(code) = expect["error_code"].as_str() {
-                match result {
-                    SpokeResult::Reject(reject) => {
-                        assert_eq!(reject.code.as_str(), code, "case {}: reject code", case.id)
-                    }
-                    SpokeResult::Ok(()) => panic!("case {}: expected reject {code}", case.id),
-                }
-            }
-        }
-        other => panic!("case {}: unknown grant case kind {other}", case.id),
-    }
-}
-
-fn run_space_freeze(case: &Case<'_>) {
+fn run_space_freeze(case: &Case<'_>) -> Value {
     let op = case.value["input"]["op"].as_str().expect("op");
     let expected = case.value["expect"]["allowlisted"]
         .as_bool()
         .expect("expect.allowlisted");
+    let allowlisted = is_freeze_allowlisted(op);
     assert_eq!(
-        is_freeze_allowlisted(op),
-        expected,
+        allowlisted, expected,
         "case {}: allowlist for {op}",
         case.id
     );
+    json!({ "allowlisted": allowlisted })
 }
 
-fn run_subject_fencing(case: &Case<'_>) {
+fn run_subject_fencing(case: &Case<'_>) -> Value {
     let request: MemorySubjectsFenceRequest =
         serde_json::from_value(case.value["input"]["request"].clone()).expect("fence request");
     let expect = &case.value["expect"];
     let result = validate_memory_subjects_fence(&request);
+    let code = match &result {
+        SpokeResult::Ok(()) => Value::Null,
+        SpokeResult::Reject(reject) => json!(reject.code.as_str()),
+    };
     assert_eq!(
         result.is_ok(),
         expect["ok"].as_bool().expect("expect.ok"),
         "case {}: fence validation",
         case.id
     );
-    if let Some(code) = expect["error_code"].as_str() {
-        match result {
-            SpokeResult::Reject(reject) => {
-                assert_eq!(reject.code.as_str(), code, "case {}: reject code", case.id)
-            }
-            SpokeResult::Ok(()) => panic!("case {}: expected reject {code}", case.id),
-        }
+    if let Some(expected_code) = expect["error_code"].as_str() {
+        assert_eq!(code, json!(expected_code), "case {}: reject code", case.id);
     }
+    json!({ "ok": result.is_ok(), "code": code })
 }
 
-fn run_candidate_consumption(case: &Case<'_>) {
+fn run_candidate_consumption(case: &Case<'_>) -> Value {
     let content = &case.value["input"]["proposed_content"];
     let digest = match jcs_sha256_hex(content) {
         SpokeResult::Ok(digest) => digest,
@@ -403,9 +352,10 @@ fn run_candidate_consumption(case: &Case<'_>) {
         "case {}: content_digest",
         case.id
     );
+    json!({ "content_digest": digest })
 }
 
-fn run_transfer_chunks(case: &Case<'_>) {
+fn run_transfer_chunks(case: &Case<'_>) -> Value {
     let input = &case.value["input"];
     let expect = &case.value["expect"];
     let bundle = load_asset(input["bundle_file"].as_str().expect("bundle_file"));
@@ -463,18 +413,29 @@ fn run_transfer_chunks(case: &Case<'_>) {
             verification.errors
         );
     }
+
+    let reassembled_equals_input = match reassemble(&chunks) {
+        Ok(reassembled) => Some(reassembled == bundle),
+        Err(_) => None,
+    };
     if let Some(expected) = expect["reassembled_equals_input"].as_bool() {
-        let reassembled = reassemble(&chunks).expect("reassemble");
         assert_eq!(
-            reassembled == bundle,
-            expected,
+            reassembled_equals_input,
+            Some(expected),
             "case {}: reassembled bundle",
             case.id
         );
     }
+
+    json!({
+        "chunk_count": chunks.len(),
+        "verification_ok": verified,
+        "errors": verification.errors,
+        "reassembled_equals_input": reassembled_equals_input,
+    })
 }
 
-fn run_staging_import(case: &Case<'_>) {
+fn run_staging_import(case: &Case<'_>) -> Value {
     let input = &case.value["input"];
     let expect = &case.value["expect"];
     assert_eq!(
@@ -554,9 +515,15 @@ fn run_staging_import(case: &Case<'_>) {
             assert_eq!(report[field], *expected, "case {}: {field}", case.id);
         }
     }
+
+    json!({
+        "report": report,
+        "verification_ok": verified,
+        "errors": outcome.verification.errors,
+    })
 }
 
-fn run_reflection_staleness(case: &Case<'_>) {
+fn run_reflection_staleness(case: &Case<'_>) -> Value {
     let input = &case.value["input"];
     let stale = with_basis(&input["pinned"], |pinned| {
         with_basis(&input["current"], |current| is_stale(pinned, current))
@@ -569,9 +536,10 @@ fn run_reflection_staleness(case: &Case<'_>) {
         "case {}: staleness",
         case.id
     );
+    json!({ "stale": stale })
 }
 
-fn run_classification(case: &Case<'_>) {
+fn run_classification(case: &Case<'_>) -> Value {
     let material_json = &case.value["input"]["material"];
     let text = expand_text(&material_json["text"]);
     let material = CandidateMaterial {
@@ -606,9 +574,10 @@ fn run_classification(case: &Case<'_>) {
         "case {}: confidence",
         case.id
     );
+    wire
 }
 
-fn run_recall_budget(case: &Case<'_>) {
+fn run_recall_budget(case: &Case<'_>) -> Value {
     let input = &case.value["input"];
     let expect = &case.value["expect"];
     let records: Vec<RecallRecord> = input["records"]
@@ -660,6 +629,42 @@ fn run_recall_budget(case: &Case<'_>) {
         "case {}: overflow_record_id",
         case.id
     );
+
+    json!({
+        "record_ids": ids,
+        "total_authorized": page.total_authorized,
+        "truncated": page.truncated,
+        "overflow_record_id": page.overflow_record_id,
+    })
+}
+
+fn validate_step(case_id: &str, step: &Value) {
+    for key in step.as_object().expect("step object").keys() {
+        assert!(
+            STEP_KEYS.contains(&key.as_str()),
+            "case {case_id}: unknown step key {key}"
+        );
+    }
+    assert!(step["op"].as_str().is_some(), "case {case_id}: step op");
+    assert!(step["request"].is_object(), "case {case_id}: step request");
+    if let Some(stage_from) = step.get("stage_from") {
+        assert!(
+            stage_from["asset"].as_str().is_some(),
+            "case {case_id}: stage_from.asset"
+        );
+        assert!(
+            stage_from["chunk_limit"].as_u64().is_some(),
+            "case {case_id}: stage_from.chunk_limit"
+        );
+    }
+    if let Some(step_expect) = step.get("expect").and_then(Value::as_object) {
+        for key in step_expect.keys() {
+            assert!(
+                WIRE_EXPECT_KEYS.contains(&key.as_str()),
+                "case {case_id}: unknown step expect key {key}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -680,6 +685,7 @@ fn conformance_corpus_is_well_formed() {
     let mut case_ids: BTreeSet<String> = BTreeSet::new();
     let mut engine_count = 0usize;
     let mut wire_count = 0usize;
+    let mut variable_count = 0usize;
 
     for scenario in &scenarios {
         assert!(
@@ -714,13 +720,14 @@ fn conformance_corpus_is_well_formed() {
                 case["what"].as_str().is_some_and(|value| !value.is_empty()),
                 "case {id}: what"
             );
+            let outcome = case["outcome"].as_str();
             assert!(
-                matches!(
-                    case["outcome"].as_str(),
-                    Some("identical") | Some("variable")
-                ),
+                matches!(outcome, Some("identical") | Some("variable")),
                 "case {id}: outcome"
             );
+            if outcome == Some("variable") {
+                variable_count += 1;
+            }
 
             match case["surface"].as_str() {
                 Some("engine") => {
@@ -753,18 +760,42 @@ fn conformance_corpus_is_well_formed() {
                             "case {id}: unknown error code {code}"
                         );
                     }
-                    if let Some(steps) = case.get("setup").and_then(Value::as_array) {
-                        for step in steps {
-                            assert!(step["op"].as_str().is_some(), "case {id}: setup op");
-                            assert!(step["request"].is_object(), "case {id}: setup request");
-                            if let Some(step_expect) = step.get("expect").and_then(Value::as_object)
-                            {
-                                for key in step_expect.keys() {
-                                    assert!(
-                                        WIRE_EXPECT_KEYS.contains(&key.as_str()),
-                                        "case {id}: unknown setup expect key {key}"
-                                    );
-                                }
+                    for list_key in ["state", "absent", "present", "sizes"] {
+                        if let Some(entries) = expect.get(list_key) {
+                            assert!(
+                                entries.as_array().is_some(),
+                                "case {id}: {list_key} must be an array"
+                            );
+                        }
+                    }
+                    if let Some(advance) = case.get("advance") {
+                        assert!(
+                            advance["from_step"].as_u64().is_some(),
+                            "case {id}: advance.from_step"
+                        );
+                        assert!(
+                            advance["path"].as_str().is_some(),
+                            "case {id}: advance.path"
+                        );
+                        assert!(
+                            advance["offset_seconds"].as_u64().is_some(),
+                            "case {id}: advance.offset_seconds"
+                        );
+                    }
+                    if let Some(stage_from) = case.get("stage_from") {
+                        assert!(
+                            stage_from["asset"].as_str().is_some(),
+                            "case {id}: stage_from.asset"
+                        );
+                        assert!(
+                            stage_from["chunk_limit"].as_u64().is_some(),
+                            "case {id}: stage_from.chunk_limit"
+                        );
+                    }
+                    for steps_key in ["setup", "then"] {
+                        if let Some(steps) = case.get(steps_key).and_then(Value::as_array) {
+                            for step in steps {
+                                validate_step(id, step);
                             }
                         }
                     }
@@ -777,8 +808,9 @@ fn conformance_corpus_is_well_formed() {
 
     // Both halves of the corpus must stay populated: engine cases are executed
     // here, wire cases are executed by the loopback runner.
-    assert!(engine_count >= 25, "engine cases: {engine_count}");
-    assert!(wire_count >= 15, "wire cases: {wire_count}");
+    assert!(engine_count >= 30, "engine cases: {engine_count}");
+    assert!(wire_count >= 40, "wire cases: {wire_count}");
+    assert!(variable_count >= 10, "variable cases: {variable_count}");
 }
 
 #[test]
@@ -788,6 +820,16 @@ fn conformance_engine_cases_pass() {
     assert!(!cases.is_empty(), "no engine cases found");
 
     for case in &cases {
-        run_engine_case(case);
+        let first = run_engine_case(case);
+        if case.value["outcome"] == "variable" {
+            // Determinism per implementation: a policy that alternates results
+            // must not pass by matching the reference output once.
+            let second = run_engine_case(case);
+            assert_eq!(
+                first, second,
+                "case {}: variable case is not deterministic",
+                case.id
+            );
+        }
     }
 }

@@ -1,415 +1,251 @@
 {
   "id": "grant-coverage",
-  "title": "Grant coverage, shared_access, subject_all, and issuance non-amplification",
-  "protocol_refs": ["§6.5", "MEM-R006", "MEM-R017", "§7.9"],
+  "title": "Provider-enforced grant coverage, shared_access, subject_all, and issuance non-amplification",
+  "protocol_refs": ["§6.5", "MEM-R006", "MEM-R017", "§7.9", "§7.22"],
   "cases": [
     {
-      "id": "covers-context-inside",
+      "id": "coverage-inside-granted-context",
       "invariant": "MEM-R006",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
       "what": "a context-restricted grant with shared_access covers recall inside its context",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_host_primary",
+      "requires": [
+        "prn_tw_host_primary holds grt_tw_mira_context_0001 (ctx_tw_customs_gate, shared_access: true)",
+        "toy:character:mira has records in ctx_tw_customs_gate"
+      ],
+      "op": "memory.recall",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_mira_context_0001",
-          "space_id": "spc_tw_harbor",
-          "subject_id": "toy:character:mira",
-          "principal_id": "prn_tw_host_primary",
-          "capabilities": ["capture", "review", "records_write", "recall"],
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
           "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "created_at": "2026-07-23T05:35:00Z",
-          "revision": 1,
-          "extensions": {}
+          "include_shared": true
         },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": "toy:character:mira",
-          "context_ids": ["ctx_tw_customs_gate"],
-          "reads_shared": true,
-          "subject_all": false
-        }
+        "budget": { "max_items": 8 }
       },
-      "expect": { "covers": true }
+      "expect": { "success": true }
     },
     {
-      "id": "covers-context-outside",
+      "id": "coverage-context-outside-grant-denied",
       "invariant": "MEM-R006",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
-      "what": "the same grant does not cover a sibling context it never named",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_host_primary",
+      "what": "the same grant never covers a sibling context it did not name",
+      "requires": [
+        "prn_tw_host_primary holds grt_tw_mira_context_0001 (ctx_tw_customs_gate only)"
+      ],
+      "op": "memory.recall",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_mira_context_0001",
-          "space_id": "spc_tw_harbor",
-          "subject_id": "toy:character:mira",
-          "principal_id": "prn_tw_host_primary",
-          "capabilities": ["recall"],
-          "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "created_at": "2026-07-23T05:35:00Z",
-          "revision": 1,
-          "extensions": {}
-        },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": "toy:character:mira",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
           "context_ids": ["ctx_tw_market_square"],
-          "reads_shared": false,
-          "subject_all": false
-        }
-      },
-      "expect": { "covers": false }
-    },
-    {
-      "id": "covers-shared-without-shared-access",
-      "invariant": "MEM-R006",
-      "surface": "engine",
-      "outcome": "identical",
-      "what": "a restricted grant without shared_access never reads shared visibility",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_host_primary",
-        "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_mira_context_0011",
-          "space_id": "spc_tw_harbor",
-          "subject_id": "toy:character:mira",
-          "principal_id": "prn_tw_host_primary",
-          "capabilities": ["recall"],
-          "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": false,
-          "created_at": "2026-07-23T05:35:00Z",
-          "revision": 1,
-          "extensions": {}
+          "include_shared": false
         },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": "toy:character:mira",
-          "context_ids": ["ctx_tw_customs_gate"],
-          "reads_shared": true,
-          "subject_all": false
-        }
+        "budget": { "max_items": 8 }
       },
-      "expect": { "covers": false }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     },
     {
-      "id": "covers-subject-all-needs-unrestricted",
+      "id": "coverage-shared-without-shared-access-denied",
       "invariant": "MEM-R006",
-      "surface": "engine",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a restricted grant without shared_access cannot read shared visibility",
+      "requires": [
+        "prn_tw_peer_reader holds a restricted ctx_tw_customs_gate grant with shared_access: false"
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_customs_gate"],
+          "include_shared": true
+        },
+        "budget": { "max_items": 8 }
+      },
+      "expect": { "error_code": "NOT_AUTHORIZED" }
+    },
+    {
+      "id": "coverage-subject-all-denied-under-restricted-grant",
+      "invariant": "MEM-R006",
+      "surface": "wire",
       "outcome": "identical",
       "what": "a restricted grant never covers a subject_all selection",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_host_primary",
+      "requires": [
+        "prn_tw_host_primary holds only the restricted grt_tw_mira_context_0001"
+      ],
+      "op": "memory.recall",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_mira_context_0001",
-          "space_id": "spc_tw_harbor",
-          "subject_id": "toy:character:mira",
-          "principal_id": "prn_tw_host_primary",
-          "capabilities": ["recall"],
-          "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "created_at": "2026-07-23T05:35:00Z",
-          "revision": 1,
-          "extensions": {}
-        },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": "toy:character:mira",
-          "context_ids": [],
-          "reads_shared": true,
-          "subject_all": true
-        }
+        "subject_id": "toy:character:mira",
+        "selection": { "mode": "subject_all" },
+        "budget": { "max_items": 8 }
       },
-      "expect": { "covers": false }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     },
     {
-      "id": "covers-subject-all-unrestricted",
+      "id": "coverage-subject-all-allowed-for-unrestricted-admin",
       "invariant": "MEM-R006",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
-      "what": "an unrestricted grant covers subject_all, including shared visibility",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_cli_operator",
+      "what": "an unrestricted admin grant covers subject_all including shared visibility",
+      "requires": [
+        "prn_tw_cli_operator holds the space-wide grt_tw_operator_admin_0002"
+      ],
+      "op": "memory.recall",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_operator_admin_0002",
-          "space_id": "spc_tw_harbor",
-          "principal_id": "prn_tw_cli_operator",
-          "capabilities": ["admin"],
-          "created_at": "2026-07-23T05:36:00Z",
-          "revision": 1,
-          "extensions": {}
-        },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": null,
-          "context_ids": [],
-          "reads_shared": true,
-          "subject_all": true
-        }
+        "subject_id": "toy:character:mira",
+        "selection": { "mode": "subject_all" },
+        "budget": { "max_items": 32 }
       },
-      "expect": { "covers": true }
+      "expect": { "success": true }
     },
     {
-      "id": "covers-subject-mismatch",
+      "id": "coverage-subject-mismatch-denied",
       "invariant": "MEM-R006",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
       "what": "a subject-scoped grant never covers another subject",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_host_primary",
+      "requires": [
+        "prn_tw_host_primary holds grt_tw_mira_context_0001 scoped to toy:character:mira"
+      ],
+      "op": "memory.recall",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_mira_context_0001",
-          "space_id": "spc_tw_harbor",
-          "subject_id": "toy:character:mira",
-          "principal_id": "prn_tw_host_primary",
-          "capabilities": ["recall"],
+        "subject_id": "toy:character:bo",
+        "selection": {
+          "mode": "selected_contexts",
           "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "created_at": "2026-07-23T05:35:00Z",
-          "revision": 1,
-          "extensions": {}
+          "include_shared": false
         },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": "toy:character:bo",
-          "context_ids": ["ctx_tw_customs_gate"],
-          "reads_shared": false,
-          "subject_all": false
-        }
+        "budget": { "max_items": 8 }
       },
-      "expect": { "covers": false }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     },
     {
-      "id": "covers-expired-grant",
+      "id": "coverage-expired-grant-denied",
       "invariant": "MEM-R006",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
-      "what": "an expired grant is treated as revoked",
-      "input": {
-        "kind": "covers",
-        "principal_id": "prn_tw_host_primary",
+      "what": "an expired grant is treated as revoked, so coverage is absent",
+      "requires": [
+        "prn_tw_host_primary holds only an expired mira grant (expires_at in the past)"
+      ],
+      "op": "memory.recall",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "grant": {
-          "schema_version": 1,
-          "grant_id": "grt_tw_mira_context_0021",
-          "space_id": "spc_tw_harbor",
-          "subject_id": "toy:character:mira",
-          "principal_id": "prn_tw_host_primary",
-          "capabilities": ["recall"],
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
           "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "created_at": "2026-07-23T05:35:00Z",
-          "expires_at": "2026-07-22T00:00:00Z",
-          "revision": 1,
-          "extensions": {}
+          "include_shared": false
         },
-        "requirement": {
-          "capability": "recall",
-          "subject_id": "toy:character:mira",
-          "context_ids": ["ctx_tw_customs_gate"],
-          "reads_shared": false,
-          "subject_all": false
-        }
+        "budget": { "max_items": 8 }
       },
-      "expect": { "covers": false }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     },
     {
       "id": "issuance-within-admin-coverage",
       "invariant": "MEM-R017",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
       "what": "a space-wide admin grant may issue the restricted mira grant",
-      "input": {
-        "kind": "issuance",
-        "principal_id": "prn_tw_cli_operator",
+      "requires": ["prn_tw_cli_operator holds the space-wide grt_tw_operator_admin_0002"],
+      "op": "memory.grants.grant",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "granter_grants": [
-          {
-            "schema_version": 1,
-            "grant_id": "grt_tw_operator_admin_0002",
-            "space_id": "spc_tw_harbor",
-            "principal_id": "prn_tw_cli_operator",
-            "capabilities": ["admin"],
-            "created_at": "2026-07-23T05:36:00Z",
-            "revision": 1,
-            "extensions": {}
-          }
-        ],
-        "issued": {
-          "capabilities": ["capture", "review", "records_write", "recall"],
-          "subject_id": "toy:character:mira",
-          "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "expires_at": null
-        }
+        "subject_id": "toy:character:mira",
+        "principal_id": "prn_tw_host_primary",
+        "capabilities": ["capture", "review", "records_write", "recall"],
+        "context_ids": ["ctx_tw_customs_gate"],
+        "shared_access": true,
+        "idempotency_key": "grant-tw-conformance-0001"
       },
-      "expect": { "ok": true }
+      "expect": { "receipt_status": "committed" }
     },
     {
-      "id": "issuance-context-amplification",
+      "id": "issuance-context-amplification-denied",
       "invariant": "MEM-R017",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
       "what": "an admin grant restricted to one context cannot issue coverage of another",
-      "input": {
-        "kind": "issuance",
-        "principal_id": "prn_tw_cli_operator",
+      "requires": [
+        "prn_tw_cli_operator holds only grt_tw_operator_admin_context_0003 (ctx_tw_customs_gate)"
+      ],
+      "op": "memory.grants.grant",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "granter_grants": [
-          {
-            "schema_version": 1,
-            "grant_id": "grt_tw_operator_admin_context_0003",
-            "space_id": "spc_tw_harbor",
-            "principal_id": "prn_tw_cli_operator",
-            "capabilities": ["admin"],
-            "context_ids": ["ctx_tw_customs_gate"],
-            "shared_access": true,
-            "created_at": "2026-07-23T05:37:00Z",
-            "revision": 1,
-            "extensions": {}
-          }
-        ],
-        "issued": {
-          "capabilities": ["recall"],
-          "subject_id": "toy:character:mira",
-          "context_ids": ["ctx_tw_market_square"],
-          "shared_access": false,
-          "expires_at": null
-        }
-      },
-      "expect": { "ok": false, "error_code": "NOT_AUTHORIZED" }
-    },
-    {
-      "id": "issuance-non-admin-granter",
-      "invariant": "MEM-R017",
-      "surface": "engine",
-      "outcome": "identical",
-      "what": "a non-admin granter cannot issue grants at all",
-      "input": {
-        "kind": "issuance",
+        "subject_id": "toy:character:mira",
         "principal_id": "prn_tw_host_primary",
-        "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "granter_grants": [
-          {
-            "schema_version": 1,
-            "grant_id": "grt_tw_mira_context_0001",
-            "space_id": "spc_tw_harbor",
-            "subject_id": "toy:character:mira",
-            "principal_id": "prn_tw_host_primary",
-            "capabilities": ["capture", "review", "records_write", "recall"],
-            "context_ids": ["ctx_tw_customs_gate"],
-            "shared_access": true,
-            "created_at": "2026-07-23T05:35:00Z",
-            "revision": 1,
-            "extensions": {}
-          }
-        ],
-        "issued": {
-          "capabilities": ["recall"],
-          "subject_id": "toy:character:mira",
-          "context_ids": ["ctx_tw_customs_gate"],
-          "shared_access": true,
-          "expires_at": null
-        }
+        "capabilities": ["recall"],
+        "context_ids": ["ctx_tw_market_square"],
+        "idempotency_key": "grant-tw-conformance-0002"
       },
-      "expect": { "ok": false, "error_code": "NOT_AUTHORIZED" }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     },
     {
-      "id": "issuance-expiry-beyond-granter",
+      "id": "issuance-non-admin-granter-denied",
       "invariant": "MEM-R017",
-      "surface": "engine",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a granter without an admin grant cannot issue any grant",
+      "requires": [
+        "prn_tw_host_primary holds only grt_tw_mira_context_0001 (no admin capability)"
+      ],
+      "op": "memory.grants.grant",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "principal_id": "prn_tw_peer_reader",
+        "capabilities": ["recall"],
+        "context_ids": ["ctx_tw_customs_gate"],
+        "idempotency_key": "grant-tw-conformance-0003"
+      },
+      "expect": { "error_code": "NOT_AUTHORIZED" }
+    },
+    {
+      "id": "issuance-expiry-beyond-granter-denied",
+      "invariant": "MEM-R017",
+      "surface": "wire",
       "outcome": "identical",
       "what": "an issued expiry may not outlive the earliest applicable admin expiry",
-      "input": {
-        "kind": "issuance",
-        "principal_id": "prn_tw_cli_operator",
+      "requires": [
+        "prn_tw_cli_operator holds grt_tw_operator_admin_0004 expiring 2026-07-24T00:00:00Z"
+      ],
+      "op": "memory.grants.grant",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "granter_grants": [
-          {
-            "schema_version": 1,
-            "grant_id": "grt_tw_operator_admin_0004",
-            "space_id": "spc_tw_harbor",
-            "principal_id": "prn_tw_cli_operator",
-            "capabilities": ["admin"],
-            "created_at": "2026-07-23T05:38:00Z",
-            "expires_at": "2026-07-24T00:00:00Z",
-            "revision": 1,
-            "extensions": {}
-          }
-        ],
-        "issued": {
-          "capabilities": ["recall"],
-          "subject_id": "toy:character:mira",
-          "context_ids": [],
-          "shared_access": false,
-          "expires_at": "2026-07-30T00:00:00Z"
-        }
+        "subject_id": "toy:character:mira",
+        "principal_id": "prn_tw_host_primary",
+        "capabilities": ["recall"],
+        "expires_at": "2026-07-30T00:00:00Z",
+        "idempotency_key": "grant-tw-conformance-0004"
       },
-      "expect": { "ok": false, "error_code": "NOT_AUTHORIZED" }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     },
     {
-      "id": "issuance-space-wide-needs-space-wide-admin",
+      "id": "issuance-space-wide-denied-for-subject-admin",
       "invariant": "MEM-R017",
-      "surface": "engine",
+      "surface": "wire",
       "outcome": "identical",
       "what": "a subject-scoped admin cannot issue a space-wide grant",
-      "input": {
-        "kind": "issuance",
-        "principal_id": "prn_tw_cli_operator",
+      "requires": [
+        "prn_tw_cli_operator holds only grt_tw_operator_admin_mira_0005 (subject toy:character:mira)"
+      ],
+      "op": "memory.grants.grant",
+      "request": {
         "space_id": "spc_tw_harbor",
-        "now": "2026-07-23T06:30:00Z",
-        "granter_grants": [
-          {
-            "schema_version": 1,
-            "grant_id": "grt_tw_operator_admin_mira_0005",
-            "space_id": "spc_tw_harbor",
-            "subject_id": "toy:character:mira",
-            "principal_id": "prn_tw_cli_operator",
-            "capabilities": ["admin"],
-            "created_at": "2026-07-23T05:39:00Z",
-            "revision": 1,
-            "extensions": {}
-          }
-        ],
-        "issued": {
-          "capabilities": ["recall"],
-          "subject_id": null,
-          "context_ids": [],
-          "shared_access": false,
-          "expires_at": null
-        }
+        "principal_id": "prn_tw_peer_reader",
+        "capabilities": ["recall"],
+        "idempotency_key": "grant-tw-conformance-0005"
       },
-      "expect": { "ok": false, "error_code": "NOT_AUTHORIZED" }
+      "expect": { "error_code": "NOT_AUTHORIZED" }
     }
   ]
 }

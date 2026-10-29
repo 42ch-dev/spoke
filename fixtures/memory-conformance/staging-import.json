@@ -1,7 +1,7 @@
 {
   "id": "staging-import",
   "title": "Staged-import verification report, explicit-only grant adoption, translation maps",
-  "protocol_refs": ["§7.31", "§12.3", "MEM-R025"],
+  "protocol_refs": ["§7.31", "§7.32", "§12.3", "MEM-R025"],
   "cases": [
     {
       "id": "staged-report-counts-and-no-implicit-grants",
@@ -29,7 +29,7 @@
           "records": 3,
           "candidates": 1,
           "profiles": 0,
-          "reflections": 0,
+          "reflections": 1,
           "receipt_summaries": 1
         },
         "grants_adopted": 0,
@@ -115,6 +115,90 @@
         "verification_ok": false,
         "errors_contain": "has no target assignment"
       }
+    },
+    {
+      "id": "staged-import-report-over-the-wire",
+      "invariant": "§7.31",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "staging the exported bundle reports the closed counts shape and drops unlisted grants",
+      "requires": [
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_harbor",
+        "memory.receipts.get polls until each receipt is terminal before the next step"
+      ],
+      "op": "memory.imports.stage",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "conflict_policy": "fail",
+        "adopt_grants": []
+      },
+      "stage_from": {
+        "asset": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096
+      },
+      "expect": {
+        "receipt_status": "committed",
+        "state": [
+          {
+            "path": "result.staged_report.counts",
+            "equals": {
+              "subjects": 2,
+              "records": 3,
+              "candidates": 1,
+              "profiles": 0,
+              "reflections": 1,
+              "receipt_summaries": 1
+            }
+          },
+          { "path": "result.staged_report.grants_adopted", "equals": 0 },
+          { "path": "result.staged_report.grants_dropped", "equals": 2 },
+          {
+            "path": "result.staged_report.verification.bundle_digest_ok",
+            "equals": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "staged-import-adopts-listed-grants-only",
+      "invariant": "MEM-R025",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "only the grants named in adopt_grants are created on the target",
+      "requires": [
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_harbor",
+        "spc_tw_harbor already holds grt_tw_mira_context_0001 and grt_tw_operator_admin_0002",
+        "memory.receipts.get polls until each receipt is terminal before the next step"
+      ],
+      "op": "memory.imports.stage",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "conflict_policy": "fail",
+        "adopt_grants": [
+          { "grant_id": "grt_tw_mira_context_0001", "principal_id": "prn_tw_cli_operator" }
+        ]
+      },
+      "stage_from": {
+        "asset": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096
+      },
+      "expect": {
+        "receipt_status": "committed",
+        "state": [
+          { "path": "result.staged_report.grants_adopted", "equals": 1 },
+          { "path": "result.staged_report.grants_dropped", "equals": 1 }
+        ]
+      },
+      "then": [
+        {
+          "op": "memory.grants.list",
+          "request": { "space_id": "spc_tw_harbor", "limit": 32 },
+          "expect": {
+            "success": true,
+            "sizes": [{ "path": "grants", "equals": 3 }]
+          }
+        }
+      ]
     }
   ]
 }

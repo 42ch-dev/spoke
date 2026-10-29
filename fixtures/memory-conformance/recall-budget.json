@@ -158,6 +158,30 @@
         "truncated": false,
         "overflow_record_id": null
       }
+    },
+    {
+      "id": "recall-page-stable-within-a-provider",
+      "invariant": "§9",
+      "surface": "wire",
+      "outcome": "variable",
+      "what": "repeating the same recall against unchanged state returns an identical page (determinism, not a cross-provider ranking)",
+      "requires": [
+        "toy:character:mira has at least two authorized records in ctx_tw_customs_gate",
+        "the harness repeats the op twice against unchanged state and compares the responses"
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": ["ctx_tw_customs_gate"],
+          "include_shared": false
+        },
+        "query": "gate key",
+        "budget": { "max_items": 4 }
+      },
+      "expect": { "success": true }
     }
   ]
 }

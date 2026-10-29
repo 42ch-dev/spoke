@@ -79,7 +79,7 @@ title: 记忆（Memory）
 |------|------|
 | `MemorySpace` | 单一权威存储；冻结、导出与导入激活的单位 |
 | `Subject` | 记忆所关于的实体；`active` / `fenced` / `archived` |
-| `Principal` | 由准入口径建立的已认证调用方身份（绝不由载荷断言） |
+| `Principal` | 由准入口径建立的已认证调用方身份 |
 | `MemoryGrant` | 提供方强制执行的授权记录 |
 | `RetainedRecord` | 已审核或直接写入的持久记忆 |
 | `MemoryCandidate` | 等待审核的暂定捕获 |
@@ -106,15 +106,15 @@ const port: MemoryPort = {
 };
 ```
 
-- **可用性探测。** `MemoryPorts.asMemory()`（TS）/ `MemoryPorts::as_memory()`（Rust）报告 adapter 是否提供该族。该 port 不属于 `BaselinePorts`，因此不提供记忆的产品直接省略它。
+- **可用性探测。** `MemoryPorts.asMemory()`（TS）/ `MemoryPorts::as_memory()`（Rust）报告 adapter 是否提供该族。`MemoryPort` 与基线 port 族并列，是独立的可选接口：提供记忆的产品实现它，其余产品保持该探测为空实现。
 - **提供方职责留在提供方。** 授权与非放大校验、`revision` CAS、以 `(space_id, principal, op, idempotency_key)` 为键的持久幂等、回执与去重墓碑、空间冻结与主体/上下文围栏、候选审核原子性，全部位于提供方自己的事务层。
-- **通过 connect 提供服务。** 服务侧主机暴露 connect 自有的 `RemoteMemoryService` 接缝；`MemoryPortService` 在提供方 `MemoryPort` 之上实现它，并带一个把已认证 peer 映射为 `Principal` 的准入口径。33 个类型化操作即解码面 —— 不存在第二个服务 trait。
-- **算法策略可分离。** `spoke-memory` Rust 参考 crate 承载确定性的无 I/O 策略（候选分类、召回排序与预算、反思组装与陈旧性判定、传输分块/摘要/映射）。它不是协议参与者：提供方可以运行它、运行自有策略或完全不运行，仍保持线上兼容。
+- **通过 connect 提供服务。** 服务侧主机暴露 connect 自有的 `RemoteMemoryService` 接缝；`MemoryPortService` 在提供方 `MemoryPort` 之上实现它，并带一个把已认证 peer 映射为 `Principal` 的准入口径。一个可调用点服务整个族，33 个类型化操作构成解码面。
+- **算法策略可分离。** `spoke-memory` Rust 参考 crate 承载确定性的无 I/O 策略（候选分类、召回排序与预算、反思组装与陈旧性判定、传输分块/摘要/映射）。提供方可以运行它、运行自有策略或完全不运行，仍保持线上兼容。
 - **画像是作者的，记录是捕获的。** 画像内容为受信作者材料，其本身不授予任何授权；记录与候选内容是不受信数据。只有当提供方声明的 `required_profile_kinds` 齐备时才允许生成反思，缺失非必需种类则返回诚实空结果。
 
 ## 字段表与规格
 
-线上级细节位于 spec 语料（SSOT），此处不重复：
+线上级细节位于 spec 语料（SSOT）；本页通过链接指向它，而不重述：
 
 - [记忆族规格](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) —— 能力标志、不变量 `MEM-R001`–`MEM-R027`、数据模型字段表、逐操作契约、错误与重试类别、线上映射、ProfileDocument 实质内容。
 - [记忆能力 ADR](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory-capability-adr.md) —— 可选族决策、单一权威模型、回执异步模型、引擎/提供方分工。

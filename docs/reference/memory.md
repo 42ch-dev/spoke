@@ -79,7 +79,7 @@ Read ops return their payload; every mutating op returns a `MemoryReceipt`. Only
 |-------|------|
 | `MemorySpace` | One authoritative store; unit of freeze, export, and import activation |
 | `Subject` | The entity memory is about; `active` / `fenced` / `archived` |
-| `Principal` | Authenticated caller identity, established by admission (never asserted in a payload) |
+| `Principal` | Authenticated caller identity, established by the admission context |
 | `MemoryGrant` | Provider-enforced authorization record |
 | `RetainedRecord` | Reviewed or directly authored durable memory |
 | `MemoryCandidate` | Provisional capture awaiting review |
@@ -106,15 +106,15 @@ const port: MemoryPort = {
 };
 ```
 
-- **Availability probe.** `MemoryPorts.asMemory()` (TS) / `MemoryPorts::as_memory()` (Rust) reports whether an adapter serves the family. The port is not part of `BaselinePorts`, so a product that does not offer memory simply omits it.
+- **Availability probe.** `MemoryPorts.asMemory()` (TS) / `MemoryPorts::as_memory()` (Rust) reports whether an adapter serves the family. `MemoryPort` stands alongside the baseline port families as an independent optional interface: products that serve memory implement it, and all others leave the probe unimplemented.
 - **Provider duties stay in the provider.** Grants and non-amplification, `revision` CAS, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review all live in the provider's own transaction layer.
-- **Serving over connect.** The serving host exposes the connect-owned `RemoteMemoryService` seam; `MemoryPortService` implements it over a provider `MemoryPort` plus an admission context that maps the authenticated peer to a `Principal`. The 33 typed operations are the decode surface — no second serving trait.
-- **Algorithm policy is separable.** The `spoke-memory` Rust reference crate holds deterministic, I/O-free policy (candidate classification, recall ranking and budget, reflection assembly and staleness, transfer partitioning/digests/translation). It is not a protocol participant: providers may run it, run their own policy, or run none, and stay wire-compatible.
+- **Serving over connect.** The serving host exposes the connect-owned `RemoteMemoryService` seam; `MemoryPortService` implements it over a provider `MemoryPort` plus an admission context that maps the authenticated peer to a `Principal`. One callable serves the whole family, with the 33 typed operations as the decode surface.
+- **Algorithm policy is separable.** The `spoke-memory` Rust reference crate holds deterministic, I/O-free policy (candidate classification, recall ranking and budget, reflection assembly and staleness, transfer partitioning/digests/translation). Providers may run it, run their own policy, or run none, and stay wire-compatible.
 - **Profiles are authored, records are captured.** Profile content is trusted author material and grants no authorization by itself; record and candidate content is untrusted data. Reflection generation is admitted only when the provider's `required_profile_kinds` are present, and an absent non-required kind is an honest-empty result.
 
 ## Field tables and spec
 
-Wire-level detail lives in the spec corpus (SSOT) — not duplicated here:
+Wire-level detail lives in the spec corpus (SSOT); this page links to it rather than re-stating it:
 
 - [Memory family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) — capability flags, invariants `MEM-R001`–`MEM-R027`, data-model field tables, per-op contracts, errors and retry classes, wire mapping, ProfileDocument substance.
 - [Memory capability ADR](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory-capability-adr.md) — optional-family decision, single-authority model, receipt async model, engine/provider split.

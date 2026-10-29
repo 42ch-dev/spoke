@@ -138,7 +138,7 @@ capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResul
 // … 33 个类型化方法，每个对应一个 memory.* 操作
 ```
 
-`MemoryPort` 是按主体记忆的独立可选边界：33 个类型化方法（25 个核心、3 个反思、5 个传输），每个方法携带你的准入口径所建立的已认证 `Principal`。与 `ExtractionPort` 一样，它不属于 `BaselineAdapter` —— 不提供记忆的 adapter 直接省略它，`MemoryPorts.asMemory()` / `MemoryPorts::as_memory()` 在动态边界报告该缺失。
+`MemoryPort` 是按主体记忆的独立可选边界：33 个类型化方法（25 个核心、3 个反思、5 个传输），每个方法携带你的准入口径所建立的已认证 `Principal`。它与 `ExtractionPort` 一样与基线 port 族并列 —— 是 adapter 别名之外的可选接口。提供记忆时实现 `MemoryPort` 并暴露 `MemoryPorts` 探测（`asMemory()` / `MemoryPorts::as_memory()`）；其余情形保持探测为空实现，动态边界直接读到该缺失。
 
 提供方职责留在 adapter 的事务层：授权覆盖与非放大校验、`revision` 比较并设置（CAS）、以 `(space_id, principal, op, idempotency_key)` 为键的持久幂等、回执与去重墓碑、空间冻结与主体/上下文围栏，以及候选审核的原子性。库提供确定性辅助：请求校验器（`validateMemory*`）、授权覆盖（`grantCovers`）、冻结白名单（`isFreezeAllowlisted`）与 JCS/SHA-256 摘要（`jcsSha256Hex`）。通过 connect 提供该族，意味着暴露 connect 自有的 `RemoteMemoryService`；`MemoryPortService` 用同一准入口径把你的 `MemoryPort` 适配到它之上。
 

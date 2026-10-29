@@ -1,0 +1,366 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json",
+  "title": "MemoryExportBundle",
+  "description": "Logical transfer artifact for a space or subject export, reassembled from MemoryExportChunks (§6.11, §6.13). Secrets, credentials, and capability tokens MUST NOT appear anywhere in a bundle.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_format_version",
+    "memory_protocol_version",
+    "export_id",
+    "space_id",
+    "created_at",
+    "source",
+    "subjects",
+    "records",
+    "candidates",
+    "profiles",
+    "receipt_summaries",
+    "grants",
+    "digest",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+    },
+    "bundle_format_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Starts at 1; independent of memory_protocol_version."
+    },
+    "memory_protocol_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Protocol version of the exporting provider."
+    },
+    "export_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "ExportId"
+    },
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Source space.",
+      "title": "SpaceId"
+    },
+    "created_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "source": {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/Source"
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/subject.schema.json"
+      },
+      "description": "May be empty only if the exported scope has no subjects."
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json"
+      },
+      "description": "Tombstoned records excluded unless include_tombstoned was requested."
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/memory-candidate.schema.json"
+      },
+      "description": "Content-scrubbed shells (content_digest present) for consumed candidates; full pending candidates. Preserves consumed-operation history (MEM-R025)."
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/profile-document.schema.json"
+      },
+      "description": "May be empty."
+    },
+    "reflections": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/reflection.schema.json"
+      },
+      "description": "Present iff include_reflections was requested. Excludes tombstone-referencing reflections."
+    },
+    "receipt_summaries": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/ReceiptSummary"
+      },
+      "description": "Content-free dedup provenance enabling reimport/replay duplicate suppression without transferring live receipt state."
+    },
+    "grants": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json#/definitions/GrantSummary"
+      },
+      "description": "Redacted grant summaries sufficient for explicit administrator adoption via adopt_grants; never auto-activated (MEM-R025)."
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 hex over the JCS canonicalization of the bundle object with the digest field removed.",
+      "title": "Digest"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Source": {
+      "type": "object",
+      "required": [
+        "authority_host_id",
+        "authority_generation",
+        "engine_policy_version"
+      ],
+      "properties": {
+        "authority_host_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "AuthorityHostId"
+        },
+        "authority_generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "engine_policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "title": "EnginePolicyVersion"
+        }
+      },
+      "additionalProperties": false,
+      "title": "Source"
+    },
+    "ReceiptSummary": {
+      "type": "object",
+      "required": [
+        "receipt_id",
+        "op",
+        "requester_principal_ref",
+        "payload_digest",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "title": "ReceiptSummaryOp"
+        },
+        "requester_principal_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque correlation label — never credentials or tokens.",
+          "title": "RequesterPrincipalRef"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "committed",
+            "pending",
+            "failed"
+          ],
+          "title": "Status"
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        }
+      },
+      "additionalProperties": false,
+      "title": "ReceiptSummary"
+    },
+    "GrantSummary": {
+      "type": "object",
+      "required": [
+        "grant_id",
+        "principal_ref",
+        "capabilities",
+        "revision"
+      ],
+      "properties": {
+        "grant_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "GrantId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SubjectId"
+        },
+        "principal_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque correlation label — never credentials or tokens.",
+          "title": "PrincipalRef"
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "context_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "shared_access": {
+          "type": "boolean"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false,
+      "title": "GrantSummary"
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "bundle_format_version": 1,
+      "memory_protocol_version": 1,
+      "export_id": "exp_01J8ZR5B2R0EXAMPLE0000301",
+      "space_id": "spc_local_default",
+      "created_at": "2026-10-28T10:00:00Z",
+      "source": {
+        "authority_host_id": "host_nexus_local",
+        "authority_generation": 4,
+        "engine_policy_version": "spoke-memory/1.0.0-deterministic"
+      },
+      "subjects": [
+        {
+          "schema_version": 1,
+          "space_id": "spc_local_default",
+          "subject_id": "nexus:character:mira",
+          "kind": {
+            "ns": "nexus",
+            "id": "character"
+          },
+          "status": "active",
+          "fenced_contexts": [],
+          "created_at": "2026-10-27T08:00:00Z",
+          "revision": 3,
+          "extensions": {}
+        }
+      ],
+      "records": [],
+      "candidates": [
+        {
+          "schema_version": 1,
+          "candidate_id": "cand_01J8ZQ9X7P0EXAMPLE0000101",
+          "space_id": "spc_local_default",
+          "subject_id": "nexus:character:mira",
+          "capture_scope": {
+            "visibility": "context",
+            "context_id": "bnd_mira_harbor_run_7"
+          },
+          "classification": {
+            "disposition": "promote",
+            "rationale_codes": [
+              "single_fact"
+            ]
+          },
+          "status": "consumed",
+          "consumed_by": {
+            "op": "memory.candidates.review",
+            "receipt_id": "rcpt_01J8ZR1D4T0EXAMPLE0000501",
+            "outcome": "promoted",
+            "record_ids": [
+              "rec_01J8ZR2E5U0EXAMPLE0000601"
+            ]
+          },
+          "provenance": {
+            "source_context_ids": [
+              "bnd_mira_harbor_run_7"
+            ],
+            "anchors": [],
+            "captured_by": "prn_nexus_host_local",
+            "captured_at": "2026-10-28T09:20:00Z"
+          },
+          "content_digest": "ff087c41e39e57602c1190289863c9dbc107dbbc8ef32b9a6e020bcf78da3bd4",
+          "created_at": "2026-10-28T09:20:01Z",
+          "revision": 2,
+          "extensions": {}
+        }
+      ],
+      "profiles": [
+        {
+          "schema_version": 1,
+          "space_id": "spc_local_default",
+          "subject_id": "nexus:character:mira",
+          "profile_kind": "personality",
+          "document": {
+            "format": "markdown",
+            "body": "# Mira\n\nGuarded, loyal, keeps promises."
+          },
+          "updated_by": "prn_nexus_cli_operator",
+          "created_at": "2026-10-27T08:05:00Z",
+          "updated_at": "2026-10-27T08:05:00Z",
+          "revision": 1,
+          "extensions": {}
+        }
+      ],
+      "receipt_summaries": [
+        {
+          "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099",
+          "op": "memory.capture",
+          "requester_principal_ref": "prn_nexus_host_local",
+          "idempotency_key": "cap-9182-1400-mira",
+          "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
+          "status": "committed",
+          "created_at": "2026-10-28T09:20:01Z"
+        }
+      ],
+      "grants": [
+        {
+          "grant_id": "grt_01J8ZR0A1Q0EXAMPLE0000201",
+          "subject_id": "nexus:character:mira",
+          "principal_ref": "prn_nexus_cli_operator",
+          "capabilities": [
+            "review",
+            "records_write",
+            "recall"
+          ],
+          "context_ids": [
+            "bnd_mira_harbor_run_7"
+          ],
+          "shared_access": true,
+          "revision": 1
+        }
+      ],
+      "digest": "0d0e8c9f5398b0bc5c5a93be941bcfe5484b8d87b992f22d15ca5623094e0bcb",
+      "extensions": {}
+    }
+  ]
+}

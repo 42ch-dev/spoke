@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-response.schema.json",
+  "title": "MemorySubjectsEnsureResponse",
+  "description": "Success returns a MemoryReceipt (§6.10) whose result is a content-free summary: { \"subject_id\": string, \"created\": bool, \"status\": string, \"revision\": int }. Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.subjects.ensure (§7.5): SPACE_FROZEN, SUBJECT_FENCED, NOT_AUTHORIZED, INVALID_INPUT. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "definitions": {
+    "CommittedReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "memory.subjects.ensure",
+              "type": "string",
+              "title": "Op"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "title": "AllOf"
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "committed",
+              "type": "string",
+              "title": "Status"
+            },
+            "result": {
+              "type": "object",
+              "required": [
+                "subject_id",
+                "created",
+                "status",
+                "revision"
+              ],
+              "properties": {
+                "subject_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "title": "SubjectId"
+                },
+                "created": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "fenced",
+                    "archived"
+                  ],
+                  "title": "Status"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "title": "Result"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "title": "AllOf"
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "oneOf": [
+        {
+          "$ref": "https://spoke42.invalid/schemas/ops/memory-subjects-ensure-response.schema.json#/definitions/CommittedReceipt"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/FailedReceipt"
+            },
+            {
+              "properties": {
+                "op": {
+                  "const": "memory.subjects.ensure",
+                  "type": "string",
+                  "title": "Op"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "title": "AllOf"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed",
+                  "type": "string",
+                  "title": "Status"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "title": "AllOf"
+            }
+          ]
+        }
+      ],
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ]
+}

@@ -10,7 +10,7 @@ hero:
 features:
   - { title: 教程, details: "两条端到端路径：安装并 upsert 你的第一条 KnowledgeEntry，然后开启你的首个 connect 会话。", link: /zh/tutorials/install-and-first-entry }
   - { title: 操作指南, details: "集成方旅程：实现你的能力所需的 adapter ports，再用 TypeScript 客户端、基于消费方 `Transport` 的 RemoteAdapter、跨多个对等节点路由或原生绑定（C#、Kotlin、Swift、Go、Python 与 C/C++）接入跨主机 connect。", link: /zh/how-to/implement-adapter }
-  - { title: 参考, details: "在站内核对线上事实：协议、数据模型、ops 与 connect 字段表，溯源到 schema。", link: /zh/reference/protocol }
+  - { title: 参考, details: "在站内核对线上事实：协议、数据模型、ops、记忆与 connect 字段表，溯源到 schema。", link: /zh/reference/protocol }
   - { title: 讲解, details: "线上背后的概念：九层模型、能力标志、双重关注对与四个 Domain Profile。", link: /zh/explanation/concepts }
 ---
 
@@ -22,9 +22,9 @@ features:
 
 SPOKE 是一套面向叙事知识的 JSON Schema 线上契约协议：各独立产品通过共享的数据与 ops 形状交换一致性检查和上下文组装的 I/O，避免每个产品为同一概念各自发明本地格式。本仓库即单一事实来源（SSOT）—— 手写 schema、生成的 TypeScript 与 Rust 线上类型，以及纯函数操作库。
 
-- **单一线上方言** —— 十个数据对象与五个基线 ops（另含可选 `project` / `compute` 与 `extract` 操作族）
+- **单一线上方言** —— 十个数据对象与五个基线 ops（另含可选 `project` / `compute`、`extract`，以及 33 个操作的 `spoke-memory` 族）
 - **基于开放字符串的 Domain Profile** —— 本体词汇经开放字符串发布，并经可选 `modules.*` 字段袋承载跨产品方言
-- **能力标志** —— 声明 `spoke-baseline`，或显式声明 `l2-computable`、`l5-fork`、`l5-mind`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect`
+- **能力标志** —— 声明 `spoke-baseline`，或显式声明 `l2-computable`、`l5-fork`、`l5-mind`、`narrative-modules`、`ke-extraction`、`ke-ownership`、`spoke-connect`、`spoke-memory`
 - **语言对齐** —— npm 与 crates.io 共用一套锁步 SemVer
 - **可选 connect** —— 已签名的跨进程交互信封，带按会话排序与可扩展鉴权
 

@@ -13,7 +13,7 @@ use std::num::NonZeroU64;
 
 fn make_descriptor(input: Value) -> ToolDescriptor {
     ToolDescriptor {
-        schema_version: NonZeroU64::new(1).unwrap(),
+        schema_version: spoke_schemas::host_capability_manifest::Shared0(NonZeroU64::new(1).unwrap()),
         capability_id: "tools.tool_demo.lookup".parse().unwrap(),
         op: "tools.tool_demo.lookup".parse().unwrap(),
         description: "Look up a knowledge entry by id.".parse().unwrap(),

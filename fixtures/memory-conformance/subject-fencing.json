@@ -1,0 +1,180 @@
+{
+  "id": "subject-fencing",
+  "title": "Subject and context fencing, sibling contexts remain usable",
+  "protocol_refs": [
+    "\u00a78.3",
+    "MEM-R024",
+    "\u00a77.7"
+  ],
+  "cases": [
+    {
+      "id": "fence-context-target-accepted",
+      "invariant": "MEM-R024",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "fencing one placement context is a valid request",
+      "input": {
+        "request": {
+          "space_id": "spc_tw_harbor",
+          "subject_id": "toy:character:mira",
+          "target": {
+            "type": "context",
+            "context_id": "ctx_tw_customs_gate"
+          },
+          "action": "fence",
+          "expected_revision": 1,
+          "idempotency_key": "fence-tw-gate-0001"
+        }
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "id": "fence-context-archive-rejected",
+      "invariant": "\u00a77.7",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "archive is subject-only; a context target rejects it",
+      "input": {
+        "request": {
+          "space_id": "spc_tw_harbor",
+          "subject_id": "toy:character:mira",
+          "target": {
+            "type": "context",
+            "context_id": "ctx_tw_customs_gate"
+          },
+          "action": "archive",
+          "expected_revision": 1,
+          "idempotency_key": "fence-tw-gate-0002"
+        }
+      },
+      "expect": {
+        "ok": false,
+        "error_code": "INVALID_INPUT"
+      }
+    },
+    {
+      "id": "fence-blocks-write-in-context",
+      "invariant": "MEM-R024",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a write into a fenced context is refused",
+      "setup": [
+        {
+          "op": "memory.subjects.fence",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "target": {
+              "type": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "action": "fence",
+            "expected_revision": 1,
+            "idempotency_key": "fence-tw-gate-0001"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira hides a second key under the customs bench."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "idempotency_key": "cap-tw-fenced-0003"
+      },
+      "expect": {
+        "error_code": "SUBJECT_FENCED"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "fence-sibling-context-still-writable",
+      "invariant": "MEM-R024",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "fencing one context leaves sibling contexts usable",
+      "setup": [
+        {
+          "op": "memory.subjects.fence",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "target": {
+              "type": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "action": "fence",
+            "expected_revision": 1,
+            "idempotency_key": "fence-tw-gate-0001"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira hears the market bell ring twice at noon."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_market_square"
+        },
+        "idempotency_key": "cap-tw-sibling-0004"
+      },
+      "expect": {
+        "receipt_status": "committed"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "fence-keeps-reads-available",
+      "invariant": "MEM-R024",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "fencing blocks writes but not reads of the fenced context",
+      "setup": [
+        {
+          "op": "memory.subjects.fence",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "target": {
+              "type": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "action": "fence",
+            "expected_revision": 1,
+            "idempotency_key": "fence-tw-gate-0001"
+          }
+        }
+      ],
+      "op": "memory.recall",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "selection": {
+          "mode": "selected_contexts",
+          "context_ids": [
+            "ctx_tw_customs_gate"
+          ],
+          "include_shared": false
+        },
+        "budget": {
+          "max_items": 4
+        }
+      },
+      "expect": {
+        "success": true
+      },
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

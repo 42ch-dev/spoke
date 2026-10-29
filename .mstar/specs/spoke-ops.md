@@ -24,7 +24,7 @@ Define transport-agnostic **request/response** wire shapes for core KnowledgeEnt
 
 ## Core operations (v0.1)
 
-Five baseline ops, ten schema files under `schemas/ops/` (request + response each). Optional capability families add six more schema files — `project` / `compute` under `l2-computable` (four) and `extract` under `ke-extraction` (two) — see §Optional ops (`l2-computable`) and §Optional op (`ke-extraction`). Sixteen op schema files in total.
+Five baseline ops, ten schema files under `schemas/ops/` (request + response each). Optional capability families add seventy-two more schema files — `project` / `compute` under `l2-computable` (four), `extract` under `ke-extraction` (two), and the 33-op `spoke-memory` family (66) — see §Optional ops (`l2-computable`), §Optional op (`ke-extraction`), and §Optional family (`spoke-memory`). Eighty-two op schema files in total.
 
 | Operation | Intent | Request schema | Response schema |
 |-----------|--------|----------------|-----------------|
@@ -213,6 +213,26 @@ One optional op family for referenced-content extraction. **Not** baseline — C
 
 ---
 
+## Optional family (`spoke-memory`)
+
+Thirty-three ops across three capability flags for per-subject memory. **Not** baseline — a product that does not implement the family keeps memory product-local and MUST NOT emulate it through baseline objects. Normative contract — op table with per-op grant capability, field lists, errors, and lifecycle: [`spoke-memory.md`](spoke-memory.md). Capability decision: [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md).
+
+| Capability | Ops | Family |
+|------------|-----|--------|
+| `spoke-memory` | `memory.describe`, `memory.spaces.list`, `memory.spaces.freeze`, `memory.spaces.unfreeze`, `memory.subjects.ensure`, `memory.subjects.get`, `memory.subjects.fence`, `memory.grants.list`, `memory.grants.grant`, `memory.grants.revoke`, `memory.capture`, `memory.candidates.list`, `memory.candidates.get`, `memory.candidates.dismiss`, `memory.candidates.review`, `memory.records.create`, `memory.records.get`, `memory.records.update`, `memory.records.delete`, `memory.records.list`, `memory.records.promote`, `memory.recall`, `memory.profile.get`, `memory.profile.update`, `memory.receipts.get` | Core (25 ops) |
+| `spoke-memory-reflection` | `memory.reflections.state`, `memory.reflections.list`, `memory.reflections.generate` | Optional; requires `spoke-memory` |
+| `spoke-memory-transfer` | `memory.exports.create`, `memory.exports.get`, `memory.imports.stage`, `memory.imports.activate`, `memory.imports.discard` | Optional; requires `spoke-memory` |
+
+**Schema naming.** Op names are dotted; schema basenames replace dots with dashes: `memory.records.promote` → `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`.
+
+**Shared rules (this family only).**
+
+1. Every op has a paired request and response schema; requests are closed objects with optional top-level `extensions`.
+2. Read ops return their payload; every mutating op returns a `MemoryReceipt` (`committed` / `pending` / `failed`) whose `result` is a content-free summary. Only `memory.reflections.generate`, `memory.exports.create`, the final `memory.imports.stage` chunk, and `memory.imports.activate` may return `pending`.
+3. The failure branch is `{ "error": MemoryErrorEnvelope }` — the shared envelope shape with `details.retry_class` required (`retryable` / `terminal` / `uncertain`).
+4. Every mutating op except `memory.subjects.ensure` requires `idempotency_key`; conditional writes require `expected_revision` and fail `REVISION_CONFLICT` on mismatch.
+5. `MemoryPort` / `MemoryPorts` (both language packages) is the standalone in-process boundary; capability gating, serving seam (`RemoteMemoryService`), and client mapping live in Connect — see [`spoke-memory.md`](spoke-memory.md) §13.
+
 ## `assemble` wire-only boundary (normative)
 
 v0.1 standardizes **only** the `AssemblePacket` shape exchanged when a product performs context assembly. The protocol does **not** specify how packets are produced.
@@ -302,8 +322,8 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 ## Acceptance (ops layer)
 
 - [ ] Each **baseline** operation above has request + response schemas under `schemas/ops/`
-- [x] Optional `project` / `compute` (`l2-computable`) and `extract` (`ke-extraction`) ops documented (6 optional op schema files; protocol inventory **34** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
-- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 3 optional: `project`, `compute`, `extract`)
+- [x] Optional `project` / `compute` (`l2-computable`), `extract` (`ke-extraction`), and the 33-op `spoke-memory` family documented (72 optional op schema files; protocol inventory **113** — see [`spoke-protocol.md`](spoke-protocol.md) §Schema file count)
+- [ ] `.mstar/specs/spoke-ops.md` and `schemas/ops/` enumerate the same op set (5 baseline + 3 optional: `project`, `compute`, `extract` + the 33-op `spoke-memory` family)
 - [ ] `assemble` response `$ref`s `AssemblePacket` from the data layer
 - [ ] `schemas/common/error-envelope.schema.json` exists and is referenced by **all** ops response schemas (R3)
 - [ ] `check-request` / `assemble-request` `$ref` shared `Scope` from `common.schema.json`
@@ -328,5 +348,7 @@ Mapping product HTTP/API handlers to these wire payloads is an adapter concern: 
 | [`spoke-protocol-layers.md`](spoke-protocol-layers.md) | L0–L8, capability levels, Check≠Assemble framing |
 | [`spoke-data-model.md`](spoke-data-model.md) | Data types referenced by ops (`KnowledgeEntry`, `AssemblePacket`, `HostCapabilityManifest`, `Rule`, `TimelineEvent`, …) |
 | [`spoke-operations.md`](spoke-operations.md) | Lifecycle helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
-| [`schemas/README.md`](../../schemas/README.md) | Sixteen op schema files under `schemas/ops/` (ten baseline + four `l2-computable` + two `ke-extraction`) |
+| [`schemas/README.md`](../../schemas/README.md) | Eighty-two op schema files under `schemas/ops/` (ten baseline + four `l2-computable` + two `ke-extraction` + 66 `spoke-memory`) |
+| [`spoke-memory.md`](spoke-memory.md) | `spoke-memory` family — 33 ops with per-op grant, models, invariants `MEM-R001`–`MEM-R027`, errors and retry classes |
+| [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) | Memory capability decision — optional family, single authority, engine/provider split |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime; ops are transport-agnostic payloads |

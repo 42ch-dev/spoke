@@ -42,7 +42,7 @@ use spoke_operations::{
     RelationPort, RuleQueryPort, ScopeQueryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::host_capability_manifest::{
-    HostCapabilityManifestExtensionsKey, HostCapabilityManifestHostId, ToolDescriptor,
+    ExtensionKey, HostCapabilityManifestHostId, ToolDescriptor,
 };
 use spoke_schemas::{
     Finding, HostCapabilityManifest, KnowledgeEntry, Relation, Rule, Scope, TimelineEvent,
@@ -824,7 +824,7 @@ impl HostManifestPort for MultiPeerRouter {
         );
         let mut extensions = HashMap::new();
         extensions.insert(
-            HostCapabilityManifestExtensionsKey::try_from("router")
+            ExtensionKey::try_from("router")
                 .expect("'router' matches the extensions key pattern"),
             router_extensions,
         );
@@ -865,7 +865,7 @@ pub fn connect_multi_peer_router(options: MultiPeerRouterOptions) -> MultiPeerRo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
+    use spoke_schemas::host_capability_manifest::ExtensionKey;
     use tokio::task::JoinSet;
 
     // ── Delegate-call dummy values (routing tests never inspect payloads) ──
@@ -2314,7 +2314,7 @@ mod tests {
                 assert!(composed.authority.is_none());
                 let router_ext = composed
                     .extensions
-                    .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("key"))
+                    .get(&ExtensionKey::try_from("router").expect("key"))
                     .expect("router extensions");
                 let peers = router_ext
                     .get("peers")
@@ -2384,7 +2384,7 @@ mod tests {
                 assert!(composed.authority.is_none());
                 let router_ext = composed
                     .extensions
-                    .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("key"))
+                    .get(&ExtensionKey::try_from("router").expect("key"))
                     .expect("router extensions");
                 let peers = router_ext
                     .get("peers")
@@ -2458,7 +2458,7 @@ mod tests {
                 assert_eq!(namespaces, vec!["alpha", "beta"]);
                 let router_ext = composed
                     .extensions
-                    .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("key"))
+                    .get(&ExtensionKey::try_from("router").expect("key"))
                     .expect("router extensions");
                 let peers = router_ext
                     .get("peers")

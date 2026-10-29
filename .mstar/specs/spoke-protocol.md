@@ -16,29 +16,29 @@ SPOKE Thrust A spans **data wire**, **ops wire**, and a **hand-written operation
 
 | Column | Responsibility | Normative doc | Artifact home |
 |--------|----------------|---------------|---------------|
-| **1. Data** | Ten data objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, **Rule**, **TimelineEvent**, **MindState**, ToolDescriptor | [`spoke-data-model.md`](spoke-data-model.md) | `schemas/data/`, `schemas/common/` |
-| **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas) and optional `extract` under `ke-extraction` (+2 schemas) | [`spoke-ops.md`](spoke-ops.md) | `schemas/ops/` |
+| **1. Data** | Ten data objects: KnowledgeEntry, Relation, SourceAnchor, Finding, AssemblePacket, **HostCapabilityManifest**, **Rule**, **TimelineEvent**, **MindState**, ToolDescriptor; optional `spoke-memory` adds thirteen memory models under the same authoring rules | [`spoke-data-model.md`](spoke-data-model.md), [`spoke-memory.md`](spoke-memory.md) | `schemas/data/`, `schemas/common/` |
+| **2. Ops wire** | Five baseline operations (10 request/response schemas): upsert, extract→promote, relate, check, assemble; optional `project` / `compute` under `l2-computable` (+4 schemas), optional `extract` under `ke-extraction` (+2 schemas), and the optional `spoke-memory` family's 33 operations (+66 schemas) | [`spoke-ops.md`](spoke-ops.md), [`spoke-memory.md`](spoke-memory.md) | `schemas/ops/` |
 | **3. Ops library** | Pure lifecycle invariants and injected adapter orchestration that JSON Schema cannot express | [`spoke-operations.md`](spoke-operations.md) | `packages/spoke-operations/` (`@42ch/spoke-operations`); `crates/spoke-operations/` (`spoke-operations`) |
 
 **Invariant:** generated `@42ch/spoke-schemas` / `spoke-schemas` types are wire truth; `@42ch/spoke-operations` / `spoke-operations` are hand-written behavior on those types, including capability-sliced adapter ports and injection orchestration. TypeScript package is behavioral SSOT; Rust crate is a port at lockstep SemVer. Adapter interfaces are defined in [`spoke-operations.md` §Adapter Interfaces](spoke-operations.md#adapter-interfaces-normative); per-operation orchestration sequences in [`§Injection Orchestration`](spoke-operations.md#injection-orchestration-normative).
 
 **Connect family (opt-in `spoke-connect`):** cross-process interaction envelopes — hello (signed manifest exchange), session, invoke request/response, auth challenge/response — live in `schemas/connect/` under the optional `spoke-connect` capability flag. Connect reuses `HostCapabilityManifest` (hello embeds it by `$ref`) and `error-envelope` (invoke failures), wraps existing ops envelopes as opaque JSON, and keeps peer identity opaque (`peer_id`). Normative interaction semantics: [`spoke-connect.md`](spoke-connect.md).
 
-**Protocol layers (Rule + TimelineEvent + HostCapabilityManifest + ToolDescriptor):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; `HostCapabilityManifest` for in-process host collaboration (baseline `HostManifestPort`); `ToolDescriptor` for self-describing tool ABIs on the manifest; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **34** hand-authored schema files (28 data/ops + 6 opt-in connect envelopes).
+**Protocol layers (Rule + TimelineEvent + HostCapabilityManifest + ToolDescriptor):** `Rule` (L6) and `TimelineEvent` (L5) in `schemas/data/`; `HostCapabilityManifest` for in-process host collaboration (baseline `HostManifestPort`); `ToolDescriptor` for self-describing tool ABIs on the manifest; field tables in [`spoke-data-model.md`](spoke-data-model.md). Shared `Scope`, `TimelineScale`, and `ForkId` in `common.schema.json`; `check-request` / `assemble-request` `$ref` shared `Scope`; all ops responses use `oneOf` success | `{ error: ErrorEnvelope }` — see [`spoke-ops.md`](spoke-ops.md). **113** hand-authored schema files (107 data/ops + 6 opt-in connect envelopes).
 
 ## Nine-layer model (L0–L8)
 
-Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** / **`ke-ownership`** / **`ke-extraction`** / **`spoke-connect`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). **`l5-fork`** covers optional `TimelineEvent.fork_id` / `parent_fork_id` and optional `Scope.fork_id` filter (`ForkId` in `common.schema.json`). **`ke-ownership`** covers optional `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` governance fields and the shared `Scope.viewpoint` reader selector — optional properties on existing objects, so the flag adds no schema file, port, or required field and leaves baseline claims unchanged; core disclosure boundaries, rejected alternatives, and helper signatures: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md). **`ke-extraction`** covers the optional `extract` op plus its standalone `ExtractionPort` and injected asynchronous extractor — referenced content in, provisional candidates out, using the existing `input-source` host role; `promote` stays baseline — see [`ke-extraction-adr.md`](ke-extraction-adr.md). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op). **`spoke-connect`** covers the opt-in interaction envelopes in `schemas/connect/` — see [`spoke-connect.md`](spoke-connect.md).
+Normative chapter: [`spoke-protocol-layers.md`](spoke-protocol-layers.md). Integrators declare **baseline** (`spoke-baseline`) vs optional **`l2-computable`** / **`l5-fork`** / **`ke-ownership`** / **`ke-extraction`** / **`spoke-connect`** / **`spoke-memory`** capability flags. **`l2-computable`** covers optional `body.state` / `body.computable`, `TimelineEvent.computable_logs`, and optional `project` / `compute` ops (Session lifecycle via op `session_id` — no durable Session wire object). **`l5-fork`** covers optional `TimelineEvent.fork_id` / `parent_fork_id` and optional `Scope.fork_id` filter (`ForkId` in `common.schema.json`). **`ke-ownership`** covers optional `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` governance fields and the shared `Scope.viewpoint` reader selector — optional properties on existing objects, so the flag adds no schema file, port, or required field and leaves baseline claims unchanged; core disclosure boundaries, rejected alternatives, and helper signatures: [`ke-ownership-disclosure-adr.md`](ke-ownership-disclosure-adr.md). **`ke-extraction`** covers the optional `extract` op plus its standalone `ExtractionPort` and injected asynchronous extractor — referenced content in, provisional candidates out, using the existing `input-source` host role; `promote` stays baseline — see [`ke-extraction-adr.md`](ke-extraction-adr.md). L5 Timeline projection tiers use wire vocabulary **`brief` / `narrative` / `moment`** via optional `timeline_scale` — distinct from L8 **`AssemblePacket`** context assembly (see layers spec §L5 rule 4: L5 `moment` tier ≠ L8 `assemble` op). **`spoke-connect`** covers the opt-in interaction envelopes in `schemas/connect/` — see [`spoke-connect.md`](spoke-connect.md). **`spoke-memory`** (with optional sub-flags **`spoke-memory-reflection`** / **`spoke-memory-transfer`**) covers the per-subject memory family — 33 `memory.*` ops across the three flags (25 core + 3 reflection + 5 transfer), thirteen memory data models, and a standalone `MemoryPort`; it adds no field to any baseline object, no baseline port, and no core op — see [`spoke-memory.md`](spoke-memory.md).
 
 **Schema file count:**
 
 | Inventory | Count | Breakdown |
 |-----------|-------|-----------|
-| **Committed `*.schema.json` files** | **34** | 2 common + 10 data (9 baseline + 1 optional `l5-mind` `mind-state`) + 16 ops (10 baseline + 4 optional `l2-computable` `project` / `compute` + 2 optional `ke-extraction` `extract`) + 6 connect (opt-in `spoke-connect`) |
+| **Committed `*.schema.json` files** | **113** | 2 common + 23 data (9 baseline + 1 optional `l5-mind` `mind-state` + 13 optional `spoke-memory` models) + 82 ops (10 baseline + 4 optional `l2-computable` `project` / `compute` + 2 optional `ke-extraction` `extract` + 66 optional `spoke-memory` pairs) + 6 connect (opt-in `spoke-connect`) |
 
-Protocol wire inventory is **34** files. `schemas/README.md`, `EXPECTED_SCHEMA_COUNT`, and generated output must match in the same commit as schema changes.
+Protocol wire inventory is **113** files. `schemas/README.md`, `EXPECTED_SCHEMA_COUNT`, and generated output must match in the same commit as schema changes.
 
-Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use **21** schema files (2 common + 9 data + 10 baseline ops); optional `l2-computable` adds four ops schemas, the optional `ke-extraction` capability adds two ops schemas (`extract` request + response), the opt-in `spoke-connect` family adds six connect envelopes, and the optional `l5-mind` capability adds `mind-state.schema.json` for **34** total.
+Shared defs in `common.schema.json` include `Scope`, `TimelineScale`, `ForkId`, `OpaqueJson`, `ComputableFieldMap`, `ComputableLogEntry`, and `BodyAttribute`. All ops responses use `oneOf` success branch or `{ "error": ErrorEnvelope }`. Baseline integrators use **21** schema files (2 common + 9 data + 10 baseline ops); optional `l2-computable` adds four ops schemas, the optional `ke-extraction` capability adds two ops schemas (`extract` request + response), the opt-in `spoke-connect` family adds six connect envelopes, the optional `l5-mind` capability adds `mind-state.schema.json`, and the optional `spoke-memory` family adds thirteen memory models plus 33 request/response pairs for **113** total.
 
 Update [`schemas/README.md`](../../schemas/README.md) checklist in the same commit as schema changes.
 
@@ -69,6 +69,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 | Rust | `spoke-schemas` | `typify` | `crates/spoke-schemas/src/generated/` |
 | TypeScript (hand-written) | `@42ch/spoke-operations` | — (not codegen) | `packages/spoke-operations/src/` |
 | Rust (hand-written) | `spoke-operations` | — (not codegen) | `crates/spoke-operations/src/` |
+| Rust (hand-written) | `spoke-memory` | — (not codegen) | `crates/spoke-memory/src/` — optional memory reference engine (algorithm policy only) |
 
 `schemas/` is the only hand-authored wire truth. Generated output is committed; drift fails `verify-codegen`.
 
@@ -105,7 +106,12 @@ spoke/
     ├── Cargo.toml
     └── src/
         ├── lib.rs               # flat re-exports; hand-written pure helpers
-        └── *.rs                 # family modules (result, extensions, finding, …)
+        └── *.rs                 # family modules (result, extensions, finding, memory, …)
+└── crates/spoke-memory/
+    ├── Cargo.toml
+    └── src/                     # optional memory reference engine (pure algorithm policy)
+        ├── lib.rs               # MemoryEngine façade + ENGINE_POLICY_VERSION
+        └── {classify,recall,reflect,transfer}.rs
 └── fixtures/toy-world/
     ├── src/adapter/             # TS ToyWorldAdapter (private; not published)
     ├── rust/                    # spoke-fixture-toy-world crate (publish = false)
@@ -122,7 +128,7 @@ spoke/
 | Edit policy | Never hand-edit `*/generated/**` |
 | Module mirror | Generated folder names mirror `schemas/{common,data,ops,connect}` |
 | Public API | Both packages re-export all leaf types from `index.ts` / `lib.rs` |
-| Schema inventory | **34** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
+| Schema inventory | **113** `*.schema.json` files under `schemas/`; `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` and rust-gen must match |
 | Opaque JSON fields | Wire shape: `#/definitions/OpaqueJson` (empty schema `{}`) with `$ref` from consuming properties (e.g. `ComputableLogChange.previous` / `.next`). Generators MUST emit any-JSON types (`unknown` / `OpaqueJson` in TS; `serde_json::Value` in Rust) — not object-index maps |
 | Duplicate generated types | typify and jstt may emit duplicate nominal types across `common/` and `data/` modules after `$ref` dereference. Integrators import canonical types from `generated/common` (TS barrel or `spoke_schemas::generated::common` / crate root re-exports). Duplicates are generator output, not separate wire shapes |
 | Release script tests | `pnpm run test:release` exercises `tooling/release/` assert/bump scripts (pure fixtures; no registry I/O). CI runs it in the `typescript` job |
@@ -141,12 +147,13 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `packages/spoke-connect-ts/` | TypeScript connect client — published as `@42ch/spoke-connect` |
 | `crates/spoke-schemas/` | Generated Rust wire types |
 | `crates/spoke-operations/` | Hand-written Rust operations library — behavioral port of TS helpers plus injected adapter traits/orchestration |
+| `crates/spoke-memory/` | Optional memory reference engine — pure algorithm policy for the `spoke-memory` family (no storage, I/O, or enforcement) |
 | `crates/spoke-connect/` | Rust connect reference — session core, libp2p transport, uniffi binding surface (`bindings/`); published as `spoke-connect` |
 | `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; `@42ch/spoke-fixture-toy-world`) + reference `ToyWorldAdapter` (TS: `src/adapter/`; Rust: `rust/` crate `spoke-fixture-toy-world`, `publish = false`) |
 
 ## v0.1 acceptance (umbrella)
 
-Current wire bar: ten data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`, `MindState`, `ToolDescriptor`), five baseline ops plus optional `project` / `compute` under `l2-computable` and optional `extract` under `ke-extraction`, six opt-in connect envelopes (`spoke-connect`), **34** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
+Current wire bar: ten data objects (including `HostCapabilityManifest`, `Rule`, `TimelineEvent`, `MindState`, `ToolDescriptor`), five baseline ops plus optional `project` / `compute` under `l2-computable`, optional `extract` under `ke-extraction`, six opt-in connect envelopes (`spoke-connect`), and the optional `spoke-memory` family (thirteen models + 33 ops under `spoke-memory` / `spoke-memory-reflection` / `spoke-memory-transfer`), **113** schema files; normative vocabulary locks `KnowledgeEntry` / `TimelineEvent` in this tree and [`CONCEPTS.md`](../../CONCEPTS.md). Baseline adapters implement `HostManifestPort` per [`spoke-operations.md`](spoke-operations.md).
 
 **CI + inventory (required):**
 
@@ -204,8 +211,10 @@ Current wire bar: ten data objects (including `HostCapabilityManifest`, `Rule`, 
 | [`spoke-ops.md`](spoke-ops.md) | Five ops, error envelope, Scope neutrality, `assemble` wire-only boundary |
 | [`spoke-operations.md`](spoke-operations.md) | Operations behavior library — pure helpers; [adapter interfaces](spoke-operations.md#adapter-interfaces-normative); [injection orchestration](spoke-operations.md#injection-orchestration-normative) |
 | [`spoke-connect.md`](spoke-connect.md) | Connect envelope family — session ordering, auth model, discovery boundary (opt-in `spoke-connect`) |
+| [`spoke-memory.md`](spoke-memory.md) | `spoke-memory` family — capability flags, invariants `MEM-R001`–`MEM-R027`, 13 models, 33 ops, errors, transfer, ProfileDocument |
+| [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md) | Memory capability decision — optional family, single authority, receipt model, engine/provider split, conformance providers |
 | [`domain-profile-narrative-structure.md`](domain-profile-narrative-structure.md) | Narrative-structure Domain Profile — Beat mapping, `precedes`, `structural_role` |
 | [`domain-profile-lore-activation.md`](domain-profile-lore-activation.md) | Lore-activation Domain Profile — `modules.activation` (capability-flagged) |
-| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (34 files committed) |
+| [`schemas/README.md`](../../schemas/README.md) | Schema file checklist (113 files committed) |
 | [`CONCEPTS.md`](../../CONCEPTS.md) | KnowledgeEntry / TimelineEvent vocabulary; dual-concern rule |
 | [`STRATEGY.md`](../../STRATEGY.md) | Protocol-not-runtime positioning and v0.1 scope |

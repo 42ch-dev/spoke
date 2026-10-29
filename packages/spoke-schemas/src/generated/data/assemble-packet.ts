@@ -49,11 +49,10 @@ export interface AssembleEntry {
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
+}
+export interface ExtensionValue {
+  [k: string]: unknown | undefined;
 }
 /**
  * Optional cross-product functional-dialect bag (modules.*). Capability-flagged (narrative-modules); opt-in. Carries packet-level recipes (e.g. modules.placement, modules.activation_trace). Inner shapes are handbook-defined; adapters round-trip unknown namespaces verbatim.

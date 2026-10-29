@@ -44,9 +44,8 @@ export interface ConnectSession {
  * Product namespace bag.
  */
 export interface ExtensionMap {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
+}
+export interface ExtensionValue {
+  [k: string]: unknown | undefined;
 }

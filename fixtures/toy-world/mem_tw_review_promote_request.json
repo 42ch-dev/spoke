@@ -1,0 +1,10 @@
+{
+  "space_id": "spc_tw_harbor",
+  "candidate_id": "cand_tw_bo_belief_0002",
+  "expected_revision": 1,
+  "decision": {
+    "action": "promote"
+  },
+  "idempotency_key": "rev-tw-bo-belief-0002-1",
+  "extensions": {}
+}

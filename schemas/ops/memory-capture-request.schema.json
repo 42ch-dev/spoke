@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-capture-request.schema.json",
+  "title": "MemoryCaptureRequest",
+  "description": "Capture raw material for one subject and produce zero or more pending candidates. Capture never writes retained records, profiles, or reflections and never triggers generation (MEM-R012). capture_scope (placement) and source_context_ids/anchors (provenance claims) are distinct and independent. Grant: capture covering the declared capture_scope. Mutating op: requires idempotency_key (§7.0.5) and returns a MemoryReceipt whose result is a content-free summary (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "subject_id",
+    "content",
+    "capture_scope",
+    "idempotency_key"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SubjectId"
+    },
+    "content": {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content",
+      "description": "Untrusted captured content (§10)."
+    },
+    "capture_scope": {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",
+      "description": "Required immutable admitted placement; the authorization fence for review outcomes."
+    },
+    "source_context_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional provenance claims; independent of capture_scope."
+    },
+    "anchors": {
+      "type": "array",
+      "items": {
+        "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json"
+      },
+      "description": "Optional provenance claims; independent of capture_scope."
+    },
+    "kind_hint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional advisory kind hint; classification remains advisory (§6.7).",
+      "title": "KindHint"
+    },
+    "occurred_at": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Caller-chosen, 1–128 characters (§6.1); unique within the dedup namespace (space_id, requester_principal_id, op, idempotency_key) (§7.0.5).",
+      "title": "IdempotencyKey"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "content": {
+        "text": "Mira told Bo the gate key is hidden under the third barrel."
+      },
+      "capture_scope": {
+        "visibility": "context",
+        "context_id": "bnd_mira_harbor_run_7"
+      },
+      "source_context_ids": [
+        "bnd_mira_harbor_run_7"
+      ],
+      "anchors": [
+        {
+          "schema_version": 1,
+          "source_id": "run://nexus/local/run_9182",
+          "span": {
+            "start": 1400,
+            "end": 1463
+          },
+          "extensions": {}
+        }
+      ],
+      "kind_hint": "fact",
+      "occurred_at": "2026-10-28T09:20:00Z",
+      "idempotency_key": "cap-9182-1400-mira"
+    }
+  ]
+}

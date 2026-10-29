@@ -206,7 +206,7 @@ Integrators may map one local mental fact to one or more of these surfaces. SPOK
 | Term | In SPOKE |
 |------|----------|
 | **KnowledgeEntry** | Portable wire envelope for one KB entry |
-| **World KB / Author Memory** | Product-local stores; mapped via adapters — not redefined as protocol types |
+| **World KB / Author Memory** | World KB stays a product-local store mapped via adapters. Author Memory is standardized as the optional `spoke-memory` capability family ([`spoke-memory.md`](.mstar/specs/spoke-memory.md)) — thirteen models, 33 `memory.*` ops, standalone `MemoryPort`. A product that does not implement the family keeps memory product-local and MUST NOT emulate memory semantics through baseline objects (`MEM-R019`) |
 | **Rule** | L6 declarative wire object + `check` input |
 | **TimelineEvent / TimelineScale** | L5 when-axis object + `brief` / `narrative` / `moment` vocabulary |
 | **Session / Computable** | Optional `l2-computable` lifecycle — `body.state`, `body.computable`, op `session_id`; not `entry_type` |

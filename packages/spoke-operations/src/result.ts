@@ -32,6 +32,35 @@ export const SpokeRejectCode = {
    * that are not the caller's fault.
    */
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  // Memory-system vocabulary (spoke-memory, §14.1 of the memory protocol).
+  /** Memory op target does not exist (or is hidden from the principal). */
+  NOT_FOUND: "NOT_FOUND",
+  /** Principal lacks coverage; also used when the provider declines to reveal existence. */
+  NOT_AUTHORIZED: "NOT_AUTHORIZED",
+  /** The presented grant exists but is revoked/expired (distinct from coverage-absence NOT_AUTHORIZED). */
+  GRANT_REVOKED: "GRANT_REVOKED",
+  /** Space is frozen for maintenance/migration; op is outside the §8.2 allowlist. */
+  SPACE_FROZEN: "SPACE_FROZEN",
+  /** Subject (or context) is fenced; writes are rejected, reads allowed. */
+  SUBJECT_FENCED: "SUBJECT_FENCED",
+  /** Candidate was already consumed (§8.1 terminal state). */
+  CANDIDATE_CONSUMED: "CANDIDATE_CONSUMED",
+  /** Reflection admission failed: a required profile kind is absent or empty. */
+  PROFILE_INCOMPLETE: "PROFILE_INCOMPLETE",
+  /** Reflection admission failed: provider/engine data-sufficiency policy gate. */
+  INSUFFICIENT_DATA: "INSUFFICIENT_DATA",
+  /** Same idempotency key replayed with a different payload digest. */
+  IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
+  /** Commit state unknown (§14.3); resolve via same-key replay or memory.receipts.get. */
+  OUTCOME_UNCERTAIN: "OUTCOME_UNCERTAIN",
+  /** Export bundle is past export_retention_seconds. */
+  EXPORT_EXPIRED: "EXPORT_EXPIRED",
+  /** Staged import verification failed, or the import left the staged state. */
+  IMPORT_CONFLICT: "IMPORT_CONFLICT",
+  /** Receipt body was evicted; details.last_known_status from the dedup tombstone. */
+  RECEIPT_EXPIRED: "RECEIPT_EXPIRED",
+  /** Pagination cursor invalidated by state or grant change (§7.0.7). */
+  CURSOR_INVALID: "CURSOR_INVALID",
 } as const;
 
 export type SpokeRejectCode =

@@ -1,0 +1,255 @@
+{
+  "id": "candidate-consumption",
+  "title": "Placement inheritance, consumption scrub + content_digest, and atomic consumption",
+  "protocol_refs": [
+    "\u00a76.7",
+    "MEM-R009",
+    "MEM-R025",
+    "\u00a77.13",
+    "\u00a77.15",
+    "\u00a77.17"
+  ],
+  "cases": [
+    {
+      "id": "content-digest-over-proposed-content",
+      "invariant": "MEM-R025",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "content_digest is SHA-256 over the JCS canonical proposed.content",
+      "input": {
+        "proposed_content": {
+          "text": "Mira told Bo the gate key is hidden under the third barrel."
+        }
+      },
+      "expect": {
+        "content_digest": "ff087c41e39e57602c1190289863c9dbc107dbbc8ef32b9a6e020bcf78da3bd4"
+      }
+    },
+    {
+      "id": "review-inherits-capture-scope",
+      "invariant": "MEM-R009",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "records created by review take the candidate capture_scope verbatim",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "The gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-scope-0001"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": {
+              "action": "promote"
+            },
+            "idempotency_key": "rev-tw-scope-0002"
+          }
+        }
+      ],
+      "op": "memory.records.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "record_id": "$ref:setup.1.result.record_ids.0"
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "record.scope",
+            "equals": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            }
+          }
+        ]
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "consumption-scrubs-proposed-content",
+      "invariant": "MEM-R025",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the consumed shell keeps the digest and drops the full proposed content",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "Mira told Bo the gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-scrub-0003"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": {
+              "action": "promote"
+            },
+            "idempotency_key": "rev-tw-scrub-0004"
+          }
+        }
+      ],
+      "op": "memory.candidates.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "candidate_id": "$ref:setup.0.result.candidate_ids.0"
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "candidate.status",
+            "equals": "consumed"
+          },
+          {
+            "path": "candidate.content_digest",
+            "equals": "ff087c41e39e57602c1190289863c9dbc107dbbc8ef32b9a6e020bcf78da3bd4"
+          }
+        ],
+        "absent": [
+          "candidate.proposed.content",
+          "candidate.expires_at"
+        ]
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "consumption-is-atomic-on-conflict",
+      "invariant": "MEM-R009",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a review that conflicts consumes nothing, creates no records, and leaves the record set unchanged",
+      "requires": [
+        "the harness principal holds an unrestricted grant on toy:character:bo"
+      ],
+      "setup": [
+        {
+          "op": "memory.records.list",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:bo",
+            "selection": {
+              "mode": "subject_all"
+            }
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              {
+                "path": "records",
+                "equals": []
+              },
+              {
+                "path": "total_authorized",
+                "equals": 0
+              }
+            ]
+          }
+        },
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:bo",
+            "content": {
+              "text": "Bo counted twelve crates on the customs quay."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-atomic-0005"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:setup.1.result.candidate_ids.0",
+            "expected_revision": 2,
+            "decision": {
+              "action": "promote"
+            },
+            "idempotency_key": "rev-tw-atomic-0006"
+          },
+          "expect": {
+            "error_code": "REVISION_CONFLICT"
+          }
+        }
+      ],
+      "op": "memory.records.list",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:bo",
+        "selection": {
+          "mode": "subject_all"
+        }
+      },
+      "expect": {
+        "success": true,
+        "state": [
+          {
+            "path": "records",
+            "equals": []
+          },
+          {
+            "path": "total_authorized",
+            "equals": 0
+          }
+        ]
+      },
+      "then": [
+        {
+          "op": "memory.candidates.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:setup.1.result.candidate_ids.0"
+          },
+          "expect": {
+            "success": true,
+            "state": [
+              {
+                "path": "candidate.status",
+                "equals": "pending"
+              },
+              {
+                "path": "candidate.revision",
+                "equals": 1
+              }
+            ],
+            "absent": [
+              "candidate.content_digest",
+              "candidate.consumed_by"
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

@@ -16,7 +16,7 @@
  */
 
 /** Primitive JSON kinds the required-field guards enforce. */
-type FieldKind = "string" | "number" | "object" | "array";
+type FieldKind = "string" | "number" | "object" | "array" | "boolean";
 
 interface Field {
   name: string;
@@ -84,6 +84,49 @@ const HOST_MANIFEST_FIELDS = [
   { name: "extensions", kind: "object" },
 ] as const satisfies readonly Field[];
 
+/** Required fields shared by every memory receipt state (committed,
+ * pending, failed) — the base receipt envelope
+ * (schemas/data/memory-receipt.schema.json). */
+const MEMORY_RECEIPT_FIELDS = [
+  { name: "schema_version", kind: "number" },
+  { name: "receipt_id", kind: "string" },
+  { name: "op", kind: "string" },
+  { name: "space_id", kind: "string" },
+  { name: "requester_principal_id", kind: "string" },
+  { name: "payload_digest", kind: "string" },
+  { name: "status", kind: "string" },
+  { name: "created_at", kind: "string" },
+  { name: "extensions", kind: "object" },
+] as const satisfies readonly Field[];
+
+const MEMORY_DESCRIBE_FIELDS = [
+  { name: "memory_protocol_version", kind: "number" },
+  { name: "capabilities", kind: "array" },
+  { name: "limits", kind: "object" },
+  { name: "required_profile_kinds", kind: "array" },
+  { name: "engine_policy_version", kind: "string" },
+] as const satisfies readonly Field[];
+
+const MEMORY_RECALL_FIELDS = [
+  { name: "records", kind: "array" },
+  { name: "total_authorized", kind: "number" },
+  { name: "truncated", kind: "boolean" },
+  { name: "engine_policy_version", kind: "string" },
+] as const satisfies readonly Field[];
+
+const MEMORY_RECORDS_LIST_FIELDS = [
+  { name: "records", kind: "array" },
+  { name: "total_authorized", kind: "number" },
+] as const satisfies readonly Field[];
+
+const MEMORY_REFLECTION_STATE_FIELDS = [
+  { name: "state_digest", kind: "string" },
+  { name: "basis", kind: "object" },
+  { name: "stale", kind: "boolean" },
+  { name: "missing_required_profile_kinds", kind: "array" },
+  { name: "data_sufficiency", kind: "string" },
+] as const satisfies readonly Field[];
+
 /** Success-payload shape per `port.*` op (contract §5.2 catalogue). */
 const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "port.knowledge.get": { kind: "object", fields: KNOWLEDGE_ENTRY_FIELDS },
@@ -101,6 +144,78 @@ const SUCCESS_SHAPES: Readonly<Record<string, SuccessShape>> = {
   "port.finding.put": { kind: "array", fields: FINDING_FIELDS },
   "port.rule.list": { kind: "array", fields: RULE_FIELDS },
   "port.host.list_peer_manifests": { kind: "array", fields: HOST_MANIFEST_FIELDS },
+  // Memory reads (schemas/ops/memory-*-response.schema.json success branch).
+  "memory.describe": { kind: "object", fields: MEMORY_DESCRIBE_FIELDS },
+  "memory.spaces.list": {
+    kind: "object",
+    fields: [{ name: "spaces", kind: "array" }],
+  },
+  "memory.subjects.get": {
+    kind: "object",
+    fields: [{ name: "subject", kind: "object" }],
+  },
+  "memory.candidates.get": {
+    kind: "object",
+    fields: [{ name: "candidate", kind: "object" }],
+  },
+  "memory.candidates.list": {
+    kind: "object",
+    fields: [{ name: "candidates", kind: "array" }],
+  },
+  "memory.grants.list": {
+    kind: "object",
+    fields: [{ name: "grants", kind: "array" }],
+  },
+  "memory.records.get": {
+    kind: "object",
+    fields: [{ name: "record", kind: "object" }],
+  },
+  "memory.records.list": { kind: "object", fields: MEMORY_RECORDS_LIST_FIELDS },
+  "memory.recall": { kind: "object", fields: MEMORY_RECALL_FIELDS },
+  "memory.profile.get": {
+    kind: "object",
+    fields: [{ name: "profiles", kind: "array" }],
+  },
+  "memory.reflections.state": {
+    kind: "object",
+    fields: MEMORY_REFLECTION_STATE_FIELDS,
+  },
+  "memory.reflections.list": {
+    kind: "object",
+    fields: [{ name: "reflections", kind: "array" }],
+  },
+  "memory.exports.get": {
+    kind: "object",
+    fields: [{ name: "chunk", kind: "object" }],
+  },
+  "memory.receipts.get": {
+    kind: "object",
+    fields: [{ name: "receipt", kind: "object" }],
+  },
+  // Receipt states: every mutating memory op answers with a receipt whose
+  // envelope fields are pinned above (committed and pending alike).
+  "memory.spaces.freeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.spaces.unfreeze": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.subjects.ensure": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.subjects.fence": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.grants.grant": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.grants.revoke": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.capture": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.candidates.dismiss": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.candidates.review": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.records.create": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.records.update": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.records.delete": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.records.promote": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.profile.update": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.reflections.generate": {
+    kind: "object",
+    fields: MEMORY_RECEIPT_FIELDS,
+  },
+  "memory.exports.create": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.imports.stage": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.imports.activate": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
+  "memory.imports.discard": { kind: "object", fields: MEMORY_RECEIPT_FIELDS },
   extract: {
     kind: "object",
     fields: [
@@ -124,6 +239,8 @@ function matchesFieldKind(value: unknown, kind: FieldKind): boolean {
       return isRecord(value);
     case "array":
       return Array.isArray(value);
+    case "boolean":
+      return typeof value === "boolean";
   }
 }
 

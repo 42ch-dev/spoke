@@ -1,0 +1,371 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/retained-record.schema.json",
+  "title": "RetainedRecord",
+  "description": "Durable memory record: untrusted content, write placement outside the content, and provenance independent of placement (§6.6). Defines the shared Content / PlacementScope / Provenance shapes reused by MemoryCandidate. Expressed as closed live/tombstoned variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.6 conditional requirements exactly (context_id iff visibility = context; a tombstoned record carries empty text and no structured value, MEM-R014).",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/LiveRecord"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/TombstonedRecord"
+    }
+  ],
+  "definitions": {
+    "TombstonedRecord": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "record_id",
+        "space_id",
+        "subject_id",
+        "kind",
+        "content",
+        "scope",
+        "provenance",
+        "created_at",
+        "updated_at",
+        "revision",
+        "tombstone",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "RecordId"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SubjectId"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Open vocabulary. Core (documented, not enforced): event, fact, note.",
+          "title": "Kind"
+        },
+        "content": {
+          "type": "object",
+          "required": [
+            "text"
+          ],
+          "properties": {
+            "text": {
+              "const": "",
+              "description": "A tombstoned record has its content removed (§6.6, MEM-R014).",
+              "type": "string",
+              "title": "Text"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Scrubbed content: empty text, no structured value.",
+          "title": "Content"
+        },
+        "scope": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",
+          "description": "Placement retained for audit; unchanged by deletion."
+        },
+        "provenance": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"
+        },
+        "occurred_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tombstone": {
+          "type": "object",
+          "required": [
+            "deleted_at",
+            "deleted_by"
+          ],
+          "properties": {
+            "deleted_at": {
+              "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+            },
+            "deleted_by": {
+              "type": "string",
+              "minLength": 1,
+              "description": "principal_id.",
+              "title": "DeletedBy"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Deletion marker; a tombstoned record is excluded from recall and default export (MEM-R014).",
+          "title": "Tombstone"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Record after deletion: content scrubbed, tombstone retained for audit.",
+      "title": "TombstonedRecord"
+    },
+    "Content": {
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Natural-language content; untrusted (§10)."
+        },
+        "structured": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+          "description": "Optional opaque structured content. Product semantics (e.g. affect) ride here — there is no affect wire field."
+        }
+      },
+      "additionalProperties": false,
+      "title": "Content"
+    },
+    "PlacementScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "visibility"
+          ],
+          "properties": {
+            "visibility": {
+              "const": "shared",
+              "type": "string",
+              "title": "Visibility"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Shared visibility: no context_id (§6.6).",
+          "title": "OneOf"
+        },
+        {
+          "type": "object",
+          "required": [
+            "visibility",
+            "context_id"
+          ],
+          "properties": {
+            "visibility": {
+              "const": "context",
+              "type": "string",
+              "title": "Visibility"
+            },
+            "context_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "ContextId"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Context placement: context_id required (§6.6).",
+          "title": "OneOf"
+        }
+      ],
+      "description": "Write placement (§6.6): context_id is required iff visibility = \"context\" and MUST be omitted when visibility = \"shared\". Changed only by memory.records.promote.",
+      "title": "PlacementScope"
+    },
+    "Provenance": {
+      "type": "object",
+      "required": [
+        "source_context_ids",
+        "anchors",
+        "captured_by",
+        "captured_at"
+      ],
+      "properties": {
+        "source_context_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Client-claimed provenance source context ids; may be empty. Independent of placement."
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/source-anchor.schema.json"
+          },
+          "description": "Client-claimed source anchors; may be empty."
+        },
+        "captured_by": {
+          "type": "string",
+          "minLength": 1,
+          "description": "principal_id; always provider-populated.",
+          "title": "CapturedBy"
+        },
+        "captured_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        }
+      },
+      "additionalProperties": false,
+      "title": "Provenance"
+    },
+    "LiveRecord": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "record_id",
+        "space_id",
+        "subject_id",
+        "kind",
+        "content",
+        "scope",
+        "provenance",
+        "created_at",
+        "updated_at",
+        "revision",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "RecordId"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "subject_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SubjectId"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Open vocabulary. Core (documented, not enforced): event, fact, note. Product-specific kinds are product policy, never protocol vocabulary.",
+          "title": "Kind"
+        },
+        "content": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Content"
+        },
+        "scope": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/PlacementScope",
+          "description": "Write placement. Changed only by memory.records.promote."
+        },
+        "provenance": {
+          "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json#/definitions/Provenance"
+        },
+        "import_ref": {
+          "type": "object",
+          "required": [
+            "import_id",
+            "source_record_id",
+            "source_revision"
+          ],
+          "properties": {
+            "import_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "ImportId"
+            },
+            "source_record_id": {
+              "type": "string",
+              "minLength": 1,
+              "title": "SourceRecordId"
+            },
+            "source_revision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false,
+          "description": "Present iff created by import activation. Historical attribution; never CAS input.",
+          "title": "ImportRef"
+        },
+        "occurred_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp",
+          "description": "Optional: when the underlying event or datum occurred, persisted from memory.capture.occurred_at; review-created records inherit it."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-object optimistic-concurrency counter (MEM-R007)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Live retained record. Tombstoned records use the TombstonedRecord variant; the tombstone property is deliberately absent here so a live record cannot carry one.",
+      "title": "RetainedRecord"
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "record_id": "rec_01J8ZQ3K4M0EXAMPLE0000001",
+      "space_id": "spc_local_default",
+      "subject_id": "nexus:character:mira",
+      "kind": "event",
+      "content": {
+        "text": "Mira promised the harbor master she would return before dawn.",
+        "structured": {
+          "certainty": "stated"
+        }
+      },
+      "scope": {
+        "visibility": "context",
+        "context_id": "bnd_mira_harbor_run_7"
+      },
+      "provenance": {
+        "source_context_ids": [
+          "bnd_mira_harbor_run_7"
+        ],
+        "anchors": [
+          {
+            "schema_version": 1,
+            "source_id": "run://nexus/local/run_9182",
+            "span": {
+              "start": 1204,
+              "end": 1271
+            },
+            "label": "harbor promise",
+            "mime_type": "text/plain",
+            "extensions": {}
+          }
+        ],
+        "captured_by": "prn_nexus_host_local",
+        "captured_at": "2026-10-28T09:15:00Z"
+      },
+      "created_at": "2026-10-28T09:15:01Z",
+      "updated_at": "2026-10-28T09:15:01Z",
+      "revision": 1,
+      "extensions": {}
+    }
+  ]
+}

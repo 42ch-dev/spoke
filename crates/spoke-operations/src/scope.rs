@@ -204,7 +204,7 @@ mod tests {
         Scope {
             entry_ids: Vec::new(),
             entry_types: Vec::new(),
-            extensions: HashMap::new(),
+            extensions: None,
             fork_id: None,
             scope_id: "world_1".into(),
             source_id: None,
@@ -263,10 +263,10 @@ mod tests {
     fn present_empty_entry_ids_from_wire_matches_nothing() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -311,10 +311,10 @@ mod tests {
     fn knowledge_entry_passes_when_only_scope_id_is_set() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -330,10 +330,10 @@ mod tests {
     fn knowledge_entry_matches_entry_ids_refinement() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -357,10 +357,10 @@ mod tests {
     fn knowledge_entry_matches_entry_types_refinement() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -384,10 +384,10 @@ mod tests {
     fn knowledge_entry_matches_source_id_refinement() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -411,10 +411,10 @@ mod tests {
     fn knowledge_entry_ignores_timeline_event_refinements() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -422,7 +422,7 @@ mod tests {
 
         let mut scope = base_scope();
         scope.timeline_event_ids = vec!["evt_missing".into()];
-        scope.timeline_scale = Some("brief".into());
+        scope.timeline_scale = Some(spoke_schemas::TimelineScale("brief".to_owned()));
 
         assert!(knowledge_entry_matches_scope(
             &knowledge_entry,
@@ -434,10 +434,10 @@ mod tests {
     fn knowledge_entry_requires_all_present_refinements() {
         let knowledge_entry = make_knowledge_entry(|entry| {
             entry.source_anchor = Some(SourceAnchor {
-                extensions: HashMap::new(),
+                extensions: spoke_schemas::knowledge_entry::Shared2(HashMap::new()),
                 label: None,
                 mime_type: None,
-                schema_version: NonZeroU64::new(1).unwrap(),
+                schema_version: spoke_schemas::knowledge_entry::Shared1(NonZeroU64::new(1).unwrap()),
                 source_id: "manuscript_1".into(),
                 span: None,
             });
@@ -513,13 +513,13 @@ mod tests {
         });
 
         let mut matching_scope = base_scope();
-        matching_scope.timeline_scale = Some("narrative".into());
+        matching_scope.timeline_scale = Some(spoke_schemas::TimelineScale("narrative".to_owned()));
         assert!(timeline_event_matches_scope(
             &timeline_event,
             &matching_scope
         ));
 
-        matching_scope.timeline_scale = Some("brief".into());
+        matching_scope.timeline_scale = Some(spoke_schemas::TimelineScale("brief".to_owned()));
         assert!(!timeline_event_matches_scope(
             &timeline_event,
             &matching_scope
@@ -554,7 +554,7 @@ mod tests {
 
         let mut scope = base_scope();
         scope.fork_id = Some(
-            spoke_schemas::ScopeForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
+            spoke_schemas::ForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
         );
 
         assert!(timeline_event_matches_scope(&timeline_event, &scope));
@@ -574,7 +574,7 @@ mod tests {
 
         let mut scope = base_scope();
         scope.fork_id = Some(
-            spoke_schemas::ScopeForkId::try_from("fork_what_if_b".to_owned()).unwrap(),
+            spoke_schemas::ForkId::try_from("fork_what_if_b".to_owned()).unwrap(),
         );
 
         assert!(!timeline_event_matches_scope(&timeline_event, &scope));
@@ -588,7 +588,7 @@ mod tests {
 
         let mut scope = base_scope();
         scope.fork_id = Some(
-            spoke_schemas::ScopeForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
+            spoke_schemas::ForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
         );
 
         assert!(!timeline_event_matches_scope(&timeline_event, &scope));
@@ -599,16 +599,14 @@ mod tests {
         let timeline_event = make_timeline_event(|event| {
             event.timeline_event_id = "evt_fork".into();
             event.parent_fork_id = Some(
-                spoke_schemas::timeline_event::TimelineEventParentForkId::try_from(
-                    "fork_mainline_a".to_owned(),
-                )
-                .unwrap(),
+                spoke_schemas::timeline_event::Shared2::try_from("fork_mainline_a".to_owned())
+                    .expect("valid fork id"),
             );
         });
 
         let mut scope = base_scope();
         scope.fork_id = Some(
-            spoke_schemas::ScopeForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
+            spoke_schemas::ForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
         );
 
         assert!(!timeline_event_matches_scope(&timeline_event, &scope));
@@ -646,7 +644,7 @@ mod tests {
         ];
 
         let mut scope = base_scope();
-        scope.timeline_scale = Some("narrative".into());
+        scope.timeline_scale = Some(spoke_schemas::TimelineScale("narrative".to_owned()));
 
         let filtered = filter_timeline_events_by_scope(&timeline_events, &scope);
         assert_eq!(filtered.len(), 1);
@@ -681,7 +679,7 @@ mod tests {
 
         let mut scope = base_scope();
         scope.fork_id = Some(
-            spoke_schemas::ScopeForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
+            spoke_schemas::ForkId::try_from("fork_mainline_a".to_owned()).unwrap(),
         );
 
         let filtered = filter_timeline_events_by_scope(&timeline_events, &scope);
@@ -740,7 +738,10 @@ mod tests {
         let _ = filter_knowledge_entries_by_scope(&entries, &scope);
         let _events = [event];
         let _ = filter_timeline_events_by_scope(&_events, &scope);
-        assert_eq!(scope.extensions, snapshot);
+        assert_eq!(
+            serde_json::to_value(&scope.extensions).expect("serialize current extensions"),
+            serde_json::to_value(&snapshot).expect("serialize snapshot extensions")
+        );
 
         // Product query metadata survives untouched (round-trip serialize the bag).
         let extensions_wire = serde_json::to_value(&scope.extensions).expect("serialize extensions");

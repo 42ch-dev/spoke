@@ -41,7 +41,10 @@ pub use remote_adapter::{
 pub use responder::{
     connect_responder, ConnectResponder, ConnectResponderOptions, ConnectResponderState,
 };
-pub use serve_ports::{RemoteExtractService, RemoteServePorts, RemoteServePortsComposite};
+pub use serve_ports::{
+    MemoryAdmission, MemoryPortService, RemoteExtractService, RemoteMemoryService,
+    RemoteServePorts, RemoteServePortsComposite,
+};
 pub use transport::{
     loopback_transport_pair, LoopbackTransport, LoopbackTransportPair, Transport, TransportError,
 };

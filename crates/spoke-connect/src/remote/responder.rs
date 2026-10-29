@@ -30,12 +30,16 @@
 //!   branch), the core `extract` op runs the optional injected
 //!   [`RemoteExtractService`](crate::remote::RemoteExtractService)
 //!   (a host that declares `ke-extraction` without providing the service
-//!   takes the same dispatch-deny branch), and unknown ops are denied. A
-//!   Scope-bearing `port.*` request additionally passes the supplementary
-//!   `ke-ownership` gate and Scope validation before the provider is probed.
-//!   Every served `port.*` provider call and the whole `extract` service
-//!   call are bounded by the responder's local serve-wait budget
-//!   (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
+//!   takes the same dispatch-deny branch), `memory.*` ops run the optional
+//!   injected [`RemoteMemoryService`](crate::remote::RemoteMemoryService)
+//!   under the same probe rule — a known memory op that was not negotiated
+//!   is denied `capability_missing` at the gate, before any probe — and
+//!   unknown ops are denied. A Scope-bearing `port.*` request additionally
+//!   passes the supplementary `ke-ownership` gate and Scope validation
+//!   before the provider is probed.
+//!   Every served `port.*` provider call and the whole `extract` /
+//!   `memory.*` service call are bounded by the responder's local serve-wait
+//!   budget (`invoke_timeout_ms`, default 5000): expiry answers exactly one signed
 //!   `INTERNAL_ERROR` with `details.kind = "timeout"` and leaves the session
 //!   Established (bounded wait, not forced host-work termination). The bound
 //!   starts after the payload validation, and a close aborts the in-flight
@@ -75,10 +79,10 @@ use spoke_schemas::{
 use crate::core::{
     authenticate_invoke_request, authenticate_invoke_response, authenticate_session,
     check_response_correlation, derive_peer_id_from_ed25519_pubkey, dispatch_allowed,
-    is_allowlisted, sign_hello_ed25519, verify_hello_ed25519, verify_invoke_request_auth,
-    verify_invoke_response_auth, Correlation, EnvelopeAuthError, InboundSequence,
-    InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence, SessionSignInput,
-    CAPABILITY_KE_OWNERSHIP,
+    is_allowlisted, required_capability, sign_hello_ed25519, verify_hello_ed25519,
+    verify_invoke_request_auth, verify_invoke_response_auth, Correlation, EnvelopeAuthError,
+    InboundSequence, InvokeRequestSignInput, InvokeResponseSignInput, NonceStore, OutboundSequence,
+    SessionSignInput, CAPABILITY_KE_OWNERSHIP,
 };
 use crate::hello::generate_nonce;
 use crate::remote::remote_adapter::{
@@ -199,6 +203,48 @@ fn serve_timeout_reject(budget: Duration) -> SpokeReject {
             "serve wait exceeded the local budget of {}ms",
             budget.as_millis()
         ),
+        details: Some(details),
+    }
+}
+
+/// §14.2 memory-boundary deny details: every dispatch-layer denial is
+/// `terminal` — retrying the same request unchanged fails again.
+fn memory_terminal_details() -> Map<String, Value> {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("terminal".into()));
+    details
+}
+
+/// §14.2/§14.3: the serve budget expired AFTER the memory service was
+/// invoked, so the transport has no evidence that nothing committed — the
+/// outcome is unknown. The response says so instead of claiming a clean
+/// failure; provider work is neither cancelled nor rolled back by this end.
+fn memory_uncertain_reject(budget: Duration) -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("timeout".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: format!(
+            "memory serve wait exceeded the local budget of {}ms; the outcome is unknown — poll the receipt or replay the same idempotency key",
+            budget.as_millis()
+        ),
+        details: Some(details),
+    }
+}
+
+/// §14.2/§14.3: the detached memory invoke panicked (or otherwise dropped
+/// its result channel) AFTER admission, so the transport has no evidence
+/// that nothing committed — a clean `INTERNAL_ERROR` would assert no-effect.
+/// The response says the outcome is unknown instead.
+fn memory_panic_uncertain_reject() -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("panic".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: "memory service failed after invocation; the outcome is unknown — poll the receipt or replay the same idempotency key"
+            .to_string(),
         details: Some(details),
     }
 }
@@ -1057,17 +1103,35 @@ impl ConnectResponder {
         // against `negotiated_capabilities` (never a raw requirements-map
         // composition, which would deny the self-describing tools family).
         if !self.gate_allows(op, &negotiated) {
+            // A `memory.*` op with a core-table row is a capability gap: the
+            // gate evaluates negotiated capabilities only, so a known op that
+            // was not negotiated answers `capability_missing` (protocol §4.1).
+            // An op with no row at all stays `op_unsupported`.
+            let code = if op.starts_with("memory.") && required_capability(op).is_some() {
+                "capability_missing"
+            } else {
+                "op_unsupported"
+            };
+            // §14.2: a memory-boundary denial is classified `terminal`.
+            let memory_details = memory_terminal_details();
+            let details = (code == "capability_missing").then_some(&memory_details);
             self.send_reverse_error_envelope(
                 doc,
-                "op_unsupported",
+                code,
                 &format!("op {op} is not authorized by this session"),
-                None,
+                details,
             )
             .await?;
             return Ok(());
         }
         if op.starts_with("tools.") {
             self.dispatch_tool_invoke(doc).await?;
+            return Ok(());
+        }
+        // `memory.*` ops are served by the optional injected
+        // [`RemoteMemoryService`](crate::remote::RemoteMemoryService) face.
+        if op.starts_with("memory.") {
+            self.dispatch_memory_invoke(doc).await?;
             return Ok(());
         }
         // `extract` is a core op served by an optional injected service
@@ -1336,6 +1400,112 @@ impl ConnectResponder {
                     SpokeRejectCode::InternalError.as_str(),
                     &format!("{op} response serialize failed: {error}"),
                     None,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Serve a `memory.*` invoke through the injected
+    /// [`RemoteMemoryService`](crate::remote::RemoteMemoryService) (protocol
+    /// §13). The static capability gate already passed in
+    /// [`ConnectResponder::try_dispatch_invoke`] — a known memory op that was
+    /// not negotiated never reaches here (`capability_missing`). The rest of
+    /// the order is probe → call the service once → signed response; an
+    /// absent face is the documented dispatch-deny branch (the host declared
+    /// `spoke-memory` without providing the service).
+    ///
+    /// The service owns the provider port, the admission context (the
+    /// authenticated peer → `Principal`) and the per-op wire mapping; this
+    /// end forwards the op string and its payload object unchanged.
+    async fn dispatch_memory_invoke(&self, doc: &Value) -> Result<(), ResponderError> {
+        let Some(op) = doc.get("op").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let Some(service) = self.ports.as_ref().and_then(|ports| ports.as_memory()) else {
+            let details = memory_terminal_details();
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no memory service configured for op {op}"),
+                Some(&details),
+            )
+            .await?;
+            return Ok(());
+        };
+        // The admitted principal derives from the authenticated session peer
+        // (MEM-R003), never from the payload.
+        let Some(peer_id) = self.remote_peer_id() else {
+            self.send_reverse_error_envelope(
+                doc,
+                "op_unsupported",
+                &format!("no authenticated peer for op {op}"),
+                None,
+            )
+            .await?;
+            return Ok(());
+        };
+        let payload = doc.get("payload").cloned().unwrap_or_else(|| json!({}));
+        // Same serve bound as `extract`: the wait starts at provider
+        // invocation; a zero budget answers the signed timeout without
+        // starting the service.
+        // A zero budget rejects before the service is invoked (the baseline
+        // serve-timeout rejection stands). A non-zero budget that expires
+        // AFTER invocation means the mutation may have committed: that is
+        // `OUTCOME_UNCERTAIN`, not a clean internal error. The admitted
+        // invoke is detached from the response deadline (spawned, matching
+        // the TS path's uncancellable promise): expiry answers the budget,
+        // it never cancels the provider task, and polling then observes the
+        // real completion.
+        let zero_budget = self.invoke_timeout.is_zero();
+        let bounded = if zero_budget {
+            None
+        } else {
+            let service = Arc::clone(&service);
+            let peer_id = peer_id.clone();
+            let op = op.to_string();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(service.invoke(&peer_id, &op, payload).await);
+            });
+            match tokio::time::timeout(self.invoke_timeout, rx).await {
+                Ok(Ok(result)) => Some(result),
+                // The detached task sends exactly once before dropping the
+                // sender; a receive failure means it panicked AFTER
+                // admission, so — like a budget expiry — the transport
+                // cannot assert no-effect (§14.3): answer uncertain, never
+                // a clean internal error.
+                Ok(Err(_)) => Some(SpokeResult::Reject(memory_panic_uncertain_reject())),
+                Err(_) => None,
+            }
+        };
+        if self.state() == ConnectResponderState::Closed {
+            return Ok(());
+        }
+        let Some(result) = bounded else {
+            let reject = if zero_budget {
+                serve_timeout_reject(self.invoke_timeout)
+            } else {
+                memory_uncertain_reject(self.invoke_timeout)
+            };
+            self.send_reverse_error_envelope(
+                doc,
+                reject.code.as_str(),
+                &reject.message,
+                reject.details.as_ref(),
+            )
+            .await?;
+            return Ok(());
+        };
+        match result {
+            SpokeResult::Ok(value) => self.send_ok_response(doc, value).await?,
+            SpokeResult::Reject(reject) => {
+                self.send_reverse_error_envelope(
+                    doc,
+                    reject.code.as_str(),
+                    &reject.message,
+                    reject.details.as_ref(),
                 )
                 .await?;
             }

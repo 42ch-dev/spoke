@@ -1,0 +1,137 @@
+{
+  "id": "cas-conflict",
+  "title": "Optimistic-concurrency preconditions reject stale revisions",
+  "protocol_refs": [
+    "MEM-R007",
+    "\u00a714.1"
+  ],
+  "cases": [
+    {
+      "id": "records-update-stale-revision",
+      "invariant": "MEM-R007",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "an update carrying a stale expected_revision is refused",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "The gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-cas-0001"
+          }
+        },
+        {
+          "op": "memory.candidates.review",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
+            "expected_revision": 1,
+            "decision": {
+              "action": "promote"
+            },
+            "idempotency_key": "rev-tw-cas-0002"
+          }
+        },
+        {
+          "op": "memory.records.update",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "record_id": "$ref:setup.1.result.record_ids.0",
+            "expected_revision": 1,
+            "content": {
+              "text": "The gate key is hidden under the second barrel."
+            },
+            "idempotency_key": "upd-tw-cas-0003"
+          }
+        }
+      ],
+      "op": "memory.records.update",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "record_id": "$ref:setup.1.result.record_ids.0",
+        "expected_revision": 1,
+        "content": {
+          "text": "The gate key is hidden under the first barrel."
+        },
+        "idempotency_key": "upd-tw-cas-0004"
+      },
+      "expect": {
+        "error_code": "REVISION_CONFLICT"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "spaces-freeze-stale-revision",
+      "invariant": "MEM-R007",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a second freeze built on the pre-freeze revision is refused",
+      "setup": [
+        {
+          "op": "memory.spaces.freeze",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "expected_revision": 1,
+            "idempotency_key": "freeze-tw-cas-0005"
+          }
+        }
+      ],
+      "op": "memory.spaces.freeze",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "expected_revision": 1,
+        "idempotency_key": "freeze-tw-cas-0006"
+      },
+      "expect": {
+        "error_code": "REVISION_CONFLICT"
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "candidate-review-stale-revision",
+      "invariant": "MEM-R007",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a review carrying a revision ahead of the stored candidate is refused",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "Bo counted eleven crates on the customs quay."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-cas-0007"
+          }
+        }
+      ],
+      "op": "memory.candidates.review",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "candidate_id": "$ref:setup.0.result.candidate_ids.0",
+        "expected_revision": 2,
+        "decision": {
+          "action": "promote"
+        },
+        "idempotency_key": "rev-tw-cas-0008"
+      },
+      "expect": {
+        "error_code": "REVISION_CONFLICT"
+      },
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

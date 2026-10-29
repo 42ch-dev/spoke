@@ -53,11 +53,10 @@ export type ConnectInvokeResponse =
  * Product namespace bag.
  */
 export interface ExtensionMap {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
+}
+export interface ExtensionValue {
+  [k: string]: unknown | undefined;
 }
 /**
  * Failure: shared error envelope.
@@ -71,31 +70,24 @@ export interface ErrorEnvelope {
    * Human-readable error message.
    */
   message: string;
-  /**
-   * Optional structured error context.
-   */
-  details?: {
-    [k: string]: unknown | undefined;
-  };
+  details?: ErrorDetails;
   extensions: ExtensionMap1;
+}
+/**
+ * Optional structured error context.
+ */
+export interface ErrorDetails {
+  [k: string]: unknown | undefined;
 }
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap1 {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
 }
 /**
  * Product namespace bag keyed by product-chosen ids matching ^[a-z][a-z0-9_-]*$. Values are opaque JSON objects. Adapters MUST preserve unknown namespaces and keys on round-trip.
  */
 export interface ExtensionMap2 {
-  [k: string]:
-    | {
-        [k: string]: unknown | undefined;
-      }
-    | undefined;
+  [k: string]: ExtensionValue | undefined;
 }

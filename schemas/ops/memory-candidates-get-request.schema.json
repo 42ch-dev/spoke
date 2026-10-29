@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-candidates-get-request.schema.json",
+  "title": "MemoryCandidatesGetRequest",
+  "description": "Read one candidate; rechecks current authorization (MEM-R026). Grant: review covering the candidate capture_scope. Read-only; the response payload is returned directly (§7.0.2).",
+  "type": "object",
+  "required": [
+    "space_id",
+    "candidate_id"
+  ],
+  "properties": {
+    "space_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "SpaceId"
+    },
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "title": "CandidateId"
+    },
+    "extensions": {
+      "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+      "description": "Optional transport metadata."
+    }
+  },
+  "additionalProperties": false
+}

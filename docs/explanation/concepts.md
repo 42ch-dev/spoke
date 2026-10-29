@@ -31,6 +31,7 @@ A product claims compliance at a declared capability level. **`spoke-baseline`**
 - **`ke-extraction`** — the optional `extract` op: referenced source material in, provisional KnowledgeEntry candidates out.
 - **`ke-ownership`** — ownership and disclosure on the KnowledgeEntry envelope, with the `Scope.viewpoint` reader selector.
 - **`spoke-connect`** — the opt-in cross-process interaction envelope family.
+- **`spoke-memory`** — per-subject memory: thirteen models and 33 `memory.*` ops behind the standalone `MemoryPort`, with optional `spoke-memory-reflection` and `spoke-memory-transfer` sub-flags — see the [Memory reference](/reference/memory).
 
 The connect family's session lifecycle, envelope authentication, and capability routing are explained in [Connect architecture](/explanation/connect).
 
@@ -43,6 +44,22 @@ The protocol keeps three pairs deliberately separate:
 - An ontology `entry_type: "character"` / profile `mind` label versus the L5 `MindState` temporal record — the label classifies a knowledge node; `MindState` is the strictly derivative snapshot / delta of the holder's mental fields (`modules.mental` / `modules.belief` are the settled home).
 
 The names stay separate so `check` / `assemble` selectors remain unambiguous.
+
+## Memory beside knowledge
+
+Canonical knowledge and subjective memory are two different jobs, so the protocol keeps them in two families. A KnowledgeEntry is a shared, reviewed node other hosts can check and assemble; retained memory carries two admission paths: captured material becomes a `MemoryCandidate` and counts only after `memory.candidates.review`, while `memory.records.create` writes a retained record directly as an authored management write. Reads follow the caller's grants.
+
+| Aspect | KnowledgeEntry | Memory record |
+|--------|----------------|---------------|
+| Role | Canonical knowledge node on the shared surface | Per-subject impression captured by a host |
+| Subject | Not subject-scoped | Exactly one `subject_id` (flat subjects) |
+| Admission | `upsert`, `promote` | Captured: `memory.capture` → `MemoryCandidate` → `memory.candidates.review`. Authored management write: `memory.records.create` |
+| Content trust | Envelope carries `ke-ownership` disclosure fields | Record and candidate content is untrusted data; profile documents are trusted author material |
+| Forgetting | Status lifecycle (`deprecated`, `merged`, `deleted`) | Explicit operations only: drop/dismiss, tombstone delete, subject archive, import discard |
+| Read axis | `check` / `assemble` over shared `Scope` | `ReadSelection` placement modes plus `ProvenanceFilter` |
+| Authorization | `ke-ownership` disclosure predicate over `Scope.viewpoint` | Self-contained `MemoryGrant` |
+
+Three consequences follow from that split. Emotion travels as an opaque convention inside `content.structured` (for example `{"affect":{"valence":0.6}}`), so mood taxonomies stay product policy. Author profiles (`ProfileDocument`) carry the refined authored basis, records carry concrete experiences, and reflections are the derived synthesis across records — three layers with distinct roles. And provider replacement is a wire procedure: a versioned, digested export/import with an operator-timed cutover and a single authority throughout.
 
 ## Open vocabulary and Domain Profiles
 
@@ -64,3 +81,4 @@ The operations library is a pure behavior layer over the generated wire types: l
 - [Data model reference](/reference/data-model) — field tables per layer.
 - [Domain profiles](/explanation/domain-profiles) — the published open-string vocabularies.
 - [MindState reference](/reference/mind-state) — the L5 temporal mental-state record (`l5-mind`).
+- [Memory reference](/reference/memory) — the optional `spoke-memory` family and how it sits beside canonical knowledge.

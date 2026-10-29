@@ -17,6 +17,8 @@ serde_json.workspace = true
 chrono.workspace = true
 async-trait.workspace = true
 regress.workspace = true
+serde_jcs = "0.2"
+sha2 = "0.10"
 
 [dev-dependencies]
 serde_json.workspace = true

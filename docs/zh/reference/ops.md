@@ -16,7 +16,7 @@ title: 操作线上参考（Ops wire）
 | `check` | `CheckRequest` | `CheckResponse` | 在一个 `Scope` 上运行检查器；返回 `Finding[]`（规则经 `rule_refs` 和/或内嵌 `rules[]`） |
 | `assemble` | `AssembleRequest` | `AssembleResponse` | 为 `Scope` 返回 `AssemblePacket`（仅结构） |
 
-每个操作都有配对的请求与响应 schema。`l2-computable` 下的可选 `project` / `compute` 族增加会话级 computable I/O。
+每个操作都有配对的请求与响应 schema。可选族各自增加配对：`l2-computable` 下的 `project` / `compute`、`ke-extraction` 下的 `extract`，以及 33 个操作的 `spoke-memory` 族。
 
 ## 单一失败方言
 
@@ -134,6 +134,18 @@ title: 操作线上参考（Ops wire）
 
 **`extract` 与 `extract→promote` 的区别。** 基线 `extract→promote` 行覆盖准入：`promote` 把单个 `provisional` 候选准入持久存储。可选 `extract` 操作覆盖产出：它从被引用的源材料提议 `provisional` 候选。抽取产物经 promote 到达持久存储。
 
+## 可选族（`spoke-memory`）
+
+面向按主体记忆的 33 个操作，分属三个能力标志。每个操作都有配对的请求/响应 schema，命名为 `memory-<segments>-{request,response}.schema.json` —— `memory.records.promote` 对应 `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`。
+
+| 能力 | 操作 |
+|------|------|
+| `spoke-memory` | 25 个核心操作：`memory.describe`、`memory.spaces.list` / `.freeze` / `.unfreeze`、`memory.subjects.ensure` / `.get` / `.fence`、`memory.grants.list` / `.grant` / `.revoke`、`memory.capture`、`memory.candidates.list` / `.get` / `.dismiss` / `.review`、`memory.records.create` / `.get` / `.update` / `.delete` / `.list` / `.promote`、`memory.recall`、`memory.profile.get` / `.update`、`memory.receipts.get` |
+| `spoke-memory-reflection` | `memory.reflections.state`、`.list`、`.generate` |
+| `spoke-memory-transfer` | `memory.exports.create`、`.get`，`memory.imports.stage`、`.activate`、`.discard` |
+
+**族规则。** 读操作返回其载荷；每个变更操作返回 `MemoryReceipt`（`committed` / `pending` / `failed`），其 `result` 只携带 ID、revision、计数、结果枚举、摘要与成本事实。失败分支为 `{ error }` —— 共享信封形状，且 `details.retry_class` 必填（`retryable` / `terminal` / `uncertain`）。除 `memory.subjects.ensure` 外，每个变更操作都要求 `idempotency_key`，条件写入要求 `expected_revision`。逐操作的授权能力、请求字段与错误码见 [记忆参考](/zh/reference/memory) 与[族规格](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md)。
+
 ## 共享规则
 
 - **Check ≠ Assemble** —— `check` 只返回 findings；`assemble` 只返回包。
@@ -146,3 +158,4 @@ title: 操作线上参考（Ops wire）
 - [编排操作（orchestrate ops）](/zh/how-to/orchestrate-ops) —— 用真实签名调用每个编排器。
 - [数据模型参考](/zh/reference/data-model) —— 这些信封携带的对象。
 - [connect 参考](/zh/reference/connect) —— ops 信封作为不透明 invoke 载荷被包装。
+- [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族的 33 个操作、能力划分与提供方指引。

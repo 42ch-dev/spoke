@@ -1,0 +1,283 @@
+{
+  "id": "staging-import",
+  "title": "Staged-import verification report, explicit-only grant adoption after activation, translation maps",
+  "protocol_refs": [
+    "\u00a77.31",
+    "\u00a77.32",
+    "\u00a712.3",
+    "MEM-R025"
+  ],
+  "cases": [
+    {
+      "id": "staged-report-counts-and-no-implicit-grants",
+      "invariant": "\u00a77.31",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "the staged report carries the closed six counts shape and adopts no grant implicitly",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        },
+        "candidate_ids": {
+          "cand_tw_gate_key_0001": "cand_target_gate_key"
+        }
+      },
+      "expect": {
+        "verification_ok": true,
+        "counts": {
+          "subjects": 2,
+          "records": 3,
+          "candidates": 1,
+          "profiles": 1,
+          "reflections": 1,
+          "receipt_summaries": 1
+        },
+        "grants_adopted": 0,
+        "grants_dropped": 2
+      }
+    },
+    {
+      "id": "adopt-grants-explicit-only",
+      "invariant": "MEM-R025",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "naming one grant adopts exactly that grant and drops the rest",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [
+          "grt_tw_mira_context_0001"
+        ],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        },
+        "candidate_ids": {
+          "cand_tw_gate_key_0001": "cand_target_gate_key"
+        }
+      },
+      "expect": {
+        "verification_ok": true,
+        "grants_adopted": 1,
+        "grants_dropped": 1
+      }
+    },
+    {
+      "id": "subject-ids-are-preserved",
+      "invariant": "\u00a712.3",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "subject ids survive translation unchanged unless an explicit rename is supplied",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        },
+        "candidate_ids": {
+          "cand_tw_gate_key_0001": "cand_target_gate_key"
+        }
+      },
+      "expect": {
+        "verification_ok": true,
+        "subject_id_map": {
+          "toy:character:mira": "toy:character:mira",
+          "toy:character:bo": "toy:character:bo"
+        },
+        "record_id_map": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event",
+          "rec_tw_bo_promise": "rec_target_promise"
+        }
+      }
+    },
+    {
+      "id": "missing-record-mapping-rejected",
+      "invariant": "\u00a77.31",
+      "surface": "engine",
+      "outcome": "identical",
+      "what": "a record without a target assignment fails staging instead of reusing its source id",
+      "input": {
+        "kind": "staged-report",
+        "bundle_file": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "adopt_grants": [],
+        "subject_renames": {},
+        "record_ids": {
+          "rec_tw_gate_key_fact": "rec_target_gate_fact",
+          "rec_tw_gate_key_event": "rec_target_gate_event"
+        },
+        "candidate_ids": {
+          "cand_tw_gate_key_0001": "cand_target_gate_key"
+        }
+      },
+      "expect": {
+        "verification_ok": false,
+        "errors_contain": "has no target assignment"
+      }
+    },
+    {
+      "id": "staged-import-report-over-the-wire",
+      "invariant": "\u00a77.31",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "staging the exported bundle reports the closed counts shape and drops unlisted grants",
+      "requires": [
+        "an empty target space spc_tw_import_target exists and its subject ids are absent",
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
+        "memory.receipts.get polls until each receipt is terminal before the next step"
+      ],
+      "op": "memory.imports.stage",
+      "request": {
+        "space_id": "spc_tw_import_target",
+        "conflict_policy": "fail",
+        "adopt_grants": []
+      },
+      "stage_from": {
+        "asset": "assets/tw-minimal-export.json",
+        "chunk_limit": 4096,
+        "idempotency_key_pattern": "{export_id}:chunk:{ordinal}",
+        "replay": {
+          "chunk": 0
+        }
+      },
+      "expect": {
+        "receipt_status": "committed",
+        "state": [
+          {
+            "path": "result.staged_report.counts",
+            "equals": {
+              "subjects": 2,
+              "records": 3,
+              "candidates": 1,
+              "profiles": 1,
+              "reflections": 1,
+              "receipt_summaries": 1
+            }
+          },
+          {
+            "path": "result.staged_report.grants_adopted",
+            "equals": 0
+          },
+          {
+            "path": "result.staged_report.grants_dropped",
+            "equals": 2
+          },
+          {
+            "path": "result.staged_report.verification.bundle_digest_ok",
+            "equals": true
+          }
+        ]
+      },
+      "principal": "prn_tw_cli_operator"
+    },
+    {
+      "id": "staged-import-adopts-listed-grants-only",
+      "invariant": "MEM-R025",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "after activation the target space holds exactly the staging principal's own grant plus the adopted grant; the unlisted grant is absent",
+      "requires": [
+        "an empty target space spc_tw_import_target exists and its subject ids are absent",
+        "prn_tw_cli_operator holds exactly one grant on spc_tw_import_target \u2014 grt_tw_import_admin_0001 (transfer + admin) \u2014 which is the other entry the post-activation list returns",
+        "memory.receipts.get polls until each receipt is terminal before the next step"
+      ],
+      "setup": [
+        {
+          "op": "memory.imports.stage",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "conflict_policy": "fail",
+            "adopt_grants": [
+              {
+                "grant_id": "grt_tw_mira_context_0001",
+                "principal_id": "prn_tw_cli_operator"
+              }
+            ]
+          },
+          "stage_from": {
+            "asset": "assets/tw-minimal-export.json",
+            "chunk_limit": 4096,
+            "idempotency_key_pattern": "{export_id}:chunk:{ordinal}"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.imports.activate",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "import_id": "$ref:setup.0.result.import_id",
+            "idempotency_key": "imp-tw-adopt-0001"
+          },
+          "expect": {
+            "receipt_status": "pending"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "receipt_id": "$ref:setup.1.receipt_id"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        }
+      ],
+      "op": "memory.grants.list",
+      "request": {
+        "space_id": "spc_tw_import_target",
+        "limit": 32
+      },
+      "expect": {
+        "success": true,
+        "sizes": [
+          {
+            "path": "grants",
+            "equals": 2
+          }
+        ],
+        "contains": [
+          {
+            "path": "grants",
+            "match": {
+              "grant_id": "grt_tw_mira_context_0001"
+            }
+          },
+          {
+            "path": "grants",
+            "match": {
+              "grant_id": "grt_tw_import_admin_0001"
+            }
+          }
+        ],
+        "excludes": [
+          {
+            "path": "grants",
+            "match": {
+              "grant_id": "grt_tw_operator_admin_0002"
+            }
+          }
+        ]
+      },
+      "principal": "prn_tw_cli_operator"
+    }
+  ]
+}

@@ -4,7 +4,11 @@
   "title": "ErrorEnvelope",
   "description": "Shared ops error shape. Ops responses use either a success payload or a top-level error field — not both.",
   "type": "object",
-  "required": ["code", "message", "extensions"],
+  "required": [
+    "code",
+    "message",
+    "extensions"
+  ],
   "properties": {
     "code": {
       "type": "string",
@@ -17,7 +21,8 @@
     "details": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Optional structured error context."
+      "description": "Optional structured error context.",
+      "title": "ErrorDetails"
     },
     "extensions": {
       "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"

@@ -1,0 +1,1061 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json",
+  "title": "MemoryReceipt",
+  "description": "Result of every mutating memory op: content-free outcome summary plus idempotency binding (§6.10, MEM-R008, MEM-R022). Also the sole pending/uncertain-outcome resolution channel (§14.3). Expressed as closed committed/pending/failed variants because draft-07 conditionals (if/then/else) are not derivable by the codegen toolchain; the variant shapes encode the §6.10 lifecycle exactly: result is present iff committed, error is present iff failed, completed_at is present iff status is not pending.",
+  "oneOf": [
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/CommittedReceipt"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/PendingReceipt"
+    },
+    {
+      "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/FailedReceipt"
+    }
+  ],
+  "definitions": {
+    "CommittedReceipt": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "op",
+        "space_id",
+        "requester_principal_id",
+        "payload_digest",
+        "status",
+        "result",
+        "created_at",
+        "completed_at",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The op string that produced this receipt (e.g. memory.capture).",
+          "title": "Op"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "requester_principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Requester identity for receipt-read authorization.",
+          "title": "RequesterPrincipalId"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 over the JCS canonicalization of the request payload object (MEM-R008).",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "const": "committed",
+          "type": "string",
+          "title": "Status"
+        },
+        "result": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/OpaqueJson",
+          "description": "Content-free op summary: IDs, revisions, counts, outcome enums, digests, cost facts. Never contains record/candidate/profile/reflection bodies. Per-op shapes are narrowed by the emitting op response schema (§7.0.2)."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "completed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Synchronous commit. error is deliberately absent: present iff failed (§6.10).",
+      "title": "CommittedReceipt"
+    },
+    "PendingReceipt": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "op",
+        "space_id",
+        "requester_principal_id",
+        "payload_digest",
+        "status",
+        "created_at",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The op string that produced this receipt.",
+          "title": "Op"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "requester_principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "RequesterPrincipalId"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "const": "pending",
+          "type": "string",
+          "title": "Status"
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Asynchronous op admitted, completion observed via memory.receipts.get (§7.0.3). result, error and completed_at are deliberately absent (§6.10).",
+      "title": "PendingReceipt"
+    },
+    "FailedReceipt": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "op",
+        "space_id",
+        "requester_principal_id",
+        "payload_digest",
+        "status",
+        "error",
+        "created_at",
+        "completed_at",
+        "extensions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/SchemaVersion"
+        },
+        "receipt_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Provider-assigned.",
+          "title": "ReceiptId"
+        },
+        "op": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The op string that produced this receipt.",
+          "title": "Op"
+        },
+        "space_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "SpaceId"
+        },
+        "requester_principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "title": "RequesterPrincipalId"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "title": "IdempotencyKey"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "PayloadDigest"
+        },
+        "status": {
+          "const": "failed",
+          "type": "string",
+          "title": "Status"
+        },
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Present iff failed; the memory error envelope adds required details.retry_class to the shared error shape (§14.1–14.2)."
+        },
+        "created_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "completed_at": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/Timestamp"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Failed op; may carry content-free cost facts (§14.3). result is deliberately absent: present iff committed (§6.10).",
+      "title": "FailedReceipt"
+    },
+    "MemoryErrorEnvelope": {
+      "title": "MemoryErrorEnvelope",
+      "description": "Shared ErrorEnvelope intersected with the memory §14.1–14.2 contract, schema-enforced: details.retry_class is required and the code→retry_class mapping is expressed as closed oneOf branches (§14.2). 18 terminal codes per §14.2 (including the Connect dispatch codes op_unsupported / capability_missing), OUTCOME_UNCERTAIN → uncertain, INTERNAL_ERROR → retryable (uncertain outcomes use OUTCOME_UNCERTAIN), plus a not-enum-guarded fallback admitting unknown/extension codes with any §14.2 retry class. details otherwise stays open for op-specific keys.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "INVALID_INPUT"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: INVALID_INPUT → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "NOT_AUTHORIZED"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: NOT_AUTHORIZED → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "GRANT_REVOKED"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: GRANT_REVOKED → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "CANDIDATE_CONSUMED"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: CANDIDATE_CONSUMED → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "PROFILE_INCOMPLETE"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: PROFILE_INCOMPLETE → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "INSUFFICIENT_DATA"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: INSUFFICIENT_DATA → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "IDEMPOTENCY_CONFLICT"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: IDEMPOTENCY_CONFLICT → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "EXPORT_EXPIRED"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: EXPORT_EXPIRED → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "IMPORT_CONFLICT"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: IMPORT_CONFLICT → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "RECEIPT_EXPIRED"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: RECEIPT_EXPIRED → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "CURSOR_INVALID"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: CURSOR_INVALID → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "REVISION_CONFLICT"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: REVISION_CONFLICT → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "INVALID_STATUS_TRANSITION"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: INVALID_STATUS_TRANSITION → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "SPACE_FROZEN"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: SPACE_FROZEN → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "SUBJECT_FENCED"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: SUBJECT_FENCED → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "NOT_FOUND"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: NOT_FOUND → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "op_unsupported"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: op_unsupported → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "capability_missing"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "terminal"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: capability_missing → terminal (fix request/authorization)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "OUTCOME_UNCERTAIN"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "uncertain"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: OUTCOME_UNCERTAIN → uncertain (poll memory.receipts.get or replay the same idempotency_key)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "MemoryErrorPins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "const": "INTERNAL_ERROR"
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "const": "retryable"
+                    }
+                  },
+                  "description": "§14.2 requires details.retry_class on every memory error; op-specific keys (limit, errors, reason, scope, missing, last_known_status, idempotency_key) stay open."
+                }
+              },
+              "description": "§14.2: INTERNAL_ERROR is retryable only when the provider asserts no effect committed; otherwise the provider returns OUTCOME_UNCERTAIN (uncertain)."
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "https://spoke42.invalid/schemas/common/error-envelope.schema.json"
+            },
+            {
+              "title": "UnknownErrorCodePins",
+              "required": [
+                "details"
+              ],
+              "properties": {
+                "code": {
+                  "title": "UnknownErrorCode",
+                  "not": {
+                    "enum": [
+                      "INVALID_INPUT",
+                      "NOT_AUTHORIZED",
+                      "GRANT_REVOKED",
+                      "CANDIDATE_CONSUMED",
+                      "PROFILE_INCOMPLETE",
+                      "INSUFFICIENT_DATA",
+                      "IDEMPOTENCY_CONFLICT",
+                      "EXPORT_EXPIRED",
+                      "IMPORT_CONFLICT",
+                      "RECEIPT_EXPIRED",
+                      "CURSOR_INVALID",
+                      "REVISION_CONFLICT",
+                      "INVALID_STATUS_TRANSITION",
+                      "SPACE_FROZEN",
+                      "SUBJECT_FENCED",
+                      "NOT_FOUND",
+                      "op_unsupported",
+                      "capability_missing",
+                      "OUTCOME_UNCERTAIN",
+                      "INTERNAL_ERROR"
+                    ]
+                  },
+                  "description": "Any code outside the 20 pinned mappings (future or extension codes)."
+                },
+                "details": {
+                  "title": "ErrorDetails",
+                  "type": "object",
+                  "required": [
+                    "retry_class"
+                  ],
+                  "additionalProperties": true,
+                  "properties": {
+                    "retry_class": {
+                      "type": "string",
+                      "title": "RetryClass",
+                      "enum": [
+                        "retryable",
+                        "terminal",
+                        "uncertain"
+                      ]
+                    }
+                  },
+                  "description": "details.retry_class required and one of the §14.2 classes for unknown codes; op-specific keys stay open."
+                }
+              },
+              "description": "Fallback branch: unknown/extension codes validate with any §14.2 retry class. The not-enum guard keeps this branch exclusive with the 20 pinned branches."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZQ9W2N0EXAMPLE0000099",
+      "op": "memory.capture",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_host_local",
+      "idempotency_key": "cap-9182-1400-mira",
+      "payload_digest": "034a5c6d74a6c8fa3fa25d0e41dd2b10d1a110464c5e9e3f56e7c1a22cf48696",
+      "status": "committed",
+      "result": {
+        "candidate_ids": [
+          "cand_01J8ZQ9X7P0EXAMPLE0000101"
+        ],
+        "classified": 1
+      },
+      "created_at": "2026-10-28T09:20:01Z",
+      "completed_at": "2026-10-28T09:20:01Z",
+      "extensions": {}
+    },
+    {
+      "schema_version": 1,
+      "receipt_id": "rcpt_01J8ZR6C3S0EXAMPLE0000401",
+      "op": "memory.exports.create",
+      "space_id": "spc_local_default",
+      "requester_principal_id": "prn_nexus_cli_operator",
+      "idempotency_key": "exp-2026-10-28T10:00Z",
+      "payload_digest": "58c03d12c3e307e4483a49f144efb87a81f4c1b16724ac8fefe8b1c173e3e136",
+      "status": "pending",
+      "created_at": "2026-10-28T10:00:00Z",
+      "extensions": {}
+    }
+  ]
+}

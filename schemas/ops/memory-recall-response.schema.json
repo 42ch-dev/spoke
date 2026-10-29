@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spoke42.invalid/schemas/ops/memory-recall-response.schema.json",
+  "title": "MemoryRecallResponse",
+  "description": "Success payload for memory.recall (§7.22). Errors use the shared ErrorEnvelope (§14.1) with details.retry_class (§14.2). Codes documented for memory.recall (§7.22): NOT_AUTHORIZED, INVALID_INPUT, NOT_FOUND, CURSOR_INVALID. Dispatch-layer codes op_unsupported / capability_missing apply at the Connect boundary.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "records",
+        "total_authorized",
+        "truncated",
+        "engine_policy_version"
+      ],
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "https://spoke42.invalid/schemas/data/retained-record.schema.json"
+          }
+        },
+        "total_authorized": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Authorized set size before ranking and budget."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True whenever the budget cut the authorized set."
+        },
+        "overflow_record_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional first record cut by the budget (§9).",
+          "title": "OverflowRecordId"
+        },
+        "next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absent = end of results (§7.0.7).",
+          "title": "NextCursor"
+        },
+        "engine_policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Policy version that produced this ordering; ordering is stable per (provider state, request, engine_policy_version).",
+          "title": "EnginePolicyVersion"
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    },
+    {
+      "type": "object",
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "$ref": "https://spoke42.invalid/schemas/data/memory-receipt.schema.json#/definitions/MemoryErrorEnvelope",
+          "description": "Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2)."
+        },
+        "extensions": {
+          "$ref": "https://spoke42.invalid/schemas/common/common.schema.json#/definitions/ExtensionMap",
+          "description": "Optional transport metadata."
+        }
+      },
+      "additionalProperties": false,
+      "title": "OneOf"
+    }
+  ],
+  "examples": [
+    {
+      "records": [
+        {
+          "schema_version": 1,
+          "record_id": "rec_01J8ZQ3K4M0EXAMPLE0000001",
+          "space_id": "spc_local_default",
+          "subject_id": "nexus:character:mira",
+          "kind": "event",
+          "content": {
+            "text": "Mira promised the harbor master she would return before dawn.",
+            "structured": {
+              "certainty": "stated"
+            }
+          },
+          "scope": {
+            "visibility": "context",
+            "context_id": "bnd_mira_harbor_run_7"
+          },
+          "provenance": {
+            "source_context_ids": [
+              "bnd_mira_harbor_run_7"
+            ],
+            "anchors": [],
+            "captured_by": "prn_nexus_host_local",
+            "captured_at": "2026-10-28T09:15:00Z"
+          },
+          "created_at": "2026-10-28T09:15:01Z",
+          "updated_at": "2026-10-28T09:15:01Z",
+          "revision": 1,
+          "extensions": {}
+        }
+      ],
+      "total_authorized": 1,
+      "truncated": false,
+      "engine_policy_version": "spoke-memory/1.0.0-deterministic"
+    }
+  ]
+}

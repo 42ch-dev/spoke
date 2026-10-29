@@ -33,6 +33,73 @@ import type {
   ForkId,
   HostCapabilityManifest,
   KnowledgeEntry,
+  MemoryCandidatesDismissRequest,
+  MemoryCandidatesDismissResponse,
+  MemoryCandidatesGetRequest,
+  MemoryCandidatesGetResponse,
+  MemoryCandidatesListRequest,
+  MemoryCandidatesListResponse,
+  MemoryCandidatesReviewRequest,
+  MemoryCandidatesReviewResponse,
+  MemoryCaptureRequest,
+  MemoryCaptureResponse,
+  MemoryDescribeRequest,
+  MemoryDescribeResponse,
+  MemoryExportsCreateRequest,
+  MemoryExportsCreateResponse,
+  MemoryExportsGetRequest,
+  MemoryExportsGetResponse,
+  MemoryGrantsGrantRequest,
+  MemoryGrantsGrantResponse,
+  MemoryGrantsListRequest,
+  MemoryGrantsListResponse,
+  MemoryGrantsRevokeRequest,
+  MemoryGrantsRevokeResponse,
+  MemoryImportsActivateRequest,
+  MemoryImportsActivateResponse,
+  MemoryImportsDiscardRequest,
+  MemoryImportsDiscardResponse,
+  MemoryImportsStageRequest,
+  MemoryImportsStageResponse,
+  MemoryProfileGetRequest,
+  MemoryProfileGetResponse,
+  MemoryProfileUpdateRequest,
+  MemoryProfileUpdateResponse,
+  MemoryRecallRequest,
+  MemoryRecallResponse,
+  MemoryReceiptsGetRequest,
+  MemoryReceiptsGetResponse,
+  MemoryRecordsCreateRequest,
+  MemoryRecordsCreateResponse,
+  MemoryRecordsDeleteRequest,
+  MemoryRecordsDeleteResponse,
+  MemoryRecordsGetRequest,
+  MemoryRecordsGetResponse,
+  MemoryRecordsListRequest,
+  MemoryRecordsListResponse,
+  MemoryRecordsPromoteRequest,
+  MemoryRecordsPromoteResponse,
+  MemoryRecordsUpdateRequest,
+  MemoryRecordsUpdateResponse,
+  MemoryReflectionsGenerateRequest,
+  MemoryReflectionsGenerateResponse,
+  MemoryReflectionsListRequest,
+  MemoryReflectionsListResponse,
+  MemoryReflectionsStateRequest,
+  MemoryReflectionsStateResponse,
+  MemorySpacesFreezeRequest,
+  MemorySpacesFreezeResponse,
+  MemorySpacesListRequest,
+  MemorySpacesListResponse,
+  MemorySpacesUnfreezeRequest,
+  MemorySpacesUnfreezeResponse,
+  MemorySubjectsEnsureRequest,
+  MemorySubjectsEnsureResponse,
+  MemorySubjectsFenceRequest,
+  MemorySubjectsFenceResponse,
+  MemorySubjectsGetRequest,
+  MemorySubjectsGetResponse,
+  Principal,
   ProjectRequest,
   ProjectResponse,
   Relation,
@@ -48,6 +115,7 @@ import {
   spokeReject,
   toErrorEnvelope,
   type BaselinePorts,
+  type MemoryPort,
   type SpokeReject,
   type SpokeResult,
 } from "@42ch/spoke-operations";
@@ -236,6 +304,47 @@ export type RemoteAdapterState =
   | "Established"
   | "Closed";
 
+/**
+ * Memory-port method → `memory.*` op (protocol §13). Exported so the
+ * cross-language golden vectors can assert the adapter's op table row-for-row
+ * against the Rust `MemoryPort for RemoteAdapter` impl.
+ */
+export const MEMORY_OPS = {
+  describe: "memory.describe",
+  listSpaces: "memory.spaces.list",
+  freezeSpace: "memory.spaces.freeze",
+  unfreezeSpace: "memory.spaces.unfreeze",
+  ensureSubject: "memory.subjects.ensure",
+  getSubject: "memory.subjects.get",
+  fenceSubject: "memory.subjects.fence",
+  listGrants: "memory.grants.list",
+  grant: "memory.grants.grant",
+  revokeGrant: "memory.grants.revoke",
+  capture: "memory.capture",
+  listCandidates: "memory.candidates.list",
+  getCandidate: "memory.candidates.get",
+  dismissCandidate: "memory.candidates.dismiss",
+  reviewCandidate: "memory.candidates.review",
+  createRecord: "memory.records.create",
+  getRecord: "memory.records.get",
+  updateRecord: "memory.records.update",
+  deleteRecord: "memory.records.delete",
+  listRecords: "memory.records.list",
+  promoteRecord: "memory.records.promote",
+  recall: "memory.recall",
+  getProfile: "memory.profile.get",
+  updateProfile: "memory.profile.update",
+  getReflectionState: "memory.reflections.state",
+  listReflections: "memory.reflections.list",
+  generateReflection: "memory.reflections.generate",
+  getReceipt: "memory.receipts.get",
+  createExport: "memory.exports.create",
+  getExport: "memory.exports.get",
+  stageImport: "memory.imports.stage",
+  activateImport: "memory.imports.activate",
+  discardImport: "memory.imports.discard",
+} as const;
+
 /** Raw Ed25519 keypair material for the local connect peer. */
 export interface RemoteIdentity {
   /** 32-byte Ed25519 seed (raw). */
@@ -301,7 +410,7 @@ export type ToolHandler = (
  * session. Construct via `connectRemoteAdapter` — the constructor alone
  * yields an un-established adapter that fails closed on every port call.
  */
-export class RemoteAdapter implements BaselinePorts {
+export class RemoteAdapter implements BaselinePorts, MemoryPort {
   readonly #transport: Transport;
   readonly #invokeTimeoutMs: number;
   /** This adapter's raw 32-byte Ed25519 seed (hello identity — signs outbound envelopes). */
@@ -505,6 +614,338 @@ export class RemoteAdapter implements BaselinePorts {
     return this.#invokeMapped<HostCapabilityManifest[]>(
       PORT_OPS.listPeerHostCapabilityManifests,
       {},
+    );
+  }
+
+  // ── MemoryPort (protocol §13) ────────────────────────────────────────────
+
+  /**
+   * Client `MemoryPort` over the session: one method per op, each sending the
+   * op's request object as the invoke payload and returning the op's response
+   * object — the same `#invokeMapped` shape as the `port.*` catalogue. Rows
+   * mirror `MEMORY_OPS` (Rust parity: `impl MemoryPort for RemoteAdapter`).
+   *
+   * The `principal` parameter is the LOCAL admission context: over the wire
+   * the serving host admits the authenticated peer as the requester's
+   * principal (MEM-R003), so it is never transmitted. There is no local
+   * capability pre-gate — an unnegotiated family answers `capability_missing`,
+   * mapped to `CAPABILITY_PORT_MISSING` with `details.wire_code`.
+   */
+  async describe(
+    _principal: Principal,
+    request: MemoryDescribeRequest,
+  ): Promise<SpokeResult<MemoryDescribeResponse>> {
+    return this.#invokeMapped<MemoryDescribeResponse>(MEMORY_OPS.describe, {
+      ...request,
+    });
+  }
+
+  async listSpaces(
+    _principal: Principal,
+    request: MemorySpacesListRequest,
+  ): Promise<SpokeResult<MemorySpacesListResponse>> {
+    return this.#invokeMapped<MemorySpacesListResponse>(MEMORY_OPS.listSpaces, {
+      ...request,
+    });
+  }
+
+  async freezeSpace(
+    _principal: Principal,
+    request: MemorySpacesFreezeRequest,
+  ): Promise<SpokeResult<MemorySpacesFreezeResponse>> {
+    return this.#invokeMapped<MemorySpacesFreezeResponse>(
+      MEMORY_OPS.freezeSpace,
+      { ...request },
+    );
+  }
+
+  async unfreezeSpace(
+    _principal: Principal,
+    request: MemorySpacesUnfreezeRequest,
+  ): Promise<SpokeResult<MemorySpacesUnfreezeResponse>> {
+    return this.#invokeMapped<MemorySpacesUnfreezeResponse>(
+      MEMORY_OPS.unfreezeSpace,
+      { ...request },
+    );
+  }
+
+  async ensureSubject(
+    _principal: Principal,
+    request: MemorySubjectsEnsureRequest,
+  ): Promise<SpokeResult<MemorySubjectsEnsureResponse>> {
+    return this.#invokeMapped<MemorySubjectsEnsureResponse>(
+      MEMORY_OPS.ensureSubject,
+      { ...request },
+    );
+  }
+
+  async getSubject(
+    _principal: Principal,
+    request: MemorySubjectsGetRequest,
+  ): Promise<SpokeResult<MemorySubjectsGetResponse>> {
+    return this.#invokeMapped<MemorySubjectsGetResponse>(MEMORY_OPS.getSubject, {
+      ...request,
+    });
+  }
+
+  async fenceSubject(
+    _principal: Principal,
+    request: MemorySubjectsFenceRequest,
+  ): Promise<SpokeResult<MemorySubjectsFenceResponse>> {
+    return this.#invokeMapped<MemorySubjectsFenceResponse>(
+      MEMORY_OPS.fenceSubject,
+      { ...request },
+    );
+  }
+
+  async listGrants(
+    _principal: Principal,
+    request: MemoryGrantsListRequest,
+  ): Promise<SpokeResult<MemoryGrantsListResponse>> {
+    return this.#invokeMapped<MemoryGrantsListResponse>(MEMORY_OPS.listGrants, {
+      ...request,
+    });
+  }
+
+  async grant(
+    _principal: Principal,
+    request: MemoryGrantsGrantRequest,
+  ): Promise<SpokeResult<MemoryGrantsGrantResponse>> {
+    return this.#invokeMapped<MemoryGrantsGrantResponse>(MEMORY_OPS.grant, {
+      ...request,
+    });
+  }
+
+  async revokeGrant(
+    _principal: Principal,
+    request: MemoryGrantsRevokeRequest,
+  ): Promise<SpokeResult<MemoryGrantsRevokeResponse>> {
+    return this.#invokeMapped<MemoryGrantsRevokeResponse>(
+      MEMORY_OPS.revokeGrant,
+      { ...request },
+    );
+  }
+
+  async capture(
+    _principal: Principal,
+    request: MemoryCaptureRequest,
+  ): Promise<SpokeResult<MemoryCaptureResponse>> {
+    return this.#invokeMapped<MemoryCaptureResponse>(MEMORY_OPS.capture, {
+      ...request,
+    });
+  }
+
+  async listCandidates(
+    _principal: Principal,
+    request: MemoryCandidatesListRequest,
+  ): Promise<SpokeResult<MemoryCandidatesListResponse>> {
+    return this.#invokeMapped<MemoryCandidatesListResponse>(
+      MEMORY_OPS.listCandidates,
+      { ...request },
+    );
+  }
+
+  async getCandidate(
+    _principal: Principal,
+    request: MemoryCandidatesGetRequest,
+  ): Promise<SpokeResult<MemoryCandidatesGetResponse>> {
+    return this.#invokeMapped<MemoryCandidatesGetResponse>(
+      MEMORY_OPS.getCandidate,
+      { ...request },
+    );
+  }
+
+  async dismissCandidate(
+    _principal: Principal,
+    request: MemoryCandidatesDismissRequest,
+  ): Promise<SpokeResult<MemoryCandidatesDismissResponse>> {
+    return this.#invokeMapped<MemoryCandidatesDismissResponse>(
+      MEMORY_OPS.dismissCandidate,
+      { ...request },
+    );
+  }
+
+  async reviewCandidate(
+    _principal: Principal,
+    request: MemoryCandidatesReviewRequest,
+  ): Promise<SpokeResult<MemoryCandidatesReviewResponse>> {
+    return this.#invokeMapped<MemoryCandidatesReviewResponse>(
+      MEMORY_OPS.reviewCandidate,
+      { ...request },
+    );
+  }
+
+  async createRecord(
+    _principal: Principal,
+    request: MemoryRecordsCreateRequest,
+  ): Promise<SpokeResult<MemoryRecordsCreateResponse>> {
+    return this.#invokeMapped<MemoryRecordsCreateResponse>(
+      MEMORY_OPS.createRecord,
+      { ...request },
+    );
+  }
+
+  async getRecord(
+    _principal: Principal,
+    request: MemoryRecordsGetRequest,
+  ): Promise<SpokeResult<MemoryRecordsGetResponse>> {
+    return this.#invokeMapped<MemoryRecordsGetResponse>(MEMORY_OPS.getRecord, {
+      ...request,
+    });
+  }
+
+  async updateRecord(
+    _principal: Principal,
+    request: MemoryRecordsUpdateRequest,
+  ): Promise<SpokeResult<MemoryRecordsUpdateResponse>> {
+    return this.#invokeMapped<MemoryRecordsUpdateResponse>(
+      MEMORY_OPS.updateRecord,
+      { ...request },
+    );
+  }
+
+  async deleteRecord(
+    _principal: Principal,
+    request: MemoryRecordsDeleteRequest,
+  ): Promise<SpokeResult<MemoryRecordsDeleteResponse>> {
+    return this.#invokeMapped<MemoryRecordsDeleteResponse>(
+      MEMORY_OPS.deleteRecord,
+      { ...request },
+    );
+  }
+
+  async listRecords(
+    _principal: Principal,
+    request: MemoryRecordsListRequest,
+  ): Promise<SpokeResult<MemoryRecordsListResponse>> {
+    return this.#invokeMapped<MemoryRecordsListResponse>(MEMORY_OPS.listRecords, {
+      ...request,
+    });
+  }
+
+  async promoteRecord(
+    _principal: Principal,
+    request: MemoryRecordsPromoteRequest,
+  ): Promise<SpokeResult<MemoryRecordsPromoteResponse>> {
+    return this.#invokeMapped<MemoryRecordsPromoteResponse>(
+      MEMORY_OPS.promoteRecord,
+      { ...request },
+    );
+  }
+
+  async recall(
+    _principal: Principal,
+    request: MemoryRecallRequest,
+  ): Promise<SpokeResult<MemoryRecallResponse>> {
+    return this.#invokeMapped<MemoryRecallResponse>(MEMORY_OPS.recall, {
+      ...request,
+    });
+  }
+
+  async getProfile(
+    _principal: Principal,
+    request: MemoryProfileGetRequest,
+  ): Promise<SpokeResult<MemoryProfileGetResponse>> {
+    return this.#invokeMapped<MemoryProfileGetResponse>(MEMORY_OPS.getProfile, {
+      ...request,
+    });
+  }
+
+  async updateProfile(
+    _principal: Principal,
+    request: MemoryProfileUpdateRequest,
+  ): Promise<SpokeResult<MemoryProfileUpdateResponse>> {
+    return this.#invokeMapped<MemoryProfileUpdateResponse>(
+      MEMORY_OPS.updateProfile,
+      { ...request },
+    );
+  }
+
+  async getReflectionState(
+    _principal: Principal,
+    request: MemoryReflectionsStateRequest,
+  ): Promise<SpokeResult<MemoryReflectionsStateResponse>> {
+    return this.#invokeMapped<MemoryReflectionsStateResponse>(
+      MEMORY_OPS.getReflectionState,
+      { ...request },
+    );
+  }
+
+  async listReflections(
+    _principal: Principal,
+    request: MemoryReflectionsListRequest,
+  ): Promise<SpokeResult<MemoryReflectionsListResponse>> {
+    return this.#invokeMapped<MemoryReflectionsListResponse>(
+      MEMORY_OPS.listReflections,
+      { ...request },
+    );
+  }
+
+  async generateReflection(
+    _principal: Principal,
+    request: MemoryReflectionsGenerateRequest,
+  ): Promise<SpokeResult<MemoryReflectionsGenerateResponse>> {
+    return this.#invokeMapped<MemoryReflectionsGenerateResponse>(
+      MEMORY_OPS.generateReflection,
+      { ...request },
+    );
+  }
+
+  async getReceipt(
+    _principal: Principal,
+    request: MemoryReceiptsGetRequest,
+  ): Promise<SpokeResult<MemoryReceiptsGetResponse>> {
+    return this.#invokeMapped<MemoryReceiptsGetResponse>(MEMORY_OPS.getReceipt, {
+      ...request,
+    });
+  }
+
+  async createExport(
+    _principal: Principal,
+    request: MemoryExportsCreateRequest,
+  ): Promise<SpokeResult<MemoryExportsCreateResponse>> {
+    return this.#invokeMapped<MemoryExportsCreateResponse>(
+      MEMORY_OPS.createExport,
+      { ...request },
+    );
+  }
+
+  async getExport(
+    _principal: Principal,
+    request: MemoryExportsGetRequest,
+  ): Promise<SpokeResult<MemoryExportsGetResponse>> {
+    return this.#invokeMapped<MemoryExportsGetResponse>(MEMORY_OPS.getExport, {
+      ...request,
+    });
+  }
+
+  async stageImport(
+    _principal: Principal,
+    request: MemoryImportsStageRequest,
+  ): Promise<SpokeResult<MemoryImportsStageResponse>> {
+    return this.#invokeMapped<MemoryImportsStageResponse>(
+      MEMORY_OPS.stageImport,
+      { ...request },
+    );
+  }
+
+  async activateImport(
+    _principal: Principal,
+    request: MemoryImportsActivateRequest,
+  ): Promise<SpokeResult<MemoryImportsActivateResponse>> {
+    return this.#invokeMapped<MemoryImportsActivateResponse>(
+      MEMORY_OPS.activateImport,
+      { ...request },
+    );
+  }
+
+  async discardImport(
+    _principal: Principal,
+    request: MemoryImportsDiscardRequest,
+  ): Promise<SpokeResult<MemoryImportsDiscardResponse>> {
+    return this.#invokeMapped<MemoryImportsDiscardResponse>(
+      MEMORY_OPS.discardImport,
+      { ...request },
     );
   }
 

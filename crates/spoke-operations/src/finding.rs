@@ -76,7 +76,7 @@ pub fn transition_finding_status(
 
     let mut updated = finding.clone();
     updated.status = to.to_owned();
-    updated.updated_at = Some(Utc::now());
+    updated.updated_at = Some(spoke_schemas::finding::Shared2(Utc::now()));
     spoke_ok(updated)
 }
 

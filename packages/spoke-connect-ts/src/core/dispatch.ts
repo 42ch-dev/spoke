@@ -23,6 +23,19 @@ export const CAPABILITY_L2_COMPUTABLE = "l2-computable";
 export const CAPABILITY_KE_EXTRACTION = "ke-extraction";
 
 /**
+ * Optional capability: required by the memory family core ops (SPOKE memory
+ * protocol §4.1). A provider declaring either memory sub-flag MUST also
+ * declare this one.
+ */
+export const CAPABILITY_SPOKE_MEMORY = "spoke-memory";
+
+/** Optional memory sub-flag: required by `memory.reflections.*`. */
+export const CAPABILITY_SPOKE_MEMORY_REFLECTION = "spoke-memory-reflection";
+
+/** Optional memory sub-flag: required by `memory.exports.*` / `memory.imports.*`. */
+export const CAPABILITY_SPOKE_MEMORY_TRANSFER = "spoke-memory-transfer";
+
+/**
  * The minimum capability required to dispatch `op`, per the protocol v1
  * core-op table. Product-defined `op` values return `undefined` — their
  * required capability is documented by the product and configured outside
@@ -50,6 +63,45 @@ export function requiredCapability(op: string): string | undefined {
       return CAPABILITY_L2_COMPUTABLE;
     case "extract":
       return CAPABILITY_KE_EXTRACTION;
+    // Memory family (SPOKE memory protocol §4.1/§13): 33 rows, each mapping
+    // its op to the flag that gates it. Sub-flag rows stay literal —
+    // negotiating a sub-flag never authorizes core ops.
+    case "memory.describe":
+    case "memory.spaces.list":
+    case "memory.spaces.freeze":
+    case "memory.spaces.unfreeze":
+    case "memory.subjects.ensure":
+    case "memory.subjects.get":
+    case "memory.subjects.fence":
+    case "memory.grants.list":
+    case "memory.grants.grant":
+    case "memory.grants.revoke":
+    case "memory.capture":
+    case "memory.candidates.list":
+    case "memory.candidates.get":
+    case "memory.candidates.dismiss":
+    case "memory.candidates.review":
+    case "memory.records.create":
+    case "memory.records.get":
+    case "memory.records.update":
+    case "memory.records.delete":
+    case "memory.records.list":
+    case "memory.records.promote":
+    case "memory.recall":
+    case "memory.profile.get":
+    case "memory.profile.update":
+    case "memory.receipts.get":
+      return CAPABILITY_SPOKE_MEMORY;
+    case "memory.reflections.state":
+    case "memory.reflections.list":
+    case "memory.reflections.generate":
+      return CAPABILITY_SPOKE_MEMORY_REFLECTION;
+    case "memory.exports.create":
+    case "memory.exports.get":
+    case "memory.imports.stage":
+    case "memory.imports.activate":
+    case "memory.imports.discard":
+      return CAPABILITY_SPOKE_MEMORY_TRANSFER;
     default:
       return undefined;
   }

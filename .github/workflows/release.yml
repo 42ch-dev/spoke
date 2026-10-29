@@ -429,6 +429,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
 
+      - name: Publish spoke-memory crate
+        run: ./tooling/release/publish-crate.sh spoke-memory
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+
       - name: Publish spoke-connect crate
         run: ./tooling/release/publish-crate.sh spoke-connect
         env:

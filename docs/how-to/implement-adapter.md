@@ -16,6 +16,7 @@ The adapter port types are sliced by capability. Pick the alias that matches the
 | `spoke-baseline` + `l2-computable` | baseline + `ComputablePort` | `ComputableAdapter` |
 | `spoke-baseline` + `l5-fork` | baseline + `ForkTimelineQueryPort` | `ForkAdapter` |
 | `spoke-baseline` + `ke-extraction` | standalone `ExtractionPort` | none — the port is passed to `orchestrateExtract` directly |
+| `spoke-baseline` + `spoke-memory` | standalone `MemoryPort` (+ `MemoryPorts` probe) | none — the port is your provider boundary and the connect serving seam entry point |
 | `spoke-baseline` + `l2-computable` + `l5-fork` | full composition | `FullAdapter` |
 
 The aliases name the same port intersections as `BaselinePorts` / `ComputablePorts` / `ForkPorts` / `FullPorts`. Import them from the operations package:
@@ -35,6 +36,8 @@ import type {
   ComputablePort,
   ForkTimelineQueryPort,
   ExtractionPort,
+  MemoryPort,
+  MemoryPorts,
 } from "@42ch/spoke-operations";
 ```
 
@@ -127,6 +130,20 @@ loadExtractionInput(request: ExtractRequest): Promise<SpokeResult<OpaqueJson>>;
 
 Host-local source loading for the optional `extract` op: the port reads the referenced material and returns one in-process opaque value that stays local to the host. `ExtractionPort` is a standalone optional family, passed directly to `orchestrateExtract` together with your own async extractor callback. At a dynamic boundary, a missing port surfaces `CAPABILITY_PORT_MISSING` with `details.capability = "ke-extraction"`.
 
+### MemoryPort — optional `spoke-memory`
+
+```ts
+describe(principal: Principal, request: MemoryDescribeRequest): Promise<SpokeResult<MemoryDescribeResponse>>;
+capture(principal: Principal, request: MemoryCaptureRequest): Promise<SpokeResult<MemoryCaptureResponse>>;
+// … 33 typed methods, one per memory.* op
+```
+
+`MemoryPort` is the standalone optional boundary for per-subject memory: 33 typed methods (25 core, 3 reflection, 5 transfer), each carrying the authenticated `Principal` your admission context established. It stands alongside the baseline port families the way `ExtractionPort` does — an optional interface beside the adapter aliases. When you serve memory, implement `MemoryPort` and expose the `MemoryPorts` probe (`asMemory()` / `MemoryPorts::as_memory()`); otherwise leave the probe unimplemented and dynamic boundaries read its absence directly.
+
+Provider duties stay in your adapter's transaction layer: grant coverage and non-amplification, `revision` compare-and-set, durable idempotency keyed on `(space_id, principal, op, idempotency_key)`, receipts and dedup tombstones, space freeze and subject/context fencing, and atomic candidate review. The library supplies the deterministic helpers — request validators (`validateMemory*`), grant coverage (`grantCovers`), the freeze allowlist (`isFreezeAllowlisted`), and JCS/SHA-256 digests (`jcsSha256Hex`). Serving the family over connect means exposing the connect-owned `RemoteMemoryService`; `MemoryPortService` adapts your `MemoryPort` to it with the same admission context.
+
+Declaring `spoke-memory-reflection` or `spoke-memory-transfer` requires `spoke-memory`; a host that declares only `spoke-memory` answers the reflection and transfer ops with `capability_missing` before any handler runs. See the [Memory reference](/reference/memory) for the op table and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md) for per-op grants, fields, and errors.
+
 ## 3. Keep the adapter I/O-bound
 
 The operations library is pure relative to host I/O: storage access, LLM calls, ranking, retrieval, and transport binding are supplied by your product through these injected ports. The adapter implements the ports; the library runs the gates. The reference `ToyWorldAdapter` in [`fixtures/toy-world/`](https://github.com/42ch-dev/spoke/tree/main/fixtures/toy-world) demonstrates the pattern — see [Walk the ToyWorld reference adapter](/how-to/walk-toy-world) for the walkthrough.
@@ -143,3 +160,4 @@ The operations library is pure relative to host I/O: storage access, LLM calls, 
 - [Walk the ToyWorld reference adapter](/how-to/walk-toy-world) — a complete `FullAdapter` in TypeScript and Rust, with a conformance harness.
 - [Data model reference](/reference/data-model) — the wire objects your ports persist.
 - [Ops wire reference](/reference/ops) — request/response envelope shapes.
+- [Memory reference](/reference/memory) — the optional `spoke-memory` family, its op table, and provider guidance.

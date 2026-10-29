@@ -16,7 +16,7 @@ The ops layer defines transport-agnostic request/response envelopes for core Kno
 | `check` | `CheckRequest` | `CheckResponse` | Run checker(s) over a `Scope`; returns `Finding[]` (rules via `rule_refs` and/or embedded `rules[]`) |
 | `assemble` | `AssembleRequest` | `AssembleResponse` | Return an `AssemblePacket` for a `Scope` (structure only) |
 
-Each operation has a paired request and response schema. Optional `project` / `compute` families under `l2-computable` add Session-scoped computable I/O.
+Each operation has a paired request and response schema. Optional families add their own pairs: `project` / `compute` under `l2-computable`, `extract` under `ke-extraction`, and the 33-op `spoke-memory` family.
 
 ## One failure dialect
 
@@ -134,6 +134,18 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 
 **`extract` vs `extract→promote`.** The baseline `extract→promote` row covers admission: `promote` admits one provisional candidate to durable storage. The optional `extract` op covers production: it proposes provisional candidates from referenced sources. Extraction output reaches durable storage through promote.
 
+## Optional family (`spoke-memory`)
+
+Thirty-three ops across three capability flags for per-subject memory. Every op has a paired request/response schema named `memory-<segments>-{request,response}.schema.json` — `memory.records.promote` becomes `memory-records-promote-request.schema.json` / `memory-records-promote-response.schema.json`.
+
+| Capability | Ops |
+|------------|-----|
+| `spoke-memory` | 25 core ops: `memory.describe`, `memory.spaces.list` / `.freeze` / `.unfreeze`, `memory.subjects.ensure` / `.get` / `.fence`, `memory.grants.list` / `.grant` / `.revoke`, `memory.capture`, `memory.candidates.list` / `.get` / `.dismiss` / `.review`, `memory.records.create` / `.get` / `.update` / `.delete` / `.list` / `.promote`, `memory.recall`, `memory.profile.get` / `.update`, `memory.receipts.get` |
+| `spoke-memory-reflection` | `memory.reflections.state`, `.list`, `.generate` |
+| `spoke-memory-transfer` | `memory.exports.create`, `.get`, `memory.imports.stage`, `.activate`, `.discard` |
+
+**Family rules.** Read ops return their payload; every mutating op returns a `MemoryReceipt` (`committed` / `pending` / `failed`) whose `result` carries IDs, revisions, counts, outcome enums, digests, and cost facts only. The failure branch is `{ error }` — the shared envelope shape with `details.retry_class` required (`retryable` / `terminal` / `uncertain`). Every mutating op except `memory.subjects.ensure` requires `idempotency_key`, and conditional writes require `expected_revision`. Per-op grant capability, request fields, and error codes are tabulated in the [Memory reference](/reference/memory) and the [family spec](https://github.com/42ch-dev/spoke/blob/main/.mstar/specs/spoke-memory.md).
+
 ## Shared rules
 
 - **Check ≠ Assemble** — `check` returns findings only; `assemble` returns a packet only.
@@ -146,3 +158,4 @@ Expected rejects from the operations library arrive as `SpokeResult` with stable
 - [Orchestrate operations](/how-to/orchestrate-ops) — calling each orchestrator with real signatures.
 - [Data model reference](/reference/data-model) — the objects these envelopes carry.
 - [Connect reference](/reference/connect) — ops envelopes wrapped as opaque invoke payloads.
+- [Memory reference](/reference/memory) — the optional `spoke-memory` family's 33 ops, capability split, and provider guidance.

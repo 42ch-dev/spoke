@@ -10,8 +10,8 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 | 列 | 内容 |
 |----|------|
-| **数据线上（Data wire）** | 十个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、MindState、ToolDescriptor（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common) |
-| **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute`，`ke-extraction` 下另有可选 `extract` |
+| **数据线上（Data wire）** | 十个数据对象：KnowledgeEntry、Relation、SourceAnchor、Finding、AssemblePacket、HostCapabilityManifest、Rule、TimelineEvent、MindState、ToolDescriptor（[`schemas/data/`](https://github.com/42ch-dev/spoke/tree/main/schemas/data)），共享定义在 [`schemas/common/`](https://github.com/42ch-dev/spoke/tree/main/schemas/common)；可选 `spoke-memory` 族在同一编写规则下增加十三个记忆模型 |
+| **操作线上（Ops wire）** | 五个基线操作族 —— upsert、extract→promote、relate、check、assemble —— 以传输无关的请求/响应信封承载（[`schemas/ops/`](https://github.com/42ch-dev/spoke/tree/main/schemas/ops)），`l2-computable` 下另有可选 `project` / `compute`，`ke-extraction` 下另有可选 `extract`，以及 33 个操作的 `spoke-memory` 族 |
 | **操作库（Operations library）** | 在生成的线上类型之上的手写行为层：纯函数生命周期辅助、按能力切片的 adapter ports 与注入式编排（TypeScript `@42ch/spoke-operations`；Rust `spoke-operations`，锁步 SemVer） |
 
 ## connect 信封族（可选加入）
@@ -20,7 +20,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 
 ## Schema 清单与代码生成姿态
 
-线上清单为 **34 个已提交的 `*.schema.json`**：2 common + 10 data + 16 ops（10 基线 + 4 `l2-computable` + 2 `ke-extraction`）+ 6 connect 信封。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`；`MindState` 作为第十个数据文件属于可选的 `l5-mind` 层。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 在生成树偏离 `schemas/` 时令构建失败；schema 变更与重新生成输出落在同一提交。
+线上清单为 **113 个已提交的 `*.schema.json`**：2 common + 23 data + 82 ops + 6 connect 信封。可选 `spoke-memory` 族贡献其中 79 个（13 个数据模型 + 33 组请求/响应配对）。基线集成方使用其中的 **21** 个 schema 文件（2 common + 9 data + 10 基线 ops）：九个基线数据 schema 包含 `ToolDescriptor`；`MindState` 作为第十个数据文件属于可选的 `l5-mind` 层。`schemas/` 是唯一手写线上真源；生成的 TypeScript（`@42ch/spoke-schemas`）与 Rust（`spoke-schemas`）输出提交入库并镜像 schema 树。`pnpm run verify-codegen` 在生成树偏离 `schemas/` 时令构建失败；schema 变更与重新生成输出落在同一提交。
 
 ## 扩展契约
 
@@ -45,6 +45,7 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 | `ke-extraction` | 可选 `extract` 操作族 —— 从被引用的源材料提议 `provisional` 候选 KnowledgeEntry —— 外加独立 `ExtractionPort` 与 `orchestrateExtract` 边界 |
 | `ke-ownership` | `KnowledgeEntry.owner` / `KnowledgeEntry.disclosure` 治理字段与共享 `Scope.viewpoint` 读取方选择器 |
 | `spoke-connect` | 可选交互信封族；讲该协议的主机在 `HostCapabilityManifest.capabilities` 中列出该标志 |
+| `spoke-memory` | 可选按主体记忆族：十三个模型与 33 个 `memory.*` 操作，外加独立 `MemoryPort`。两个可选的子标志 —— `spoke-memory-reflection`（3 个反思操作）与 `spoke-memory-transfer`（5 个导出/导入操作）—— 均要求 `spoke-memory`。见 [记忆参考](/zh/reference/memory) |
 
 ## 仓库布局
 
@@ -56,5 +57,6 @@ SPOKE 是面向叙事产品的共享**线上方言（wire dialect）**：一套�
 - [操作线上参考（Ops wire）](/zh/reference/ops) —— 请求/响应信封、`Scope`、`ErrorEnvelope`。
 - [connect 参考](/zh/reference/connect) —— 可选信封族。
 - [MindState 参考](/zh/reference/mind-state) —— L5 时间心智状态记录（`l5-mind`）。
+- [记忆参考](/zh/reference/memory) —— 可选 `spoke-memory` 族：模型、操作、能力标志与提供方指引。
 - [核心概念](/zh/explanation/concepts) —— 九层模型与能力标志如何映射。
 - [`schemas/README.md`](https://github.com/42ch-dev/spoke/blob/main/schemas/README.md) —— schema 文件清单。

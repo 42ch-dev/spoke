@@ -10,7 +10,7 @@ hero:
 features:
   - { title: Tutorials, details: "Two end-to-end paths: install and upsert your first KnowledgeEntry, then open your first connect session.", link: /tutorials/install-and-first-entry }
   - { title: How-to guides, details: "The integrator journey: implement the adapter ports your capabilities require, then connect hosts with the TypeScript client, a RemoteAdapter over a consumer Transport, multi-peer routing, or a native binding — C#, Kotlin, Swift, Go, Python, and C/C++.", link: /how-to/implement-adapter }
-  - { title: Reference, details: "Verify wire facts on-site: protocol, data-model, ops, and connect field tables sourced from the schemas.", link: /reference/protocol }
+  - { title: Reference, details: "Verify wire facts on-site: protocol, data-model, ops, memory, and connect field tables sourced from the schemas.", link: /reference/protocol }
   - { title: Explanation, details: "The concepts behind the wire: nine layers, capability flags, dual-concern pairs, and the four Domain Profiles.", link: /explanation/concepts }
 ---
 
@@ -22,9 +22,9 @@ If you run a product that stores narrative knowledge, [implement an adapter](/ho
 
 SPOKE is a protocol of JSON Schema wire contracts for narrative knowledge: independent products exchange consistency-check and context-assembly I/O through shared data and ops shapes, so each product stops inventing local formats for the same concepts. The repository is the SSOT — hand-authored schemas, generated TypeScript and Rust wire types, and pure operations libraries.
 
-- **One wire dialect** — ten data objects and five baseline ops (plus the optional `project` / `compute` and `extract` op families)
+- **One wire dialect** — ten data objects and five baseline ops (plus the optional `project` / `compute`, `extract`, and 33-op `spoke-memory` families)
 - **Domain Profiles over open strings** — ontology vocabulary publishes over open strings and optional `modules.*` bags
-- **Capability flags** — claim `spoke-baseline`, or declare `l2-computable`, `l5-fork`, `l5-mind`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-connect` explicitly
+- **Capability flags** — claim `spoke-baseline`, or declare `l2-computable`, `l5-fork`, `l5-mind`, `narrative-modules`, `ke-extraction`, `ke-ownership`, `spoke-connect`, `spoke-memory` explicitly
 - **Language parity** — one lockstep SemVer across npm and crates.io
 - **Opt-in connect** — signed cross-process interaction envelopes with per-session ordering and extensible auth
 

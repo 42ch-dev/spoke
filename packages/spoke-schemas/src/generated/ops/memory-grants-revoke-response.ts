@@ -170,7 +170,7 @@ export interface AllOf1 {
 }
 export interface Result {
   grant_id: GrantId;
-  revoked: true;
+  revoked: boolean;
   revision: number;
 }
 /**

@@ -1,0 +1,303 @@
+{
+  "id": "classification",
+  "title": "Deterministic candidate classification dispositions (\u00a76.7)",
+  "protocol_refs": [
+    "\u00a76.7",
+    "\u00a710"
+  ],
+  "cases": [
+    {
+      "id": "promote-core-kind-with-provenance",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "a sourced core-kind candidate is promoted with the observed rationale codes",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": "The gate key is hidden under the third barrel.",
+          "has_structured_content": false,
+          "occurred_at": "2026-07-23T06:05:00Z",
+          "source_context_count": 1,
+          "anchor_count": 1
+        }
+      },
+      "expect": {
+        "disposition": "promote",
+        "rationale_codes": [
+          "core_kind",
+          "sourced_anchor",
+          "provenance_context",
+          "occurred_at_known"
+        ],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "promote-product-kind-plain",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "a product-kind candidate without provenance is still promoted",
+      "input": {
+        "material": {
+          "kind": "belief",
+          "text": "Bo is sure the key is kept in the chest.",
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 0,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "promote",
+        "rationale_codes": [
+          "product_kind"
+        ],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "drop-insufficient-text",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "text-only material below the minimum byte length is dropped",
+      "input": {
+        "material": {
+          "kind": "note",
+          "text": "short note",
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 0,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "drop",
+        "rationale_codes": [
+          "insufficient_text",
+          "core_kind"
+        ],
+        "confidence": 0.2
+      }
+    },
+    {
+      "id": "drop-empty-content",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "material with neither text nor structured content is dropped",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": "",
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 2,
+          "anchor_count": 1
+        }
+      },
+      "expect": {
+        "disposition": "drop",
+        "rationale_codes": [
+          "empty_content"
+        ],
+        "confidence": 0.0
+      }
+    },
+    {
+      "id": "promote-structured-without-text",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "structured content alone is enough to promote",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": "",
+          "has_structured_content": true,
+          "occurred_at": null,
+          "source_context_count": 0,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "promote",
+        "rationale_codes": [
+          "core_kind"
+        ],
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "fragment-oversized-single-claim",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "oversized text is fragmented; a single sentence run adds no multiple_claims code",
+      "input": {
+        "material": {
+          "kind": "fact",
+          "text": {
+            "$repeat": {
+              "unit": "mira ",
+              "times": 210
+            }
+          },
+          "has_structured_content": false,
+          "occurred_at": null,
+          "source_context_count": 1,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "fragment",
+        "rationale_codes": [
+          "oversized_content",
+          "core_kind"
+        ],
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": "fragment-oversized-multi-claim",
+      "invariant": "\u00a76.7",
+      "surface": "engine",
+      "outcome": "variable",
+      "what": "oversized multi-sentence text additionally reports multiple_claims",
+      "input": {
+        "material": {
+          "kind": "event",
+          "text": {
+            "$repeat": {
+              "unit": "Mira tallied the barrels. ",
+              "times": 40
+            }
+          },
+          "has_structured_content": false,
+          "occurred_at": "2026-07-23T06:00:00Z",
+          "source_context_count": 1,
+          "anchor_count": 0
+        }
+      },
+      "expect": {
+        "disposition": "fragment",
+        "rationale_codes": [
+          "oversized_content",
+          "multiple_claims",
+          "core_kind"
+        ],
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": "classification-stable-within-a-provider",
+      "invariant": "\u00a76.7",
+      "surface": "wire",
+      "outcome": "variable",
+      "what": "the byte-identical capture request, re-executed after a full provider snapshot restore, is classified to the same advisory disposition within the provider; a zero-candidate capture or a harness without snapshot support is inconclusive",
+      "inconclusive_when": [
+        {
+          "path": "op.result.candidate_ids",
+          "isEmpty": true
+        },
+        {
+          "path": "then.2.result.candidate_ids",
+          "isEmpty": true
+        }
+      ],
+      "requires": [
+        "toy:character:mira is at its initial seeded state (same profile kinds and revisions, no pending candidates, no classification-relevant records)",
+        "the harness implements `harness.save_snapshot` / `harness.restore_snapshot` (full provider snapshot and complete restore, including dedup/idempotency and receipt state); if it does not, the case is recorded inconclusive",
+        "a zero-candidate capture is a documented inconclusive outcome (dedup is permitted by \u00a77.11), never a failure and never a synthesized disposition"
+      ],
+      "setup": [
+        {
+          "op": "harness.save_snapshot",
+          "request": {
+            "space_id": "spc_tw_harbor"
+          },
+          "expect": {
+            "success": true
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira told Bo the gate key is hidden under the third barrel."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "kind_hint": "fact",
+        "idempotency_key": "cap-tw-classify-0001"
+      },
+      "expect": {
+        "receipt_status": "committed"
+      },
+      "then": [
+        {
+          "op": "memory.candidates.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:op.result.candidate_ids.0"
+          },
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "harness.restore_snapshot",
+          "request": {
+            "space_id": "spc_tw_harbor"
+          },
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "Mira told Bo the gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "kind_hint": "fact",
+            "idempotency_key": "cap-tw-classify-0001"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.candidates.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:then.2.result.candidate_ids.0"
+          },
+          "expect": {
+            "success": true,
+            "unchanged": [
+              {
+                "path": "candidate.classification.disposition",
+                "from": "then.0",
+                "from_path": "candidate.classification.disposition"
+              }
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    }
+  ]
+}

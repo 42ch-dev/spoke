@@ -856,7 +856,7 @@ export interface AllOf25 {
 }
 export interface Result6 {
   grant_id: GrantId1;
-  revoked: true;
+  revoked: boolean;
   revision: number;
 }
 export interface AllOf26 {
@@ -977,7 +977,7 @@ export interface AllOf45 {
 }
 export interface Result11 {
   record_id: RecordId2;
-  tombstoned: true;
+  tombstoned: boolean;
 }
 export interface AllOf46 {
   op: Op25;
@@ -1276,7 +1276,7 @@ export interface AllOf81 {
 }
 export interface Result18 {
   import_id: ImportId2;
-  discarded: true;
+  discarded: boolean;
 }
 export interface AllOf82 {
   op: Op44;

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "candidate_id": "cand_tw_bo_belief_0002",
+  "space_id": "spc_tw_harbor",
+  "subject_id": "toy:character:bo",
+  "capture_scope": { "visibility": "context", "context_id": "ctx_tw_market_square" },
+  "proposed": {
+    "kind": "fact",
+    "content": {
+      "text": "Bo believes the gate key is kept in the harbormaster's chest."
+    }
+  },
+  "provenance": {
+    "source_context_ids": ["ctx_tw_market_square"],
+    "anchors": [],
+    "captured_by": "prn_tw_host_primary",
+    "captured_at": "2026-07-23T06:20:00Z"
+  },
+  "classification": {
+    "disposition": "promote",
+    "rationale_codes": ["single_fact"],
+    "confidence": 0.71
+  },
+  "status": "pending",
+  "occurred_at": "2026-07-23T06:20:00Z",
+  "created_at": "2026-07-23T06:20:01Z",
+  "revision": 1,
+  "extensions": {}
+}

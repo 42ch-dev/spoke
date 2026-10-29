@@ -1,0 +1,229 @@
+{
+  "id": "idempotency-replay",
+  "title": "Idempotent replay, payload-digest conflict, and dedup-tombstone replay after receipt eviction",
+  "protocol_refs": [
+    "MEM-R008",
+    "MEM-R010",
+    "MEM-R021",
+    "MEM-R022",
+    "\u00a76.10",
+    "\u00a77.1",
+    "\u00a714.1"
+  ],
+  "cases": [
+    {
+      "id": "capture-first-commit",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "the first capture with a new key commits synchronously",
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira told Bo the gate key is hidden under the third barrel."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "source_context_ids": [
+          "ctx_tw_customs_gate"
+        ],
+        "idempotency_key": "cap-tw-idem-0001"
+      },
+      "expect": {
+        "receipt_status": "committed"
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "capture-replay-returns-same-receipt",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "replaying the same key and payload returns the original receipt",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "Mira told Bo the gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "source_context_ids": [
+              "ctx_tw_customs_gate"
+            ],
+            "idempotency_key": "cap-tw-idem-0001"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira told Bo the gate key is hidden under the third barrel."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "source_context_ids": [
+          "ctx_tw_customs_gate"
+        ],
+        "idempotency_key": "cap-tw-idem-0001"
+      },
+      "expect": {
+        "receipt_status": "committed",
+        "same_receipt_as": "setup.0"
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "capture-key-reuse-different-payload",
+      "invariant": "MEM-R008",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "a key replayed with a different payload digest is a conflict, not a replay",
+      "setup": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "Mira told Bo the gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-idem-0002"
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Bo hid the gate key inside a coil of rope instead."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "idempotency_key": "cap-tw-idem-0002"
+      },
+      "expect": {
+        "error_code": "IDEMPOTENCY_CONFLICT"
+      },
+      "principal": "prn_tw_host_primary"
+    },
+    {
+      "id": "replay-inside-dedup-window-after-receipt-eviction",
+      "invariant": "MEM-R022",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "replaying the identical request after the receipt body was evicted returns RECEIPT_EXPIRED from the dedup tombstone, and the capture effect set is unchanged",
+      "requires": [
+        "provider declares dedup_retention_seconds > receipt_retention_seconds + 1 (memory.describe), so min(receipt_retention + 1, dedup_retention \u2212 1) is strictly past receipt eviction and strictly inside the dedup window"
+      ],
+      "advance": {
+        "choose": "min",
+        "instants": [
+          {
+            "from": "setup.0",
+            "path": "limits.receipt_retention_seconds",
+            "offset_seconds": 1
+          },
+          {
+            "from": "setup.0",
+            "path": "limits.dedup_retention_seconds",
+            "offset_seconds": -1
+          }
+        ]
+      },
+      "setup": [
+        {
+          "op": "memory.describe",
+          "request": {},
+          "expect": {
+            "success": true
+          }
+        },
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": {
+              "text": "Mira told Bo the gate key is hidden under the third barrel."
+            },
+            "capture_scope": {
+              "visibility": "context",
+              "context_id": "ctx_tw_customs_gate"
+            },
+            "idempotency_key": "cap-tw-idem-0003"
+          },
+          "expect": {
+            "receipt_status": "committed"
+          }
+        },
+        {
+          "op": "memory.candidates.list",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira"
+          },
+          "expect": {
+            "success": true
+          }
+        }
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": {
+          "text": "Mira told Bo the gate key is hidden under the third barrel."
+        },
+        "capture_scope": {
+          "visibility": "context",
+          "context_id": "ctx_tw_customs_gate"
+        },
+        "idempotency_key": "cap-tw-idem-0003"
+      },
+      "expect": {
+        "error_code": "RECEIPT_EXPIRED"
+      },
+      "then": [
+        {
+          "op": "memory.candidates.list",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira"
+          },
+          "expect": {
+            "success": true,
+            "unchanged": [
+              {
+                "path": "candidates",
+                "from": "setup.2",
+                "from_path": "candidates"
+              }
+            ]
+          }
+        }
+      ],
+      "principal": "prn_tw_host_primary"
+    }
+  ]
+}

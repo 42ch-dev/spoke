@@ -92,6 +92,22 @@ export const SCHEMA_IDS = {
     "https://spoke42.invalid/schemas/connect/connect-invoke-request.schema.json",
   connectInvokeResponse:
     "https://spoke42.invalid/schemas/connect/connect-invoke-response.schema.json",
+  memorySpace: "https://spoke42.invalid/schemas/data/memory-space.schema.json",
+  memorySubject: "https://spoke42.invalid/schemas/data/subject.schema.json",
+  memoryGrant: "https://spoke42.invalid/schemas/data/memory-grant.schema.json",
+  memoryCandidate: "https://spoke42.invalid/schemas/data/memory-candidate.schema.json",
+  memoryExportBundle:
+    "https://spoke42.invalid/schemas/data/memory-export-bundle.schema.json",
+  memoryCaptureRequest:
+    "https://spoke42.invalid/schemas/ops/memory-capture-request.schema.json",
+  memoryCaptureResponse:
+    "https://spoke42.invalid/schemas/ops/memory-capture-response.schema.json",
+  memoryCandidatesReviewRequest:
+    "https://spoke42.invalid/schemas/ops/memory-candidates-review-request.schema.json",
+  memoryRecallRequest:
+    "https://spoke42.invalid/schemas/ops/memory-recall-request.schema.json",
+  memoryRecallResponse:
+    "https://spoke42.invalid/schemas/ops/memory-recall-response.schema.json",
 } as const;
 
 export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
@@ -139,6 +155,22 @@ export const FIXTURE_SCHEMA_MAP: Record<string, string> = {
   "conn_tw_invoke_check_request.json": SCHEMA_IDS.connectInvokeRequest,
   "conn_tw_invoke_check_response.json": SCHEMA_IDS.connectInvokeResponse,
   "conn_tw_invoke_error_response.json": SCHEMA_IDS.connectInvokeResponse,
+  "mem_tw_space_harbor.json": SCHEMA_IDS.memorySpace,
+  "mem_tw_subject_mira.json": SCHEMA_IDS.memorySubject,
+  "mem_tw_subject_bo.json": SCHEMA_IDS.memorySubject,
+  "mem_tw_grant_mira_context.json": SCHEMA_IDS.memoryGrant,
+  "mem_tw_grant_operator_admin.json": SCHEMA_IDS.memoryGrant,
+  "mem_tw_capture_request.json": SCHEMA_IDS.memoryCaptureRequest,
+  "mem_tw_capture_response.json": SCHEMA_IDS.memoryCaptureResponse,
+  "mem_tw_candidate_pending_bo.json": SCHEMA_IDS.memoryCandidate,
+  "mem_tw_candidate_consumed_gate_key.json": SCHEMA_IDS.memoryCandidate,
+  "mem_tw_review_promote_request.json": SCHEMA_IDS.memoryCandidatesReviewRequest,
+  "mem_tw_review_fragment_request.json": SCHEMA_IDS.memoryCandidatesReviewRequest,
+  "mem_tw_recall_request.json": SCHEMA_IDS.memoryRecallRequest,
+  "mem_tw_recall_overflow_request.json": SCHEMA_IDS.memoryRecallRequest,
+  "mem_tw_recall_response.json": SCHEMA_IDS.memoryRecallResponse,
+  "mem_tw_recall_overflow_response.json": SCHEMA_IDS.memoryRecallResponse,
+  "mem_tw_export_bundle.json": SCHEMA_IDS.memoryExportBundle,
 };
 
 export const FIXTURES_ROOT = join(REPO_ROOT, "fixtures/toy-world");

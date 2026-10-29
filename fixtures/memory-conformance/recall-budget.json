@@ -226,7 +226,7 @@
       "what": "repeating the same recall against unchanged state returns an identical page (determinism, not a cross-provider ranking)",
       "requires": [
         "toy:character:mira has at least two authorized records in ctx_tw_customs_gate",
-        "the harness repeats the op twice against unchanged state and compares the responses"
+        "the harness repeats the op as a then step re-invoking memory.recall with the first response's cursor ($ref:op.next_cursor) and asserts the consumer-visible page is unchanged; a differing second page FAILS the case"
       ],
       "op": "memory.recall",
       "request": {
@@ -247,7 +247,38 @@
       "expect": {
         "success": true
       },
-      "principal": "prn_tw_host_primary"
+      "principal": "prn_tw_host_primary",
+      "then": [
+        {
+          "op": "memory.recall",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "selection": {
+              "mode": "selected_contexts",
+              "context_ids": [
+                "ctx_tw_customs_gate"
+              ],
+              "include_shared": false
+            },
+            "query": "gate key",
+            "budget": {
+              "max_items": 4
+            },
+            "cursor": "$ref:op.next_cursor"
+          },
+          "expect": {
+            "success": true,
+            "unchanged": [
+              {
+                "path": "items",
+                "from": "op",
+                "from_path": "items"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

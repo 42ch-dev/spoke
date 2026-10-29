@@ -32,6 +32,7 @@ use memory_host::{
 };
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -333,17 +334,18 @@ fn sign_invoke_request(
     Value::Object(wire)
 }
 
+/// Process-local handshake nonce source: one counter per test binary, so
+/// every hello nonce is distinct without reading a wall clock.
+fn next_nonce() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 async fn handshake(client: &LoopbackTransport, manifest: &HostCapabilityManifest) -> String {
-    // A hello nonce is single-use by contract: derive it at runtime so no
-    // fixed value can be replayed across runs (and no hard-coded
-    // cryptographic value sits in the test source).
-    let nonce = format!(
-        "memory-loopback-nonce-{:x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock after the epoch")
-            .as_nanos()
-    );
+    // A hello nonce is single-use by contract: derive it from a process-local
+    // counter so every handshake in this binary is distinct and no
+    // hard-coded cryptographic value sits in the test source.
+    let nonce = format!("memory-loopback-nonce-{:x}", next_nonce());
     let hello = sign_hello_ed25519(&seed_client(), &nonce, &connect_manifest(manifest), None)
         .expect("initiator hello sign");
     client

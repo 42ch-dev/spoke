@@ -1213,6 +1213,30 @@ fn memory_port_service_classifies_a_malformed_payload_as_terminal() {
 /// uncertain-outcome case (the transport cannot know whether it committed).
 struct DelayedHost {
     store: Arc<Store>,
+    /// `true`: the provider self-detaches the commit (the TS-path shape —
+    /// the old fixture). `false`: the commit is part of the admitted invoke
+    /// future itself, so it lands only if the responder keeps the task alive
+    /// past its response deadline instead of dropping it.
+    provider_detached: bool,
+}
+
+impl DelayedHost {
+    fn commit_now(
+        &self,
+        principal: &Principal,
+        payload: Value,
+    ) -> SpokeResult<MemoryCaptureResponse> {
+        match self.store.capture(principal, payload) {
+            SpokeResult::Ok(value) => match serde_json::from_value(value) {
+                Ok(response) => SpokeResult::Ok(response),
+                Err(error) => reject(
+                    SpokeRejectCode::InternalError,
+                    format!("capture response decode failed: {error}"),
+                ),
+            },
+            SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
+        }
+    }
 }
 
 #[async_trait]
@@ -1307,16 +1331,13 @@ impl MemoryPort for DelayedHost {
         // A replay of an already-committed key answers from provider state
         // immediately (MEM-R008: replay never re-executes).
         if self.store.has_receipt("memory.capture", key) {
-            return match self.store.capture(principal, payload) {
-                SpokeResult::Ok(value) => match serde_json::from_value(value) {
-                    Ok(response) => SpokeResult::Ok(response),
-                    Err(error) => reject(
-                        SpokeRejectCode::InternalError,
-                        format!("capture response decode failed: {error}"),
-                    ),
-                },
-                SpokeResult::Reject(reject) => SpokeResult::Reject(reject),
-            };
+            return self.commit_now(principal, payload);
+        }
+        if !self.provider_detached {
+            // The commit is part of the admitted invoke: it only lands if
+            // the responder keeps the provider task alive past the deadline.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            return self.commit_now(principal, payload);
         }
         let store = Arc::clone(&self.store);
         let principal = principal.clone();
@@ -1513,6 +1534,7 @@ async fn memory_loopback_reports_an_uncertain_outcome_and_recovers_on_replay() {
     let store = granted_store();
     let delayed_port: Arc<dyn MemoryPort + Send + Sync> = Arc::new(DelayedHost {
         store: Arc::clone(&store),
+        provider_detached: true,
     });
     let delayed: Arc<dyn RemoteMemoryService> =
         Arc::new(MemoryPortService::new(delayed_port, admission()));
@@ -1558,6 +1580,57 @@ async fn memory_loopback_reports_an_uncertain_outcome_and_recovers_on_replay() {
         store.state.lock().expect("state lock").receipts.len(),
         1,
         "the replay reuses the committed receipt instead of double-applying"
+    );
+
+    responder.close();
+    client.close();
+}
+
+#[tokio::test]
+async fn memory_loopback_keeps_the_admitted_task_alive_past_the_budget() {
+    // The provider does NOT self-detach: the commit is part of the admitted
+    // invoke future, so it lands only if the responder spawns the invoke
+    // instead of dropping it at the deadline (§14.3 — the responder neither
+    // cancels nor rolls back admitted provider work).
+    let store = granted_store();
+    let delayed_port: Arc<dyn MemoryPort + Send + Sync> = Arc::new(DelayedHost {
+        store: Arc::clone(&store),
+        provider_detached: false,
+    });
+    let delayed: Arc<dyn RemoteMemoryService> =
+        Arc::new(MemoryPortService::new(delayed_port, admission()));
+    let (responder, pair) =
+        start_host_with_budget(Some(delayed), &MEMORY_CAPABILITIES, Some(50)).await;
+    let client = dial(pair, &memory_manifest("test-client", &MEMORY_CAPABILITIES)).await;
+    let principal = client_principal();
+    let request = capture_request(
+        "cap-detached",
+        CONTEXT,
+        "Mira told Bo the gate key is hidden under the third barrel.",
+    );
+
+    let timed_out = expect_reject(
+        client
+            .capture(&principal, typed_capture(request.clone()))
+            .await,
+    );
+    assert_eq!(
+        timed_out.code,
+        SpokeRejectCode::OutcomeUncertain,
+        "§14.3: an expired memory budget after invocation is uncertain, not internal: {timed_out:?}"
+    );
+
+    // The detached invoke ran to its real completion: the committed receipt
+    // is observable when the same idempotency key is replayed.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let recovered = expect_ok(client.capture(&principal, typed_capture(request)).await);
+    let receipt = wire(&recovered);
+    assert_eq!(receipt["status"], "committed", "{receipt}");
+    assert_eq!(receipt["idempotency_key"], "cap-detached", "{receipt}");
+    assert_eq!(
+        store.state.lock().expect("state lock").receipts.len(),
+        1,
+        "the admitted task committed exactly once"
     );
 
     responder.close();

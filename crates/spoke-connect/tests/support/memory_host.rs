@@ -788,6 +788,9 @@ impl Store {
         let page = engine_recall(
             &inputs,
             &RecallRequest {
+                // The loopback host serves no cursor surface (documented
+                // serving gap), so the offset is always zero.
+                offset: 0,
                 query: request.get("query").and_then(Value::as_str),
                 max_items: request["budget"]["max_items"].as_u64().unwrap_or(8) as usize,
                 max_bytes: request["budget"]["max_bytes"]

@@ -363,7 +363,7 @@ fn orchestrate_compute_settle_returns_wire_valid_success_from_fixture() {
     {
         assert_eq!(session_id, request.session_id);
         assert_eq!(entry_id, request.entry_id);
-        assert_eq!(computable, request.computable);
+        assert_eq!(computable.0, request.computable); // Shared0 newtype wraps the echoed Map
         assert_eq!(state, fixture_state);
     } else {
         panic!("expected compute success");
@@ -384,7 +384,7 @@ fn compute_with_empty_computable_preserves_empty_map() {
     assert!(result.is_ok(), "{result:?}");
     if let SpokeResult::Ok(ComputeResponse::Variant0 { computable, .. }) = result {
         assert!(computable.is_empty());
-        assert_eq!(computable, request.computable);
+        assert_eq!(computable.0, request.computable); // Shared0 newtype wraps the echoed Map
     } else {
         panic!("expected compute success with empty computable echoed");
     }

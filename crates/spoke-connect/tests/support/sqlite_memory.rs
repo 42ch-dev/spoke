@@ -645,15 +645,25 @@ impl SqliteMemoryProvider {
         store.write(&document).expect("write");
     }
 
+    /// The provider worker, run separately from any read path (MEM-R011):
+    /// completes deferred receipts (reflection generation, async op
+    /// results). Idempotent — a no-op when nothing is pending.
+    pub fn run_worker(&self) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read state");
+        if Self::complete_pending(&mut document) {
+            store.write(&document).expect("write state");
+        }
+    }
+
     /// Test-support accessor: run the worker for one receipt and return its
     /// JSON. The generated `MemoryReceiptsGetResponse` copy rejects content-free
     /// results that carry nested objects (Task 4 report finding), so the
     /// transfer tests observe receipts at value level.
     pub fn poll_receipt_value(&self, space_id: &str, receipt_id: &str) -> Option<Value> {
+        self.run_worker();
         let store = self.store.lock().expect("store lock");
-        let mut document = store.read().expect("read");
-        Self::complete_pending(&mut document);
-        store.write(&document).expect("write");
+        let document = store.read().expect("read state");
         document
             .spaces
             .get(space_id)?
@@ -2172,12 +2182,9 @@ impl MemoryPort for SqliteMemoryProvider {
             .as_str()
             .unwrap_or_default()
             .to_string();
-        // Polling a pending receipt runs the provider worker for it, so
-        // asynchronous ops settle deterministically without a background thread.
-        let _ = tri!(self.mutate_value(|document| {
-            Self::complete_pending(document);
-            SpokeResult::Ok(())
-        }));
+        // MEM-R011: reads never write. Polling observes the receipt as
+        // stored; the provider worker settles pending work separately
+        // (`run_worker`), so polling alone cannot change stored state.
         self.inspect(|document| {
             let now = Self::clock(document);
             let space = tri!(Self::space(document, &space_id));
@@ -3371,14 +3378,18 @@ impl MemoryPort for SqliteMemoryProvider {
                 &engine_inputs,
                 &EngineRecall {
                     query: query.as_deref(),
+                    // MEM-R026: the cursor offset drops the leading ranked
+                    // records BEFORE the page budget, so page 2+ is the next
+                    // window of the same ranking (applying it after the
+                    // budget made every continuation page empty).
+                    offset,
                     max_items,
                     max_bytes,
                 },
             );
             let total_authorized = page.total_authorized;
-            let skipped = offset.min(total_authorized);
             let mut records: Vec<Value> = Vec::new();
-            for ranked in page.records.iter().skip(skipped) {
+            for ranked in &page.records {
                 if let Some(record) = authorized
                     .iter()
                     .find(|record| record["record_id"].as_str() == Some(ranked.record_id.as_str()))
@@ -3387,17 +3398,18 @@ impl MemoryPort for SqliteMemoryProvider {
                 }
             }
             let returned = records.len();
+            let consumed = offset + returned;
             let mut response = json!({
                 "records": records,
                 "total_authorized": total_authorized,
-                "truncated": page.truncated || skipped + returned < total_authorized,
+                "truncated": page.truncated,
                 "engine_policy_version": ENGINE_POLICY_VERSION,
             });
             if let Some(overflow) = page.overflow_record_id {
                 response["overflow_record_id"] = json!(overflow);
             }
-            if skipped + returned < total_authorized {
-                response["next_cursor"] = json!(Self::cursor_token(space, skipped + returned));
+            if page.truncated {
+                response["next_cursor"] = json!(Self::cursor_token(space, consumed));
             }
             reply(response)
         })

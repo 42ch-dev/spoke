@@ -63,9 +63,17 @@ function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeRe
  * Byte size of a `Content` request field against `max_content_bytes`
  * (§7.1): UTF-8 bytes of the compact serialization of the complete
  * `content` value — field name, quotes, escaping, and `structured` included.
+ *
+ * Canonical form: a member explicitly `null` is absent, matching the Rust
+ * generated serializer (`Option::None` is skipped). Numbers use
+ * `JSON.stringify`'s ECMAScript form, which the Rust measure shares through
+ * RFC 8785 JCS.
  */
 export function contentSerializedBytes(content: Content): number {
-  return new TextEncoder().encode(JSON.stringify(content)).length;
+  const canonical = Object.fromEntries(
+    Object.entries(content).filter(([, value]) => value !== null),
+  );
+  return new TextEncoder().encode(JSON.stringify(canonical)).length;
 }
 
 interface Content {

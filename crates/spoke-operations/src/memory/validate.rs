@@ -69,11 +69,15 @@ fn check_page_limit(limit: Option<NonZeroU64>, max_page_size: NonZeroU64) -> Spo
 /// Byte size of a `Content` request field against `max_content_bytes`
 /// (§7.1): UTF-8 bytes of the compact serialization of the complete
 /// `content` value — field name, quotes, escaping, and `structured`
-/// included. This is the same measure `spoke-memory` applies to the §9
-/// recall byte budget.
+/// included.
+///
+/// The canonical form is RFC 8785 (JCS): a member explicitly `null`
+/// deserializes to `Option::None` and is skipped by the generated serializer,
+/// and numbers use the ECMAScript form (`1.0` → `1`) that `JSON.stringify`
+/// produces, so the TS measure counts identical bytes.
 #[must_use]
 pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
-    serde_json::to_vec(content).map_or(0, |bytes| bytes.len())
+    serde_jcs::to_vec(content).map_or(0, |bytes| bytes.len())
 }
 
 fn check_content_limit(byte_len: usize, max_content_bytes: usize) -> SpokeResult<()> {
@@ -868,6 +872,46 @@ mod tests {
         assert_eq!(content_serialized_bytes(&nested), 49);
         let empty = Content { structured: None, text: String::new() };
         assert_eq!(content_serialized_bytes(&empty), 11);
+    }
+
+    #[test]
+    fn content_serialized_bytes_canonicalizes_explicit_null() {
+        use spoke_schemas::memory_capture_request::Content;
+        // Explicit `structured: null` deserializes to `None` and the
+        // generated serializer skips it: `{"text":""}` = 11 bytes. The TS
+        // parity test pins the same value and the 10/11 admission pair.
+        let explicit_null: Content =
+            serde_json::from_value(json!({"text": "", "structured": null}))
+                .expect("valid content");
+        assert_eq!(content_serialized_bytes(&explicit_null), 11);
+    }
+
+    #[test]
+    fn content_serialized_bytes_use_ecmascript_number_form() {
+        use spoke_schemas::memory_capture_request::Content;
+        // JCS/ES6 numbers: `1.0` → `1`, `1e2` → `100`. TS `JSON.stringify`
+        // counts the same 40 bytes in its parity test.
+        let numbers = Content {
+            structured: Some(json!({"n": 1.0, "e": 1e2})),
+            text: String::new(),
+        };
+        assert_eq!(content_serialized_bytes(&numbers), 40);
+    }
+
+    #[test]
+    fn capture_admits_explicit_null_content_boundary() {
+        // `{"text":"","structured":null}` canonicalizes to `{"text":""}`,
+        // 11 bytes; the TS parity test pins the same accept/reject pair.
+        let request: MemoryCaptureRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "content": {"text": "", "structured": null},
+            "capture_scope": {"visibility": "shared"},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid request");
+        assert!(validate_memory_capture(&request, 11).is_ok());
+        expect_invalid(validate_memory_capture(&request, 10), "content");
     }
 
     #[test]

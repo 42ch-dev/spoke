@@ -390,6 +390,31 @@ describe("content byte limits (§7.1)", () => {
     expect(contentSerializedBytes({ text: "" })).toBe(11);
   });
 
+  it("contentSerializedBytes canonicalizes explicit null like Rust", () => {
+    // Rust deserializes `structured: null` to `None` and skips it; both
+    // languages measure `{"text":""}` = 11.
+    expect(contentSerializedBytes({ text: "", structured: null })).toBe(11);
+  });
+
+  it("contentSerializedBytes pins the ECMAScript number form like Rust", () => {
+    // Rust measures through RFC 8785 JCS: `1.0` → `1`, `1e2` → `100`.
+    expect(contentSerializedBytes({ text: "", structured: { n: 1.0, e: 1e2 } })).toBe(40);
+  });
+
+  it("capture admits explicit null content at the exact boundary", () => {
+    // `{"text":"","structured":null}` canonicalizes to `{"text":""}`,
+    // 11 bytes; the Rust parity test pins the same pair.
+    const request = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      content: { text: "", structured: null },
+      capture_scope: { visibility: "shared" },
+      idempotency_key: "k1",
+    } as MemoryCaptureRequest;
+    expect(validateMemoryCapture(request, 11).ok).toBe(true);
+    expectLimit(validateMemoryCapture(request, 10), "max_content_bytes");
+  });
+
   it("capture rejects oversize content with details.limit", () => {
     const request = {
       space_id: "sp_1",

@@ -145,7 +145,7 @@
       "expect": {
         "success": true
       },
-      "principal": "prn_tw_host_primary"
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "coverage-subject-mismatch-denied",

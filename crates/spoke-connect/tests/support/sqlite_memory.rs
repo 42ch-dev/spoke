@@ -575,6 +575,38 @@ impl SqliteMemoryProvider {
         store.write(&document).expect("write");
     }
 
+    /// Provider provisioning: a profile document.
+    pub fn provision_profile(&self, space_id: &str, profile: Value) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        let space = document
+            .spaces
+            .get_mut(space_id)
+            .unwrap_or_else(|| panic!("space {space_id} not provisioned"));
+        let key = Self::profile_key(
+            profile["subject_id"].as_str().expect("subject_id"),
+            profile["profile_kind"].as_str().expect("profile_kind"),
+        );
+        space.profiles.insert(key, profile);
+        store.write(&document).expect("write");
+    }
+
+    /// Provider provisioning: a reflection.
+    pub fn provision_reflection(&self, space_id: &str, reflection: Value) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        let space = document
+            .spaces
+            .get_mut(space_id)
+            .unwrap_or_else(|| panic!("space {space_id} not provisioned"));
+        let id = reflection["reflection_id"]
+            .as_str()
+            .expect("reflection_id")
+            .to_string();
+        space.reflections.insert(id, reflection);
+        store.write(&document).expect("write");
+    }
+
     /// Provider provisioning: a grant (the admin bootstrap).
     pub fn provision_grant(&self, space_id: &str, grant: Value) {
         let store = self.store.lock().expect("store lock");

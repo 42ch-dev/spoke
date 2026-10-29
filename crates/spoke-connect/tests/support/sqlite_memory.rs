@@ -39,15 +39,20 @@ use serde_json::{json, Value};
 use spoke_memory::classify::{classify_candidate, CandidateMaterial};
 use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest as EngineRecall};
 use spoke_memory::reflect::{assemble_reflection, basis_digests, ReflectionBasis, SourceRef};
+use spoke_memory::transfer::{
+    adopt_grants as transfer_adopt_grants, bundle_digest, chunk_digest, partition_bundle,
+    reassemble, staged_report as transfer_staged_report, verify_staging,
+};
 use spoke_memory::ENGINE_POLICY_VERSION;
 use spoke_operations::{
-    jcs_sha256_hex, spoke_reject, validate_grant_issuance, validate_memory_candidates_list,
-    validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
-    validate_memory_grants_list, validate_memory_recall, validate_memory_records_create,
-    validate_memory_records_list, validate_memory_records_update,
-    validate_memory_reflections_generate, validate_memory_reflections_list,
-    validate_memory_reflections_state, validate_memory_spaces_list, validate_memory_subjects_fence,
-    GrantRequirement, IssuedGrant, MemoryPort, SpokeRejectCode, SpokeResult,
+    is_freeze_allowlisted, jcs_sha256_hex, spoke_reject, validate_grant_issuance,
+    validate_memory_candidates_list, validate_memory_candidates_review, validate_memory_capture,
+    validate_memory_grants_grant, validate_memory_grants_list, validate_memory_imports_stage,
+    validate_memory_recall, validate_memory_records_create, validate_memory_records_list,
+    validate_memory_records_update, validate_memory_reflections_generate,
+    validate_memory_reflections_list, validate_memory_reflections_state,
+    validate_memory_spaces_list, validate_memory_subjects_fence, GrantRequirement, IssuedGrant,
+    MemoryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::data::memory_candidate::Disposition;
 use spoke_schemas::data::read_selection::ReadSelection;
@@ -169,6 +174,20 @@ fn string_list_field(value: &Value, field: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Identity translation map over the elements a staged chunk carries: the
+/// cooperative provider policy is "reassign, do not rename".
+fn identity_map(chunks: &[Value], field: &str, id_field: &str) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    for chunk in chunks {
+        for item in chunk[field].as_array().cloned().unwrap_or_default() {
+            if let Some(id) = item[id_field].as_str() {
+                map.insert(id.to_string(), id.to_string());
+            }
+        }
+    }
+    map
+}
+
 /// Placement selection helpers shared by `records.list`, `recall` and the
 /// reflection group.
 fn selection_contexts(selection: &ReadSelection) -> Vec<String> {
@@ -264,6 +283,40 @@ enum PendingWork {
         sources: Vec<(String, u64)>,
         profile_revisions: Vec<(String, u64)>,
     },
+    /// Receipt whose work already happened (export creation, import
+    /// activation); the worker commits it with this content-free result.
+    Receipt { result: Value },
+}
+
+/// A completed export (`§6.11`/§6.13): the sealed bundle, its chunks and the
+/// content-free summary the receipt reports.
+#[derive(Clone, Serialize, Deserialize)]
+struct ExportState {
+    export_id: String,
+    subject_id: Option<String>,
+    chunks: Vec<Value>,
+    chunk_count: u64,
+    total_bytes: u64,
+    bundle_digest: String,
+    counts: Value,
+    created_at_seconds: i64,
+}
+
+/// A staged import (`§7.31`): durable chunk accumulation plus the verification
+/// report produced by the final chunk.
+#[derive(Clone, Serialize, Deserialize)]
+struct ImportState {
+    import_id: String,
+    export_id: String,
+    chunks: Vec<Value>,
+    chunk_count: Option<u64>,
+    conflict_policy: String,
+    adopt_grants: Vec<Value>,
+    subject_renames: BTreeMap<String, String>,
+    report: Option<Value>,
+    bundle: Option<Value>,
+    staged_seconds: i64,
+    status: String,
 }
 
 /// Dedup namespace entry (`§7.0.5`): `(principal, op, idempotency_key)`.
@@ -299,6 +352,8 @@ struct Space {
     reflection_sources: BTreeMap<String, Vec<String>>,
     /// Deferred work a pending receipt will complete on the next observation.
     pending: BTreeMap<String, PendingWork>,
+    exports: BTreeMap<String, ExportState>,
+    imports: BTreeMap<String, ImportState>,
     receipts: BTreeMap<String, Value>,
     dedup: BTreeMap<String, DedupEntry>,
 }
@@ -552,6 +607,37 @@ impl SqliteMemoryProvider {
         store.write(&document).expect("write");
     }
 
+    /// Test-support accessor: run the worker for one receipt and return its
+    /// JSON. The generated `MemoryReceiptsGetResponse` copy rejects content-free
+    /// results that carry nested objects (Task 4 report finding), so the
+    /// transfer tests observe receipts at value level.
+    pub fn poll_receipt_value(&self, space_id: &str, receipt_id: &str) -> Option<Value> {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        Self::complete_pending(&mut document);
+        store.write(&document).expect("write");
+        document
+            .spaces
+            .get(space_id)?
+            .receipts
+            .get(receipt_id)
+            .cloned()
+    }
+
+    /// Test-support accessor: the provider's own chunk JSON for an export, so
+    /// digests can be verified against what the provider emitted (the typed
+    /// response normalizes optional fields, which would perturb a re-digest).
+    pub fn export_chunks(&self, space_id: &str, export_id: &str) -> Option<Vec<Value>> {
+        let store = self.store.lock().expect("store lock");
+        let document = store.read().expect("read");
+        document
+            .spaces
+            .get(space_id)?
+            .exports
+            .get(export_id)
+            .map(|export| export.chunks.clone())
+    }
+
     fn space<'a>(document: &'a Document, space_id: &str) -> SpokeResult<&'a Space> {
         match document.spaces.get(space_id) {
             Some(space) => SpokeResult::Ok(space),
@@ -607,6 +693,204 @@ impl SqliteMemoryProvider {
                 ),
             )
         }
+    }
+
+    /// Value-based staging entry point (the trait method and the transfer tests
+    /// share it). Kept separate because the generated `MemoryExportChunk` union
+    /// cannot currently carry a provider chunk — see the Task 4 report finding.
+    pub fn stage_import_value(
+        &self,
+        principal: &Principal,
+        request_value: Value,
+    ) -> SpokeResult<Value> {
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let chunk = request_value["chunk"].clone();
+        let ordinal = number_field(&chunk, "chunk_ordinal");
+        let chunk_count = number_field(&chunk, "chunk_count");
+        let export_id = text_field(&chunk, "export_id");
+        let conflict_policy = request_value["conflict_policy"]
+            .as_str()
+            .unwrap_or("fail")
+            .to_string();
+        let adopt = request_value["adopt_grants"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let key = text_field(&request_value, "idempotency_key");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let clock_seconds = document.clock_offset_seconds;
+            let space = tri!(Self::space_mut(document, &space_id));
+            for capability in ["transfer", "admin"] {
+                let requirement = GrantRequirement {
+                    capability,
+                    subject_id: None,
+                    context_ids: Vec::new(),
+                    reads_shared: false,
+                    subject_all: false,
+                };
+                tri!(Self::require(
+                    space,
+                    now,
+                    &principal_id,
+                    &requirement,
+                    "memory.imports.stage"
+                ));
+            }
+            if Self::replay_conflict(space, &principal_id, "memory.imports.stage", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.imports.stage", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            let existing = space
+                .imports
+                .values()
+                .find(|import| {
+                    import.export_id == export_id
+                        && import.status == "staged"
+                        && import.chunk_count.is_none_or(|count| count == chunk_count)
+                })
+                .cloned();
+            let mut import = match existing {
+                Some(import) => import,
+                None => {
+                    if ordinal != 0 {
+                        return reject(
+                            SpokeRejectCode::InvalidInput,
+                            "a staged import starts at chunk ordinal 0",
+                        );
+                    }
+                    ImportState {
+                        import_id: format!("imp_sqlite_{:04}", space.imports.len() + 1),
+                        export_id: export_id.clone(),
+                        chunks: Vec::new(),
+                        chunk_count: None,
+                        conflict_policy,
+                        adopt_grants: adopt,
+                        subject_renames: BTreeMap::new(),
+                        report: None,
+                        bundle: None,
+                        staged_seconds: clock_seconds,
+                        status: "staged".to_string(),
+                    }
+                }
+            };
+            if ordinal != import.chunks.len() as u64 {
+                return reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!(
+                        "chunk ordinal {ordinal} out of order; expected {}",
+                        import.chunks.len()
+                    ),
+                );
+            }
+            import.chunks.push(chunk);
+            import.chunk_count = Some(chunk_count);
+            let received = import.chunks.len() as u64;
+            let mut result = json!({
+                "import_id": import.import_id.clone(),
+                "chunks_received": received,
+            });
+            if received == chunk_count {
+                // Verification runs on the final chunk (§7.31); failures reject
+                // IMPORT_CONFLICT and leave nothing staged.
+                let outcome = verify_staging(
+                    &import.chunks,
+                    &import.subject_renames,
+                    &identity_map(&import.chunks, "records", "record_id"),
+                    &identity_map(&import.chunks, "candidates", "candidate_id"),
+                );
+                let verified =
+                    outcome.verification.bundle_digest_ok && outcome.verification.errors.is_empty();
+                if !verified {
+                    return reject_details(
+                        SpokeRejectCode::ImportConflict,
+                        "staged import verification failed",
+                        json!({ "errors": outcome.verification.errors }),
+                    );
+                }
+                let Some(bundle) = outcome.bundle.clone() else {
+                    return reject(SpokeRejectCode::ImportConflict, "import produced no bundle");
+                };
+                // Subject collision policy (§7.31).
+                let mut renames: BTreeMap<String, String> = BTreeMap::new();
+                for subject in bundle["subjects"].as_array().cloned().unwrap_or_default() {
+                    let Some(subject_id) = subject["subject_id"].as_str() else {
+                        continue;
+                    };
+                    if !space.subjects.contains_key(subject_id) {
+                        continue;
+                    }
+                    if import.conflict_policy == "rename_subject" {
+                        renames.insert(
+                            subject_id.to_string(),
+                            format!("{subject_id}_imported_{}", space.imports.len() + 1),
+                        );
+                    } else {
+                        return reject(
+                            SpokeRejectCode::ImportConflict,
+                            format!("subject {subject_id} already exists in the target space"),
+                        );
+                    }
+                }
+                import.subject_renames = renames;
+                let adopt_ids: Vec<&str> = import
+                    .adopt_grants
+                    .iter()
+                    .filter_map(|grant| grant["grant_id"].as_str())
+                    .collect();
+                let (adopted, dropped) = match transfer_adopt_grants(&bundle, &adopt_ids) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return reject(
+                            SpokeRejectCode::ImportConflict,
+                            format!("grant adoption: {error}"),
+                        )
+                    }
+                };
+                let report = match transfer_staged_report(
+                    &bundle,
+                    &outcome.maps,
+                    adopted.len(),
+                    dropped,
+                    &outcome.verification,
+                ) {
+                    Ok(report) => report,
+                    Err(error) => {
+                        return reject(
+                            SpokeRejectCode::ImportConflict,
+                            format!("staged report: {error}"),
+                        )
+                    }
+                };
+                result["staged_report"] = report.clone();
+                import.report = Some(report);
+                import.bundle = Some(bundle);
+            }
+            space.imports.insert(import.import_id.clone(), import);
+            space.touch();
+            let mut receipt =
+                Self::receipt(space, "memory.imports.stage", &principal_id, &digest, &key);
+            receipt["result"] = result;
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.imports.stage",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     fn next_receipt_id(space: &Space) -> String {
@@ -808,6 +1092,134 @@ impl SqliteMemoryProvider {
         (digests.state_digest, sources, profiles)
     }
 
+    /// `§6.11` logical bundle for an export scope (digest not yet sealed).
+    fn export_bundle(
+        space: &Space,
+        subject_id: Option<&str>,
+        include_reflections: bool,
+        include_tombstoned: bool,
+    ) -> Value {
+        let in_scope = |value: &Value| match subject_id {
+            None => true,
+            Some(subject) => value["subject_id"].as_str() == Some(subject),
+        };
+        let tombstoned: Vec<String> = space
+            .records
+            .values()
+            .filter(|record| record.get("tombstone").is_some())
+            .filter_map(|record| record["record_id"].as_str().map(str::to_string))
+            .collect();
+        let mut bundle = json!({
+            "schema_version": 1,
+            "bundle_format_version": 1,
+            "memory_protocol_version": 1,
+            "export_id": format!("exp_sqlite_{:04}", space.exports.len() + 1),
+            "space_id": space.space_id,
+            "created_at": CLOCK_ORIGIN,
+            "source": {
+                "authority_host_id": space.authority_host_id,
+                "authority_generation": space.authority_generation,
+                "engine_policy_version": ENGINE_POLICY_VERSION,
+            },
+            "subjects": space
+                .subjects
+                .values()
+                .filter(|subject| in_scope(subject))
+                .cloned()
+                .collect::<Vec<_>>(),
+            "records": space
+                .records
+                .values()
+                .filter(|record| in_scope(record))
+                .filter(|record| include_tombstoned || record.get("tombstone").is_none())
+                .cloned()
+                .collect::<Vec<_>>(),
+            "candidates": space
+                .candidates
+                .values()
+                .filter(|candidate| in_scope(candidate))
+                .cloned()
+                .collect::<Vec<_>>(),
+            "profiles": space
+                .profiles
+                .values()
+                .filter(|profile| in_scope(profile))
+                .cloned()
+                .collect::<Vec<_>>(),
+            "receipt_summaries": space
+                .receipts
+                .values()
+                .map(|receipt| {
+                    let mut summary = json!({
+                        "receipt_id": receipt["receipt_id"],
+                        "op": receipt["op"],
+                        "requester_principal_ref": receipt["requester_principal_id"],
+                        "payload_digest": receipt["payload_digest"],
+                        "status": receipt["status"],
+                        "created_at": receipt["created_at"],
+                    });
+                    if let Some(key) = receipt.get("idempotency_key") {
+                        summary["idempotency_key"] = key.clone();
+                    }
+                    summary
+                })
+                .collect::<Vec<_>>(),
+            "grants": space
+                .grants
+                .values()
+                .map(|grant| {
+                    let mut summary = json!({
+                        "grant_id": grant["grant_id"],
+                        "principal_ref": grant["principal_id"],
+                        "capabilities": grant["capabilities"],
+                        "revision": grant["revision"],
+                    });
+                    for field in ["subject_id", "context_ids", "shared_access"] {
+                        if let Some(value) = grant.get(field) {
+                            summary[field] = value.clone();
+                        }
+                    }
+                    summary
+                })
+                .collect::<Vec<_>>(),
+            "extensions": {},
+        });
+        if include_reflections {
+            bundle["reflections"] = json!(space
+                .reflections
+                .values()
+                .filter(|reflection| in_scope(reflection))
+                .filter(|reflection| {
+                    let id = reflection["reflection_id"].as_str().unwrap_or_default();
+                    space
+                        .reflection_sources
+                        .get(id)
+                        .map(|sources| !sources.iter().any(|source| tombstoned.contains(source)))
+                        .unwrap_or(true)
+                })
+                .cloned()
+                .collect::<Vec<_>>());
+        }
+        bundle
+    }
+
+    fn bundle_counts(bundle: &Value) -> Value {
+        let count = |field: &str| {
+            bundle
+                .get(field)
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        };
+        json!({
+            "subjects": count("subjects"),
+            "records": count("records"),
+            "candidates": count("candidates"),
+            "profiles": count("profiles"),
+            "reflections": count("reflections"),
+            "receipt_summaries": count("receipt_summaries"),
+        })
+    }
+
     fn latest_reflection<'a>(space: &'a Space, subject_id: &str) -> Option<&'a Value> {
         space
             .reflections
@@ -880,7 +1292,6 @@ impl SqliteMemoryProvider {
     ) -> SpokeResult<Document> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
-        Self::complete_pending(&mut document);
         match apply(&mut document) {
             SpokeResult::Ok(()) => {
                 store.write(&document).expect("write state");
@@ -898,7 +1309,6 @@ impl SqliteMemoryProvider {
     ) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
-        Self::complete_pending(&mut document);
         match apply(&mut document) {
             SpokeResult::Ok(value) => {
                 store.write(&document).expect("write state");
@@ -910,11 +1320,7 @@ impl SqliteMemoryProvider {
 
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
-        let mut document = store.read().expect("read state");
-        // A read may observe a completed pending op, so persist that tick.
-        if Self::complete_pending(&mut document) {
-            store.write(&document).expect("write state");
-        }
+        let document = store.read().expect("read state");
         answer(&document)
     }
 
@@ -931,12 +1337,26 @@ impl SqliteMemoryProvider {
                 .map(|(receipt_id, item)| (receipt_id.clone(), item.clone()))
                 .collect();
             for (receipt_id, item) in work {
+                if let PendingWork::Receipt { result } = item {
+                    if let Some(receipt) = space.receipts.get_mut(&receipt_id) {
+                        receipt["status"] = json!("committed");
+                        receipt["completed_at"] = json!(CLOCK_ORIGIN);
+                        receipt["result"] = result;
+                    }
+                    space.pending.remove(&receipt_id);
+                    space.touch();
+                    completed = true;
+                    continue;
+                }
                 let PendingWork::Reflection {
                     subject_id,
                     selection,
                     sources,
                     profile_revisions,
-                } = item;
+                } = item
+                else {
+                    continue;
+                };
                 let source_refs: Vec<SourceRef<'_>> = sources
                     .iter()
                     .map(|(record_id, revision)| SourceRef {
@@ -1619,6 +2039,12 @@ impl MemoryPort for SqliteMemoryProvider {
             .as_str()
             .unwrap_or_default()
             .to_string();
+        // Polling a pending receipt runs the provider worker for it, so
+        // asynchronous ops settle deterministically without a background thread.
+        let _ = tri!(self.mutate_value(|document| {
+            Self::complete_pending(document);
+            SpokeResult::Ok(())
+        }));
         self.inspect(|document| {
             let now = Self::clock(document);
             let space = tri!(Self::space(document, &space_id));
@@ -3252,42 +3678,582 @@ impl MemoryPort for SqliteMemoryProvider {
 
     async fn create_export(
         &self,
-        _principal: &Principal,
-        _request: MemoryExportsCreateRequest,
+        principal: &Principal,
+        request: MemoryExportsCreateRequest,
     ) -> SpokeResult<MemoryExportsCreateResponse> {
-        not_served("memory.exports.create")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = request_value["subject_id"].as_str().map(str::to_string);
+        let selection: Option<ReadSelection> = request_value
+            .get("selection")
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
+        let include_reflections = request_value["include_reflections"]
+            .as_bool()
+            .unwrap_or(false);
+        let include_tombstoned = request_value["include_tombstoned"]
+            .as_bool()
+            .unwrap_or(false);
+        let require_quiescent = request_value["require_quiescent"]
+            .as_bool()
+            .unwrap_or(false);
+        let key = text_field(&request_value, "idempotency_key");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let clock_seconds = document.clock_offset_seconds;
+            let space = tri!(Self::space_mut(document, &space_id));
+            let requirement = GrantRequirement {
+                capability: "transfer",
+                subject_id: subject_id.as_deref(),
+                context_ids: selection
+                    .as_ref()
+                    .map(selection_contexts)
+                    .unwrap_or_default(),
+                reads_shared: selection
+                    .as_ref()
+                    .map(selection_reads_shared)
+                    .unwrap_or(subject_id.is_none()),
+                subject_all: selection
+                    .as_ref()
+                    .map(selection_subject_all)
+                    .unwrap_or(false),
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.exports.create"
+            ));
+            if Self::replay_conflict(space, &principal_id, "memory.exports.create", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.exports.create", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            // Drain barrier (§7.29): quiescent exports need a frozen, drained
+            // space. Export itself stays on the freeze allowlist.
+            if require_quiescent && (!space.frozen || space.pending_receipts() > 0) {
+                return reject_details(
+                    SpokeRejectCode::InvalidInput,
+                    "require_quiescent needs a frozen space with no pending receipts",
+                    json!({ "reason": "space_not_drained" }),
+                );
+            }
+            let bundle = Self::export_bundle(
+                space,
+                subject_id.as_deref(),
+                include_reflections,
+                include_tombstoned,
+            );
+            let bundle_digest_value = match bundle_digest(&bundle) {
+                Ok(digest) => digest,
+                Err(error) => {
+                    return reject(
+                        SpokeRejectCode::InternalError,
+                        format!("bundle digest: {error}"),
+                    )
+                }
+            };
+            let mut sealed = bundle.clone();
+            sealed["digest"] = json!(bundle_digest_value);
+            let chunks = match partition_bundle(&sealed, EXPORT_CHUNK_BYTES as usize) {
+                Ok(chunks) => chunks,
+                Err(error) => {
+                    return reject(
+                        SpokeRejectCode::InternalError,
+                        format!("partition bundle: {error}"),
+                    )
+                }
+            };
+            let chunk_count = chunks.len() as u64;
+            let total_bytes: u64 = chunks
+                .iter()
+                .map(|chunk| chunk["bytes"].as_u64().unwrap_or(0))
+                .sum();
+            let counts = Self::bundle_counts(&sealed);
+            let export_id = sealed["export_id"].as_str().unwrap_or_default().to_string();
+            space.exports.insert(
+                export_id.clone(),
+                ExportState {
+                    export_id: export_id.clone(),
+                    subject_id: subject_id.clone(),
+                    chunks,
+                    chunk_count,
+                    total_bytes,
+                    bundle_digest: bundle_digest_value.clone(),
+                    counts: counts.clone(),
+                    created_at_seconds: clock_seconds,
+                },
+            );
+            space.touch();
+            let receipt_id = Self::next_receipt_id(space);
+            let receipt = json!({
+                "schema_version": 1,
+                "receipt_id": receipt_id,
+                "op": "memory.exports.create",
+                "space_id": space_id,
+                "requester_principal_id": principal_id,
+                "idempotency_key": key.clone(),
+                "payload_digest": digest.clone(),
+                "status": "pending",
+                "created_at": CLOCK_ORIGIN,
+                "extensions": {},
+            });
+            space.pending.insert(
+                receipt_id.clone(),
+                PendingWork::Receipt {
+                    result: json!({
+                        "export_id": export_id,
+                        "chunk_count": chunk_count,
+                        "total_bytes": total_bytes,
+                        "bundle_digest": bundle_digest_value,
+                        "counts": counts,
+                    }),
+                },
+            );
+            space.receipts.insert(receipt_id, receipt.clone());
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.exports.create",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
-
     async fn get_export(
         &self,
-        _principal: &Principal,
-        _request: MemoryExportsGetRequest,
+        principal: &Principal,
+        request: MemoryExportsGetRequest,
     ) -> SpokeResult<MemoryExportsGetResponse> {
-        not_served("memory.exports.get")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let export_id = text_field(&request_value, "export_id");
+        let ordinal = number_field(&request_value, "chunk_ordinal") as usize;
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            let Some(export) = space.exports.get(&export_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "export not found");
+            };
+            let requirement = GrantRequirement {
+                capability: "transfer",
+                subject_id: export.subject_id.as_deref(),
+                context_ids: Vec::new(),
+                reads_shared: true,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.exports.get"
+            ));
+            if document.clock_offset_seconds - export.created_at_seconds > EXPORT_RETENTION_SECONDS
+            {
+                return reject(
+                    SpokeRejectCode::ExportExpired,
+                    "export is past export_retention_seconds",
+                );
+            }
+            if ordinal as u64 >= export.chunk_count {
+                return reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("chunk_ordinal {ordinal} is outside the export"),
+                );
+            }
+            reply(json!({ "chunk": export.chunks[ordinal] }))
+        })
     }
-
     async fn stage_import(
         &self,
-        _principal: &Principal,
-        _request: MemoryImportsStageRequest,
+        principal: &Principal,
+        request: MemoryImportsStageRequest,
     ) -> SpokeResult<MemoryImportsStageResponse> {
-        not_served("memory.imports.stage")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_imports_stage(&request) {
+            return SpokeResult::Reject(reject);
+        }
+        let receipt = tri!(self.stage_import_value(principal, request_value));
+        reply(receipt)
     }
-
     async fn activate_import(
         &self,
-        _principal: &Principal,
-        _request: MemoryImportsActivateRequest,
+        principal: &Principal,
+        request: MemoryImportsActivateRequest,
     ) -> SpokeResult<MemoryImportsActivateResponse> {
-        not_served("memory.imports.activate")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let import_id = text_field(&request_value, "import_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let clock_seconds = document.clock_offset_seconds;
+            let space = tri!(Self::space_mut(document, &space_id));
+            for capability in ["transfer", "admin"] {
+                let requirement = GrantRequirement {
+                    capability,
+                    subject_id: None,
+                    context_ids: Vec::new(),
+                    reads_shared: false,
+                    subject_all: false,
+                };
+                tri!(Self::require(
+                    space,
+                    now,
+                    &principal_id,
+                    &requirement,
+                    "memory.imports.activate"
+                ));
+            }
+            if Self::replay_conflict(
+                space,
+                &principal_id,
+                "memory.imports.activate",
+                &key,
+                &digest,
+            ) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) = Self::replay(
+                space,
+                &principal_id,
+                "memory.imports.activate",
+                &key,
+                &digest,
+            ) {
+                return SpokeResult::Ok(receipt);
+            }
+            let Some(import) = space.imports.get(&import_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "import not found");
+            };
+            if import.status != "staged" {
+                return reject(
+                    SpokeRejectCode::ImportConflict,
+                    format!("import is {} and cannot be activated", import.status),
+                );
+            }
+            if clock_seconds - import.staged_seconds > STAGED_IMPORT_TTL_SECONDS {
+                return reject(
+                    SpokeRejectCode::ImportConflict,
+                    "staged import expired (staged_import_ttl_seconds)",
+                );
+            }
+            let Some(bundle) = import.bundle.clone() else {
+                return reject(
+                    SpokeRejectCode::ImportConflict,
+                    "import has no verified bundle",
+                );
+            };
+            let rename = |source: &str| {
+                import
+                    .subject_renames
+                    .get(source)
+                    .cloned()
+                    .unwrap_or_else(|| source.to_string())
+            };
+            // Identity remap: §7.31 requires reassignment, not a change of value,
+            // so target ids equal source ids and revisions start at 1.
+            let mut subjects = 0usize;
+            for subject in bundle["subjects"].as_array().cloned().unwrap_or_default() {
+                let source = text_field(&subject, "subject_id");
+                let target = rename(&source);
+                let mut subject = subject;
+                subject["space_id"] = json!(space_id);
+                subject["subject_id"] = json!(target);
+                subject["revision"] = json!(1);
+                space.subjects.insert(target, subject);
+                subjects += 1;
+            }
+            let mut records = 0usize;
+            for record in bundle["records"].as_array().cloned().unwrap_or_default() {
+                let mut record = record;
+                let subject = rename(&text_field(&record, "subject_id"));
+                record["space_id"] = json!(space_id);
+                record["subject_id"] = json!(subject);
+                record["revision"] = json!(1);
+                space
+                    .records
+                    .insert(text_field(&record, "record_id"), record);
+                records += 1;
+            }
+            let mut candidates = 0usize;
+            for candidate in bundle["candidates"].as_array().cloned().unwrap_or_default() {
+                let mut candidate = candidate;
+                candidate["space_id"] = json!(space_id);
+                let subject = rename(&text_field(&candidate, "subject_id"));
+                candidate["subject_id"] = json!(subject);
+                if candidate["status"] == "pending" {
+                    candidate["revision"] = json!(1);
+                }
+                space
+                    .candidates
+                    .insert(text_field(&candidate, "candidate_id"), candidate);
+                candidates += 1;
+            }
+            let mut profiles = 0usize;
+            for profile in bundle["profiles"].as_array().cloned().unwrap_or_default() {
+                let mut profile = profile;
+                profile["space_id"] = json!(space_id);
+                let subject = rename(&text_field(&profile, "subject_id"));
+                profile["subject_id"] = json!(subject);
+                profile["revision"] = json!(1);
+                let key = Self::profile_key(&subject, &text_field(&profile, "profile_kind"));
+                space.profiles.insert(key, profile);
+                profiles += 1;
+            }
+            let mut reflections = 0usize;
+            for reflection in bundle["reflections"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+            {
+                let mut reflection = reflection;
+                reflection["space_id"] = json!(space_id);
+                let subject = rename(&text_field(&reflection, "subject_id"));
+                reflection["subject_id"] = json!(subject);
+                reflection["revision"] = json!(1);
+                // §7.31: imported reflections are stale unconditionally.
+                reflection["stale"] = json!(true);
+                let reflection_id = text_field(&reflection, "reflection_id");
+                space.reflections.insert(reflection_id, reflection);
+                reflections += 1;
+            }
+            // Explicit-only grant adoption, non-amplified against the stager.
+            let granter_grants: Vec<MemoryGrant> = space
+                .grants
+                .values()
+                .filter(|grant| grant["principal_id"] == principal_id.as_str())
+                .filter_map(|grant| serde_json::from_value(grant.clone()).ok())
+                .collect();
+            let summaries: Vec<Value> = bundle["grants"].as_array().cloned().unwrap_or_default();
+            let mut adopted = 0usize;
+            for requested in &import.adopt_grants {
+                let Some(grant_id) = requested["grant_id"].as_str() else {
+                    continue;
+                };
+                let Some(summary) = summaries
+                    .iter()
+                    .find(|summary| summary["grant_id"].as_str() == Some(grant_id))
+                else {
+                    return reject(
+                        SpokeRejectCode::ImportConflict,
+                        format!("grant {grant_id} is not in the bundle"),
+                    );
+                };
+                let target_principal = text_field(requested, "principal_id");
+                let capability_strings: Vec<String> = summary["capabilities"]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let capabilities: Vec<&str> =
+                    capability_strings.iter().map(String::as_str).collect();
+                let context_ids: Vec<String> = summary["context_ids"]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let issued = IssuedGrant {
+                    capabilities: &capabilities,
+                    subject_id: summary["subject_id"].as_str(),
+                    context_ids: &context_ids,
+                    shared_access: summary["shared_access"].as_bool().unwrap_or(false),
+                    expires_at: None,
+                };
+                match validate_grant_issuance(
+                    &granter_grants,
+                    &principal_id,
+                    &space_id,
+                    now,
+                    &issued,
+                ) {
+                    SpokeResult::Ok(()) => {}
+                    SpokeResult::Reject(_) => {
+                        return reject(
+                            SpokeRejectCode::ImportConflict,
+                            format!("adopting grant {grant_id} would amplify coverage"),
+                        )
+                    }
+                }
+                let new_grant_id = format!("grt_sqlite_{:04}", space.grants.len() + 1);
+                let mut grant = json!({
+                    "schema_version": 1,
+                    "grant_id": new_grant_id,
+                    "space_id": space_id,
+                    "principal_id": target_principal,
+                    "capabilities": summary["capabilities"],
+                    "created_at": CLOCK_ORIGIN,
+                    "revision": 1,
+                    "extensions": {},
+                });
+                for field in ["subject_id", "context_ids", "shared_access"] {
+                    if let Some(value) = summary.get(field) {
+                        grant[field] = value.clone();
+                    }
+                }
+                space.grants.insert(text_field(&grant, "grant_id"), grant);
+                adopted += 1;
+            }
+            let authority_generation = space.authority_generation + 1;
+            space.authority_generation = authority_generation;
+            if let Some(import) = space.imports.get_mut(&import_id) {
+                import.status = "activated".to_string();
+            }
+            space.touch();
+            let counts = import
+                .report
+                .as_ref()
+                .map(|report| report["counts"].clone())
+                .unwrap_or_else(|| json!({}));
+            let receipt_id = Self::next_receipt_id(space);
+            let receipt = json!({
+                "schema_version": 1,
+                "receipt_id": receipt_id,
+                "op": "memory.imports.activate",
+                "space_id": space_id,
+                "requester_principal_id": principal_id,
+                "idempotency_key": key.clone(),
+                "payload_digest": digest.clone(),
+                "status": "pending",
+                "created_at": CLOCK_ORIGIN,
+                "extensions": {},
+            });
+            space.pending.insert(
+                receipt_id.clone(),
+                PendingWork::Receipt {
+                    result: json!({
+                        "import_id": import_id,
+                        "activated": counts,
+                        "authority_generation": authority_generation,
+                        "grants_adopted": adopted,
+                    }),
+                },
+            );
+            space.receipts.insert(receipt_id, receipt.clone());
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.imports.activate",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
-
     async fn discard_import(
         &self,
-        _principal: &Principal,
-        _request: MemoryImportsDiscardRequest,
+        principal: &Principal,
+        request: MemoryImportsDiscardRequest,
     ) -> SpokeResult<MemoryImportsDiscardResponse> {
-        not_served("memory.imports.discard")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let import_id = text_field(&request_value, "import_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            for capability in ["transfer", "admin"] {
+                let requirement = GrantRequirement {
+                    capability,
+                    subject_id: None,
+                    context_ids: Vec::new(),
+                    reads_shared: false,
+                    subject_all: false,
+                };
+                tri!(Self::require(
+                    space,
+                    now,
+                    &principal_id,
+                    &requirement,
+                    "memory.imports.discard"
+                ));
+            }
+            if Self::replay_conflict(
+                space,
+                &principal_id,
+                "memory.imports.discard",
+                &key,
+                &digest,
+            ) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) = Self::replay(
+                space,
+                &principal_id,
+                "memory.imports.discard",
+                &key,
+                &digest,
+            ) {
+                return SpokeResult::Ok(receipt);
+            }
+            let Some(import) = space.imports.get_mut(&import_id) else {
+                return reject(SpokeRejectCode::NotFound, "import not found");
+            };
+            if import.status != "staged" {
+                return reject(
+                    SpokeRejectCode::ImportConflict,
+                    "discard is only valid before activation",
+                );
+            }
+            import.status = "discarded".to_string();
+            import.chunks.clear();
+            import.bundle = None;
+            import.report = None;
+            space.touch();
+            let mut receipt = Self::receipt(
+                space,
+                "memory.imports.discard",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            receipt["result"] = json!({ "import_id": import_id, "discarded": true });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.imports.discard",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 }
 

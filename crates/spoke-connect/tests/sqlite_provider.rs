@@ -53,7 +53,8 @@ fn expect_reject<T: std::fmt::Debug>(result: SpokeResult<T>) -> SpokeRejectCode 
     }
 }
 
-fn grant(
+fn grant_in(
+    space: &str,
     grant_id: &str,
     principal_id: &str,
     capabilities: &[&str],
@@ -64,7 +65,7 @@ fn grant(
     let mut value = json!({
         "schema_version": 1,
         "grant_id": grant_id,
-        "space_id": SPACE,
+        "space_id": space,
         "principal_id": principal_id,
         "capabilities": capabilities,
         "created_at": "2026-07-23T05:30:00Z",
@@ -81,6 +82,25 @@ fn grant(
         }
     }
     value
+}
+
+fn grant(
+    grant_id: &str,
+    principal_id: &str,
+    capabilities: &[&str],
+    subject: Option<&str>,
+    contexts: Option<&[&str]>,
+    shared_access: Option<bool>,
+) -> Value {
+    grant_in(
+        SPACE,
+        grant_id,
+        principal_id,
+        capabilities,
+        subject,
+        contexts,
+        shared_access,
+    )
 }
 
 /// A provider with the operator's space-wide admin grant plus a subject-scoped
@@ -1558,4 +1578,578 @@ async fn reflections_pinned_to_tombstoned_records_are_excluded() {
         .as_array()
         .expect("list")
         .is_empty());
+}
+
+// ── Task 4: transfer surfaces ─────────────────────────────────────────────
+
+use spoke_memory::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
+
+async fn poll_receipt(provider: &SqliteMemoryProvider, space: &str, receipt_id: &str) -> Value {
+    // Value-level poll: the generated receipts.get response copy rejects the
+    // nested content-free results these transfer receipts carry (report finding).
+    provider
+        .poll_receipt_value(space, receipt_id)
+        .unwrap_or_else(|| panic!("receipt {receipt_id} missing"))
+}
+
+fn transfer_space() -> SqliteMemoryProvider {
+    let provider = provider();
+    provider.provision_grant(
+        OTHER_SPACE,
+        grant_in(
+            OTHER_SPACE,
+            "grt_operator_admin_other",
+            OPERATOR,
+            &["admin"],
+            None,
+            None,
+            None,
+        ),
+    );
+    provider.provision_subject(OTHER_SPACE, SUBJECT, Some(("toy", "character")));
+    provider
+}
+
+#[tokio::test]
+async fn export_chunks_round_trip_with_verifiable_digests() {
+    let provider = transfer_space();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    seed_record(&provider, "rec_2", "A second tally appears by the gate.");
+
+    let created = expect_ok(
+        provider
+            .create_export(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "require_quiescent": false,
+                    "idempotency_key": "exp-1",
+                }))
+                .expect("export request"),
+            )
+            .await,
+    );
+    let created = wire(&created);
+    assert_eq!(created["status"], "pending");
+    let completed = poll_receipt(
+        &provider,
+        SPACE,
+        created["receipt_id"].as_str().expect("receipt id"),
+    )
+    .await;
+    assert_eq!(completed["status"], "committed");
+    let export_id = completed["result"]["export_id"]
+        .as_str()
+        .expect("export id")
+        .to_string();
+    let chunk_count = completed["result"]["chunk_count"]
+        .as_u64()
+        .expect("chunk count");
+    let advertised = completed["result"]["bundle_digest"]
+        .as_str()
+        .expect("bundle digest")
+        .to_string();
+    assert_eq!(completed["result"]["counts"]["records"], 2);
+
+    let mut chunks = Vec::new();
+    for ordinal in 0..chunk_count {
+        let chunk = expect_ok(
+            provider
+                .get_export(
+                    &principal(OPERATOR),
+                    serde_json::from_value(json!({
+                        "space_id": SPACE,
+                        "export_id": export_id,
+                        "chunk_ordinal": ordinal,
+                    }))
+                    .expect("export get"),
+                )
+                .await,
+        );
+        let chunk = wire(&chunk)["chunk"].clone();
+        assert_eq!(chunk["bundle_digest"], json!(advertised));
+        chunks.push(chunk);
+    }
+    // Every advertised chunk digest and the reassembled bundle must verify
+    // against the provider's own chunk JSON (the typed response normalizes
+    // optional fields, so a re-digest of the round-tripped value would drift).
+    let raw_chunks = provider
+        .export_chunks(SPACE, &export_id)
+        .expect("provider chunks");
+    assert_eq!(raw_chunks.len(), chunks.len());
+    for (ordinal, chunk) in raw_chunks.iter().enumerate() {
+        assert_eq!(
+            chunk_digest(chunk).expect("chunk digest"),
+            chunk["chunk_digest"],
+            "chunk {ordinal} digest"
+        );
+        assert_eq!(chunk["bundle_digest"], json!(advertised));
+    }
+    let verification = verify_reassembly(&raw_chunks);
+    assert!(
+        verification.bundle_digest_ok && verification.errors.is_empty(),
+        "chunk verification failed: {:?}",
+        verification.errors
+    );
+    let bundle = reassemble(&raw_chunks).expect("reassemble");
+    assert_eq!(bundle_digest(&bundle).expect("bundle digest"), advertised);
+    assert_eq!(bundle["digest"], json!(advertised));
+    assert_eq!(bundle["records"].as_array().expect("records").len(), 2);
+
+    assert_eq!(
+        expect_reject(
+            provider
+                .get_export(
+                    &principal(OPERATOR),
+                    serde_json::from_value(json!({
+                        "space_id": SPACE,
+                        "export_id": export_id,
+                        "chunk_ordinal": chunk_count + 5,
+                    }))
+                    .expect("export get"),
+                )
+                .await
+        ),
+        SpokeRejectCode::InvalidInput
+    );
+}
+
+#[tokio::test]
+async fn exports_expire_and_quiescent_exports_need_a_drained_space() {
+    let provider = transfer_space();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+
+    // Active space ⇒ the drain barrier refuses a quiescent export.
+    let quiescent = serde_json::from_value::<spoke_schemas::MemoryExportsCreateRequest>(json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "require_quiescent": true,
+        "idempotency_key": "exp-q0",
+    }))
+    .expect("export request");
+    assert_eq!(
+        expect_reject(
+            provider
+                .create_export(&principal(OPERATOR), quiescent)
+                .await
+        ),
+        SpokeRejectCode::InvalidInput
+    );
+
+    // Freeze, then a backup export leaves a pending receipt behind.
+    let _ = expect_ok(
+        provider
+            .freeze_space(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "expected_revision": 1,
+                    "idempotency_key": "fz-exp",
+                }))
+                .expect("freeze request"),
+            )
+            .await,
+    );
+    let backup = expect_ok(
+        provider
+            .create_export(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "require_quiescent": false,
+                    "idempotency_key": "exp-backup",
+                }))
+                .expect("export request"),
+            )
+            .await,
+    );
+    let backup_receipt = wire(&backup)["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+    let quiescent = serde_json::from_value::<spoke_schemas::MemoryExportsCreateRequest>(json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "require_quiescent": true,
+        "idempotency_key": "exp-q1",
+    }))
+    .expect("export request");
+    assert_eq!(
+        expect_reject(
+            provider
+                .create_export(&principal(OPERATOR), quiescent)
+                .await
+        ),
+        SpokeRejectCode::InvalidInput
+    );
+
+    // Draining the pending receipt admits the quiescent export.
+    let completed = poll_receipt(&provider, SPACE, &backup_receipt).await;
+    assert_eq!(completed["status"], "committed");
+    let admitted = expect_ok(
+        provider
+            .create_export(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "require_quiescent": true,
+                    "idempotency_key": "exp-q2",
+                }))
+                .expect("export request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&admitted)["status"], "pending");
+
+    // Retention: the export is unreadable past export_retention_seconds.
+    let admitted_receipt = wire(&admitted)["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+    let completed = poll_receipt(&provider, SPACE, &admitted_receipt).await;
+    let export_id = completed["result"]["export_id"]
+        .as_str()
+        .expect("export id")
+        .to_string();
+    provider.advance_clock(sqlite_memory::EXPORT_RETENTION_SECONDS + 1);
+    assert_eq!(
+        expect_reject(
+            provider
+                .get_export(
+                    &principal(OPERATOR),
+                    serde_json::from_value(json!({
+                        "space_id": SPACE,
+                        "export_id": export_id,
+                        "chunk_ordinal": 0,
+                    }))
+                    .expect("export get"),
+                )
+                .await
+        ),
+        SpokeRejectCode::ExportExpired
+    );
+}
+
+async fn export_chunks_of(provider: &SqliteMemoryProvider) -> (String, Vec<Value>) {
+    let created = expect_ok(
+        provider
+            .create_export(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "include_reflections": true,
+                    "require_quiescent": false,
+                    "idempotency_key": "exp-import",
+                }))
+                .expect("export request"),
+            )
+            .await,
+    );
+    let completed = poll_receipt(
+        provider,
+        SPACE,
+        wire(&created)["receipt_id"].as_str().expect("receipt id"),
+    )
+    .await;
+    let export_id = completed["result"]["export_id"]
+        .as_str()
+        .expect("export id")
+        .to_string();
+    let chunks = provider
+        .export_chunks(SPACE, &export_id)
+        .expect("provider chunks");
+    (export_id, chunks)
+}
+
+async fn stage_chunks(
+    provider: &SqliteMemoryProvider,
+    space: &str,
+    chunks: &[Value],
+    adopt: Value,
+) -> Value {
+    let chunk_count = chunks.len();
+    let mut final_receipt = Value::Null;
+    for (ordinal, chunk) in chunks.iter().enumerate() {
+        // Staged through the provider's Value entry point: the generated
+        // `MemoryExportChunk` union rejects a schema-valid header chunk that the
+        // named `HeaderChunk` accepts (Task 4 report finding), so the typed
+        // request cannot carry a provider chunk until that codegen defect is
+        // fixed.
+        let mut request = json!({
+            "space_id": space,
+            "chunk": chunk,
+            "idempotency_key": format!("stage-{space}-{ordinal}"),
+        });
+        if ordinal == 0 {
+            request["conflict_policy"] = json!("fail");
+            request["adopt_grants"] = adopt.clone();
+        }
+        final_receipt = expect_ok(provider.stage_import_value(&principal(OPERATOR), request));
+        assert_eq!(final_receipt["result"]["chunks_received"], ordinal + 1);
+    }
+    assert_eq!(
+        final_receipt["result"]["chunks_received"],
+        chunk_count as u64
+    );
+    final_receipt
+}
+
+fn empty_target_provider() -> SqliteMemoryProvider {
+    let provider = provider();
+    provider.provision_grant(
+        OTHER_SPACE,
+        grant_in(
+            OTHER_SPACE,
+            "grt_operator_admin_other",
+            OPERATOR,
+            &["admin"],
+            None,
+            None,
+            None,
+        ),
+    );
+    provider
+}
+
+#[tokio::test]
+async fn staged_import_reports_counts_and_activates_atomically() {
+    let provider = empty_target_provider();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    seed_record(&provider, "rec_2", "A second tally appears by the gate.");
+    let _ = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", None, "prof-imp"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    let (_export_id, chunks) = export_chunks_of(&provider).await;
+
+    let staged = stage_chunks(&provider, OTHER_SPACE, &chunks, json!([])).await;
+    assert_eq!(staged["status"], "committed");
+    let report = staged["result"]["staged_report"].clone();
+    assert_eq!(report["counts"]["subjects"], 1);
+    assert_eq!(report["counts"]["records"], 2);
+    assert_eq!(report["counts"]["profiles"], 1);
+    assert_eq!(report["grants_adopted"], 0);
+    assert_eq!(report["grants_dropped"], 2);
+    assert_eq!(report["verification"]["bundle_digest_ok"], true);
+    let import_id = staged["result"]["import_id"]
+        .as_str()
+        .expect("import id")
+        .to_string();
+
+    // Staged data is invisible before activation.
+    let before = expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": OTHER_SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&before)["total_authorized"], 0);
+
+    let activated = expect_ok(
+        provider
+            .activate_import(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": OTHER_SPACE,
+                    "import_id": import_id,
+                    "idempotency_key": "act-1",
+                }))
+                .expect("activate request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&activated)["status"], "pending");
+    let completed = poll_receipt(
+        &provider,
+        OTHER_SPACE,
+        wire(&activated)["receipt_id"].as_str().expect("receipt id"),
+    )
+    .await;
+    assert_eq!(completed["status"], "committed");
+    assert_eq!(completed["result"]["authority_generation"], 2);
+
+    // Identity remap + revisions from 1.
+    let after = expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": OTHER_SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    let after = wire(&after);
+    assert_eq!(after["total_authorized"], 2);
+    for record in after["records"].as_array().expect("records") {
+        assert_eq!(record["revision"], 1);
+        assert_eq!(record["space_id"], OTHER_SPACE);
+    }
+    let ids: Vec<&str> = after["records"]
+        .as_array()
+        .expect("records")
+        .iter()
+        .filter_map(|record| record["record_id"].as_str())
+        .collect();
+    assert_eq!(ids, vec!["rec_1", "rec_2"]);
+
+    // No implicit adoption: the target keeps only its own admin grant.
+    let grants = expect_ok(
+        provider
+            .list_grants(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "space_id": OTHER_SPACE, "limit": 32 }))
+                    .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&grants)["grants"].as_array().expect("grants").len(), 1);
+}
+
+#[tokio::test]
+async fn import_adoption_is_explicit_only_and_non_amplified() {
+    let provider = empty_target_provider();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    let (_export_id, chunks) = export_chunks_of(&provider).await;
+
+    let adopt = json!([{ "grant_id": "grt_reader_context_0002", "principal_id": OPERATOR }]);
+    let staged = stage_chunks(&provider, OTHER_SPACE, &chunks, adopt).await;
+    assert_eq!(staged["result"]["staged_report"]["grants_adopted"], 1);
+    assert_eq!(staged["result"]["staged_report"]["grants_dropped"], 1);
+    let import_id = staged["result"]["import_id"]
+        .as_str()
+        .expect("import id")
+        .to_string();
+
+    let activated = expect_ok(
+        provider
+            .activate_import(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": OTHER_SPACE,
+                    "import_id": import_id,
+                    "idempotency_key": "act-adopt",
+                }))
+                .expect("activate request"),
+            )
+            .await,
+    );
+    let _ = poll_receipt(
+        &provider,
+        OTHER_SPACE,
+        wire(&activated)["receipt_id"].as_str().expect("receipt id"),
+    )
+    .await;
+
+    let grants = expect_ok(
+        provider
+            .list_grants(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "space_id": OTHER_SPACE, "limit": 32 }))
+                    .expect("list request"),
+            )
+            .await,
+    );
+    let grants = wire(&grants)["grants"].clone();
+    let grants = grants.as_array().expect("grants");
+    assert_eq!(grants.len(), 2);
+    assert!(grants
+        .iter()
+        .any(|grant| grant["grant_id"] == "grt_operator_admin_other"));
+    let adopted = grants
+        .iter()
+        .find(|grant| grant["grant_id"] != "grt_operator_admin_other")
+        .expect("adopted grant");
+    assert!(adopted["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .iter()
+        .any(|capability| capability == "records_read"));
+    // The unlisted source admin grant is absent (its id never appears).
+    assert!(!grants
+        .iter()
+        .any(|grant| grant["grant_id"] == "grt_operator_admin_0001"));
+}
+
+#[tokio::test]
+async fn discard_is_pre_activation_only() {
+    let provider = empty_target_provider();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    let (_export_id, chunks) = export_chunks_of(&provider).await;
+    let staged = stage_chunks(&provider, OTHER_SPACE, &chunks, json!([])).await;
+    let import_id = staged["result"]["import_id"]
+        .as_str()
+        .expect("import id")
+        .to_string();
+
+    let discarded = expect_ok(
+        provider
+            .discard_import(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": OTHER_SPACE,
+                    "import_id": import_id,
+                    "idempotency_key": "disc-1",
+                }))
+                .expect("discard request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&discarded)["result"]["discarded"], true);
+
+    assert_eq!(
+        expect_reject(
+            provider
+                .activate_import(
+                    &principal(OPERATOR),
+                    serde_json::from_value(json!({
+                        "space_id": OTHER_SPACE,
+                        "import_id": import_id,
+                        "idempotency_key": "act-after-discard",
+                    }))
+                    .expect("activate request"),
+                )
+                .await
+        ),
+        SpokeRejectCode::ImportConflict
+    );
 }

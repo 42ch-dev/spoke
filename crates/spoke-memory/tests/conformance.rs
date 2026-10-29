@@ -769,6 +769,113 @@ fn validate_stage_from(case_id: &str, stage_from: &Value) {
     }
 }
 
+/// Ids a staged bundle contributes to each translation map.
+fn bundle_map_ids(bundle: &Value, map: &str) -> Vec<String> {
+    let (field, id_field) = match map {
+        "record_id_map" => ("records", "record_id"),
+        "candidate_id_map" => ("candidates", "candidate_id"),
+        "subject_id_map" => ("subjects", "subject_id"),
+        other => panic!("unknown remap map {other}"),
+    };
+    bundle
+        .get(field)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get(id_field).and_then(Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The asset a `stage_from` step staged, located from a `<step>.<path>` reference.
+fn staged_asset_for(case: &Value, reference: &str) -> Option<Value> {
+    let (step_reference, _) = reference.split_once(".result.")?;
+    let index: usize = step_reference.strip_prefix("setup.")?.parse().ok()?;
+    let step = case.get("setup")?.as_array()?.get(index)?;
+    let asset = step.get("stage_from")?.get("asset")?.as_str()?;
+    Some(load_asset(asset))
+}
+
+fn validate_remap_policy(case_id: &str, case: &Value, remap: &Value, setup_len: usize) {
+    let report = remap["report"]
+        .as_str()
+        .unwrap_or_else(|| panic!("case {case_id}: remap_policy_check.report"));
+    validate_value_reference(case_id, report, setup_len);
+    assert_eq!(
+        remap["policy"].as_str(),
+        Some("identity"),
+        "case {case_id}: remap_policy_check.policy"
+    );
+    let maps = remap["maps"]
+        .as_array()
+        .unwrap_or_else(|| panic!("case {case_id}: remap_policy_check.maps"));
+    assert!(
+        !maps.is_empty(),
+        "case {case_id}: empty remap_policy_check.maps"
+    );
+    for map in maps {
+        let name = map
+            .as_str()
+            .unwrap_or_else(|| panic!("case {case_id}: remap map name"));
+        assert!(
+            ["record_id_map", "candidate_id_map", "subject_id_map"].contains(&name),
+            "case {case_id}: unknown remap map {name}"
+        );
+    }
+
+    // An identity check over an empty map proves nothing: the exact source ids the
+    // fixture imports must be declared, and when the staged asset is reachable the
+    // declared set must equal the asset's ids.
+    let expect_keys = remap["expect_keys"]
+        .as_object()
+        .unwrap_or_else(|| panic!("case {case_id}: remap_policy_check.expect_keys"));
+    assert!(!expect_keys.is_empty(), "case {case_id}: empty expect_keys");
+    let staged = staged_asset_for(case, report);
+    if report.contains(".result.staged_report") {
+        assert!(
+            staged.is_some(),
+            "case {case_id}: staged_report reference must resolve to a staged asset"
+        );
+    }
+    for (map, declared) in expect_keys {
+        let declared: Vec<String> = declared
+            .as_array()
+            .unwrap_or_else(|| panic!("case {case_id}: expect_keys.{map}"))
+            .iter()
+            .map(|id| {
+                id.as_str()
+                    .unwrap_or_else(|| panic!("case {case_id}: expect_keys.{map} entry"))
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            !declared.is_empty(),
+            "case {case_id}: expect_keys.{map} is empty"
+        );
+        assert!(
+            maps.iter().any(|name| name.as_str() == Some(map.as_str())),
+            "case {case_id}: expect_keys.{map} is not in maps"
+        );
+        if let Some(bundle) = &staged {
+            let mut expected = bundle_map_ids(bundle, map);
+            let mut declared_sorted = declared.clone();
+            expected.sort();
+            declared_sorted.sort();
+            assert_eq!(
+                declared_sorted, expected,
+                "case {case_id}: expect_keys.{map} must list exactly the staged ids"
+            );
+        }
+    }
+    assert!(
+        remap["inconclusive_on_violation"].as_bool().is_some(),
+        "case {case_id}: remap_policy_check.inconclusive_on_violation"
+    );
+}
+
 fn validate_step(case_id: &str, step: &Value, setup_len: usize) {
     for key in step.as_object().expect("step object").keys() {
         assert!(
@@ -1063,36 +1170,7 @@ fn conformance_corpus_is_well_formed() {
                         );
                     }
                     if let Some(remap) = case.get("remap_policy_check") {
-                        validate_value_reference(
-                            id,
-                            remap["report"]
-                                .as_str()
-                                .unwrap_or_else(|| panic!("case {id}: remap_policy_check.report")),
-                            setup_len,
-                        );
-                        assert_eq!(
-                            remap["policy"].as_str(),
-                            Some("identity"),
-                            "case {id}: remap_policy_check.policy"
-                        );
-                        let maps = remap["maps"]
-                            .as_array()
-                            .unwrap_or_else(|| panic!("case {id}: remap_policy_check.maps"));
-                        assert!(!maps.is_empty(), "case {id}: empty remap_policy_check.maps");
-                        for map in maps {
-                            let name = map
-                                .as_str()
-                                .unwrap_or_else(|| panic!("case {id}: remap map name"));
-                            assert!(
-                                ["record_id_map", "candidate_id_map", "subject_id_map"]
-                                    .contains(&name),
-                                "case {id}: unknown remap map {name}"
-                            );
-                        }
-                        assert!(
-                            remap["inconclusive_on_violation"].as_bool().is_some(),
-                            "case {id}: remap_policy_check.inconclusive_on_violation"
-                        );
+                        validate_remap_policy(id, case, remap, setup_len);
                     }
                     let declares_policy = POLICY_DIRECTIVES
                         .iter()

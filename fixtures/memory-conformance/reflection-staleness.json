@@ -187,6 +187,14 @@
       "remap_policy_check": {
         "report": "setup.4.result.staged_report",
         "maps": ["record_id_map", "candidate_id_map"],
+        "expect_keys": {
+          "record_id_map": [
+            "rec_tw_gate_key_fact",
+            "rec_tw_gate_key_event",
+            "rec_tw_bo_promise"
+          ],
+          "candidate_id_map": ["cand_tw_gate_key_0001"]
+        },
         "policy": "identity",
         "inconclusive_on_violation": false
       },

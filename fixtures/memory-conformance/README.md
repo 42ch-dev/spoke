@@ -194,12 +194,17 @@ test rejects un-namespaced references anywhere in a request payload or directive
   The integrity test enforces the pairing: a policy directive without
   `provider_class` fails, an unknown class fails, and a flag that disagrees with
   the declared class fails.
-- `remap_policy_check` — `{ "report": "<step reference to staged_report>", "maps": ["record_id_map", "candidate_id_map"], "policy": "identity", "inconclusive_on_violation": <bool> }`.
+- `remap_policy_check` — `{ "report": "<step reference to staged_report>", "maps": ["record_id_map", "candidate_id_map"], "expect_keys": { "<map>": ["<source id>", …] }, "policy": "identity", "inconclusive_on_violation": <bool> }`.
   §7.31 requires the target to **reassign** record/candidate ids, not to change
   their values, so a co-operative provider may adopt an identity remap on an
-  empty target space. The harness reads the staged report it already received
-  and verifies the declared policy: every entry of the named maps must satisfy
-  `value == key`.
+  empty target space. The harness reads the staged report it already received and
+  verifies the declared policy: every named map must contain **exactly** the ids
+  listed in `expect_keys` — no missing key, no extra key — and each must map to
+  an identical value (`value == key`). `expect_keys` is mandatory and must be
+  non-empty: an identity assertion over an empty map proves nothing, so the case
+  must state the ids the fixture actually imports. The integrity test checks the
+  declared set against the staged asset's own record/candidate ids, so the vectors
+  cannot drift.
 - `pinned_basis_check` — after the op under test returns reflections, the harness
   calls `memory.reflections.state` for the same space/subject with the
   reflection's pinned `selection` (and `filter`, when present) and compares the

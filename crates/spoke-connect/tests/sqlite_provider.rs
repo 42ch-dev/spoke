@@ -518,6 +518,245 @@ async fn receipts_are_scoped_reads_and_expire_from_the_tombstone() {
 }
 
 #[tokio::test]
+async fn fresh_receipted_work_survives_its_own_retention_window_after_advance() {
+    // QC1-001: receipts and dedup tombstones stamp the provider's CURRENT
+    // clock, so work created after a clock advance is not instantly expired.
+    let provider = provider();
+    provider.advance_clock(sqlite_memory::RECEIPT_RETENTION_SECONDS + 1);
+
+    let captured = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request(
+                    "Fresh work after the advance.",
+                    "cap-fresh",
+                ))
+                .expect("capture request"),
+            )
+            .await,
+    );
+    let captured = wire(&captured);
+    assert_eq!(captured["status"], "committed");
+    let receipt_id = captured["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+
+    // Polling the fresh receipt succeeds immediately (no false eviction).
+    let polled = expect_ok(
+        provider
+            .get_receipt(
+                &principal(READER),
+                serde_json::from_value::<MemoryReceiptsGetRequest>(json!({
+                    "space_id": SPACE,
+                    "receipt_id": receipt_id,
+                }))
+                .expect("receipt request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+
+    // The same-key replay still returns the same receipt.
+    let replayed = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request(
+                    "Fresh work after the advance.",
+                    "cap-fresh",
+                ))
+                .expect("capture request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&replayed)["receipt_id"], receipt_id);
+}
+
+#[tokio::test]
+async fn eviction_never_reissues_a_receipt_id() {
+    // QC1-002 / qc2 W-1: the receipt-id sequence is monotonic in the document
+    // (snapshots included), so after eviction new work draws a fresh id and
+    // the old key answers RECEIPT_EXPIRED from the tombstone — never a
+    // foreign receipt body.
+    let provider = provider();
+    let first = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("First work.", "cap-evict-1"))
+                    .expect("capture request"),
+            )
+            .await,
+    );
+    let first_id = wire(&first)["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+
+    provider.advance_clock(sqlite_memory::RECEIPT_RETENTION_SECONDS + 1);
+
+    // Same key after eviction: RECEIPT_EXPIRED from the dedup tombstone.
+    let replay = provider
+        .capture(
+            &principal(READER),
+            serde_json::from_value(capture_request("First work.", "cap-evict-1"))
+                .expect("capture request"),
+        )
+        .await;
+    assert_eq!(expect_reject(replay), SpokeRejectCode::ReceiptExpired);
+
+    // New work draws a distinct id and polls committed immediately.
+    let second = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("Second work.", "cap-evict-2"))
+                    .expect("capture request"),
+            )
+            .await,
+    );
+    let second = wire(&second);
+    let second_id = second["receipt_id"].as_str().expect("receipt id");
+    assert_ne!(second_id, first_id);
+    let polled = expect_ok(
+        provider
+            .get_receipt(
+                &principal(READER),
+                serde_json::from_value::<MemoryReceiptsGetRequest>(json!({
+                    "space_id": SPACE,
+                    "receipt_id": second_id,
+                }))
+                .expect("receipt request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+}
+
+#[tokio::test]
+async fn consumption_receipt_id_matches_and_polls_for_dismiss_and_review() {
+    // QC1-004: dismiss/review allocate the receipt ONCE — the id written into
+    // candidate.consumed_by.receipt_id is the returned receipt's id, and that
+    // id is pollable via receipts.get.
+    let provider = provider();
+    let receipt_request = |receipt_id: &str| {
+        serde_json::from_value::<MemoryReceiptsGetRequest>(json!({
+            "space_id": SPACE,
+            "receipt_id": receipt_id,
+        }))
+        .expect("receipt request")
+    };
+
+    // Dismiss path.
+    let captured = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("A dismissable note.", "cap-rcpt-1"))
+                    .expect("capture request"),
+            )
+            .await,
+    );
+    let candidate_id = wire(&captured)["result"]["candidate_ids"][0]
+        .as_str()
+        .expect("candidate id")
+        .to_string();
+    let dismissed = expect_ok(
+        provider
+            .dismiss_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                    "expected_revision": 1,
+                    "idempotency_key": "dis-rcpt-1",
+                }))
+                .expect("dismiss request"),
+            )
+            .await,
+    );
+    let dismissed = wire(&dismissed);
+    let receipt_id = dismissed["receipt_id"].as_str().expect("receipt id");
+    let fetched = expect_ok(
+        provider
+            .get_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&fetched)["candidate"]["consumed_by"]["receipt_id"],
+        receipt_id
+    );
+    let polled = expect_ok(
+        provider
+            .get_receipt(&principal(READER), receipt_request(receipt_id))
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+
+    // Review path.
+    let captured = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("A promotable note.", "cap-rcpt-2"))
+                    .expect("capture request"),
+            )
+            .await,
+    );
+    let candidate_id = wire(&captured)["result"]["candidate_ids"][0]
+        .as_str()
+        .expect("candidate id")
+        .to_string();
+    let reviewed = expect_ok(
+        provider
+            .review_candidate(
+                &principal(READER),
+                serde_json::from_value(review_request(
+                    &candidate_id,
+                    1,
+                    "rev-rcpt-1",
+                    json!({ "action": "promote" }),
+                ))
+                .expect("review request"),
+            )
+            .await,
+    );
+    let reviewed = wire(&reviewed);
+    let receipt_id = reviewed["receipt_id"].as_str().expect("receipt id");
+    let fetched = expect_ok(
+        provider
+            .get_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&fetched)["candidate"]["consumed_by"]["receipt_id"],
+        receipt_id
+    );
+    let polled = expect_ok(
+        provider
+            .get_receipt(&principal(READER), receipt_request(receipt_id))
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+}
+
+#[tokio::test]
 async fn snapshot_restore_rolls_back_provider_state() {
     let provider = provider();
     provider.save_snapshot();

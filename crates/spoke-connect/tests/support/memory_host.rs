@@ -8,7 +8,9 @@
 //! `spoke_memory::transfer` + the §7.29 drain barrier), `memory.imports.stage`
 //! (§7.31 identity remap, revisions from 1, source `engine_policy_version`,
 //! explicit-only `adopt_grants`, staged report), `memory.imports.activate`
-//! (atomic, `authority_generation++`), and `memory.imports.discard`.
+//! (atomic, `authority_generation++`), `memory.imports.discard`, and
+//! `memory.receipts.get` (the fixture commits synchronously, so a stored
+//! receipt is terminal by definition; non-requesters need space admin).
 //!
 //! The five transfer ops stay on the §8.2 freeze allowlist: while the store is
 //! frozen, capture/review reject `SpaceFrozen` and the transfer ops still run.
@@ -401,6 +403,43 @@ impl Store {
             .receipts
             .iter()
             .any(|issued| issued.op == op && issued.idempotency_key == key)
+    }
+
+    /// `memory.receipts.get`: the fixture commits synchronously, so a stored
+    /// receipt is terminal by definition. Non-requesters read a receipt only
+    /// with space admin (§7.11 receipt-read authorization), mirroring the
+    /// SQLite reference provider.
+    pub fn get_receipt_value(&self, principal: &Principal, request: Value) -> SpokeResult<Value> {
+        let principal_id = principal_id(principal).to_string();
+        let space_id = request["space_id"].as_str().unwrap_or_default().to_string();
+        let receipt_id = request["receipt_id"].as_str().unwrap_or_default().to_string();
+        let state = self.state.lock().expect("state lock");
+        let Some(issued) = state
+            .receipts
+            .iter()
+            .find(|issued| issued.space_id == space_id && issued.receipt["receipt_id"] == receipt_id)
+        else {
+            return reject(
+                SpokeRejectCode::NotFound,
+                format!("receipt {receipt_id} not found in {space_id}"),
+            );
+        };
+        if issued.principal_id != principal_id {
+            let requirement = GrantRequirement {
+                capability: "admin",
+                subject_id: None,
+                context_ids: Vec::new(),
+                reads_shared: false,
+                subject_all: false,
+            };
+            if !Store::authorized(&state, &principal_id, &space_id, &[requirement]) {
+                return reject(
+                    SpokeRejectCode::NotAuthorized,
+                    format!("no admin grant covers receipt reads in {space_id}"),
+                );
+            }
+        }
+        SpokeResult::Ok(json!({ "receipt": issued.receipt }))
     }
 
     /// Raw export chunks as stored (the typed `exports.get` response
@@ -1601,6 +1640,14 @@ impl Store {
                     "revision": grant["revision"],
                 });
                 for field in ["subject_id", "context_ids", "shared_access"] {
+                    // The generated chunk types drop explicit empty arrays on
+                    // the wire, so summaries must not carry them (the sealed
+                    // digest is verified over the served form).
+                    if field == "context_ids"
+                        && grant[field].as_array().is_some_and(Vec::is_empty)
+                    {
+                        continue;
+                    }
                     if let Some(value) = grant.get(field) {
                         summary[field] = value.clone();
                     }
@@ -1608,7 +1655,7 @@ impl Store {
                 summary
             })
             .collect();
-        json!({
+        let mut bundle = json!({
             "schema_version": 1,
             "bundle_format_version": 1,
             "memory_protocol_version": 1,
@@ -1626,7 +1673,30 @@ impl Store {
             "receipt_summaries": receipt_summaries,
             "grants": grants,
             "extensions": {},
-        })
+        });
+        // The typed Connect round-trip drops explicit empty arrays (the
+        // generated chunk types skip serializing them), which would break the
+        // sealed chunk digests over the wire. The sealed bundle therefore
+        // omits empty arrays: absence is §6.13-valid, and reassembly
+        // reproduces the sealed form exactly. (Same normalization the SQLite
+        // reference provider documents.)
+        for field in [
+            "subjects",
+            "records",
+            "candidates",
+            "profiles",
+            "reflections",
+            "receipt_summaries",
+            "grants",
+        ] {
+            if bundle[field].as_array().is_some_and(Vec::is_empty) {
+                bundle
+                    .as_object_mut()
+                    .expect("bundle object")
+                    .remove(field);
+            }
+        }
+        bundle
     }
 
     fn bundle_counts(bundle: &Value) -> Value {
@@ -1975,10 +2045,20 @@ impl MemoryPort for MemoryHost {
 
     async fn get_receipt(
         &self,
-        _principal: &Principal,
-        _request: MemoryReceiptsGetRequest,
+        principal: &Principal,
+        request: MemoryReceiptsGetRequest,
     ) -> SpokeResult<MemoryReceiptsGetResponse> {
-        not_served()
+        let value = match self.store.get_receipt_value(principal, wire(&request)) {
+            SpokeResult::Ok(value) => value,
+            SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+        };
+        match serde_json::from_value(value) {
+            Ok(response) => SpokeResult::Ok(response),
+            Err(error) => reject(
+                SpokeRejectCode::InternalError,
+                format!("receipts.get response decode failed: {error}"),
+            ),
+        }
     }
 
     async fn create_export(

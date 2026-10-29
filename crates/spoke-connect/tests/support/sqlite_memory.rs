@@ -27,12 +27,12 @@
 //! request after a restore is a fresh execution, not a replay). Normalized tables
 //! are the production shape if this stops being a proof artifact.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -350,11 +350,17 @@ struct Space {
     /// Pinned record ids per reflection (provider-private; basis carries only
     /// digests on the wire).
     reflection_sources: BTreeMap<String, Vec<String>>,
+    /// Reflections activated from a staged import: §7.31 stale
+    /// unconditionally, regardless of whether the translated basis reproduces.
+    imported_reflections: BTreeSet<String>,
     /// Deferred work a pending receipt will complete on the next observation.
     pending: BTreeMap<String, PendingWork>,
     exports: BTreeMap<String, ExportState>,
     imports: BTreeMap<String, ImportState>,
     receipts: BTreeMap<String, Value>,
+    /// Monotonic receipt-id sequence (never rewound by eviction; rides the
+    /// document, so snapshots restore it too).
+    receipt_sequence: u64,
     dedup: BTreeMap<String, DedupEntry>,
 }
 
@@ -910,10 +916,11 @@ impl SqliteMemoryProvider {
             space.imports.insert(import.import_id.clone(), import);
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.imports.stage", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.imports.stage", &principal_id, &digest, &key);
             receipt["result"] = result;
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.imports.stage",
                 &key,
@@ -925,8 +932,12 @@ impl SqliteMemoryProvider {
         reply(receipt)
     }
 
-    fn next_receipt_id(space: &Space) -> String {
-        format!("rcpt_sqlite_{:04}", space.receipts.len() + 1)
+    /// Monotonic receipt id: shared with [`Self::receipt`], so pending-op
+    /// receipts and immediate receipts draw from one sequence that eviction
+    /// never rewinds.
+    fn next_receipt_id(space: &mut Space) -> String {
+        space.receipt_sequence += 1;
+        format!("rcpt_sqlite_{:04}", space.receipt_sequence)
     }
 
     /// Record document created by review outcomes and `records.create`; the
@@ -961,14 +972,22 @@ impl SqliteMemoryProvider {
         })
     }
 
+    /// Fresh receipts stamp the provider's CURRENT clock: after any clock
+    /// advance, new receipted work must survive its own retention window.
+    /// The id sequence is monotonic in the document (never `receipts.len()`),
+    /// so ids stay distinct after eviction — an evicted id is never reissued
+    /// to a different request.
     fn receipt(
-        space: &Space,
+        space: &mut Space,
+        now: DateTime<Utc>,
         op: &str,
         principal_id: &str,
         digest: &str,
         idempotency_key: &str,
     ) -> Value {
-        let sequence = space.receipts.len() + 1;
+        space.receipt_sequence += 1;
+        let sequence = space.receipt_sequence;
+        let stamp = now.to_rfc3339_opts(SecondsFormat::Secs, true);
         let mut receipt = json!({
             "schema_version": 1,
             "receipt_id": format!("rcpt_sqlite_{sequence:04}"),
@@ -977,8 +996,8 @@ impl SqliteMemoryProvider {
             "requester_principal_id": principal_id,
             "payload_digest": digest,
             "status": "committed",
-            "created_at": CLOCK_ORIGIN,
-            "completed_at": CLOCK_ORIGIN,
+            "created_at": stamp,
+            "completed_at": stamp,
             "extensions": {},
         });
         if !idempotency_key.is_empty() {
@@ -1025,8 +1044,32 @@ impl SqliteMemoryProvider {
             .unwrap_or(false)
     }
 
+    /// §7.0.5: the dedup record outlives the receipt body (MEM-R022), so a
+    /// same-key replay after eviction answers RECEIPT_EXPIRED without
+    /// re-executing the op.
+    fn replay_expired(
+        space: &Space,
+        principal_id: &str,
+        op: &str,
+        key: &str,
+        digest: &str,
+    ) -> bool {
+        if key.is_empty() {
+            return false;
+        }
+        let namespace = format!("{principal_id}\u{1f}{op}\u{1f}{key}");
+        space
+            .dedup
+            .get(&namespace)
+            .map(|entry| entry.digest == digest)
+            .unwrap_or(false)
+    }
+
+    /// The dedup tombstone carries the receipt's own clock stamp, so
+    /// `receipts.get` ages it against the same current clock.
     fn remember(
         space: &mut Space,
+        now: DateTime<Utc>,
         principal_id: &str,
         op: &str,
         key: &str,
@@ -1046,7 +1089,7 @@ impl SqliteMemoryProvider {
             DedupEntry {
                 receipt_id: receipt_id.clone(),
                 digest: digest.to_string(),
-                created_at: CLOCK_ORIGIN.to_string(),
+                created_at: now.to_rfc3339_opts(SecondsFormat::Secs, true),
             },
         );
         space.receipts.insert(receipt_id, receipt.clone());
@@ -1232,6 +1275,27 @@ impl SqliteMemoryProvider {
                 .cloned()
                 .collect::<Vec<_>>());
         }
+        // The typed Connect round-trip drops explicit empty arrays (the
+        // generated chunk types skip serializing them), which would break the
+        // sealed chunk digests over the wire. The sealed bundle therefore
+        // omits empty arrays: absence is §6.13-valid, and reassembly
+        // reproduces the sealed form exactly.
+        for field in [
+            "subjects",
+            "records",
+            "candidates",
+            "profiles",
+            "reflections",
+            "receipt_summaries",
+            "grants",
+        ] {
+            if bundle[field].as_array().is_some_and(Vec::is_empty) {
+                bundle
+                    .as_object_mut()
+                    .expect("bundle object")
+                    .remove(field);
+            }
+        }
         bundle
     }
 
@@ -1273,7 +1337,13 @@ impl SqliteMemoryProvider {
 
     /// `§6.9` staleness at read time: the current basis digest for the pinned
     /// selection differs from the reflection's pinned `basis.state_digest`.
+    /// Imported reflections are the §7.31 exception: stale unconditionally,
+    /// even when the translated basis reproduces exactly.
     fn reflection_stale(space: &Space, subject_id: &str, reflection: &Value) -> bool {
+        let reflection_id = reflection["reflection_id"].as_str().unwrap_or_default();
+        if space.imported_reflections.contains(reflection_id) {
+            return true;
+        }
         let Ok(selection) =
             serde_json::from_value::<ReadSelection>(reflection["selection"].clone())
         else {
@@ -1651,6 +1721,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.touch();
             let mut receipt = Self::receipt(
                 space,
+                now,
                 "memory.subjects.ensure",
                 &principal_id,
                 &digest,
@@ -1669,6 +1740,7 @@ impl MemoryPort for SqliteMemoryProvider {
             });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.subjects.ensure",
                 &key,
@@ -1828,7 +1900,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 .cloned()
                 .unwrap_or(Value::Null);
             let mut receipt =
-                Self::receipt(space, "memory.subjects.fence", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.subjects.fence", &principal_id, &digest, &key);
             receipt["result"] = json!({
                 "subject_id": subject_id,
                 "status": subject["status"],
@@ -1837,6 +1909,7 @@ impl MemoryPort for SqliteMemoryProvider {
             });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.subjects.fence",
                 &key,
@@ -1985,10 +2058,11 @@ impl MemoryPort for SqliteMemoryProvider {
             space.grants.insert(grant_id.clone(), issued_grant);
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.grants.grant", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.grants.grant", &principal_id, &digest, &key);
             receipt["result"] = json!({ "grant_id": grant_id, "revision": 1 });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.grants.grant",
                 &key,
@@ -2062,7 +2136,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.grants.insert(grant_id.clone(), revoked);
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.grants.revoke", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.grants.revoke", &principal_id, &digest, &key);
             receipt["result"] = json!({
                 "grant_id": grant_id,
                 "revoked": true,
@@ -2070,6 +2144,7 @@ impl MemoryPort for SqliteMemoryProvider {
             });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.grants.revoke",
                 &key,
@@ -2215,6 +2290,13 @@ impl MemoryPort for SqliteMemoryProvider {
             {
                 return SpokeResult::Ok(receipt);
             }
+            if Self::replay_expired(space, &principal_id, "memory.capture", &key, &digest) {
+                return reject_details(
+                    SpokeRejectCode::ReceiptExpired,
+                    "receipt body evicted; dedup tombstone retained (MEM-R022)",
+                    json!({ "last_known_status": "committed" }),
+                );
+            }
             let content = request_value["content"].clone();
             let text = content["text"].as_str().unwrap_or_default().to_string();
             let kind = request_value["kind_hint"]
@@ -2268,13 +2350,14 @@ impl MemoryPort for SqliteMemoryProvider {
             }
             let classified = candidate_ids.len();
             space.touch();
-            let mut receipt = Self::receipt(space, "memory.capture", &principal_id, &digest, &key);
+            let mut receipt = Self::receipt(space, now, "memory.capture", &principal_id, &digest, &key);
             receipt["result"] = json!({
                 "candidate_ids": candidate_ids,
                 "classified": classified,
             });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.capture",
                 &key,
@@ -2467,7 +2550,17 @@ impl MemoryPort for SqliteMemoryProvider {
                     format!("candidate revision is {revision}"),
                 );
             }
-            let receipt_id = Self::next_receipt_id(space);
+            // Allocate the receipt ONCE and write its id into consumed_by —
+            // never allocate separately from the receipt constructor.
+            let mut receipt = Self::receipt(
+                space,
+                now,
+                "memory.candidates.dismiss",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            let receipt_id = receipt["receipt_id"].clone();
             let content_digest = match jcs_sha256_hex(&candidate["proposed"]["content"]) {
                 SpokeResult::Ok(digest) => digest,
                 SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
@@ -2488,16 +2581,10 @@ impl MemoryPort for SqliteMemoryProvider {
             }
             space.candidates.insert(candidate_id.clone(), consumed);
             space.touch();
-            let mut receipt = Self::receipt(
-                space,
-                "memory.candidates.dismiss",
-                &principal_id,
-                &digest,
-                &key,
-            );
             receipt["result"] = json!({ "candidate_id": candidate_id, "outcome": "dismissed" });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.candidates.dismiss",
                 &key,
@@ -2620,7 +2707,17 @@ impl MemoryPort for SqliteMemoryProvider {
             let proposed = candidate["proposed"].clone();
             let decision = request_value["decision"].clone();
             let action = decision["action"].as_str().unwrap_or("drop").to_string();
-            let receipt_id = Self::next_receipt_id(space);
+            // Allocate the receipt ONCE and write its id into consumed_by —
+            // never allocate separately from the receipt constructor.
+            let mut receipt = Self::receipt(
+                space,
+                now,
+                "memory.candidates.review",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            let receipt_id = receipt["receipt_id"].clone();
             let mut record_ids: Vec<String> = Vec::new();
             match action.as_str() {
                 "promote" => {
@@ -2701,16 +2798,10 @@ impl MemoryPort for SqliteMemoryProvider {
             }
             space.candidates.insert(candidate_id, consumed);
             space.touch();
-            let mut receipt = Self::receipt(
-                space,
-                "memory.candidates.review",
-                &principal_id,
-                &digest,
-                &key,
-            );
             receipt["result"] = json!({ "outcome": outcome, "record_ids": record_ids });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.candidates.review",
                 &key,
@@ -2803,10 +2894,11 @@ impl MemoryPort for SqliteMemoryProvider {
             );
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.records.create", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.records.create", &principal_id, &digest, &key);
             receipt["result"] = json!({ "record_id": record_id, "revision": 1 });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.records.create",
                 &key,
@@ -2934,10 +3026,11 @@ impl MemoryPort for SqliteMemoryProvider {
             space.records.insert(record_id.clone(), updated);
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.records.update", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.records.update", &principal_id, &digest, &key);
             receipt["result"] = json!({ "record_id": record_id, "revision": revision + 1 });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.records.update",
                 &key,
@@ -3017,10 +3110,11 @@ impl MemoryPort for SqliteMemoryProvider {
             space.records.insert(record_id.clone(), tombstoned);
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.records.delete", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.records.delete", &principal_id, &digest, &key);
             receipt["result"] = json!({ "record_id": record_id, "tombstoned": true });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.records.delete",
                 &key,
@@ -3172,6 +3266,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.touch();
             let mut receipt = Self::receipt(
                 space,
+                now,
                 "memory.records.promote",
                 &principal_id,
                 &digest,
@@ -3184,6 +3279,7 @@ impl MemoryPort for SqliteMemoryProvider {
             });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.records.promote",
                 &key,
@@ -3450,13 +3546,14 @@ impl MemoryPort for SqliteMemoryProvider {
             // reflection now reads stale — computed at read time.
             space.touch();
             let mut receipt =
-                Self::receipt(space, "memory.profile.update", &principal_id, &digest, &key);
+                Self::receipt(space, now, "memory.profile.update", &principal_id, &digest, &key);
             receipt["result"] = json!({
                 "profile_kind": profile_kind,
                 "revision": next_revision,
             });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.profile.update",
                 &key,
@@ -3708,7 +3805,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "idempotency_key": key.clone(),
                 "payload_digest": digest.clone(),
                 "status": "pending",
-                "created_at": CLOCK_ORIGIN,
+                "created_at": now.to_rfc3339_opts(SecondsFormat::Secs, true),
                 "extensions": {},
             });
             space.pending.insert(
@@ -3723,6 +3820,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.receipts.insert(receipt_id, receipt.clone());
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.reflections.generate",
                 &key,
@@ -3861,7 +3959,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "idempotency_key": key.clone(),
                 "payload_digest": digest.clone(),
                 "status": "pending",
-                "created_at": CLOCK_ORIGIN,
+                "created_at": now.to_rfc3339_opts(SecondsFormat::Secs, true),
                 "extensions": {},
             });
             space.pending.insert(
@@ -3879,6 +3977,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.receipts.insert(receipt_id, receipt.clone());
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.exports.create",
                 &key,
@@ -4088,9 +4187,14 @@ impl MemoryPort for SqliteMemoryProvider {
                 let subject = rename(&text_field(&reflection, "subject_id"));
                 reflection["subject_id"] = json!(subject);
                 reflection["revision"] = json!(1);
-                // §7.31: imported reflections are stale unconditionally.
+                // §7.31: imported reflections are stale unconditionally. The
+                // stored flag is not enough: read-time staleness recomputes
+                // the basis, and a cooperative provider reproduces the
+                // translated basis exactly — the marker keeps imported
+                // reflections stale regardless.
                 reflection["stale"] = json!(true);
                 let reflection_id = text_field(&reflection, "reflection_id");
+                space.imported_reflections.insert(reflection_id.clone());
                 space.reflections.insert(reflection_id, reflection);
                 reflections += 1;
             }
@@ -4161,10 +4265,12 @@ impl MemoryPort for SqliteMemoryProvider {
                         )
                     }
                 }
-                let new_grant_id = format!("grt_sqlite_{:04}", space.grants.len() + 1);
+                // Adoption keeps the source grant id: the staged bundle names
+                // the grant (§7.31 adopts exactly that grant), and the target
+                // must hold the grant under the same id.
                 let mut grant = json!({
                     "schema_version": 1,
-                    "grant_id": new_grant_id,
+                    "grant_id": grant_id,
                     "space_id": space_id,
                     "principal_id": target_principal,
                     "capabilities": summary["capabilities"],
@@ -4201,7 +4307,7 @@ impl MemoryPort for SqliteMemoryProvider {
                 "idempotency_key": key.clone(),
                 "payload_digest": digest.clone(),
                 "status": "pending",
-                "created_at": CLOCK_ORIGIN,
+                "created_at": now.to_rfc3339_opts(SecondsFormat::Secs, true),
                 "extensions": {},
             });
             space.pending.insert(
@@ -4220,6 +4326,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.receipts.insert(receipt_id, receipt.clone());
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.imports.activate",
                 &key,
@@ -4297,6 +4404,7 @@ impl MemoryPort for SqliteMemoryProvider {
             space.touch();
             let mut receipt = Self::receipt(
                 space,
+                now,
                 "memory.imports.discard",
                 &principal_id,
                 &digest,
@@ -4305,6 +4413,7 @@ impl MemoryPort for SqliteMemoryProvider {
             receipt["result"] = json!({ "import_id": import_id, "discarded": true });
             Self::remember(
                 space,
+                now,
                 &principal_id,
                 "memory.imports.discard",
                 &key,
@@ -4366,13 +4475,13 @@ impl SqliteMemoryProvider {
             space.frozen = frozen;
             space.revision += 1;
             space.touch();
-            let mut receipt = Self::receipt(space, op, &principal_id, &digest, &key);
+            let mut receipt = Self::receipt(space, now, op, &principal_id, &digest, &key);
             receipt["result"] = json!({
                 "status": if frozen { "frozen" } else { "active" },
                 "pending_receipts": space.pending_receipts(),
                 "revision": space.revision,
             });
-            Self::remember(space, &principal_id, op, &key, &digest, &receipt);
+            Self::remember(space, now, &principal_id, op, &key, &digest, &receipt);
             SpokeResult::Ok(receipt)
         }));
         reply(receipt)

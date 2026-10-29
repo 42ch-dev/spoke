@@ -241,7 +241,8 @@
       "what": "fetching every chunk and reassembling reproduces each advertised chunk_digest and the advertised bundle digest; fabricated digests fail the case",
       "requires": [
         "memory.receipts.get polls until the receipt is terminal before the next step",
-        "the harness fetches the remaining ordinals through memory.exports.get and recomputes digests independently (engine verify path or JCS + SHA-256)"
+        "the harness fetches the remaining ordinals through memory.exports.get and recomputes digests independently (engine verify path or JCS + SHA-256)",
+        "the harness additionally asserts the recomputed bundle digest against the pinned foreign constant (independently generated, Python JCS+sha256 of the provider's deterministic sealed bundle for this case)"
       ],
       "setup": [
         {
@@ -271,7 +272,9 @@
         "chunk_ordinal": 0
       },
       "verify_export": {
-        "receipt": "setup.1"
+        "receipt": "setup.1",
+        "foreign_bundle_digest": "ffe6ac22186a61d9018b3c64d923ec3c30769529a5cc61d737f006b047d52ca4",
+        "provider_scope": "sqlite"
       },
       "expect": {
         "success": true,

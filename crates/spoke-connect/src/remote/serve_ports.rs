@@ -267,11 +267,13 @@ pub trait RemoteServePorts: BaselinePorts {
     /// declared `spoke-memory` without providing the service — the responder
     /// answers the dispatch-deny branch.
     ///
-    /// Defaults to `None`, so adding this optional family stays additive:
-    /// every existing `RemoteServePorts` implementation compiles unchanged
-    /// and hosts opt in by overriding it (as
+    /// Owned (not borrowed) because the responder detaches the admitted
+    /// invoke from its response deadline (§14.3): the spawned task must own
+    /// the face. Defaults to `None`, so adding this optional family stays
+    /// additive: every existing `RemoteServePorts` implementation compiles
+    /// unchanged and hosts opt in by overriding it (as
     /// [`RemoteServePortsComposite::with_memory`] does).
-    fn as_memory(&self) -> Option<&dyn RemoteMemoryService> {
+    fn as_memory(&self) -> Option<Arc<dyn RemoteMemoryService>> {
         None
     }
 }
@@ -437,9 +439,7 @@ impl RemoteServePorts for RemoteServePortsComposite {
             .map(|extract| extract.as_ref() as &dyn RemoteExtractService)
     }
 
-    fn as_memory(&self) -> Option<&dyn RemoteMemoryService> {
-        self.memory
-            .as_ref()
-            .map(|memory| memory.as_ref() as &dyn RemoteMemoryService)
+    fn as_memory(&self) -> Option<Arc<dyn RemoteMemoryService>> {
+        self.memory.clone()
     }
 }

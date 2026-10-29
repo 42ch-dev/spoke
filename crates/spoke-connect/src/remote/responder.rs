@@ -1437,14 +1437,34 @@ impl ConnectResponder {
         // A zero budget rejects before the service is invoked (the baseline
         // serve-timeout rejection stands). A non-zero budget that expires
         // AFTER invocation means the mutation may have committed: that is
-        // `OUTCOME_UNCERTAIN`, not a clean internal error.
+        // `OUTCOME_UNCERTAIN`, not a clean internal error. The admitted
+        // invoke is detached from the response deadline (spawned, matching
+        // the TS path's uncancellable promise): expiry answers the budget,
+        // it never cancels the provider task, and polling then observes the
+        // real completion.
         let zero_budget = self.invoke_timeout.is_zero();
         let bounded = if zero_budget {
             None
         } else {
-            tokio::time::timeout(self.invoke_timeout, service.invoke(&peer_id, op, payload))
-                .await
-                .ok()
+            let service = Arc::clone(&service);
+            let peer_id = peer_id.clone();
+            let op = op.to_string();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = tx.send(service.invoke(&peer_id, &op, payload).await);
+            });
+            match tokio::time::timeout(self.invoke_timeout, rx).await {
+                Ok(Ok(result)) => Some(result),
+                // The detached task sends exactly once before dropping the
+                // sender; a receive failure is an internal fault, not a
+                // timeout.
+                Ok(Err(_)) => Some(SpokeResult::Reject(SpokeReject {
+                    code: SpokeRejectCode::InternalError,
+                    message: "memory invoke result channel closed before the result".to_string(),
+                    details: None,
+                })),
+                Err(_) => None,
+            }
         };
         if self.state() == ConnectResponderState::Closed {
             return Ok(());

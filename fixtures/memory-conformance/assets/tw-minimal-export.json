@@ -125,7 +125,23 @@
       "extensions": {}
     }
   ],
-  "profiles": [],
+  "profiles": [
+    {
+      "schema_version": 1,
+      "space_id": "spc_tw_harbor",
+      "subject_id": "toy:character:mira",
+      "profile_kind": "personality",
+      "document": {
+        "format": "markdown",
+        "body": "# Mira\n\nGuarded, loyal, keeps promises.\n"
+      },
+      "updated_by": "prn_tw_cli_operator",
+      "created_at": "2026-07-23T05:50:00Z",
+      "updated_at": "2026-07-23T06:30:00Z",
+      "revision": 3,
+      "extensions": {}
+    }
+  ],
   "reflections": [
     {
       "schema_version": 1,
@@ -135,13 +151,13 @@
       "selection": {
         "mode": "selected_contexts",
         "context_ids": ["ctx_tw_customs_gate"],
-        "include_shared": true
+        "include_shared": false
       },
       "basis": {
-        "source_set_digest": "08ac8d23442a8b06da9e4d1b99f631cabdd1745d42a1710d6cb1f84f702c3243",
+        "source_set_digest": "bb74a29efcfbb5d47b7443fd5c93bf8bfa6b03628f9606cbcfe6d2c1e1be87fc",
         "record_count": 2,
         "profile_revisions": { "personality": 3 },
-        "state_digest": "94ad3f72befb7519d92979c0a7fca563dddbe87710731edf25636402cf992598"
+        "state_digest": "b88eab904901abe0d6e10aee420613ad91238c25184c8b1ce8c7591a3584d6e2"
       },
       "body": {
         "format": "markdown",
@@ -182,6 +198,6 @@
       "revision": 1
     }
   ],
-  "digest": "8b0d8171cf32f15ac366729d56ae9eca28b1cb1349ab117d329cf40c1dc57fbd",
+  "digest": "c822f13a0587206f3757983eaac1a5c0ff10207099f4dd0c8f89832e2db05a40",
   "extensions": {}
 }

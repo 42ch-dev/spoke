@@ -167,9 +167,13 @@
       "outcome": "identical",
       "what": "a chunk fetched past export_retention_seconds is EXPORT_EXPIRED",
       "advance": {
-        "from_step": 0,
-        "path": "limits.export_retention_seconds",
-        "offset_seconds": 1
+        "instants": [
+          {
+            "from_step": 0,
+            "path": "limits.export_retention_seconds",
+            "offset_seconds": 1
+          }
+        ]
       },
       "setup": [
         {
@@ -202,6 +206,52 @@
         "chunk_ordinal": 0
       },
       "expect": { "error_code": "EXPORT_EXPIRED" }
+    },
+    {
+      "id": "export-roundtrip-verifies-advertised-digests",
+      "invariant": "§6.13",
+      "surface": "wire",
+      "outcome": "identical",
+      "what": "fetching every chunk and reassembling reproduces each advertised chunk_digest and the advertised bundle digest; fabricated digests fail the case",
+      "requires": [
+        "memory.receipts.get polls until the receipt is terminal before the next step",
+        "the harness fetches the remaining ordinals through memory.exports.get and recomputes digests independently (engine verify path or JCS + SHA-256)"
+      ],
+      "setup": [
+        {
+          "op": "memory.exports.create",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "require_quiescent": false,
+            "idempotency_key": "exp-tw-roundtrip-0007"
+          }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "receipt_id": "$ref:0.receipt_id"
+          },
+          "expect": { "receipt_status": "committed" }
+        }
+      ],
+      "op": "memory.exports.get",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "export_id": "$ref:1.result.export_id",
+        "chunk_ordinal": 0
+      },
+      "verify_export": { "receipt_step": 1 },
+      "expect": {
+        "success": true,
+        "verified": {
+          "all_chunk_digests": true,
+          "chunk_metadata_consistent": true,
+          "bundle_digest_matches_receipt": true,
+          "reassembled_bundle_verifies": true
+        }
+      }
     }
   ]
 }

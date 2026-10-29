@@ -161,6 +161,66 @@
         "rationale_codes": ["oversized_content", "multiple_claims", "core_kind"],
         "confidence": 0.6
       }
+    },
+    {
+      "id": "classification-stable-within-a-provider",
+      "invariant": "§6.7",
+      "surface": "wire",
+      "outcome": "variable",
+      "what": "two captures of identical content produce candidates whose advisory dispositions match within the provider (no cross-provider disposition is imposed)",
+      "requires": [
+        "the provider admits each capture with at least one candidate",
+        "the harness resolves `$ref` inside `then` against the response sequence [op-under-test, then[0], then[1], ...]"
+      ],
+      "op": "memory.capture",
+      "request": {
+        "space_id": "spc_tw_harbor",
+        "subject_id": "toy:character:mira",
+        "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+        "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+        "kind_hint": "fact",
+        "idempotency_key": "cap-tw-classify-0001"
+      },
+      "expect": { "receipt_status": "committed" },
+      "then": [
+        {
+          "op": "memory.capture",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira",
+            "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
+            "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
+            "kind_hint": "fact",
+            "idempotency_key": "cap-tw-classify-0002"
+          },
+          "expect": { "receipt_status": "committed" }
+        },
+        {
+          "op": "memory.candidates.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:0.result.candidate_ids.0"
+          },
+          "expect": { "success": true }
+        },
+        {
+          "op": "memory.candidates.get",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "candidate_id": "$ref:1.result.candidate_ids.0"
+          },
+          "expect": {
+            "success": true,
+            "unchanged": [
+              {
+                "path": "candidate.classification.disposition",
+                "from_step": 2,
+                "from_path": "candidate.classification.disposition"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

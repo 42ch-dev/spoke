@@ -175,16 +175,26 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "an imported reflection reads stale: true after activation even though the bundle exported it as fresh",
+      "what": "an imported reflection whose pinned basis would still match reads stale: true after activation, because §7.31 requires unconditional revalidation",
       "requires": [
-        "prn_tw_cli_operator holds transfer + admin on spc_tw_harbor",
+        "an empty target space spc_tw_import_target exists and its subject ids are absent",
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
+        "the exported bundle pins personality revision 3 and the two ctx_tw_customs_gate records and ships that profile, so a recomputed basis would match",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
       "setup": [
         {
+          "op": "memory.subjects.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "subject_id": "toy:character:mira"
+          },
+          "expect": { "error_code": "NOT_FOUND" }
+        },
+        {
           "op": "memory.imports.stage",
           "request": {
-            "space_id": "spc_tw_harbor",
+            "space_id": "spc_tw_import_target",
             "conflict_policy": "fail",
             "adopt_grants": []
           },
@@ -197,8 +207,8 @@
         {
           "op": "memory.imports.activate",
           "request": {
-            "space_id": "spc_tw_harbor",
-            "import_id": "$ref:0.result.import_id",
+            "space_id": "spc_tw_import_target",
+            "import_id": "$ref:1.result.import_id",
             "idempotency_key": "imp-tw-stale-0003"
           },
           "expect": { "receipt_status": "pending" }
@@ -206,24 +216,22 @@
         {
           "op": "memory.receipts.get",
           "request": {
-            "space_id": "spc_tw_harbor",
-            "receipt_id": "$ref:1.receipt_id"
+            "space_id": "spc_tw_import_target",
+            "receipt_id": "$ref:2.receipt_id"
           },
           "expect": { "receipt_status": "committed" }
         }
       ],
       "op": "memory.reflections.list",
       "request": {
-        "space_id": "spc_tw_harbor",
+        "space_id": "spc_tw_import_target",
         "subject_id": "toy:character:mira",
         "limit": 10
       },
       "expect": {
         "success": true,
-        "state": [
-          { "path": "reflections.0.stale", "equals": true },
-          { "path": "reflections.0.revision", "equals": 1 }
-        ]
+        "sizes": [{ "path": "reflections", "equals": 1 }],
+        "state": [{ "path": "reflections.0.stale", "equals": true }]
       }
     }
   ]

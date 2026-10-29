@@ -1,6 +1,6 @@
 {
   "id": "staging-import",
-  "title": "Staged-import verification report, explicit-only grant adoption, translation maps",
+  "title": "Staged-import verification report, explicit-only grant adoption after activation, translation maps",
   "protocol_refs": ["§7.31", "§7.32", "§12.3", "MEM-R025"],
   "cases": [
     {
@@ -28,7 +28,7 @@
           "subjects": 2,
           "records": 3,
           "candidates": 1,
-          "profiles": 0,
+          "profiles": 1,
           "reflections": 1,
           "receipt_summaries": 1
         },
@@ -123,12 +123,13 @@
       "outcome": "identical",
       "what": "staging the exported bundle reports the closed counts shape and drops unlisted grants",
       "requires": [
-        "prn_tw_cli_operator holds transfer + admin on spc_tw_harbor",
+        "an empty target space spc_tw_import_target exists and its subject ids are absent",
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
       "op": "memory.imports.stage",
       "request": {
-        "space_id": "spc_tw_harbor",
+        "space_id": "spc_tw_import_target",
         "conflict_policy": "fail",
         "adopt_grants": []
       },
@@ -145,7 +146,7 @@
               "subjects": 2,
               "records": 3,
               "candidates": 1,
-              "profiles": 0,
+              "profiles": 1,
               "reflections": 1,
               "receipt_summaries": 1
             }
@@ -164,41 +165,58 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "only the grants named in adopt_grants are created on the target",
+      "what": "after activation the target space holds exactly the adopted grant; the unlisted grant is absent",
       "requires": [
-        "prn_tw_cli_operator holds transfer + admin on spc_tw_harbor",
-        "spc_tw_harbor already holds grt_tw_mira_context_0001 and grt_tw_operator_admin_0002",
+        "an empty target space spc_tw_import_target exists and its subject ids are absent",
+        "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
-      "op": "memory.imports.stage",
-      "request": {
-        "space_id": "spc_tw_harbor",
-        "conflict_policy": "fail",
-        "adopt_grants": [
-          { "grant_id": "grt_tw_mira_context_0001", "principal_id": "prn_tw_cli_operator" }
-        ]
-      },
-      "stage_from": {
-        "asset": "assets/tw-minimal-export.json",
-        "chunk_limit": 4096
-      },
-      "expect": {
-        "receipt_status": "committed",
-        "state": [
-          { "path": "result.staged_report.grants_adopted", "equals": 1 },
-          { "path": "result.staged_report.grants_dropped", "equals": 1 }
-        ]
-      },
-      "then": [
+      "setup": [
         {
-          "op": "memory.grants.list",
-          "request": { "space_id": "spc_tw_harbor", "limit": 32 },
-          "expect": {
-            "success": true,
-            "sizes": [{ "path": "grants", "equals": 3 }]
-          }
+          "op": "memory.imports.stage",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "conflict_policy": "fail",
+            "adopt_grants": [
+              { "grant_id": "grt_tw_mira_context_0001", "principal_id": "prn_tw_cli_operator" }
+            ]
+          },
+          "stage_from": {
+            "asset": "assets/tw-minimal-export.json",
+            "chunk_limit": 4096
+          },
+          "expect": { "receipt_status": "committed" }
+        },
+        {
+          "op": "memory.imports.activate",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "import_id": "$ref:0.result.import_id",
+            "idempotency_key": "imp-tw-adopt-0001"
+          },
+          "expect": { "receipt_status": "pending" }
+        },
+        {
+          "op": "memory.receipts.get",
+          "request": {
+            "space_id": "spc_tw_import_target",
+            "receipt_id": "$ref:1.receipt_id"
+          },
+          "expect": { "receipt_status": "committed" }
         }
-      ]
+      ],
+      "op": "memory.grants.list",
+      "request": { "space_id": "spc_tw_import_target", "limit": 32 },
+      "expect": {
+        "success": true,
+        "sizes": [{ "path": "grants", "equals": 1 }],
+        "contains": [
+          { "path": "grants", "match": { "grant_id": "grt_tw_mira_context_0001" } }
+        ],
+        "excludes": [
+          { "path": "grants", "match": { "grant_id": "grt_tw_operator_admin_0002" } }
+        ]
+      }
     }
   ]
 }

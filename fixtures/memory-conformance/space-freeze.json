@@ -135,9 +135,9 @@
       "invariant": "MEM-R023",
       "surface": "wire",
       "outcome": "identical",
-      "what": "a quiescent export is refused while another receipt is still pending, even in a frozen space",
+      "what": "with an independently held receipt pending in a frozen space, a quiescent export is refused",
       "requires": [
-        "memory.receipts.get polls until the receipt is terminal before the next step"
+        "the harness can hold the queued async work of setup[1] uncommitted (`hold: pending`) and observe it in provider state"
       ],
       "setup": [
         {
@@ -155,6 +155,16 @@
             "subject_id": "toy:character:mira",
             "require_quiescent": false,
             "idempotency_key": "exp-tw-backup-0003"
+          },
+          "hold": "pending",
+          "expect": { "receipt_status": "pending" }
+        },
+        {
+          "op": "memory.spaces.list",
+          "request": { "limit": 10 },
+          "expect": {
+            "success": true,
+            "minimums": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
           }
         }
       ],
@@ -175,9 +185,9 @@
       "invariant": "MEM-R023",
       "surface": "wire",
       "outcome": "identical",
-      "what": "once the prior receipt drains, the frozen space admits a quiescent export",
+      "what": "releasing the held receipt drains the space, and the frozen space then admits a quiescent export",
       "requires": [
-        "memory.receipts.get polls until the receipt is terminal before the next step"
+        "the harness can hold the queued async work of setup[1] uncommitted (`hold: pending`) and release it via `release`"
       ],
       "setup": [
         {
@@ -195,17 +205,20 @@
             "subject_id": "toy:character:mira",
             "require_quiescent": false,
             "idempotency_key": "exp-tw-backup-0005"
-          }
+          },
+          "hold": "pending",
+          "expect": { "receipt_status": "pending" }
         },
         {
-          "op": "memory.receipts.get",
-          "request": {
-            "space_id": "spc_tw_harbor",
-            "receipt_id": "$ref:1.receipt_id"
-          },
-          "expect": { "receipt_status": "committed" }
+          "op": "memory.spaces.list",
+          "request": { "limit": 10 },
+          "expect": {
+            "success": true,
+            "minimums": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
+          }
         }
       ],
+      "release": [1],
       "op": "memory.exports.create",
       "request": {
         "space_id": "spc_tw_harbor",

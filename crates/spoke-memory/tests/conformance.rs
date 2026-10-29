@@ -67,7 +67,7 @@ const ENGINE_SCENARIOS: [&str; 8] = [
 ];
 
 /// Closed `expect` key set for wire cases (interpreted by the loopback runner).
-const WIRE_EXPECT_KEYS: [&str; 9] = [
+const WIRE_EXPECT_KEYS: [&str; 15] = [
     "error_code",
     "details",
     "success",
@@ -75,12 +75,31 @@ const WIRE_EXPECT_KEYS: [&str; 9] = [
     "absent",
     "present",
     "sizes",
+    "minimums",
+    "contains",
+    "excludes",
+    "unchanged",
+    "verified",
+    "uniform",
     "receipt_status",
     "same_receipt_as",
 ];
 
 /// Closed key set of a `setup` / `then` step.
-const STEP_KEYS: [&str; 4] = ["op", "request", "expect", "stage_from"];
+const STEP_KEYS: [&str; 5] = ["op", "request", "expect", "stage_from", "hold"];
+
+/// `expect` values that must be arrays of small objects.
+const WIRE_EXPECT_LISTS: [&str; 9] = [
+    "state",
+    "absent",
+    "present",
+    "sizes",
+    "minimums",
+    "contains",
+    "excludes",
+    "unchanged",
+    "uniform",
+];
 
 /// Dispatch-layer codes that appear at the Connect boundary (§4.1).
 const DISPATCH_CODES: [&str; 2] = ["capability_missing", "op_unsupported"];
@@ -657,6 +676,13 @@ fn validate_step(case_id: &str, step: &Value) {
             "case {case_id}: stage_from.chunk_limit"
         );
     }
+    if let Some(hold) = step.get("hold") {
+        assert_eq!(
+            hold.as_str(),
+            Some("pending"),
+            "case {case_id}: hold must be \"pending\""
+        );
+    }
     if let Some(step_expect) = step.get("expect").and_then(Value::as_object) {
         for key in step_expect.keys() {
             assert!(
@@ -760,7 +786,7 @@ fn conformance_corpus_is_well_formed() {
                             "case {id}: unknown error code {code}"
                         );
                     }
-                    for list_key in ["state", "absent", "present", "sizes"] {
+                    for list_key in WIRE_EXPECT_LISTS {
                         if let Some(entries) = expect.get(list_key) {
                             assert!(
                                 entries.as_array().is_some(),
@@ -768,18 +794,77 @@ fn conformance_corpus_is_well_formed() {
                             );
                         }
                     }
+                    if let Some(verbatim) = expect.get("verified") {
+                        let verified = verbatim
+                            .as_object()
+                            .unwrap_or_else(|| panic!("case {id}: verified must be an object"));
+                        assert!(!verified.is_empty(), "case {id}: empty verified");
+                        for (name, value) in verified {
+                            assert!(
+                                value.as_bool().is_some(),
+                                "case {id}: verified.{name} must be a boolean"
+                            );
+                        }
+                    }
+                    if let Some(details) = expect.get("details") {
+                        assert!(details.is_object(), "case {id}: details must be an object");
+                    }
                     if let Some(advance) = case.get("advance") {
+                        let instants = advance["instants"]
+                            .as_array()
+                            .unwrap_or_else(|| panic!("case {id}: advance.instants"));
+                        assert!(!instants.is_empty(), "case {id}: empty advance.instants");
+                        for instant in instants {
+                            assert!(
+                                instant["from_step"].as_u64().is_some(),
+                                "case {id}: advance instant from_step"
+                            );
+                            assert!(
+                                instant["path"].as_str().is_some(),
+                                "case {id}: advance instant path"
+                            );
+                            assert!(
+                                instant["offset_seconds"].as_i64().is_some(),
+                                "case {id}: advance instant offset_seconds"
+                            );
+                        }
+                        if let Some(choose) = advance.get("choose") {
+                            assert_eq!(choose.as_str(), Some("min"), "case {id}: advance.choose");
+                            assert!(
+                                instants.len() > 1,
+                                "case {id}: advance.choose needs several instants"
+                            );
+                        }
+                    }
+                    if let Some(release) = case.get("release") {
+                        let steps = release
+                            .as_array()
+                            .unwrap_or_else(|| panic!("case {id}: release must be an array"));
+                        let setup_len = case
+                            .get("setup")
+                            .and_then(Value::as_array)
+                            .map_or(0, Vec::len);
+                        for step in steps {
+                            let index = step
+                                .as_u64()
+                                .unwrap_or_else(|| panic!("case {id}: release index"));
+                            assert!(
+                                (index as usize) < setup_len,
+                                "case {id}: release index {index} outside setup"
+                            );
+                        }
+                    }
+                    if let Some(verify) = case.get("verify_export") {
+                        let receipt_step = verify["receipt_step"]
+                            .as_u64()
+                            .unwrap_or_else(|| panic!("case {id}: verify_export.receipt_step"));
+                        let setup_len = case
+                            .get("setup")
+                            .and_then(Value::as_array)
+                            .map_or(0, Vec::len);
                         assert!(
-                            advance["from_step"].as_u64().is_some(),
-                            "case {id}: advance.from_step"
-                        );
-                        assert!(
-                            advance["path"].as_str().is_some(),
-                            "case {id}: advance.path"
-                        );
-                        assert!(
-                            advance["offset_seconds"].as_u64().is_some(),
-                            "case {id}: advance.offset_seconds"
+                            (receipt_step as usize) < setup_len,
+                            "case {id}: verify_export.receipt_step outside setup"
                         );
                     }
                     if let Some(stage_from) = case.get("stage_from") {

@@ -83,15 +83,24 @@
       "invariant": "MEM-R022",
       "surface": "wire",
       "outcome": "identical",
-      "what": "replaying the identical request after the receipt body was evicted returns RECEIPT_EXPIRED from the dedup tombstone and does not execute the capture again",
+      "what": "replaying the identical request after the receipt body was evicted returns RECEIPT_EXPIRED from the dedup tombstone, and the capture effect set is unchanged",
       "requires": [
-        "provider declares dedup_retention_seconds > receipt_retention_seconds (memory.describe)",
-        "the harness advances the clock to receipt_retention_seconds + 1 after the first commit and stays inside dedup_retention_seconds"
+        "provider declares dedup_retention_seconds > receipt_retention_seconds + 1 (memory.describe), so min(receipt_retention + 1, dedup_retention − 1) is strictly past receipt eviction and strictly inside the dedup window"
       ],
       "advance": {
-        "from_step": 0,
-        "path": "limits.receipt_retention_seconds",
-        "offset_seconds": 1
+        "choose": "min",
+        "instants": [
+          {
+            "from_step": 0,
+            "path": "limits.receipt_retention_seconds",
+            "offset_seconds": 1
+          },
+          {
+            "from_step": 0,
+            "path": "limits.dedup_retention_seconds",
+            "offset_seconds": -1
+          }
+        ]
       },
       "setup": [
         {
@@ -109,6 +118,14 @@
             "idempotency_key": "cap-tw-idem-0003"
           },
           "expect": { "receipt_status": "committed" }
+        },
+        {
+          "op": "memory.candidates.list",
+          "request": {
+            "space_id": "spc_tw_harbor",
+            "subject_id": "toy:character:mira"
+          },
+          "expect": { "success": true }
         }
       ],
       "op": "memory.capture",
@@ -129,7 +146,9 @@
           },
           "expect": {
             "success": true,
-            "sizes": [{ "path": "candidates", "equals": 1 }]
+            "unchanged": [
+              { "path": "candidates", "from_step": 2, "from_path": "candidates" }
+            ]
           }
         }
       ]

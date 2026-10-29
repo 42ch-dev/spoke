@@ -55,6 +55,10 @@ export type IdempotencyKey = string;
 export type PayloadDigest = string;
 export type Status = "committed";
 export type Op1 = "memory.spaces.freeze";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey1 = string;
 export type Status1 = "committed";
 export type Status2 = "frozen";
 /**
@@ -67,7 +71,7 @@ export type ReceiptId1 = string;
 export type Op2 = string;
 export type SpaceId1 = string;
 export type RequesterPrincipalId1 = string;
-export type IdempotencyKey1 = string;
+export type IdempotencyKey2 = string;
 export type PayloadDigest1 = string;
 export type Status3 = "failed";
 /**
@@ -117,12 +121,24 @@ export type RetryClass18 = "uncertain";
 export type RetryClass19 = "retryable";
 export type RetryClass20 = "retryable" | "terminal" | "uncertain";
 export type Op3 = "memory.spaces.freeze";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey3 = string;
 export type Status4 = "failed";
 export type SpacesUnfreezePollBranch = (CommittedReceipt & AllOf4 & AllOf5) | (FailedReceipt & AllOf6 & AllOf7);
 export type Op4 = "memory.spaces.unfreeze";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey4 = string;
 export type Status5 = "committed";
 export type Status6 = "active";
 export type Op5 = "memory.spaces.unfreeze";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey5 = string;
 export type Status7 = "failed";
 export type SubjectsEnsurePollBranch = (CommittedReceipt & AllOf8 & AllOf9) | (FailedReceipt & AllOf10 & AllOf11);
 export type Op6 = "memory.subjects.ensure";
@@ -133,61 +149,137 @@ export type Op7 = "memory.subjects.ensure";
 export type Status10 = "failed";
 export type SubjectsFencePollBranch = (CommittedReceipt & AllOf12 & AllOf13) | (FailedReceipt & AllOf14 & AllOf15);
 export type Op8 = "memory.subjects.fence";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey6 = string;
 export type Status11 = "committed";
 export type SubjectId1 = string;
 export type Status12 = "active" | "fenced" | "archived";
 export type Op9 = "memory.subjects.fence";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey7 = string;
 export type Status13 = "failed";
 export type GrantsGrantPollBranch = (CommittedReceipt & AllOf16 & AllOf17) | (FailedReceipt & AllOf18 & AllOf19);
 export type Op10 = "memory.grants.grant";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey8 = string;
 export type Status14 = "committed";
 export type GrantId = string;
 export type Op11 = "memory.grants.grant";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey9 = string;
 export type Status15 = "failed";
 export type RecordsUpdatePollBranch = (CommittedReceipt & AllOf20 & AllOf21) | (FailedReceipt & AllOf22 & AllOf23);
 export type Op12 = "memory.records.update";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey10 = string;
 export type Status16 = "committed";
 export type RecordId = string;
 export type Op13 = "memory.records.update";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey11 = string;
 export type Status17 = "failed";
 export type GrantsRevokePollBranch = (CommittedReceipt & AllOf24 & AllOf25) | (FailedReceipt & AllOf26 & AllOf27);
 export type Op14 = "memory.grants.revoke";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey12 = string;
 export type Status18 = "committed";
 export type GrantId1 = string;
 export type Op15 = "memory.grants.revoke";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey13 = string;
 export type Status19 = "failed";
 export type CapturePollBranch = (CommittedReceipt & AllOf28 & AllOf29) | (FailedReceipt & AllOf30 & AllOf31);
 export type Op16 = "memory.capture";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey14 = string;
 export type Status20 = "committed";
 export type Op17 = "memory.capture";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey15 = string;
 export type Status21 = "failed";
 export type CandidatesDismissPollBranch = (CommittedReceipt & AllOf32 & AllOf33) | (FailedReceipt & AllOf34 & AllOf35);
 export type Op18 = "memory.candidates.dismiss";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey16 = string;
 export type Status22 = "committed";
 export type CandidateId = string;
 export type Outcome = "dismissed";
 export type Op19 = "memory.candidates.dismiss";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey17 = string;
 export type Status23 = "failed";
 export type CandidatesReviewPollBranch = (CommittedReceipt & AllOf36 & AllOf37) | (FailedReceipt & AllOf38 & AllOf39);
 export type Op20 = "memory.candidates.review";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey18 = string;
 export type Status24 = "committed";
 export type Outcome1 = "promoted" | "fragmented" | "dropped";
 export type Op21 = "memory.candidates.review";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey19 = string;
 export type Status25 = "failed";
 export type RecordsCreatePollBranch = (CommittedReceipt & AllOf40 & AllOf41) | (FailedReceipt & AllOf42 & AllOf43);
 export type Op22 = "memory.records.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey20 = string;
 export type Status26 = "committed";
 export type RecordId1 = string;
 export type Op23 = "memory.records.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey21 = string;
 export type Status27 = "failed";
 export type RecordsDeletePollBranch = (CommittedReceipt & AllOf44 & AllOf45) | (FailedReceipt & AllOf46 & AllOf47);
 export type Op24 = "memory.records.delete";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey22 = string;
 export type Status28 = "committed";
 export type RecordId2 = string;
 export type Op25 = "memory.records.delete";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey23 = string;
 export type Status29 = "failed";
 export type RecordsPromotePollBranch = (CommittedReceipt & AllOf48 & AllOf49) | (FailedReceipt & AllOf50 & AllOf51);
 export type Op26 = "memory.records.promote";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey24 = string;
 export type Status30 = "committed";
 export type RecordId3 = string;
 /**
@@ -198,16 +290,32 @@ export type Visibility = "shared";
 export type Visibility1 = "context";
 export type ContextId = string;
 export type Op27 = "memory.records.promote";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey25 = string;
 export type Status31 = "failed";
 export type ProfileUpdatePollBranch = (CommittedReceipt & AllOf52 & AllOf53) | (FailedReceipt & AllOf54 & AllOf55);
 export type Op28 = "memory.profile.update";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey26 = string;
 export type Status32 = "committed";
 export type ProfileKind = string;
 export type Op29 = "memory.profile.update";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey27 = string;
 export type Status33 = "failed";
 export type ReflectionsGeneratePollBranch =
   (CommittedReceipt & AllOf56 & AllOf57) | (PendingReceipt & AllOf58 & AllOf59) | (FailedReceipt & AllOf60 & AllOf61);
 export type Op30 = "memory.reflections.generate";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey28 = string;
 export type Status34 = "committed";
 export type ReflectionId = string;
 export type UnitKind = string;
@@ -221,46 +329,98 @@ export type ReceiptId2 = string;
 export type Op31 = string;
 export type SpaceId2 = string;
 export type RequesterPrincipalId2 = string;
-export type IdempotencyKey2 = string;
+export type IdempotencyKey29 = string;
 export type PayloadDigest2 = string;
 export type Status35 = "pending";
 export type Op32 = "memory.reflections.generate";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey30 = string;
 export type Status36 = "pending";
 export type Op33 = "memory.reflections.generate";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey31 = string;
 export type Status37 = "failed";
 export type ExportsCreatePollBranch =
   (CommittedReceipt & AllOf62 & AllOf63) | (PendingReceipt & AllOf64 & AllOf65) | (FailedReceipt & AllOf66 & AllOf67);
 export type Op34 = "memory.exports.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey32 = string;
 export type Status38 = "committed";
 export type ExportId = string;
 export type BundleDigest = string;
 export type Op35 = "memory.exports.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey33 = string;
 export type Status39 = "pending";
 export type Op36 = "memory.exports.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey34 = string;
 export type Status40 = "failed";
 export type ImportsStagePollBranch =
   (CommittedReceipt & AllOf68 & AllOf69) | (PendingReceipt & AllOf70 & AllOf71) | (FailedReceipt & AllOf72 & AllOf73);
 export type Op37 = "memory.imports.stage";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey35 = string;
 export type Status41 = "committed";
 export type ImportId = string;
 export type Op38 = "memory.imports.stage";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey36 = string;
 export type Status42 = "pending";
 export type Op39 = "memory.imports.stage";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey37 = string;
 export type Status43 = "failed";
 export type ImportsActivatePollBranch =
   (CommittedReceipt & AllOf74 & AllOf75) | (PendingReceipt & AllOf76 & AllOf77) | (FailedReceipt & AllOf78 & AllOf79);
 export type Op40 = "memory.imports.activate";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey38 = string;
 export type Status44 = "committed";
 export type ImportId1 = string;
 export type Op41 = "memory.imports.activate";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey39 = string;
 export type Status45 = "pending";
 export type Op42 = "memory.imports.activate";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey40 = string;
 export type Status46 = "failed";
 export type ImportsDiscardPollBranch = (CommittedReceipt & AllOf80 & AllOf81) | (FailedReceipt & AllOf82 & AllOf83);
 export type Op43 = "memory.imports.discard";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey41 = string;
 export type Status47 = "committed";
 export type ImportId2 = string;
 export type Op44 = "memory.imports.discard";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey42 = string;
 export type Status48 = "failed";
 /**
  * Memory error envelope: shared ErrorEnvelope plus required details.retry_class (§14.1–14.2).
@@ -332,6 +492,7 @@ export interface ExtensionValue {
  */
 export interface AllOf {
   op: Op1;
+  idempotency_key: IdempotencyKey1;
   [k: string]: unknown | undefined;
 }
 export interface AllOf1 {
@@ -356,7 +517,7 @@ export interface FailedReceipt {
   op: Op2;
   space_id: SpaceId1;
   requester_principal_id: RequesterPrincipalId1;
-  idempotency_key?: IdempotencyKey1;
+  idempotency_key?: IdempotencyKey2;
   payload_digest: PayloadDigest1;
   status: Status3;
   error: MemoryErrorEnvelope;
@@ -714,6 +875,7 @@ export interface ErrorDetails21 {
 }
 export interface AllOf2 {
   op: Op3;
+  idempotency_key: IdempotencyKey3;
   [k: string]: unknown | undefined;
 }
 export interface AllOf3 {
@@ -725,6 +887,7 @@ export interface AllOf3 {
  */
 export interface AllOf4 {
   op: Op4;
+  idempotency_key: IdempotencyKey4;
   [k: string]: unknown | undefined;
 }
 export interface AllOf5 {
@@ -739,6 +902,7 @@ export interface Result1 {
 }
 export interface AllOf6 {
   op: Op5;
+  idempotency_key: IdempotencyKey5;
   [k: string]: unknown | undefined;
 }
 export interface AllOf7 {
@@ -773,6 +937,7 @@ export interface AllOf11 {
  */
 export interface AllOf12 {
   op: Op8;
+  idempotency_key: IdempotencyKey6;
   [k: string]: unknown | undefined;
 }
 export interface AllOf13 {
@@ -788,6 +953,7 @@ export interface Result3 {
 }
 export interface AllOf14 {
   op: Op9;
+  idempotency_key: IdempotencyKey7;
   [k: string]: unknown | undefined;
 }
 export interface AllOf15 {
@@ -799,6 +965,7 @@ export interface AllOf15 {
  */
 export interface AllOf16 {
   op: Op10;
+  idempotency_key: IdempotencyKey8;
   [k: string]: unknown | undefined;
 }
 export interface AllOf17 {
@@ -812,6 +979,7 @@ export interface Result4 {
 }
 export interface AllOf18 {
   op: Op11;
+  idempotency_key: IdempotencyKey9;
   [k: string]: unknown | undefined;
 }
 export interface AllOf19 {
@@ -823,6 +991,7 @@ export interface AllOf19 {
  */
 export interface AllOf20 {
   op: Op12;
+  idempotency_key: IdempotencyKey10;
   [k: string]: unknown | undefined;
 }
 export interface AllOf21 {
@@ -836,6 +1005,7 @@ export interface Result5 {
 }
 export interface AllOf22 {
   op: Op13;
+  idempotency_key: IdempotencyKey11;
   [k: string]: unknown | undefined;
 }
 export interface AllOf23 {
@@ -847,6 +1017,7 @@ export interface AllOf23 {
  */
 export interface AllOf24 {
   op: Op14;
+  idempotency_key: IdempotencyKey12;
   [k: string]: unknown | undefined;
 }
 export interface AllOf25 {
@@ -861,6 +1032,7 @@ export interface Result6 {
 }
 export interface AllOf26 {
   op: Op15;
+  idempotency_key: IdempotencyKey13;
   [k: string]: unknown | undefined;
 }
 export interface AllOf27 {
@@ -872,6 +1044,7 @@ export interface AllOf27 {
  */
 export interface AllOf28 {
   op: Op16;
+  idempotency_key: IdempotencyKey14;
   [k: string]: unknown | undefined;
 }
 export interface AllOf29 {
@@ -885,6 +1058,7 @@ export interface Result7 {
 }
 export interface AllOf30 {
   op: Op17;
+  idempotency_key: IdempotencyKey15;
   [k: string]: unknown | undefined;
 }
 export interface AllOf31 {
@@ -896,6 +1070,7 @@ export interface AllOf31 {
  */
 export interface AllOf32 {
   op: Op18;
+  idempotency_key: IdempotencyKey16;
   [k: string]: unknown | undefined;
 }
 export interface AllOf33 {
@@ -909,6 +1084,7 @@ export interface Result8 {
 }
 export interface AllOf34 {
   op: Op19;
+  idempotency_key: IdempotencyKey17;
   [k: string]: unknown | undefined;
 }
 export interface AllOf35 {
@@ -920,6 +1096,7 @@ export interface AllOf35 {
  */
 export interface AllOf36 {
   op: Op20;
+  idempotency_key: IdempotencyKey18;
   [k: string]: unknown | undefined;
 }
 export interface AllOf37 {
@@ -933,6 +1110,7 @@ export interface Result9 {
 }
 export interface AllOf38 {
   op: Op21;
+  idempotency_key: IdempotencyKey19;
   [k: string]: unknown | undefined;
 }
 export interface AllOf39 {
@@ -944,6 +1122,7 @@ export interface AllOf39 {
  */
 export interface AllOf40 {
   op: Op22;
+  idempotency_key: IdempotencyKey20;
   [k: string]: unknown | undefined;
 }
 export interface AllOf41 {
@@ -957,6 +1136,7 @@ export interface Result10 {
 }
 export interface AllOf42 {
   op: Op23;
+  idempotency_key: IdempotencyKey21;
   [k: string]: unknown | undefined;
 }
 export interface AllOf43 {
@@ -968,6 +1148,7 @@ export interface AllOf43 {
  */
 export interface AllOf44 {
   op: Op24;
+  idempotency_key: IdempotencyKey22;
   [k: string]: unknown | undefined;
 }
 export interface AllOf45 {
@@ -981,6 +1162,7 @@ export interface Result11 {
 }
 export interface AllOf46 {
   op: Op25;
+  idempotency_key: IdempotencyKey23;
   [k: string]: unknown | undefined;
 }
 export interface AllOf47 {
@@ -992,6 +1174,7 @@ export interface AllOf47 {
  */
 export interface AllOf48 {
   op: Op26;
+  idempotency_key: IdempotencyKey24;
   [k: string]: unknown | undefined;
 }
 export interface AllOf49 {
@@ -1019,6 +1202,7 @@ export interface OneOf2 {
 }
 export interface AllOf50 {
   op: Op27;
+  idempotency_key: IdempotencyKey25;
   [k: string]: unknown | undefined;
 }
 export interface AllOf51 {
@@ -1030,6 +1214,7 @@ export interface AllOf51 {
  */
 export interface AllOf52 {
   op: Op28;
+  idempotency_key: IdempotencyKey26;
   [k: string]: unknown | undefined;
 }
 export interface AllOf53 {
@@ -1043,6 +1228,7 @@ export interface Result13 {
 }
 export interface AllOf54 {
   op: Op29;
+  idempotency_key: IdempotencyKey27;
   [k: string]: unknown | undefined;
 }
 export interface AllOf55 {
@@ -1054,6 +1240,7 @@ export interface AllOf55 {
  */
 export interface AllOf56 {
   op: Op30;
+  idempotency_key: IdempotencyKey28;
   [k: string]: unknown | undefined;
 }
 export interface AllOf57 {
@@ -1081,7 +1268,7 @@ export interface PendingReceipt {
   op: Op31;
   space_id: SpaceId2;
   requester_principal_id: RequesterPrincipalId2;
-  idempotency_key?: IdempotencyKey2;
+  idempotency_key?: IdempotencyKey29;
   payload_digest: PayloadDigest2;
   status: Status35;
   /**
@@ -1092,6 +1279,7 @@ export interface PendingReceipt {
 }
 export interface AllOf58 {
   op: Op32;
+  idempotency_key: IdempotencyKey30;
   [k: string]: unknown | undefined;
 }
 export interface AllOf59 {
@@ -1100,6 +1288,7 @@ export interface AllOf59 {
 }
 export interface AllOf60 {
   op: Op33;
+  idempotency_key: IdempotencyKey31;
   [k: string]: unknown | undefined;
 }
 export interface AllOf61 {
@@ -1111,6 +1300,7 @@ export interface AllOf61 {
  */
 export interface AllOf62 {
   op: Op34;
+  idempotency_key: IdempotencyKey32;
   [k: string]: unknown | undefined;
 }
 export interface AllOf63 {
@@ -1135,6 +1325,7 @@ export interface Counts {
 }
 export interface AllOf64 {
   op: Op35;
+  idempotency_key: IdempotencyKey33;
   [k: string]: unknown | undefined;
 }
 export interface AllOf65 {
@@ -1143,6 +1334,7 @@ export interface AllOf65 {
 }
 export interface AllOf66 {
   op: Op36;
+  idempotency_key: IdempotencyKey34;
   [k: string]: unknown | undefined;
 }
 export interface AllOf67 {
@@ -1154,6 +1346,7 @@ export interface AllOf67 {
  */
 export interface AllOf68 {
   op: Op37;
+  idempotency_key: IdempotencyKey35;
   [k: string]: unknown | undefined;
 }
 export interface AllOf69 {
@@ -1207,6 +1400,7 @@ export interface Verification {
 }
 export interface AllOf70 {
   op: Op38;
+  idempotency_key: IdempotencyKey36;
   [k: string]: unknown | undefined;
 }
 export interface AllOf71 {
@@ -1215,6 +1409,7 @@ export interface AllOf71 {
 }
 export interface AllOf72 {
   op: Op39;
+  idempotency_key: IdempotencyKey37;
   [k: string]: unknown | undefined;
 }
 export interface AllOf73 {
@@ -1226,6 +1421,7 @@ export interface AllOf73 {
  */
 export interface AllOf74 {
   op: Op40;
+  idempotency_key: IdempotencyKey38;
   [k: string]: unknown | undefined;
 }
 export interface AllOf75 {
@@ -1248,6 +1444,7 @@ export interface Activated {
 }
 export interface AllOf76 {
   op: Op41;
+  idempotency_key: IdempotencyKey39;
   [k: string]: unknown | undefined;
 }
 export interface AllOf77 {
@@ -1256,6 +1453,7 @@ export interface AllOf77 {
 }
 export interface AllOf78 {
   op: Op42;
+  idempotency_key: IdempotencyKey40;
   [k: string]: unknown | undefined;
 }
 export interface AllOf79 {
@@ -1267,6 +1465,7 @@ export interface AllOf79 {
  */
 export interface AllOf80 {
   op: Op43;
+  idempotency_key: IdempotencyKey41;
   [k: string]: unknown | undefined;
 }
 export interface AllOf81 {
@@ -1280,6 +1479,7 @@ export interface Result18 {
 }
 export interface AllOf82 {
   op: Op44;
+  idempotency_key: IdempotencyKey42;
   [k: string]: unknown | undefined;
 }
 export interface AllOf83 {

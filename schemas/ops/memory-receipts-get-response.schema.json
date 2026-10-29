@@ -29,6 +29,13 @@
                           "const": "memory.spaces.freeze",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -71,6 +78,13 @@
                           "const": "memory.spaces.unfreeze",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -154,6 +168,13 @@
                           "const": "memory.subjects.fence",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -196,6 +217,13 @@
                           "const": "memory.grants.grant",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -238,6 +266,13 @@
                           "const": "memory.records.update",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -280,6 +315,13 @@
                           "const": "memory.grants.revoke",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -322,6 +364,13 @@
                           "const": "memory.capture",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -364,6 +413,13 @@
                           "const": "memory.candidates.dismiss",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -406,6 +462,13 @@
                           "const": "memory.candidates.review",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -448,6 +511,13 @@
                           "const": "memory.records.create",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -490,6 +560,13 @@
                           "const": "memory.records.delete",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -532,6 +609,13 @@
                           "const": "memory.records.promote",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -574,6 +658,13 @@
                           "const": "memory.profile.update",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -616,6 +707,13 @@
                           "const": "memory.reflections.generate",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -650,6 +748,13 @@
                           "const": "memory.reflections.generate",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -692,6 +797,13 @@
                           "const": "memory.exports.create",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -726,6 +838,13 @@
                           "const": "memory.exports.create",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -768,6 +887,13 @@
                           "const": "memory.imports.stage",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -802,6 +928,13 @@
                           "const": "memory.imports.stage",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -844,6 +977,13 @@
                           "const": "memory.imports.activate",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -878,6 +1018,13 @@
                           "const": "memory.imports.activate",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [
@@ -920,6 +1067,13 @@
                           "const": "memory.imports.discard",
                           "type": "string",
                           "title": "Op"
+                        },
+                        "idempotency_key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "description": "Echo when supplied — always, except memory.subjects.ensure.",
+                          "title": "IdempotencyKey"
                         }
                       },
                       "required": [

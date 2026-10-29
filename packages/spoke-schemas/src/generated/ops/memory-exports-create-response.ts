@@ -33,6 +33,10 @@ export type IdempotencyKey = string;
 export type PayloadDigest = string;
 export type Status = "committed";
 export type Op1 = "memory.exports.create";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey1 = string;
 export type Status1 = "committed";
 export type ExportId = string;
 export type BundleDigest = string;
@@ -46,7 +50,7 @@ export type ReceiptId1 = string;
 export type Op2 = string;
 export type SpaceId1 = string;
 export type RequesterPrincipalId1 = string;
-export type IdempotencyKey1 = string;
+export type IdempotencyKey2 = string;
 export type PayloadDigest1 = string;
 export type Status2 = "pending";
 export type Op3 = "memory.exports.create";
@@ -61,7 +65,7 @@ export type ReceiptId2 = string;
 export type Op4 = string;
 export type SpaceId2 = string;
 export type RequesterPrincipalId2 = string;
-export type IdempotencyKey2 = string;
+export type IdempotencyKey3 = string;
 export type PayloadDigest2 = string;
 export type Status4 = "failed";
 /**
@@ -178,6 +182,7 @@ export interface ExtensionValue {
  */
 export interface AllOf {
   op: Op1;
+  idempotency_key: IdempotencyKey1;
   [k: string]: unknown | undefined;
 }
 export interface AllOf1 {
@@ -212,7 +217,7 @@ export interface PendingReceipt {
   op: Op2;
   space_id: SpaceId1;
   requester_principal_id: RequesterPrincipalId1;
-  idempotency_key?: IdempotencyKey1;
+  idempotency_key?: IdempotencyKey2;
   payload_digest: PayloadDigest1;
   status: Status2;
   /**
@@ -241,7 +246,7 @@ export interface FailedReceipt {
   op: Op4;
   space_id: SpaceId2;
   requester_principal_id: RequesterPrincipalId2;
-  idempotency_key?: IdempotencyKey2;
+  idempotency_key?: IdempotencyKey3;
   payload_digest: PayloadDigest2;
   status: Status4;
   error: MemoryErrorEnvelope;

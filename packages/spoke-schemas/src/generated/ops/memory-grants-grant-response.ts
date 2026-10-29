@@ -32,6 +32,10 @@ export type IdempotencyKey = string;
 export type PayloadDigest = string;
 export type Status = "committed";
 export type Op1 = "memory.grants.grant";
+/**
+ * Echo when supplied — always, except memory.subjects.ensure.
+ */
+export type IdempotencyKey1 = string;
 export type Status1 = "committed";
 export type GrantId = string;
 /**
@@ -44,7 +48,7 @@ export type ReceiptId1 = string;
 export type Op2 = string;
 export type SpaceId1 = string;
 export type RequesterPrincipalId1 = string;
-export type IdempotencyKey1 = string;
+export type IdempotencyKey2 = string;
 export type PayloadDigest1 = string;
 export type Status2 = "failed";
 /**
@@ -161,6 +165,7 @@ export interface ExtensionValue {
  */
 export interface AllOf {
   op: Op1;
+  idempotency_key: IdempotencyKey1;
   [k: string]: unknown | undefined;
 }
 export interface AllOf1 {
@@ -184,7 +189,7 @@ export interface FailedReceipt {
   op: Op2;
   space_id: SpaceId1;
   requester_principal_id: RequesterPrincipalId1;
-  idempotency_key?: IdempotencyKey1;
+  idempotency_key?: IdempotencyKey2;
   payload_digest: PayloadDigest1;
   status: Status2;
   error: MemoryErrorEnvelope;

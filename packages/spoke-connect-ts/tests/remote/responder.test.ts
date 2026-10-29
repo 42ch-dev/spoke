@@ -3123,4 +3123,42 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
       responder.close();
     }
   });
+
+  it("reports OUTCOME_UNCERTAIN when the memory service throws after invocation", async () => {
+    // §14.3 parity with the Rust detached-invoke panic: the provider died
+    // after admission, so a clean INTERNAL_ERROR would assert no-effect.
+    const vector = memoryVectors().find((entry) => entry.op === "memory.capture");
+    expect(vector).toBeDefined();
+    const request = {
+      ...(vector as MemoryVector).request,
+      idempotency_key: "cap-panic",
+    } as unknown as MemoryCaptureRequest;
+    const ports = {
+      ...asBaselineOnly(new ToyWorldAdapter()),
+      invoke: async (): Promise<SpokeResult<unknown>> => {
+        throw new Error("provider exploded after admission");
+      },
+    };
+    const { responder, client } = await dialWithResponder({
+      ports,
+      clientManifest: memoryManifest("test-client"),
+      responderManifest: memoryManifest("test-responder"),
+    });
+
+    try {
+      const failed = await client.capture(
+        { principal_id: "prn_local_caller", extensions: {} },
+        request,
+      );
+      expect(failed.ok).toBe(false);
+      if (!failed.ok) {
+        expect(failed.code).toBe(SpokeRejectCode.OUTCOME_UNCERTAIN);
+        expect(failed.details?.retry_class).toBe("uncertain");
+        expect(failed.details?.kind).toBe("panic");
+      }
+    } finally {
+      client.close();
+      responder.close();
+    }
+  });
 });

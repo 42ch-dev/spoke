@@ -334,7 +334,16 @@ fn sign_invoke_request(
 }
 
 async fn handshake(client: &LoopbackTransport, manifest: &HostCapabilityManifest) -> String {
-    let nonce = "memory-loopback-nonce-0000".to_owned();
+    // A hello nonce is single-use by contract: derive it at runtime so no
+    // fixed value can be replayed across runs (and no hard-coded
+    // cryptographic value sits in the test source).
+    let nonce = format!(
+        "memory-loopback-nonce-{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after the epoch")
+            .as_nanos()
+    );
     let hello = sign_hello_ed25519(&seed_client(), &nonce, &connect_manifest(manifest), None)
         .expect("initiator hello sign");
     client
@@ -1208,16 +1217,26 @@ fn memory_port_service_classifies_a_malformed_payload_as_terminal() {
     );
 }
 
+/// How the fixture's admitted capture settles (§14.3 shapes).
+#[derive(Clone, Copy)]
+enum DelayedCommit {
+    /// The provider self-detaches the commit (the TS-path shape — the old
+    /// fixture): the commit lands even if the responder drops the invoke.
+    SelfDetached,
+    /// The commit is part of the admitted invoke future itself, so it lands
+    /// only if the responder keeps the task alive past its response deadline.
+    InFlight,
+    /// The admitted invoke panics, so the responder's detached task dies
+    /// after admission with no result at all.
+    Panics,
+}
+
 /// Provider fixture whose mutation commits asynchronously: the responder's
 /// budget expires while the commit is still in flight, which is exactly the
 /// uncertain-outcome case (the transport cannot know whether it committed).
 struct DelayedHost {
     store: Arc<Store>,
-    /// `true`: the provider self-detaches the commit (the TS-path shape —
-    /// the old fixture). `false`: the commit is part of the admitted invoke
-    /// future itself, so it lands only if the responder keeps the task alive
-    /// past its response deadline instead of dropping it.
-    provider_detached: bool,
+    commit: DelayedCommit,
 }
 
 impl DelayedHost {
@@ -1333,11 +1352,20 @@ impl MemoryPort for DelayedHost {
         if self.store.has_receipt("memory.capture", key) {
             return self.commit_now(principal, payload);
         }
-        if !self.provider_detached {
-            // The commit is part of the admitted invoke: it only lands if
-            // the responder keeps the provider task alive past the deadline.
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            return self.commit_now(principal, payload);
+        match self.commit {
+            DelayedCommit::InFlight => {
+                // The commit is part of the admitted invoke: it only lands if
+                // the responder keeps the provider task alive past the
+                // deadline.
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                return self.commit_now(principal, payload);
+            }
+            DelayedCommit::Panics => {
+                // The admitted task dies after invocation: the responder has
+                // no result and cannot assert that nothing committed.
+                panic!("memory provider panicked after admission");
+            }
+            DelayedCommit::SelfDetached => {}
         }
         let store = Arc::clone(&self.store);
         let principal = principal.clone();
@@ -1534,7 +1562,7 @@ async fn memory_loopback_reports_an_uncertain_outcome_and_recovers_on_replay() {
     let store = granted_store();
     let delayed_port: Arc<dyn MemoryPort + Send + Sync> = Arc::new(DelayedHost {
         store: Arc::clone(&store),
-        provider_detached: true,
+        commit: DelayedCommit::SelfDetached,
     });
     let delayed: Arc<dyn RemoteMemoryService> =
         Arc::new(MemoryPortService::new(delayed_port, admission()));
@@ -1595,7 +1623,7 @@ async fn memory_loopback_keeps_the_admitted_task_alive_past_the_budget() {
     let store = granted_store();
     let delayed_port: Arc<dyn MemoryPort + Send + Sync> = Arc::new(DelayedHost {
         store: Arc::clone(&store),
-        provider_detached: false,
+        commit: DelayedCommit::InFlight,
     });
     let delayed: Arc<dyn RemoteMemoryService> =
         Arc::new(MemoryPortService::new(delayed_port, admission()));
@@ -1632,6 +1660,48 @@ async fn memory_loopback_keeps_the_admitted_task_alive_past_the_budget() {
         1,
         "the admitted task committed exactly once"
     );
+
+    responder.close();
+    client.close();
+}
+
+#[tokio::test]
+async fn memory_loopback_reports_an_uncertain_outcome_when_the_admitted_task_panics() {
+    // §14.3: the detached invoke dies after admission with no result, so the
+    // responder cannot assert that nothing committed — the answer is
+    // OUTCOME_UNCERTAIN/uncertain, never a clean INTERNAL_ERROR.
+    let store = granted_store();
+    let panicking_port: Arc<dyn MemoryPort + Send + Sync> = Arc::new(DelayedHost {
+        store: Arc::clone(&store),
+        commit: DelayedCommit::Panics,
+    });
+    let panicking: Arc<dyn RemoteMemoryService> =
+        Arc::new(MemoryPortService::new(panicking_port, admission()));
+    let (responder, pair) =
+        start_host_with_budget(Some(panicking), &MEMORY_CAPABILITIES, Some(500)).await;
+    let client = dial(pair, &memory_manifest("test-client", &MEMORY_CAPABILITIES)).await;
+    let principal = client_principal();
+
+    let failed = expect_reject(
+        client
+            .capture(
+                &principal,
+                typed_capture(capture_request(
+                    "cap-panic",
+                    CONTEXT,
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                )),
+            )
+            .await,
+    );
+    assert_eq!(
+        failed.code,
+        SpokeRejectCode::OutcomeUncertain,
+        "§14.3: a panicked memory invoke is uncertain, not a clean failure: {failed:?}"
+    );
+    let details = failed.details.expect("uncertain carries details");
+    assert_eq!(details["retry_class"], "uncertain", "{details:?}");
+    assert_eq!(details["kind"], "panic", "{details:?}");
 
     responder.close();
     client.close();

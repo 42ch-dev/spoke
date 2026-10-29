@@ -203,7 +203,16 @@ fn sign_invoke_request(
 }
 
 async fn handshake(client: &LoopbackTransport, capabilities: &[&str]) -> String {
-    let nonce = "memory-conformance-nonce-0".to_owned();
+    // A hello nonce is single-use by contract: derive it at runtime so no
+    // fixed value can be replayed across runs (and no hard-coded
+    // cryptographic value sits in the test source).
+    let nonce = format!(
+        "memory-conformance-nonce-{:x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after the epoch")
+            .as_nanos()
+    );
     let hello = sign_hello_ed25519(
         &seed_client(),
         &nonce,

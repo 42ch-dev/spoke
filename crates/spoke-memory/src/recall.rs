@@ -136,10 +136,10 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Recall-ranking failure: the §9 byte budget needs the serialized `content`
-/// wire form, which has no RFC 8785 representation when it holds a
-/// non-finite float. `serde_json::Value` cannot hold one by construction, so
-/// this is a defensive guard kept at parity with the spoke-operations digest
+/// Recall-ranking failure: the §9.3 byte budget serializes the `content` wire
+/// form, which has no JSON representation when it holds a non-finite float.
+/// `serde_json::Value` cannot hold one by construction, so this is a
+/// defensive guard kept at parity with the spoke-operations digest
 /// helpers — it rejects instead of panicking if the invariant ever moves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecallError {
@@ -151,7 +151,7 @@ impl std::fmt::Display for RecallError {
         match self {
             Self::NonFiniteContent => write!(
                 formatter,
-                "record content is not serializable: non-finite floats have no RFC 8785 form"
+                "record content is not serializable: non-finite floats have no JSON form"
             ),
         }
     }
@@ -159,19 +159,21 @@ impl std::fmt::Display for RecallError {
 
 impl std::error::Error for RecallError {}
 
-/// §9 budget unit: UTF-8 byte length of the **complete serialized `content`
-/// value** — field name, quotes, escaping, and `structured` included, e.g.
+/// §9.3 page-budget unit: UTF-8 byte length of the **complete serialized
+/// `content` value exactly as the page emits it** (`serde_json::to_vec`) —
+/// field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
 ///
-/// This is the same canonical measure as `spoke-operations`'
-/// `content_serialized_bytes` (the §7.1 `max_content_bytes` admission limit,
-/// I-000023): RFC 8785 JCS, so top-level `null` members are absent — a
-/// deserialized `null` becomes `Option::None`, and a constructed
-/// `Some(Value::Null)` is stripped here the same way, so recall and admission
-/// budget identical bytes for identical content — and numbers use the
-/// ECMAScript form (`1.0` → `1`, `1e2` → `100`), which is what
-/// `JSON.stringify` produces. Nested `null`s are content and stay. It stays
-/// local because the engine must not depend on `spoke-operations`.
+/// The §7.1 `max_content_bytes` admission limit and this §9.3 page budget are
+/// two distinct budgets: admission measures RFC 8785 JCS
+/// (`spoke-operations::memory::digests`, because it is compared against the
+/// TypeScript `JSON.stringify` form), while this one measures the wire form so
+/// the budget counts literally the bytes the response emits. Both drop
+/// top-level explicit `null` members — a deserialized `null` becomes
+/// `Option::None` and a constructed `Some(Value::Null)` is stripped here — so
+/// the two agree on which members exist and differ only in number
+/// formatting. Nested `null`s are content and stay. It stays local because the
+/// engine must not depend on `spoke-operations`.
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
@@ -187,7 +189,7 @@ fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
         Ok(other) => other,
         Err(_) => return Err(RecallError::NonFiniteContent),
     };
-    serde_jcs::to_vec(&value)
+    serde_json::to_vec(&value)
         .map(|bytes| bytes.len())
         .map_err(|_| RecallError::NonFiniteContent)
 }
@@ -232,7 +234,7 @@ mod tests {
     #[test]
     fn non_finite_guard_rejects_instead_of_panicking() {
         // The guard path: a serialization failure surfaces as a typed
-        // reject carrying the RFC 8785 reason, never a panic. serde_json
+        // reject carrying the non-finite reason, never a panic. serde_json
         // Values cannot hold non-finite floats by construction, so the
         // reachable assertions cover the finite edge shapes the guard must
         // keep accepting, and the error variant round-trips through Display.
@@ -253,7 +255,7 @@ mod tests {
         assert_eq!(page.records.len(), 2);
         assert_eq!(
             RecallError::NonFiniteContent.to_string(),
-            "record content is not serializable: non-finite floats have no RFC 8785 form"
+            "record content is not serializable: non-finite floats have no JSON form"
         );
     }
 
@@ -375,10 +377,10 @@ mod tests {
     }
 
     #[test]
-    fn numeric_content_budget_uses_the_jcs_measure() {
-        // I-000023: recall budgets the same canonical form as admission, so
-        // ES6 numbers (`1.0` → `1`, `1e2` → `100`) count 40 bytes — the
-        // `serde_json` form would count 44 and defer content admission accepts.
+    fn numeric_content_budget_uses_the_wire_measure() {
+        // I-000035: the §9.3 page budget counts the bytes the page emits, so
+        // numbers keep the `serde_json` form (`1.0`, `100.0`) and count 44
+        // bytes; the RFC 8785 §7.1 admission form would count 40.
         let records = vec![RecallRecord {
             record_id: "rec_numbers".to_string(),
             kind: "fact".to_string(),
@@ -390,7 +392,7 @@ mod tests {
         }];
         assert_eq!(
             content_serialized_bytes(&records[0].content).expect("finite content measures"),
-            40
+            44
         );
 
         let exact = recall_checked(
@@ -399,7 +401,7 @@ mod tests {
                 offset: 0,
                 query: None,
                 max_items: 5,
-                max_bytes: Some(40),
+                max_bytes: Some(44),
             },
         );
         assert_eq!(ids(&exact), vec!["rec_numbers"]);
@@ -414,7 +416,7 @@ mod tests {
                 offset: 0,
                 query: None,
                 max_items: 5,
-                max_bytes: Some(39),
+                max_bytes: Some(43),
             },
         );
         assert_eq!(ids(&short), vec!["rec_numbers"]);
@@ -425,8 +427,9 @@ mod tests {
     #[test]
     fn constructed_null_content_budgets_like_admission() {
         // I-000031: a caller-built `Some(Value::Null)` is the same logical
-        // content as a deserialized `null`; both canonicalize to
-        // `{"text":""}` = 11 bytes, so recall and admission budget identically.
+        // content as a deserialized `null`; both normalize to
+        // `{"text":""}` = 11 bytes in either form, so recall and admission
+        // budget identically.
         let records = vec![RecallRecord {
             record_id: "rec_null".to_string(),
             kind: "fact".to_string(),

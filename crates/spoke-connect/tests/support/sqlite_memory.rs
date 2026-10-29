@@ -38,14 +38,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use spoke_memory::classify::{classify_candidate, CandidateMaterial};
 use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest as EngineRecall};
+use spoke_memory::reflect::{assemble_reflection, basis_digests, ReflectionBasis, SourceRef};
 use spoke_memory::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     jcs_sha256_hex, spoke_reject, validate_grant_issuance, validate_memory_candidates_list,
     validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
     validate_memory_grants_list, validate_memory_recall, validate_memory_records_create,
-    validate_memory_records_list, validate_memory_records_update, validate_memory_spaces_list,
-    validate_memory_subjects_fence, GrantRequirement, IssuedGrant, MemoryPort, SpokeRejectCode,
-    SpokeResult,
+    validate_memory_records_list, validate_memory_records_update,
+    validate_memory_reflections_generate, validate_memory_reflections_list,
+    validate_memory_reflections_state, validate_memory_spaces_list, validate_memory_subjects_fence,
+    GrantRequirement, IssuedGrant, MemoryPort, SpokeRejectCode, SpokeResult,
 };
 use spoke_schemas::data::memory_candidate::Disposition;
 use spoke_schemas::data::read_selection::ReadSelection;
@@ -253,6 +255,17 @@ fn not_served<T>(op: &str) -> SpokeResult<T> {
     )
 }
 
+/// Deferred work for a pending receipt (reflection generation).
+#[derive(Clone, Serialize, Deserialize)]
+enum PendingWork {
+    Reflection {
+        subject_id: String,
+        selection: ReadSelection,
+        sources: Vec<(String, u64)>,
+        profile_revisions: Vec<(String, u64)>,
+    },
+}
+
 /// Dedup namespace entry (`§7.0.5`): `(principal, op, idempotency_key)`.
 #[derive(Clone, Serialize, Deserialize)]
 struct DedupEntry {
@@ -278,6 +291,14 @@ struct Space {
     grants: BTreeMap<String, Value>,
     candidates: BTreeMap<String, Value>,
     records: BTreeMap<String, Value>,
+    /// `"<subject_id>\u{1f}<profile_kind>"` → profile document.
+    profiles: BTreeMap<String, Value>,
+    reflections: BTreeMap<String, Value>,
+    /// Pinned record ids per reflection (provider-private; basis carries only
+    /// digests on the wire).
+    reflection_sources: BTreeMap<String, Vec<String>>,
+    /// Deferred work a pending receipt will complete on the next observation.
+    pending: BTreeMap<String, PendingWork>,
     receipts: BTreeMap<String, Value>,
     dedup: BTreeMap<String, DedupEntry>,
 }
@@ -715,6 +736,117 @@ impl SqliteMemoryProvider {
         space.receipts.insert(receipt_id, receipt.clone());
     }
 
+    fn profile_key(subject_id: &str, profile_kind: &str) -> String {
+        format!("{subject_id}\u{1f}{profile_kind}")
+    }
+
+    /// Profile revisions for a subject, as `(kind, revision)` pairs — the
+    /// `profile_revisions` half of a reflection basis (MEM-R013).
+    fn profile_revisions(space: &Space, subject_id: &str) -> Vec<(String, u64)> {
+        let prefix = format!("{subject_id}\u{1f}");
+        space
+            .profiles
+            .iter()
+            .filter(|(key, _)| key.starts_with(&prefix))
+            .filter_map(|(key, profile)| {
+                let kind = key.split('\u{1f}').nth(1)?.to_string();
+                let revision = profile["revision"].as_u64()?;
+                Some((kind, revision))
+            })
+            .collect()
+    }
+
+    fn missing_required_profiles(space: &Space, subject_id: &str) -> Vec<String> {
+        space
+            .required_profile_kinds
+            .iter()
+            .filter(|kind| {
+                !space
+                    .profiles
+                    .contains_key(&Self::profile_key(subject_id, kind))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Current basis digests plus the authorized source pairs.
+    fn basis_for(
+        space: &Space,
+        subject_id: &str,
+        selection: &ReadSelection,
+        filter: Option<&Value>,
+    ) -> (String, Vec<(String, u64)>, Vec<(String, u64)>) {
+        let records = selected_records(space, subject_id, selection, filter);
+        let sources: Vec<(String, u64)> = records
+            .iter()
+            .filter_map(|record| {
+                Some((
+                    record["record_id"].as_str()?.to_string(),
+                    record["revision"].as_u64()?,
+                ))
+            })
+            .collect();
+        let profiles = Self::profile_revisions(space, subject_id);
+        let source_refs: Vec<SourceRef<'_>> = sources
+            .iter()
+            .map(|(record_id, revision)| SourceRef {
+                record_id,
+                revision: *revision,
+            })
+            .collect();
+        let profile_refs: Vec<(&str, u64)> = profiles
+            .iter()
+            .map(|(kind, revision)| (kind.as_str(), *revision))
+            .collect();
+        let basis = ReflectionBasis {
+            selection,
+            filter: None,
+            sources: &source_refs,
+            profile_revisions: &profile_refs,
+        };
+        let digests = basis_digests(&basis);
+        (digests.state_digest, sources, profiles)
+    }
+
+    fn latest_reflection<'a>(space: &'a Space, subject_id: &str) -> Option<&'a Value> {
+        space
+            .reflections
+            .values()
+            .filter(|reflection| reflection["subject_id"].as_str() == Some(subject_id))
+            .max_by(|left, right| {
+                left["created_at"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .cmp(right["created_at"].as_str().unwrap_or_default())
+                    .then_with(|| {
+                        left["reflection_id"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .cmp(right["reflection_id"].as_str().unwrap_or_default())
+                    })
+            })
+    }
+
+    /// `§6.9` staleness at read time: the current basis digest for the pinned
+    /// selection differs from the reflection's pinned `basis.state_digest`.
+    fn reflection_stale(space: &Space, subject_id: &str, reflection: &Value) -> bool {
+        let Ok(selection) =
+            serde_json::from_value::<ReadSelection>(reflection["selection"].clone())
+        else {
+            return false;
+        };
+        let filter = reflection
+            .get("filter")
+            .filter(|value| !value.is_null())
+            .cloned();
+        let (current, _sources, _profiles) =
+            Self::basis_for(space, subject_id, &selection, filter.as_ref());
+        current
+            != reflection["basis"]["state_digest"]
+                .as_str()
+                .unwrap_or_default()
+    }
+
     /// Opaque cursor token pinned to the space's state epoch (MEM-R026).
     fn cursor_token(space: &Space, offset: usize) -> String {
         format!("c{}:{}", space.state_epoch, offset)
@@ -748,6 +880,7 @@ impl SqliteMemoryProvider {
     ) -> SpokeResult<Document> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
+        Self::complete_pending(&mut document);
         match apply(&mut document) {
             SpokeResult::Ok(()) => {
                 store.write(&document).expect("write state");
@@ -765,6 +898,7 @@ impl SqliteMemoryProvider {
     ) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
+        Self::complete_pending(&mut document);
         match apply(&mut document) {
             SpokeResult::Ok(value) => {
                 store.write(&document).expect("write state");
@@ -776,8 +910,90 @@ impl SqliteMemoryProvider {
 
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
-        let document = store.read().expect("read state");
+        let mut document = store.read().expect("read state");
+        // A read may observe a completed pending op, so persist that tick.
+        if Self::complete_pending(&mut document) {
+            store.write(&document).expect("write state");
+        }
         answer(&document)
+    }
+
+    /// Provider worker: complete deferred receipts (reflection generation).
+    /// Returns `true` when the document changed. The publish-pinned rule is
+    /// structural here: the reflection is assembled from the *pinned* basis, so
+    /// a basis that moved meanwhile still publishes and reads stale.
+    fn complete_pending(document: &mut Document) -> bool {
+        let mut completed = false;
+        for space in document.spaces.values_mut() {
+            let work: Vec<(String, PendingWork)> = space
+                .pending
+                .iter()
+                .map(|(receipt_id, item)| (receipt_id.clone(), item.clone()))
+                .collect();
+            for (receipt_id, item) in work {
+                let PendingWork::Reflection {
+                    subject_id,
+                    selection,
+                    sources,
+                    profile_revisions,
+                } = item;
+                let source_refs: Vec<SourceRef<'_>> = sources
+                    .iter()
+                    .map(|(record_id, revision)| SourceRef {
+                        record_id,
+                        revision: *revision,
+                    })
+                    .collect();
+                let profile_refs: Vec<(&str, u64)> = profile_revisions
+                    .iter()
+                    .map(|(kind, revision)| (kind.as_str(), *revision))
+                    .collect();
+                let basis = ReflectionBasis {
+                    selection: &selection,
+                    filter: None,
+                    sources: &source_refs,
+                    profile_revisions: &profile_refs,
+                };
+                let draft = assemble_reflection(&basis);
+                let reflection_id = format!("refl_sqlite_{:04}", space.reflections.len() + 1);
+                let reflection = json!({
+                    "schema_version": 1,
+                    "reflection_id": reflection_id,
+                    "space_id": space.space_id,
+                    "subject_id": subject_id,
+                    "selection": serde_json::to_value(&selection).unwrap_or(Value::Null),
+                    "basis": {
+                        "source_set_digest": draft.source_set_digest,
+                        "record_count": draft.record_count,
+                        "profile_revisions": profile_revisions
+                            .iter()
+                            .cloned()
+                            .collect::<BTreeMap<String, u64>>(),
+                        "state_digest": draft.state_digest,
+                    },
+                    "body": { "format": draft.format, "body": draft.body },
+                    "stale": false,
+                    "generator": { "engine_policy_version": ENGINE_POLICY_VERSION },
+                    "created_at": CLOCK_ORIGIN,
+                    "revision": 1,
+                    "extensions": {},
+                });
+                space.reflection_sources.insert(
+                    reflection_id.clone(),
+                    sources.iter().map(|(id, _)| id.clone()).collect(),
+                );
+                space.reflections.insert(reflection_id.clone(), reflection);
+                if let Some(receipt) = space.receipts.get_mut(&receipt_id) {
+                    receipt["status"] = json!("committed");
+                    receipt["completed_at"] = json!(CLOCK_ORIGIN);
+                    receipt["result"] = json!({ "reflection_id": reflection_id });
+                }
+                space.pending.remove(&receipt_id);
+                space.touch();
+                completed = true;
+            }
+        }
+        completed
     }
 }
 
@@ -2609,42 +2825,429 @@ impl MemoryPort for SqliteMemoryProvider {
 
     async fn get_profile(
         &self,
-        _principal: &Principal,
-        _request: MemoryProfileGetRequest,
+        principal: &Principal,
+        request: MemoryProfileGetRequest,
     ) -> SpokeResult<MemoryProfileGetResponse> {
-        not_served("memory.profile.get")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let kinds = string_list_field(&request_value, "profile_kinds");
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            let requirement = GrantRequirement {
+                capability: "records_read",
+                subject_id: Some(&subject_id),
+                context_ids: Vec::new(),
+                reads_shared: false,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.profile.get"
+            ));
+            let prefix = format!("{subject_id}\u{1f}");
+            let mut profiles: Vec<Value> = space
+                .profiles
+                .iter()
+                .filter(|(key, _)| key.starts_with(&prefix))
+                .filter(|(key, _)| {
+                    kinds.is_empty()
+                        || key
+                            .split('\u{1f}')
+                            .nth(1)
+                            .map(|kind| kinds.iter().any(|wanted| wanted == kind))
+                            .unwrap_or(false)
+                })
+                .map(|(_, profile)| profile.clone())
+                .collect();
+            profiles.sort_by(|left, right| {
+                left["profile_kind"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .cmp(right["profile_kind"].as_str().unwrap_or_default())
+            });
+            // Honest empty: an absent kind is an empty list, never an error (§4.2).
+            reply(json!({ "profiles": profiles }))
+        })
     }
 
     async fn update_profile(
         &self,
-        _principal: &Principal,
-        _request: MemoryProfileUpdateRequest,
+        principal: &Principal,
+        request: MemoryProfileUpdateRequest,
     ) -> SpokeResult<MemoryProfileUpdateResponse> {
-        not_served("memory.profile.update")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let profile_kind = text_field(&request_value, "profile_kind");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_revision = request_value["expected_revision"].as_u64();
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let requirement = GrantRequirement {
+                capability: "profile_write",
+                subject_id: Some(&subject_id),
+                context_ids: Vec::new(),
+                reads_shared: true,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.profile.update"
+            ));
+            if Self::replay_conflict(space, &principal_id, "memory.profile.update", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.profile.update", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            let profile_key = Self::profile_key(&subject_id, &profile_kind);
+            let existing = space.profiles.get(&profile_key).cloned();
+            let revision = existing
+                .as_ref()
+                .and_then(|profile| profile["revision"].as_u64())
+                .unwrap_or(0);
+            match expected_revision {
+                None if existing.is_some() => {
+                    return reject(
+                        SpokeRejectCode::RevisionConflict,
+                        "profile exists; create-only update cannot overwrite it",
+                    )
+                }
+                Some(expected) if expected != revision => {
+                    return reject(
+                        SpokeRejectCode::RevisionConflict,
+                        format!("profile revision is {revision}"),
+                    )
+                }
+                _ => {}
+            }
+            let next_revision = revision + 1;
+            let profile = json!({
+                "schema_version": 1,
+                "space_id": space_id,
+                "subject_id": subject_id,
+                "profile_kind": profile_kind,
+                "document": request_value["document"].clone(),
+                "updated_by": principal_id,
+                "created_at": existing
+                    .as_ref()
+                    .map(|profile| profile["created_at"].clone())
+                    .filter(|value| !value.is_null())
+                    .unwrap_or_else(|| json!(CLOCK_ORIGIN)),
+                "updated_at": CLOCK_ORIGIN,
+                "revision": next_revision,
+                "extensions": {},
+            });
+            space.profiles.insert(profile_key, profile);
+            // MEM-R013: the basis includes profile revisions, so every pinned
+            // reflection now reads stale — computed at read time.
+            space.touch();
+            let mut receipt =
+                Self::receipt(space, "memory.profile.update", &principal_id, &digest, &key);
+            receipt["result"] = json!({
+                "profile_kind": profile_kind,
+                "revision": next_revision,
+            });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.profile.update",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     async fn get_reflection_state(
         &self,
-        _principal: &Principal,
-        _request: MemoryReflectionsStateRequest,
+        principal: &Principal,
+        request: MemoryReflectionsStateRequest,
     ) -> SpokeResult<MemoryReflectionsStateResponse> {
-        not_served("memory.reflections.state")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_reflections_state(&request) {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let selection: ReadSelection =
+            match serde_json::from_value(request_value["selection"].clone()) {
+                Ok(selection) => selection,
+                Err(error) => {
+                    return reject(SpokeRejectCode::InvalidInput, format!("selection: {error}"))
+                }
+            };
+        let filter = request_value.get("filter").cloned();
+        let requirement = GrantRequirement {
+            capability: "reflect",
+            subject_id: Some(&subject_id),
+            context_ids: selection_contexts(&selection),
+            reads_shared: selection_reads_shared(&selection),
+            subject_all: selection_subject_all(&selection),
+        };
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.reflections.state"
+            ));
+            let missing = Self::missing_required_profiles(space, &subject_id);
+            let (state_digest, sources, profiles) =
+                Self::basis_for(space, &subject_id, &selection, filter.as_ref());
+            let stale = Self::latest_reflection(space, &subject_id)
+                .map(|reflection| Self::reflection_stale(space, &subject_id, reflection))
+                .unwrap_or(false);
+            let mut response = json!({
+                "state_digest": state_digest,
+                "basis": {
+                    "record_count": sources.len(),
+                    "profile_kinds": profiles
+                        .iter()
+                        .map(|(kind, _)| kind.clone())
+                        .collect::<Vec<_>>(),
+                },
+                "stale": stale,
+                "missing_required_profile_kinds": missing,
+                "data_sufficiency": if sources.is_empty() { "insufficient" } else { "sufficient" },
+            });
+            if let Some(reflection) = Self::latest_reflection(space, &subject_id) {
+                response["last_reflection_id"] = reflection["reflection_id"].clone();
+            }
+            reply(response)
+        })
     }
 
     async fn list_reflections(
         &self,
-        _principal: &Principal,
-        _request: MemoryReflectionsListRequest,
+        principal: &Principal,
+        request: MemoryReflectionsListRequest,
     ) -> SpokeResult<MemoryReflectionsListResponse> {
-        not_served("memory.reflections.list")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) =
+            validate_memory_reflections_list(&request, page_limit())
+        {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let limit = request_value["limit"].as_u64().unwrap_or(MAX_PAGE_SIZE) as usize;
+        let requirement = GrantRequirement {
+            capability: "reflect",
+            subject_id: Some(&subject_id),
+            context_ids: Vec::new(),
+            reads_shared: false,
+            subject_all: false,
+        };
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.reflections.list"
+            ));
+            let tombstoned: Vec<String> = space
+                .records
+                .values()
+                .filter(|record| record.get("tombstone").is_some())
+                .filter_map(|record| record["record_id"].as_str().map(str::to_string))
+                .collect();
+            let mut reflections: Vec<Value> = space
+                .reflections
+                .values()
+                .filter(|reflection| reflection["subject_id"].as_str() == Some(&subject_id))
+                // Reflections pinned to a tombstoned record are excluded (§6.9).
+                .filter(|reflection| {
+                    let id = reflection["reflection_id"].as_str().unwrap_or_default();
+                    space
+                        .reflection_sources
+                        .get(id)
+                        .map(|sources| !sources.iter().any(|source| tombstoned.contains(source)))
+                        .unwrap_or(true)
+                })
+                .map(|reflection| {
+                    let mut reflection = reflection.clone();
+                    reflection["stale"] =
+                        json!(Self::reflection_stale(space, &subject_id, &reflection));
+                    reflection
+                })
+                .collect();
+            reflections.sort_by(|left, right| {
+                right["created_at"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .cmp(left["created_at"].as_str().unwrap_or_default())
+                    .then_with(|| {
+                        left["reflection_id"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .cmp(right["reflection_id"].as_str().unwrap_or_default())
+                    })
+            });
+            reflections.truncate(limit);
+            reply(json!({ "reflections": reflections }))
+        })
     }
 
     async fn generate_reflection(
         &self,
-        _principal: &Principal,
-        _request: MemoryReflectionsGenerateRequest,
+        principal: &Principal,
+        request: MemoryReflectionsGenerateRequest,
     ) -> SpokeResult<MemoryReflectionsGenerateResponse> {
-        not_served("memory.reflections.generate")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_reflections_generate(&request) {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_state_digest = text_field(&request_value, "expected_state_digest");
+        let selection: ReadSelection =
+            match serde_json::from_value(request_value["selection"].clone()) {
+                Ok(selection) => selection,
+                Err(error) => {
+                    return reject(SpokeRejectCode::InvalidInput, format!("selection: {error}"))
+                }
+            };
+        let filter = request_value.get("filter").cloned();
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let requirement = GrantRequirement {
+                capability: "reflect",
+                subject_id: Some(&subject_id),
+                context_ids: selection_contexts(&selection),
+                reads_shared: selection_reads_shared(&selection),
+                subject_all: selection_subject_all(&selection),
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.reflections.generate"
+            ));
+            if Self::replay_conflict(
+                space,
+                &principal_id,
+                "memory.reflections.generate",
+                &key,
+                &digest,
+            ) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) = Self::replay(
+                space,
+                &principal_id,
+                "memory.reflections.generate",
+                &key,
+                &digest,
+            ) {
+                return SpokeResult::Ok(receipt);
+            }
+            // Admission, fail-closed (§7.27).
+            let missing = Self::missing_required_profiles(space, &subject_id);
+            if !missing.is_empty() {
+                return reject_details(
+                    SpokeRejectCode::ProfileIncomplete,
+                    format!("required profile kinds absent: {missing:?}"),
+                    json!({ "missing": missing }),
+                );
+            }
+            let (state_digest, sources, profiles) =
+                Self::basis_for(space, &subject_id, &selection, filter.as_ref());
+            if sources.is_empty() {
+                return reject(
+                    SpokeRejectCode::InsufficientData,
+                    "no authorized source records for the pinned selection",
+                );
+            }
+            if state_digest != expected_state_digest {
+                return reject(
+                    SpokeRejectCode::RevisionConflict,
+                    "expected_state_digest does not match the current basis",
+                );
+            }
+            // Deferred generation: the receipt is pending until the provider
+            // worker completes it from the *pinned* basis (publish-pinned).
+            let receipt_id = Self::next_receipt_id(space);
+            let receipt = json!({
+                "schema_version": 1,
+                "receipt_id": receipt_id,
+                "op": "memory.reflections.generate",
+                "space_id": space_id,
+                "requester_principal_id": principal_id,
+                "idempotency_key": key.clone(),
+                "payload_digest": digest.clone(),
+                "status": "pending",
+                "created_at": CLOCK_ORIGIN,
+                "extensions": {},
+            });
+            space.pending.insert(
+                receipt_id.clone(),
+                PendingWork::Reflection {
+                    subject_id: subject_id.clone(),
+                    selection: selection.clone(),
+                    sources,
+                    profile_revisions: profiles,
+                },
+            );
+            space.receipts.insert(receipt_id, receipt.clone());
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.reflections.generate",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     async fn create_export(

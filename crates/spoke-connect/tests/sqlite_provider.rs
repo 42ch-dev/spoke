@@ -1082,3 +1082,480 @@ async fn recall_cursors_invalidate_after_a_state_change() {
         SpokeRejectCode::CursorInvalid
     );
 }
+
+// ── 3c: profile + reflections ─────────────────────────────────────────────
+
+const CONTEXT_SELECTION: &str = "ctx_customs_gate";
+
+fn profile_update(kind: &str, revision: Option<u64>, key: &str) -> Value {
+    let mut request = json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "profile_kind": kind,
+        "document": { "format": "markdown", "body": "# Mira\n\nGuarded, loyal." },
+        "idempotency_key": key,
+    });
+    request["expected_revision"] = match revision {
+        Some(revision) => json!(revision),
+        None => Value::Null,
+    };
+    request
+}
+
+fn context_selection() -> Value {
+    json!({ "mode": "selected_contexts", "context_ids": [CONTEXT_SELECTION], "include_shared": false })
+}
+
+fn generate_request(expected: &str, key: &str) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "selection": context_selection(),
+        "expected_state_digest": expected,
+        "idempotency_key": key,
+    })
+}
+
+fn seed_record(provider: &SqliteMemoryProvider, record_id: &str, text: &str) {
+    provider.provision_record(
+        SPACE,
+        json!({
+            "schema_version": 1,
+            "record_id": record_id,
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "kind": "fact",
+            "content": { "text": text },
+            "scope": { "visibility": "context", "context_id": CONTEXT_SELECTION },
+            "provenance": {
+                "source_context_ids": [CONTEXT_SELECTION],
+                "anchors": [],
+                "captured_by": OPERATOR,
+                "captured_at": "2026-07-23T06:00:00Z",
+            },
+            "created_at": "2026-07-23T06:00:00Z",
+            "updated_at": "2026-07-23T06:00:00Z",
+            "revision": 1,
+            "extensions": {},
+        }),
+    );
+}
+
+async fn state_of(provider: &SqliteMemoryProvider) -> Value {
+    let response = expect_ok(
+        provider
+            .get_reflection_state(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": context_selection(),
+                }))
+                .expect("state request"),
+            )
+            .await,
+    );
+    wire(&response)
+}
+
+#[tokio::test]
+async fn profile_admission_is_honest_and_cas_holds() {
+    let provider = provider();
+    // Honest empty: an absent optional kind is an empty list (§4.2).
+    let absent = expect_ok(
+        provider
+            .get_profile(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "profile_kinds": ["preferences"],
+                }))
+                .expect("profile request"),
+            )
+            .await,
+    );
+    assert!(wire(&absent)["profiles"]
+        .as_array()
+        .expect("profiles")
+        .is_empty());
+
+    // A principal without profile_write cannot write.
+    assert_eq!(
+        expect_reject(
+            provider
+                .update_profile(
+                    &principal(READER),
+                    serde_json::from_value(profile_update("personality", None, "prof-denied"))
+                        .expect("profile update"),
+                )
+                .await
+        ),
+        SpokeRejectCode::NotAuthorized
+    );
+
+    // create-only (expected_revision null), then CAS.
+    let created = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", None, "prof-1"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&created)["result"]["revision"], 1);
+
+    assert_eq!(
+        expect_reject(
+            provider
+                .update_profile(
+                    &principal(OPERATOR),
+                    serde_json::from_value(profile_update("personality", None, "prof-2"))
+                        .expect("profile update"),
+                )
+                .await
+        ),
+        SpokeRejectCode::RevisionConflict
+    );
+    let updated = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", Some(1), "prof-3"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&updated)["result"]["revision"], 2);
+
+    let present = expect_ok(
+        provider
+            .get_profile(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "profile_kinds": ["personality"],
+                }))
+                .expect("profile request"),
+            )
+            .await,
+    );
+    let profiles = wire(&present)["profiles"].clone();
+    assert_eq!(profiles.as_array().expect("profiles").len(), 1);
+    assert_eq!(profiles[0]["revision"], 2);
+}
+
+#[tokio::test]
+async fn profile_update_stales_the_pinned_reflection() {
+    let provider = provider();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    let _ = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", None, "prof-a"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+
+    let before = state_of(&provider).await;
+    assert_eq!(before["data_sufficiency"], "sufficient");
+    assert_eq!(before["stale"], false);
+    let digest = before["state_digest"].as_str().expect("digest").to_string();
+
+    let generated = expect_ok(
+        provider
+            .generate_reflection(
+                &principal(OPERATOR),
+                serde_json::from_value(generate_request(&digest, "gen-1")).expect("generate"),
+            )
+            .await,
+    );
+    let generated = wire(&generated);
+    assert_eq!(generated["status"], "pending");
+    let receipt_id = generated["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+
+    let polled = expect_ok(
+        provider
+            .get_receipt(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "space_id": SPACE, "receipt_id": receipt_id }))
+                    .expect("receipt request"),
+            )
+            .await,
+    );
+    let polled = wire(&polled);
+    assert_eq!(polled["receipt"]["status"], "committed");
+    assert!(polled["receipt"]["result"]["reflection_id"]
+        .as_str()
+        .is_some());
+
+    let listed = expect_ok(
+        provider
+            .list_reflections(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 10,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&listed)["reflections"][0]["stale"], false);
+
+    // MEM-R013: a profile revision bump changes the basis ⇒ stale at read.
+    let _ = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", Some(1), "prof-b"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    let after = state_of(&provider).await;
+    assert_eq!(after["stale"], true);
+    let listed = expect_ok(
+        provider
+            .list_reflections(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 10,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&listed)["reflections"][0]["stale"], true);
+}
+
+#[tokio::test]
+async fn reflection_generation_admission_gates_fail_closed() {
+    let provider = provider();
+    // Required kind absent ⇒ PROFILE_INCOMPLETE, before the digest check.
+    assert_eq!(
+        expect_reject(
+            provider
+                .generate_reflection(
+                    &principal(OPERATOR),
+                    serde_json::from_value(generate_request(&"0".repeat(64), "gen-a"))
+                        .expect("generate"),
+                )
+                .await
+        ),
+        SpokeRejectCode::ProfileIncomplete
+    );
+
+    let _ = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", None, "prof-c"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    // No authorized records ⇒ INSUFFICIENT_DATA.
+    assert_eq!(
+        expect_reject(
+            provider
+                .generate_reflection(
+                    &principal(OPERATOR),
+                    serde_json::from_value(generate_request(&"0".repeat(64), "gen-b"))
+                        .expect("generate"),
+                )
+                .await
+        ),
+        SpokeRejectCode::InsufficientData
+    );
+
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    // Stale expected digest ⇒ REVISION_CONFLICT.
+    assert_eq!(
+        expect_reject(
+            provider
+                .generate_reflection(
+                    &principal(OPERATOR),
+                    serde_json::from_value(generate_request(&"0".repeat(64), "gen-c"))
+                        .expect("generate"),
+                )
+                .await
+        ),
+        SpokeRejectCode::RevisionConflict
+    );
+}
+
+#[tokio::test]
+async fn publish_pinned_generation_reads_stale_when_the_basis_moves() {
+    let provider = provider();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    let _ = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", None, "prof-p"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    let digest = state_of(&provider).await["state_digest"]
+        .as_str()
+        .expect("digest")
+        .to_string();
+    let generated = expect_ok(
+        provider
+            .generate_reflection(
+                &principal(OPERATOR),
+                serde_json::from_value(generate_request(&digest, "gen-p")).expect("generate"),
+            )
+            .await,
+    );
+    let receipt_id = wire(&generated)["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+
+    // The basis moves while generation is in flight.
+    seed_record(&provider, "rec_2", "A second tally appears by the gate.");
+
+    let polled = expect_ok(
+        provider
+            .get_receipt(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "space_id": SPACE, "receipt_id": receipt_id }))
+                    .expect("receipt request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+
+    // Publish-pinned: published, and immediately reads stale.
+    let listed = expect_ok(
+        provider
+            .list_reflections(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "limit": 10,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    let reflections = wire(&listed)["reflections"].clone();
+    assert_eq!(reflections.as_array().expect("reflections").len(), 1);
+    assert_eq!(reflections[0]["stale"], true);
+}
+
+#[tokio::test]
+async fn reflections_pinned_to_tombstoned_records_are_excluded() {
+    let provider = provider();
+    seed_record(
+        &provider,
+        "rec_1",
+        "The gate key is under the third barrel.",
+    );
+    let _ = expect_ok(
+        provider
+            .update_profile(
+                &principal(OPERATOR),
+                serde_json::from_value(profile_update("personality", None, "prof-t"))
+                    .expect("profile update"),
+            )
+            .await,
+    );
+    let digest = state_of(&provider).await["state_digest"]
+        .as_str()
+        .expect("digest")
+        .to_string();
+    let generated = expect_ok(
+        provider
+            .generate_reflection(
+                &principal(OPERATOR),
+                serde_json::from_value(generate_request(&digest, "gen-t")).expect("generate"),
+            )
+            .await,
+    );
+    let receipt_id = wire(&generated)["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+    let _ = expect_ok(
+        provider
+            .get_receipt(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "space_id": SPACE, "receipt_id": receipt_id }))
+                    .expect("receipt request"),
+            )
+            .await,
+    );
+
+    let before = expect_ok(
+        provider
+            .list_reflections(
+                &principal(OPERATOR),
+                serde_json::from_value(
+                    json!({ "space_id": SPACE, "subject_id": SUBJECT, "limit": 10 }),
+                )
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&before)["reflections"].as_array().expect("list").len(),
+        1
+    );
+
+    let _ = expect_ok(
+        provider
+            .delete_record(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": "rec_1",
+                    "expected_revision": 1,
+                    "idempotency_key": "rec-del-ref",
+                }))
+                .expect("delete request"),
+            )
+            .await,
+    );
+    let after = expect_ok(
+        provider
+            .list_reflections(
+                &principal(OPERATOR),
+                serde_json::from_value(
+                    json!({ "space_id": SPACE, "subject_id": SUBJECT, "limit": 10 }),
+                )
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert!(wire(&after)["reflections"]
+        .as_array()
+        .expect("list")
+        .is_empty());
+}

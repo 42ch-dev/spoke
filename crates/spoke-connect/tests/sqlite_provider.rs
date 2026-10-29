@@ -1585,11 +1585,16 @@ async fn reflections_pinned_to_tombstoned_records_are_excluded() {
 use spoke_memory::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
 
 async fn poll_receipt(provider: &SqliteMemoryProvider, space: &str, receipt_id: &str) -> Value {
-    // Value-level poll: the generated receipts.get response copy rejects the
-    // nested content-free results these transfer receipts carry (report finding).
-    provider
-        .poll_receipt_value(space, receipt_id)
-        .unwrap_or_else(|| panic!("receipt {receipt_id} missing"))
+    let response = expect_ok(
+        provider
+            .get_receipt(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "space_id": space, "receipt_id": receipt_id }))
+                    .expect("receipt request"),
+            )
+            .await,
+    );
+    wire(&response)["receipt"].clone()
 }
 
 fn transfer_space() -> SqliteMemoryProvider {
@@ -1882,11 +1887,6 @@ async fn stage_chunks(
     let chunk_count = chunks.len();
     let mut final_receipt = Value::Null;
     for (ordinal, chunk) in chunks.iter().enumerate() {
-        // Staged through the provider's Value entry point: the generated
-        // `MemoryExportChunk` union rejects a schema-valid header chunk that the
-        // named `HeaderChunk` accepts (Task 4 report finding), so the typed
-        // request cannot carry a provider chunk until that codegen defect is
-        // fixed.
         let mut request = json!({
             "space_id": space,
             "chunk": chunk,
@@ -1894,8 +1894,18 @@ async fn stage_chunks(
         });
         if ordinal == 0 {
             request["conflict_policy"] = json!("fail");
-            request["adopt_grants"] = adopt.clone();
+            if adopt
+                .as_array()
+                .map(|items| !items.is_empty())
+                .unwrap_or(false)
+            {
+                request["adopt_grants"] = adopt.clone();
+            }
         }
+        // Staged at value level: the generated chunk types decode the provider
+        // chunk but re-serialize it with normalized optional fields
+        // (`structured: null`, …), so a typed round-trip is not byte-faithful and
+        // the chunk digest no longer matches. See the codegen-repair report.
         final_receipt = expect_ok(provider.stage_import_value(&principal(OPERATOR), request));
         assert_eq!(final_receipt["result"]["chunks_received"], ordinal + 1);
     }

@@ -4149,11 +4149,13 @@ impl MemoryPort for SqliteMemoryProvider {
             space.pending.insert(
                 receipt_id.clone(),
                 PendingWork::Receipt {
+                    // §7.32: the completion result is exactly
+                    // {import_id, activated, authority_generation}; adoption
+                    // totals live in the staged report.
                     result: json!({
                         "import_id": import_id,
                         "activated": counts,
                         "authority_generation": authority_generation,
-                        "grants_adopted": adopted,
                     }),
                 },
             );

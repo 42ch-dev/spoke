@@ -1602,9 +1602,9 @@ fn setup_step_with_a_payload_error_is_not_mistaken_for_success() {
 
 #[test]
 fn run_case_polls_released_receipts_to_terminal_before_the_operation() {
-    // Regression: the release path belongs to the interpreter. One poll is not
-    // enough, so the scripted face answers `pending` twice before committing:
-    // the operation under test must not run until the receipt is terminal.
+    // Regression: the release path belongs to the interpreter. Two receipts are
+    // released and each needs three polls, so a run_case that polls a single
+    // receipt, or polls once, starts the operation before a receipt is terminal.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1613,27 +1613,36 @@ fn run_case_polls_released_receipts_to_terminal_before_the_operation() {
         let events = Arc::new(Mutex::new(Vec::<String>::new()));
         let recorder = Arc::clone(&events);
         let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
-            respond: Box::new(move |op, _payload| {
+            respond: Box::new(move |op, payload| {
                 let mut events = recorder.lock().expect("event log");
-                events.push(op.to_string());
                 if op != "memory.receipts.get" {
-                    return json!({});
+                    let receipt_id = if op == "memory.exports.create" {
+                        "rcpt_1"
+                    } else {
+                        "rcpt_2"
+                    };
+                    events.push(op.to_string());
+                    return json!({ "receipt_id": receipt_id });
                 }
+                let receipt_id = payload["receipt_id"].as_str().unwrap_or_default();
+                events.push(format!("memory.receipts.get:{receipt_id}"));
+                let key = format!("memory.receipts.get:{receipt_id}");
                 let polls = events
                     .iter()
-                    .filter(|event| event.as_str() == "memory.receipts.get")
+                    .filter(|event| event.as_str() == key.as_str())
                     .count();
                 let status = if polls < 3 { "pending" } else { "committed" };
-                json!({ "receipt": { "receipt_id": "rcpt_1", "status": status } })
+                json!({ "receipt": { "receipt_id": receipt_id, "status": status } })
             }),
         });
         let (mut wire, responder) = wire_over(face).await;
         let case = json!({
-            "id": "release-to-terminal",
+            "id": "release-both-to-terminal",
             "setup": [
-                { "op": "memory.exports.create", "request": {}, "hold": "pending" }
+                { "op": "memory.exports.create", "request": {}, "hold": "pending" },
+                { "op": "memory.imports.stage", "request": {}, "hold": "pending" }
             ],
-            "release": ["setup.0"],
+            "release": ["setup.0", "setup.1"],
             "op": "memory.spaces.list",
             "request": { "limit": 10 },
             "expect": { "success": true },
@@ -1643,26 +1652,39 @@ fn run_case_polls_released_receipts_to_terminal_before_the_operation() {
         assert_eq!(
             outcome,
             Outcome::Pass,
-            "the case may only read the receipt as released once it is terminal"
+            "the case may only read a receipt as released once it is terminal"
         );
         let events = events.lock().expect("event log");
         let operation = events
             .iter()
             .position(|event| event.as_str() == "memory.spaces.list")
             .expect("the operation runs after the release");
-        assert_eq!(
-            events[operation.saturating_sub(3)..operation]
+        for receipt in ["rcpt_1", "rcpt_2"] {
+            let key = format!("memory.receipts.get:{receipt}");
+            let polls = events
                 .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-            vec!["memory.receipts.get"; 3],
-            "every receipt reaches terminal before the operation runs: {events:?}"
-        );
+                .enumerate()
+                .filter(|(_, event)| event.as_str() == key.as_str())
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                polls.len(),
+                3,
+                "every released receipt is polled to terminal: {events:?}"
+            );
+            assert!(
+                polls[2] < operation,
+                "{receipt} is terminal before the operation runs: {events:?}"
+            );
+        }
     });
 }
 
 #[test]
 fn run_case_never_runs_the_operation_behind_a_receipt_that_never_settles() {
+    // Regression: the FIRST released receipt settles and the SECOND never does.
+    // A run_case that polls only the first receipt sees success and runs the
+    // operation, so the release must walk every receipt and stop on the stuck.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1671,25 +1693,35 @@ fn run_case_never_runs_the_operation_behind_a_receipt_that_never_settles() {
         let events = Arc::new(Mutex::new(Vec::<String>::new()));
         let recorder = Arc::clone(&events);
         let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
-            respond: Box::new(move |op, _payload| {
-                recorder
-                    .lock()
-                    .expect("event log")
-                    .push(op.to_string());
-                if op == "memory.receipts.get" {
-                    json!({ "receipt": { "receipt_id": "rcpt_1", "status": "pending" } })
-                } else {
-                    json!({})
+            respond: Box::new(move |op, payload| {
+                let mut events = recorder.lock().expect("event log");
+                if op != "memory.receipts.get" {
+                    let receipt_id = if op == "memory.exports.create" {
+                        "rcpt_1"
+                    } else {
+                        "rcpt_2"
+                    };
+                    events.push(op.to_string());
+                    return json!({ "receipt_id": receipt_id });
                 }
+                let receipt_id = payload["receipt_id"].as_str().unwrap_or_default();
+                events.push(format!("memory.receipts.get:{receipt_id}"));
+                let status = if receipt_id == "rcpt_2" {
+                    "pending"
+                } else {
+                    "committed"
+                };
+                json!({ "receipt": { "receipt_id": receipt_id, "status": status } })
             }),
         });
         let (mut wire, responder) = wire_over(face).await;
         let case = json!({
-            "id": "release-never-settles",
+            "id": "release-second-never-settles",
             "setup": [
-                { "op": "memory.exports.create", "request": {}, "hold": "pending" }
+                { "op": "memory.exports.create", "request": {}, "hold": "pending" },
+                { "op": "memory.imports.stage", "request": {}, "hold": "pending" }
             ],
-            "release": ["setup.0"],
+            "release": ["setup.0", "setup.1"],
             "op": "memory.spaces.list",
             "request": { "limit": 10 },
             "expect": { "success": true },
@@ -1698,8 +1730,8 @@ fn run_case_never_runs_the_operation_behind_a_receipt_that_never_settles() {
         responder.close();
         match outcome {
             Outcome::Inconclusive(reason) => assert!(
-                reason.contains("release setup.0"),
-                "an unsettled receipt is an inconclusive release: {reason}"
+                reason.contains("release setup.1"),
+                "the unsettled second receipt is an inconclusive release: {reason}"
             ),
             other => panic!("a pending receipt must block the operation: {other:?}"),
         }
@@ -1710,13 +1742,21 @@ fn run_case_never_runs_the_operation_behind_a_receipt_that_never_settles() {
                 .any(|event| event.as_str() == "memory.spaces.list"),
             "the operation never runs behind an unsettled receipt: {events:?}"
         );
-        assert_eq!(
+        let polls = |receipt: &str| {
             events
                 .iter()
-                .filter(|event| event.as_str() == "memory.receipts.get")
-                .count(),
+                .filter(|event| event.as_str() == format!("memory.receipts.get:{receipt}"))
+                .count()
+        };
+        assert_eq!(
+            polls("rcpt_1"),
+            1,
+            "the settled first receipt is read once: {events:?}"
+        );
+        assert_eq!(
+            polls("rcpt_2"),
             16,
-            "the release polls to its bound instead of assuming settlement"
+            "the second receipt polls to its bound instead of assuming settlement: {events:?}"
         );
     });
 }

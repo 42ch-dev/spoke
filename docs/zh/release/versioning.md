@@ -11,12 +11,12 @@ SPOKE 在所有 workspace 软件包与 Rust 消费方 crate 上发布**单一锁
 ## 固定什么
 
 - **npm** —— `@42ch/spoke-schemas`、`@42ch/spoke-operations`
-- **crates.io** —— `spoke-schemas`、`spoke-operations`
+- **crates.io** —— `spoke-schemas`、`spoke-operations`、`spoke-memory`、`spoke-connect`
 - 各处使用**同一** `X.Y.Z`；标签 `vX.Y.Z` 与锁步版本匹配。
 
 ## 发布形态
 
-- **锁步清单** —— workspace 根、两个 TS 软件包、两个 Rust crate、fixture/codegen 工具与 `Cargo.lock` 共享一个版本；CI 断言零漂移（`pnpm run verify:version`）。
+- **锁步清单** —— workspace 根、两个 TS 软件包、四个 Rust crate、fixture/codegen 工具与 `Cargo.lock` 共享一个版本；CI 断言零漂移（`pnpm run verify:version`）。
 - **标签** —— 带注释的 `vX.Y.Z`。每个不含 `-rc.` 的标签 —— 稳定版 `vX.Y.Z` 或预发布版如 `v0.1.0-alpha.3` —— 都会发布到 npm 与 crates.io；含 `-rc.` 的标签（`vX.Y.Z-rc.N`）仅创建 GitHub 预发布。
 - **发布说明** —— 来自 `CHANGELOG.md`，由 git-cliff 依据 Conventional Commits 生成。
 - **发布** —— 每个不含 `-rc.` 的标签经 CI Trusted Publishing 发布到 npm 与 crates.io；`-rc.` 标签仅创建 GitHub 预发布。
@@ -30,7 +30,7 @@ SPOKE 在所有 workspace 软件包与 Rust 消费方 crate 上发布**单一锁
 ## 固定方法
 
 - npm：`pnpm add @42ch/spoke-schemas@X.Y.Z @42ch/spoke-operations@X.Y.Z`
-- crates.io：`spoke-schemas = "X.Y.Z"`、`spoke-operations = "X.Y.Z"`
+- crates.io：`spoke-schemas = "X.Y.Z"`、`spoke-operations = "X.Y.Z"`、`spoke-memory = "X.Y.Z"`、`spoke-connect = "X.Y.Z"`
 - Git 标签：`git checkout vX.Y.Z`；或使用该标签的 GitHub Release 源码归档。
 
 ## 软件包 SemVer 与线上 `schema_version`

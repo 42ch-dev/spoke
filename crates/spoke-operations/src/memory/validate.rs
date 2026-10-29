@@ -96,6 +96,10 @@ impl std::io::Write for ByteCounter {
 ///
 /// The canonical bytes are counted through a writer instead of materialized
 /// as a `Vec`: admission only needs the length.
+///
+/// Unmeasurable content fails **closed**: both error arms return
+/// [`usize::MAX`], which every `max_content_bytes` comparison rejects, so a
+/// serialization failure can never admit a request.
 #[must_use]
 pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
     let value = match serde_json::to_value(content) {
@@ -106,12 +110,12 @@ pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
                 .collect(),
         ),
         Ok(other) => other,
-        Err(_) => return 0,
+        Err(_) => return usize::MAX,
     };
     let mut counter = ByteCounter(0);
     match serde_jcs::to_writer(&mut counter, &value) {
         Ok(()) => counter.0,
-        Err(_) => 0,
+        Err(_) => usize::MAX,
     }
 }
 
@@ -968,6 +972,21 @@ mod tests {
         assert_eq!(content_serialized_bytes(&request.content), 11);
         assert!(validate_memory_capture(&request, 11).is_ok());
         expect_invalid(validate_memory_capture(&request, 10), "content");
+    }
+
+    #[test]
+    fn content_serialized_bytes_fails_closed() {
+        // I-000030: unmeasurable content must reject. A `0` measure would make
+        // every `max_content_bytes` comparison pass and admit the request.
+        struct Unserializable;
+        impl serde::Serialize for Unserializable {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(<S::Error as serde::ser::Error>::custom("unmeasurable"))
+            }
+        }
+        let bytes = content_serialized_bytes(&Unserializable);
+        assert_eq!(bytes, usize::MAX);
+        expect_invalid(check_content_limit(bytes, 1024), "content");
     }
 
     #[test]

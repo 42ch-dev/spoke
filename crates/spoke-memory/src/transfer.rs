@@ -571,6 +571,12 @@ fn reassemble_verified(chunks: &[Value]) -> Reassembly {
     }
 
     let mut bundle = header;
+    // D8: an omitted `extensions` is the empty map. A chunker that drops an
+    // empty `extensions` from the ordinal-0 header must still reassemble
+    // against the source bundle digest, so normalize before hashing.
+    bundle
+        .entry("extensions".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
     for (field, items) in slices {
         if present.contains(field) {
             bundle.insert(field.to_string(), Value::Array(items));
@@ -1144,6 +1150,38 @@ mod tests {
             json!([]),
             "a present empty array must round-trip as present"
         );
+        assert_eq!(rebuilt, bundle);
+    }
+
+    #[test]
+    fn omitted_empty_extensions_normalizes_to_the_empty_map_for_the_digest_check() {
+        // D8: omitted == empty map. A chunker that drops an empty
+        // `extensions` from the ordinal-0 header must still reassemble
+        // against the source bundle digest sealed over `extensions: {}`.
+        let mut bundle = sealed_bundle();
+        bundle["extensions"] = json!({});
+        let bundle = seal(bundle);
+        let mut chunks = partition_bundle(&bundle, 900).expect("partitions");
+
+        // A foreign chunker omits the empty `extensions` from the header and
+        // re-digests its own chunk.
+        let header = chunks[0]["header"].as_object_mut().expect("header object");
+        header.remove("extensions");
+        let resealed = chunk_digest(&chunks[0]).expect("chunk digest computes");
+        chunks[0]
+            .as_object_mut()
+            .expect("chunk is an object")
+            .insert("chunk_digest".to_string(), json!(resealed));
+
+        let verification = verify_reassembly(&chunks);
+        assert!(
+            verification.bundle_digest_ok,
+            "omitted empty extensions must verify against the source digest: {:?}",
+            verification.errors
+        );
+        assert!(verification.errors.is_empty());
+        let rebuilt = reassemble(&chunks).expect("reassembles");
+        assert_eq!(rebuilt["extensions"], json!({}));
         assert_eq!(rebuilt, bundle);
     }
 

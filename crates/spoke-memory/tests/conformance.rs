@@ -676,6 +676,7 @@ fn run_recall_budget(case: &Case<'_>) -> Value {
     let request_json = &input["request"];
     let request = RecallRequest {
         query: request_json["query"].as_str(),
+        offset: request_json["offset"].as_u64().unwrap_or(0) as usize,
         max_items: request_json["max_items"].as_u64().expect("max_items") as usize,
         max_bytes: request_json["max_bytes"]
             .as_u64()

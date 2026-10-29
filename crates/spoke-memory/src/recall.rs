@@ -23,10 +23,14 @@ pub struct RecallRecord {
 pub struct RecallRequest<'a> {
     /// Ranking hint, never a filter (§9 item 2).
     pub query: Option<&'a str>,
-    /// Hard item cap.
+    /// Cursor resume (MEM-R026): drop this many leading ranked records
+    /// BEFORE the page budget applies, so a continuation page is the next
+    /// window of the same ranking instead of an empty tail.
+    pub offset: usize,
+    /// Hard item cap, applied after `offset`.
     pub max_items: usize,
     /// Hard UTF-8 budget over the serialized `content` values of returned
-    /// records (§9).
+    /// records (§9), applied after `offset`.
     pub max_bytes: Option<usize>,
 }
 
@@ -64,6 +68,11 @@ pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> R
             .then_with(|| left.record_id.cmp(&right.record_id))
     });
 
+    // MEM-R026: the cursor offset drops the leading ranked records before
+    // the page budget, so the page is a prefix of the ranking starting at
+    // `offset` and a continuation cursor resumes at `offset + page.len()`.
+    let ranked: Vec<(u32, &'a RecallRecord)> = ranked.into_iter().skip(request.offset).collect();
+
     let mut page = Vec::new();
     let mut bytes = 0;
     let mut overflow_record_id = None;
@@ -92,7 +101,7 @@ pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> R
     }
 
     RecallPage {
-        truncated: page.len() < records.len(),
+        truncated: request.offset + page.len() < records.len(),
         records: page,
         total_authorized: records.len(),
         overflow_record_id,
@@ -174,6 +183,7 @@ mod tests {
         let page = recall(
             &[],
             &RecallRequest {
+                offset: 0,
                 query: Some("gate key"),
                 max_items: 5,
                 max_bytes: Some(64),
@@ -195,6 +205,7 @@ mod tests {
         let page = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 2,
                 max_bytes: None,
@@ -205,6 +216,45 @@ mod tests {
         assert_eq!(page.total_authorized, 3);
         assert!(page.truncated);
         assert_eq!(page.overflow_record_id, None);
+    }
+
+    #[test]
+    fn cursor_offset_applies_before_the_page_budget() {
+        let records = vec![
+            record("rec_a", "fact", "alpha", "2026-10-01T00:00:00Z"),
+            record("rec_b", "fact", "bravo", "2026-10-02T00:00:00Z"),
+            record("rec_c", "fact", "charlie", "2026-10-03T00:00:00Z"),
+            record("rec_d", "fact", "delta", "2026-10-04T00:00:00Z"),
+            record("rec_e", "fact", "echo", "2026-10-05T00:00:00Z"),
+        ];
+        // Same score → newest first: rec_e, rec_d, rec_c, rec_b, rec_a.
+        let middle = recall(
+            &records,
+            &RecallRequest {
+                offset: 2,
+                query: None,
+                max_items: 2,
+                max_bytes: None,
+            },
+        );
+        // MEM-R026: the offset drops the two newest records BEFORE the
+        // budget, so the continuation page is the next window of the same
+        // ranking — not an empty tail.
+        assert_eq!(ids(&middle), vec!["rec_c", "rec_b"]);
+        assert_eq!(middle.total_authorized, 5);
+        assert!(middle.truncated);
+
+        let tail = recall(
+            &records,
+            &RecallRequest {
+                offset: 4,
+                query: None,
+                max_items: 2,
+                max_bytes: None,
+            },
+        );
+        assert_eq!(ids(&tail), vec!["rec_a"]);
+        assert!(!tail.truncated);
     }
 
     #[test]
@@ -223,6 +273,7 @@ mod tests {
         let exact = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(30),
@@ -234,6 +285,7 @@ mod tests {
         let one_byte_short = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(29),
@@ -265,6 +317,7 @@ mod tests {
         let exact = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(esc_wire + plain_wire),
@@ -276,6 +329,7 @@ mod tests {
         let short = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(esc_wire + plain_wire - 1),
@@ -295,6 +349,7 @@ mod tests {
         let page = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(30),
@@ -328,6 +383,7 @@ mod tests {
             );
         }
         let request = RecallRequest {
+            offset: 0,
             query: None,
             max_items: 3,
             max_bytes: Some(30),
@@ -358,6 +414,7 @@ mod tests {
         let page = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(10),
@@ -380,6 +437,7 @@ mod tests {
         let page = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 5,
                 max_bytes: Some(10),
@@ -412,6 +470,7 @@ mod tests {
         let page = recall(
             &records,
             &RecallRequest {
+                offset: 0,
                 query: None,
                 max_items: 10,
                 max_bytes: None,
@@ -447,6 +506,7 @@ mod tests {
             ),
         ];
         let request = RecallRequest {
+            offset: 0,
             query: Some("Where is the GATE key?"),
             max_items: 10,
             max_bytes: None,
@@ -466,6 +526,7 @@ mod tests {
             record("rec_d", "event", "delta", "2026-10-03T00:00:00Z"),
         ];
         let request = RecallRequest {
+            offset: 0,
             query: None,
             max_items: 10,
             max_bytes: None,

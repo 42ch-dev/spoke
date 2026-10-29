@@ -1344,6 +1344,143 @@ async fn recall_cursors_invalidate_after_a_state_change() {
 
 // ── 3c: profile + reflections ─────────────────────────────────────────────
 
+#[tokio::test]
+async fn recall_cursor_walks_every_page_without_gaps_or_repeats() {
+    // MEM-R026: the offset drops the leading ranked records BEFORE the page
+    // budget; applied after the budget, page 2 was empty forever (and the
+    // cursor never advanced).
+    let provider = provider();
+    for index in 0..5 {
+        provider.provision_record(
+            SPACE,
+            json!({
+                "schema_version": 1,
+                "record_id": format!("rec_{index}"),
+                "space_id": SPACE,
+                "subject_id": SUBJECT,
+                "kind": "fact",
+                "content": { "text": format!("barrel tally {index}") },
+                "scope": { "visibility": "context", "context_id": CONTEXT },
+                "provenance": {
+                    "source_context_ids": [CONTEXT],
+                    "anchors": [],
+                    "captured_by": OPERATOR,
+                    "captured_at": "2026-07-23T06:00:00Z",
+                },
+                "created_at": "2026-07-23T06:00:00Z",
+                "updated_at": "2026-07-23T06:00:00Z",
+                "revision": 1,
+                "extensions": {},
+            }),
+        );
+    }
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor = Value::Null;
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        assert!(pages <= 3, "the cursor must advance every page, got {pages} pages");
+        let mut request = json!({
+            "space_id": SPACE,
+            "subject_id": SUBJECT,
+            "selection": selection_all(),
+            "budget": { "max_items": 2 },
+        });
+        if !cursor.is_null() {
+            request["cursor"] = cursor.clone();
+        }
+        let page = expect_ok(
+            provider
+                .recall(
+                    &principal(OPERATOR),
+                    serde_json::from_value(request).expect("recall request"),
+                )
+                .await,
+        );
+        let page = wire(&page);
+        seen.extend(
+            page["records"]
+                .as_array()
+                .expect("records")
+                .iter()
+                .map(|record| {
+                    record["record_id"]
+                        .as_str()
+                        .expect("record id")
+                        .to_string()
+                }),
+        );
+        match page.get("next_cursor") {
+            Some(next) if pages < 3 => cursor = next.clone(),
+            Some(next) => panic!("unexpected cursor after the last page: {next}"),
+            None => break,
+        }
+    }
+    assert_eq!(pages, 3, "five records at two per page walk three pages");
+    seen.sort();
+    assert_eq!(seen, ["rec_0", "rec_1", "rec_2", "rec_3", "rec_4"]);
+}
+
+#[tokio::test]
+async fn polling_a_receipt_does_not_change_stored_state() {
+    // MEM-R011: the read path never writes. Polling a pending receipt
+    // observes it unchanged; only the separate provider worker settles it.
+    let provider = provider();
+    let created = expect_ok(
+        provider
+            .create_export(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "require_quiescent": false,
+                    "idempotency_key": "exp-poll-readonly",
+                }))
+                .expect("export request"),
+            )
+            .await,
+    );
+    let created = wire(&created);
+    assert_eq!(created["status"], "pending");
+    let receipt_id = created["receipt_id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
+    let request = || {
+        serde_json::from_value::<MemoryReceiptsGetRequest>(json!({
+            "space_id": SPACE,
+            "receipt_id": receipt_id,
+        }))
+        .expect("receipt request")
+    };
+
+    // Polling alone changes nothing: the receipt stays pending in storage.
+    for _ in 0..2 {
+        let polled = expect_ok(provider.get_receipt(&principal(OPERATOR), request()).await);
+        assert_eq!(wire(&polled)["receipt"]["status"], "pending");
+    }
+    let spaces = expect_ok(
+        provider
+            .list_spaces(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({ "limit": 10 })).expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        wire(&spaces)["spaces"][0]["pending_receipts"],
+        1,
+        "the pending receipt must survive read-path polling untouched"
+    );
+
+    // The separate worker settles it; polling then observes the commit.
+    provider.run_worker();
+    let polled = expect_ok(provider.get_receipt(&principal(OPERATOR), request()).await);
+    assert_eq!(wire(&polled)["receipt"]["status"], "committed");
+}
+
+
 const CONTEXT_SELECTION: &str = "ctx_customs_gate";
 
 fn profile_update(kind: &str, revision: Option<u64>, key: &str) -> Value {
@@ -1544,6 +1681,8 @@ async fn profile_update_stales_the_pinned_reflection() {
         .expect("receipt id")
         .to_string();
 
+    // The worker settles the pending generation separately from the read.
+    provider.run_worker();
     let polled = expect_ok(
         provider
             .get_receipt(
@@ -1699,6 +1838,8 @@ async fn publish_pinned_generation_reads_stale_when_the_basis_moves() {
     // The basis moves while generation is in flight.
     seed_record(&provider, "rec_2", "A second tally appears by the gate.");
 
+    // The worker settles the pending generation separately from the read.
+    provider.run_worker();
     let polled = expect_ok(
         provider
             .get_receipt(
@@ -1762,6 +1903,8 @@ async fn reflections_pinned_to_tombstoned_records_are_excluded() {
         .as_str()
         .expect("receipt id")
         .to_string();
+    // The worker settles the pending generation separately from the read.
+    provider.run_worker();
     let _ = expect_ok(
         provider
             .get_receipt(
@@ -1824,6 +1967,9 @@ async fn reflections_pinned_to_tombstoned_records_are_excluded() {
 use spoke_memory::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
 
 async fn poll_receipt(provider: &SqliteMemoryProvider, space: &str, receipt_id: &str) -> Value {
+    // The worker is separate from the read path (MEM-R011): settle the
+    // deferred async work, then observe the receipt through the port.
+    provider.run_worker();
     let response = expect_ok(
         provider
             .get_receipt(

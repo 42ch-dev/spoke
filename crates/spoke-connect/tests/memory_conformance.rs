@@ -270,6 +270,18 @@ impl Provider {
             Provider::Loopback(_store) => {}
         }
     }
+
+    /// Run the provider worker (settle deferred async receipts). The
+    /// loopback `MemoryHost` commits synchronously, so its leg is a no-op.
+    /// The worker is separate from every read path (MEM-R011): the corpus
+    /// drives it explicitly via `hold`/`release`, mirroring a background
+    /// worker process.
+    fn run_worker(&self) {
+        match self {
+            Provider::Sqlite(provider) => provider.run_worker(),
+            Provider::Loopback(_store) => {}
+        }
+    }
 }
 
 /// The corpus driver: one raw invoke per step.
@@ -952,6 +964,11 @@ async fn run_case(
         .unwrap_or("prn_tw_host_primary")
         .to_string();
     let mut responses: BTreeMap<String, Value> = BTreeMap::new();
+    // The provider worker runs separately from every read path (MEM-R011):
+    // the harness settles deferred async work after each step, except while
+    // a case holds a step's work uncommitted (`hold: pending`) until its
+    // `release`.
+    let mut held = false;
 
     for (index, step) in case["setup"]
         .as_array()
@@ -969,6 +986,11 @@ async fn run_case(
             }
         };
         responses.insert(format!("setup.{index}"), outcome.clone());
+        if step.get("hold").and_then(Value::as_str) == Some("pending") {
+            held = true;
+        } else if !held {
+            wire.provider.run_worker();
+        }
         if let Some(expect) = step.get("expect") {
             if let Err(failure) = check_expect(&outcome, expect, &responses) {
                 return Outcome::Inconclusive(format!(
@@ -1011,13 +1033,16 @@ async fn run_case(
         wire.provider.advance_clock(chosen);
     }
 
-    // `release`: complete the held setup receipts (poll them to terminal).
+    // `release`: run the provider worker to complete the held setup
+    // receipts (poll them to terminal to observe the settled state).
     for reference in case["release"].as_array().cloned().unwrap_or_default() {
         let step = reference.as_str().unwrap_or_default().to_string();
         let receipt_id = responses
             .get(&step)
             .map(|value| value["payload"]["receipt_id"].clone())
             .unwrap_or(Value::Null);
+        wire.provider.run_worker();
+        held = false;
         let _ = wire
             .invoke(
                 "memory.receipts.get",
@@ -1056,6 +1081,11 @@ async fn run_case(
         }
     }
     responses.insert("op".to_string(), op_response.clone());
+    // Settle the op's own async work so later steps observe it (the worker
+    // is separate from every read path, MEM-R011).
+    if !held {
+        wire.provider.run_worker();
+    }
     if let Err(failure) = check_expect(&op_response, &case["expect"], &responses) {
         return Outcome::Inconclusive(format!("{scenario}/{case_id}: {failure}"));
     }
@@ -1079,6 +1109,11 @@ async fn run_case(
             }
         };
         responses.insert(format!("then.{index}"), response.clone());
+        if step.get("hold").and_then(Value::as_str) == Some("pending") {
+            held = true;
+        } else if !held {
+            wire.provider.run_worker();
+        }
         if let Some(expect) = step.get("expect") {
             if let Err(failure) = check_expect(&response, expect, &responses) {
                 // A then step's expect is an assertion, not a probe: a

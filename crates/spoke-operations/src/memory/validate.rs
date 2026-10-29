@@ -71,13 +71,26 @@ fn check_page_limit(limit: Option<NonZeroU64>, max_page_size: NonZeroU64) -> Spo
 /// `content` value — field name, quotes, escaping, and `structured`
 /// included.
 ///
-/// The canonical form is RFC 8785 (JCS): a member explicitly `null`
-/// deserializes to `Option::None` and is skipped by the generated serializer,
-/// and numbers use the ECMAScript form (`1.0` → `1`) that `JSON.stringify`
-/// produces, so the TS measure counts identical bytes.
+/// The canonical form is RFC 8785 (JCS): top-level members that are `null`
+/// are absent — a deserialized `null` becomes `Option::None` and is skipped
+/// by the generated serializer, and a constructed `Some(Value::Null)` is
+/// stripped here so admission does not depend on how the caller built the
+/// value (the TS measure filters the same members). Nested `null`s are
+/// content and stay. Numbers use the ECMAScript form (`1.0` → `1`) that
+/// `JSON.stringify` produces, so the TS measure counts identical bytes.
 #[must_use]
 pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
-    serde_jcs::to_vec(content).map_or(0, |bytes| bytes.len())
+    let value = match serde_json::to_value(content) {
+        Ok(Value::Object(members)) => Value::Object(
+            members
+                .into_iter()
+                .filter(|(_, member)| !member.is_null())
+                .collect(),
+        ),
+        Ok(other) => other,
+        Err(_) => return 0,
+    };
+    serde_jcs::to_vec(&value).map_or(0, |bytes| bytes.len())
 }
 
 fn check_content_limit(byte_len: usize, max_content_bytes: usize) -> SpokeResult<()> {
@@ -910,6 +923,27 @@ mod tests {
             "idempotency_key": "k1",
         }))
         .expect("valid request");
+        assert!(validate_memory_capture(&request, 11).is_ok());
+        expect_invalid(validate_memory_capture(&request, 10), "content");
+    }
+
+    #[test]
+    fn capture_admits_constructed_explicit_null_boundary() {
+        // A caller-built `Some(Value::Null)` is the same logical content as a
+        // deserialized `null`: both canonicalize to `{"text":""}` = 11 bytes,
+        // so admission cannot depend on how the value was constructed. The TS
+        // parity test pins the same 11/10 pair.
+        use spoke_schemas::memory_capture_request::Content;
+        let mut request: MemoryCaptureRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "content": {"text": ""},
+            "capture_scope": {"visibility": "shared"},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid request");
+        request.content = Content { structured: Some(Value::Null), text: String::new() };
+        assert_eq!(content_serialized_bytes(&request.content), 11);
         assert!(validate_memory_capture(&request, 11).is_ok());
         expect_invalid(validate_memory_capture(&request, 10), "content");
     }

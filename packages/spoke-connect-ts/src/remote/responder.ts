@@ -1494,9 +1494,16 @@ export class ConnectResponder {
         uncertainOnExpiry,
       );
     } catch (error) {
+      // The provider threw or rejected AFTER admission, so the transport has
+      // no evidence that nothing committed (§14.3): answer uncertain, never a
+      // clean internal error. The Rust path answers the same when the
+      // detached invoke panics.
       result = spokeReject(
-        SpokeRejectCode.INTERNAL_ERROR,
-        error instanceof Error ? error.message : String(error),
+        SpokeRejectCode.OUTCOME_UNCERTAIN,
+        `memory service failed after invocation: ${
+          error instanceof Error ? error.message : String(error)
+        }; the outcome is unknown — poll the receipt or replay the same idempotency key`,
+        { retry_class: "uncertain", kind: "panic" },
       );
     }
     // A close during the bounded wait answers nothing afterwards.

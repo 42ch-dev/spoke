@@ -233,6 +233,22 @@ fn memory_uncertain_reject(budget: Duration) -> SpokeReject {
     }
 }
 
+/// §14.2/§14.3: the detached memory invoke panicked (or otherwise dropped
+/// its result channel) AFTER admission, so the transport has no evidence
+/// that nothing committed — a clean `INTERNAL_ERROR` would assert no-effect.
+/// The response says the outcome is unknown instead.
+fn memory_panic_uncertain_reject() -> SpokeReject {
+    let mut details = Map::new();
+    details.insert("retry_class".into(), Value::String("uncertain".into()));
+    details.insert("kind".into(), Value::String("panic".into()));
+    SpokeReject {
+        code: SpokeRejectCode::OutcomeUncertain,
+        message: "memory service failed after invocation; the outcome is unknown — poll the receipt or replay the same idempotency key"
+            .to_string(),
+        details: Some(details),
+    }
+}
+
 /// One decoded `port.*` dispatch: the catalogue arm's validated arguments,
 /// produced by [`decode_port_call`] before the serve bound starts (B1 — a
 /// malformed payload keeps its `INVALID_INPUT` reject even at a zero budget).
@@ -1456,13 +1472,11 @@ impl ConnectResponder {
             match tokio::time::timeout(self.invoke_timeout, rx).await {
                 Ok(Ok(result)) => Some(result),
                 // The detached task sends exactly once before dropping the
-                // sender; a receive failure is an internal fault, not a
-                // timeout.
-                Ok(Err(_)) => Some(SpokeResult::Reject(SpokeReject {
-                    code: SpokeRejectCode::InternalError,
-                    message: "memory invoke result channel closed before the result".to_string(),
-                    details: None,
-                })),
+                // sender; a receive failure means it panicked AFTER
+                // admission, so — like a budget expiry — the transport
+                // cannot assert no-effect (§14.3): answer uncertain, never
+                // a clean internal error.
+                Ok(Err(_)) => Some(SpokeResult::Reject(memory_panic_uncertain_reject())),
                 Err(_) => None,
             }
         };

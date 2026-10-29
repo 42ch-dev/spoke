@@ -109,6 +109,16 @@ const RESPONSE_NAMESPACES: [&str; 3] = ["setup", "op", "then"];
 /// Harness capabilities a step may request instead of a protocol op.
 const HARNESS_OPS: [&str; 2] = ["harness.save_snapshot", "harness.restore_snapshot"];
 
+/// Provider classes a policy-bearing case may declare.
+const PROVIDER_CLASSES: [&str; 2] = ["cooperative", "third-party"];
+
+/// Policy directives whose violation handling is bound to the provider class.
+const POLICY_DIRECTIVES: [&str; 3] = [
+    "remap_policy_check",
+    "pinned_basis_check",
+    "policy_version_check",
+];
+
 /// Resolves a `<namespace>[.<index>][.<path>]` reference, returning the path
 /// remainder (`""` for a bare step reference such as `setup.1` or `op`).
 fn split_step_reference<'a>(case_id: &str, reference: &'a str, setup_len: usize) -> &'a str {
@@ -1079,10 +1089,50 @@ fn conformance_corpus_is_well_formed() {
                                 "case {id}: unknown remap map {name}"
                             );
                         }
-                        assert_eq!(
-                            remap["inconclusive_on_violation"].as_bool(),
-                            Some(true),
+                        assert!(
+                            remap["inconclusive_on_violation"].as_bool().is_some(),
                             "case {id}: remap_policy_check.inconclusive_on_violation"
+                        );
+                    }
+                    let declares_policy = POLICY_DIRECTIVES
+                        .iter()
+                        .any(|directive| case.get(*directive).is_some());
+                    let provider_class = case.get("provider_class").map(|value| {
+                        value
+                            .as_str()
+                            .unwrap_or_else(|| panic!("case {id}: provider_class"))
+                    });
+                    if declares_policy {
+                        let class = provider_class.unwrap_or_else(|| {
+                            panic!("case {id}: policy directives require provider_class")
+                        });
+                        assert!(
+                            PROVIDER_CLASSES.contains(&class),
+                            "case {id}: unknown provider_class {class}"
+                        );
+                        // A cooperative provider is the corpus's own dual-provider
+                        // run: a declared-policy violation must FAIL, never skip.
+                        let expected_inconclusive = class == "third-party";
+                        for directive in POLICY_DIRECTIVES {
+                            let Some(config) = case.get(directive) else {
+                                continue;
+                            };
+                            let flag = config
+                                .get("inconclusive_on_violation")
+                                .or_else(|| config.get("inconclusive_on_mismatch"))
+                                .unwrap_or_else(|| {
+                                    panic!("case {id}: {directive} lacks a violation flag")
+                                });
+                            assert_eq!(
+                                flag.as_bool(),
+                                Some(expected_inconclusive),
+                                "case {id}: {directive} flag disagrees with provider_class {class}"
+                            );
+                        }
+                    } else {
+                        assert!(
+                            provider_class.is_none(),
+                            "case {id}: provider_class without policy directives"
                         );
                     }
                     if let Some(policy) = case.get("policy_version_check") {
@@ -1100,9 +1150,8 @@ fn conformance_corpus_is_well_formed() {
                             }),
                             setup_len,
                         );
-                        assert_eq!(
-                            policy["inconclusive_on_mismatch"].as_bool(),
-                            Some(true),
+                        assert!(
+                            policy["inconclusive_on_mismatch"].as_bool().is_some(),
                             "case {id}: policy_version_check.inconclusive_on_mismatch"
                         );
                     }

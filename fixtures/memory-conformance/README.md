@@ -182,13 +182,24 @@ test rejects un-namespaced references anywhere in a request payload or directive
   of the chunk minus `chunk_digest`) and the reassembled bundle digest (JCS minus
   `digest`), and reports the `verified` booleans. Fabricated digests therefore
   fail the case.
-- `remap_policy_check` — `{ "report": "<step reference to staged_report>", "maps": ["record_id_map", "candidate_id_map"], "policy": "identity", "inconclusive_on_violation": true }`.
+- **Provider classes** — a case carrying a declared-policy directive
+  (`remap_policy_check`, `pinned_basis_check`, `policy_version_check`) must
+  declare `provider_class`:
+
+  | Class | Meaning | Violation handling |
+  |-------|---------|--------------------|
+  | `cooperative` (default for this corpus's dual-provider run) | A provider built in this iteration; its Task 3 notes require identity remap on empty targets, revisions from 1, and the source bundle's `engine_policy_version` | The directives set `inconclusive_on_violation: false` / `inconclusive_on_mismatch: false`, so a policy violation **fails** the case. The mandatory `stale: true` assertion is therefore always reached, and an implementer who skips the provider notes produces a failing case, not a skipped one |
+  | `third-party` | An external adopter that declares no policy or cannot satisfy the preconditions | The same directives set `true`: a violation records `inconclusive` with reason — honest coverage, never a false pass |
+
+  The integrity test enforces the pairing: a policy directive without
+  `provider_class` fails, an unknown class fails, and a flag that disagrees with
+  the declared class fails.
+- `remap_policy_check` — `{ "report": "<step reference to staged_report>", "maps": ["record_id_map", "candidate_id_map"], "policy": "identity", "inconclusive_on_violation": <bool> }`.
   §7.31 requires the target to **reassign** record/candidate ids, not to change
   their values, so a co-operative provider may adopt an identity remap on an
   empty target space. The harness reads the staged report it already received
   and verifies the declared policy: every entry of the named maps must satisfy
-  `value == key`. A violation records `inconclusive` with that reason (honest for
-  third parties) and stops the remaining assertions.
+  `value == key`.
 - `pinned_basis_check` — after the op under test returns reflections, the harness
   calls `memory.reflections.state` for the same space/subject with the
   reflection's pinned `selection` (and `filter`, when present) and compares the
@@ -203,30 +214,23 @@ test rejects un-namespaced references anywhere in a request payload or directive
      1 so a provider allocating fresh revisions from 1 can reproduce it);
   3. the imported reflection still reads `stale: true`.
 
-  If (2) fails the case is recorded `inconclusive`
-  (`inconclusive_on_mismatch: true`) — never proven, never a failure.
-
-  For the imported-staleness case the policy is **declared**, so the rule is
-  stricter (`inconclusive_on_mismatch: false`): once the declared-policy checks
-  pass — identity remap verified from the staged report, the post-activation
-  record revision read back as 1, and the policy version equal — the translated
-  pinned basis is exactly reproducible and equality **must** hold. A mismatch
-  under those conditions means the provider is non-compliant with its own
-  declared policy, so the case **fails** rather than degrading to inconclusive.
-  Inconclusive remains only for third parties that declare no policy or fail a
-  precondition, and the coverage map states that distinction.
+  A mismatch follows the case's `provider_class`: for `third-party`
+  (`inconclusive_on_mismatch: true`) it is recorded `inconclusive` — never proven,
+  never a failure; for `cooperative` (`inconclusive_on_mismatch: false`) the
+  policy is declared and verified in-case, so a mismatch **fails** as
+  non-compliant.
 
   **Black-box ceiling:** this is the strongest discrimination an outside observer
   can reach without provider internals — a provider that both re-digests the
   translated basis identically and still reports `stale: true` has demonstrated
-  the §7.31 rule, while a provider that cannot reproduce the digest stays
-  `inconclusive` rather than being falsely certified.
-- `policy_version_check` — `{ "observed": "<step reference>", "pinned": "<step reference>", "inconclusive_on_mismatch": true }`.
-  For the import case it compares the provider's `memory.describe`
-  `engine_policy_version` with the imported reflection's
-  `generator.engine_policy_version`: a provider that reports a different policy
-  version cannot reproduce the pinned digest, so the case is recorded
-  `inconclusive` with that reason instead of silently failing or passing.
+  the §7.31 rule, while a third-party provider that cannot reproduce the digest
+  stays `inconclusive` rather than being falsely certified.
+- `policy_version_check` — `{ "observed": "<step reference>", "pinned": "<step reference>", "inconclusive_on_mismatch": <bool> }`.
+  Compares the provider's `memory.describe` `engine_policy_version` with the
+  imported reflection's `generator.engine_policy_version`: a provider reporting a
+  different policy version cannot reproduce the pinned digest, so the outcome
+  follows `provider_class` exactly as above — `inconclusive` for `third-party`,
+  a hard failure for `cooperative`.
 - `inconclusive_when` — array of `{ "path": "...", "isEmpty": true }`: if any
   named response value is an empty array, the case is recorded `inconclusive`
   and its remaining assertions are not counted. Used only where the protocol
@@ -268,7 +272,7 @@ test rejects un-namespaced references anywhere in a request payload or directive
 | Cursor invalidation (`CURSOR_INVALID`) | `cursor-invalidation.json` | wire |
 | Chunk round-trip + digest verification, per-chunk staging keys and replay | `transfer-chunks.json`, `staging-import.json` | engine (partition/digests) + wire (round-trip, staging) |
 | Staged-import verification report + explicit-only `adopt_grants` (verified after activation, alongside the staging principal's own grant) | `staging-import.json` | engine (report policy) + wire (staging, activation, adoption) |
-| Imported-reflection `stale: true` unconditionally — `proven` deterministically for providers declaring the identity-remap / revision-1 / matching-policy contract (all three verified in-case; a digest mismatch under those preconditions fails as non-compliant); third parties that declare no policy or fail a precondition are recorded `inconclusive` with reason, never `proven` | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
+| Imported-reflection `stale: true` unconditionally — `provider_class: "cooperative"`: identity remap, revision-1 records and a matching policy version are verified in-case, so `stale: true` is deterministically **proven** and a policy violation or basis mismatch **fails**; `provider_class: "third-party"` records `inconclusive` with reason instead | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
 | Profile-admission three-state distinguishability | `profile-admission.json` | wire |
 | Profile-update ⇒ reflection-stale trigger | `reflection-staleness.json` | wire (+ engine digest policy) |
 | Classification/recall determinism per provider (classification requires `harness.save_snapshot`/`restore_snapshot`, else inconclusive) | `classification.json` (`classification-stable-within-a-provider`), `recall-budget.json` | wire (+ engine repeat) |

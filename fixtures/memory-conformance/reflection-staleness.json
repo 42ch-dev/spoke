@@ -175,19 +175,20 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "control: the same reflection on the source space reads stale: false; on the target, an identity remap, revision-1 records and a matching policy version make the pinned basis reproducible, so equality plus stale: true proves unconditional imported staleness (a mismatch under those preconditions FAILS)",
+      "what": "cooperative provider: after activation an identity remap, revision-1 records and a matching policy version make the pinned basis exactly reproducible, so equality plus stale: true proves unconditional imported staleness — a policy violation or a basis mismatch under those conditions FAILS",
+      "provider_class": "cooperative",
       "requires": [
         "spc_tw_harbor holds refl_tw_gate_key_0001 with an unmoved basis: its pinned records at revision 1 and the personality profile at revision 1",
         "an empty target space spc_tw_import_target exists; its subject ids and local reflections are absent",
         "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
-        "declared provider policy: identity remap on an empty target (target id == source id — §7.31 requires reassignment, not a change of value), fresh target revisions starting at 1, and the source bundle's engine_policy_version; each is verified below, and a failed policy check records inconclusive with that reason",
+        "declared provider policy (cooperative class): identity remap on an empty target (target id == source id — §7.31 requires reassignment, not a change of value), fresh target revisions starting at 1, and the source bundle's engine_policy_version; every check below is mandatory and a violation FAILS the case",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
       "remap_policy_check": {
         "report": "setup.4.result.staged_report",
         "maps": ["record_id_map", "candidate_id_map"],
         "policy": "identity",
-        "inconclusive_on_violation": true
+        "inconclusive_on_violation": false
       },
       "pinned_basis_check": {
         "reflection": "op.reflections.0",
@@ -196,7 +197,7 @@
       "policy_version_check": {
         "observed": "setup.0.engine_policy_version",
         "pinned": "op.reflections.0.generator.engine_policy_version",
-        "inconclusive_on_mismatch": true
+        "inconclusive_on_mismatch": false
       },
       "setup": [
         {

@@ -1514,6 +1514,13 @@ async fn recall_cursor_binds_every_mem_r026_input() {
             OPERATOR,
             json!({ "cursor": cursor, "filter": { "source_context_ids": [CONTEXT] } }),
         ),
+        // The query ranks the page, so a cursor taken without one must not
+        // resume a differently ranked list at the same offset.
+        (
+            "query",
+            OPERATOR,
+            json!({ "cursor": cursor, "query": "a different ranking" }),
+        ),
         (
             "subject",
             OPERATOR,

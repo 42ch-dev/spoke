@@ -1601,49 +1601,81 @@ fn setup_step_with_a_payload_error_is_not_mistaken_for_success() {
 }
 
 #[test]
-fn released_receipts_are_polled_to_terminal_not_assumed_settled() {
-    // Regression: one poll is not enough. The scripted face answers `pending`
-    // twice before committing, so a single-poll release would evaluate the
-    // case's expectations against an unsettled receipt.
+fn run_case_polls_released_receipts_to_terminal_before_the_operation() {
+    // Regression: the release path belongs to the interpreter. One poll is not
+    // enough, so the scripted face answers `pending` twice before committing:
+    // the operation under test must not run until the receipt is terminal.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     runtime.block_on(async {
-        let polls = Arc::new(Mutex::new(0usize));
-        let counter = Arc::clone(&polls);
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorder = Arc::clone(&events);
         let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
             respond: Box::new(move |op, _payload| {
+                let mut events = recorder.lock().expect("event log");
+                events.push(op.to_string());
                 if op != "memory.receipts.get" {
                     return json!({});
                 }
-                let mut polls = counter.lock().expect("poll counter");
-                *polls += 1;
-                let status = if *polls < 3 { "pending" } else { "committed" };
+                let polls = events
+                    .iter()
+                    .filter(|event| event.as_str() == "memory.receipts.get")
+                    .count();
+                let status = if polls < 3 { "pending" } else { "committed" };
                 json!({ "receipt": { "receipt_id": "rcpt_1", "status": status } })
             }),
         });
         let (mut wire, responder) = wire_over(face).await;
-        let released = poll_receipt_terminal(&mut wire, &json!("rcpt_1")).await;
+        let case = json!({
+            "id": "release-to-terminal",
+            "setup": [
+                { "op": "memory.exports.create", "request": {}, "hold": "pending" }
+            ],
+            "release": ["setup.0"],
+            "op": "memory.spaces.list",
+            "request": { "limit": 10 },
+            "expect": { "success": true },
+        });
+        let outcome = run_case(&mut wire, None, "regression", &case).await;
         responder.close();
-        assert_eq!(released, Ok(()), "the poll loop must reach the terminal state");
         assert_eq!(
-            *polls.lock().expect("poll counter"),
-            3,
-            "the loop polls until committed, not once"
+            outcome,
+            Outcome::Pass,
+            "the case may only read the receipt as released once it is terminal"
+        );
+        let events = events.lock().expect("event log");
+        let operation = events
+            .iter()
+            .position(|event| event.as_str() == "memory.spaces.list")
+            .expect("the operation runs after the release");
+        assert_eq!(
+            events[operation.saturating_sub(3)..operation]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["memory.receipts.get"; 3],
+            "every receipt reaches terminal before the operation runs: {events:?}"
         );
     });
 }
 
 #[test]
-fn a_receipt_that_never_settles_is_not_read_as_released() {
+fn run_case_never_runs_the_operation_behind_a_receipt_that_never_settles() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime");
     runtime.block_on(async {
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorder = Arc::clone(&events);
         let face: Arc<dyn RemoteMemoryService> = Arc::new(ScriptedMemoryService {
-            respond: Box::new(|op, _payload| {
+            respond: Box::new(move |op, _payload| {
+                recorder
+                    .lock()
+                    .expect("event log")
+                    .push(op.to_string());
                 if op == "memory.receipts.get" {
                     json!({ "receipt": { "receipt_id": "rcpt_1", "status": "pending" } })
                 } else {
@@ -1652,11 +1684,39 @@ fn a_receipt_that_never_settles_is_not_read_as_released() {
             }),
         });
         let (mut wire, responder) = wire_over(face).await;
-        let released = poll_receipt_terminal(&mut wire, &json!("rcpt_1")).await;
+        let case = json!({
+            "id": "release-never-settles",
+            "setup": [
+                { "op": "memory.exports.create", "request": {}, "hold": "pending" }
+            ],
+            "release": ["setup.0"],
+            "op": "memory.spaces.list",
+            "request": { "limit": 10 },
+            "expect": { "success": true },
+        });
+        let outcome = run_case(&mut wire, None, "regression", &case).await;
         responder.close();
+        match outcome {
+            Outcome::Inconclusive(reason) => assert!(
+                reason.contains("release setup.0"),
+                "an unsettled receipt is an inconclusive release: {reason}"
+            ),
+            other => panic!("a pending receipt must block the operation: {other:?}"),
+        }
+        let events = events.lock().expect("event log");
         assert!(
-            released.is_err(),
-            "a pending receipt must fail the release, never pass silently"
+            !events
+                .iter()
+                .any(|event| event.as_str() == "memory.spaces.list"),
+            "the operation never runs behind an unsettled receipt: {events:?}"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.as_str() == "memory.receipts.get")
+                .count(),
+            16,
+            "the release polls to its bound instead of assuming settlement"
         );
     });
 }

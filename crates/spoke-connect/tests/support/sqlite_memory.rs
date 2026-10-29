@@ -1371,9 +1371,10 @@ impl SqliteMemoryProvider {
                 .unwrap_or_default()
     }
 
-    /// MEM-R026 binding: principal, space, subject, selection/filter, snapshot
-    /// marker (state epoch) and `engine_policy_version`. The offset is the
-    /// pagination position, never part of the binding.
+    /// MEM-R026 binding: principal, space, subject, selection/filter, the
+    /// ranking query, snapshot marker (state epoch) and
+    /// `engine_policy_version`. The offset is the pagination position, never
+    /// part of the binding.
     fn cursor_binding(
         space: &Space,
         principal_id: &str,
@@ -1386,6 +1387,9 @@ impl SqliteMemoryProvider {
             "subject_id": subject_id,
             "selection": request["selection"].clone(),
             "filter": request.get("filter").cloned().unwrap_or(Value::Null),
+            // The query ranks the list, so a continuation must resume the
+            // same ranking, not the same filter over a new one.
+            "query": request.get("query").cloned().unwrap_or(Value::Null),
             "state_epoch": space.state_epoch,
             "engine_policy_version": ENGINE_POLICY_VERSION,
         });

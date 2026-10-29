@@ -165,16 +165,29 @@ impl std::error::Error for RecallError {}
 ///
 /// This is the same canonical measure as `spoke-operations`'
 /// `content_serialized_bytes` (the §7.1 `max_content_bytes` admission limit,
-/// I-000023): RFC 8785 JCS, so an explicit `null` member is skipped and
-/// numbers use the ECMAScript form (`1.0` → `1`, `1e2` → `100`), which is
-/// what `JSON.stringify` produces. It stays local because the engine must
-/// not depend on `spoke-operations`.
+/// I-000023): RFC 8785 JCS, so top-level `null` members are absent — a
+/// deserialized `null` becomes `Option::None`, and a constructed
+/// `Some(Value::Null)` is stripped here the same way, so recall and admission
+/// budget identical bytes for identical content — and numbers use the
+/// ECMAScript form (`1.0` → `1`, `1e2` → `100`), which is what
+/// `JSON.stringify` produces. Nested `null`s are content and stay. It stays
+/// local because the engine must not depend on `spoke-operations`.
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
 /// float and rejects instead of panicking.
 fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
-    serde_jcs::to_vec(content)
+    let value = match serde_json::to_value(content) {
+        Ok(serde_json::Value::Object(members)) => serde_json::Value::Object(
+            members
+                .into_iter()
+                .filter(|(_, member)| !member.is_null())
+                .collect(),
+        ),
+        Ok(other) => other,
+        Err(_) => return Err(RecallError::NonFiniteContent),
+    };
+    serde_jcs::to_vec(&value)
         .map(|bytes| bytes.len())
         .map_err(|_| RecallError::NonFiniteContent)
 }
@@ -407,6 +420,52 @@ mod tests {
         assert_eq!(ids(&short), vec!["rec_numbers"]);
         assert_eq!(short.overflow_record_id, Some("rec_numbers"));
         assert!(!short.truncated);
+    }
+
+    #[test]
+    fn constructed_null_content_budgets_like_admission() {
+        // I-000031: a caller-built `Some(Value::Null)` is the same logical
+        // content as a deserialized `null`; both canonicalize to
+        // `{"text":""}` = 11 bytes, so recall and admission budget identically.
+        let records = vec![RecallRecord {
+            record_id: "rec_null".to_string(),
+            kind: "fact".to_string(),
+            content: Content {
+                structured: Some(serde_json::Value::Null),
+                text: String::new(),
+            },
+            created_at: at("2026-10-01T00:00:00Z"),
+        }];
+        assert_eq!(
+            content_serialized_bytes(&records[0].content).expect("finite content measures"),
+            11
+        );
+
+        let exact = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(11),
+            },
+        );
+        assert_eq!(ids(&exact), vec!["rec_null"]);
+        assert_eq!(exact.overflow_record_id, None);
+
+        // One byte short: the measure really is 11, not the 28-byte
+        // `{"structured":null,"text":""}` form.
+        let short = recall_checked(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(10),
+            },
+        );
+        assert_eq!(ids(&short), vec!["rec_null"]);
+        assert_eq!(short.overflow_record_id, Some("rec_null"));
     }
 
     #[test]

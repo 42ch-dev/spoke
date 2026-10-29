@@ -21,7 +21,7 @@ import type {
 } from "@42ch/spoke-schemas";
 
 import {
-  contentWireBytes,
+  contentSerializedBytes,
   isFreezeAllowlisted,
   validateMemoryCandidatesList,
   validateMemoryCandidatesReview,
@@ -383,11 +383,11 @@ describe("per-op conditionals", () => {
 });
 
 describe("content byte limits (§7.1)", () => {
-  it("contentWireBytes counts text and structured", () => {
-    expect(contentWireBytes("héllo", undefined)).toBe(6);
-    const structured = { a: 1 };
-    const structuredBytes = new TextEncoder().encode(JSON.stringify(structured)).length;
-    expect(contentWireBytes("ab", structured)).toBe(2 + structuredBytes);
+  it("contentSerializedBytes pins the shared known vectors", () => {
+    // Same explicit byte values are pinned by the Rust parity test.
+    expect(contentSerializedBytes({ text: "héllo" })).toBe(17);
+    expect(contentSerializedBytes({ text: "ab", structured: { nested: [true, null] } })).toBe(49);
+    expect(contentSerializedBytes({ text: "" })).toBe(11);
   });
 
   it("capture rejects oversize content with details.limit", () => {
@@ -406,6 +406,19 @@ describe("content byte limits (§7.1)", () => {
       capture_scope: { visibility: "context", context_id: "c1" },
     } as MemoryCaptureRequest;
     expect(validateMemoryCapture(small, 1024).ok).toBe(true);
+  });
+
+  it("capture accepts the exact content byte boundary", () => {
+    // `{"text":"fine"}` is exactly 15 bytes under the serialized measure.
+    const request = {
+      space_id: "sp_1",
+      subject_id: "s1",
+      content: { text: "fine" },
+      capture_scope: { visibility: "shared" },
+      idempotency_key: "k1",
+    } as MemoryCaptureRequest;
+    expect(validateMemoryCapture(request, 15).ok).toBe(true);
+    expectLimit(validateMemoryCapture(request, 14), "max_content_bytes");
   });
 
   it("records.create rejects oversize content", () => {

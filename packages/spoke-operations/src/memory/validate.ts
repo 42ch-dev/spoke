@@ -61,14 +61,16 @@ function checkPageLimit(limit: number | undefined, maxPageSize: number): SpokeRe
 
 /**
  * Byte size of a `Content` request field against `max_content_bytes`
- * (§7.1): UTF-8 bytes of `text` plus the compact serialization of
- * `structured` when present.
+ * (§7.1): UTF-8 bytes of the compact serialization of the complete
+ * `content` value — field name, quotes, escaping, and `structured` included.
  */
-export function contentWireBytes(text: string, structured?: unknown): number {
-  const encoder = new TextEncoder();
-  const structuredBytes =
-    structured === undefined ? 0 : encoder.encode(JSON.stringify(structured)).length;
-  return encoder.encode(text).length + structuredBytes;
+export function contentSerializedBytes(content: Content): number {
+  return new TextEncoder().encode(JSON.stringify(content)).length;
+}
+
+interface Content {
+  text: string;
+  structured?: unknown;
 }
 
 function checkContentLimit(byteLen: number, maxContentBytes: number): SpokeResult<void> {
@@ -181,7 +183,7 @@ export function validateMemoryCapture(
   maxContentBytes: number,
 ): SpokeResult<void> {
   return checkContentLimit(
-    contentWireBytes(request.content.text, request.content.structured),
+    contentSerializedBytes(request.content),
     maxContentBytes,
   );
 }
@@ -234,7 +236,7 @@ export function validateMemoryRecordsCreate(
   maxContentBytes: number,
 ): SpokeResult<void> {
   return checkContentLimit(
-    contentWireBytes(request.content.text, request.content.structured),
+    contentSerializedBytes(request.content),
     maxContentBytes,
   );
 }
@@ -261,7 +263,7 @@ export function validateMemoryRecordsUpdate(
     return spokeOk();
   }
   return checkContentLimit(
-    contentWireBytes(update.content.text, update.content.structured),
+    contentSerializedBytes(update.content),
     maxContentBytes,
   );
 }

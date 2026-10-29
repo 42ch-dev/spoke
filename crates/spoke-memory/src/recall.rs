@@ -83,7 +83,7 @@ pub fn recall<'a>(
         if page.len() >= request.max_items {
             break;
         }
-        let item_bytes = content_wire_bytes(&record.content)?;
+        let item_bytes = content_serialized_bytes(&record.content)?;
         if let Some(limit) = request.max_bytes {
             if bytes + item_bytes > limit {
                 // §9 progress rule: an oversized first item is surfaced whole and
@@ -163,16 +163,14 @@ impl std::error::Error for RecallError {}
 /// value** — field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
 ///
-/// This deliberately differs from `spoke-operations`' `content_wire_bytes`
-/// (text bytes + raw `structured` serialization), which serves the §7.1
-/// `max_content_bytes` limit. Issue I-000023 tracks unifying the two
-/// measurements; until then the engine measures the wire form on its own
-/// because it must not depend on `spoke-operations`.
+/// This is the same measure as `spoke-operations`' `content_serialized_bytes`
+/// (the §7.1 `max_content_bytes` admission limit, I-000023); it stays local
+/// because the engine must not depend on `spoke-operations`.
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
 /// float and rejects instead of panicking.
-fn content_wire_bytes(content: &Content) -> Result<usize, RecallError> {
+fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
     serde_json::to_vec(content)
         .map(|bytes| bytes.len())
         .map_err(|_| RecallError::NonFiniteContent)
@@ -207,7 +205,7 @@ mod tests {
 
 
     /// Unwrap the engine Result for the ranking-focused unit tests; the
-    /// error path itself is covered by `content_wire_bytes` guard tests.
+    /// error path itself is covered by `content_serialized_bytes` guard tests.
     fn recall_checked<'a>(
         records: &'a [RecallRecord],
         request: &RecallRequest<'_>,

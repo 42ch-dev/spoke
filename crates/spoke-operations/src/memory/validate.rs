@@ -17,7 +17,7 @@
 //! - `memory.records.update` kind-update shape must not carry content (§7.18);
 //! - `memory.imports.stage` header chunk ordinal must be 0 (§7.31);
 //! - content byte limits for `memory.capture` / `memory.records.create` /
-//!   `memory.records.update` (§7 limits; measured by [`content_wire_bytes`]);
+//!   `memory.records.update` (§7 limits; measured by [`content_serialized_bytes`]);
 //! - the §8.2 freeze maintenance allowlist predicate.
 //!
 //! Everything else — idempotency-key presence and 1–128 shape on keyed
@@ -67,11 +67,13 @@ fn check_page_limit(limit: Option<NonZeroU64>, max_page_size: NonZeroU64) -> Spo
 }
 
 /// Byte size of a `Content` request field against `max_content_bytes`
-/// (§7.1): UTF-8 bytes of `text` plus the compact serialization of
-/// `structured` when present.
+/// (§7.1): UTF-8 bytes of the compact serialization of the complete
+/// `content` value — field name, quotes, escaping, and `structured`
+/// included. This is the same measure `spoke-memory` applies to the §9
+/// recall byte budget.
 #[must_use]
-pub fn content_wire_bytes(text: &str, structured: Option<&Value>) -> usize {
-    text.len() + structured.map_or(0, |value| serde_json::to_vec(value).map_or(0, |bytes| bytes.len()))
+pub fn content_serialized_bytes(content: &impl serde::Serialize) -> usize {
+    serde_json::to_vec(content).map_or(0, |bytes| bytes.len())
 }
 
 fn check_content_limit(byte_len: usize, max_content_bytes: usize) -> SpokeResult<()> {
@@ -163,7 +165,7 @@ pub fn validate_memory_capture(
     max_content_bytes: usize,
 ) -> SpokeResult<()> {
     check_content_limit(
-        content_wire_bytes(&request.content.text, request.content.structured.as_ref()),
+        content_serialized_bytes(&request.content),
         max_content_bytes,
     )
 }
@@ -228,7 +230,7 @@ pub fn validate_memory_records_create(
     max_content_bytes: usize,
 ) -> SpokeResult<()> {
     check_content_limit(
-        content_wire_bytes(&request.content.text, request.content.structured.as_ref()),
+        content_serialized_bytes(&request.content),
         max_content_bytes,
     )
 }
@@ -244,12 +246,12 @@ pub fn validate_memory_records_update(
 ) -> SpokeResult<()> {
     match request {
         MemoryRecordsUpdateRequest::Variant0 { content, .. } => check_content_limit(
-            content_wire_bytes(&content.text, content.structured.as_ref()),
+            content_serialized_bytes(content),
             max_content_bytes,
         ),
         MemoryRecordsUpdateRequest::Variant1 { content: Some(content), .. } => {
             check_content_limit(
-                content_wire_bytes(&content.text, content.structured.as_ref()),
+                content_serialized_bytes(content),
                 max_content_bytes,
             )
         }
@@ -854,15 +856,18 @@ mod tests {
     // ---- content byte limits ----
 
     #[test]
-    fn content_wire_bytes_counts_text_and_structured() {
-        assert_eq!(content_wire_bytes("héllo", None), 6);
-        let structured = json!({"a": 1});
-        let structured_len =
-            serde_json::to_vec(&structured).expect("serialize").len();
-        assert_eq!(
-            content_wire_bytes("ab", Some(&structured)),
-            2 + structured_len
-        );
+    fn content_serialized_bytes_known_vectors() {
+        use spoke_schemas::memory_capture_request::Content;
+        // Same explicit byte values are pinned by the TS parity test.
+        let non_ascii = Content { structured: None, text: "héllo".to_string() };
+        assert_eq!(content_serialized_bytes(&non_ascii), 17);
+        let nested = Content {
+            structured: Some(json!({"nested": [true, null]})),
+            text: "ab".to_string(),
+        };
+        assert_eq!(content_serialized_bytes(&nested), 49);
+        let empty = Content { structured: None, text: String::new() };
+        assert_eq!(content_serialized_bytes(&empty), 11);
     }
 
     #[test]
@@ -886,6 +891,21 @@ mod tests {
         }))
         .expect("valid request");
         assert!(validate_memory_capture(&small, 1024).is_ok());
+    }
+
+    #[test]
+    fn capture_admits_exact_content_byte_boundary() {
+        // `{"text":"fine"}` is exactly 15 bytes under the serialized measure.
+        let request: MemoryCaptureRequest = serde_json::from_value(json!({
+            "space_id": "sp_1",
+            "subject_id": "s1",
+            "content": {"text": "fine"},
+            "capture_scope": {"visibility": "shared"},
+            "idempotency_key": "k1",
+        }))
+        .expect("valid request");
+        assert!(validate_memory_capture(&request, 15).is_ok());
+        expect_invalid(validate_memory_capture(&request, 14), "content");
     }
 
     #[test]

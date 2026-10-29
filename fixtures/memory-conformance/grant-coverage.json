@@ -234,7 +234,7 @@
       "expect": {
         "receipt_status": "committed"
       },
-      "principal": "prn_tw_host_primary"
+      "principal": "prn_tw_cli_operator"
     },
     {
       "id": "issuance-context-amplification-denied",

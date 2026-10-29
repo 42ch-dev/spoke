@@ -261,7 +261,11 @@ fn resolve_refs(value: &Value, responses: &BTreeMap<String, Value>) -> Value {
                 let response = responses
                     .get(&step)
                     .unwrap_or_else(|| panic!("unknown step ref {step}"));
-                walk(&response["payload"], &path).unwrap_or(Value::Null)
+                let payload = &response["payload"];
+                walk(payload, &path)
+                    // Polled receipts nest the op payload under `receipt`.
+                    .or_else(|| walk(&payload["receipt"], &path))
+                    .unwrap_or(Value::Null)
             }
         },
         Value::Array(items) => Value::Array(
@@ -592,12 +596,6 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
             "{scenario}/{case_id}: directive not implemented in this round"
         ));
     }
-    if case.get("advance").is_some() || case.get("release").is_some() {
-        return Outcome::Inconclusive(format!(
-            "{scenario}/{case_id}: harness clock/hold directive not implemented in this round"
-        ));
-    }
-
     for (index, step) in case["setup"]
         .as_array()
         .cloned()
@@ -605,6 +603,7 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
         .iter()
         .enumerate()
     {
+        let _ = index;
         let op = step["op"].as_str().expect("step op");
         if op.starts_with("harness.") {
             let outcome = run_harness_step(&wire.provider, op);
@@ -634,6 +633,50 @@ async fn run_case(wire: &mut Wire, scenario: &str, case: &Value) -> Outcome {
                 "{scenario}/{case_id}: setup[{index}] unexpected error {response}"
             ));
         }
+    }
+
+    if let Some(advance) = case.get("advance") {
+        let mut instants: Vec<i64> = Vec::new();
+        for instant in advance["instants"].as_array().cloned().unwrap_or_default() {
+            let step = instant["from"].as_str().unwrap_or_default();
+            let path = instant["path"].as_str().unwrap_or_default();
+            let offset = instant["offset_seconds"].as_i64().unwrap_or(0);
+            let base = responses
+                .get(step)
+                .and_then(|value| walk(&value["payload"], path))
+                .and_then(|value| value.as_i64());
+            match base {
+                Some(base) => instants.push(base + offset),
+                None => {
+                    return Outcome::Inconclusive(format!(
+                        "{scenario}/{case_id}: advance instant {step}.{path} unreadable"
+                    ))
+                }
+            }
+        }
+        if instants.is_empty() {
+            return Outcome::Inconclusive(format!("{scenario}/{case_id}: empty advance"));
+        }
+        let chosen = match advance["choose"].as_str() {
+            Some("min") => *instants.iter().min().expect("non-empty"),
+            _ => instants[0],
+        };
+        wire.provider.advance_clock(chosen);
+    }
+
+    // `release`: complete the held setup receipts (poll them to terminal).
+    for reference in case["release"].as_array().cloned().unwrap_or_default() {
+        let step = reference.as_str().unwrap_or_default().to_string();
+        let receipt_id = responses
+            .get(&step)
+            .map(|value| value["payload"]["receipt_id"].clone())
+            .unwrap_or(Value::Null);
+        let _ = wire
+            .invoke(
+                "memory.receipts.get",
+                json!({ "space_id": SPACE, "receipt_id": receipt_id }),
+            )
+            .await;
     }
 
     let op_request = resolve_refs(&case["request"], &responses);

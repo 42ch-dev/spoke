@@ -1324,6 +1324,7 @@ impl SqliteMemoryProvider {
     ) -> SpokeResult<Document> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
+        Self::evict_receipts(&mut document);
         match apply(&mut document) {
             SpokeResult::Ok(()) => {
                 store.write(&document).expect("write state");
@@ -1341,6 +1342,7 @@ impl SqliteMemoryProvider {
     ) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
         let mut document = store.read().expect("read state");
+        Self::evict_receipts(&mut document);
         match apply(&mut document) {
             SpokeResult::Ok(value) => {
                 store.write(&document).expect("write state");
@@ -1352,8 +1354,32 @@ impl SqliteMemoryProvider {
 
     fn inspect<T>(&self, answer: impl FnOnce(&Document) -> SpokeResult<T>) -> SpokeResult<T> {
         let store = self.store.lock().expect("store lock");
-        let document = store.read().expect("read state");
+        let mut document = store.read().expect("read state");
+        Self::evict_receipts(&mut document);
+        store.write(&document).expect("write state");
         answer(&document)
+    }
+
+    /// Evict receipt bodies past `receipt_retention_seconds`; dedup tombstones
+    /// outlive the bodies (MEM-R022), so a replay of an evicted op answers
+    /// `RECEIPT_EXPIRED`.
+    fn evict_receipts(document: &mut Document) {
+        let now = Self::clock(document);
+        for space in document.spaces.values_mut() {
+            let stale: Vec<String> = space
+                .receipts
+                .iter()
+                .filter(|(_, receipt)| {
+                    parse_time(receipt["created_at"].as_str().unwrap_or(CLOCK_ORIGIN))
+                        .map(|created| now - created > Duration::seconds(RECEIPT_RETENTION_SECONDS))
+                        .unwrap_or(false)
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in stale {
+                space.receipts.remove(&id);
+            }
+        }
     }
 
     /// Provider worker: complete deferred receipts (reflection generation).

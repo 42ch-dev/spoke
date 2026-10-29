@@ -106,7 +106,13 @@ fn provider() -> SqliteMemoryProvider {
         grant(
             "grt_reader_context_0002",
             READER,
-            &["capture", "review", "records_write", "recall"],
+            &[
+                "capture",
+                "review",
+                "records_read",
+                "records_write",
+                "recall",
+            ],
             Some(SUBJECT),
             Some(&[CONTEXT]),
             Some(false),
@@ -549,4 +555,530 @@ async fn snapshot_restore_rolls_back_provider_state() {
         .expect("reader grant present");
     assert!(reader_grant.get("revoked_at").is_none());
     assert_eq!(reader_grant["revision"], 1);
+}
+
+// ── 3b: capture / candidates / records / recall ───────────────────────────
+
+fn capture_request(text: &str, key: &str) -> Value {
+    json!({
+        "space_id": SPACE,
+        "subject_id": SUBJECT,
+        "content": { "text": text },
+        "capture_scope": { "visibility": "context", "context_id": CONTEXT },
+        "source_context_ids": [CONTEXT],
+        "kind_hint": "fact",
+        "idempotency_key": key,
+    })
+}
+
+fn review_request(candidate_id: &str, revision: u64, key: &str, decision: Value) -> Value {
+    json!({
+        "space_id": SPACE,
+        "candidate_id": candidate_id,
+        "expected_revision": revision,
+        "decision": decision,
+        "idempotency_key": key,
+    })
+}
+
+fn selection_all() -> Value {
+    json!({ "mode": "subject_all" })
+}
+
+#[tokio::test]
+async fn capture_classifies_and_review_is_atomic_with_placement_inheritance() {
+    let provider = provider();
+    let captured = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request(
+                    "Mira told Bo the gate key is hidden under the third barrel.",
+                    "cap-1",
+                ))
+                .expect("capture request"),
+            )
+            .await,
+    );
+    let captured = wire(&captured);
+    assert_eq!(captured["status"], "committed");
+    let candidate_ids = captured["result"]["candidate_ids"]
+        .as_array()
+        .expect("candidate ids");
+    assert_eq!(candidate_ids.len(), 1);
+    assert_eq!(captured["result"]["classified"], 1);
+    let candidate_id = candidate_ids[0].as_str().expect("candidate id").to_string();
+
+    let candidate = expect_ok(
+        provider
+            .get_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    let candidate = wire(&candidate)["candidate"].clone();
+    assert_eq!(candidate["status"], "pending");
+    assert_eq!(candidate["capture_scope"]["context_id"], CONTEXT);
+    assert!(candidate.get("content_digest").is_none());
+
+    // A refused review is atomic: no records, candidate untouched.
+    let conflict = review_request(&candidate_id, 9, "rev-1", json!({ "action": "promote" }));
+    assert_eq!(
+        expect_reject(
+            provider
+                .review_candidate(
+                    &principal(READER),
+                    serde_json::from_value(conflict).expect("review request"),
+                )
+                .await
+        ),
+        SpokeRejectCode::RevisionConflict
+    );
+    let listed = expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&listed)["total_authorized"], 0);
+
+    // A fragment review inherits the capture_scope and scrubs the shell.
+    let fragment = review_request(
+        &candidate_id,
+        1,
+        "rev-2",
+        json!({
+            "action": "fragment",
+            "fragments": [
+                { "kind": "fact", "content": { "text": "The gate key is hidden under the third barrel." } },
+                { "kind": "event", "content": { "text": "Mira revealed the key location to Bo." } },
+            ],
+        }),
+    );
+    let reviewed = expect_ok(
+        provider
+            .review_candidate(
+                &principal(READER),
+                serde_json::from_value(fragment).expect("review request"),
+            )
+            .await,
+    );
+    let reviewed = wire(&reviewed);
+    assert_eq!(reviewed["result"]["outcome"], "fragmented");
+    let record_ids = reviewed["result"]["record_ids"]
+        .as_array()
+        .expect("record ids")
+        .clone();
+    assert_eq!(record_ids.len(), 2);
+
+    let record = expect_ok(
+        provider
+            .get_record(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_ids[0],
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&record)["record"]["scope"]["context_id"], CONTEXT);
+
+    // Consumption scrubs the proposed content and keeps the digest.
+    let consumed = expect_ok(
+        provider
+            .get_candidate(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "candidate_id": candidate_id,
+                }))
+                .expect("get request"),
+            )
+            .await,
+    );
+    let consumed = wire(&consumed)["candidate"].clone();
+    assert_eq!(consumed["status"], "consumed");
+    assert_eq!(consumed["revision"], 2);
+    assert!(consumed.get("content_digest").is_some());
+    assert!(consumed["proposed"].get("content").is_none());
+
+    // Consumption is terminal.
+    assert_eq!(
+        expect_reject(
+            provider
+                .review_candidate(
+                    &principal(READER),
+                    serde_json::from_value(review_request(
+                        &candidate_id,
+                        2,
+                        "rev-3",
+                        json!({ "action": "promote" }),
+                    ))
+                    .expect("review request"),
+                )
+                .await
+        ),
+        SpokeRejectCode::CandidateConsumed
+    );
+}
+
+#[tokio::test]
+async fn capture_honours_drop_fence_and_freeze() {
+    let provider = provider();
+    // Engine policy: below the minimum text length the candidate is dropped.
+    let dropped = expect_ok(
+        provider
+            .capture(
+                &principal(READER),
+                serde_json::from_value(capture_request("short", "cap-drop")).expect("capture"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&dropped)["result"]["classified"], 0);
+
+    let _ = expect_ok(
+        provider
+            .fence_subject(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "target": { "type": "context", "context_id": CONTEXT },
+                    "action": "fence",
+                    "expected_revision": 1,
+                    "idempotency_key": "fn-3b",
+                }))
+                .expect("fence request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        expect_reject(
+            provider
+                .capture(
+                    &principal(READER),
+                    serde_json::from_value(capture_request(
+                        "Mira counts the barrels by the gate.",
+                        "cap-fenced",
+                    ))
+                    .expect("capture"),
+                )
+                .await
+        ),
+        SpokeRejectCode::SubjectFenced
+    );
+
+    let _ = expect_ok(
+        provider
+            .freeze_space(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "expected_revision": 1,
+                    "idempotency_key": "fz-3b",
+                }))
+                .expect("freeze request"),
+            )
+            .await,
+    );
+    assert_eq!(
+        expect_reject(
+            provider
+                .capture(
+                    &principal(READER),
+                    serde_json::from_value(capture_request(
+                        "Mira counts the barrels by the gate.",
+                        "cap-frozen",
+                    ))
+                    .expect("capture"),
+                )
+                .await
+        ),
+        SpokeRejectCode::SpaceFrozen
+    );
+}
+
+#[tokio::test]
+async fn records_tombstone_cas_and_list_filters() {
+    let provider = provider();
+    let created = expect_ok(
+        provider
+            .create_record(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "kind": "fact",
+                    "content": { "text": "The gate key is under the third barrel." },
+                    "scope": { "visibility": "context", "context_id": CONTEXT },
+                    "idempotency_key": "rec-1",
+                }))
+                .expect("create request"),
+            )
+            .await,
+    );
+    let record_id = wire(&created)["result"]["record_id"]
+        .as_str()
+        .expect("record id")
+        .to_string();
+
+    assert_eq!(
+        expect_reject(
+            provider
+                .update_record(
+                    &principal(READER),
+                    serde_json::from_value(json!({
+                        "space_id": SPACE,
+                        "record_id": record_id,
+                        "expected_revision": 9,
+                        "content": { "text": "stale" },
+                        "idempotency_key": "rec-upd-stale",
+                    }))
+                    .expect("update request"),
+                )
+                .await
+        ),
+        SpokeRejectCode::RevisionConflict
+    );
+    let updated = expect_ok(
+        provider
+            .update_record(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_id,
+                    "expected_revision": 1,
+                    "content": { "text": "The gate key is under the second barrel." },
+                    "idempotency_key": "rec-upd",
+                }))
+                .expect("update request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&updated)["result"]["revision"], 2);
+
+    let deleted = expect_ok(
+        provider
+            .delete_record(
+                &principal(READER),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "record_id": record_id,
+                    "expected_revision": 2,
+                    "idempotency_key": "rec-del",
+                }))
+                .expect("delete request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&deleted)["result"]["tombstoned"], true);
+
+    let tombstoned = expect_ok(
+        provider
+            .get_record(
+                &principal(READER),
+                serde_json::from_value(json!({ "space_id": SPACE, "record_id": record_id }))
+                    .expect("get request"),
+            )
+            .await,
+    );
+    let tombstoned = wire(&tombstoned)["record"].clone();
+    assert_eq!(tombstoned["content"]["text"], "");
+    assert!(tombstoned.get("tombstone").is_some());
+
+    let visible = expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&visible)["total_authorized"], 0);
+
+    let with_tombstones = expect_ok(
+        provider
+            .list_records(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "include_tombstoned": true,
+                }))
+                .expect("list request"),
+            )
+            .await,
+    );
+    assert_eq!(wire(&with_tombstones)["total_authorized"], 1);
+}
+
+#[tokio::test]
+async fn recall_ranks_truncates_and_surfaces_overflow() {
+    let provider = provider();
+    for (index, id) in ["rec_a", "rec_b", "rec_c"].iter().enumerate() {
+        provider.provision_record(
+            SPACE,
+            json!({
+                "schema_version": 1,
+                "record_id": id,
+                "space_id": SPACE,
+                "subject_id": SUBJECT,
+                "kind": "fact",
+                "content": { "text": format!("barrel tally {index}") },
+                "scope": { "visibility": "context", "context_id": CONTEXT },
+                "provenance": {
+                    "source_context_ids": [CONTEXT],
+                    "anchors": [],
+                    "captured_by": OPERATOR,
+                    "captured_at": "2026-07-23T06:00:00Z",
+                },
+                "created_at": "2026-07-23T06:00:00Z",
+                "updated_at": "2026-07-23T06:00:00Z",
+                "revision": 1,
+                "extensions": {},
+            }),
+        );
+    }
+
+    let capped = expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "budget": { "max_items": 2 },
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    );
+    let capped = wire(&capped);
+    assert_eq!(capped["total_authorized"], 3);
+    assert_eq!(capped["truncated"], true);
+    assert_eq!(capped["records"].as_array().expect("records").len(), 2);
+
+    // §9 progress rule: an oversized first item is surfaced whole.
+    let overflow = expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "budget": { "max_items": 5, "max_bytes": 4 },
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    );
+    let overflow = wire(&overflow);
+    assert_eq!(overflow["records"].as_array().expect("records").len(), 1);
+    assert!(overflow.get("overflow_record_id").is_some());
+    assert_eq!(overflow["truncated"], true);
+}
+
+#[tokio::test]
+async fn recall_cursors_invalidate_after_a_state_change() {
+    let provider = provider();
+    for id in ["rec_a", "rec_b"] {
+        provider.provision_record(
+            SPACE,
+            json!({
+                "schema_version": 1,
+                "record_id": id,
+                "space_id": SPACE,
+                "subject_id": SUBJECT,
+                "kind": "fact",
+                "content": { "text": "barrel tally" },
+                "scope": { "visibility": "context", "context_id": CONTEXT },
+                "provenance": {
+                    "source_context_ids": [CONTEXT],
+                    "anchors": [],
+                    "captured_by": OPERATOR,
+                    "captured_at": "2026-07-23T06:00:00Z",
+                },
+                "created_at": "2026-07-23T06:00:00Z",
+                "updated_at": "2026-07-23T06:00:00Z",
+                "revision": 1,
+                "extensions": {},
+            }),
+        );
+    }
+    let first = expect_ok(
+        provider
+            .recall(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "selection": selection_all(),
+                    "budget": { "max_items": 1 },
+                }))
+                .expect("recall request"),
+            )
+            .await,
+    );
+    let cursor = wire(&first)["next_cursor"]
+        .as_str()
+        .expect("next cursor")
+        .to_string();
+
+    let _ = expect_ok(
+        provider
+            .create_record(
+                &principal(OPERATOR),
+                serde_json::from_value(json!({
+                    "space_id": SPACE,
+                    "subject_id": SUBJECT,
+                    "kind": "fact",
+                    "content": { "text": "a third tally appears" },
+                    "scope": { "visibility": "context", "context_id": CONTEXT },
+                    "idempotency_key": "rec-cursor",
+                }))
+                .expect("create request"),
+            )
+            .await,
+    );
+
+    assert_eq!(
+        expect_reject(
+            provider
+                .recall(
+                    &principal(OPERATOR),
+                    serde_json::from_value(json!({
+                        "space_id": SPACE,
+                        "subject_id": SUBJECT,
+                        "selection": selection_all(),
+                        "budget": { "max_items": 1 },
+                        "cursor": cursor,
+                    }))
+                    .expect("recall request"),
+                )
+                .await
+        ),
+        SpokeRejectCode::CursorInvalid
+    );
 }

@@ -36,12 +36,20 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use spoke_memory::classify::{classify_candidate, CandidateMaterial};
+use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest as EngineRecall};
 use spoke_memory::ENGINE_POLICY_VERSION;
 use spoke_operations::{
-    jcs_sha256_hex, spoke_reject, validate_grant_issuance, validate_memory_grants_grant,
-    validate_memory_grants_list, validate_memory_spaces_list, validate_memory_subjects_fence,
-    GrantRequirement, IssuedGrant, MemoryPort, SpokeRejectCode, SpokeResult,
+    jcs_sha256_hex, spoke_reject, validate_grant_issuance, validate_memory_candidates_list,
+    validate_memory_candidates_review, validate_memory_capture, validate_memory_grants_grant,
+    validate_memory_grants_list, validate_memory_recall, validate_memory_records_create,
+    validate_memory_records_list, validate_memory_records_update, validate_memory_spaces_list,
+    validate_memory_subjects_fence, GrantRequirement, IssuedGrant, MemoryPort, SpokeRejectCode,
+    SpokeResult,
 };
+use spoke_schemas::data::memory_candidate::Disposition;
+use spoke_schemas::data::read_selection::ReadSelection;
+use spoke_schemas::data::retained_record::Content;
 use spoke_schemas::{
     MemoryCandidatesDismissRequest, MemoryCandidatesDismissResponse, MemoryCandidatesGetRequest,
     MemoryCandidatesGetResponse, MemoryCandidatesListRequest, MemoryCandidatesListResponse,
@@ -135,6 +143,108 @@ fn parse_time(raw: &str) -> Option<DateTime<Utc>> {
     raw.parse::<DateTime<Utc>>().ok()
 }
 
+/// Read a string field from a serialized request, defaulting to empty.
+fn text_field(value: &Value, field: &str) -> String {
+    value[field].as_str().unwrap_or_default().to_string()
+}
+
+/// Read a u64 field from a serialized request, defaulting to zero.
+fn number_field(value: &Value, field: &str) -> u64 {
+    value[field].as_u64().unwrap_or_default()
+}
+
+/// Read a string array field from a serialized request.
+fn string_list_field(value: &Value, field: &str) -> Vec<String> {
+    value[field]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Placement selection helpers shared by `records.list`, `recall` and the
+/// reflection group.
+fn selection_contexts(selection: &ReadSelection) -> Vec<String> {
+    match selection {
+        ReadSelection::SelectedContexts { context_ids, .. } => context_ids.clone(),
+        _ => Vec::new(),
+    }
+}
+
+fn selection_reads_shared(selection: &ReadSelection) -> bool {
+    match selection {
+        ReadSelection::SharedOnly => true,
+        ReadSelection::SelectedContexts { include_shared, .. } => include_shared.unwrap_or(false),
+        ReadSelection::SubjectAll => true,
+    }
+}
+
+fn selection_subject_all(selection: &ReadSelection) -> bool {
+    matches!(selection, ReadSelection::SubjectAll)
+}
+
+/// Authorized records for a subject + selection + provenance filter; the
+/// provider filters (placement, tombstone, provenance), the engine ranks.
+fn selected_records(
+    space: &Space,
+    subject_id: &str,
+    selection: &ReadSelection,
+    filter: Option<&Value>,
+) -> Vec<Value> {
+    let mode_contexts = selection_contexts(selection);
+    let include_shared = selection_reads_shared(selection);
+    space
+        .records
+        .values()
+        .filter(|record| record["subject_id"].as_str() == Some(subject_id))
+        .filter(|record| {
+            let scope = &record["scope"];
+            let shared = scope["visibility"].as_str() == Some("shared");
+            match selection {
+                ReadSelection::SubjectAll => true,
+                ReadSelection::SharedOnly => shared,
+                ReadSelection::SelectedContexts { .. } => {
+                    (shared && include_shared)
+                        || scope["context_id"]
+                            .as_str()
+                            .map(|context| mode_contexts.iter().any(|wanted| wanted == context))
+                            .unwrap_or(false)
+                }
+            }
+        })
+        .filter(|record| match filter {
+            None => true,
+            Some(filter) => {
+                let wanted: Vec<String> = filter["source_context_ids"]
+                    .as_array()
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                record["provenance"]["source_context_ids"]
+                    .as_array()
+                    .map(|sources| {
+                        sources
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .any(|source| wanted.iter().any(|wanted| wanted == source))
+                    })
+                    .unwrap_or(false)
+            }
+        })
+        .cloned()
+        .collect()
+}
+
 /// Op groups owned by later sub-rounds: an honest capability gap.
 fn not_served<T>(op: &str) -> SpokeResult<T> {
     reject(
@@ -166,6 +276,8 @@ struct Space {
     required_profile_kinds: Vec<String>,
     subjects: BTreeMap<String, Value>,
     grants: BTreeMap<String, Value>,
+    candidates: BTreeMap<String, Value>,
+    records: BTreeMap<String, Value>,
     receipts: BTreeMap<String, Value>,
     dedup: BTreeMap<String, DedupEntry>,
 }
@@ -403,6 +515,22 @@ impl SqliteMemoryProvider {
         store.write(&document).expect("write");
     }
 
+    /// Provider provisioning: a retained record (seeding for recall tests).
+    pub fn provision_record(&self, space_id: &str, record: Value) {
+        let store = self.store.lock().expect("store lock");
+        let mut document = store.read().expect("read");
+        let space = document
+            .spaces
+            .get_mut(space_id)
+            .unwrap_or_else(|| panic!("space {space_id} not provisioned"));
+        let record_id = record["record_id"]
+            .as_str()
+            .expect("provisioned record carries record_id")
+            .to_string();
+        space.records.insert(record_id, record);
+        store.write(&document).expect("write");
+    }
+
     fn space<'a>(document: &'a Document, space_id: &str) -> SpokeResult<&'a Space> {
         match document.spaces.get(space_id) {
             Some(space) => SpokeResult::Ok(space),
@@ -458,6 +586,42 @@ impl SqliteMemoryProvider {
                 ),
             )
         }
+    }
+
+    fn next_receipt_id(space: &Space) -> String {
+        format!("rcpt_sqlite_{:04}", space.receipts.len() + 1)
+    }
+
+    /// Record document created by review outcomes and `records.create`; the
+    /// placement is inherited verbatim (MEM-R009).
+    fn record_document(
+        space_id: &str,
+        subject_id: &str,
+        record_id: &str,
+        kind: &str,
+        content: Value,
+        scope: Value,
+        captured_by: &str,
+    ) -> Value {
+        json!({
+            "schema_version": 1,
+            "record_id": record_id,
+            "space_id": space_id,
+            "subject_id": subject_id,
+            "kind": kind,
+            "content": content,
+            "scope": scope,
+            "provenance": {
+                "source_context_ids": [],
+                "anchors": [],
+                "captured_by": captured_by,
+                "captured_at": CLOCK_ORIGIN,
+            },
+            "created_at": CLOCK_ORIGIN,
+            "updated_at": CLOCK_ORIGIN,
+            "revision": 1,
+            "extensions": {},
+        })
     }
 
     fn receipt(
@@ -549,6 +713,21 @@ impl SqliteMemoryProvider {
             },
         );
         space.receipts.insert(receipt_id, receipt.clone());
+    }
+
+    /// Opaque cursor token pinned to the space's state epoch (MEM-R026).
+    fn cursor_token(space: &Space, offset: usize) -> String {
+        format!("c{}:{}", space.state_epoch, offset)
+    }
+
+    /// Cursor offset, or `None` when the epoch moved (invalidated cursor).
+    fn cursor_offset(space: &Space, cursor: &str) -> Option<usize> {
+        let (epoch, offset) = cursor.split_once(':')?;
+        let epoch: u64 = epoch.strip_prefix('c')?.parse().ok()?;
+        if epoch != space.state_epoch {
+            return None;
+        }
+        offset.parse().ok()
     }
 
     /// Admin-shaped requirement: space-wide admin coverage.
@@ -1271,98 +1450,1161 @@ impl MemoryPort for SqliteMemoryProvider {
     // ── op groups owned by later sub-rounds ───────────────────────────────
     async fn capture(
         &self,
-        _principal: &Principal,
-        _request: MemoryCaptureRequest,
+        principal: &Principal,
+        request: MemoryCaptureRequest,
     ) -> SpokeResult<MemoryCaptureResponse> {
-        not_served("memory.capture")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) =
+            validate_memory_capture(&request, MAX_CONTENT_BYTES as usize)
+        {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let scope = request_value["capture_scope"].clone();
+        let shared = scope["visibility"].as_str() == Some("shared");
+        let contexts: Vec<String> = scope["context_id"]
+            .as_str()
+            .map(str::to_string)
+            .into_iter()
+            .collect();
+        let key = text_field(&request_value, "idempotency_key");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            // Capture is outside the §8.2 maintenance allowlist.
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let requirement = GrantRequirement {
+                capability: "capture",
+                subject_id: Some(&subject_id),
+                context_ids: contexts.clone(),
+                reads_shared: shared,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.capture"
+            ));
+            if contexts
+                .iter()
+                .any(|context| space.fenced_contexts(&subject_id).contains(context))
+            {
+                return reject(
+                    SpokeRejectCode::SubjectFenced,
+                    format!("capture_scope is fenced for {subject_id}"),
+                );
+            }
+            if Self::replay_conflict(space, &principal_id, "memory.capture", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.capture", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            let content = request_value["content"].clone();
+            let text = content["text"].as_str().unwrap_or_default().to_string();
+            let kind = request_value["kind_hint"]
+                .as_str()
+                .unwrap_or("note")
+                .to_string();
+            let classification = classify_candidate(&CandidateMaterial {
+                kind: &kind,
+                text: &text,
+                has_structured_content: content.get("structured").is_some(),
+                occurred_at: None,
+                source_context_count: request_value["source_context_ids"]
+                    .as_array()
+                    .map_or(0, Vec::len),
+                anchor_count: request_value["anchors"].as_array().map_or(0, Vec::len),
+            });
+            let mut candidate_ids: Vec<String> = Vec::new();
+            if classification.disposition != Disposition::Drop {
+                let candidate_id = format!("cand_sqlite_{:04}", space.candidates.len() + 1);
+                space.candidates.insert(
+                    candidate_id.clone(),
+                    json!({
+                        "schema_version": 1,
+                        "candidate_id": candidate_id,
+                        "space_id": space_id,
+                        "subject_id": subject_id,
+                        "capture_scope": scope,
+                        "proposed": { "kind": kind, "content": content },
+                        "provenance": {
+                            "source_context_ids": request_value["source_context_ids"]
+                                .as_array()
+                                .cloned()
+                                .unwrap_or_default(),
+                            "anchors": request_value["anchors"]
+                                .as_array()
+                                .cloned()
+                                .unwrap_or_default(),
+                            "captured_by": principal_id,
+                            "captured_at": CLOCK_ORIGIN,
+                        },
+                        "classification": serde_json::to_value(&classification)
+                            .unwrap_or(Value::Null),
+                        "status": "pending",
+                        "occurred_at": request_value["occurred_at"].clone(),
+                        "created_at": CLOCK_ORIGIN,
+                        "revision": 1,
+                        "extensions": {},
+                    }),
+                );
+                candidate_ids.push(candidate_id);
+            }
+            let classified = candidate_ids.len();
+            space.touch();
+            let mut receipt = Self::receipt(space, "memory.capture", &principal_id, &digest, &key);
+            receipt["result"] = json!({
+                "candidate_ids": candidate_ids,
+                "classified": classified,
+            });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.capture",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     async fn list_candidates(
         &self,
-        _principal: &Principal,
-        _request: MemoryCandidatesListRequest,
+        principal: &Principal,
+        request: MemoryCandidatesListRequest,
     ) -> SpokeResult<MemoryCandidatesListResponse> {
-        not_served("memory.candidates.list")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_candidates_list(&request, page_limit())
+        {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let status = request_value["status"].as_str().map(str::to_string);
+        let limit = request_value["limit"].as_u64().unwrap_or(MAX_PAGE_SIZE) as usize;
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            let requirement = GrantRequirement {
+                capability: "review",
+                subject_id: Some(&subject_id),
+                context_ids: Vec::new(),
+                reads_shared: false,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.candidates.list"
+            ));
+            let mut candidates: Vec<Value> = space
+                .candidates
+                .values()
+                .filter(|candidate| candidate["subject_id"] == subject_id.as_str())
+                .filter(|candidate| match status.as_deref() {
+                    None => true,
+                    Some(status) => candidate["status"] == status,
+                })
+                .cloned()
+                .collect();
+            candidates.sort_by(|left, right| {
+                left["candidate_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .cmp(right["candidate_id"].as_str().unwrap_or_default())
+            });
+            candidates.truncate(limit);
+            reply(json!({ "candidates": candidates }))
+        })
     }
 
     async fn get_candidate(
         &self,
-        _principal: &Principal,
-        _request: MemoryCandidatesGetRequest,
+        principal: &Principal,
+        request: MemoryCandidatesGetRequest,
     ) -> SpokeResult<MemoryCandidatesGetResponse> {
-        not_served("memory.candidates.get")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let candidate_id = text_field(&request_value, "candidate_id");
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            let Some(candidate) = space.candidates.get(&candidate_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "candidate not found");
+            };
+            let subject_id = text_field(&candidate, "subject_id");
+            let requirement = GrantRequirement {
+                capability: "review",
+                subject_id: Some(&subject_id),
+                context_ids: Vec::new(),
+                reads_shared: false,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.candidates.get"
+            ));
+            reply(json!({ "candidate": candidate }))
+        })
     }
 
     async fn dismiss_candidate(
         &self,
-        _principal: &Principal,
-        _request: MemoryCandidatesDismissRequest,
+        principal: &Principal,
+        request: MemoryCandidatesDismissRequest,
     ) -> SpokeResult<MemoryCandidatesDismissResponse> {
-        not_served("memory.candidates.dismiss")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let candidate_id = text_field(&request_value, "candidate_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_revision = number_field(&request_value, "expected_revision");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let Some(candidate) = space.candidates.get(&candidate_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "candidate not found");
+            };
+            let subject_id = text_field(&candidate, "subject_id");
+            let scope = candidate["capture_scope"].clone();
+            let shared = scope["visibility"].as_str() == Some("shared");
+            let contexts: Vec<String> = scope["context_id"]
+                .as_str()
+                .map(str::to_string)
+                .into_iter()
+                .collect();
+            let review = GrantRequirement {
+                capability: "review",
+                subject_id: Some(&subject_id),
+                context_ids: contexts.clone(),
+                reads_shared: shared,
+                subject_all: false,
+            };
+            let write = GrantRequirement {
+                capability: "records_write",
+                subject_id: Some(&subject_id),
+                context_ids: contexts,
+                reads_shared: shared,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &review,
+                "memory.candidates.dismiss"
+            ));
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &write,
+                "memory.candidates.dismiss"
+            ));
+            if Self::replay_conflict(
+                space,
+                &principal_id,
+                "memory.candidates.dismiss",
+                &key,
+                &digest,
+            ) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) = Self::replay(
+                space,
+                &principal_id,
+                "memory.candidates.dismiss",
+                &key,
+                &digest,
+            ) {
+                return SpokeResult::Ok(receipt);
+            }
+            if candidate["status"] == "consumed" {
+                return reject(
+                    SpokeRejectCode::CandidateConsumed,
+                    "candidate already consumed",
+                );
+            }
+            let revision = number_field(&candidate, "revision");
+            if revision != expected_revision {
+                return reject(
+                    SpokeRejectCode::RevisionConflict,
+                    format!("candidate revision is {revision}"),
+                );
+            }
+            let receipt_id = Self::next_receipt_id(space);
+            let content_digest = match jcs_sha256_hex(&candidate["proposed"]["content"]) {
+                SpokeResult::Ok(digest) => digest,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            let mut consumed = candidate;
+            consumed["status"] = json!("consumed");
+            consumed["revision"] = json!(revision + 1);
+            consumed["content_digest"] = json!(content_digest);
+            consumed["proposed"] = json!({ "kind": consumed["proposed"]["kind"].clone() });
+            consumed["consumed_by"] = json!({
+                "op": "memory.candidates.dismiss",
+                "receipt_id": receipt_id,
+                "outcome": "dismissed",
+                "record_ids": [],
+            });
+            if let Some(object) = consumed.as_object_mut() {
+                object.remove("expires_at");
+            }
+            space.candidates.insert(candidate_id.clone(), consumed);
+            space.touch();
+            let mut receipt = Self::receipt(
+                space,
+                "memory.candidates.dismiss",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            receipt["result"] = json!({ "candidate_id": candidate_id, "outcome": "dismissed" });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.candidates.dismiss",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     async fn review_candidate(
         &self,
-        _principal: &Principal,
-        _request: MemoryCandidatesReviewRequest,
+        principal: &Principal,
+        request: MemoryCandidatesReviewRequest,
     ) -> SpokeResult<MemoryCandidatesReviewResponse> {
-        not_served("memory.candidates.review")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_candidates_review(&request) {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let candidate_id = text_field(&request_value, "candidate_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_revision = number_field(&request_value, "expected_revision");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let Some(candidate) = space.candidates.get(&candidate_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "candidate not found");
+            };
+            let subject_id = text_field(&candidate, "subject_id");
+            let scope = candidate["capture_scope"].clone();
+            let shared = scope["visibility"].as_str() == Some("shared");
+            let contexts: Vec<String> = scope["context_id"]
+                .as_str()
+                .map(str::to_string)
+                .into_iter()
+                .collect();
+            // Review outcomes inherit the admitted placement; a fenced scope is
+            // refused before any state changes (MEM-R024).
+            if contexts
+                .iter()
+                .any(|context| space.fenced_contexts(&subject_id).contains(context))
+            {
+                return reject(
+                    SpokeRejectCode::SubjectFenced,
+                    "candidate capture_scope is fenced for this subject",
+                );
+            }
+            let review = GrantRequirement {
+                capability: "review",
+                subject_id: Some(&subject_id),
+                context_ids: contexts.clone(),
+                reads_shared: shared,
+                subject_all: false,
+            };
+            let write = GrantRequirement {
+                capability: "records_write",
+                subject_id: Some(&subject_id),
+                context_ids: contexts,
+                reads_shared: shared,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &review,
+                "memory.candidates.review"
+            ));
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &write,
+                "memory.candidates.review"
+            ));
+            if Self::replay_conflict(
+                space,
+                &principal_id,
+                "memory.candidates.review",
+                &key,
+                &digest,
+            ) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) = Self::replay(
+                space,
+                &principal_id,
+                "memory.candidates.review",
+                &key,
+                &digest,
+            ) {
+                return SpokeResult::Ok(receipt);
+            }
+            if candidate["status"] == "consumed" {
+                return reject(
+                    SpokeRejectCode::CandidateConsumed,
+                    "candidate already consumed",
+                );
+            }
+            let revision = number_field(&candidate, "revision");
+            if revision != expected_revision {
+                return reject(
+                    SpokeRejectCode::RevisionConflict,
+                    format!("candidate revision is {revision}"),
+                );
+            }
+            let proposed = candidate["proposed"].clone();
+            let decision = request_value["decision"].clone();
+            let action = decision["action"].as_str().unwrap_or("drop").to_string();
+            let receipt_id = Self::next_receipt_id(space);
+            let mut record_ids: Vec<String> = Vec::new();
+            match action.as_str() {
+                "promote" => {
+                    let kind = decision["kind"]
+                        .as_str()
+                        .or_else(|| proposed["kind"].as_str())
+                        .unwrap_or("note")
+                        .to_string();
+                    let content = if decision.get("content_override").is_some() {
+                        decision["content_override"].clone()
+                    } else {
+                        proposed["content"].clone()
+                    };
+                    let record_id = format!("rec_sqlite_{:04}", space.records.len() + 1);
+                    space.records.insert(
+                        record_id.clone(),
+                        Self::record_document(
+                            &space_id,
+                            &subject_id,
+                            &record_id,
+                            &kind,
+                            content,
+                            scope.clone(),
+                            &principal_id,
+                        ),
+                    );
+                    record_ids.push(record_id);
+                }
+                "fragment" => {
+                    for (index, fragment) in decision["fragments"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let record_id =
+                            format!("rec_sqlite_{:04}", space.records.len() + 1 + index);
+                        space.records.insert(
+                            record_id.clone(),
+                            Self::record_document(
+                                &space_id,
+                                &subject_id,
+                                &record_id,
+                                fragment["kind"].as_str().unwrap_or("note"),
+                                fragment["content"].clone(),
+                                scope.clone(),
+                                &principal_id,
+                            ),
+                        );
+                        record_ids.push(record_id);
+                    }
+                }
+                _ => {}
+            }
+            let content_digest = match jcs_sha256_hex(&proposed["content"]) {
+                SpokeResult::Ok(digest) => digest,
+                SpokeResult::Reject(reject) => return SpokeResult::Reject(reject),
+            };
+            let outcome = match action.as_str() {
+                "promote" => "promoted",
+                "fragment" => "fragmented",
+                _ => "dropped",
+            };
+            let mut consumed = candidate;
+            consumed["status"] = json!("consumed");
+            consumed["revision"] = json!(revision + 1);
+            consumed["content_digest"] = json!(content_digest);
+            consumed["proposed"] = json!({ "kind": proposed["kind"].clone() });
+            consumed["consumed_by"] = json!({
+                "op": "memory.candidates.review",
+                "receipt_id": receipt_id,
+                "outcome": outcome,
+                "record_ids": record_ids,
+            });
+            if let Some(object) = consumed.as_object_mut() {
+                object.remove("expires_at");
+            }
+            space.candidates.insert(candidate_id, consumed);
+            space.touch();
+            let mut receipt = Self::receipt(
+                space,
+                "memory.candidates.review",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            receipt["result"] = json!({ "outcome": outcome, "record_ids": record_ids });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.candidates.review",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
 
     async fn create_record(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecordsCreateRequest,
+        principal: &Principal,
+        request: MemoryRecordsCreateRequest,
     ) -> SpokeResult<MemoryRecordsCreateResponse> {
-        not_served("memory.records.create")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) =
+            validate_memory_records_create(&request, MAX_CONTENT_BYTES as usize)
+        {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let scope = request_value["scope"].clone();
+        let shared = scope["visibility"].as_str() == Some("shared");
+        let contexts: Vec<String> = scope["context_id"]
+            .as_str()
+            .map(str::to_string)
+            .into_iter()
+            .collect();
+        let key = text_field(&request_value, "idempotency_key");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let requirement = GrantRequirement {
+                capability: "records_write",
+                subject_id: Some(&subject_id),
+                context_ids: contexts.clone(),
+                reads_shared: shared,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.records.create"
+            ));
+            if contexts
+                .iter()
+                .any(|context| space.fenced_contexts(&subject_id).contains(context))
+            {
+                return reject(
+                    SpokeRejectCode::SubjectFenced,
+                    "placement context is fenced",
+                );
+            }
+            if Self::replay_conflict(space, &principal_id, "memory.records.create", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.records.create", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            let record_id = format!("rec_sqlite_{:04}", space.records.len() + 1);
+            space.records.insert(
+                record_id.clone(),
+                Self::record_document(
+                    &space_id,
+                    &subject_id,
+                    &record_id,
+                    request_value["kind"].as_str().unwrap_or("note"),
+                    request_value["content"].clone(),
+                    scope,
+                    &principal_id,
+                ),
+            );
+            space.touch();
+            let mut receipt =
+                Self::receipt(space, "memory.records.create", &principal_id, &digest, &key);
+            receipt["result"] = json!({ "record_id": record_id, "revision": 1 });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.records.create",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
-
     async fn get_record(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecordsGetRequest,
+        principal: &Principal,
+        request: MemoryRecordsGetRequest,
     ) -> SpokeResult<MemoryRecordsGetResponse> {
-        not_served("memory.records.get")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let record_id = text_field(&request_value, "record_id");
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            let Some(record) = space.records.get(&record_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "record not found");
+            };
+            let subject_id = text_field(&record, "subject_id");
+            let scope = &record["scope"];
+            let requirement = GrantRequirement {
+                capability: "records_read",
+                subject_id: Some(&subject_id),
+                context_ids: scope["context_id"]
+                    .as_str()
+                    .map(str::to_string)
+                    .into_iter()
+                    .collect(),
+                reads_shared: scope["visibility"].as_str() == Some("shared"),
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.records.get"
+            ));
+            reply(json!({ "record": record }))
+        })
     }
-
     async fn update_record(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecordsUpdateRequest,
+        principal: &Principal,
+        request: MemoryRecordsUpdateRequest,
     ) -> SpokeResult<MemoryRecordsUpdateResponse> {
-        not_served("memory.records.update")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) =
+            validate_memory_records_update(&request, MAX_CONTENT_BYTES as usize)
+        {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let record_id = text_field(&request_value, "record_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_revision = number_field(&request_value, "expected_revision");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let Some(record) = space.records.get(&record_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "record not found");
+            };
+            let subject_id = text_field(&record, "subject_id");
+            let scope = &record["scope"];
+            let requirement = GrantRequirement {
+                capability: "records_write",
+                subject_id: Some(&subject_id),
+                context_ids: scope["context_id"]
+                    .as_str()
+                    .map(str::to_string)
+                    .into_iter()
+                    .collect(),
+                reads_shared: scope["visibility"].as_str() == Some("shared"),
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.records.update"
+            ));
+            if Self::replay_conflict(space, &principal_id, "memory.records.update", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.records.update", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            let revision = number_field(&record, "revision");
+            if revision != expected_revision {
+                return reject(
+                    SpokeRejectCode::RevisionConflict,
+                    format!("record revision is {revision}"),
+                );
+            }
+            let mut updated = record;
+            if let Some(content) = request_value.get("content") {
+                updated["content"] = content.clone();
+            }
+            if let Some(kind) = request_value.get("kind") {
+                updated["kind"] = kind.clone();
+            }
+            updated["revision"] = json!(revision + 1);
+            updated["updated_at"] = json!(CLOCK_ORIGIN);
+            space.records.insert(record_id.clone(), updated);
+            space.touch();
+            let mut receipt =
+                Self::receipt(space, "memory.records.update", &principal_id, &digest, &key);
+            receipt["result"] = json!({ "record_id": record_id, "revision": revision + 1 });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.records.update",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
-
     async fn delete_record(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecordsDeleteRequest,
+        principal: &Principal,
+        request: MemoryRecordsDeleteRequest,
     ) -> SpokeResult<MemoryRecordsDeleteResponse> {
-        not_served("memory.records.delete")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let record_id = text_field(&request_value, "record_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_revision = number_field(&request_value, "expected_revision");
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let Some(record) = space.records.get(&record_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "record not found");
+            };
+            let subject_id = text_field(&record, "subject_id");
+            let requirement = GrantRequirement {
+                capability: "records_write",
+                subject_id: Some(&subject_id),
+                context_ids: Vec::new(),
+                reads_shared: false,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.records.delete"
+            ));
+            if Self::replay_conflict(space, &principal_id, "memory.records.delete", &key, &digest) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) =
+                Self::replay(space, &principal_id, "memory.records.delete", &key, &digest)
+            {
+                return SpokeResult::Ok(receipt);
+            }
+            let revision = number_field(&record, "revision");
+            if revision != expected_revision {
+                return reject(
+                    SpokeRejectCode::RevisionConflict,
+                    format!("record revision is {revision}"),
+                );
+            }
+            // MEM-R014: content scrubbed, placement kept for audit.
+            let mut tombstoned = record;
+            tombstoned["content"] = json!({ "text": "" });
+            tombstoned["revision"] = json!(revision + 1);
+            tombstoned["updated_at"] = json!(CLOCK_ORIGIN);
+            tombstoned["tombstone"] = json!({
+                "deleted_at": CLOCK_ORIGIN,
+                "deleted_by": principal_id,
+            });
+            space.records.insert(record_id.clone(), tombstoned);
+            space.touch();
+            let mut receipt =
+                Self::receipt(space, "memory.records.delete", &principal_id, &digest, &key);
+            receipt["result"] = json!({ "record_id": record_id, "tombstoned": true });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.records.delete",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
-
     async fn list_records(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecordsListRequest,
+        principal: &Principal,
+        request: MemoryRecordsListRequest,
     ) -> SpokeResult<MemoryRecordsListResponse> {
-        not_served("memory.records.list")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_records_list(&request, page_limit()) {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let selection: ReadSelection =
+            match serde_json::from_value(request_value["selection"].clone()) {
+                Ok(selection) => selection,
+                Err(error) => {
+                    return reject(SpokeRejectCode::InvalidInput, format!("selection: {error}"))
+                }
+            };
+        let requirement = GrantRequirement {
+            capability: "records_read",
+            subject_id: Some(&subject_id),
+            context_ids: selection_contexts(&selection),
+            reads_shared: selection_reads_shared(&selection),
+            subject_all: selection_subject_all(&selection),
+        };
+        let filter = request_value.get("filter").cloned();
+        let include_tombstoned = request_value["include_tombstoned"]
+            .as_bool()
+            .unwrap_or(false);
+        let kinds = string_list_field(&request_value, "kinds");
+        let limit = request_value["limit"].as_u64().unwrap_or(MAX_PAGE_SIZE) as usize;
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.records.list"
+            ));
+            let mut records = selected_records(space, &subject_id, &selection, filter.as_ref());
+            if !include_tombstoned {
+                records.retain(|record| record.get("tombstone").is_none());
+            }
+            if !kinds.is_empty() {
+                records.retain(|record| {
+                    record["kind"]
+                        .as_str()
+                        .map(|kind| kinds.iter().any(|wanted| wanted == kind))
+                        .unwrap_or(false)
+                });
+            }
+            records.sort_by(|left, right| {
+                left["record_id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .cmp(right["record_id"].as_str().unwrap_or_default())
+            });
+            let total_authorized = records.len();
+            records.truncate(limit);
+            reply(json!({ "records": records, "total_authorized": total_authorized }))
+        })
     }
-
     async fn promote_record(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecordsPromoteRequest,
+        principal: &Principal,
+        request: MemoryRecordsPromoteRequest,
     ) -> SpokeResult<MemoryRecordsPromoteResponse> {
-        not_served("memory.records.promote")
+        let request_value = wire(&request);
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let record_id = text_field(&request_value, "record_id");
+        let key = text_field(&request_value, "idempotency_key");
+        let expected_revision = number_field(&request_value, "expected_revision");
+        let scope = request_value["scope"].clone();
+        let digest = tri!(request_digest(&request_value));
+        let receipt = tri!(self.mutate_value(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space_mut(document, &space_id));
+            if space.frozen {
+                return reject(
+                    SpokeRejectCode::SpaceFrozen,
+                    format!("space {} is frozen", space.space_id),
+                );
+            }
+            let Some(record) = space.records.get(&record_id).cloned() else {
+                return reject(SpokeRejectCode::NotFound, "record not found");
+            };
+            let subject_id = text_field(&record, "subject_id");
+            let requirement = GrantRequirement {
+                capability: "promote",
+                subject_id: Some(&subject_id),
+                context_ids: Vec::new(),
+                reads_shared: true,
+                subject_all: false,
+            };
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.records.promote"
+            ));
+            if Self::replay_conflict(
+                space,
+                &principal_id,
+                "memory.records.promote",
+                &key,
+                &digest,
+            ) {
+                return reject(
+                    SpokeRejectCode::IdempotencyConflict,
+                    "idempotency key reused with a different payload",
+                );
+            }
+            if let Some(receipt) = Self::replay(
+                space,
+                &principal_id,
+                "memory.records.promote",
+                &key,
+                &digest,
+            ) {
+                return SpokeResult::Ok(receipt);
+            }
+            let revision = number_field(&record, "revision");
+            if revision != expected_revision {
+                return reject(
+                    SpokeRejectCode::RevisionConflict,
+                    format!("record revision is {revision}"),
+                );
+            }
+            let mut promoted = record;
+            promoted["scope"] = scope.clone();
+            promoted["revision"] = json!(revision + 1);
+            promoted["updated_at"] = json!(CLOCK_ORIGIN);
+            space.records.insert(record_id.clone(), promoted);
+            space.touch();
+            let mut receipt = Self::receipt(
+                space,
+                "memory.records.promote",
+                &principal_id,
+                &digest,
+                &key,
+            );
+            receipt["result"] = json!({
+                "record_id": record_id,
+                "revision": revision + 1,
+                "scope": scope,
+            });
+            Self::remember(
+                space,
+                &principal_id,
+                "memory.records.promote",
+                &key,
+                &digest,
+                &receipt,
+            );
+            SpokeResult::Ok(receipt)
+        }));
+        reply(receipt)
     }
-
     async fn recall(
         &self,
-        _principal: &Principal,
-        _request: MemoryRecallRequest,
+        principal: &Principal,
+        request: MemoryRecallRequest,
     ) -> SpokeResult<MemoryRecallResponse> {
-        not_served("memory.recall")
+        let request_value = wire(&request);
+        if let SpokeResult::Reject(reject) = validate_memory_recall(&request, page_limit()) {
+            return SpokeResult::Reject(reject);
+        }
+        let principal_id = identity(principal).to_string();
+        let space_id = text_field(&request_value, "space_id");
+        let subject_id = text_field(&request_value, "subject_id");
+        let selection: ReadSelection =
+            match serde_json::from_value(request_value["selection"].clone()) {
+                Ok(selection) => selection,
+                Err(error) => {
+                    return reject(SpokeRejectCode::InvalidInput, format!("selection: {error}"))
+                }
+            };
+        let requirement = GrantRequirement {
+            capability: "recall",
+            subject_id: Some(&subject_id),
+            context_ids: selection_contexts(&selection),
+            reads_shared: selection_reads_shared(&selection),
+            subject_all: selection_subject_all(&selection),
+        };
+        let filter = request_value.get("filter").cloned();
+        let query = request_value["query"].as_str().map(str::to_string);
+        let max_items = number_field(&request_value, "budget") as usize;
+        let max_bytes = request_value["budget"]["max_bytes"]
+            .as_u64()
+            .map(|bytes| bytes as usize);
+        let max_items = if max_items == 0 {
+            request_value["budget"]["max_items"]
+                .as_u64()
+                .unwrap_or(MAX_PAGE_SIZE) as usize
+        } else {
+            max_items
+        };
+        let cursor = request_value["cursor"].as_str().map(str::to_string);
+        self.inspect(|document| {
+            let now = Self::clock(document);
+            let space = tri!(Self::space(document, &space_id));
+            tri!(Self::require(
+                space,
+                now,
+                &principal_id,
+                &requirement,
+                "memory.recall"
+            ));
+            let offset = match cursor.as_deref() {
+                None => 0,
+                Some(cursor) => match Self::cursor_offset(space, cursor) {
+                    Some(offset) => offset,
+                    None => {
+                        return reject(
+                            SpokeRejectCode::CursorInvalid,
+                            "cursor was invalidated by a state or grant change",
+                        )
+                    }
+                },
+            };
+            let authorized = selected_records(space, &subject_id, &selection, filter.as_ref());
+            let created_at: DateTime<Utc> = CLOCK_ORIGIN.parse().expect("clock origin parses");
+            let engine_inputs: Vec<RecallRecord> = authorized
+                .iter()
+                .filter_map(|record| {
+                    let content: Content =
+                        serde_json::from_value(record["content"].clone()).ok()?;
+                    Some(RecallRecord {
+                        record_id: record["record_id"].as_str()?.to_string(),
+                        kind: record["kind"].as_str()?.to_string(),
+                        content,
+                        created_at,
+                    })
+                })
+                .collect();
+            let page = engine_recall(
+                &engine_inputs,
+                &EngineRecall {
+                    query: query.as_deref(),
+                    max_items,
+                    max_bytes,
+                },
+            );
+            let total_authorized = page.total_authorized;
+            let skipped = offset.min(total_authorized);
+            let mut records: Vec<Value> = Vec::new();
+            for ranked in page.records.iter().skip(skipped) {
+                if let Some(record) = authorized
+                    .iter()
+                    .find(|record| record["record_id"].as_str() == Some(ranked.record_id.as_str()))
+                {
+                    records.push(record.clone());
+                }
+            }
+            let returned = records.len();
+            let mut response = json!({
+                "records": records,
+                "total_authorized": total_authorized,
+                "truncated": page.truncated || skipped + returned < total_authorized,
+                "engine_policy_version": ENGINE_POLICY_VERSION,
+            });
+            if let Some(overflow) = page.overflow_record_id {
+                response["overflow_record_id"] = json!(overflow);
+            }
+            if skipped + returned < total_authorized {
+                response["next_cursor"] = json!(Self::cursor_token(space, skipped + returned));
+            }
+            reply(response)
+        })
     }
 
     async fn get_profile(

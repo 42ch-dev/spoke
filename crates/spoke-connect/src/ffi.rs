@@ -6183,7 +6183,7 @@ mod multi_peer_router_ffi_tests {
     #[test]
     fn multi_peer_router_ffi_composes_host_capability_manifest_with_lex_ordered_peers() {
         use serde_json::Value;
-        use spoke_schemas::host_capability_manifest::HostCapabilityManifestExtensionsKey;
+        use spoke_schemas::host_capability_manifest::ExtensionKey;
 
         let (alpha_adapter, alpha_host) = ffi_runtime().block_on(async {
             dial_peer(
@@ -6242,7 +6242,7 @@ mod multi_peer_router_ffi_tests {
 
         let router_ext = composed
             .extensions
-            .get(&HostCapabilityManifestExtensionsKey::try_from("router").expect("router key"))
+            .get(&ExtensionKey::try_from("router").expect("router key"))
             .expect("router extensions");
         let peers = router_ext
             .get("peers")

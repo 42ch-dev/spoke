@@ -43,13 +43,9 @@ Totals: 78 cases — 34 engine, 44 wire, 14 variable.
 `assets/tw-minimal-export.json` is a sealed `MemoryExportBundle` (real JCS
 `digest`) shared by the transfer, staging and import-staleness scenarios. It
 carries two subjects, three records, one consumed candidate, the `personality`
-profile at revision 3, and one reflection exported with `stale: false`. Because
-§7.31 assigns fresh target revisions and remaps record ids at activation, the
-imported reflection's pinned basis is a *new* basis on the target — the exported
-currency flag therefore says nothing about the target, and only the
-unconditional revalidation rule can make the activated reflection read
-`stale: true`. It is not a vector file and is excluded from corpus loading (only
-top-level `*.json` files are vectors).
+profile at revision 3, and one reflection exported with `stale: false`. It is
+not a vector file and is excluded from corpus loading (only top-level `*.json`
+files are vectors).
 
 ## Cross-step response namespaces
 
@@ -79,14 +75,15 @@ test rejects un-namespaced references anywhere in a request payload or directive
   across implementations:
   - engine runner: every `variable` case is executed twice and the two
     observables must be identical;
-  - loopback runner: a `variable` wire case is repeated against equivalent state
-    and the observed values must be identical. The classification case captures
-    the content, dismisses the resulting candidate to return the subject to an
-    equivalent pending-free state, captures the identical content again, and
-    compares the two dispositions. If the second capture produces no candidate
-    (dedup is permitted by §7.11) the case is recorded **inconclusive** via
-    `inconclusive_when` — never a failure and never a synthesized disposition.
-    No cross-provider ranking or disposition is imposed by any vector.
+  - loopback runner: a `variable` wire case is evaluated twice against
+    **equivalent state**. The classification case uses two independent,
+    identically seeded subjects (`toy:character:mira_a` / `toy:character:mira_b`:
+    same profile kinds and revisions, no pending candidates, no classification-
+    relevant records), captures the identical content once against each, and
+    compares the two observed dispositions. Either capture returning no
+    candidate (§7.11 dedup is permitted) makes the case **inconclusive** through
+    `inconclusive_when`, never a failure and never a synthesized disposition. No
+    cross-provider ranking or disposition is imposed by any vector.
 
 ## Case envelope
 
@@ -102,11 +99,17 @@ test rejects un-namespaced references anywhere in a request payload or directive
   "setup": [{ "op": "memory.capture", "request": {}, "expect": {}, "stage_from": {}, "hold": "pending" }],
   "op": "memory.recall",
   "request": {},
-  "stage_from": { "asset": "…", "chunk_limit": 4096 },
+  "stage_from": {
+    "asset": "assets/tw-minimal-export.json",
+    "chunk_limit": 4096,
+    "idempotency_key_pattern": "{export_id}:chunk:{ordinal}",
+    "replay": { "chunk": 0 }
+  },
   "advance": { "choose": "min", "instants": [{ "from": "setup.0", "path": "limits.receipt_retention_seconds", "offset_seconds": 1 }] },
   "release": ["setup.1"],
   "verify_export": { "receipt": "setup.1" },
-  "inconclusive_when": { "path": "then.3.result.candidate_ids", "isEmpty": true },
+  "pinned_basis_check": { "reflection": "op.reflections.0", "inconclusive_on_mismatch": true },
+  "inconclusive_when": [{ "path": "then.1.result.candidate_ids", "isEmpty": true }],
   "then": [{ "op": "memory.candidates.get", "request": {}, "expect": {} }],
   "requires": ["space configured with required_profile_kinds [personality]"]
 }
@@ -135,7 +138,8 @@ test rejects un-namespaced references anywhere in a request payload or directive
     element of the array at `path` contains the partial object.
   - `unchanged` — `{ "path": "...", "from": "<step reference>", "from_path": "..." }`:
     the value at `path` equals the value recorded at `from_path` in that earlier
-    response — used to compare an effect set before and after an operation.
+    response — used to compare an effect set before and after an operation or
+    between two equivalent subjects.
   - `verified` — object of booleans the harness computes itself (currently only
     for `verify_export`: `all_chunk_digests`, `chunk_metadata_consistent`,
     `bundle_digest_matches_receipt`, `reassembled_bundle_verifies`).
@@ -158,23 +162,38 @@ test rejects un-namespaced references anywhere in a request payload or directive
   Negative offsets are allowed (for "one second before the window closes").
 - `stage_from` — on an `imports.stage` step: the harness partitions `asset` into
   chunks of at most `chunk_limit` bytes (§6.13 rules) and stages them in ordinal
-  order; `request` carries the op-level `conflict_policy` / `adopt_grants`, which
-  apply to ordinal 0. The step's response is the final chunk's receipt.
+  order. `idempotency_key_pattern` is mandatory and is expanded per chunk with
+  `{export_id}` (the exported bundle's `export_id`) and `{ordinal}` (the chunk
+  ordinal), giving each chunk a deterministic distinct key that is reused
+  verbatim on replay. `request` carries the op-level `conflict_policy` /
+  `adopt_grants`, which apply to ordinal 0; the step's response is the final
+  chunk's receipt. Optional `replay: { "chunk": <n> }` re-sends that chunk with
+  the identical key immediately after its first send and asserts the same
+  `result.chunks_received` (no double-count) before continuing.
 - `verify_export` — on an `exports.get` step: after the first chunk is fetched,
   the harness fetches every remaining ordinal from the referenced receipt's
   `result.export_id` / `result.chunk_count`, recomputes each `chunk_digest` (JCS
   of the chunk minus `chunk_digest`) and the reassembled bundle digest (JCS minus
   `digest`), and reports the `verified` booleans. Fabricated digests therefore
   fail the case.
-- `inconclusive_when` — `{ "path": "...", "isEmpty": true }`: if the named
-  response value is an empty array, the case is recorded `inconclusive` and its
-  remaining steps/assertions are not evaluated. Used only where the protocol
-  explicitly permits an empty outcome.
+- `pinned_basis_check` — after the op under test returns reflections, the harness
+  calls `memory.reflections.state` for the same space/subject with the
+  reflection's pinned `selection` (and `filter`, when present) and compares the
+  recomputed `state_digest` with the reflection's `basis.state_digest`:
+  - **equal** — the pinned basis reproduces on the target, so the asserted
+    `stale: true` can only come from §7.31's unconditional revalidation: the case
+    is proven;
+  - **different** — ordinary basis mismatch could explain `stale`, so the case is
+    recorded `inconclusive` (`inconclusive_on_mismatch: true`), not a failure.
+- `inconclusive_when` — array of `{ "path": "...", "isEmpty": true }`: if any
+  named response value is an empty array, the case is recorded `inconclusive`
+  and its remaining assertions are not counted. Used only where the protocol
+  explicitly permits an empty outcome (for example a zero-candidate capture).
 - `requires` — declarative environment preconditions (negotiated capability set,
-  configured `required_profile_kinds`, seeded grants/profiles/records, a
-  held-pending capable harness, the polling obligation that `memory.receipts.get`
-  is retried until the receipt is terminal). The harness must satisfy them; they
-  are not assertions.
+  configured `required_profile_kinds`, seeded grants/profiles/records and
+  equivalent subject pairs, a held-pending capable harness, the polling
+  obligation that `memory.receipts.get` is retried until the receipt is
+  terminal). The harness must satisfy them; they are not assertions.
 
 ### Authoring directives
 
@@ -193,9 +212,9 @@ test rejects un-namespaced references anywhere in a request payload or directive
 | Space freeze allowlist + drain barrier (`space_not_drained` with a held pending receipt, success after release) | `space-freeze.json` | engine (allowlist) + wire (barrier) |
 | Subject/context fencing (`SUBJECT_FENCED`, sibling contexts usable) | `subject-fencing.json` | engine (request rules) + wire (enforcement) |
 | Cursor invalidation (`CURSOR_INVALID`) | `cursor-invalidation.json` | wire |
-| Chunk round-trip + digest verification | `transfer-chunks.json` | engine (partition/digests) + wire (all-chunk round-trip, expiry) |
+| Chunk round-trip + digest verification, per-chunk staging keys and replay | `transfer-chunks.json`, `staging-import.json` | engine (partition/digests) + wire (round-trip, staging) |
 | Staged-import verification report + explicit-only `adopt_grants` (verified after activation, alongside the staging principal's own grant) | `staging-import.json` | engine (report policy) + wire (staging, activation, adoption) |
-| Imported-reflection `stale: true` unconditionally | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
+| Imported-reflection `stale: true` unconditionally, proven by pinned-basis reproduction | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
 | Profile-admission three-state distinguishability | `profile-admission.json` | wire |
 | Profile-update ⇒ reflection-stale trigger | `reflection-staleness.json` | wire (+ engine digest policy) |
 | Classification/recall determinism per provider | `classification.json` (`classification-stable-within-a-provider`), `recall-budget.json` | wire (+ engine repeat) |

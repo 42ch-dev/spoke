@@ -175,13 +175,16 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "after activation the imported reflection reads stale: true — the exported shell carries stale: false and §7.31 requires unconditional revalidation, so carrying the flag through fails",
+      "what": "after activation the imported reflection reads stale: true; when the target recomputes the identical state_digest for its pinned selection, unconditional revalidation is the only explanation",
       "requires": [
         "an empty target space spc_tw_import_target exists; its subject ids and local reflections are absent",
         "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
-        "the pinned basis cannot be reproduced on the target: §7.31 assigns fresh target revisions and remaps record ids, so the imported reflection's basis is a new basis and its prior currency says nothing about the target",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
+      "pinned_basis_check": {
+        "reflection": "op.reflections.0",
+        "inconclusive_on_mismatch": true
+      },
       "setup": [
         {
           "op": "memory.subjects.get",
@@ -212,7 +215,8 @@
           },
           "stage_from": {
             "asset": "assets/tw-minimal-export.json",
-            "chunk_limit": 4096
+            "chunk_limit": 4096,
+            "idempotency_key_pattern": "{export_id}:chunk:{ordinal}"
           },
           "expect": { "receipt_status": "committed" }
         },

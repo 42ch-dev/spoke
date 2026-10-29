@@ -135,7 +135,9 @@
       },
       "stage_from": {
         "asset": "assets/tw-minimal-export.json",
-        "chunk_limit": 4096
+        "chunk_limit": 4096,
+        "idempotency_key_pattern": "{export_id}:chunk:{ordinal}",
+        "replay": { "chunk": 0 }
       },
       "expect": {
         "receipt_status": "committed",
@@ -183,7 +185,8 @@
           },
           "stage_from": {
             "asset": "assets/tw-minimal-export.json",
-            "chunk_limit": 4096
+            "chunk_limit": 4096,
+            "idempotency_key_pattern": "{export_id}:chunk:{ordinal}"
           },
           "expect": { "receipt_status": "committed" }
         },

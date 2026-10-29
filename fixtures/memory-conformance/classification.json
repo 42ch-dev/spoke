@@ -167,19 +167,20 @@
       "invariant": "§6.7",
       "surface": "wire",
       "outcome": "variable",
-      "what": "the same captured input, re-submitted against an equivalent pending-free state, is classified to the same advisory disposition within the provider; a zero-candidate second capture is recorded inconclusive rather than failed",
-      "inconclusive_when": {
-        "path": "then.3.result.candidate_ids",
-        "isEmpty": true
-      },
+      "what": "identical content captured on two independently seeded equivalent subjects is classified to the same advisory disposition within the provider; a zero-candidate capture is recorded inconclusive rather than failed",
+      "inconclusive_when": [
+        { "path": "op.result.candidate_ids", "isEmpty": true },
+        { "path": "then.1.result.candidate_ids", "isEmpty": true }
+      ],
       "requires": [
+        "two independent subjects toy:character:mira_a and toy:character:mira_b exist with identical seeds: same profile kinds and revisions, no pending candidates, and no records that would change classification",
         "the harness resolves `$ref` against the namespaces setup.<n>, op and then.<n>",
-        "a zero-candidate second capture is a documented inconclusive outcome (dedup is permitted by §7.11), never a failure and never a synthesized disposition"
+        "a zero-candidate capture is a documented inconclusive outcome (dedup is permitted by §7.11), never a failure and never a synthesized disposition"
       ],
       "op": "memory.capture",
       "request": {
         "space_id": "spc_tw_harbor",
-        "subject_id": "toy:character:mira",
+        "subject_id": "toy:character:mira_a",
         "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
         "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
         "kind_hint": "fact",
@@ -196,37 +197,14 @@
           "expect": { "success": true }
         },
         {
-          "op": "memory.candidates.dismiss",
-          "request": {
-            "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:op.result.candidate_ids.0",
-            "expected_revision": 1,
-            "reason": "conformance reset to an equivalent pending-free state",
-            "idempotency_key": "dis-tw-classify-0002"
-          },
-          "expect": { "receipt_status": "committed" }
-        },
-        {
-          "op": "memory.candidates.list",
-          "request": {
-            "space_id": "spc_tw_harbor",
-            "subject_id": "toy:character:mira",
-            "status": "pending"
-          },
-          "expect": {
-            "success": true,
-            "sizes": [{ "path": "candidates", "equals": 0 }]
-          }
-        },
-        {
           "op": "memory.capture",
           "request": {
             "space_id": "spc_tw_harbor",
-            "subject_id": "toy:character:mira",
+            "subject_id": "toy:character:mira_b",
             "content": { "text": "Mira told Bo the gate key is hidden under the third barrel." },
             "capture_scope": { "visibility": "context", "context_id": "ctx_tw_customs_gate" },
             "kind_hint": "fact",
-            "idempotency_key": "cap-tw-classify-0003"
+            "idempotency_key": "cap-tw-classify-0002"
           },
           "expect": { "receipt_status": "committed" }
         },
@@ -234,7 +212,7 @@
           "op": "memory.candidates.get",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:then.3.result.candidate_ids.0"
+            "candidate_id": "$ref:then.1.result.candidate_ids.0"
           },
           "expect": {
             "success": true,

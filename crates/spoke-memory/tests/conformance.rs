@@ -730,6 +730,32 @@ fn validate_request_refs(case_id: &str, value: &Value, setup_len: usize) {
     }
 }
 
+/// `stage_from` must define the deterministic per-chunk key scheme so a runner
+/// can build valid `memory.imports.stage` requests without inventing one.
+fn validate_stage_from(case_id: &str, stage_from: &Value) {
+    assert!(
+        stage_from["asset"].as_str().is_some(),
+        "case {case_id}: stage_from.asset"
+    );
+    assert!(
+        stage_from["chunk_limit"].as_u64().is_some(),
+        "case {case_id}: stage_from.chunk_limit"
+    );
+    let pattern = stage_from["idempotency_key_pattern"]
+        .as_str()
+        .unwrap_or_else(|| panic!("case {case_id}: stage_from.idempotency_key_pattern"));
+    assert!(
+        pattern.contains("{export_id}") && pattern.contains("{ordinal}"),
+        "case {case_id}: stage_from.idempotency_key_pattern needs {{export_id}} and {{ordinal}}"
+    );
+    if let Some(replay) = stage_from.get("replay") {
+        assert!(
+            replay["chunk"].as_u64().is_some(),
+            "case {case_id}: stage_from.replay.chunk"
+        );
+    }
+}
+
 fn validate_step(case_id: &str, step: &Value, setup_len: usize) {
     for key in step.as_object().expect("step object").keys() {
         assert!(
@@ -741,14 +767,7 @@ fn validate_step(case_id: &str, step: &Value, setup_len: usize) {
     assert!(step["request"].is_object(), "case {case_id}: step request");
     validate_request_refs(case_id, &step["request"], setup_len);
     if let Some(stage_from) = step.get("stage_from") {
-        assert!(
-            stage_from["asset"].as_str().is_some(),
-            "case {case_id}: stage_from.asset"
-        );
-        assert!(
-            stage_from["chunk_limit"].as_u64().is_some(),
-            "case {case_id}: stage_from.chunk_limit"
-        );
+        validate_stage_from(case_id, stage_from);
     }
     if let Some(hold) = step.get("hold") {
         assert_eq!(
@@ -979,24 +998,42 @@ fn conformance_corpus_is_well_formed() {
                         );
                     }
                     if let Some(inconclusive) = case.get("inconclusive_when") {
-                        assert!(
-                            inconclusive["path"].as_str().is_some(),
-                            "case {id}: inconclusive_when.path"
-                        );
-                        assert_eq!(
-                            inconclusive["isEmpty"].as_bool(),
-                            Some(true),
-                            "case {id}: inconclusive_when.isEmpty"
-                        );
+                        let conditions = inconclusive.as_array().unwrap_or_else(|| {
+                            panic!("case {id}: inconclusive_when must be an array")
+                        });
+                        assert!(!conditions.is_empty(), "case {id}: empty inconclusive_when");
+                        for condition in conditions {
+                            assert!(
+                                condition["path"].as_str().is_some(),
+                                "case {id}: inconclusive_when.path"
+                            );
+                            assert_eq!(
+                                condition["isEmpty"].as_bool(),
+                                Some(true),
+                                "case {id}: inconclusive_when.isEmpty"
+                            );
+                            validate_value_reference(
+                                id,
+                                condition["path"].as_str().expect("inconclusive path"),
+                                setup_len,
+                            );
+                        }
                     }
                     if let Some(stage_from) = case.get("stage_from") {
-                        assert!(
-                            stage_from["asset"].as_str().is_some(),
-                            "case {id}: stage_from.asset"
+                        validate_stage_from(id, stage_from);
+                    }
+                    if let Some(pinned) = case.get("pinned_basis_check") {
+                        validate_value_reference(
+                            id,
+                            pinned["reflection"].as_str().unwrap_or_else(|| {
+                                panic!("case {id}: pinned_basis_check.reflection")
+                            }),
+                            setup_len,
                         );
-                        assert!(
-                            stage_from["chunk_limit"].as_u64().is_some(),
-                            "case {id}: stage_from.chunk_limit"
+                        assert_eq!(
+                            pinned["inconclusive_on_mismatch"].as_bool(),
+                            Some(true),
+                            "case {id}: pinned_basis_check.inconclusive_on_mismatch"
                         );
                     }
                     for steps_key in ["setup", "then"] {

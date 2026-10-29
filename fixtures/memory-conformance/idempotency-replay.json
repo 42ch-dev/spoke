@@ -48,7 +48,7 @@
         "source_context_ids": ["ctx_tw_customs_gate"],
         "idempotency_key": "cap-tw-idem-0001"
       },
-      "expect": { "receipt_status": "committed", "same_receipt_as": 0 }
+      "expect": { "receipt_status": "committed", "same_receipt_as": "setup.0" }
     },
     {
       "id": "capture-key-reuse-different-payload",
@@ -91,12 +91,12 @@
         "choose": "min",
         "instants": [
           {
-            "from_step": 0,
+            "from": "setup.0",
             "path": "limits.receipt_retention_seconds",
             "offset_seconds": 1
           },
           {
-            "from_step": 0,
+            "from": "setup.0",
             "path": "limits.dedup_retention_seconds",
             "offset_seconds": -1
           }
@@ -147,7 +147,7 @@
           "expect": {
             "success": true,
             "unchanged": [
-              { "path": "candidates", "from_step": 2, "from_path": "candidates" }
+              { "path": "candidates", "from": "setup.2", "from_path": "candidates" }
             ]
           }
         }

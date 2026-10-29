@@ -24,7 +24,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-cas-0002"
@@ -34,7 +34,7 @@
           "op": "memory.records.update",
           "request": {
             "space_id": "spc_tw_harbor",
-            "record_id": "$ref:1.result.record_ids.0",
+            "record_id": "$ref:setup.1.result.record_ids.0",
             "expected_revision": 1,
             "content": { "text": "The gate key is hidden under the second barrel." },
             "idempotency_key": "upd-tw-cas-0003"
@@ -44,7 +44,7 @@
       "op": "memory.records.update",
       "request": {
         "space_id": "spc_tw_harbor",
-        "record_id": "$ref:1.result.record_ids.0",
+        "record_id": "$ref:setup.1.result.record_ids.0",
         "expected_revision": 1,
         "content": { "text": "The gate key is hidden under the first barrel." },
         "idempotency_key": "upd-tw-cas-0004"
@@ -96,7 +96,7 @@
       "op": "memory.candidates.review",
       "request": {
         "space_id": "spc_tw_harbor",
-        "candidate_id": "$ref:0.result.candidate_ids.0",
+        "candidate_id": "$ref:setup.0.result.candidate_ids.0",
         "expected_revision": 2,
         "decision": { "action": "promote" },
         "idempotency_key": "rev-tw-cas-0008"

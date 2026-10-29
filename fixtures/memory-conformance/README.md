@@ -17,8 +17,8 @@ Provider-enforced behaviour is never asserted from the engine side: an
 scenarios whose expectations only a provider can produce (grants, CAS,
 idempotency, admission, staleness triggers, export expiry) have no engine
 handler at all. Corpus integrity (required scenarios, envelope fields, closed
-expect vocabulary, reject-code vocabulary, step/directive shape) is asserted
-separately.
+expect vocabulary, reject-code vocabulary, step/directive shape, reference
+namespaces) is asserted separately.
 
 ## Scenario files
 
@@ -43,11 +43,28 @@ Totals: 78 cases — 34 engine, 44 wire, 14 variable.
 `assets/tw-minimal-export.json` is a sealed `MemoryExportBundle` (real JCS
 `digest`) shared by the transfer, staging and import-staleness scenarios. It
 carries two subjects, three records, one consumed candidate, the `personality`
-profile at revision 3, and a reflection pinned to the two `ctx_tw_customs_gate`
-records plus that profile with `stale: false` — that is, an exported reflection
-whose basis would still match after import, so only the §7.31 unconditional
-revalidation rule can make it stale. It is not a vector file and is excluded
-from corpus loading (only top-level `*.json` files are vectors).
+profile at revision 3, and one reflection exported with `stale: false`. Because
+§7.31 assigns fresh target revisions and remaps record ids at activation, the
+imported reflection's pinned basis is a *new* basis on the target — the exported
+currency flag therefore says nothing about the target, and only the
+unconditional revalidation rule can make the activated reflection read
+`stale: true`. It is not a vector file and is excluded from corpus loading (only
+top-level `*.json` files are vectors).
+
+## Cross-step response namespaces
+
+A case's responses live in three namespaces, and every cross-step reference is
+namespaced so it can never be ambiguous:
+
+| Reference form | Means |
+|----------------|-------|
+| `$ref:setup.<n>.<path>` | value from `setup[n]`'s response |
+| `$ref:op.<path>` | value from the op-under-test response |
+| `$ref:then.<n>.<path>` | value from `then[n]`'s response |
+| `setup.<n>` / `op` / `then.<n>` (bare step reference) | the response itself, used by `same_receipt_as`, `unchanged.from`, `advance.instants[].from`, `release`, `verify_export.receipt` |
+
+`$ref:` values must carry a path; bare step references must not. The integrity
+test rejects un-namespaced references anywhere in a request payload or directive.
 
 ## Identical-outcome vs algorithm-variable (§17)
 
@@ -62,10 +79,14 @@ from corpus loading (only top-level `*.json` files are vectors).
   across implementations:
   - engine runner: every `variable` case is executed twice and the two
     observables must be identical;
-  - loopback runner: a `variable` wire case is repeated against unchanged state
-    (or, as in the classification case, the same input is submitted twice) and
-    the observed values must be identical. No cross-provider ranking or
-    disposition is imposed by any vector.
+  - loopback runner: a `variable` wire case is repeated against equivalent state
+    and the observed values must be identical. The classification case captures
+    the content, dismisses the resulting candidate to return the subject to an
+    equivalent pending-free state, captures the identical content again, and
+    compares the two dispositions. If the second capture produces no candidate
+    (dedup is permitted by §7.11) the case is recorded **inconclusive** via
+    `inconclusive_when` — never a failure and never a synthesized disposition.
+    No cross-provider ranking or disposition is imposed by any vector.
 
 ## Case envelope
 
@@ -82,9 +103,10 @@ from corpus loading (only top-level `*.json` files are vectors).
   "op": "memory.recall",
   "request": {},
   "stage_from": { "asset": "…", "chunk_limit": 4096 },
-  "advance": { "choose": "min", "instants": [{ "from_step": 0, "path": "limits.receipt_retention_seconds", "offset_seconds": 1 }] },
-  "release": [1],
-  "verify_export": { "receipt_step": 1 },
+  "advance": { "choose": "min", "instants": [{ "from": "setup.0", "path": "limits.receipt_retention_seconds", "offset_seconds": 1 }] },
+  "release": ["setup.1"],
+  "verify_export": { "receipt": "setup.1" },
+  "inconclusive_when": { "path": "then.3.result.candidate_ids", "isEmpty": true },
   "then": [{ "op": "memory.candidates.get", "request": {}, "expect": {} }],
   "requires": ["space configured with required_profile_kinds [personality]"]
 }
@@ -101,17 +123,19 @@ from corpus loading (only top-level `*.json` files are vectors).
     (for example `{"reason": "space_not_drained"}`).
   - `success` — the op returns a success payload.
   - `receipt_status` — `committed` | `pending` | `failed` on the returned receipt.
-  - `same_receipt_as` — index into `setup`; the receipt id must equal that step's.
+  - `same_receipt_as` — bare step reference; the receipt id must equal that step's.
   - `state` — `{ "path": "dotted.path[0]", "equals": <json> }` equality
     assertions against the op-under-test response.
   - `absent` / `present` — dotted paths that must not / must exist.
-  - `sizes` / `minimums` — `{ "path": "...", "equals": <int> }`: the array at
-    `path` has exactly / at least that many elements.
+  - `sizes` / `minimums` — array-length assertions at `path`: exactly /
+    at least that many elements.
+  - `atLeast` — `{ "path": "...", "equals": <number> }` **numeric** lower bound
+    on a response value (for example `spaces.0.pending_receipts >= 1`).
   - `contains` / `excludes` — `{ "path": "...", "match": { ... } }`: some / no
     element of the array at `path` contains the partial object.
-  - `unchanged` — `{ "path": "...", "from_step": <i>, "from_path": "..." }`: the
-    value at `path` equals the value recorded at `from_path` in a prior step —
-    used to compare an effect set before and after an operation.
+  - `unchanged` — `{ "path": "...", "from": "<step reference>", "from_path": "..." }`:
+    the value at `path` equals the value recorded at `from_path` in that earlier
+    response — used to compare an effect set before and after an operation.
   - `verified` — object of booleans the harness computes itself (currently only
     for `verify_export`: `all_chunk_digests`, `chunk_metadata_consistent`,
     `bundle_digest_matches_receipt`, `reassembled_bundle_verifies`).
@@ -119,15 +143,16 @@ from corpus loading (only top-level `*.json` files are vectors).
     elements of the array at `path` share the same value at `field`.
 - A `setup` or `then` step normally assumes success; when it carries `expect`,
   that expectation is asserted instead, which is how negative preconditions (a
-  refused review, an absent subject) are expressed inside a case.
+  refused review, an absent subject, an empty reflection list) are expressed
+  inside a case.
 - `hold: "pending"` on a setup step — the harness admits the op but keeps its
   async completion uncommitted for the rest of the case, making a pending receipt
   a controlled precondition rather than a race. The step's response must read
   `pending`.
-- `release` — indices of held setup steps whose receipts the harness completes
-  (and waits to drain) **before** the op under test.
+- `release` — bare step references of held setup steps whose receipts the harness
+  completes (and waits to drain) **before** the op under test.
 - `advance` — before the op under test, the harness sets its clock to one of the
-  `instants` (`json_path(setup[from_step]) + offset_seconds`); with
+  `instants` (`path` of the `from` step's response `+ offset_seconds`); with
   `"choose": "min"` it takes the smallest, so a replay instant can be derived to
   lie strictly inside a provider-declared window instead of being hardcoded.
   Negative offsets are allowed (for "one second before the window closes").
@@ -136,24 +161,23 @@ from corpus loading (only top-level `*.json` files are vectors).
   order; `request` carries the op-level `conflict_policy` / `adopt_grants`, which
   apply to ordinal 0. The step's response is the final chunk's receipt.
 - `verify_export` — on an `exports.get` step: after the first chunk is fetched,
-  the harness fetches every remaining ordinal from
-  `receipt_step`'s `result.export_id` / `result.chunk_count`, recomputes each
-  `chunk_digest` (JCS of the chunk minus `chunk_digest`) and the reassembled
-  bundle digest (JCS minus `digest`), and reports the `verified` booleans.
-  Fabricated digests therefore fail the case.
+  the harness fetches every remaining ordinal from the referenced receipt's
+  `result.export_id` / `result.chunk_count`, recomputes each `chunk_digest` (JCS
+  of the chunk minus `chunk_digest`) and the reassembled bundle digest (JCS minus
+  `digest`), and reports the `verified` booleans. Fabricated digests therefore
+  fail the case.
+- `inconclusive_when` — `{ "path": "...", "isEmpty": true }`: if the named
+  response value is an empty array, the case is recorded `inconclusive` and its
+  remaining steps/assertions are not evaluated. Used only where the protocol
+  explicitly permits an empty outcome.
 - `requires` — declarative environment preconditions (negotiated capability set,
-  configured `required_profile_kinds`, seeded grants/profiles/records, a held-pending
-  capable harness, the polling obligation that `memory.receipts.get` is retried
-  until the receipt is terminal). The harness must satisfy them; they are not
-  assertions.
+  configured `required_profile_kinds`, seeded grants/profiles/records, a
+  held-pending capable harness, the polling obligation that `memory.receipts.get`
+  is retried until the receipt is terminal). The harness must satisfy them; they
+  are not assertions.
 
 ### Authoring directives
 
-- `"$ref:<step>.<dotted.path>"` — late-bound value resolved against a prior step
-  response. In `setup` the indices address `setup` steps; inside `then` they
-  address the sequence `[op-under-test, then[0], then[1], …]`. Examples:
-  `"$ref:0.result.candidate_ids.0"`, `"$ref:0.state_digest"`,
-  `"$ref:4.next_cursor"`.
 - `{"$repeat": {"unit": "mira ", "times": 210}}` — expands to `unit` repeated
   `times` times. Used only to express oversized-content vectors without a
   kilobyte-long literal; the engine runner expands it before use.
@@ -170,8 +194,8 @@ from corpus loading (only top-level `*.json` files are vectors).
 | Subject/context fencing (`SUBJECT_FENCED`, sibling contexts usable) | `subject-fencing.json` | engine (request rules) + wire (enforcement) |
 | Cursor invalidation (`CURSOR_INVALID`) | `cursor-invalidation.json` | wire |
 | Chunk round-trip + digest verification | `transfer-chunks.json` | engine (partition/digests) + wire (all-chunk round-trip, expiry) |
-| Staged-import verification report + explicit-only `adopt_grants` (verified after activation) | `staging-import.json` | engine (report policy) + wire (staging, activation, adoption) |
-| Imported-reflection `stale: true` unconditionally, with a basis that would otherwise match | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
+| Staged-import verification report + explicit-only `adopt_grants` (verified after activation, alongside the staging principal's own grant) | `staging-import.json` | engine (report policy) + wire (staging, activation, adoption) |
+| Imported-reflection `stale: true` unconditionally | `reflection-staleness.json` (`import-activation-stales-reflection-unconditionally`) | wire |
 | Profile-admission three-state distinguishability | `profile-admission.json` | wire |
 | Profile-update ⇒ reflection-stale trigger | `reflection-staleness.json` | wire (+ engine digest policy) |
 | Classification/recall determinism per provider | `classification.json` (`classification-stable-within-a-provider`), `recall-budget.json` | wire (+ engine repeat) |

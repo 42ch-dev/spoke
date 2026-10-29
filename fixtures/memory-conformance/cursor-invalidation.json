@@ -24,7 +24,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-cursor-0002"
@@ -44,7 +44,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:2.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.2.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-cursor-0004"
@@ -83,7 +83,7 @@
           "include_shared": false
         },
         "budget": { "max_items": 1 },
-        "cursor": "$ref:4.next_cursor"
+        "cursor": "$ref:setup.4.next_cursor"
       },
       "expect": { "error_code": "CURSOR_INVALID" }
     },
@@ -108,7 +108,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-cursor-0012"
@@ -128,7 +128,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:2.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.2.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-cursor-0014"
@@ -168,7 +168,7 @@
           "include_shared": false
         },
         "budget": { "max_items": 1 },
-        "cursor": "$ref:4.next_cursor"
+        "cursor": "$ref:setup.4.next_cursor"
       },
       "expect": { "error_code": "CURSOR_INVALID" }
     }

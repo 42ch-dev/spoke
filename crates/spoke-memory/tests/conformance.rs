@@ -67,7 +67,7 @@ const ENGINE_SCENARIOS: [&str; 8] = [
 ];
 
 /// Closed `expect` key set for wire cases (interpreted by the loopback runner).
-const WIRE_EXPECT_KEYS: [&str; 15] = [
+const WIRE_EXPECT_KEYS: [&str; 16] = [
     "error_code",
     "details",
     "success",
@@ -76,6 +76,7 @@ const WIRE_EXPECT_KEYS: [&str; 15] = [
     "present",
     "sizes",
     "minimums",
+    "atLeast",
     "contains",
     "excludes",
     "unchanged",
@@ -89,17 +90,65 @@ const WIRE_EXPECT_KEYS: [&str; 15] = [
 const STEP_KEYS: [&str; 5] = ["op", "request", "expect", "stage_from", "hold"];
 
 /// `expect` values that must be arrays of small objects.
-const WIRE_EXPECT_LISTS: [&str; 9] = [
+const WIRE_EXPECT_LISTS: [&str; 10] = [
     "state",
     "absent",
     "present",
     "sizes",
     "minimums",
+    "atLeast",
     "contains",
     "excludes",
     "unchanged",
     "uniform",
 ];
+
+/// Cross-step response namespaces: `setup.<n>`, `op`, `then.<n>`.
+const RESPONSE_NAMESPACES: [&str; 3] = ["setup", "op", "then"];
+
+/// Resolves a `<namespace>[.<index>][.<path>]` reference, returning the path
+/// remainder (`""` for a bare step reference such as `setup.1` or `op`).
+fn split_step_reference<'a>(case_id: &str, reference: &'a str, setup_len: usize) -> &'a str {
+    let (namespace, rest) = reference.split_once('.').unwrap_or((reference, ""));
+    assert!(
+        RESPONSE_NAMESPACES.contains(&namespace),
+        "case {case_id}: reference {reference} lacks a response namespace"
+    );
+    if namespace == "op" {
+        return rest;
+    }
+    let (index, path) = match rest.split_once('.') {
+        Some((index, path)) => (index, path),
+        None => (rest, ""),
+    };
+    let index: usize = index
+        .parse()
+        .unwrap_or_else(|_| panic!("case {case_id}: reference {reference} index"));
+    let bound = if namespace == "setup" {
+        setup_len
+    } else {
+        usize::MAX
+    };
+    assert!(
+        index < bound,
+        "case {case_id}: reference {reference} index outside its namespace"
+    );
+    path
+}
+
+/// A bare step reference: `setup.<n>`, `op` or `then.<n>`.
+fn validate_step_reference(case_id: &str, reference: &str, setup_len: usize) {
+    split_step_reference(case_id, reference, setup_len);
+}
+
+/// A value reference: `<step>.<path>` — the path is mandatory.
+fn validate_value_reference(case_id: &str, reference: &str, setup_len: usize) {
+    let path = split_step_reference(case_id, reference, setup_len);
+    assert!(
+        !path.is_empty(),
+        "case {case_id}: value reference {reference} lacks a path"
+    );
+}
 
 /// Dispatch-layer codes that appear at the Connect boundary (§4.1).
 const DISPATCH_CODES: [&str; 2] = ["capability_missing", "op_unsupported"];
@@ -657,7 +706,31 @@ fn run_recall_budget(case: &Case<'_>) -> Value {
     })
 }
 
-fn validate_step(case_id: &str, step: &Value) {
+/// Every `"$ref:<namespace>…"` string inside a request payload must name a
+/// response namespace — an un-namespaced index would be ambiguous between the
+/// setup, op-under-test and then-step sequences.
+fn validate_request_refs(case_id: &str, value: &Value, setup_len: usize) {
+    match value {
+        Value::String(text) => {
+            if let Some(reference) = text.strip_prefix("$ref:") {
+                validate_value_reference(case_id, reference, setup_len);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                validate_request_refs(case_id, item, setup_len);
+            }
+        }
+        Value::Object(entries) => {
+            for item in entries.values() {
+                validate_request_refs(case_id, item, setup_len);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_step(case_id: &str, step: &Value, setup_len: usize) {
     for key in step.as_object().expect("step object").keys() {
         assert!(
             STEP_KEYS.contains(&key.as_str()),
@@ -666,6 +739,7 @@ fn validate_step(case_id: &str, step: &Value) {
     }
     assert!(step["op"].as_str().is_some(), "case {case_id}: step op");
     assert!(step["request"].is_object(), "case {case_id}: step request");
+    validate_request_refs(case_id, &step["request"], setup_len);
     if let Some(stage_from) = step.get("stage_from") {
         assert!(
             stage_from["asset"].as_str().is_some(),
@@ -684,12 +758,84 @@ fn validate_step(case_id: &str, step: &Value) {
         );
     }
     if let Some(step_expect) = step.get("expect").and_then(Value::as_object) {
-        for key in step_expect.keys() {
+        validate_wire_expect(case_id, step_expect, setup_len);
+    }
+}
+
+/// Shapes of the closed wire `expect` vocabulary, including cross-step namespaces.
+fn validate_wire_expect(case_id: &str, expect: &serde_json::Map<String, Value>, setup_len: usize) {
+    assert!(!expect.is_empty(), "case {case_id}: empty expect");
+    for key in expect.keys() {
+        assert!(
+            WIRE_EXPECT_KEYS.contains(&key.as_str()),
+            "case {case_id}: unknown expect key {key}"
+        );
+    }
+    if let Some(code) = expect.get("error_code").and_then(Value::as_str) {
+        assert!(
+            SpokeRejectCode::try_from_str(code).is_some() || DISPATCH_CODES.contains(&code),
+            "case {case_id}: unknown error code {code}"
+        );
+    }
+    for list_key in WIRE_EXPECT_LISTS {
+        if let Some(entries) = expect.get(list_key) {
             assert!(
-                WIRE_EXPECT_KEYS.contains(&key.as_str()),
-                "case {case_id}: unknown step expect key {key}"
+                entries.as_array().is_some(),
+                "case {case_id}: {list_key} must be an array"
             );
         }
+    }
+    if let Some(bounds) = expect.get("atLeast").and_then(Value::as_array) {
+        for bound in bounds {
+            assert!(
+                bound["path"].as_str().is_some(),
+                "case {case_id}: atLeast.path"
+            );
+            assert!(
+                bound["equals"].as_f64().is_some(),
+                "case {case_id}: atLeast.equals must be numeric"
+            );
+        }
+    }
+    if let Some(changes) = expect.get("unchanged").and_then(Value::as_array) {
+        for change in changes {
+            assert!(
+                change["path"].as_str().is_some(),
+                "case {case_id}: unchanged.path"
+            );
+            assert!(
+                change["from_path"].as_str().is_some(),
+                "case {case_id}: unchanged.from_path"
+            );
+            validate_step_reference(
+                case_id,
+                change["from"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("case {case_id}: unchanged.from")),
+                setup_len,
+            );
+        }
+    }
+    if let Some(target) = expect.get("same_receipt_as").and_then(Value::as_str) {
+        validate_step_reference(case_id, target, setup_len);
+    }
+    if let Some(verbatim) = expect.get("verified") {
+        let verified = verbatim
+            .as_object()
+            .unwrap_or_else(|| panic!("case {case_id}: verified must be an object"));
+        assert!(!verified.is_empty(), "case {case_id}: empty verified");
+        for (name, value) in verified {
+            assert!(
+                value.as_bool().is_some(),
+                "case {case_id}: verified.{name} must be a boolean"
+            );
+        }
+    }
+    if let Some(details) = expect.get("details") {
+        assert!(
+            details.is_object(),
+            "case {case_id}: details must be an object"
+        );
     }
 }
 
@@ -769,55 +915,28 @@ fn conformance_corpus_is_well_formed() {
                 Some("wire") => {
                     assert!(case["op"].as_str().is_some(), "case {id}: op");
                     assert!(case["request"].is_object(), "case {id}: request");
+                    let setup_len = case
+                        .get("setup")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len);
                     let expect = case["expect"]
                         .as_object()
                         .unwrap_or_else(|| panic!("case {id}: expect"));
-                    assert!(!expect.is_empty(), "case {id}: empty expect");
-                    for key in expect.keys() {
-                        assert!(
-                            WIRE_EXPECT_KEYS.contains(&key.as_str()),
-                            "case {id}: unknown expect key {key}"
-                        );
-                    }
-                    if let Some(code) = expect.get("error_code").and_then(Value::as_str) {
-                        assert!(
-                            SpokeRejectCode::try_from_str(code).is_some()
-                                || DISPATCH_CODES.contains(&code),
-                            "case {id}: unknown error code {code}"
-                        );
-                    }
-                    for list_key in WIRE_EXPECT_LISTS {
-                        if let Some(entries) = expect.get(list_key) {
-                            assert!(
-                                entries.as_array().is_some(),
-                                "case {id}: {list_key} must be an array"
-                            );
-                        }
-                    }
-                    if let Some(verbatim) = expect.get("verified") {
-                        let verified = verbatim
-                            .as_object()
-                            .unwrap_or_else(|| panic!("case {id}: verified must be an object"));
-                        assert!(!verified.is_empty(), "case {id}: empty verified");
-                        for (name, value) in verified {
-                            assert!(
-                                value.as_bool().is_some(),
-                                "case {id}: verified.{name} must be a boolean"
-                            );
-                        }
-                    }
-                    if let Some(details) = expect.get("details") {
-                        assert!(details.is_object(), "case {id}: details must be an object");
-                    }
+                    validate_wire_expect(id, expect, setup_len);
+                    validate_request_refs(id, &case["request"], setup_len);
+
                     if let Some(advance) = case.get("advance") {
                         let instants = advance["instants"]
                             .as_array()
                             .unwrap_or_else(|| panic!("case {id}: advance.instants"));
                         assert!(!instants.is_empty(), "case {id}: empty advance.instants");
                         for instant in instants {
-                            assert!(
-                                instant["from_step"].as_u64().is_some(),
-                                "case {id}: advance instant from_step"
+                            validate_step_reference(
+                                id,
+                                instant["from"]
+                                    .as_str()
+                                    .unwrap_or_else(|| panic!("case {id}: advance.from")),
+                                setup_len,
                             );
                             assert!(
                                 instant["path"].as_str().is_some(),
@@ -840,31 +959,34 @@ fn conformance_corpus_is_well_formed() {
                         let steps = release
                             .as_array()
                             .unwrap_or_else(|| panic!("case {id}: release must be an array"));
-                        let setup_len = case
-                            .get("setup")
-                            .and_then(Value::as_array)
-                            .map_or(0, Vec::len);
+                        assert!(!steps.is_empty(), "case {id}: empty release");
                         for step in steps {
-                            let index = step
-                                .as_u64()
-                                .unwrap_or_else(|| panic!("case {id}: release index"));
-                            assert!(
-                                (index as usize) < setup_len,
-                                "case {id}: release index {index} outside setup"
+                            validate_step_reference(
+                                id,
+                                step.as_str()
+                                    .unwrap_or_else(|| panic!("case {id}: release reference")),
+                                setup_len,
                             );
                         }
                     }
                     if let Some(verify) = case.get("verify_export") {
-                        let receipt_step = verify["receipt_step"]
-                            .as_u64()
-                            .unwrap_or_else(|| panic!("case {id}: verify_export.receipt_step"));
-                        let setup_len = case
-                            .get("setup")
-                            .and_then(Value::as_array)
-                            .map_or(0, Vec::len);
+                        validate_step_reference(
+                            id,
+                            verify["receipt"]
+                                .as_str()
+                                .unwrap_or_else(|| panic!("case {id}: verify_export.receipt")),
+                            setup_len,
+                        );
+                    }
+                    if let Some(inconclusive) = case.get("inconclusive_when") {
                         assert!(
-                            (receipt_step as usize) < setup_len,
-                            "case {id}: verify_export.receipt_step outside setup"
+                            inconclusive["path"].as_str().is_some(),
+                            "case {id}: inconclusive_when.path"
+                        );
+                        assert_eq!(
+                            inconclusive["isEmpty"].as_bool(),
+                            Some(true),
+                            "case {id}: inconclusive_when.isEmpty"
                         );
                     }
                     if let Some(stage_from) = case.get("stage_from") {
@@ -880,7 +1002,7 @@ fn conformance_corpus_is_well_formed() {
                     for steps_key in ["setup", "then"] {
                         if let Some(steps) = case.get(steps_key).and_then(Value::as_array) {
                             for step in steps {
-                                validate_step(id, step);
+                                validate_step(id, step, setup_len);
                             }
                         }
                     }

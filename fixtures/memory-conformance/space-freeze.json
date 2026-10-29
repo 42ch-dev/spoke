@@ -164,7 +164,7 @@
           "request": { "limit": 10 },
           "expect": {
             "success": true,
-            "minimums": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
+            "atLeast": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
           }
         }
       ],
@@ -214,11 +214,11 @@
           "request": { "limit": 10 },
           "expect": {
             "success": true,
-            "minimums": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
+            "atLeast": [{ "path": "spaces.0.pending_receipts", "equals": 1 }]
           }
         }
       ],
-      "release": [1],
+      "release": ["setup.1"],
       "op": "memory.exports.create",
       "request": {
         "space_id": "spc_tw_harbor",

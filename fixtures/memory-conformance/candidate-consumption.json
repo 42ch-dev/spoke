@@ -39,7 +39,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-scope-0002"
@@ -49,7 +49,7 @@
       "op": "memory.records.get",
       "request": {
         "space_id": "spc_tw_harbor",
-        "record_id": "$ref:1.result.record_ids.0"
+        "record_id": "$ref:setup.1.result.record_ids.0"
       },
       "expect": {
         "success": true,
@@ -84,7 +84,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:0.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.0.result.candidate_ids.0",
             "expected_revision": 1,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-scrub-0004"
@@ -94,7 +94,7 @@
       "op": "memory.candidates.get",
       "request": {
         "space_id": "spc_tw_harbor",
-        "candidate_id": "$ref:0.result.candidate_ids.0"
+        "candidate_id": "$ref:setup.0.result.candidate_ids.0"
       },
       "expect": {
         "success": true,
@@ -147,7 +147,7 @@
           "op": "memory.candidates.review",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:1.result.candidate_ids.0",
+            "candidate_id": "$ref:setup.1.result.candidate_ids.0",
             "expected_revision": 2,
             "decision": { "action": "promote" },
             "idempotency_key": "rev-tw-atomic-0006"
@@ -173,7 +173,7 @@
           "op": "memory.candidates.get",
           "request": {
             "space_id": "spc_tw_harbor",
-            "candidate_id": "$ref:1.result.candidate_ids.0"
+            "candidate_id": "$ref:setup.1.result.candidate_ids.0"
           },
           "expect": {
             "success": true,

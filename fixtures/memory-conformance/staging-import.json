@@ -165,10 +165,10 @@
       "invariant": "MEM-R025",
       "surface": "wire",
       "outcome": "identical",
-      "what": "after activation the target space holds exactly the adopted grant; the unlisted grant is absent",
+      "what": "after activation the target space holds exactly the staging principal's own grant plus the adopted grant; the unlisted grant is absent",
       "requires": [
         "an empty target space spc_tw_import_target exists and its subject ids are absent",
-        "prn_tw_cli_operator holds transfer + admin on spc_tw_import_target",
+        "prn_tw_cli_operator holds exactly one grant on spc_tw_import_target — grt_tw_import_admin_0001 (transfer + admin) — which is the other entry the post-activation list returns",
         "memory.receipts.get polls until each receipt is terminal before the next step"
       ],
       "setup": [
@@ -191,7 +191,7 @@
           "op": "memory.imports.activate",
           "request": {
             "space_id": "spc_tw_import_target",
-            "import_id": "$ref:0.result.import_id",
+            "import_id": "$ref:setup.0.result.import_id",
             "idempotency_key": "imp-tw-adopt-0001"
           },
           "expect": { "receipt_status": "pending" }
@@ -200,7 +200,7 @@
           "op": "memory.receipts.get",
           "request": {
             "space_id": "spc_tw_import_target",
-            "receipt_id": "$ref:1.receipt_id"
+            "receipt_id": "$ref:setup.1.receipt_id"
           },
           "expect": { "receipt_status": "committed" }
         }
@@ -209,9 +209,10 @@
       "request": { "space_id": "spc_tw_import_target", "limit": 32 },
       "expect": {
         "success": true,
-        "sizes": [{ "path": "grants", "equals": 1 }],
+        "sizes": [{ "path": "grants", "equals": 2 }],
         "contains": [
-          { "path": "grants", "match": { "grant_id": "grt_tw_mira_context_0001" } }
+          { "path": "grants", "match": { "grant_id": "grt_tw_mira_context_0001" } },
+          { "path": "grants", "match": { "grant_id": "grt_tw_import_admin_0001" } }
         ],
         "excludes": [
           { "path": "grants", "match": { "grant_id": "grt_tw_operator_admin_0002" } }

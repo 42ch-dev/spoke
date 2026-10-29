@@ -683,7 +683,7 @@ fn run_recall_budget(case: &Case<'_>) -> Value {
             .map(|bytes| bytes as usize),
     };
 
-    let page = recall(&records, &request);
+    let page = recall(&records, &request).expect("recall succeeds on finite content");
     let ids: Vec<&str> = page
         .records
         .iter()

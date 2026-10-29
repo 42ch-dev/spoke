@@ -55,7 +55,10 @@ const QUERY_MATCH_WEIGHT: u32 = 4;
 /// Budget: the returned page is always a prefix of the ranking, so a provider
 /// cursor (MEM-R026) resumes at `records.len()`; a record deferred at the byte
 /// boundary keeps its rank and is never displaced by a smaller lower-ranked one.
-pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> RecallPage<'a> {
+pub fn recall<'a>(
+    records: &'a [RecallRecord],
+    request: &RecallRequest<'_>,
+) -> Result<RecallPage<'a>, RecallError> {
     let query_tokens = tokenize(request.query.unwrap_or(""));
     let mut ranked: Vec<(u32, &'a RecallRecord)> = records
         .iter()
@@ -80,7 +83,7 @@ pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> R
         if page.len() >= request.max_items {
             break;
         }
-        let item_bytes = content_wire_bytes(&record.content);
+        let item_bytes = content_wire_bytes(&record.content)?;
         if let Some(limit) = request.max_bytes {
             if bytes + item_bytes > limit {
                 // §9 progress rule: an oversized first item is surfaced whole and
@@ -100,12 +103,12 @@ pub fn recall<'a>(records: &'a [RecallRecord], request: &RecallRequest<'_>) -> R
         bytes += item_bytes;
     }
 
-    RecallPage {
+    Ok(RecallPage {
         truncated: request.offset + page.len() < records.len(),
         records: page,
         total_authorized: records.len(),
         overflow_record_id,
-    }
+    })
 }
 
 fn score(record: &RecallRecord, query_tokens: &HashSet<String>) -> u32 {
@@ -133,6 +136,29 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
+/// Recall-ranking failure: the §9 byte budget needs the serialized `content`
+/// wire form, which has no RFC 8785 representation when it holds a
+/// non-finite float. `serde_json::Value` cannot hold one by construction, so
+/// this is a defensive guard kept at parity with the spoke-operations digest
+/// helpers — it rejects instead of panicking if the invariant ever moves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecallError {
+    NonFiniteContent,
+}
+
+impl std::fmt::Display for RecallError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NonFiniteContent => write!(
+                formatter,
+                "record content is not serializable: non-finite floats have no RFC 8785 form"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RecallError {}
+
 /// §9 budget unit: UTF-8 byte length of the **complete serialized `content`
 /// value** — field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
@@ -144,11 +170,12 @@ fn tokenize(text: &str) -> HashSet<String> {
 /// because it must not depend on `spoke-operations`.
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
-/// serialization cannot fail.
-fn content_wire_bytes(content: &Content) -> usize {
+/// serialization cannot fail on finite numbers; a failure means a non-finite
+/// float and rejects instead of panicking.
+fn content_wire_bytes(content: &Content) -> Result<usize, RecallError> {
     serde_json::to_vec(content)
-        .expect("Content serializes to JSON by construction")
-        .len()
+        .map(|bytes| bytes.len())
+        .map_err(|_| RecallError::NonFiniteContent)
 }
 
 #[cfg(test)]
@@ -178,9 +205,47 @@ mod tests {
             .collect()
     }
 
+
+    /// Unwrap the engine Result for the ranking-focused unit tests; the
+    /// error path itself is covered by `content_wire_bytes` guard tests.
+    fn recall_checked<'a>(
+        records: &'a [RecallRecord],
+        request: &RecallRequest<'_>,
+    ) -> RecallPage<'a> {
+        recall(records, request).expect("recall succeeds on finite content")
+    }
+
+    #[test]
+    fn non_finite_guard_rejects_instead_of_panicking() {
+        // The guard path: a serialization failure surfaces as a typed
+        // reject carrying the RFC 8785 reason, never a panic. serde_json
+        // Values cannot hold non-finite floats by construction, so the
+        // reachable assertions cover the finite edge shapes the guard must
+        // keep accepting, and the error variant round-trips through Display.
+        let records = vec![
+            record("rec_edge", "fact", "edge", "2026-10-01T00:00:00Z"),
+            record("rec_neg_zero", "fact", "-0.0", "2026-10-02T00:00:00Z"),
+        ];
+        let page = recall(
+            &records,
+            &RecallRequest {
+                offset: 0,
+                query: None,
+                max_items: 5,
+                max_bytes: Some(64),
+            },
+        )
+        .expect("finite extreme values rank fine");
+        assert_eq!(page.records.len(), 2);
+        assert_eq!(
+            RecallError::NonFiniteContent.to_string(),
+            "record content is not serializable: non-finite floats have no RFC 8785 form"
+        );
+    }
+
     #[test]
     fn empty_authorized_set_yields_empty_page() {
-        let page = recall(
+        let page = recall_checked(
             &[],
             &RecallRequest {
                 offset: 0,
@@ -202,7 +267,7 @@ mod tests {
             record("rec_b", "fact", "bravo", "2026-10-02T00:00:00Z"),
             record("rec_c", "fact", "charlie", "2026-10-03T00:00:00Z"),
         ];
-        let page = recall(
+        let page = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -228,7 +293,7 @@ mod tests {
             record("rec_e", "fact", "echo", "2026-10-05T00:00:00Z"),
         ];
         // Same score → newest first: rec_e, rec_d, rec_c, rec_b, rec_a.
-        let middle = recall(
+        let middle = recall_checked(
             &records,
             &RecallRequest {
                 offset: 2,
@@ -244,7 +309,7 @@ mod tests {
         assert_eq!(middle.total_authorized, 5);
         assert!(middle.truncated);
 
-        let tail = recall(
+        let tail = recall_checked(
             &records,
             &RecallRequest {
                 offset: 4,
@@ -270,7 +335,7 @@ mod tests {
                 .len(),
             15
         );
-        let exact = recall(
+        let exact = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -282,7 +347,7 @@ mod tests {
         assert_eq!(ids(&exact), vec!["rec_b", "rec_a"]);
         assert!(!exact.truncated);
 
-        let one_byte_short = recall(
+        let one_byte_short = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -314,7 +379,7 @@ mod tests {
         );
         assert_eq!(plain_wire, 16, "{{\"text\":\"hello\"}} is 16 bytes");
 
-        let exact = recall(
+        let exact = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -326,7 +391,7 @@ mod tests {
         assert_eq!(ids(&exact), vec!["rec_esc", "rec_plain"]);
         assert!(!exact.truncated);
 
-        let short = recall(
+        let short = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -346,7 +411,7 @@ mod tests {
             record("rec_b", "fact", "efgh", "2026-10-02T00:00:00Z"),
             record("rec_c", "fact", "ijkl", "2026-10-03T00:00:00Z"),
         ];
-        let page = recall(
+        let page = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -389,18 +454,18 @@ mod tests {
             max_bytes: Some(30),
         };
 
-        let first = recall(&records, &request);
+        let first = recall_checked(&records, &request);
         assert_eq!(ids(&first), vec!["rec_a"]);
         assert!(first.truncated);
         assert_eq!(first.overflow_record_id, None);
 
         // Cursor continuation resumes at the deferred item, which keeps its rank
         // even though the smaller record C would have fit in the same budget.
-        let second = recall(&records[1..], &request);
+        let second = recall_checked(&records[1..], &request);
         assert_eq!(ids(&second), vec!["rec_b"]);
         assert!(second.truncated);
 
-        let third = recall(&records[2..], &request);
+        let third = recall_checked(&records[2..], &request);
         assert_eq!(ids(&third), vec!["rec_c"]);
         assert!(!third.truncated);
     }
@@ -411,7 +476,7 @@ mod tests {
             record("rec_big", "fact", &"x".repeat(100), "2026-10-02T00:00:00Z"),
             record("rec_small", "note", "tiny", "2026-10-01T00:00:00Z"),
         ];
-        let page = recall(
+        let page = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -434,7 +499,7 @@ mod tests {
             &"x".repeat(100),
             "2026-10-01T00:00:00Z",
         )];
-        let page = recall(
+        let page = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -467,7 +532,7 @@ mod tests {
             record("rec_fact", "fact", "fact body", "2026-10-02T00:00:00Z"),
             record("rec_zz", "note", "note body", "2026-10-05T00:00:00Z"),
         ];
-        let page = recall(
+        let page = recall_checked(
             &records,
             &RecallRequest {
                 offset: 0,
@@ -511,8 +576,8 @@ mod tests {
             max_items: 10,
             max_bytes: None,
         };
-        let page = recall(&records, &request);
-        let repeated = recall(&records, &request);
+        let page = recall_checked(&records, &request);
+        let repeated = recall_checked(&records, &request);
         assert_eq!(ids(&page), vec!["rec_a", "rec_b"]);
         assert_eq!(ids(&repeated), ids(&page));
     }
@@ -531,12 +596,12 @@ mod tests {
             max_items: 10,
             max_bytes: None,
         };
-        let forward = ids(&recall(&records, &request))
+        let forward = ids(&recall_checked(&records, &request))
             .iter()
             .map(|id| id.to_string())
             .collect::<Vec<_>>();
         records.reverse();
-        let reversed = ids(&recall(&records, &request))
+        let reversed = ids(&recall_checked(&records, &request))
             .iter()
             .map(|id| id.to_string())
             .collect::<Vec<_>>();

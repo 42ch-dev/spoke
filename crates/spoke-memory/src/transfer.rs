@@ -42,7 +42,11 @@ pub const BUNDLE_HEADER_FIELDS: [&str; 9] = [
 ];
 
 /// Header fields a chunk cannot be emitted without (§6.13 header schema).
-const REQUIRED_HEADER_FIELDS: [&str; 8] = [
+/// `extensions` is required (D8): partitioning a bundle without it would
+/// emit chunks whose reassembly normalizes the omission to `{}` and fails
+/// the bundle-digest check against the source digest — the asymmetry is
+/// rejected at the partition boundary instead.
+const REQUIRED_HEADER_FIELDS: [&str; 9] = [
     "schema_version",
     "bundle_format_version",
     "memory_protocol_version",
@@ -51,6 +55,7 @@ const REQUIRED_HEADER_FIELDS: [&str; 8] = [
     "created_at",
     "source",
     "digest",
+    "extensions",
 ];
 
 /// Closed `counts` shape of `memory.imports.stage` (§7.31): grant totals live in
@@ -1123,6 +1128,24 @@ mod tests {
         let verification = verify_reassembly(&chunks);
         assert!(verification.bundle_digest_ok);
         assert!(verification.errors.is_empty());
+    }
+
+    #[test]
+    fn partition_rejects_a_bundle_without_extensions() {
+        // D8 symmetry: reassembly normalizes an omitted `extensions` to {},
+        // so a source bundle without the field would digest differently from
+        // its own reassembly. Partition rejects it up front instead.
+        let mut bundle = sealed_bundle();
+        bundle
+            .as_object_mut()
+            .expect("bundle is an object")
+            .remove("extensions");
+        let bundle = seal(bundle);
+        assert_eq!(
+            partition_bundle(&bundle, 900),
+            Err(TransferError::MissingField("extensions")),
+            "partition must reject what its own reassembly would normalize"
+        );
     }
 
     #[test]

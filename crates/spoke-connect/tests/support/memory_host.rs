@@ -785,7 +785,7 @@ impl Store {
                 created_at,
             })
             .collect();
-        let page = engine_recall(
+        let page = match engine_recall(
             &inputs,
             &RecallRequest {
                 // The loopback host serves no cursor surface (documented
@@ -797,7 +797,15 @@ impl Store {
                     .as_u64()
                     .map(|bytes| bytes as usize),
             },
-        );
+        ) {
+            Ok(page) => page,
+            Err(error) => {
+                return reject(
+                    SpokeRejectCode::InvalidInput,
+                    format!("recall content: {error}"),
+                )
+            }
+        };
         let records: Vec<Value> = page
             .records
             .iter()

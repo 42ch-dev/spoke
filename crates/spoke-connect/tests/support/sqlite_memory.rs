@@ -3374,7 +3374,7 @@ impl MemoryPort for SqliteMemoryProvider {
                     })
                 })
                 .collect();
-            let page = engine_recall(
+            let page = match engine_recall(
                 &engine_inputs,
                 &EngineRecall {
                     query: query.as_deref(),
@@ -3386,7 +3386,15 @@ impl MemoryPort for SqliteMemoryProvider {
                     max_items,
                     max_bytes,
                 },
-            );
+            ) {
+                Ok(page) => page,
+                Err(error) => {
+                    return reject(
+                        SpokeRejectCode::InvalidInput,
+                        format!("recall content: {error}"),
+                    )
+                }
+            };
             let total_authorized = page.total_authorized;
             let mut records: Vec<Value> = Vec::new();
             for ranked in &page.records {

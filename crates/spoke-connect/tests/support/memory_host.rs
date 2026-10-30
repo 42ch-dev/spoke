@@ -5,7 +5,7 @@
 //! Pure-move baseline: storage, grant coverage, idempotent replay, capture /
 //! review / recall duties — unchanged from the loopback fixture. Transfer
 //! additions: `memory.exports.create/get` (§6.13 chunking via
-//! `spoke_memory::transfer` + the §7.29 drain barrier), `memory.imports.stage`
+//! `spoke_fixture_memory_engine::transfer` + the §7.29 drain barrier), `memory.imports.stage`
 //! (§7.31 identity remap, revisions from 1, source `engine_policy_version`,
 //! explicit-only `adopt_grants`, staged report), `memory.imports.activate`
 //! (atomic, `authority_generation++`), `memory.imports.discard`, and
@@ -27,13 +27,13 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::{json, Value};
-use spoke_memory::classify::{classify_candidate, CandidateMaterial};
-use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest};
-use spoke_memory::transfer::{
+use spoke_fixture_memory_engine::classify::{classify_candidate, CandidateMaterial};
+use spoke_fixture_memory_engine::recall::{recall as engine_recall, RecallRecord, RecallRequest};
+use spoke_fixture_memory_engine::transfer::{
     adopt_grants as transfer_adopt_grants, build_translation_maps, bundle_digest,
     partition_bundle, staged_report as transfer_staged_report, verify_staging,
 };
-use spoke_memory::ENGINE_POLICY_VERSION;
+use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     grant_covers, jcs_sha256_hex, spoke_reject, validate_grant_issuance,
     validate_memory_imports_stage, GrantRequirement, IssuedGrant, MemoryPort, SpokeReject,

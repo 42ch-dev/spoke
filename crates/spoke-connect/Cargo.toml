@@ -86,9 +86,9 @@ ed25519-dalek = "2"
 serde_jcs = "0.2"
 # Loopback / remote-adapter integration tests and in-crate test_support oracle.
 spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust" }
-# Memory loopback host: the reference engine supplies classification and
-# recall ranking/budget policy (memory protocol §9).
-spoke-memory = { version = "0.14.1", path = "../spoke-memory" }
+# Memory loopback conformance host: the reference engine supplies
+# classification and recall ranking/budget policy (memory protocol §9).
+spoke-fixture-memory-engine = { path = "../../fixtures/memory-engine/rust" }
 # P5 conformance harness: SQLite reference provider (bundled engine).
 rusqlite = { version = "0.32", features = ["bundled"] }
 

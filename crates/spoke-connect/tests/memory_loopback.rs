@@ -45,7 +45,7 @@ use spoke_connect::remote::{
     RemoteServePorts, RemoteServePortsComposite, Transport,
 };
 use spoke_fixture_toy_world::ToyWorldAdapter;
-use spoke_memory::ENGINE_POLICY_VERSION;
+use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     jcs_sha256_hex, BaselinePorts, MemoryPort, SpokeReject, SpokeRejectCode, SpokeResult,
 };

@@ -2,7 +2,7 @@
 members = [
   "crates/spoke-schemas",
   "crates/spoke-operations",
-  "crates/spoke-memory",
+  "fixtures/memory-engine/rust",
   "crates/spoke-connect",
   "crates/spoke-connect-capi",
   "fixtures/toy-world/rust",
@@ -13,7 +13,7 @@ members = [
 default-members = [
   "crates/spoke-schemas",
   "crates/spoke-operations",
-  "crates/spoke-memory",
+  "fixtures/memory-engine/rust",
   "crates/spoke-connect",
   "fixtures/toy-world/rust",
 ]

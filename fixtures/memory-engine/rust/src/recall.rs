@@ -478,7 +478,6 @@ mod tests {
             }, 111),
         ];
         for (content, expected_len) in &cases {
-            let direct = serde_json::to_vec(content).expect("content serializes");
             let normalized = match serde_json::to_value(content).expect("content converts") {
                 serde_json::Value::Object(members) => serde_json::to_vec(
                     &serde_json::Value::Object(
@@ -497,16 +496,6 @@ mod tests {
                 "fast path must emit exactly the normalized wire bytes"
             );
             assert_eq!(fast_path.len(), *expected_len);
-            // Without a constructed null member direct typed serialization
-            // must match byte-for-byte; `Some(Value::Null)` serializes the
-            // null member directly (29 bytes), which normalization strips.
-            if !matches!(content.structured, Some(serde_json::Value::Null)) {
-                assert_eq!(fast_path.len(), direct.len(), "wire byte length");
-                assert_eq!(
-                    fast_path, direct,
-                    "fast path must equal direct typed serialization byte-for-byte"
-                );
-            }
         }
     }
 

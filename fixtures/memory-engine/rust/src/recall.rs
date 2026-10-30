@@ -136,7 +136,7 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Recall-ranking failure: the §9.3 byte budget serializes the `content` wire
+/// Recall-ranking failure: the §9 item 3 byte budget serializes the `content` wire
 /// form, which has no JSON representation when it holds a non-finite float.
 /// `serde_json::Value` cannot hold one by construction, so this is a
 /// defensive guard kept at parity with the spoke-operations digest
@@ -159,14 +159,14 @@ impl std::fmt::Display for RecallError {
 
 impl std::error::Error for RecallError {}
 
-/// §9.3 page-budget unit: UTF-8 byte length of the **complete serialized
+/// §9 item 3 page-budget unit: UTF-8 byte length of the **complete serialized
 /// `content` value exactly as the page emits it** (`serde_json::to_vec`) —
 /// field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
 ///
-/// The §7.1 `max_content_bytes` admission limit and this §9.3 page budget are
+/// The §7.1 `max_content_bytes` admission limit and this §9 item 3 page budget are
 /// two distinct budgets: admission measures RFC 8785 JCS
-/// (`spoke-operations::memory::digests`, because it is compared against the
+/// (`spoke-operations::memory::validate`, because it is compared against the
 /// TypeScript `JSON.stringify` form), while this one measures the wire form so
 /// the budget counts literally the bytes the response emits. Both drop
 /// top-level explicit `null` members — a deserialized `null` becomes
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn numeric_content_budget_uses_the_wire_measure() {
-        // I-000035: the §9.3 page budget counts the bytes the page emits, so
+        // I-000035: the §9 item 3 page budget counts the bytes the page emits, so
         // numbers keep the `serde_json` form (`1.0`, `100.0`) and count 44
         // bytes; the RFC 8785 §7.1 admission form would count 40.
         let records = vec![RecallRecord {
@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(ids(&exact), vec!["rec_null"]);
         assert_eq!(exact.overflow_record_id, None);
 
-        // One byte short: the measure really is 11, not the 28-byte
+        // One byte short: the measure really is 11, not the 29-byte
         // `{"structured":null,"text":""}` form.
         let short = recall_checked(
             &records,

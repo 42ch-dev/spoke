@@ -69,7 +69,7 @@ Committed schemas use `https://spoke42.invalid` in `$id` / `$ref` (RFC 6761 rese
 | Rust | `spoke-schemas` | `typify` | `crates/spoke-schemas/src/generated/` |
 | TypeScript (hand-written) | `@42ch/spoke-operations` | — (not codegen) | `packages/spoke-operations/src/` |
 | Rust (hand-written) | `spoke-operations` | — (not codegen) | `crates/spoke-operations/src/` |
-| Rust (hand-written) | `spoke-memory` | — (not codegen) | `crates/spoke-memory/src/` — optional memory reference engine (algorithm policy only) |
+| Rust (hand-written) | `spoke-fixture-memory-engine` | — (not codegen) | `fixtures/memory-engine/rust/src/` — optional memory reference engine (algorithm policy only; unpublished fixture) |
 
 `schemas/` is the only hand-authored wire truth. Generated output is committed; drift fails `verify-codegen`.
 
@@ -107,11 +107,12 @@ spoke/
     └── src/
         ├── lib.rs               # flat re-exports; hand-written pure helpers
         └── *.rs                 # family modules (result, extensions, finding, memory, …)
-└── crates/spoke-memory/
-    ├── Cargo.toml
-    └── src/                     # optional memory reference engine (pure algorithm policy)
-        ├── lib.rs               # MemoryEngine façade + ENGINE_POLICY_VERSION
-        └── {classify,recall,reflect,transfer}.rs
+└── fixtures/memory-engine/
+    └── rust/                    # spoke-fixture-memory-engine crate (publish = false)
+        ├── Cargo.toml
+        └── src/                 # optional memory reference engine (pure algorithm policy)
+            ├── lib.rs           # MemoryEngine façade + ENGINE_POLICY_VERSION
+            └── {classify,recall,reflect,transfer}.rs
 └── fixtures/toy-world/
     ├── src/adapter/             # TS ToyWorldAdapter (private; not published)
     ├── rust/                    # spoke-fixture-toy-world crate (publish = false)
@@ -147,7 +148,7 @@ Detail: [`schemas/README.md`](../../schemas/README.md).
 | `packages/spoke-connect-ts/` | TypeScript connect client — published as `@42ch/spoke-connect` |
 | `crates/spoke-schemas/` | Generated Rust wire types |
 | `crates/spoke-operations/` | Hand-written Rust operations library — behavioral port of TS helpers plus injected adapter traits/orchestration |
-| `crates/spoke-memory/` | Optional memory reference engine — pure algorithm policy for the `spoke-memory` family (no storage, I/O, or enforcement) |
+| `fixtures/memory-engine/rust/` | Optional memory reference engine — pure algorithm policy for the `spoke-memory` family (no storage, I/O, or enforcement); fixture crate `spoke-fixture-memory-engine`, `publish = false` |
 | `crates/spoke-connect/` | Rust connect reference — session core, libp2p transport, uniffi binding surface (`bindings/`); published as `spoke-connect` |
 | `fixtures/toy-world/` | Protocol conformance JSON + AJV/Vitest harness (`tests/`; `@42ch/spoke-fixture-toy-world`) + reference `ToyWorldAdapter` (TS: `src/adapter/`; Rust: `rust/` crate `spoke-fixture-toy-world`, `publish = false`) |
 

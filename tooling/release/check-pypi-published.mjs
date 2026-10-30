@@ -205,10 +205,15 @@ function isValidPackageName(name) {
  * @throws {Error} Fail-loud conditions (invalid package name, network,
  *   non-200/404, malformed JSON, unexpected payload shape).
  */
-async function probePyPI({ packageName, version, baseUrl = PYPI_BASE_URL }) {
+export async function probePyPI({ packageName, version, baseUrl = PYPI_BASE_URL }) {
   if (!isValidPackageName(packageName)) {
     throw new Error(
       `package name ${JSON.stringify(packageName)} is not a valid registry name — refusing to probe PyPI`,
+    );
+  }
+  if (typeof version !== "string" || !SEMVER_PATTERN.test(version)) {
+    throw new Error(
+      `version ${JSON.stringify(version)} is not a valid SemVer — refusing to probe PyPI`,
     );
   }
   const url = `${baseUrl.replace(/\/+$/, "")}/pypi/${packageName}/${version}/json`;

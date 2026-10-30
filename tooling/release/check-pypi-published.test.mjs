@@ -11,6 +11,7 @@ import {
   normalizeDistributionName,
   normalizePep440Version,
   parsePyprojectName,
+  probePyPI,
 } from "./check-pypi-published.mjs";
 import {
   cleanupTempRepo,
@@ -298,6 +299,17 @@ describe("check-pypi-published.mjs CLI", () => {
     );
     assert.doesNotMatch(result.stderr, /cannot reach PyPI JSON API/);
     assert.equal(result.stdout, "", "no step outputs on the rejection path");
+  });
+
+  it("rejects malformed versions before probing PyPI and accepts a valid version", async () => {
+    for (const version of ["../evil", 123]) {
+      await assert.rejects(
+        probePyPI({ packageName: "spoke-connect", version, baseUrl: "http://127.0.0.1:1" }),
+        /version .* is not a valid SemVer — refusing to probe PyPI/,
+      );
+    }
+    const result = await probePyPI({ packageName: "spoke-connect", version: "0.2.0", baseUrl });
+    assert.equal(result.outcome, "published");
   });
 
   it("--verify passes when the full set is present", async () => {

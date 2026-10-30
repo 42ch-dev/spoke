@@ -6,6 +6,312 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.15.0] - 2026-10-30
+
+
+### Added
+
+- **schemas:** Add spoke-memory data models
+
+- **schemas:** Add spoke-memory op wire schemas
+
+- **schemas:** Generate spoke-memory TS/Rust types
+
+- **operations:** Memory port trait and reject codes (rust)
+
+- **operations:** Memory validators, grant coverage, digests (rust)
+
+- **operations:** Memory port + validators (ts)
+
+- **memory:** Spoke-memory crate skeleton
+
+- **memory:** Classify and recall policy
+
+- **memory:** Reflection basis and transfer policy
+
+- **connect:** Memory dispatch rows and capability flags
+
+- **connect:** Remote memory service and responder arms
+
+- **connect:** Memory client adapters and golden vectors
+
+- **memory:** Sqlite provider storage and low-complexity ops
+
+- **memory:** Sqlite provider capture, candidates, records, recall
+
+- **memory:** Sqlite provider profile and reflections
+
+- **memory:** Sqlite provider transfer surfaces
+
+- **memory:** Shared loopback memory host with transfer serving
+
+
+### Changed
+
+- **schemas:** Isolate the committed-with-error prohibition
+
+- **memory:** Toy-world memory fixtures and scenarios
+
+- **memory:** Conformance vectors and engine runner
+
+- **schemas:** Pin chunk and polled-receipt type generation
+
+- **memory:** Conformance interpreter and sqlite-provider run
+
+- **memory:** Conformance directives, receipt eviction, and stage refs
+
+- **memory:** Corpus interpreter loopback leg
+
+- **schemas:** Poll a failed receipt through the receipts-get union
+
+- **memory:** Count content and chunk sizes without transient buffers
+
+- **connect:** Bind cursors fully and poll released receipts to terminal
+
+- **connect:** Prove multi-receipt release polling through run_case
+
+- **connect:** Pin non-BMP jcs keys and count test nonces
+
+- **memory:** Typed fast path for recall per-record measure allocation
+
+- **memory:** Assert fast-path wire bytes match direct typed serialization
+
+- **memory:** Assert fast-path bytes equal the normalized path
+
+- **memory:** Cover every measure vector with fast-path byte equality
+
+- **memory:** Drop the self-comparison assertion from the measure test
+
+
+### Documentation
+
+- **memory:** Normative spoke-memory spec and ADR
+
+- **memory:** Correct spec contract exceptions and registration counts
+
+- **memory:** Scope chunk and capture limits precisely
+
+- **memory:** Amend author-memory boundary statements
+
+- **memory:** Public reference pages and nav
+
+- **memory:** Fix principal import path and records-create wording
+
+- **memory:** Reconcile staging receipts, freeze no-op, and affirmative wording
+
+- **release:** List all four published crates
+
+- Record the memory engine fixture placement
+
+- Point memory provider guidance at the fixture engine
+
+- Name @42ch/spoke-connect in pin lists and release shape
+
+- **memory:** Correct section citations and byte count in recall comments
+
+
+### Fixed
+
+- **schemas:** Enforce content lifecycle and chunk extension round-trip
+
+- **schemas:** Constrain memory op receipts, retry classes, and key bounds
+
+- **schemas:** Constrain receipts-get polling to per-op receipt shapes
+
+- **schemas:** Dedupe receipts-get per-op receipt branches via response schema refs
+
+- **schemas:** Restore retry-class mapping enforcement and drop experiment file
+
+- **schemas:** Allow unknown error codes with valid retry class; pin internal-error to retryable
+
+- **schemas:** Guard codegen hoist names and require idempotency-key echo
+
+- **schemas:** Require idempotency-key echo on pending and failed polled receipts
+
+- **operations:** Enforce admin-only single-grant issuance and limit details (rust)
+
+- **operations:** Bound grant issuance by earliest applicable admin expiry
+
+- **operations:** Scope grant expiry bound to applicable admin grants
+
+- **operations:** Accept combined record updates and fail closed on malformed grant timestamps
+
+- **operations:** Tighten ts pagination, timestamp grammar, and expiry bounds
+
+- **memory:** Measure recall budget over serialized content
+
+- **memory:** Correct transfer digest, chunking, and translation semantics
+
+- **memory:** Es6-correct number canonicalization via ryu
+
+- **schemas:** Disambiguate candidate proposed-shape titles
+
+- **connect:** Adapt to regenerated response types
+
+- **memory:** Defer the ranked tail at the byte budget boundary
+
+- **connect:** Optional memory face, typed port delegation, enforcing loopback host
+
+- **connect:** Close fixture authorization and digest gaps
+
+- **connect:** Enforce review space addressing and valid shared-coverage controls
+
+- **schemas:** Make committed-receipt response types constructible
+
+- **connect:** Per-op poll branches, adapter-exercised golden vectors, restored loopback coverage
+
+- **connect:** Ts imports.stage adapter coverage and rust principal assertion
+
+- **connect:** Memory deny classifications and uncertain timeout semantics
+
+- **memory:** Correct recall overflow_record_id fixture semantics
+
+- **memory:** Correct conformance corpus paths, drain barrier, and wire coverage
+
+- **memory:** Make conformance barriers, staging, and replay deterministic
+
+- **memory:** Corpus contract namespaces and deterministic classification case
+
+- **memory:** Discriminating staleness proof, chunk idempotency, equivalent-state determinism
+
+- **memory:** Reproducible matching basis and state-reset determinism
+
+- **memory:** Snapshot-restore determinism and honest staleness coverage
+
+- **memory:** Identity remap makes imported-staleness conclusive
+
+- **memory:** Fail cooperative-provider policy violations
+
+- **memory:** Require exact staged-report map keys
+
+- **schemas:** Make grants-revoke revoked a boolean
+
+- **schemas:** Make records-delete tombstoned a boolean
+
+- **schemas:** Make imports-discard discarded a boolean
+
+- **memory:** Emit the documented activate completion result
+
+- **memory:** Close the sqlite conformance inconclusives
+
+- **memory:** Provider clock and receipt identity, wire determinism repeat
+
+- **memory:** Single receipt allocation and real recall page comparison
+
+- **memory:** Scope foreign digest assertion to the active provider
+
+- **toy-world:** Compare echoed computable through the Shared0 newtype
+
+- **memory:** Normalize omitted extensions to {} before the bundle-digest check
+
+- **connect:** Keep the admitted memory provider task alive past the serve budget
+
+- **connect:** Apply the recall cursor offset before the page budget; keep get_receipt read-only
+
+- **connect-ts:** Gate memory success payloads through SUCCESS_SHAPES
+
+- **connect:** Adapt ffi manifest test to the shared ExtensionKey
+
+- **connect:** Uncertain outcome on panic paths; runtime-derived test nonces
+
+- **schemas:** Require idempotency_key on keyed receipt branches in TS output
+
+- **memory:** Guard recall serialization and partition asymmetry
+
+- **release:** Version the spoke-memory dependency for publish
+
+- **memory:** Unify content byte measure on serialized content
+
+- **memory:** Canonicalize explicit null in content byte measure
+
+- **memory:** Measure recall budget over jcs canonical form
+
+- **memory:** Canonicalize constructed null in the measure path
+
+- **memory:** Measure partition frames per ordinal digit width
+
+- **connect:** Bind ranking query into cursor and drive release via run_case
+
+- **connect:** Answer non-string memory ops with a terminal invalid_input
+
+- **memory:** Fail closed on unmeasurable content
+
+- **memory:** Filter constructed nulls in recall measure
+
+- **memory:** Measure the recall page budget over the emitted wire form
+
+
+### Internal
+
+- **merge:** Integrate p1-memory-wire-schemas into iteration/v0.15-memory
+
+- **operations:** Drop residual self-counting assertion
+
+- **merge:** Integrate p2-memory-operations into iteration/v0.15-memory
+
+- **merge:** Integrate p3-memory-engine into iteration/v0.15-memory
+
+- **merge:** Integrate p4-memory-connect into iteration/v0.15-memory
+
+- **merge:** Integrate p5-memory-conformance into iteration/v0.15-memory
+
+- **merge:** Integrate p5-memory-conformance (fixtures, vectors, sqlite provider) into iteration/v0.15-memory
+
+- **merge:** Integrate p5-memory-conformance-b (interpreter directives, dual-provider fixes) into iteration/v0.15-memory
+
+- **merge:** Integrate p5-loopback-leg (corpus interpreter loopback leg) into iteration/v0.15-memory
+
+- **merge:** Integrate p5-memory-conformance-b plan QC fix wave into iteration/v0.15-memory
+
+- **merge:** Integrate p5-memory-conformance-b QC fix round 2 into iteration/v0.15-memory
+
+- **merge:** Integrate p5-memory-conformance-b (interpreter directives, dual-provider fixes, QC fix rounds) into iteration/v0.15-memory
+
+- **merge:** Integrate p6-memory-docs-release into iteration/v0.15-memory
+
+- **merge:** Integrate PR #114 hotfixes (greptile findings + toy-world comparisons) into iteration/v0.15-memory
+
+- **merge:** Integrate ffi ExtensionKey adaptation into iteration/v0.15-memory
+
+- **merge:** Integrate Phase 5 hotfix round 2 (uncertain-on-panic, runtime nonces) into iteration/v0.15-memory
+
+- **release:** Publish spoke-memory crate in lockstep
+
+- Test spoke-memory crate in the rust lane
+
+- **codegen:** Format generated memory Rust with stable rustfmt and bound size
+
+- Install rustfmt for codegen gate
+
+- Detect Windows native artifact drift
+
+- Harden windows drift gate against shallow clone and untracked files
+
+- Exclude build provenance from the windows drift gate
+
+- Gate windows native freshness on its build revision, not byte-reproducible output
+
+- Read the committed native record for the windows freshness gate
+
+
+### build
+
+- **connect:** Refresh xcframework from CI artifact 40830800944
+
+- **connect:** Refresh xcframework from CI artifact 40849346231
+
+- Compile workspace consumers in verify-codegen
+
+- **connect:** Refresh xcframework from CI artifact 40938599946
+
+- Move the memory reference engine under fixtures/
+
+- Reject malformed PyPI probe versions
+
+- **connect:** Refresh win-x64 native artifacts from CI run 41014667415
+
+- **deps:** Batch upgrade of 12 open Dependabot PRs (#133)
+
 ## [0.14.1] - 2026-09-22
 
 

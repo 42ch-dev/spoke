@@ -43,7 +43,7 @@ export const DEMO_SERVER_MANIFEST: HostCapabilityManifest = {
 
 ## 2. 运行主机
 
-你需要 Node.js ≥ 20 与 `pnpm`。克隆仓库并安装一次：
+你需要 Node.js ≥ 22.12 与 `pnpm`。克隆仓库并安装一次：
 
 ```bash
 git clone https://github.com/42ch-dev/spoke.git

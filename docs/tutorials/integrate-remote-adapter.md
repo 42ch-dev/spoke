@@ -43,7 +43,7 @@ The host is fail-closed about who may dial it: its allowlist contains exactly on
 
 ## 2. Run the host
 
-You need Node.js ≥ 20 with `pnpm`. Clone the repository and install once:
+You need Node.js ≥ 22.12 with `pnpm`. Clone the repository and install once:
 
 ```bash
 git clone https://github.com/42ch-dev/spoke.git

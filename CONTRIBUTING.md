@@ -6,7 +6,7 @@ Agent and harness invariants live in [`AGENTS.md`](AGENTS.md). Normative release
 
 ## Prerequisites
 
-- Node.js ≥ 20 and pnpm ≥ 11.21 (pinned via the root packageManager field)
+- Node.js ≥ 22.12 and pnpm ≥ 11.21 (pinned via the root packageManager field)
 - Rust toolchain (stable) for `spoke-schemas` / `spoke-operations` crates
 - git-lfs — the committed Swift xcframework static libraries and C carrier dynamic libraries are LFS objects
 

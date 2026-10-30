@@ -10,7 +10,7 @@ The companion tutorial, [Open your first connect session](/tutorials/first-conne
 
 ## Before you start
 
-- **TypeScript path** — Node.js ≥ 20.19 with `pnpm`.
+- **TypeScript path** — Node.js ≥ 22.12 with `pnpm`.
 - **Rust path** — a stable Rust toolchain with `cargo`.
 
 All SPOKE packages share one lockstep SemVer (`X.Y.Z`). Pin the same version across every package you install.

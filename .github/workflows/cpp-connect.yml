@@ -51,6 +51,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
+          fetch-depth: 0
 
       - name: Setup MSVC developer environment
         # x64 selects the release MSVC toolchain used by the C++ smoke.
@@ -111,7 +112,9 @@ jobs:
       - name: Verify rebuilt native drift
         id: drift
         continue-on-error: true
-        run: git diff --exit-code -- crates/spoke-connect/bindings/cpp/native
+        run: |
+          git add -A -- crates/spoke-connect/bindings/cpp/native
+          git diff --cached --exit-code -- crates/spoke-connect/bindings/cpp/native
 
       - name: Show native provenance
         shell: pwsh

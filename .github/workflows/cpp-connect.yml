@@ -108,6 +108,11 @@ jobs:
       - name: Build Windows carrier
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
 
+      - name: Verify rebuilt native drift
+        id: drift
+        continue-on-error: true
+        run: git diff --exit-code -- crates/spoke-connect/bindings/cpp/native
+
       - name: Show native provenance
         shell: pwsh
         run: Get-Content crates/spoke-connect/bindings/cpp/native/provenance.json
@@ -135,16 +140,16 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
-      - name: Fail on provenance drift
-        # The lane's verdict. `continue-on-error` above keeps the refresh
-        # artifact flowing, but the job still has to go red when the committed
-        # record does not describe the committed bytes — it reads the raw step
-        # outcome, so drift is never absorbed into a green run.
+      - name: Fail on provenance or native drift
+        # Preserve the refresh artifact while failing on either raw outcome.
         if: always()
         shell: pwsh
         run: |
           if ("${{ steps.provenance.outcome }}" -ne "success") {
             throw "committed provenance does not describe the committed win-x64 bytes; apply the uploaded refresh artifact (a genuine Windows rebuild) before this lane can pass"
+          }
+          if ("${{ steps.drift.outcome }}" -ne "success") {
+            throw "rebuilt native artifacts differ from the committed artifacts; apply the uploaded refresh artifact before this lane can pass"
           }
 
   macos-smoke:

@@ -136,7 +136,7 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Recall-ranking failure: the §9.3 byte budget serializes the `content` wire
+/// Recall-ranking failure: the §9 item 3 byte budget serializes the `content` wire
 /// form, which has no JSON representation when it holds a non-finite float.
 /// `serde_json::Value` cannot hold one by construction, so this is a
 /// defensive guard kept at parity with the spoke-operations digest
@@ -159,14 +159,14 @@ impl std::fmt::Display for RecallError {
 
 impl std::error::Error for RecallError {}
 
-/// §9.3 page-budget unit: UTF-8 byte length of the **complete serialized
+/// §9 item 3 page-budget unit: UTF-8 byte length of the **complete serialized
 /// `content` value exactly as the page emits it** (`serde_json::to_vec`) —
 /// field name, quotes, escaping, and `structured` included, e.g.
 /// `{"text":"abcd"}` is 15 bytes.
 ///
-/// The §7.1 `max_content_bytes` admission limit and this §9.3 page budget are
+/// The §7.1 `max_content_bytes` admission limit and this §9 item 3 page budget are
 /// two distinct budgets: admission measures RFC 8785 JCS
-/// (`spoke-operations::memory::digests`, because it is compared against the
+/// (`spoke-operations::memory::validate`, because it is compared against the
 /// TypeScript `JSON.stringify` form), while this one measures the wire form so
 /// the budget counts literally the bytes the response emits. Both drop
 /// top-level explicit `null` members — a deserialized `null` becomes
@@ -177,8 +177,20 @@ impl std::error::Error for RecallError {}
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
-/// float and rejects instead of panicking.
+/// float and rejects instead of panicking. Fast path: when `structured` is
+/// absent or a real value, `skip_serializing_if = "Option::is_none"` plus
+/// the absence of any explicit null member means direct typed
+/// serialization emits exactly the members the normalization filter would
+/// keep, in the same field order — so only a constructed `Some(Value::Null)`
+/// needs the `to_value` → filter → `to_vec` round trip.
 fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
+    content_serialized(content).map(|bytes| bytes.len())
+}
+
+fn content_serialized(content: &Content) -> Result<Vec<u8>, RecallError> {
+    if !matches!(content.structured.as_ref(), Some(serde_json::Value::Null)) {
+        return serde_json::to_vec(content).map_err(|_| RecallError::NonFiniteContent);
+    }
     let value = match serde_json::to_value(content) {
         Ok(serde_json::Value::Object(members)) => serde_json::Value::Object(
             members
@@ -189,9 +201,7 @@ fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
         Ok(other) => other,
         Err(_) => return Err(RecallError::NonFiniteContent),
     };
-    serde_json::to_vec(&value)
-        .map(|bytes| bytes.len())
-        .map_err(|_| RecallError::NonFiniteContent)
+    serde_json::to_vec(&value).map_err(|_| RecallError::NonFiniteContent)
 }
 
 #[cfg(test)]
@@ -378,7 +388,7 @@ mod tests {
 
     #[test]
     fn numeric_content_budget_uses_the_wire_measure() {
-        // I-000035: the §9.3 page budget counts the bytes the page emits, so
+        // I-000035: the §9 item 3 page budget counts the bytes the page emits, so
         // numbers keep the `serde_json` form (`1.0`, `100.0`) and count 44
         // bytes; the RFC 8785 §7.1 admission form would count 40.
         let records = vec![RecallRecord {
@@ -425,6 +435,71 @@ mod tests {
     }
 
     #[test]
+    fn measure_fast_path_matches_direct_typed_serialization() {
+        // I-000039: the typed fast path must emit exactly the direct
+        // `serde_json::to_vec(content)` wire bytes for every measure vector
+        // used by the byte-budget tests — plain-text (15/16-byte), numeric
+        // (44-byte), escaping (55-byte), deferred-tail (30-byte) and
+        // oversized (111-byte) — and only `Some(Value::Null)` takes
+        // normalization (asserted against the normalize path only per
+        // I-000031). Assert the full byte slices against the normalize path
+        // (`to_value` → strip null members → `to_vec`), not just lengths.
+        let cases = [
+            (Content {
+                structured: None,
+                text: "abcd".to_string(),
+            }, 15usize),
+            (Content {
+                structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
+                text: String::new(),
+            }, 44),
+            (Content {
+                structured: None,
+                text: "hello".to_string(),
+            }, 16),
+            (Content {
+                structured: Some(serde_json::Value::Null),
+                text: String::new(),
+            }, 11),
+            // escaping vector (`serialized_escaping_and_overhead…`)
+            (Content {
+                structured: None,
+                text: "quote \" and newline \n and unicode — dash".to_string(),
+            }, 55),
+            // deferred-tail vector (`deferred_tail_is_not_displaced…`)
+            (Content {
+                structured: None,
+                text: "abcdefghijklmnopqrs".to_string(),
+            }, 30),
+            // oversized vector (`oversized_first_item_is_surfaced…`)
+            (Content {
+                structured: None,
+                text: "x".repeat(100),
+            }, 111),
+        ];
+        for (content, expected_len) in &cases {
+            let normalized = match serde_json::to_value(content).expect("content converts") {
+                serde_json::Value::Object(members) => serde_json::to_vec(
+                    &serde_json::Value::Object(
+                        members
+                            .into_iter()
+                            .filter(|(_, member)| !member.is_null())
+                            .collect(),
+                    ),
+                ),
+                other => serde_json::to_vec(&other),
+            }
+            .expect("normalized content serializes");
+            let fast_path = content_serialized(content).expect("finite content measures");
+            assert_eq!(
+                fast_path, normalized,
+                "fast path must emit exactly the normalized wire bytes"
+            );
+            assert_eq!(fast_path.len(), *expected_len);
+        }
+    }
+
+    #[test]
     fn constructed_null_content_budgets_like_admission() {
         // I-000031: a caller-built `Some(Value::Null)` is the same logical
         // content as a deserialized `null`; both normalize to
@@ -456,7 +531,7 @@ mod tests {
         assert_eq!(ids(&exact), vec!["rec_null"]);
         assert_eq!(exact.overflow_record_id, None);
 
-        // One byte short: the measure really is 11, not the 28-byte
+        // One byte short: the measure really is 11, not the 29-byte
         // `{"structured":null,"text":""}` form.
         let short = recall_checked(
             &records,

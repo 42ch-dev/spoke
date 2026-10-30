@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # rust-gen declares its own [workspace], so it is outside the root members.
+  - package-ecosystem: cargo
+    directory: "/tooling/codegen/rust-gen"
+    schedule:
+      interval: weekly

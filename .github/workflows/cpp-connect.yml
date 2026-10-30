@@ -120,8 +120,8 @@ jobs:
           # when a build-source path advanced past provenance's sourceRevision.
           node - <<'NODE'
           const { execFileSync } = require("node:child_process");
-          const { readFileSync } = require("node:fs");
-          const record = JSON.parse(readFileSync("crates/spoke-connect/bindings/cpp/native/provenance.json", "utf8"));
+          // Read the COMMITTED record: the build step above rewrites the working-tree copy.
+          const record = JSON.parse(execFileSync("git", ["show", "HEAD:crates/spoke-connect/bindings/cpp/native/provenance.json"], { encoding: "utf8" }));
           const claimed = record.nativeArtifacts["win-x64"].sourceRevision;
           const paths = ["Cargo.toml", "Cargo.lock", "crates/spoke-connect-capi", "crates/spoke-connect/src", "crates/spoke-connect/Cargo.toml"];
           const head = execFileSync("git", ["log", "-1", "--format=%H", "--", ...paths], { encoding: "utf8" }).trim();

@@ -177,8 +177,18 @@ impl std::error::Error for RecallError {}
 ///
 /// `Content` is a `String` plus an optional `serde_json::Value`, so
 /// serialization cannot fail on finite numbers; a failure means a non-finite
-/// float and rejects instead of panicking.
+/// float and rejects instead of panicking. Fast path: when `structured` is
+/// absent or a real value, `skip_serializing_if = "Option::is_none"` plus
+/// the absence of any explicit null member means direct typed
+/// serialization emits exactly the members the normalization filter would
+/// keep, in the same field order — so only a constructed `Some(Value::Null)`
+/// needs the `to_value` → filter → `to_vec` round trip.
 fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
+    if !matches!(content.structured.as_ref(), Some(serde_json::Value::Null)) {
+        return serde_json::to_vec(content)
+            .map(|bytes| bytes.len())
+            .map_err(|_| RecallError::NonFiniteContent);
+    }
     let value = match serde_json::to_value(content) {
         Ok(serde_json::Value::Object(members)) => serde_json::Value::Object(
             members

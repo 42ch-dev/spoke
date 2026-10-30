@@ -437,11 +437,13 @@ mod tests {
     #[test]
     fn measure_fast_path_matches_direct_typed_serialization() {
         // I-000039: the typed fast path must emit exactly the direct
-        // `serde_json::to_vec(content)` wire bytes for `structured: None`
-        // (15-byte plain-text vector) and `Some(non-null)` (44-byte numeric
-        // vector); only `Some(Value::Null)` takes normalization. Assert the
-        // full byte slices against the normalize path (`to_value` → strip
-        // null members → `to_vec`), not just lengths.
+        // `serde_json::to_vec(content)` wire bytes for every measure vector
+        // used by the byte-budget tests — plain-text (15/16-byte), numeric
+        // (44-byte), escaping (55-byte), deferred-tail (30-byte) and
+        // oversized (111-byte) — and only `Some(Value::Null)` takes
+        // normalization (asserted against the normalize path only per
+        // I-000031). Assert the full byte slices against the normalize path
+        // (`to_value` → strip null members → `to_vec`), not just lengths.
         let cases = [
             (Content {
                 structured: None,
@@ -459,6 +461,21 @@ mod tests {
                 structured: Some(serde_json::Value::Null),
                 text: String::new(),
             }, 11),
+            // escaping vector (`serialized_escaping_and_overhead…`)
+            (Content {
+                structured: None,
+                text: "quote \" and newline \n and unicode — dash".to_string(),
+            }, 55),
+            // deferred-tail vector (`deferred_tail_is_not_displaced…`)
+            (Content {
+                structured: None,
+                text: "abcdefghijklmnopqrs".to_string(),
+            }, 30),
+            // oversized vector (`oversized_first_item_is_surfaced…`)
+            (Content {
+                structured: None,
+                text: "x".repeat(100),
+            }, 111),
         ];
         for (content, expected_len) in &cases {
             let direct = serde_json::to_vec(content).expect("content serializes");

@@ -10,7 +10,7 @@ title: 安装并创建你的第一条 KnowledgeEntry
 
 ## 开始之前
 
-- **TypeScript 路径** —— Node.js ≥ 20.19，带 `pnpm`。
+- **TypeScript 路径** —— Node.js ≥ 22.12，带 `pnpm`。
 - **Rust 路径** —— 稳定的 Rust 工具链，带 `cargo`。
 
 所有 SPOKE 软件包共用一套锁步 SemVer（`X.Y.Z`）。你安装的每个软件包都应固定到同一个版本。

@@ -294,7 +294,7 @@ impl MinimalResponder {
 /// UUID v4 request id (mirror of the adapter's `generate_request_id`).
 fn uuid_request_id() -> String {
     let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes).expect("CSPRNG works in tests");
+    getrandom::fill(&mut bytes).expect("CSPRNG works in tests");
     uuid::Builder::from_random_bytes(bytes)
         .into_uuid()
         .to_string()
@@ -462,7 +462,7 @@ async fn handshake(
 /// host's `host_nonce`).
 fn uuid_nonce() -> String {
     let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes).expect("CSPRNG works in tests");
+    getrandom::fill(&mut bytes).expect("CSPRNG works in tests");
     let uuid = uuid::Builder::from_random_bytes(bytes)
         .into_uuid()
         .to_string();

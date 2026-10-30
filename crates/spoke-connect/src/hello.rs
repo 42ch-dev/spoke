@@ -33,7 +33,7 @@ use spoke_schemas::connect::ConnectHello;
 /// encoded (22 characters, above the wire floor of 16).
 pub(crate) fn generate_nonce() -> Result<String, ConnectError> {
     let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes)
+    getrandom::fill(&mut bytes)
         .map_err(|e| ConnectError::Transport(format!("CSPRNG failure: {e}")))?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }

@@ -24,7 +24,7 @@ use tokio::sync::{mpsc, oneshot};
 /// of panicking.
 pub(crate) fn generate_request_id() -> Result<String, ConnectError> {
     let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes)
+    getrandom::fill(&mut bytes)
         .map_err(|e| ConnectError::Transport(format!("CSPRNG failure: {e}")))?;
     Ok(uuid::Builder::from_random_bytes(bytes)
         .into_uuid()

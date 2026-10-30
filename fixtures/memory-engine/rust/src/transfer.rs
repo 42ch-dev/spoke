@@ -1745,7 +1745,7 @@ mod tests {
         let report = staged_report(&bundle, &maps, 1, 1, &verification).expect("report builds");
 
         let schema: Value = serde_json::from_str(include_str!(
-            "../../../schemas/ops/memory-imports-stage-response.schema.json"
+            "../../../../schemas/ops/memory-imports-stage-response.schema.json"
         ))
         .expect("consumer schema parses");
         let (required, properties) =

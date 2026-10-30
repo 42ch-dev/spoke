@@ -75,7 +75,7 @@ Algorithm policy and enforcement are separated because they have different owner
 
 | Concern | Owner | State | Contract |
 |---------|-------|-------|----------|
-| Classification, ranking, budget/truncation, reflection assembly and staleness, transfer partitioning/digests/verification/translation | `spoke-memory` crate (`MemoryEngine`, four pure modules) | None | Pure functions over already-authorized inputs; deterministic per `ENGINE_POLICY_VERSION`; no storage abstraction, no I/O, no authorization, no CAS, no transactions |
+| Classification, ranking, budget/truncation, reflection assembly and staleness, transfer partitioning/digests/verification/translation | `spoke-fixture-memory-engine` crate (`MemoryEngine`, four pure modules) — unpublished conformance fixture at `fixtures/memory-engine/rust`, not a shipped artifact; the published memory surface is `spoke-schemas` + `spoke-operations` | None | Pure functions over already-authorized inputs; deterministic per `ENGINE_POLICY_VERSION`; no storage abstraction, no I/O, no authorization, no CAS, no transactions |
 | Storage, authorization, grants, fencing, idempotency, transactions, durability | The provider behind `MemoryPort` | Provider-owned | Enforces §5 invariants inside its own transaction layer; never delegates enforcement to the engine |
 | Wire shapes | `schemas/` + generated packages | — | The only normative structural truth |
 
@@ -117,7 +117,7 @@ The family's locked semantics are normative in [`spoke-memory.md`](spoke-memory.
 | Wire shapes and family op table | `schemas/data/`, `schemas/ops/`, [`spoke-memory.md`](spoke-memory.md) |
 | Structural/selection/grant/digest helpers | `packages/spoke-operations/src/memory/`, `crates/spoke-operations/src/memory/` |
 | Provider admission, storage, transactions, durability | Provider behind `MemoryPort` |
-| Algorithm policy | `crates/spoke-memory/` |
+| Algorithm policy | `fixtures/memory-engine/rust/` (unpublished fixture crate `spoke-fixture-memory-engine`) |
 | Capability negotiation, dispatch gate, serving/client seams | `crates/spoke-connect/`, `packages/spoke-connect-ts/` |
 | Space provisioning and initial `admin` grant | Provider operator, out of band (§7.0.6 of the family spec) |
 | Identity mapping of peers to principals | Provider-local configuration (`MemoryAdmission` in the Connect serving seam) |
@@ -165,7 +165,7 @@ The family's locked semantics are normative in [`spoke-memory.md`](spoke-memory.
 | Content-free receipt + dedup tombstone pattern | `schemas/data/memory-receipt.schema.json`; family contract §6.10, §14.3 |
 | Author/derivative split precedent (authority vs derived record) | [`l5-mind-capability-adr.md`](l5-mind-capability-adr.md) §Ownership boundary (`modules.mental` authority vs `MindState` derivative) |
 | Schema conventions: draft-07, closed objects, required `extensions`, `<op>-request`/`<op>-response` pairing, one type per file | [`schemas/README.md`](../../schemas/README.md); `EXPECTED_SCHEMA_COUNT` in `tooling/codegen/assert-schema-count.mjs` |
-| Transfer verification is algorithmic, not storage-bound | `crates/spoke-memory/src/transfer.rs` (`bundle_digest`, `chunk_digest`, `partition_bundle`, `reassemble`, `verify_reassembly`, `build_translation_maps`, `adopt_grants`, `staged_report`) |
+| Transfer verification is algorithmic, not storage-bound | `fixtures/memory-engine/rust/src/transfer.rs` (`bundle_digest`, `chunk_digest`, `partition_bundle`, `reassemble`, `verify_reassembly`, `build_translation_maps`, `adopt_grants`, `staged_report`) |
 | Manifest carrier needs no new field | `schemas/data/host-capability-manifest.schema.json` `capabilities[]` |
 
 ## 5. Scope of authority
@@ -175,7 +175,7 @@ The family's locked semantics are normative in [`spoke-memory.md`](spoke-memory.
 | Capability naming, family boundary, and the no-baseline-expansion rule | Field-level tables — [`spoke-memory.md`](spoke-memory.md) §6 |
 | Single-authority model and its admission-time consequences | Per-op request/result/error detail — [`spoke-memory.md`](spoke-memory.md) §7, §14 |
 | Receipt as the sole async/outcome model | Retry-class mappings — [`spoke-memory.md`](spoke-memory.md) §14.2 |
-| Engine/provider split and the engine's non-participant status | Engine function signatures — `crates/spoke-memory/` |
+| Engine/provider split and the engine's non-participant status | Engine function signatures — `fixtures/memory-engine/rust/` |
 | Conformance provider selection and the identity/algorithm-variable split | Scenario bodies and expected vectors — the repository conformance fixtures |
 | Standalone port and Connect seam placement | Product adapter behavior, identity provisioning, and cutover execution — consumer repositories |
 | Semantic locks as design constraints | Mood taxonomies, retention policy, and cross-subject reference conventions — product policy |

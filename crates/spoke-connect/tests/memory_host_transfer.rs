@@ -19,8 +19,8 @@ use std::sync::Arc;
 use memory_host::{MemoryHost, Store, DEFAULT_SPACE as SPACE, DEFAULT_SUBJECT as SUBJECT};
 use serde::Serialize;
 use serde_json::{json, Value};
-use spoke_memory::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
-use spoke_memory::ENGINE_POLICY_VERSION;
+use spoke_fixture_memory_engine::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
+use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{MemoryPort, SpokeReject, SpokeRejectCode, SpokeResult};
 use spoke_schemas::Principal;
 

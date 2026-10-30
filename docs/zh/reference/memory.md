@@ -109,7 +109,7 @@ const port: MemoryPort = {
 - **可用性探测。** `MemoryPorts.asMemory()`（TS）/ `MemoryPorts::as_memory()`（Rust）报告 adapter 是否提供该族。`MemoryPort` 与基线 port 族并列，是独立的可选接口：提供记忆的产品实现它，其余产品保持该探测为空实现。
 - **提供方职责留在提供方。** 授权与非放大校验、`revision` CAS、以 `(space_id, principal, op, idempotency_key)` 为键的持久幂等、回执与去重墓碑、空间冻结与主体/上下文围栏、候选审核原子性，全部位于提供方自己的事务层。
 - **通过 connect 提供服务。** 服务侧主机暴露 connect 自有的 `RemoteMemoryService` 接缝；`MemoryPortService` 在提供方 `MemoryPort` 之上实现它，并带一个把已认证 peer 映射为 `Principal` 的准入口径。一个可调用点服务整个族，33 个类型化操作构成解码面。
-- **算法策略可分离。** `spoke-memory` Rust 参考 crate 承载确定性的无 I/O 策略（候选分类、召回排序与预算、反思组装与陈旧性判定、传输分块/摘要/映射）。提供方可以运行它、运行自有策略或完全不运行，仍保持线上兼容。
+- **算法策略可分离。** `fixtures/memory-engine/rust` 处的 `spoke-fixture-memory-engine` Rust crate 是仓库内未发布的 fixture，承载确定性的无 I/O 策略（候选分类、召回排序与预算、反思组装与陈旧性判定、传输分块/摘要/映射）。产品不依赖它：提供方直接实现 `MemoryPort`，可以运行该 fixture 引擎的策略、自有策略或完全不运行，仍保持线上兼容。
 - **画像是作者的，记录是捕获的。** 画像内容为受信作者材料，其本身不授予任何授权；记录与候选内容是不受信数据。只有当提供方声明的 `required_profile_kinds` 齐备时才允许生成反思，缺失非必需种类则返回诚实空结果。
 
 ## 字段表与规格

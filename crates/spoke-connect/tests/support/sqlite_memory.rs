@@ -6,7 +6,7 @@
 //! `spaces.*`, `subjects.*`, `grants.*`, `receipts.get` — with the provider
 //! enforcing its own duties: admission and grant coverage, CAS, idempotency with
 //! dedup tombstones, freeze and fence fencing, and content-free receipts.
-//! `spoke_memory` supplies policy only.
+//! `spoke_fixture_memory_engine` supplies policy only.
 //!
 //! Op groups owned by later rounds answer `CAPABILITY_PORT_MISSING` through
 //! [`not_served`] with the op name — an honest capability gap, never a fake
@@ -36,14 +36,14 @@ use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use spoke_memory::classify::{classify_candidate, CandidateMaterial};
-use spoke_memory::recall::{recall as engine_recall, RecallRecord, RecallRequest as EngineRecall};
-use spoke_memory::reflect::{assemble_reflection, basis_digests, ReflectionBasis, SourceRef};
-use spoke_memory::transfer::{
+use spoke_fixture_memory_engine::classify::{classify_candidate, CandidateMaterial};
+use spoke_fixture_memory_engine::recall::{recall as engine_recall, RecallRecord, RecallRequest as EngineRecall};
+use spoke_fixture_memory_engine::reflect::{assemble_reflection, basis_digests, ReflectionBasis, SourceRef};
+use spoke_fixture_memory_engine::transfer::{
     adopt_grants as transfer_adopt_grants, bundle_digest, chunk_digest, partition_bundle,
     reassemble, staged_report as transfer_staged_report, verify_staging,
 };
-use spoke_memory::ENGINE_POLICY_VERSION;
+use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{
     is_freeze_allowlisted, jcs_sha256_hex, spoke_reject, validate_grant_issuance,
     validate_memory_candidates_list, validate_memory_candidates_review, validate_memory_capture,

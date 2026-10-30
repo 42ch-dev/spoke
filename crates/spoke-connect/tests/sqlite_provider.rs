@@ -13,7 +13,7 @@
 mod sqlite_memory;
 
 use serde_json::{json, Value};
-use spoke_memory::ENGINE_POLICY_VERSION;
+use spoke_fixture_memory_engine::ENGINE_POLICY_VERSION;
 use spoke_operations::{MemoryPort, SpokeRejectCode, SpokeResult};
 use spoke_schemas::{
     MemoryDescribeRequest, MemoryGrantsGrantRequest, MemoryGrantsListRequest,
@@ -2086,7 +2086,7 @@ async fn reflections_pinned_to_tombstoned_records_are_excluded() {
 
 // ── Task 4: transfer surfaces ─────────────────────────────────────────────
 
-use spoke_memory::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
+use spoke_fixture_memory_engine::transfer::{bundle_digest, chunk_digest, reassemble, verify_reassembly};
 
 async fn poll_receipt(provider: &SqliteMemoryProvider, space: &str, receipt_id: &str) -> Value {
     // The worker is separate from the read path (MEM-R011): settle the

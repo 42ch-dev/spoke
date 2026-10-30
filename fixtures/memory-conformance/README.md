@@ -9,7 +9,7 @@ Two runners share the corpus:
 
 | Runner | Location | Executes |
 |--------|----------|----------|
-| Engine | `crates/spoke-memory/tests/conformance.rs` (`cargo +nightly test -p spoke-memory conformance`) | `surface: "engine"` cases — classification, recall ranking/budget, reflection basis digests, transfer chunking/verification/report, and the pure P2 predicates (freeze allowlist, fence validation, JCS digest) |
+| Engine | `fixtures/memory-engine/rust/tests/conformance.rs` (`cargo +nightly test -p spoke-fixture-memory-engine conformance`) | `surface: "engine"` cases — classification, recall ranking/budget, reflection basis digests, transfer chunking/verification/report, and the pure P2 predicates (freeze allowlist, fence validation, JCS digest) |
 | Loopback | `crates/spoke-connect/tests/` `memory_conformance` selector | `surface: "wire"` cases — provider-enforced admission, grant coverage and non-amplification, CAS, idempotency, fencing, freeze + drain barrier, cursor invalidation, export retrieval/round-trip, staged import/activation/adoption, profile admission, reflection staleness triggers, classification/recall determinism, and dispatch-layer capability handling |
 
 Provider-enforced behaviour is never asserted from the engine side: an

@@ -3188,8 +3188,8 @@ dependencies = [
  "serde_jcs",
  "serde_json",
  "snow",
+ "spoke-fixture-memory-engine",
  "spoke-fixture-toy-world",
- "spoke-memory",
  "spoke-operations",
  "spoke-schemas",
  "thiserror 2.0.19",
@@ -3208,6 +3208,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "spoke-fixture-memory-engine"
+version = "0.14.1"
+dependencies = [
+ "chrono",
+ "ryu",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "spoke-operations",
+ "spoke-schemas",
+]
+
+[[package]]
 name = "spoke-fixture-toy-world"
 version = "0.14.1"
 dependencies = [
@@ -3216,19 +3229,6 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
- "spoke-operations",
- "spoke-schemas",
-]
-
-[[package]]
-name = "spoke-memory"
-version = "0.14.1"
-dependencies = [
- "chrono",
- "ryu",
- "serde",
- "serde_json",
- "sha2 0.10.9",
  "spoke-operations",
  "spoke-schemas",
 ]

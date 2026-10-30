@@ -18,10 +18,10 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
-use spoke_memory::classify::{classify_candidate, CandidateMaterial};
-use spoke_memory::recall::{recall, RecallRecord, RecallRequest};
-use spoke_memory::reflect::{is_stale, ReflectionBasis, SourceRef};
-use spoke_memory::transfer::{
+use spoke_fixture_memory_engine::classify::{classify_candidate, CandidateMaterial};
+use spoke_fixture_memory_engine::recall::{recall, RecallRecord, RecallRequest};
+use spoke_fixture_memory_engine::reflect::{is_stale, ReflectionBasis, SourceRef};
+use spoke_fixture_memory_engine::transfer::{
     adopt_grants, partition_bundle, reassemble, staged_report, verify_reassembly, verify_staging,
 };
 use spoke_operations::{
@@ -178,7 +178,7 @@ struct Case<'a> {
 }
 
 fn corpus_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/memory-conformance")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../memory-conformance")
 }
 
 fn load_scenarios() -> Vec<Scenario> {

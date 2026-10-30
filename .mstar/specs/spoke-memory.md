@@ -5,7 +5,7 @@
 > **Parent:** [`spoke-protocol.md`](spoke-protocol.md)
 > **Wire SSOT:** `schemas/data/memory-*.schema.json`, `schemas/ops/memory-*-{request,response}.schema.json`
 > **Operations library:** `packages/spoke-operations/src/memory/`, `crates/spoke-operations/src/memory/`; port `MemoryPort` in `packages/spoke-operations/src/adapter/ports.ts`, `crates/spoke-operations/src/adapter/ports.rs`
-> **Reference engine:** `crates/spoke-memory/` (`MemoryEngine`, `ENGINE_POLICY_VERSION`)
+> **Reference engine:** `fixtures/memory-engine/rust/` (`MemoryEngine`, `ENGINE_POLICY_VERSION`; unpublished fixture crate `spoke-fixture-memory-engine`)
 > **Capability decision:** [`spoke-memory-capability-adr.md`](spoke-memory-capability-adr.md)
 
 ## Problem & user value
@@ -49,7 +49,7 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** in this document a
 
 - A complete wire and service contract for per-subject long-term memory: spaces, subjects, capture, candidate review, retained records, recall, profiles, reflections, grants, write fencing, and versioned export/import.
 - The single public replacement boundary `MemoryPort` (in-process) and `RemoteMemoryService` (Connect responder seam) through which a product embeds or serves a memory provider.
-- A separately reusable reference algorithm engine (`spoke-memory` crate, type `MemoryEngine`) holding deterministic, I/O-free policy: candidate classification, recall ranking and budgeting, reflection assembly and staleness, and transfer partitioning/verification/translation. The engine receives already-authorized data as pure function inputs; it holds **no storage abstraction** and enforces no authorization, CAS, idempotency, fencing, or transaction semantics. Those belong to the provider behind `MemoryPort`, in the provider's own transaction layer. The engine is not a protocol participant.
+- A separately reusable reference algorithm engine (`spoke-fixture-memory-engine` crate, type `MemoryEngine`) holding deterministic, I/O-free policy: candidate classification, recall ranking and budgeting, reflection assembly and staleness, and transfer partitioning/verification/translation. The engine receives already-authorized data as pure function inputs; it holds **no storage abstraction** and enforces no authorization, CAS, idempotency, fencing, or transaction semantics. Those belong to the provider behind `MemoryPort`, in the provider's own transaction layer. The engine is not a protocol participant.
 - Concurrency, revocation, freeze, delete, and provider-switching semantics that hold across multiple clients of one authoritative provider.
 
 ### 1.2 Non-goals
@@ -408,7 +408,7 @@ Semantics: `subject_all` = every record of the subject regardless of placement o
 
 **Header `extensions` (lossless chunking).** `header.extensions` is an optional `ExtensionMap` carried only on `chunk_ordinal = 0`. Reassembly MUST write it back to the reassembled `MemoryExportBundle.extensions` before verifying `bundle_digest`, because the bundle requires `extensions` while the header enumeration is the only carrier that can transport it. Omitting the field and carrying `{}` are both valid and produce the same reassembled bundle when the source bundle's extensions were empty.
 
-Reassembly concatenates the slices in ordinal order and field order; verification recomputes `chunk_digest` per chunk and `bundle_digest` / `digest` over the reassembled bundle (`crates/spoke-memory/src/transfer.rs`: `partition_bundle`, `reassemble`, `verify_reassembly`).
+Reassembly concatenates the slices in ordinal order and field order; verification recomputes `chunk_digest` per chunk and `bundle_digest` / `digest` over the reassembled bundle (`fixtures/memory-engine/rust/src/transfer.rs`: `partition_bundle`, `reassemble`, `verify_reassembly`).
 
 ## 7. Operations
 
@@ -782,7 +782,7 @@ Subject target: `active ⇄ fenced`, `{active, fenced} → archived` (terminal d
 3. **Budget (normative):** `max_items` is a hard item cap. `max_bytes` is a **hard** budget measured as the UTF-8 byte length of the serialized `content` fields of returned records. Progress rule: if the next ranked item would exceed `max_bytes` and the page is empty, the provider returns that single item whole and sets `overflow_record_id` to its ID — an oversized first item is surfaced, never silently dropped or silently skipped; if the page is non-empty, the item is deferred and `truncated: true`. `truncated` MUST be true iff the authorized filtered set exceeds the returned page under the applied budget.
 4. **Pagination:** `next_cursor` per §7.0.7 (`MEM-R026`): bound, snapshot-consistent, invalidated by state/grant change with `CURSOR_INVALID`; no hidden-row leaks.
 
-The reference engine implements this policy set in `crates/spoke-memory/src/recall.rs` (`recall`), which receives already-authorized records.
+The reference engine implements this policy set in `fixtures/memory-engine/rust/src/recall.rs` (`recall`), which receives already-authorized records.
 
 ## 10. Trusted profiles vs untrusted captured text
 
@@ -841,7 +841,7 @@ Cutover is an operator-coordinated procedure, not a local configuration edit: al
   - `export_chunk_bytes` — a byte bound on the **serialized `MemoryExportChunk` value itself** (the size `Chunk.bytes` reports, §6.13). It does not bound the enclosing `memory.imports.stage` request or `memory.exports.get` response, which wrap the chunk plus other fields (`space_id`, `conflict_policy`, `adopt_grants`, `idempotency_key`, pagination or `extensions`); those enclosing payloads are accordingly larger than the chunk they carry.
   - `max_page_size` — an item-count bound on a response page (§7.0.7).
 - **Oversized single element (§6.13 exception).** An element larger than `export_chunk_bytes` occupies its own chunk; that chunk's `bytes` — and therefore the serialized chunk — exceeds the limit, and the element is never split or dropped.
-- The Connect invoke envelope wrapping any payload (op string, correlation identity, and other envelope fields) is outside every limit above, and transfer correctness does not depend on an envelope size ceiling: each chunk digest and the reassembled `bundle_digest` are verified on receipt (§6.13, `crates/spoke-memory/src/transfer.rs`).
+- The Connect invoke envelope wrapping any payload (op string, correlation identity, and other envelope fields) is outside every limit above, and transfer correctness does not depend on an envelope size ceiling: each chunk digest and the reassembled `bundle_digest` are verified on receipt (§6.13, `fixtures/memory-engine/rust/src/transfer.rs`).
 - **Dispatch gate:** every `memory.*` op has a `required_capability` row mapping it to `spoke-memory` or the sub-flag per §4.1 (`crates/spoke-connect/src/core/dispatch.rs`, mirrored in the TypeScript dispatch tests). Unknown ops keep failing closed with `op_unsupported`; unnegotiated memory ops fail `capability_missing` before any handler runs, with zero side effects.
 - **Serving seam:** `RemoteMemoryService` in `crates/spoke-connect/src/remote/serve_ports.rs`; `MemoryPortService` adapts a provider `MemoryPort` to it, mapping the authenticated connect peer to a `Principal` through an admission context (`MemoryAdmission`). One callable serves every `memory.*` op — the typed per-op contract already lives on `MemoryPort`, so no second 33-method serving trait exists.
 - **Client seam:** remote adapters map each `MemoryPort` method to its `memory.*` op — Rust `crates/spoke-connect/src/remote/remote_adapter.rs`, TypeScript `packages/spoke-connect-ts/src/remote/remote-adapter.ts` (method → op table exported for parity tests).
@@ -990,7 +990,7 @@ This section states what this repository contains today for the family. Normativ
 
 ### 18.3 Reference engine
 
-`crates/spoke-memory/` (`spoke-memory`, `ENGINE_POLICY_VERSION = "spoke-memory/1.0.0-deterministic"`, façade `MemoryEngine`) with four policy modules: `classify` (candidate disposition), `recall` (rank + budget + truncation), `reflect` (basis digests, staleness, assembly), `transfer` (canonical JSON, bundle/chunk digests, partitioning, reassembly and verification, translation maps, grant adoption, staged report). No storage, I/O, or enforcement duties.
+`fixtures/memory-engine/rust/` (`spoke-fixture-memory-engine`, unpublished fixture, `ENGINE_POLICY_VERSION = "spoke-memory/1.0.0-deterministic"`, façade `MemoryEngine`) with four policy modules: `classify` (candidate disposition), `recall` (rank + budget + truncation), `reflect` (basis digests, staleness, assembly), `transfer` (canonical JSON, bundle/chunk digests, partitioning, reassembly and verification, translation maps, grant adoption, staged report). No storage, I/O, or enforcement duties.
 
 ### 18.4 Connect surface
 

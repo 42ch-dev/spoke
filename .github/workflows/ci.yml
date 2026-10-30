@@ -165,8 +165,8 @@ jobs:
       - name: Test spoke-operations crate
         run: cargo test -p spoke-operations
 
-      - name: Test spoke-memory crate
-        run: cargo test -p spoke-memory
+      - name: Test spoke-fixture-memory-engine crate
+        run: cargo test -p spoke-fixture-memory-engine
 
       - name: Test spoke-fixture-toy-world crate
         run: cargo test -p spoke-fixture-toy-world

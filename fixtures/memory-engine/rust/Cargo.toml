@@ -1,16 +1,15 @@
 [package]
-name = "spoke-memory"
+name = "spoke-fixture-memory-engine"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "SPOKE reference memory engine — deterministic, I/O-free algorithm policy"
-keywords = ["spoke", "memory", "protocol", "policy"]
-categories = ["data-structures"]
+publish = false
 
 [dependencies]
-spoke-schemas = { version = "0.14.1", path = "../spoke-schemas" }
+spoke-schemas = { path = "../../../crates/spoke-schemas" }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
@@ -18,4 +17,4 @@ sha2 = "0.10"
 ryu = "1"
 
 [dev-dependencies]
-spoke-operations = { version = "0.14.1", path = "../spoke-operations" }
+spoke-operations = { path = "../../../crates/spoke-operations" }

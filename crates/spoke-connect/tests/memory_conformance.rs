@@ -1234,7 +1234,7 @@ async fn stage_from_asset(
         .as_str()
         .expect("stage_from idempotency_key_pattern");
     let export_id = text(&bundle, "export_id");
-    let chunks = spoke_memory::transfer::partition_bundle(&bundle, chunk_limit)
+    let chunks = spoke_fixture_memory_engine::transfer::partition_bundle(&bundle, chunk_limit)
         .map_err(|error| format!("partition {asset}: {error}"))?;
     let template = resolve_refs(&step["request"], responses);
     let replay_chunk = directive["replay"]["chunk"].as_u64();
@@ -1317,7 +1317,7 @@ async fn verify_export_fetches(
         chunks.push(response["payload"]["chunk"].clone());
     }
     let all_chunk_digests = chunks.iter().all(|chunk| {
-        spoke_memory::transfer::chunk_digest(chunk)
+        spoke_fixture_memory_engine::transfer::chunk_digest(chunk)
             .map(|digest| Some(digest.as_str()) == chunk["chunk_digest"].as_str())
             .unwrap_or(false)
     });
@@ -1328,9 +1328,9 @@ async fn verify_export_fetches(
             && chunk["chunk_count"] == metadata("chunk_count")
             && chunk["bundle_digest"] == metadata("bundle_digest")
     });
-    let reassembled = spoke_memory::transfer::reassemble(&chunks)
+    let reassembled = spoke_fixture_memory_engine::transfer::reassemble(&chunks)
         .map_err(|error| format!("reassemble: {error}"))?;
-    let recomputed = spoke_memory::transfer::bundle_digest(&reassembled)
+    let recomputed = spoke_fixture_memory_engine::transfer::bundle_digest(&reassembled)
         .map_err(|error| format!("bundle digest: {error}"))?;
     // The vector may pin an independently generated digest constant (Python
     // JCS+sha256 of the deterministic sealed bundle). `provider_scope`

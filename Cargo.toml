@@ -33,5 +33,5 @@ chrono = { version = "0.4", features = ["serde"] }
 regress = "0.10"
 thiserror = "2"
 async-trait = "0.1"
-pollster = "0.4"
+pollster = "1.0"
 libp2p = { version = "=0.57.0", features = ["noise", "yamux", "tcp", "tokio", "identify", "request-response", "json", "macros", "ed25519"] }

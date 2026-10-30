@@ -99,7 +99,7 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 
 - **memory:** Reconcile staging receipts, freeze no-op, and affirmative wording
 
-- **release:** List all four published crates
+- **release:** List the three published crates
 
 - Record the memory engine fixture placement
 
@@ -243,41 +243,41 @@ Release notes for GitHub Releases are extracted from the matching version sectio
 
 ### Internal
 
-- **merge:** Integrate p1-memory-wire-schemas into iteration/v0.15-memory
+- **merge:** Integrate p1-memory-wire-schemas
 
 - **operations:** Drop residual self-counting assertion
 
-- **merge:** Integrate p2-memory-operations into iteration/v0.15-memory
+- **merge:** Integrate p2-memory-operations
 
-- **merge:** Integrate p3-memory-engine into iteration/v0.15-memory
+- **merge:** Integrate p3-memory-engine
 
-- **merge:** Integrate p4-memory-connect into iteration/v0.15-memory
+- **merge:** Integrate p4-memory-connect
 
-- **merge:** Integrate p5-memory-conformance into iteration/v0.15-memory
+- **merge:** Integrate p5-memory-conformance
 
-- **merge:** Integrate p5-memory-conformance (fixtures, vectors, sqlite provider) into iteration/v0.15-memory
+- **merge:** Integrate p5-memory-conformance (fixtures, vectors, sqlite provider)
 
-- **merge:** Integrate p5-memory-conformance-b (interpreter directives, dual-provider fixes) into iteration/v0.15-memory
+- **merge:** Integrate p5-memory-conformance-b (interpreter directives, dual-provider fixes)
 
-- **merge:** Integrate p5-loopback-leg (corpus interpreter loopback leg) into iteration/v0.15-memory
+- **merge:** Integrate p5-loopback-leg (corpus interpreter loopback leg)
 
-- **merge:** Integrate p5-memory-conformance-b plan QC fix wave into iteration/v0.15-memory
+- **merge:** Integrate p5-memory-conformance-b plan QC fix wave
 
-- **merge:** Integrate p5-memory-conformance-b QC fix round 2 into iteration/v0.15-memory
+- **merge:** Integrate p5-memory-conformance-b QC fix round 2
 
-- **merge:** Integrate p5-memory-conformance-b (interpreter directives, dual-provider fixes, QC fix rounds) into iteration/v0.15-memory
+- **merge:** Integrate p5-memory-conformance-b (interpreter directives, dual-provider fixes, QC fix rounds)
 
-- **merge:** Integrate p6-memory-docs-release into iteration/v0.15-memory
+- **merge:** Integrate p6-memory-docs-release
 
-- **merge:** Integrate PR #114 hotfixes (greptile findings + toy-world comparisons) into iteration/v0.15-memory
+- **merge:** Integrate PR #114 hotfixes (greptile findings + toy-world comparisons)
 
-- **merge:** Integrate ffi ExtensionKey adaptation into iteration/v0.15-memory
+- **merge:** Integrate ffi ExtensionKey adaptation
 
-- **merge:** Integrate Phase 5 hotfix round 2 (uncertain-on-panic, runtime nonces) into iteration/v0.15-memory
+- **merge:** Integrate Phase 5 hotfix round 2 (uncertain-on-panic, runtime nonces)
 
-- **release:** Publish spoke-memory crate in lockstep
+- **release:** Keep spoke-memory unpublished; the engine ships as the spoke-fixture-memory-engine fixture crate
 
-- Test spoke-memory crate in the rust lane
+- Test the spoke-fixture-memory-engine crate in the rust lane
 
 - **codegen:** Format generated memory Rust with stable rustfmt and bound size
 

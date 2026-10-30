@@ -109,15 +109,28 @@ jobs:
       - name: Build Windows carrier
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
 
-      - name: Verify rebuilt native drift
+      - name: Verify native freshness against its build revision
         id: drift
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          # Provenance records the build revision; compare native bytes, not metadata.
-          git add -A -- crates/spoke-connect/bindings/cpp/native ':(exclude)**/provenance.json'
-          git diff --cached --exit-code -- crates/spoke-connect/bindings/cpp/native ':(exclude)**/provenance.json'
+          # Windows native builds are not byte-reproducible across runners, so the
+          # stale-artifact signal is the revision the committed record claims: fail
+          # when a build-source path advanced past provenance's sourceRevision.
+          node - <<'NODE'
+          const { execFileSync } = require("node:child_process");
+          const { readFileSync } = require("node:fs");
+          const record = JSON.parse(readFileSync("crates/spoke-connect/bindings/cpp/native/provenance.json", "utf8"));
+          const claimed = record.nativeArtifacts["win-x64"].sourceRevision;
+          const paths = ["Cargo.toml", "Cargo.lock", "crates/spoke-connect-capi", "crates/spoke-connect/src", "crates/spoke-connect/Cargo.toml"];
+          const head = execFileSync("git", ["log", "-1", "--format=%H", "--", ...paths], { encoding: "utf8" }).trim();
+          if (claimed !== head) {
+            console.error(`committed win-x64 native is stale: provenance records ${claimed}, build sources advanced to ${head}; rebuild and commit the refresh artifact`);
+            process.exit(1);
+          }
+          console.log(`win-x64 native is fresh at ${head}`);
+          NODE
 
       - name: Show native provenance
         shell: pwsh
@@ -155,7 +168,7 @@ jobs:
             throw "committed provenance does not describe the committed win-x64 bytes; apply the uploaded refresh artifact (a genuine Windows rebuild) before this lane can pass"
           }
           if ("${{ steps.drift.outcome }}" -ne "success") {
-            throw "rebuilt native artifacts differ from the committed artifacts; apply the uploaded refresh artifact before this lane can pass"
+            throw "committed win-x64 native is stale relative to its build sources; rebuild and apply the uploaded refresh artifact before this lane can pass"
           }
 
   macos-smoke:

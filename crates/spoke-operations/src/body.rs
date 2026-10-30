@@ -21,9 +21,9 @@ fn is_plain_object(value: &Value) -> bool {
 
 fn is_body_attribute_value(value: &Value) -> Option<BodyAttributeValue> {
     match value {
-        Value::String(text) => Some(BodyAttributeValue::Variant0(text.clone())),
-        Value::Number(number) => number.as_f64().map(BodyAttributeValue::Variant1),
-        Value::Bool(flag) => Some(BodyAttributeValue::Variant2(*flag)),
+        Value::String(text) => Some(BodyAttributeValue::String(text.clone())),
+        Value::Number(number) => number.as_f64().map(BodyAttributeValue::Number),
+        Value::Bool(flag) => Some(BodyAttributeValue::Boolean(*flag)),
         _ => None,
     }
 }
@@ -90,14 +90,14 @@ fn typed_item_to_body_attribute(item: &KnowledgeEntryBodyAttributesItem) -> Body
         trait_type: BodyAttributeTraitType::try_from(item.trait_type.as_str().to_owned())
             .expect("typed attribute trait_type is valid"),
         value: match &item.value {
-            KnowledgeEntryBodyAttributesItemValue::Variant0(text) => {
-                BodyAttributeValue::Variant0(text.clone())
+            KnowledgeEntryBodyAttributesItemValue::String(text) => {
+                BodyAttributeValue::String(text.clone())
             }
-            KnowledgeEntryBodyAttributesItemValue::Variant1(number) => {
-                BodyAttributeValue::Variant1(*number)
+            KnowledgeEntryBodyAttributesItemValue::Number(number) => {
+                BodyAttributeValue::Number(*number)
             }
-            KnowledgeEntryBodyAttributesItemValue::Variant2(flag) => {
-                BodyAttributeValue::Variant2(*flag)
+            KnowledgeEntryBodyAttributesItemValue::Boolean(flag) => {
+                BodyAttributeValue::Boolean(*flag)
             }
         },
         display_type: item.display_type.clone(),
@@ -176,7 +176,7 @@ mod tests {
     fn affiliation_guild() -> BodyAttribute {
         BodyAttribute {
             trait_type: BodyAttributeTraitType::try_from("affiliation".to_owned()).unwrap(),
-            value: BodyAttributeValue::Variant0("Guild".into()),
+            value: BodyAttributeValue::String("Guild".into()),
             display_type: None,
             max_value: None,
         }
@@ -185,7 +185,7 @@ mod tests {
     fn affiliation_crown() -> BodyAttribute {
         BodyAttribute {
             trait_type: BodyAttributeTraitType::try_from("affiliation".to_owned()).unwrap(),
-            value: BodyAttributeValue::Variant0("Crown".into()),
+            value: BodyAttributeValue::String("Crown".into()),
             display_type: None,
             max_value: None,
         }
@@ -194,7 +194,7 @@ mod tests {
     fn role_protagonist() -> BodyAttribute {
         BodyAttribute {
             trait_type: BodyAttributeTraitType::try_from("role".to_owned()).unwrap(),
-            value: BodyAttributeValue::Variant0("protagonist".into()),
+            value: BodyAttributeValue::String("protagonist".into()),
             display_type: None,
             max_value: None,
         }
@@ -285,7 +285,7 @@ mod tests {
         assert_body_attribute_eq(&listed[0], &affiliation_guild());
         assert_body_attribute_eq(&listed[1], &affiliation_crown());
         assert_eq!(listed[2].trait_type.as_str(), "level");
-        assert!(matches!(listed[2].value, BodyAttributeValue::Variant1(3.0)));
+        assert!(matches!(listed[2].value, BodyAttributeValue::Number(3.0)));
         assert_eq!(listed[2].display_type.as_deref(), Some("number"));
     }
 

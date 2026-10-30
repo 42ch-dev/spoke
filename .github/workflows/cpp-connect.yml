@@ -112,9 +112,12 @@ jobs:
       - name: Verify rebuilt native drift
         id: drift
         continue-on-error: true
+        shell: bash
         run: |
-          git add -A -- crates/spoke-connect/bindings/cpp/native
-          git diff --cached --exit-code -- crates/spoke-connect/bindings/cpp/native
+          set -euo pipefail
+          # Provenance records the build revision; compare native bytes, not metadata.
+          git add -A -- crates/spoke-connect/bindings/cpp/native ':(exclude)**/provenance.json'
+          git diff --cached --exit-code -- crates/spoke-connect/bindings/cpp/native ':(exclude)**/provenance.json'
 
       - name: Show native provenance
         shell: pwsh

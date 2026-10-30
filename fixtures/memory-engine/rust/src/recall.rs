@@ -435,6 +435,39 @@ mod tests {
     }
 
     #[test]
+    fn measure_fast_path_matches_direct_typed_serialization() {
+        // I-000039: the typed fast path must emit exactly the direct
+        // `serde_json::to_vec(content)` wire bytes for `structured: None`
+        // (15-byte plain-text vector) and `Some(non-null)` (44-byte numeric
+        // vector); only `Some(Value::Null)` takes normalization.
+        let cases = [
+            Content {
+                structured: None,
+                text: "abcd".to_string(),
+            },
+            Content {
+                structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
+                text: String::new(),
+            },
+        ];
+        for content in &cases {
+            let direct = serde_json::to_vec(content).expect("content serializes");
+            assert_eq!(
+                content_serialized_bytes(content).expect("finite content measures"),
+                direct.len()
+            );
+        }
+        assert_eq!(
+            content_serialized_bytes(&cases[0]).expect("finite content measures"),
+            15
+        );
+        assert_eq!(
+            content_serialized_bytes(&cases[1]).expect("finite content measures"),
+            44
+        );
+    }
+
+    #[test]
     fn constructed_null_content_budgets_like_admission() {
         // I-000031: a caller-built `Some(Value::Null)` is the same logical
         // content as a deserialized `null`; both normalize to

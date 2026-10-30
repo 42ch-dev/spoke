@@ -184,10 +184,12 @@ impl std::error::Error for RecallError {}
 /// keep, in the same field order — so only a constructed `Some(Value::Null)`
 /// needs the `to_value` → filter → `to_vec` round trip.
 fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
+    content_serialized(content).map(|bytes| bytes.len())
+}
+
+fn content_serialized(content: &Content) -> Result<Vec<u8>, RecallError> {
     if !matches!(content.structured.as_ref(), Some(serde_json::Value::Null)) {
-        return serde_json::to_vec(content)
-            .map(|bytes| bytes.len())
-            .map_err(|_| RecallError::NonFiniteContent);
+        return serde_json::to_vec(content).map_err(|_| RecallError::NonFiniteContent);
     }
     let value = match serde_json::to_value(content) {
         Ok(serde_json::Value::Object(members)) => serde_json::Value::Object(
@@ -199,9 +201,7 @@ fn content_serialized_bytes(content: &Content) -> Result<usize, RecallError> {
         Ok(other) => other,
         Err(_) => return Err(RecallError::NonFiniteContent),
     };
-    serde_json::to_vec(&value)
-        .map(|bytes| bytes.len())
-        .map_err(|_| RecallError::NonFiniteContent)
+    serde_json::to_vec(&value).map_err(|_| RecallError::NonFiniteContent)
 }
 
 #[cfg(test)]
@@ -439,32 +439,58 @@ mod tests {
         // I-000039: the typed fast path must emit exactly the direct
         // `serde_json::to_vec(content)` wire bytes for `structured: None`
         // (15-byte plain-text vector) and `Some(non-null)` (44-byte numeric
-        // vector); only `Some(Value::Null)` takes normalization.
+        // vector); only `Some(Value::Null)` takes normalization. Assert the
+        // full byte slices against the normalize path (`to_value` → strip
+        // null members → `to_vec`), not just lengths.
         let cases = [
-            Content {
+            (Content {
                 structured: None,
                 text: "abcd".to_string(),
-            },
-            Content {
+            }, 15usize),
+            (Content {
                 structured: Some(serde_json::json!({"n": 1.0, "e": 1e2})),
                 text: String::new(),
-            },
+            }, 44),
+            (Content {
+                structured: None,
+                text: "hello".to_string(),
+            }, 16),
+            (Content {
+                structured: Some(serde_json::Value::Null),
+                text: String::new(),
+            }, 11),
         ];
-        for content in &cases {
+        for (content, expected_len) in &cases {
             let direct = serde_json::to_vec(content).expect("content serializes");
+            let normalized = match serde_json::to_value(content).expect("content converts") {
+                serde_json::Value::Object(members) => serde_json::to_vec(
+                    &serde_json::Value::Object(
+                        members
+                            .into_iter()
+                            .filter(|(_, member)| !member.is_null())
+                            .collect(),
+                    ),
+                ),
+                other => serde_json::to_vec(&other),
+            }
+            .expect("normalized content serializes");
+            let fast_path = content_serialized(content).expect("finite content measures");
             assert_eq!(
-                content_serialized_bytes(content).expect("finite content measures"),
-                direct.len()
+                fast_path, normalized,
+                "fast path must emit exactly the normalized wire bytes"
             );
+            assert_eq!(fast_path.len(), *expected_len);
+            // Without a constructed null member direct typed serialization
+            // must match byte-for-byte; `Some(Value::Null)` serializes the
+            // null member directly (29 bytes), which normalization strips.
+            if !matches!(content.structured, Some(serde_json::Value::Null)) {
+                assert_eq!(fast_path.len(), direct.len(), "wire byte length");
+                assert_eq!(
+                    fast_path, direct,
+                    "fast path must equal direct typed serialization byte-for-byte"
+                );
+            }
         }
-        assert_eq!(
-            content_serialized_bytes(&cases[0]).expect("finite content measures"),
-            15
-        );
-        assert_eq!(
-            content_serialized_bytes(&cases[1]).expect("finite content measures"),
-            44
-        );
     }
 
     #[test]

@@ -82,7 +82,7 @@
   },
   "devDependencies": {
     "@42ch/spoke-fixture-toy-world": "workspace:*",
-    "@types/node": "^22.15.0",
+    "@types/node": "^26.6.5",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.1",
     "tsup": "^8.0.0",

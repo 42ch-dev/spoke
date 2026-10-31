@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.15.1] - 2026-10-31
+
+
+### Documentation
+
+- Name the macos-15 runner in xcframework consumer docs
+
+
+### Internal
+
+- Move macOS lanes and FFI release build to macos-15 runners
+
+
+### build
+
+- **connect:** Refresh xcframework from CI artifact 41178801465
+
 ## [0.15.0] - 2026-10-30
 
 

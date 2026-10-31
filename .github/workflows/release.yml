@@ -460,7 +460,7 @@ jobs:
           - os: windows-latest
             rid: win-x64
             lib: spoke_connect.dll
-          - os: macos-14
+          - os: macos-15
             rid: osx-arm64
             lib: libspoke_connect.dylib
     steps:

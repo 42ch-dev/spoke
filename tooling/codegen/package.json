@@ -11,6 +11,6 @@
   "dependencies": {
     "@apidevtools/json-schema-ref-parser": "^11.9.3",
     "glob": "^13.0.6",
-    "json-schema-to-typescript": "^15.0.4"
+    "json-schema-to-typescript": "^16.0.0"
   }
 }

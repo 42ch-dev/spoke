@@ -109,7 +109,7 @@ Pages summarize each topic and link the normative body in `.mstar/specs/` — th
 
 ## Refreshing the Swift xcframework
 
-The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-14` from the checkout's Rust sources — pinned toolchain 1.96.0, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. `tooling/connect/verify-xcframework-drift.sh` compares per-file SHA-256 hashes of the CI build against the committed (LFS) artifact and fails the job on drift. The built xcframework and its hash manifest upload on every run.
+The three-slice `spoke_connectFFI.xcframework` is assembled in CI by the `xcframework` job ([`.github/workflows/xcframework.yml`](.github/workflows/xcframework.yml)) on `macos-15` from the checkout's Rust sources — pinned toolchain 1.96.0, four Apple targets, `--locked` build via `tooling/connect/build-swift-xcframework.sh`. Every pull request runs it; pushes run it when the FFI surface changes. `tooling/connect/verify-xcframework-drift.sh` compares per-file SHA-256 hashes of the CI build against the committed (LFS) artifact and fails the job on drift. The built xcframework and its hash manifest upload on every run.
 
 Refresh the committed artifact from a run in one command (requires the `gh` CLI and `rsync`):
 

@@ -13,7 +13,7 @@
 # mismatch. Run after an LFS-smudged checkout so <committed-dir> holds real
 # bytes, not LFS pointers.
 #
-# `shasum -a 256` is the BSD/macOS standard and the macos-14-locked choice —
+# `shasum -a 256` is the BSD/macOS standard and the macOS-runner-locked choice —
 # GNU coreutils' sha256sum is not guaranteed on macOS images, so keep this
 # script on macOS runners.
 #

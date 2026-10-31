@@ -37,7 +37,7 @@ permissions:
 jobs:
   xcframework:
     name: xcframework
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout
         # actions/checkout@v4.2.2 — lfs: true so the drift compare sees real

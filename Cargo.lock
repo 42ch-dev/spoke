@@ -3155,7 +3155,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-connect"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "async-trait",
  "base64",
@@ -3183,7 +3183,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-connect-capi"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "serde_json",
  "spoke-connect",
@@ -3191,7 +3191,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-fixture-memory-engine"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "chrono",
  "ryu",
@@ -3204,7 +3204,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-fixture-toy-world"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -3217,7 +3217,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-operations"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3232,7 +3232,7 @@ dependencies = [
 
 [[package]]
 name = "spoke-schemas"
-version = "0.15.0"
+version = "0.15.1"
 dependencies = [
  "chrono",
  "regress",

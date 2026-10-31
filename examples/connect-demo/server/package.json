@@ -19,11 +19,11 @@
     "@42ch/spoke-connect": "workspace:*",
     "@42ch/spoke-operations": "workspace:*",
     "@42ch/spoke-schemas": "workspace:*",
-    "ws": "^8.18.1"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "typescript": "^5.3.0",
     "vitest": "^5.0.5"
   }

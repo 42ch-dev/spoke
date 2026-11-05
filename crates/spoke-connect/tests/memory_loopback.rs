@@ -1072,6 +1072,26 @@ async fn memory_loopback_denies_unnegotiated_unserved_and_unknown_memory_ops() {
     )
     .await;
     assert_eq!(unknown["error"]["code"], "op_unsupported", "{unknown}");
+    assert_eq!(
+        unknown["error"]["details"]["retry_class"], "terminal",
+        "§14.2: an unknown memory op denied before the service is still terminal: {unknown}"
+    );
+    // Control: the memory-boundary classification must not leak onto another
+    // op family — an unknown non-memory op keeps its bare `op_unsupported`.
+    let non_memory = raw_invoke(
+        &pair.client,
+        &session_id,
+        1,
+        "memory-unknown-control",
+        "photosynthesis.derive",
+        json!({}),
+    )
+    .await;
+    assert_eq!(non_memory["error"]["code"], "op_unsupported", "{non_memory}");
+    assert!(
+        non_memory["error"].get("details").is_none(),
+        "a non-memory deny carries no memory retry metadata: {non_memory}"
+    );
     responder.close();
 }
 

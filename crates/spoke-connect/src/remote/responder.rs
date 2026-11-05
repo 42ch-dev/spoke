@@ -1107,19 +1107,21 @@ impl ConnectResponder {
             // gate evaluates negotiated capabilities only, so a known op that
             // was not negotiated answers `capability_missing` (protocol §4.1).
             // An op with no row at all stays `op_unsupported`.
-            let code = if op.starts_with("memory.") && required_capability(op).is_some() {
+            let memory_deny = op.starts_with("memory.");
+            let code = if memory_deny && required_capability(op).is_some() {
                 "capability_missing"
             } else {
                 "op_unsupported"
             };
-            // §14.2: a memory-boundary denial is classified `terminal`.
-            let memory_details = memory_terminal_details();
-            let details = (code == "capability_missing").then_some(&memory_details);
+            // §14.2: every memory-boundary denial — a known op missing its
+            // capability and an op with no row at all — is classified
+            // `terminal`, so the wire code choice never drops the metadata.
+            let memory_details = memory_deny.then(memory_terminal_details);
             self.send_reverse_error_envelope(
                 doc,
                 code,
                 &format!("op {op} is not authorized by this session"),
-                details,
+                memory_details.as_ref(),
             )
             .await?;
             return Ok(());

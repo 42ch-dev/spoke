@@ -4,13 +4,19 @@
 # Usage (from repo root, on a feature branch with a clean worktree):
 #   ./tooling/connect/apply-xcframework-artifact.sh <run-id> [--allow-sha <sha>]
 #
+# `<run-id>` is the numeric Actions run id from the run URL — a bare URL is
+# rejected before any network call, because only the number can be recorded in
+# the provenance sidecar.
+#
 # Downloads the xcframework artifact from <run-id>, verifies the run's
 # provenance (workflow, conclusion, headSha), checksum-verifies the artifact
 # against its mandatory hash manifest, rsyncs it over the committed tree
-# (LFS pointers staged via .gitattributes clean filter), and prints the
-# suggested commit line. Run as a maintainer with normal credentials — never
-# GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
-# objects).
+# (LFS pointers staged via .gitattributes clean filter), writes the sibling
+# `provenance.json` + manifest copy from the run's own facts, and prints the
+# suggested commit line. Requires `gh`, `rsync` and `python3` (the record is
+# emitted with `json.dump` and re-parsed before staging). Run as a maintainer
+# with normal credentials — never GITHUB_TOKEN (token pushes don't re-trigger
+# workflows and can't carry LFS objects).
 #
 # Provenance gate (fail-closed, runs before the download): the run must be
 # from the `Xcframework` workflow, must have concluded `success` — or
@@ -41,6 +47,20 @@ elif [[ $# -ne 0 ]]; then
   exit 2
 fi
 
+# `gh` also accepts a run URL, but only the numeric id can be embedded in the
+# provenance record. Reject every other form here — before the first network
+# call — so a malformed value can never reach the record writer.
+if [[ ! "${RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: run id must be the numeric Actions run id, got '${RUN_ID}'" >&2
+  echo "       usage: $0 <run-id> [--allow-sha <sha>]" >&2
+  exit 2
+fi
+if [[ -n "${ALLOW_SHA}" && ! "${ALLOW_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "error: --allow-sha expects a full 40-character commit sha, got '${ALLOW_SHA}'" >&2
+  exit 2
+fi
+ALLOW_SHA_USED=""
+
 # Keep in sync with the artifact name in .github/workflows/xcframework.yml.
 ARTIFACT_NAME="spoke-connect-xcframework"
 XCFRAMEWORK_DIR="crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework"
@@ -51,6 +71,10 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 if ! command -v rsync >/dev/null 2>&1; then
   echo "error: rsync required" >&2
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: python3 required (provenance record emission and validation)" >&2
   exit 1
 fi
 
@@ -105,6 +129,7 @@ esac
 EXPECT_SHA="$(git rev-parse HEAD)"
 if [[ "${RUN_HEAD_SHA}" != "${EXPECT_SHA}" ]]; then
   if [[ -n "${ALLOW_SHA}" && "${RUN_HEAD_SHA}" == "${ALLOW_SHA}" ]]; then
+    ALLOW_SHA_USED="${ALLOW_SHA}"
     echo "WARNING: applying run ${RUN_ID} built at ${RUN_HEAD_SHA} to a checkout at ${EXPECT_SHA}" >&2
     echo "WARNING: the committed artifact will NOT match the sources at this HEAD —" >&2
     echo "WARNING: only use --allow-sha to deliberately pin an older build" >&2
@@ -173,24 +198,92 @@ git add "${XCFRAMEWORK_DIR}"
 # the bundle — never inside it, so the drift comparison's file inventory stays
 # exactly the ten built files. The Actions artifact expires after five days;
 # this record is the durable trace of what the committed bytes came from.
+#
+# The declared recipe (toolchain pin, Apple targets, --locked) is read from the
+# workflow file at the RUN's own head, so it states what the producer declared
+# rather than what this checkout happens to say now. The actual compiler/Xcode
+# banner is deliberately not recorded: the run log does not print it, and
+# writing a version here would be invention.
 SIDECAR_DIR="$(dirname "${XCFRAMEWORK_DIR}")"
 MANIFEST_NAME="$(basename "${MANIFEST}")"
+MANIFEST_SHA="$(shasum -a 256 "${MANIFEST}" | cut -d' ' -f1)"
 cp "${MANIFEST}" "${SIDECAR_DIR}/${MANIFEST_NAME}"
-cat > "${SIDECAR_DIR}/provenance.json" <<JSON
-{
-  "schemaVersion": 1,
-  "xcframework": {
-    "artifact": "${ARTIFACT_NAME}",
-    "workflow": "${WF_NAME}",
-    "runId": ${RUN_ID},
-    "headSha": "${RUN_HEAD_SHA}",
-    "manifest": "${MANIFEST_NAME}",
-    "manifestSha256": "$(shasum -a 256 "${MANIFEST}" | cut -d' ' -f1)",
-    "files": $(wc -l < "${MANIFEST}" | tr -d ' ')
-  }
+
+RECIPE_SOURCE=".github/workflows/xcframework.yml"
+if ! RECIPE_YAML="$(git show "${RUN_HEAD_SHA}:${RECIPE_SOURCE}" 2>/dev/null)"; then
+  echo "error: cannot read ${RECIPE_SOURCE} at the run head ${RUN_HEAD_SHA}" >&2
+  exit 1
+fi
+DECLARED_TOOLCHAIN=""
+DECLARED_TARGETS=""
+DECLARED_LOCKED=""
+if ! RECIPE="$(
+  RECIPE_YAML="${RECIPE_YAML}" python3 - <<'PY'
+import os
+import re
+
+text = os.environ["RECIPE_YAML"]
+toolchain = re.search(r"^\s*toolchain:\s*(\S+)\s*$", text, re.M)
+targets = re.search(r"^\s*targets:\s*(.+?)\s*$", text, re.M)
+locked = re.search(r'^\s*XCFRAMEWORK_LOCKED:\s*"?([01])"?\s*$', text, re.M)
+if not (toolchain and targets and locked):
+    raise SystemExit(1)
+print(toolchain.group(1))
+print(targets.group(1))
+print(locked.group(1))
+PY
+)"; then
+  echo "error: ${RECIPE_SOURCE}@${RUN_HEAD_SHA} does not declare toolchain/targets/locked inputs" >&2
+  exit 1
+fi
+{ IFS= read -r DECLARED_TOOLCHAIN; IFS= read -r DECLARED_TARGETS; IFS= read -r DECLARED_LOCKED; } <<< "${RECIPE}"
+if [[ -z "${DECLARED_TOOLCHAIN}" || -z "${DECLARED_TARGETS}" || -z "${DECLARED_LOCKED}" ]]; then
+  echo "error: ${RECIPE_SOURCE}@${RUN_HEAD_SHA} does not declare toolchain/targets/locked inputs" >&2
+  exit 1
+fi
+
+RECORD="${SIDECAR_DIR}/provenance.json"
+RUN_ID="${RUN_ID}" RUN_HEAD_SHA="${RUN_HEAD_SHA}" RUN_CONCLUSION="${RUN_CONCLUSION}" \
+APPLIED_AT_HEAD="${EXPECT_SHA}" ALLOW_SHA_USED="${ALLOW_SHA_USED}" \
+ARTIFACT_NAME="${ARTIFACT_NAME}" WF_NAME="${WF_NAME}" RECIPE_SOURCE="${RECIPE_SOURCE}" \
+MANIFEST_NAME="${MANIFEST_NAME}" MANIFEST_SHA="${MANIFEST_SHA}" \
+DECLARED_TOOLCHAIN="${DECLARED_TOOLCHAIN}" DECLARED_TARGETS="${DECLARED_TARGETS}" \
+DECLARED_LOCKED="${DECLARED_LOCKED}" python3 - "${RECORD}" <<'PY'
+import json
+import os
+import sys
+
+env = os.environ
+record = {
+    "schemaVersion": 1,
+    "xcframework": {
+        "artifact": env["ARTIFACT_NAME"],
+        "workflow": env["WF_NAME"],
+        "runId": int(env["RUN_ID"]),
+        "runConclusion": env["RUN_CONCLUSION"],
+        "headSha": env["RUN_HEAD_SHA"],
+        "appliedAtHead": env["APPLIED_AT_HEAD"],
+        "allowSha": env["ALLOW_SHA_USED"] or None,
+        "declaredRecipe": {
+            "source": "%s@%s" % (env["RECIPE_SOURCE"], env["RUN_HEAD_SHA"]),
+            "toolchain": env["DECLARED_TOOLCHAIN"],
+            "targets": [item.strip() for item in env["DECLARED_TARGETS"].split(",")],
+            "locked": env["DECLARED_LOCKED"] == "1",
+        },
+        "manifest": env["MANIFEST_NAME"],
+        "manifestSha256": env["MANIFEST_SHA"],
+    },
 }
-JSON
-git add "${SIDECAR_DIR}/${MANIFEST_NAME}" "${SIDECAR_DIR}/provenance.json"
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(record, handle, indent=2)
+    handle.write("\n")
+PY
+
+# Re-parse the written file: a record that cannot be read back must never be
+# staged as the durable trace.
+python3 -m json.tool "${RECORD}" >/dev/null
+
+git add "${SIDECAR_DIR}/${MANIFEST_NAME}" "${RECORD}"
 
 echo "==> staged changes:"
 git status --short -- "${XCFRAMEWORK_DIR}" "${SIDECAR_DIR}/${MANIFEST_NAME}" "${SIDECAR_DIR}/provenance.json"

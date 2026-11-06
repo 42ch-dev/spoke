@@ -31,12 +31,16 @@
  * has to describe the binary being shipped.
  *
  * Usage:
- *   node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain nightly
+ *   node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.96.0
  *   node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
  *   node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
  *
  * `--toolchain <name>` is passed to cargo as `+<name>`; when omitted, the
- * caller's default toolchain is used.
+ * caller's default toolchain is used. Both carrier lanes pin stable `1.96.0`
+ * (`.github/workflows/cpp-connect.yml`, `.mstar/specs/connect-binding-channels.md`),
+ * and the recorded `rustcVersion` is how a reader tells a lane build from a
+ * maintainer-local one — so build with that exact toolchain, not whichever
+ * default happens to be installed.
  *
  * `--verify` is the read-only consumer check: it re-reads the committed
  * provenance and hashes the committed header and staged native for one RID,

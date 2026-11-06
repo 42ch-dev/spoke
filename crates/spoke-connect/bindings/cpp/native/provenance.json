@@ -3,9 +3,9 @@
   "nativeArtifacts": {
     "osx-arm64": {
       "target": "aarch64-apple-darwin",
-      "sourceRevision": "20925c7d6ba9d4f972cfbe680cbc6068ae74460c",
+      "sourceRevision": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
       "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
-      "compilerVersion": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+      "compilerVersion": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
       "buildFlags": {
         "cargoArgs": [
           "build",
@@ -24,13 +24,13 @@
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",
-          "sha256": "d91dc6d94c7f602e8ba77314d760a3872c9358783c3ab59ad5c15421f68352c6"
+          "sha256": "22199a6b79f61f318e28d88bde0e6e6cacb0652517bca58387090bb5f79a1e9d"
         }
       ]
     },
     "win-x64": {
       "target": "x86_64-pc-windows-msvc",
-      "sourceRevision": "20925c7d6ba9d4f972cfbe680cbc6068ae74460c",
+      "sourceRevision": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
       "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8",
       "compilerVersion": "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
       "buildFlags": {
@@ -54,7 +54,7 @@
       "artifacts": [
         {
           "path": "spoke_connect_capi.dll",
-          "sha256": "56cbce3f303a62a5b9fc57c5347b1f99ea082cbb428adc406189f6b07dc2b2dd"
+          "sha256": "a2727c354ec925907aed2a95da4151918e24f6de2d4fcd67c07e649a7711e7d9"
         },
         {
           "path": "spoke_connect_capi.dll.lib",

@@ -1,8 +1,7 @@
 name: C++ connect (Windows + macOS)
 
-# Two dedicated carrier lanes: Windows builds the C ABI and produces the
-# refresh artifact; macOS validates the committed osx-arm64 carrier, then both
-# lanes prove exported symbols and run the shared C++ smoke.
+# Dedicated carrier lanes build refresh artifacts and verify the committed
+# carriers, exported symbols, and shared C++ smoke on both platforms.
 on:
   # Unfiltered on pull requests: windows-smoke / macos-smoke are required
   # checks, so every PR schedules both carrier lanes. The push filter below is
@@ -187,6 +186,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
+          fetch-depth: 0
 
       - name: Setup Node.js
         # actions/setup-node@v4.4.0 — Node 24
@@ -223,8 +223,7 @@ jobs:
           rustc +1.98.1 -Vv
 
       - name: Verify committed provenance
-        # Fails hard: this lane produces no artifact, so nothing downstream has
-        # to run for the drift to be actionable.
+        # Verify the committed bytes before the build rewrites the record.
         run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
 
       - name: Show native provenance
@@ -236,3 +235,21 @@ jobs:
 
       - name: Run C++ smoke
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
+
+      - name: Build macOS carrier
+        run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
+
+      - name: Stage macOS native refresh artifact
+        run: |
+          mkdir -p "${RUNNER_TEMP}/spoke-connect-osx-arm64"
+          cp crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib "${RUNNER_TEMP}/spoke-connect-osx-arm64/"
+          cp crates/spoke-connect/bindings/cpp/native/provenance.json "${RUNNER_TEMP}/spoke-connect-osx-arm64/"
+
+      - name: Upload macOS native refresh artifact
+        # actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spoke-connect-osx-arm64
+          path: ${{ runner.temp }}/spoke-connect-osx-arm64
+          if-no-files-found: error
+          retention-days: 5

@@ -10,13 +10,17 @@
 #
 # Downloads the xcframework artifact from <run-id>, verifies the run's
 # provenance (workflow, conclusion, headSha), checksum-verifies the artifact
-# against its mandatory hash manifest, rsyncs it over the committed tree
-# (LFS pointers staged via .gitattributes clean filter), writes the sibling
-# `provenance.json` + manifest copy from the run's own facts, and prints the
-# suggested commit line. Requires `gh`, `rsync` and `python3` (the record is
-# emitted with `json.dump` and re-parsed before staging). Run as a maintainer
-# with normal credentials — never GITHUB_TOKEN (token pushes don't re-trigger
-# workflows and can't carry LFS objects).
+# against its mandatory hash manifest, validates the producer record the CI
+# now ships inside the artifact (its sourceHead must equal the run head and
+# its embedded manifest must equal the artifact manifest byte-for-byte, which
+# also yields the observed compiler version), rsyncs the artifact over the
+# committed tree (LFS pointers staged via .gitattributes clean filter), writes
+# the sibling `provenance.json` + manifest copy from the run's own facts plus
+# that observed compiler, and prints the suggested commit line. Requires `gh`,
+# `rsync` and `python3` (the record is emitted with `json.dump` and re-parsed
+# before staging). Run as a maintainer with normal credentials — never
+# GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
+# objects).
 #
 # Provenance gate (fail-closed, runs before the download): the run must be
 # from the `Xcframework` workflow, must have concluded `success` — or
@@ -171,6 +175,49 @@ fi
 echo "==> verify artifact against hash manifest"
 (cd "${BUILT}" && shasum -a 256 -c "${MANIFEST}")
 
+# The producer now ships its own record inside the artifact (the workflow's
+# "Record xcframework build provenance" step). It must agree with the run and
+# with the manifest bytes before the apply proceeds; the observed compiler it
+# carries is real producer evidence, kept separate from the declared recipe.
+PRODUCER_RECORD="${ARTIFACT_ROOT}/provenance.json"
+if [[ ! -f "${PRODUCER_RECORD}" ]]; then
+  echo "error: artifact has no provenance.json from the producer" >&2
+  exit 1
+fi
+if ! OBSERVED_RUSTC="$(
+  PRODUCER_RECORD="${PRODUCER_RECORD}" RUN_HEAD_SHA="${RUN_HEAD_SHA}" MANIFEST="${MANIFEST}" python3 - <<'PY'
+import json
+import os
+import sys
+
+try:
+    with open(os.environ["PRODUCER_RECORD"], encoding="utf-8") as handle:
+        record = json.load(handle)
+except Exception as error:  # missing, malformed or wrong shape
+    print("error: unreadable artifact provenance: %s" % error, file=sys.stderr)
+    raise SystemExit(1)
+if record.get("sourceHead") != os.environ["RUN_HEAD_SHA"]:
+    print(
+        "error: artifact provenance sourceHead %s != run head %s"
+        % (record.get("sourceHead"), os.environ["RUN_HEAD_SHA"]),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+with open(os.environ["MANIFEST"], encoding="utf-8") as handle:
+    if record.get("manifest") != handle.read():
+        print("error: artifact provenance manifest does not match the artifact manifest", file=sys.stderr)
+        raise SystemExit(1)
+rustc = record.get("rustcVersion")
+if not isinstance(rustc, str) or not rustc:
+    print("error: artifact provenance carries no observed rustcVersion", file=sys.stderr)
+    raise SystemExit(1)
+print(rustc)
+PY
+)"; then
+  echo "error: artifact provenance does not match the run and manifest" >&2
+  exit 1
+fi
+
 echo "==> rsync artifact over committed tree"
 rsync -a --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
 
@@ -248,7 +295,7 @@ APPLIED_AT_HEAD="${EXPECT_SHA}" ALLOW_SHA_USED="${ALLOW_SHA_USED}" \
 ARTIFACT_NAME="${ARTIFACT_NAME}" WF_NAME="${WF_NAME}" RECIPE_SOURCE="${RECIPE_SOURCE}" \
 MANIFEST_NAME="${MANIFEST_NAME}" MANIFEST_SHA="${MANIFEST_SHA}" \
 DECLARED_TOOLCHAIN="${DECLARED_TOOLCHAIN}" DECLARED_TARGETS="${DECLARED_TARGETS}" \
-DECLARED_LOCKED="${DECLARED_LOCKED}" python3 - "${RECORD}" <<'PY'
+DECLARED_LOCKED="${DECLARED_LOCKED}" OBSERVED_RUSTC="${OBSERVED_RUSTC}" python3 - "${RECORD}" <<'PY'
 import json
 import os
 import sys
@@ -270,6 +317,7 @@ record = {
             "targets": [item.strip() for item in env["DECLARED_TARGETS"].split(",")],
             "locked": env["DECLARED_LOCKED"] == "1",
         },
+        "observedRustc": env["OBSERVED_RUSTC"],
         "manifest": env["MANIFEST_NAME"],
         "manifestSha256": env["MANIFEST_SHA"],
     },

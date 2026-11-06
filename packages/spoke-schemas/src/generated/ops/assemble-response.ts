@@ -72,12 +72,10 @@ export interface ExtensionValue {
  */
 export interface ModuleMap {
   [k: string]:
-    | (
-        | {
-            [k: string]: unknown | undefined;
-          }
-        | unknown[]
-      )
+    | {
+        [k: string]: unknown | undefined;
+      }
+    | unknown[]
     | undefined;
 }
 /**

@@ -90,5 +90,5 @@ spoke-fixture-toy-world = { path = "../../fixtures/toy-world/rust" }
 # classification and recall ranking/budget policy (memory protocol §9).
 spoke-fixture-memory-engine = { path = "../../fixtures/memory-engine/rust" }
 # P5 conformance harness: SQLite reference provider (bundled engine).
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 

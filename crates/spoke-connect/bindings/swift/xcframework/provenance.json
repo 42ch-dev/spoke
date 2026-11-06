@@ -3,13 +3,13 @@
   "xcframework": {
     "artifact": "spoke-connect-xcframework",
     "workflow": "Xcframework",
-    "runId": 42173627317,
+    "runId": 42183984280,
     "runConclusion": "failure",
-    "headSha": "04fb9fcdfbd1f89272baffc8b6560c6712d4dd0c",
-    "appliedAtHead": "04fb9fcdfbd1f89272baffc8b6560c6712d4dd0c",
-    "allowSha": null,
+    "headSha": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
+    "appliedAtHead": "2c192a45ef21450623280de77bc715fe9bdd187e",
+    "allowSha": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
     "declaredRecipe": {
-      "source": ".github/workflows/xcframework.yml@04fb9fcdfbd1f89272baffc8b6560c6712d4dd0c",
+      "source": ".github/workflows/xcframework.yml@81d684f8e3483e283221a9b83f8a93dff0d24bef",
       "toolchain": "1.98.1",
       "targets": [
         "aarch64-apple-darwin",
@@ -19,7 +19,8 @@
       ],
       "locked": true
     },
+    "observedRustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
     "manifest": "spoke_connectFFI.xcframework.sha256",
-    "manifestSha256": "4f5de152e7a983d167094bf860d724a0e7062794aa4774d910505d96d07015e8"
+    "manifestSha256": "ccd376fe51ab880c802e24d101babbff2571a0d8b9288b3c79f7392178ffcfcb"
   }
 }

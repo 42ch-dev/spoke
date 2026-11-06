@@ -3062,6 +3062,52 @@ describe("connectResponder memory.* seam (protocol §13)", () => {
     }
   });
 
+  it("answers an unknown memory op with op_unsupported plus the terminal retry class", async () => {
+    // §14.2: the gate denies before the memory service is probed, so the
+    // terminal classification must ride the dispatch-deny envelope itself.
+    const { responder, clientEnd, seedClient, pubkeyResponder, peerIdResponder } =
+      await startRawResponder({ manifest: memoryManifest("test-responder") });
+    try {
+      const { session_id: sessionId } = await rawHandshake(clientEnd, {
+        seed: seedClient,
+        manifest: memoryManifest("test-client"),
+        pubkeyResponder,
+        peerIdResponder,
+      });
+      const unknownMemory = await signInvokeRequest(seedClient, {
+        session_id: sessionId,
+        sequence: 0,
+        request_id: "unknown-memory-op",
+        op: "memory.not_an_op",
+        payload: {},
+      });
+      await clientEnd.send(encodeEnvelope(unknownMemory));
+      const memoryDeny = decodeEnvelope(await clientEnd.recv()) as {
+        error: { code: string; details?: { retry_class?: string } };
+      };
+      expect(memoryDeny.error.code).toBe("op_unsupported");
+      expect(memoryDeny.error.details?.retry_class).toBe("terminal");
+
+      // Control: the classification stays memory-scoped — an unknown op of
+      // another family keeps its bare `op_unsupported` envelope.
+      const unknownOther = await signInvokeRequest(seedClient, {
+        session_id: sessionId,
+        sequence: 1,
+        request_id: "unknown-non-memory-op",
+        op: "photosynthesis.derive",
+        payload: {},
+      });
+      await clientEnd.send(encodeEnvelope(unknownOther));
+      const otherDeny = decodeEnvelope(await clientEnd.recv()) as {
+        error: { code: string; details?: unknown };
+      };
+      expect(otherDeny.error.code).toBe("op_unsupported");
+      expect(otherDeny.error.details).toBeUndefined();
+    } finally {
+      responder.close();
+    }
+  }, 15000);
+
   it("reports OUTCOME_UNCERTAIN when the memory budget expires mid-service and recovers on replay", async () => {
     const vector = memoryVectors().find((entry) => entry.op === "memory.capture");
     expect(vector).toBeDefined();

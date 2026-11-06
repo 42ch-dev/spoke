@@ -1,8 +1,26 @@
 {
-  "evidence": "ci-rebuild-matched-committed-framework",
-  "run": "https://github.com/42ch-dev/spoke/actions/runs/42164502592",
-  "sourceHead": "33d03aa71700a7603330ea5fe1ef5b259a7b9ede",
-  "checkoutRevision": "5859f03fb1445d9cd94123909d3f713eb6741b1c",
-  "rustcVersion": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-apple-darwin\nrelease: 1.96.0\nLLVM version: 22.1.2",
-  "manifest": "2c76f9700908eaaff8dd4f889214c8108eaa7cc4b3e23876d7bb830a63991948  ./Info.plist\n3e0efa4a3779bbce479bf150a5d52c90bd2c4efc2a213a8de11f4079a0051004  ./ios-arm64/Headers/module.modulemap\n21afb26dbf9061d28eebb027a84b12f1fb4217e76563952265db0bba0a568e4b  ./ios-arm64/Headers/spoke_connectFFI.h\n0bfe971cc7f6f9248308cc6bf4ffa67b7565d6e2fe41a0e452128208e953e714  ./ios-arm64/libspoke_connect.a\n3e0efa4a3779bbce479bf150a5d52c90bd2c4efc2a213a8de11f4079a0051004  ./ios-arm64_x86_64-simulator/Headers/module.modulemap\n21afb26dbf9061d28eebb027a84b12f1fb4217e76563952265db0bba0a568e4b  ./ios-arm64_x86_64-simulator/Headers/spoke_connectFFI.h\nea25aacbbd7af9929451a7bb2712c592c6a4f56425b1a9aa6555687cfa9cfacb  ./ios-arm64_x86_64-simulator/libspoke_connect.a\n3e0efa4a3779bbce479bf150a5d52c90bd2c4efc2a213a8de11f4079a0051004  ./macos-arm64/Headers/module.modulemap\n21afb26dbf9061d28eebb027a84b12f1fb4217e76563952265db0bba0a568e4b  ./macos-arm64/Headers/spoke_connectFFI.h\nc0eed9140f9adbc3fe96bfd851441cb5b5c7a8356f2efeb3465cd77e7a3d40e5  ./macos-arm64/libspoke_connect.a\n"
+  "schemaVersion": 1,
+  "xcframework": {
+    "artifact": "spoke-connect-xcframework",
+    "workflow": "Xcframework",
+    "runId": 42183984280,
+    "runConclusion": "failure",
+    "headSha": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
+    "appliedAtHead": "2c192a45ef21450623280de77bc715fe9bdd187e",
+    "allowSha": "81d684f8e3483e283221a9b83f8a93dff0d24bef",
+    "declaredRecipe": {
+      "source": ".github/workflows/xcframework.yml@81d684f8e3483e283221a9b83f8a93dff0d24bef",
+      "toolchain": "1.98.1",
+      "targets": [
+        "aarch64-apple-darwin",
+        "aarch64-apple-ios",
+        "aarch64-apple-ios-sim",
+        "x86_64-apple-ios"
+      ],
+      "locked": true
+    },
+    "observedRustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+    "manifest": "spoke_connectFFI.xcframework.sha256",
+    "manifestSha256": "ccd376fe51ab880c802e24d101babbff2571a0d8b9288b3c79f7392178ffcfcb"
+  }
 }

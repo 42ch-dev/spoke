@@ -1,0 +1,10 @@
+2c76f9700908eaaff8dd4f889214c8108eaa7cc4b3e23876d7bb830a63991948  ./Info.plist
+3e0efa4a3779bbce479bf150a5d52c90bd2c4efc2a213a8de11f4079a0051004  ./ios-arm64/Headers/module.modulemap
+21afb26dbf9061d28eebb027a84b12f1fb4217e76563952265db0bba0a568e4b  ./ios-arm64/Headers/spoke_connectFFI.h
+b316b15d44881151feda5c769df030007b25af1250133f129a36db405e42ca7c  ./ios-arm64/libspoke_connect.a
+3e0efa4a3779bbce479bf150a5d52c90bd2c4efc2a213a8de11f4079a0051004  ./ios-arm64_x86_64-simulator/Headers/module.modulemap
+21afb26dbf9061d28eebb027a84b12f1fb4217e76563952265db0bba0a568e4b  ./ios-arm64_x86_64-simulator/Headers/spoke_connectFFI.h
+525bad88b0427b3bc04123b0265e23039cf892a9fb7be94770cd0e6cbecf3ee6  ./ios-arm64_x86_64-simulator/libspoke_connect.a
+3e0efa4a3779bbce479bf150a5d52c90bd2c4efc2a213a8de11f4079a0051004  ./macos-arm64/Headers/module.modulemap
+21afb26dbf9061d28eebb027a84b12f1fb4217e76563952265db0bba0a568e4b  ./macos-arm64/Headers/spoke_connectFFI.h
+c8a9c0609440419709184b4f0477ffc4332c1129fe8ad89e824ddb08617263b2  ./macos-arm64/libspoke_connect.a

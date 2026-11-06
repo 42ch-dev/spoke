@@ -1181,14 +1181,16 @@ export class ConnectResponder {
         // evaluates negotiated capabilities only, so an op with a dispatch row
         // that was not negotiated answers `capability_missing`. An op with no
         // row at all stays `op_unsupported`.
+        const memoryBoundary = doc.op.startsWith("memory.");
         const memoryDeny =
-          doc.op.startsWith("memory.") && requiredCapability(doc.op) !== undefined;
+          memoryBoundary && requiredCapability(doc.op) !== undefined;
         await this.#sendReverseErrorEnvelope(doc, {
           code: memoryDeny ? "capability_missing" : "op_unsupported",
           message: `op ${doc.op} is not authorized by this session`,
           extensions: {},
-          // §14.2: a memory-boundary denial is classified `terminal`.
-          ...(memoryDeny ? { details: { retry_class: "terminal" } } : {}),
+          // §14.2: every memory-boundary denial — known or unknown op — is
+          // classified `terminal`, so the code choice never drops the metadata.
+          ...(memoryBoundary ? { details: { retry_class: "terminal" } } : {}),
         });
         return;
       }

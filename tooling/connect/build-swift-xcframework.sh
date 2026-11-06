@@ -360,9 +360,55 @@ PY
 
 echo "==> validate xcframework"
 plutil -lint "${XCFRAMEWORK}/Info.plist"
-for lib in "${XCFRAMEWORK}"/*/libspoke_connect.a; do
-  echo "  -> $(lipo -info "${lib}")"
-done
+
+# The consumer contract for this channel is the slice SET, not just the slices
+# that happen to exist: exactly these identifiers, each with exactly these
+# architectures. Driving the check from the expected set is what lets a
+# dropped slice fail — a glob can only inspect members that are already there,
+# and the drift gate compares bytes, so a consistently-wrong build would
+# otherwise pass both.
+EXPECTED_SLICES=(ios-arm64 ios-arm64_x86_64-simulator macos-arm64)
+
+slice_architectures() {
+  local slice="$1" lib="$2" expected actual
+  case "${slice}" in
+    macos-arm64 | ios-arm64) expected="arm64" ;;
+    ios-arm64_x86_64-simulator) expected="arm64 x86_64" ;;
+    *)
+      echo "error: unexpected xcframework slice '${slice}'" >&2
+      return 1
+      ;;
+  esac
+  if [[ ! -f "${lib}" ]]; then
+    echo "error: missing slice ${slice} (no ${slice}/libspoke_connect.a)" >&2
+    return 1
+  fi
+  actual="$(lipo -archs "${lib}" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "error: ${slice} contains [${actual}], expected [${expected}]" >&2
+    return 1
+  fi
+  echo "  -> ${slice}: ${actual}"
+}
+
+validate_xcframework_slices() {
+  local bundle="$1" slice entry
+  for slice in "${EXPECTED_SLICES[@]}"; do
+    slice_architectures "${slice}" "${bundle}/${slice}/libspoke_connect.a" || return 1
+  done
+  for entry in "${bundle}"/*/; do
+    slice="$(basename "${entry}")"
+    case " ${EXPECTED_SLICES[*]} " in
+      *" ${slice} "*) ;;
+      *)
+        echo "error: unexpected xcframework slice '${slice}'" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
+validate_xcframework_slices "${XCFRAMEWORK}"
 
 echo "==> done"
 echo "  generated: ${GENERATED}"

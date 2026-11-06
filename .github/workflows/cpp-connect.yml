@@ -70,7 +70,7 @@ jobs:
         # the Windows carrier and its x86_64-pc-windows-msvc target.
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: 1.96.0
+          toolchain: 1.98.1
           targets: x86_64-pc-windows-msvc
 
       - name: Check Rust flag precedence
@@ -87,8 +87,8 @@ jobs:
       - name: Report compiler and toolchain
         shell: pwsh
         run: |
-          rustc +1.96.0 -Vv
-          cargo +1.96.0 -V
+          rustc +1.98.1 -Vv
+          cargo +1.98.1 -V
           & cl.exe 2>&1 | ForEach-Object { Write-Output $_ }
           if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 2) {
             throw "cl.exe version probe failed with exit code $LASTEXITCODE"
@@ -106,7 +106,7 @@ jobs:
         run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
 
       - name: Build Windows carrier
-        run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.96.0
+        run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
 
       - name: Verify native freshness against its build revision
         id: drift
@@ -199,7 +199,7 @@ jobs:
         # the macOS carrier's aarch64-apple-darwin target.
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: 1.96.0
+          toolchain: 1.98.1
           targets: aarch64-apple-darwin
 
       - name: Check Rust flag precedence
@@ -220,7 +220,7 @@ jobs:
         run: |
           node -v
           clang++ --version
-          rustc +1.96.0 -Vv
+          rustc +1.98.1 -Vv
 
       - name: Verify committed provenance
         # Verify the committed bytes before the build rewrites the record.
@@ -237,7 +237,7 @@ jobs:
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Build macOS carrier
-        run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.96.0
+        run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
 
       - name: Stage macOS native refresh artifact
         run: |

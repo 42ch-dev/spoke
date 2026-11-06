@@ -169,8 +169,31 @@ fi
 
 git add "${XCFRAMEWORK_DIR}"
 
+# Persist the producer's manifest and the run that produced these bytes beside
+# the bundle — never inside it, so the drift comparison's file inventory stays
+# exactly the ten built files. The Actions artifact expires after five days;
+# this record is the durable trace of what the committed bytes came from.
+SIDECAR_DIR="$(dirname "${XCFRAMEWORK_DIR}")"
+MANIFEST_NAME="$(basename "${MANIFEST}")"
+cp "${MANIFEST}" "${SIDECAR_DIR}/${MANIFEST_NAME}"
+cat > "${SIDECAR_DIR}/provenance.json" <<JSON
+{
+  "schemaVersion": 1,
+  "xcframework": {
+    "artifact": "${ARTIFACT_NAME}",
+    "workflow": "${WF_NAME}",
+    "runId": ${RUN_ID},
+    "headSha": "${RUN_HEAD_SHA}",
+    "manifest": "${MANIFEST_NAME}",
+    "manifestSha256": "$(shasum -a 256 "${MANIFEST}" | cut -d' ' -f1)",
+    "files": $(wc -l < "${MANIFEST}" | tr -d ' ')
+  }
+}
+JSON
+git add "${SIDECAR_DIR}/${MANIFEST_NAME}" "${SIDECAR_DIR}/provenance.json"
+
 echo "==> staged changes:"
-git status --short -- "${XCFRAMEWORK_DIR}"
+git status --short -- "${XCFRAMEWORK_DIR}" "${SIDECAR_DIR}/${MANIFEST_NAME}" "${SIDECAR_DIR}/provenance.json"
 echo
 echo "Suggested commit line:"
 echo "  build(connect): refresh xcframework from CI artifact ${RUN_ID}"

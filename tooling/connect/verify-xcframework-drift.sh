@@ -5,8 +5,10 @@
 #   ./tooling/connect/verify-xcframework-drift.sh <committed-dir> <built-dir>
 #   ./tooling/connect/verify-xcframework-drift.sh --manifest <dir>
 #
-# The committed xcframework IS the baseline (no separate manifest file is
-# committed). For each tree this script emits one
+# The committed xcframework IS the baseline — the sibling
+# `spoke_connectFFI.xcframework.sha256` records the producer's view of it, but
+# this script still hashes both trees rather than trusting that file. For each
+# tree it emits one
 #   "<sha256>  <relative-path>"
 # line per file (SHA-256 via `shasum -a 256`, paths sorted with LC_ALL=C),
 # diffs the two manifests, prints the unified diff, and exits non-zero on any

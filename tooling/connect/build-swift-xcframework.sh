@@ -360,8 +360,32 @@ PY
 
 echo "==> validate xcframework"
 plutil -lint "${XCFRAMEWORK}/Info.plist"
+
+# The drift gate only proves that the committed bytes equal the bytes this
+# build produced. Assert the architectures consumers link instead: a slice
+# built from the wrong target, or silently dropped and rebuilt under another
+# SDK, produces internally consistent bytes that a hash comparison cannot
+# distinguish from a correct build.
+slice_architectures() {
+  local slice="$1" lib="$2" expected actual
+  case "${slice}" in
+    macos-arm64 | ios-arm64) expected="arm64" ;;
+    ios-arm64_x86_64-simulator) expected="arm64 x86_64" ;;
+    *)
+      echo "error: unexpected xcframework slice '${slice}'" >&2
+      return 1
+      ;;
+  esac
+  actual="$(lipo -archs "${lib}" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "error: ${slice} contains [${actual}], expected [${expected}]" >&2
+    return 1
+  fi
+  echo "  -> ${slice}: ${actual}"
+}
+
 for lib in "${XCFRAMEWORK}"/*/libspoke_connect.a; do
-  echo "  -> $(lipo -info "${lib}")"
+  slice_architectures "$(basename "$(dirname "${lib}")")" "${lib}"
 done
 
 echo "==> done"

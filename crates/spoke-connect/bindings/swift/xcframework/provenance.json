@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "xcframework": {
+    "artifact": "spoke-connect-xcframework",
+    "workflow": "Xcframework",
+    "runId": 42158213032,
+    "headSha": "f3ed632877f9c83bd69b10d885880ad5f6c8dfd7",
+    "manifest": "spoke_connectFFI.xcframework.sha256",
+    "manifestSha256": "f11f1e265c7da390504dce15ffa713d9310b9d1059a8b6b87c7522737c9139d1",
+    "files": 10
+  }
+}

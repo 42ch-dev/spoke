@@ -6,8 +6,8 @@
 #
 # Downloads the xcframework artifact from <run-id>, verifies the run's
 # provenance (workflow, conclusion, headSha), checksum-verifies the artifact
-# against its mandatory hash manifest, rsyncs it over the committed tree
-# (LFS pointers staged via .gitattributes clean filter), and prints the
+# and its CI provenance, then stages both alongside the LFS-tracked framework
+# and prints the
 # suggested commit line. Run as a maintainer with normal credentials — never
 # GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
 # objects).
@@ -51,6 +51,10 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 if ! command -v rsync >/dev/null 2>&1; then
   echo "error: rsync required" >&2
+  exit 1
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  echo "error: jq required to validate artifact provenance" >&2
   exit 1
 fi
 
@@ -146,6 +150,15 @@ fi
 echo "==> verify artifact against hash manifest"
 (cd "${BUILT}" && shasum -a 256 -c "${MANIFEST}")
 
+PROVENANCE="${ARTIFACT_ROOT}/provenance.json"
+if [[ ! -f "${PROVENANCE}" ]] ||
+   ! jq -e --arg head "${RUN_HEAD_SHA}" --rawfile hashes "${MANIFEST}" \
+     '.sourceHead == $head and .manifest == $hashes' "${PROVENANCE}" >/dev/null; then
+  echo "error: artifact provenance is missing or does not match the run and manifest" >&2
+  exit 1
+fi
+cp "${PROVENANCE}" "crates/spoke-connect/bindings/swift/xcframework/provenance.json"
+
 echo "==> rsync artifact over committed tree"
 rsync -a --delete "${BUILT}/" "${XCFRAMEWORK_DIR}/"
 
@@ -167,7 +180,7 @@ if [[ "$(git check-attr filter -- "${LFS_TARGET}")" != *"filter: lfs"* ]]; then
   exit 1
 fi
 
-git add "${XCFRAMEWORK_DIR}"
+git add "${XCFRAMEWORK_DIR}" "crates/spoke-connect/bindings/swift/xcframework/provenance.json"
 
 echo "==> staged changes:"
 git status --short -- "${XCFRAMEWORK_DIR}"

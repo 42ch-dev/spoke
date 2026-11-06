@@ -9,21 +9,16 @@
 // Build & run — DEFAULT gate (committed production bindings + committed
 // native, no smoke host; tool-faces loopback included):
 //
-//   # 1. Compile the smoke (Swift 5 language mode keeps top-level code
-//   #    simple; `-fmodule-map-file` is required — the Clang importer does
-//   #    not discover the uniffi module map from `-I` alone). The native is
-//   #    the committed production cdylib (identical bytes across the
-//   #    bindings trees; e.g. bindings/go/native/darwin_arm64/).
+//   # 1. Compile against the committed xcframework's macOS library.
 //   swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generated/spoke_connectFFI.modulemap" \
-//     -L "$PWD/crates/spoke-connect/bindings/go/native/darwin_arm64" -lspoke_connect \
-//     -Xlinker -rpath -Xlinker "$PWD/crates/spoke-connect/bindings/go/native/darwin_arm64" \
 //     -swift-version 5 \
 //     -o crates/spoke-connect/bindings/swift/Smoke/smoke \
 //     crates/spoke-connect/bindings/swift/Smoke/main.swift \
 //     crates/spoke-connect/bindings/swift/Smoke/tool_loopback_smoke.swift \
 //     crates/spoke-connect/bindings/swift/Smoke/ports_loopback_smoke.swift \
 //     crates/spoke-connect/bindings/swift/Smoke/loopback_transport.swift \
-//     crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
+//     crates/spoke-connect/bindings/swift/generated/spoke_connect.swift \
+//     crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework/macos-arm64/libspoke_connect.a
 //
 //   # 2. Run it.
 //   ./crates/spoke-connect/bindings/swift/Smoke/smoke

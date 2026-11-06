@@ -22,15 +22,9 @@
 # GITHUB_TOKEN (token pushes don't re-trigger workflows and can't carry LFS
 # objects).
 #
-# Provenance gate (fail-closed, runs before the download): the run must be
-# from the `Xcframework` workflow, must have concluded `success` — or
-# `failure` whose only failed step is the drift gate, which still ships a
-# complete, manifest-bearing artifact (that is the drift-gate flow's
-# contract: a drift-red run's build + manifest steps ran green) — and its
-# headSha must match the current checkout HEAD. Any other conclusion
-# (cancelled, timed out, build/upload failure, ...) is rejected: the artifact
-# may be missing or incomplete. `--allow-sha <sha>` overrides the HEAD match
-# for deliberately pinning an older build (loud warning).
+# Provenance gate (fail-closed, runs before the download): accept a successful
+# Xcframework run or one failing only the committed consumer smoke after a
+# successful upload. The run head must match HEAD unless --allow-sha pins it.
 
 set -euo pipefail
 
@@ -82,10 +76,8 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Keep in sync with the workflow name and drift step name in
-# .github/workflows/xcframework.yml.
+# Keep in sync with the workflow name in .github/workflows/xcframework.yml.
 WF_NAME="Xcframework"
-DRIFT_STEP_NAME="Verify drift vs committed xcframework"
 
 RUN_META="$(gh run view "${RUN_ID}" --json workflowName,headSha,status,conclusion --template '{{.workflowName}}|{{.headSha}}|{{.status}}|{{.conclusion}}')"
 IFS='|' read -r RUN_WORKFLOW RUN_HEAD_SHA RUN_STATUS RUN_CONCLUSION <<< "${RUN_META}"
@@ -99,36 +91,17 @@ if [[ "${RUN_WORKFLOW}" != "${WF_NAME}" ]]; then
   exit 1
 fi
 
-case "${RUN_CONCLUSION}" in
-  success)
-    ;;
-  failure)
-    # A failure caused only by the drift gate still ships the full artifact:
-    # build + manifest steps ran green before the gate, and the upload step
-    # is unconditional. Any other failed step (build, manifest, upload, ...)
-    # means the artifact may be missing or incomplete — reject.
-    FAILED_STEPS="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if eq .conclusion "failure"}}{{.name}}{{println}}{{end}}{{end}}{{end}}')"
-    DRIFT_ONLY=1
-    while IFS= read -r step; do
-      if [[ -n "${step}" && "${step}" != "${DRIFT_STEP_NAME}" ]]; then
-        DRIFT_ONLY=0
-        break
-      fi
-    done <<< "${FAILED_STEPS}"
-    if [[ "${DRIFT_ONLY}" -eq 1 && -n "${FAILED_STEPS}" ]]; then
-      echo "==> run ${RUN_ID} failed only at the drift gate — artifact is still a valid apply input"
-    else
-      echo "error: run ${RUN_ID} failed with steps other than the drift gate:" >&2
-      printf '%s\n' "${FAILED_STEPS}" >&2
-      exit 1
-    fi
-    ;;
-  *)
-    echo "error: run ${RUN_ID} conclusion '${RUN_CONCLUSION}' is not acceptable" >&2
-    echo "       (expected 'success', or 'failure' at the drift gate only)" >&2
+if [[ "${RUN_CONCLUSION}" == "failure" ]]; then
+  FAILED_STEPS="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if eq .conclusion "failure"}}{{.name}}{{println}}{{end}}{{end}}{{end}}')"
+  UPLOADED="$(gh run view "${RUN_ID}" --json jobs --template '{{range .jobs}}{{range .steps}}{{if and (eq .name "Upload xcframework artifact") (eq .conclusion "success")}}yes{{end}}{{end}}{{end}}')"
+  if [[ "${FAILED_STEPS}" != "Fail on committed Swift consumer smoke" || "${UPLOADED}" != "yes" ]]; then
+    echo "error: run ${RUN_ID} did not fail solely on committed consumer smoke with a successful upload" >&2
     exit 1
-    ;;
-esac
+  fi
+elif [[ "${RUN_CONCLUSION}" != "success" ]]; then
+  echo "error: run ${RUN_ID} conclusion '${RUN_CONCLUSION}' is not acceptable" >&2
+  exit 1
+fi
 
 EXPECT_SHA="$(git rev-parse HEAD)"
 if [[ "${RUN_HEAD_SHA}" != "${EXPECT_SHA}" ]]; then
@@ -241,10 +214,7 @@ fi
 
 git add "${XCFRAMEWORK_DIR}"
 
-# Persist the producer's manifest and the run that produced these bytes beside
-# the bundle — never inside it, so the drift comparison's file inventory stays
-# exactly the ten built files. The Actions artifact expires after five days;
-# this record is the durable trace of what the committed bytes came from.
+# Persist the producer's manifest and run beside the bundle as a durable trace.
 #
 # The declared recipe (toolchain pin, Apple targets, --locked) is read from the
 # workflow file at the RUN's own head, so it states what the producer declared

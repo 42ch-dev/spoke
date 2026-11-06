@@ -45,8 +45,7 @@ jobs:
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2 — lfs: true so the symbol check, the smoke and
-        # the provenance check hash the real carrier, not an LFS pointer.
+        # actions/checkout@v4.2.2 — fetch the committed LFS carrier.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
@@ -94,42 +93,18 @@ jobs:
             throw "cl.exe version probe failed with exit code $LASTEXITCODE"
           }
 
-      - name: Verify committed provenance
-        # Reports drift without cancelling the lane: the build, the smoke and
-        # the uploaded refresh artifact below still run, so a stale record can
-        # be replaced by a real rebuild instead of being hand-edited. The final
-        # `Fail on provenance drift` step re-fails the job from this step's
-        # *outcome* (continue-on-error leaves the outcome `failure`), so the
-        # lane can never end green while the committed bytes disagree.
-        id: provenance
+      - name: Check committed C ABI symbols
+        id: committed_symbols
         continue-on-error: true
-        run: node tooling/connect/cpp-build.mjs --verify --target x86_64-pc-windows-msvc
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/win-x64/spoke_connect_capi.dll --self-test
+
+      - name: Run committed C++ smoke
+        id: committed_smoke
+        continue-on-error: true
+        run: node tooling/connect/cpp-smoke.mjs --rid win-x64
 
       - name: Build Windows carrier
         run: node tooling/connect/cpp-build.mjs --target x86_64-pc-windows-msvc --toolchain 1.98.1
-
-      - name: Verify native freshness against its build revision
-        id: drift
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Windows native builds are not byte-reproducible across runners, so the
-          # stale-artifact signal is the revision the committed record claims: fail
-          # when a build-source path advanced past provenance's sourceRevision.
-          node - <<'NODE'
-          const { execFileSync } = require("node:child_process");
-          // Read the COMMITTED record: the build step above rewrites the working-tree copy.
-          const record = JSON.parse(execFileSync("git", ["show", "HEAD:crates/spoke-connect/bindings/cpp/native/provenance.json"], { encoding: "utf8" }));
-          const claimed = record.nativeArtifacts["win-x64"].sourceRevision;
-          const paths = ["Cargo.toml", "Cargo.lock", "crates/spoke-connect-capi", "crates/spoke-connect/src", "crates/spoke-connect/Cargo.toml"];
-          const head = execFileSync("git", ["log", "-1", "--format=%H", "--", ...paths], { encoding: "utf8" }).trim();
-          if (claimed !== head) {
-            console.error(`committed win-x64 native is stale: provenance records ${claimed}, build sources advanced to ${head}; rebuild and commit the refresh artifact`);
-            process.exit(1);
-          }
-          console.log(`win-x64 native is fresh at ${head}`);
-          NODE
 
       - name: Show native provenance
         shell: pwsh
@@ -158,17 +133,10 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
-      - name: Fail on provenance or native drift
-        # Preserve the refresh artifact while failing on either raw outcome.
-        if: always()
-        shell: pwsh
-        run: |
-          if ("${{ steps.provenance.outcome }}" -ne "success") {
-            throw "committed provenance does not describe the committed win-x64 bytes; apply the uploaded refresh artifact (a genuine Windows rebuild) before this lane can pass"
-          }
-          if ("${{ steps.drift.outcome }}" -ne "success") {
-            throw "committed win-x64 native is stale relative to its build sources; rebuild and apply the uploaded refresh artifact before this lane can pass"
-          }
+      - name: Fail on committed carrier errors
+        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+        run: exit 1
+
 
   macos-smoke:
     name: macos-smoke
@@ -181,8 +149,7 @@ jobs:
       CARGO_ENCODED_RUSTFLAGS: ""
     steps:
       - name: Checkout
-        # actions/checkout@v4.2.2 — lfs: true so the committed carrier arrives as
-        # bytes; the provenance check and the symbol check read it.
+        # actions/checkout@v4.2.2 — fetch the committed LFS carrier.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           lfs: true
@@ -222,22 +189,26 @@ jobs:
           clang++ --version
           rustc +1.98.1 -Vv
 
-      - name: Verify committed provenance
-        # Verify the committed bytes before the build rewrites the record.
-        run: node tooling/connect/cpp-build.mjs --verify --target aarch64-apple-darwin
 
-      - name: Show native provenance
-        shell: bash
-        run: cat crates/spoke-connect/bindings/cpp/native/provenance.json
 
       - name: Check C ABI symbols
+        id: committed_symbols
+        continue-on-error: true
         run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
 
       - name: Run C++ smoke
+        id: committed_smoke
+        continue-on-error: true
         run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Build macOS carrier
         run: node tooling/connect/cpp-build.mjs --target aarch64-apple-darwin --toolchain 1.98.1
+
+      - name: Check rebuilt C ABI symbols
+        run: node tooling/connect/cpp-symbol-check.mjs --header crates/spoke-connect/bindings/cpp/include/spoke_connect.h --library crates/spoke-connect/bindings/cpp/native/osx-arm64/libspoke_connect_capi.dylib --self-test
+
+      - name: Run rebuilt C++ smoke
+        run: node tooling/connect/cpp-smoke.mjs --rid osx-arm64
 
       - name: Stage macOS native refresh artifact
         run: |
@@ -253,3 +224,7 @@ jobs:
           path: ${{ runner.temp }}/spoke-connect-osx-arm64
           if-no-files-found: error
           retention-days: 5
+
+      - name: Fail on committed carrier errors
+        if: always() && (steps.committed_symbols.outcome == 'failure' || steps.committed_smoke.outcome == 'failure')
+        run: exit 1

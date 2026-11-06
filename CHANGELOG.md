@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Release notes for GitHub Releases are extracted from the matching version section here.
+## [0.15.2] - 2026-11-06
+
+
+### Fixed
+
+- **connect:** Include terminal metadata for unknown memory operations (#149)
+
+- **ci:** Replace native artifact drift gates with smoke checks (#152)
+
 ## [0.15.1] - 2026-10-31
 
 

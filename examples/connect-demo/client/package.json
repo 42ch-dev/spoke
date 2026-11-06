@@ -18,7 +18,7 @@
   "dependencies": {
     "@42ch/spoke-connect": "workspace:*",
     "@42ch/spoke-schemas": "workspace:*",
-    "ws": "^8.22.0"
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@42ch/spoke-demo-server": "workspace:*",

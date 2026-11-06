@@ -83,6 +83,7 @@ Callback outcomes map strictly: `FfiError.Rejected` passes through verbatim as a
 |------|----------|
 | `generated/` | Committed uniffi Swift (`spoke_connect.swift`) + FFI header/modulemap for swiftc smoke |
 | `xcframework/` | Committed `spoke_connectFFI.xcframework` (three slices, four target triples) |
+| `xcframework/provenance.json` | CI build or matching rebuild, toolchain, and framework file hashes |
 | `Smoke/` | macOS swiftc golden-parity gate |
 | `IosSmoke/` | Maintainer-local SwiftPM package — iOS Simulator golden-parity test (not part of the SPM product layout) |
 
@@ -122,3 +123,7 @@ the simulator pair, assembles the three-slice xcframework with
 `xcodebuild -create-xcframework`, and lints the result. The iOS smoke lives in
 `IosSmoke/` and is validated with `xcodebuild test` on an iOS Simulator
 destination — see `IosSmoke/README.md` for the exact invocation.
+
+The CI refresh path is `./tooling/connect/apply-xcframework-artifact.sh <run-id>`.
+It checks the run, artifact manifest, and CI-generated provenance before staging
+the framework and its record; it requires `gh`, `jq`, `rsync`, and `git-lfs`.

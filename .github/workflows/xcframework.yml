@@ -74,6 +74,19 @@ jobs:
             "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework" \
             > "${{ runner.temp }}/xcframework-stage/spoke_connectFFI.xcframework.sha256"
 
+      - name: Record xcframework build provenance
+        env:
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          jq -n \
+            --arg run "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --arg head "${SOURCE_HEAD}" \
+            --arg checkout "$(git rev-parse HEAD)" \
+            --arg rustc "$(rustc -Vv)" \
+            --rawfile hashes "${RUNNER_TEMP}/xcframework-stage/spoke_connectFFI.xcframework.sha256" \
+            '{evidence: "ci-artifact", run: $run, sourceHead: $head, checkoutRevision: $checkout, rustcVersion: $rustc, manifest: $hashes}' \
+            > "${RUNNER_TEMP}/xcframework-stage/provenance.json"
+
       - name: Verify drift vs committed xcframework
         # Red job = committed artifact no longer matches the sources at this
         # SHA. The artifact still uploads (below) for the apply path.

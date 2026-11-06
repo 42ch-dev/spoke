@@ -28,9 +28,7 @@ SWIFT_BINDINGS="${REPO_ROOT}/crates/spoke-connect/bindings/swift"
 GENERATED="${SWIFT_BINDINGS}/generated"
 XCFRAMEWORK="${SWIFT_BINDINGS}/xcframework/spoke_connectFFI.xcframework"
 
-# CI affordance: when XCFRAMEWORK_OUTPUT_DIR is set, write the generated
-# bindings and xcframework under it, leaving the committed trees untouched
-# so the drift gate can compare committed vs built output.
+# CI affordance: stage output without modifying the committed consumer package.
 if [[ -n "${XCFRAMEWORK_OUTPUT_DIR:-}" ]]; then
   GENERATED="${XCFRAMEWORK_OUTPUT_DIR}/generated"
   XCFRAMEWORK="${XCFRAMEWORK_OUTPUT_DIR}/spoke_connectFFI.xcframework"
@@ -338,11 +336,7 @@ xcodebuild -create-xcframework \
   -library "${STAGE}/ios-simulator/libspoke_connect.a" -headers "${HDRS}" \
   -output "${XCFRAMEWORK}"
 
-# xcodebuild -create-xcframework emits AvailableLibraries in nondeterministic
-# order (observed across identical invocations on the same machine/image),
-# which would make the committed artifact drift from an otherwise identical
-# CI rebuild. Normalize the ordering (sorted keys + LibraryIdentifier) so the
-# build output is byte-deterministic; the drift gate compares real bytes.
+# Normalize xcodebuild's nondeterministic AvailableLibraries ordering.
 echo "==> normalize Info.plist library ordering"
 XCFRAMEWORK="${XCFRAMEWORK}" python3 - <<'PY'
 import os
@@ -361,12 +355,7 @@ PY
 echo "==> validate xcframework"
 plutil -lint "${XCFRAMEWORK}/Info.plist"
 
-# The consumer contract for this channel is the slice SET, not just the slices
-# that happen to exist: exactly these identifiers, each with exactly these
-# architectures. Driving the check from the expected set is what lets a
-# dropped slice fail — a glob can only inspect members that are already there,
-# and the drift gate compares bytes, so a consistently-wrong build would
-# otherwise pass both.
+# Check the exact consumer slice set and architectures, including missing slices.
 EXPECTED_SLICES=(ios-arm64 ios-arm64_x86_64-simulator macos-arm64)
 
 slice_architectures() {

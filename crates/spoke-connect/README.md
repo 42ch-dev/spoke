@@ -558,46 +558,8 @@ gate, correlation, protocol version — with the mapped error cases. Golden
 fixtures load from the registered byte-identical copy of the shared SSOT
 (`Smoke/fixtures/golden-hello.json`). Every check prints `PASS`.
 
-> **Swift smoke: maintainer macOS** — CI exercises the Rust export surface
-> (`cargo build` / `cargo test -p spoke-connect --features ffi`) on ubuntu;
-> the Swift toolchain and this smoke stay macOS-local.
-
-Run from the repository root (exact working forms; generated bindings and the
-xcframework are committed under `bindings/swift/` — regenerate when the FFI
-surface changes; see [`bindings/swift/README.md`](bindings/swift/README.md)):
-
-```bash
-# 1. Build the cdylib that carries the exported-surface metadata.
-cargo build -p spoke-connect --features ffi
-
-# 2. Regenerate the Swift bindings from the cdylib.
-cargo run -p spoke-connect --features bindgen-cli --bin uniffi-bindgen -- \
-  generate --library target/debug/libspoke_connect.dylib \
-  --language swift --out-dir crates/spoke-connect/bindings/swift/generated
-
-# 3. Point the dylib install name at @rpath (cargo bakes in the absolute
-#    deps-dir path, which would pin the smoke to one machine).
-install_name_tool -id @rpath/libspoke_connect.dylib target/debug/libspoke_connect.dylib
-
-# 4. Compile the smoke (Swift 5 language mode keeps top-level code simple;
-#    `-fmodule-map-file` supplies the module map to the Clang importer).
-swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generated/spoke_connectFFI.modulemap" \
-  -L target/debug -lspoke_connect \
-  -Xlinker -rpath -Xlinker "$PWD/target/debug" \
-  -swift-version 5 \
-  -o crates/spoke-connect/bindings/swift/Smoke/smoke \
-  crates/spoke-connect/bindings/swift/Smoke/main.swift \
-  crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
-
-# 5. Run it — every line must print PASS.
-./crates/spoke-connect/bindings/swift/Smoke/smoke
-```
-
-Local env quirk: if `cargo` fails with `error: the option Z is only accepted
-on the nightly compiler` — a nightly-only `-Z` flag set in
-`~/.cargo/config.toml` `[unstable] rustflags` — run the cargo steps with the
-**nightly toolchain** (`cargo +nightly …`) so the flag is honored; CI builds
-on stable.
+CI runs this smoke against the committed macOS xcframework library. For the
+complete local command, see [`bindings/swift/Smoke/README.md`](bindings/swift/Smoke/README.md).
 
 ## Testing
 

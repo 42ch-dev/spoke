@@ -17,7 +17,7 @@ tags:
   - provenance
 ---
 
-# CI-assembled committed native artifacts — drift gate + apply path
+# CI-assembled committed native artifacts — functional checks and apply path
 
 ## Context
 
@@ -27,9 +27,9 @@ This repo commits compiled native artifacts (the three-slice `spoke_connectFFI.x
 
 The pattern has four parts:
 
-1. **Required-check CI assembly.** A dedicated workflow (`xcframework.yml`) builds the artifact from the checkout on **every pull request** — `xcframework` is a required check, and a required context a path filter skips can never be satisfied. On pushes it stays path-filtered to the FFI-surface-affecting change set (connect sources, `Cargo.toml`/`Cargo.lock`, the build script, the generated binding tree). Pinned exact toolchain + `--locked` builds. `macos-14` for xcframework (needs `xcodebuild`); `actions/checkout` with `lfs: true`.
-2. **Committed artifact is the drift baseline.** A sorted per-file SHA-256 manifest diff (`verify-xcframework-drift.sh`) compares the committed artifact against the CI build; mismatch = red job. The built artifact uploads `if: always()` — a red run still ships the correct replacement.
-3. **One-command apply, fail-closed.** `apply-xcframework-artifact.sh <run-id>` downloads the artifact, **mandatorily** checksum-verifies against its manifest (absent manifest = hard fail), verifies provenance (`gh run view`: expected workflow + acceptable conclusion + `headSha` match or an explicit loud override), asserts git-lfs handling, then rsyncs and stages. After committing a refresh, re-verify (a refresh-only push stays outside the push-side filter; a pull request touching the artifact re-runs it — documented in CONTRIBUTING).
+1. **Required-check CI assembly.** `xcframework.yml` builds from the checkout on every pull request on `macos-15`, using a pinned toolchain and `--locked`; the push trigger remains path-filtered.
+2. **Consumer functionality.** CI builds the committed Swift package and runs the functional smoke against its committed macOS slice. A failed smoke still allows the built refresh artifact to upload and fails the job afterward.
+3. **One-command apply, fail-closed.** `apply-xcframework-artifact.sh <run-id>` verifies run provenance, the mandatory transfer manifest and producer record, checks git-lfs handling, then stages the artifact. It accepts a failure solely on the committed consumer smoke when upload succeeded.
 4. **No auto-commit.** `createCommitOnBranch` cannot carry LFS objects and `GITHUB_TOKEN` pushes do not re-trigger workflows; a maintainer applies the artifact locally with one command. That is the deliberate delivery mode — the maintainer never runs the build.
 
 Determinism lessons (both were latent bugs the CI gate exposed):
@@ -39,12 +39,12 @@ Determinism lessons (both were latent bugs the CI gate exposed):
 
 Two extensions proven by the first FFI-ABI refresh round (2026-08-18):
 
-5. **DEFAULT-suite smokes consume the committed natives — an ABI change forces a natives rebuild before suites can pass.** Per-channel default smoke suites link the committed dylibs (`bindings/go/native/darwin_arm64` — which the Swift macOS `swiftc` gate also links — `bindings/kotlin/native/darwin-aarch64`, the Python smoke dylib); a changed FFI surface leaves them symbol-stale (`nm` shows the new checksum/vtable symbols missing) and the suites fail at load/link, by design. "Natives build at publish time" assumptions do not cover committed-artifact smoke consumption: plan for rebuild + commit of every consumed native in the same slice as the ABI change, then re-run every channel's DEFAULT suite as the closing gate. C# is the exception — its smoke consumes the locally built cargo cdylib, so it proves scenario semantics ahead of the artifact wave.
-6. **Branch-independent refresh via dispatch.** When the push trigger is branch-scoped (e.g. `main`/`iteration/**`), a feature branch gets zero runs; add a top-level `workflow_dispatch:` to the assembly workflow — dispatch-only, filters and drift gate untouched. A dispatch also **bypasses the path filter**, so the run always executes — but the ref must already exist on the remote: dispatching a branch that was never pushed fails immediately (`HTTP 422 No ref found`), so push the feature branch first. The maintainer sequence on any branch: dispatch → expect drift-red (stale committed artifact vs new sources) while the upload succeeds → `apply-xcframework-artifact.sh <run-id>` → commit → dispatch again at the new head → drift-green (same-SHA determinism proof).
+5. **Consumer smokes exercise committed natives.** A changed FFI surface may require refreshed natives before the consumer smokes pass. The Swift smoke links the committed xcframework's macOS slice.
+6. **Branch-independent refresh via dispatch.** `workflow_dispatch` permits an assembly run for a pushed branch independently of the push filter.
 
 ## Why This Matters
 
-The drift gate makes silent staleness impossible (red job with the fix attached), and the apply path removes the fragile local build without weakening the committed-artifact distribution model. The apply-then-match pair (apply a CI artifact, next run reports no drift) is the determinism proof.
+Functional consumer checks establish behavior while the artifact manifest protects the refresh transfer.
 
 ## When to Apply
 
@@ -52,5 +52,5 @@ Any committed compiled artifact refreshed from CI — today the Swift xcframewor
 
 ## Examples
 
-- FFI-surface PR: `xcframework.yml` runs → drift detected → red job + artifact uploaded → maintainer runs `apply-xcframework-artifact.sh <run-id>` → commit → next run green (no drift).
+- FFI-surface PR: CI builds and uploads the artifact, and a maintainer applies it when the committed consumer smoke requires a refresh.
 - Non-FFI PR: the required `xcframework` check still runs (pull-request triggers are unfiltered) — the macOS minutes are the price of a required context that must never be skipped.

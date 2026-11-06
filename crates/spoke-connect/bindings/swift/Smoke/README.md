@@ -62,46 +62,31 @@ swift build
 # Default macOS smoke (committed production bindings + committed native;
 # golden parity + tool faces; no smoke host):
 
-# 1. Compile the smoke. The native is the committed production cdylib
-#    (byte-identical across the bindings trees; e.g. bindings/go/native/darwin_arm64/).
+# 1. Compile against the committed xcframework's macOS library.
 swiftc -Xcc -fmodule-map-file="$PWD/crates/spoke-connect/bindings/swift/generated/spoke_connectFFI.modulemap" \
-  -L "$PWD/crates/spoke-connect/bindings/go/native/darwin_arm64" -lspoke_connect \
-  -Xlinker -rpath -Xlinker "$PWD/crates/spoke-connect/bindings/go/native/darwin_arm64" \
   -swift-version 5 \
   -o crates/spoke-connect/bindings/swift/Smoke/smoke \
   crates/spoke-connect/bindings/swift/Smoke/main.swift \
   crates/spoke-connect/bindings/swift/Smoke/tool_loopback_smoke.swift \
   crates/spoke-connect/bindings/swift/Smoke/ports_loopback_smoke.swift \
   crates/spoke-connect/bindings/swift/Smoke/loopback_transport.swift \
-  crates/spoke-connect/bindings/swift/generated/spoke_connect.swift
+  crates/spoke-connect/bindings/swift/generated/spoke_connect.swift \
+  crates/spoke-connect/bindings/swift/xcframework/spoke_connectFFI.xcframework/macos-arm64/libspoke_connect.a
 
 # 2. Run it — every line must print PASS.
 ./crates/spoke-connect/bindings/swift/Smoke/smoke
 ```
 
-Expected: `84 checks passed` (golden parity + tool faces incl. the error
-rows — unknown-code downgrade, foreign-fault containment, and
-post-containment serve-loop survival — and post-close `Closed` state, plus
-the ports faces: baseline + optional serving round-trips through a foreign
-`PortsHandler`, application-reject passthrough, capability-gate deny,
-absent-ports fail-closed deny, foreign-fault containment with serve-loop
-survival, malformed-JSON pre-validation, and post-close `Closed` state),
-exit 0. Count verified 2026-08-18 against the rebuilt committed native:
-109 `check(` call sites across the default-compiled sources (36 `main.swift`
-+ 31 `tool_loopback_smoke.swift` + 42 `ports_loopback_smoke.swift`), minus
-25 checks gated behind `-D SMOKE_HOST` (15 in `runLoopbackRemoteAdapterSmoke`,
-10 in `runMultiPeerRouterSmoke`) = 84.
+Expected: `141 checks passed`, exit 0. The smoke covers golden parity, tool
+and ports loopback behavior, error containment, capability checks, and
+knowledge-extraction requests.
 
-> Native gate note: this smoke links the **committed** production cdylib
-> (byte-identical across the bindings trees; e.g.
-> `bindings/go/native/darwin_arm64/`). The ports faces reference FFI symbols
-> that only exist in a cdylib built from the current FFI surface — when the
-> committed native lags the generated bindings (e.g. between a bindings
-> regen and the artifact refresh), the compile fails with undefined
-> `uniffi_spoke_connect_checksum_method_portshandler_*` / 
-> `uniffi_spoke_connect_fn_method_remoteadapterffi_*` symbols. Rebuild and
-> commit the native artifacts first (see `bindings/go/README.md` /
-> `bindings/swift/README.md` maintainer flows), then re-run this gate.
+> Native gate note: this smoke links the committed macOS xcframework library.
+> The ports faces reference FFI symbols that must exist in that library. If the
+> committed native lags the generated bindings, compilation can fail with
+> undefined `uniffi_spoke_connect_checksum_method_portshandler_*` or
+> `uniffi_spoke_connect_fn_method_remoteadapterffi_*` symbols. Refresh the
+> xcframework (see `bindings/swift/README.md`), then re-run this smoke.
 
 ## Full smoke (golden parity + RemoteAdapter loopback + multi-peer router)
 
@@ -146,8 +131,8 @@ The smoke binary is a local build artifact; it is gitignored.
 ## iOS simulator golden-parity smoke
 
 The macOS `swiftc` smoke cannot load an iOS-simulator staticlib (the default
-gate links the committed macOS dylib; the full smoke links the local debug
-cdylib). iOS golden parity + tool faces run through the committed
+gate links the committed macOS static library; the full smoke links the local
+debug cdylib). iOS golden parity + tool faces run through the committed
 xcframework simulator slice via the maintainer-local SwiftPM package
 `bindings/swift/IosSmoke/` (not part of the SPM product layout):
 

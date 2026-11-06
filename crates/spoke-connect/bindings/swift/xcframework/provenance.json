@@ -3,14 +3,14 @@
   "xcframework": {
     "artifact": "spoke-connect-xcframework",
     "workflow": "Xcframework",
-    "runId": 42158213032,
+    "runId": 42173627317,
     "runConclusion": "failure",
-    "headSha": "f3ed632877f9c83bd69b10d885880ad5f6c8dfd7",
-    "appliedAtHead": "f47c0af4e938c5dea43f1925258b63ee05a4fa08",
-    "allowSha": "f3ed632877f9c83bd69b10d885880ad5f6c8dfd7",
+    "headSha": "04fb9fcdfbd1f89272baffc8b6560c6712d4dd0c",
+    "appliedAtHead": "04fb9fcdfbd1f89272baffc8b6560c6712d4dd0c",
+    "allowSha": null,
     "declaredRecipe": {
-      "source": ".github/workflows/xcframework.yml@f3ed632877f9c83bd69b10d885880ad5f6c8dfd7",
-      "toolchain": "1.96.0",
+      "source": ".github/workflows/xcframework.yml@04fb9fcdfbd1f89272baffc8b6560c6712d4dd0c",
+      "toolchain": "1.98.1",
       "targets": [
         "aarch64-apple-darwin",
         "aarch64-apple-ios",
@@ -20,6 +20,6 @@
       "locked": true
     },
     "manifest": "spoke_connectFFI.xcframework.sha256",
-    "manifestSha256": "f11f1e265c7da390504dce15ffa713d9310b9d1059a8b6b87c7522737c9139d1"
+    "manifestSha256": "4f5de152e7a983d167094bf860d724a0e7062794aa4774d910505d96d07015e8"
   }
 }

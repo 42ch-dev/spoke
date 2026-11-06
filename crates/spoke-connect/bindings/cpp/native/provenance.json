@@ -4,7 +4,7 @@
     "osx-arm64": {
       "target": "aarch64-apple-darwin",
       "sourceRevision": "20925c7d6ba9d4f972cfbe680cbc6068ae74460c",
-      "rustcVersion": "rustc 1.100.0-nightly (215a8af4b 2026-09-15)\nbinary: rustc\ncommit-hash: 215a8af4bb4c106cccf6d6535f84eaae91818265\ncommit-date: 2026-09-15\nhost: aarch64-apple-darwin\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1",
+      "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
       "compilerVersion": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
       "buildFlags": {
         "cargoArgs": [
@@ -24,7 +24,7 @@
       "artifacts": [
         {
           "path": "libspoke_connect_capi.dylib",
-          "sha256": "6099bc6ec13b834122a0f962463c747a323955cf23001466a3b3fba22d102ea8"
+          "sha256": "d91dc6d94c7f602e8ba77314d760a3872c9358783c3ab59ad5c15421f68352c6"
         }
       ]
     },

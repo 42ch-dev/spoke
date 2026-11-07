@@ -109,17 +109,14 @@ fn load_asset(relative: &str) -> Value {
 
 // ── Loopback plumbing (copied from tests/memory_loopback.rs) ──────────────
 
-type SharedPrincipal = Arc<Mutex<String>>;
-
 fn principal_for(peer_id: &str) -> Principal {
     serde_json::from_value(json!({ "principal_id": format!("prn_{peer_id}"), "extensions": {} }))
         .expect("valid principal")
 }
 
-fn admission() -> MemoryAdmission {
+fn admission(principal_id: &str) -> MemoryAdmission {
+    let principal_id = principal_id.to_string();
     Arc::new(move |_peer_id: &str| {
-        // The harness sets the corpus principal for the case being executed.
-        let principal_id = CURRENT_PRINCIPAL.lock().expect("principal lock").clone();
         match serde_json::from_value::<Principal>(json!({
             "principal_id": principal_id,
             "extensions": {},
@@ -134,17 +131,15 @@ fn admission() -> MemoryAdmission {
     })
 }
 
-fn memory_face(provider: Arc<SqliteMemoryProvider>) -> Arc<dyn RemoteMemoryService> {
+fn memory_face(provider: Arc<SqliteMemoryProvider>, principal_id: &str) -> Arc<dyn RemoteMemoryService> {
     let port: Arc<dyn MemoryPort + Send + Sync> = provider;
-    Arc::new(MemoryPortService::new(port, admission()))
+    Arc::new(MemoryPortService::new(port, admission(principal_id)))
 }
 
-fn loopback_face(host: Arc<MemoryHost>) -> Arc<dyn RemoteMemoryService> {
+fn loopback_face(host: Arc<MemoryHost>, principal_id: &str) -> Arc<dyn RemoteMemoryService> {
     let port: Arc<dyn MemoryPort + Send + Sync> = host;
-    Arc::new(MemoryPortService::new(port, admission()))
+    Arc::new(MemoryPortService::new(port, admission(principal_id)))
 }
-
-static CURRENT_PRINCIPAL: Mutex<String> = Mutex::new(String::new());
 
 fn manifest(host_id: &str, capabilities: &[&str]) -> HostCapabilityManifest {
     serde_json::from_value(json!({
@@ -833,6 +828,7 @@ async fn run_leg(leg: Leg) -> Report {
             .filter(|case| case["surface"] == "wire")
         {
             let case_id = case["id"].as_str().unwrap_or("<case>");
+            let principal_id = case["principal"].as_str().unwrap_or("prn_tw_host_primary");
             if let Leg::Loopback = leg {
                 if let Some(gap) = loopback_gap(case) {
                     report.record(
@@ -854,7 +850,7 @@ async fn run_leg(leg: Leg) -> Report {
                     seed(&provider).await;
                     (
                         Provider::Sqlite(Arc::clone(&provider)),
-                        memory_face(Arc::clone(&provider)),
+                        memory_face(Arc::clone(&provider), principal_id),
                     )
                 }
                 Leg::Loopback => {
@@ -864,7 +860,7 @@ async fn run_leg(leg: Leg) -> Report {
                         store: Arc::new(store),
                     });
                     let store = Arc::clone(&host.store);
-                    (Provider::Loopback(store), loopback_face(host))
+                    (Provider::Loopback(store), loopback_face(host, principal_id))
                 }
             };
             let (responder, pair) = start_host(Arc::clone(&face), &MEMORY_CAPABILITIES).await;
@@ -937,7 +933,36 @@ fn corpus_interpreter_runs_against_both_memory_providers() {
         .enable_all()
         .build()
         .expect("runtime");
-    let (sqlite, loopback) = runtime.block_on(async { (run_leg(Leg::Sqlite).await, run_leg(Leg::Loopback).await) });
+    let (sqlite, loopback) = runtime.block_on(async {
+        let operator_provider = Arc::new(SqliteMemoryProvider::in_memory());
+        let host_provider = Arc::new(SqliteMemoryProvider::in_memory());
+        seed(&operator_provider).await;
+        seed(&host_provider).await;
+        let (mut operator, operator_responder) =
+            wire_over(memory_face(Arc::clone(&operator_provider), "prn_tw_cli_operator")).await;
+        let (mut host, host_responder) =
+            wire_over(memory_face(Arc::clone(&host_provider), "prn_tw_host_primary")).await;
+        operator.provider = Provider::Sqlite(operator_provider);
+        host.provider = Provider::Sqlite(host_provider);
+        let scenario = load_scenarios().into_iter()
+            .find(|scenario| scenario.id == "candidate-consumption")
+            .expect("candidate consumption scenario");
+        let operator_case = scenario.cases.iter()
+            .find(|case| case["id"] == "consumption-is-atomic-on-conflict")
+            .expect("atomic conflict case");
+        let host_case = scenario.cases.iter()
+            .find(|case| case["id"] == "review-inherits-capture-scope")
+            .expect("capture scope case");
+        let (operator_outcome, host_outcome) = tokio::join!(
+            run_case(&mut operator, None, &scenario.id, operator_case),
+            run_case(&mut host, None, &scenario.id, host_case),
+        );
+        assert_eq!(operator_outcome, Outcome::Pass, "operator's Bo conflict case");
+        assert_eq!(host_outcome, Outcome::Pass, "host's Mira capture case");
+        operator_responder.close();
+        host_responder.close();
+        (run_leg(Leg::Sqlite).await, run_leg(Leg::Loopback).await)
+    });
 
     print_column("sqlite", &sqlite);
     print_column("loopback", &loopback);
@@ -1179,10 +1204,6 @@ async fn run_case(
     case: &Value,
 ) -> Outcome {
     let case_id = case["id"].as_str().unwrap_or("<case>");
-    *CURRENT_PRINCIPAL.lock().expect("principal lock") = case["principal"]
-        .as_str()
-        .unwrap_or("prn_tw_host_primary")
-        .to_string();
     let mut responses: BTreeMap<String, Value> = BTreeMap::new();
     // The provider worker runs separately from every read path (MEM-R011):
     // the harness settles deferred async work after each step, except while
